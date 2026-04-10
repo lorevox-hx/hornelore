@@ -1,0 +1,56 @@
+# ── Hornelore .gitignore ──────────────────────────────────────────
+# Created by WO-11 (repo separation). Keep this minimal and explicit.
+# If you add a new build/runtime artifact, add it here — never ignore
+# source code, launchers, schemas, or config templates.
+
+# ── Python bytecode / caches ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+
+# ── Virtual environments (Hornelore-owned) ──
+.venv/
+.venv-*/
+venv/
+env/
+
+# ── Runtime state (logs, pids, ephemeral) ──
+.runtime/logs/
+.runtime/pids/
+.runtime/tmp/
+*.log
+*.log.prev*
+*.log.[0-9]*
+*.pid
+
+# ── Local IDE / editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Node / Playwright (UI tooling) ──
+node_modules/
+playwright-report/
+test-results/
+.playwright/
+
+# ── Local env overrides (keep .env tracked as canonical template) ──
+.env.local
+.env.*.local
+
+# ── OS / tool junk ──
+*.orig
+*.rej
+*.bak
