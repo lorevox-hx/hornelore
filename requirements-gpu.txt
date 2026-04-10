@@ -1,0 +1,102 @@
+# =============================================================================
+# Hornelore — LLM + STT venv requirements
+# =============================================================================
+# WO-11: Standalone Hornelore repo. This file pins every non-torch dependency
+# to the exact version that was running in the old lorevox/.venv-gpu when
+# WO-10M was verified green (commit 167b3b0 on the lorevox repo, 0af622e on
+# the hornelore repo).
+#
+# Target: Python 3.12, WSL2 Ubuntu, RTX 5080 Laptop (Blackwell sm_100).
+#
+# -----------------------------------------------------------------------------
+# INSTALL ORDER
+# -----------------------------------------------------------------------------
+#   cd /mnt/c/Users/chris/hornelore
+#   python3 -m venv .venv-gpu
+#   source .venv-gpu/bin/activate
+#
+#   # 1) PyTorch nightly for Blackwell (sm_100, CUDA 12.8). MUST come first.
+#   pip install --pre torch torchvision torchaudio \
+#     --index-url https://download.pytorch.org/whl/nightly/cu128
+#
+#   # 2) Everything else pinned below.
+#   pip install -r requirements-gpu.txt
+#
+#   # 3) Sanity check.
+#   python -c "import torch, transformers, bitsandbytes; print(torch.cuda.get_device_name(0))"
+#   # Expected: NVIDIA GeForce RTX 5080 Laptop GPU
+#
+# -----------------------------------------------------------------------------
+# NOTES
+# -----------------------------------------------------------------------------
+# - torch / torchvision / torchaudio are intentionally OMITTED from this file
+#   because they come from the nightly index, not PyPI. Installing them via
+#   -r would pull stable wheels and break Blackwell support.
+# - nvidia_* packages are also omitted — torch pulls them transitively.
+# - xformers and triton are omitted for the same reason (torch wheel bundles).
+# - The old lorevox venv contained a lot of packages hornelore does NOT need
+#   (chromadb, sentence-transformers, diffusers, faiss, pandas, pyarrow,
+#   unsloth, trl, cut-cross-entropy, ctranslate2, pymupdf, pytesseract,
+#   ebooklib, pypandoc, datasets, torchao, opentelemetry, kubernetes, av,
+#   beautifulsoup4, onnxruntime, grpcio, protobuf, bcrypt, etc.). Those
+#   are lorevox-side and intentionally excluded from this hornelore-only
+#   install to keep the venv lean.
+# =============================================================================
+
+# ── Core web framework ─────────────────────────────────────────────────────
+fastapi==0.135.1
+starlette==0.52.1
+pydantic==2.12.5
+pydantic_core==2.41.5
+pydantic_settings==2.13.1
+python-multipart==0.0.22
+python-dotenv==1.2.2
+
+# ── ASGI server ────────────────────────────────────────────────────────────
+uvicorn==0.41.0
+uvloop==0.22.1
+httptools==0.7.1
+watchfiles==1.1.1
+websockets==16.0
+h11==0.16.0
+anyio==4.12.1
+
+# ── Transformers + 4-bit quant stack ───────────────────────────────────────
+transformers==4.55.4
+tokenizers==0.21.4
+accelerate==1.13.0
+bitsandbytes==0.49.2
+peft==0.18.1
+safetensors==0.7.0
+sentencepiece==0.2.1
+huggingface_hub==0.36.2
+hf_xet==1.3.2
+hf_transfer==0.1.9
+regex==2026.2.28
+filelock==3.20.3
+
+# ── STT (faster-whisper is the import target in routers/stt.py) ────────────
+faster_whisper==1.2.1
+ctranslate2==4.7.1
+
+# ── Memoir export (routers/memoir_export.py) ───────────────────────────────
+python-docx==1.2.0
+lxml==6.0.2
+
+# ── Misc runtime deps pulled by the imports above ──────────────────────────
+numpy==2.4.2
+jinja2==3.1.6
+MarkupSafe==3.0.2
+PyYAML==6.0.3
+packaging==26.0
+typing_extensions==4.15.0
+typing_inspection==0.4.2
+annotated_types==0.7.0
+tqdm==4.67.3
+psutil==7.2.2
+requests==2.32.5
+certifi==2026.2.25
+charset_normalizer==3.4.5
+idna==3.11
+urllib3==2.6.3
+click==8.3.1

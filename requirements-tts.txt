@@ -1,0 +1,112 @@
+# =============================================================================
+# Hornelore — TTS venv requirements
+# =============================================================================
+# WO-11: Standalone Hornelore repo. This file pins every dependency to the
+# exact version that was running in the old lorevox/.venv-tts when WO-10M
+# was verified green.
+#
+# Target: Python 3.12, WSL2 Ubuntu. CPU inference by default (TTS_GPU=0 in
+# .env keeps VRAM free for the LLM + STT stack on the GPU venv).
+#
+# -----------------------------------------------------------------------------
+# INSTALL ORDER
+# -----------------------------------------------------------------------------
+#   cd /mnt/c/Users/chris/hornelore
+#   python3 -m venv .venv-tts
+#   source .venv-tts/bin/activate
+#   pip install -r requirements-tts.txt
+#
+#   # Pre-download the TTS model so first startup is fast:
+#   python -c "from TTS.api import TTS; TTS('tts_models/en/vctk/vits')"
+#
+# -----------------------------------------------------------------------------
+# NOTES
+# -----------------------------------------------------------------------------
+# - Uses the `coqui-tts` fork on PyPI, NOT the deprecated `TTS` package.
+#   The Python import is still `from TTS.api import TTS`.
+# - torch 2.8.0 stable is fine for the TTS venv — the TTS workload does not
+#   need Blackwell sm_100 kernels (runs on CPU in .env default).
+# - nvidia_* packages are omitted — torch pulls them transitively.
+# =============================================================================
+
+# ── Core web framework (TTS service is just a small FastAPI wrapper) ───────
+fastapi==0.135.1
+starlette==0.52.1
+pydantic==2.12.5
+pydantic_core==2.41.5
+python-multipart==0.0.22
+python-dotenv==1.2.2
+
+# ── ASGI server ────────────────────────────────────────────────────────────
+uvicorn==0.41.0
+uvloop==0.22.1
+httptools==0.7.1
+watchfiles==1.1.1
+websockets==16.0
+h11==0.16.0
+anyio==4.12.1
+
+# ── Torch (stable is fine for TTS workload) ────────────────────────────────
+torch==2.8.0
+torchaudio==2.8.0
+
+# ── Coqui TTS and its direct deps ──────────────────────────────────────────
+coqui-tts==0.27.2
+coqpit-config==0.2.4
+coqui-tts-trainer==0.3.3
+monotonic-alignment-search==0.2.1
+encodec==0.1.1
+einops==0.8.2
+
+# ── Phonemization stack ────────────────────────────────────────────────────
+gruut==2.4.0
+gruut-ipa==0.13.0
+gruut-lang-en==2.0.1
+
+# ── Text normalization ─────────────────────────────────────────────────────
+inflect==7.5.0
+num2words==0.5.14
+anyascii==0.3.3
+pysbd==0.3.4
+
+# ── Audio I/O ──────────────────────────────────────────────────────────────
+soundfile==0.13.1
+librosa==0.11.0
+audioread==3.1.0
+soxr==1.0.0
+pooch==1.9.0
+
+# ── DSP + scientific stack needed by librosa/coqui-tts ─────────────────────
+numpy==2.4.3
+scipy==1.17.1
+numba==0.64.0
+llvmlite==0.46.0
+scikit-learn==1.8.0
+threadpoolctl==3.6.0
+joblib==1.5.3
+
+# ── Transformers stack (coqui-tts base) ────────────────────────────────────
+transformers==4.55.4
+tokenizers==0.21.4
+safetensors==0.7.0
+huggingface_hub==0.36.2
+hf_xet==1.3.2
+regex==2026.2.28
+filelock==3.25.1
+
+# ── Misc runtime deps ──────────────────────────────────────────────────────
+jinja2==3.1.6
+MarkupSafe==3.0.3
+PyYAML==6.0.3
+packaging==26.0
+typing_extensions==4.15.0
+typing_inspection==0.4.2
+annotated_types==0.7.0
+tqdm==4.67.3
+psutil==7.2.2
+requests==2.32.5
+certifi==2026.2.25
+charset_normalizer==3.4.5
+idna==3.11
+urllib3==2.6.3
+click==8.3.1
