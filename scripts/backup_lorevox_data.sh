@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# backup_lorevox_data.sh — Create a dated full snapshot of lorevox_data.
+# backup_lorevox_data.sh — Create a dated full snapshot of hornelore_data.
+#
+# WO-11: Legacy filename kept for operator muscle memory, but the script now
+# defaults to /mnt/c/hornelore_data + hornelore.sqlite3 under the standalone
+# repo layout. Override DATA_DIR/DB_NAME in the environment to snapshot a
+# different root.
 #
 # Usage:
 #   bash scripts/backup_lorevox_data.sh                      # auto-dated
@@ -20,7 +25,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a; source "$ROOT_DIR/.env"; set +a
 fi
-DATA_DIR="${DATA_DIR:-/mnt/c/lorevox_data}"
+DATA_DIR="${DATA_DIR:-/mnt/c/hornelore_data}"
+DB_NAME="${DB_NAME:-hornelore.sqlite3}"
 
 if [[ ! -d "$DATA_DIR" ]]; then
   printf 'ERROR: DATA_DIR does not exist: %s\n' "$DATA_DIR" >&2
@@ -47,7 +53,7 @@ fi
 mkdir -p "$BACKUP_DIR"
 
 # ── WAL checkpoint (if DB exists and sqlite3 is available) ───────────────────
-DB_FILE="$DATA_DIR/db/lorevox.sqlite3"
+DB_FILE="$DATA_DIR/db/$DB_NAME"
 if [[ -f "$DB_FILE" ]] && command -v sqlite3 >/dev/null 2>&1; then
   printf 'Checkpointing SQLite WAL...\n'
   sqlite3 "$DB_FILE" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
@@ -86,9 +92,9 @@ printf '  Location:  %s\n' "$SNAPSHOT_DIR"
 printf '  Size:      %s\n' "$SNAP_SIZE"
 
 # Confirm DB file is in the snapshot
-if [[ -f "$SNAPSHOT_DIR/db/lorevox.sqlite3" ]]; then
-  DB_SIZE="$(du -sh "$SNAPSHOT_DIR/db/lorevox.sqlite3" | cut -f1)"
-  printf '  DB file:   %s (%s)\n' "db/lorevox.sqlite3" "$DB_SIZE"
+if [[ -f "$SNAPSHOT_DIR/db/$DB_NAME" ]]; then
+  DB_SIZE="$(du -sh "$SNAPSHOT_DIR/db/$DB_NAME" | cut -f1)"
+  printf '  DB file:   %s (%s)\n' "db/$DB_NAME" "$DB_SIZE"
 else
   printf '  WARNING: No DB file found in snapshot.\n'
 fi

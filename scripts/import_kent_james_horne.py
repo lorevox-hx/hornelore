@@ -5,12 +5,13 @@ import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-REPO_DIR = Path("/mnt/c/Users/chris/lorevox")
-UI_URL = "http://127.0.0.1:8080/ui/lori9.0.html"
+# WO-11: Standalone Hornelore repo layout.
+REPO_DIR = Path("/mnt/c/Users/chris/hornelore")
+UI_URL = "http://127.0.0.1:8082/ui/hornelore1.0.html"
 HEADLESS = False
 
 # Template resolution: DATA_DIR/templates/ first, then repo ui/templates/
-_data_dir = os.environ.get("DATA_DIR", "/mnt/c/lorevox_data")
+_data_dir = os.environ.get("DATA_DIR", "/mnt/c/hornelore_data")
 _data_tpl = Path(_data_dir) / "templates" / "kent-james-horne.json"
 _repo_tpl = REPO_DIR / "ui" / "templates" / "kent-james-horne.json"
 JSON_PATH = _data_tpl if _data_tpl.exists() else _repo_tpl

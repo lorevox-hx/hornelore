@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# restore_lorevox_data.sh — Restore lorevox_data from a chosen snapshot.
+# restore_lorevox_data.sh — Restore hornelore_data from a chosen snapshot.
+#
+# WO-11: Legacy filename kept for operator muscle memory, but the script now
+# defaults to /mnt/c/hornelore_data + hornelore.sqlite3 under the standalone
+# repo layout. Override DATA_DIR/DB_NAME in the environment to restore from
+# a different root.
 #
 # Usage:
 #   bash scripts/restore_lorevox_data.sh                           # list available
@@ -20,7 +25,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a; source "$ROOT_DIR/.env"; set +a
 fi
-DATA_DIR="${DATA_DIR:-/mnt/c/lorevox_data}"
+DATA_DIR="${DATA_DIR:-/mnt/c/hornelore_data}"
+DB_NAME="${DB_NAME:-hornelore.sqlite3}"
 
 BACKUP_DIR="$DATA_DIR/backups"
 
@@ -37,7 +43,7 @@ if [[ $# -eq 0 ]]; then
     name="$(basename "$snap")"
     size="$(du -sh "$snap" 2>/dev/null | cut -f1)"
     has_db="no"
-    [[ -f "$snap/db/lorevox.sqlite3" ]] && has_db="yes"
+    [[ -f "$snap/db/$DB_NAME" ]] && has_db="yes"
     printf '  %-40s  %6s  db=%s\n' "$name" "$size" "$has_db"
     found=$((found + 1))
   done
@@ -117,8 +123,8 @@ printf '\nRestore complete.\n'
 printf '  Live data restored from: %s\n' "$SNAPSHOT_NAME"
 printf '  Safety copy at:          %s/%s\n' "$BACKUP_DIR" "$SAFETY_NAME"
 
-if [[ -f "$DATA_DIR/db/lorevox.sqlite3" ]]; then
-  DB_SIZE="$(du -sh "$DATA_DIR/db/lorevox.sqlite3" | cut -f1)"
+if [[ -f "$DATA_DIR/db/$DB_NAME" ]]; then
+  DB_SIZE="$(du -sh "$DATA_DIR/db/$DB_NAME" | cut -f1)"
   printf '  DB file:                 %s\n' "$DB_SIZE"
 else
   printf '  WARNING: No DB file in restored data.\n'

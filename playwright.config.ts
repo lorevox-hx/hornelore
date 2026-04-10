@@ -7,10 +7,14 @@ const isCI     = !!process.env.CI;
  * webServer block — uses scripts/start-lorevox-audit.sh so the startup chain
  * is easy to tweak without touching this file.
  *
+ * WO-11: Standalone Hornelore repo layout. The LOREVOX_* env var *names* are
+ * retained for backward compatibility with existing test wrappers, but the
+ * default *values* now point at the Hornelore-owned paths.
+ *
  * Override environment variables as needed:
- *   export LOREVOX_REPO=/mnt/c/Users/chris/lorevox
- *   export LOREVOX_VENV=/mnt/c/Users/chris/lorevox/.venv-gpu
- *   export DATA_DIR=/home/chris/lorevox_data
+ *   export LOREVOX_REPO=/mnt/c/Users/chris/hornelore
+ *   export LOREVOX_VENV=/mnt/c/Users/chris/hornelore/.venv-gpu
+ *   export DATA_DIR=/mnt/c/hornelore_data
  *   export USE_TTS=0
  *
  * reuseExistingServer: true means the tests run against a server you already
@@ -50,10 +54,10 @@ export default defineConfig({
     env: {
       ...process.env,
       PYTHONUNBUFFERED: "1",
-      DATA_DIR:      process.env.DATA_DIR      || "/home/chris/lorevox_data",
+      DATA_DIR:      process.env.DATA_DIR      || "/mnt/c/hornelore_data",
       USE_TTS:       process.env.USE_TTS       || "0",
-      LOREVOX_REPO:  process.env.LOREVOX_REPO  || "/mnt/c/Users/chris/lorevox",
-      LOREVOX_VENV:  process.env.LOREVOX_VENV  || "/mnt/c/Users/chris/lorevox/.venv-gpu",
+      LOREVOX_REPO:  process.env.LOREVOX_REPO  || "/mnt/c/Users/chris/hornelore",
+      LOREVOX_VENV:  process.env.LOREVOX_VENV  || "/mnt/c/Users/chris/hornelore/.venv-gpu",
     },
   },
 });

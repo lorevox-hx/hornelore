@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Hornelore — LLM server (port 8000)
-# Uses Hornelore repo config and hornelore_data.
+# Uses Hornelore repo config, Hornelore-owned venv, and Hornelore model.
+# WO-11: Standalone repo layout. Hornelore is no longer nested under
+# lorevox; the repo, venv, and model all live in Hornelore-owned paths.
 set -e
 
-REPO_DIR=/mnt/c/Users/chris/lorevox/hornelore
-PARENT_REPO_DIR=/mnt/c/Users/chris/lorevox
+REPO_DIR=/mnt/c/Users/chris/hornelore
 
 # ── Load Hornelore .env (repo root) ───────────────────────────────────────
 if [ -f "$REPO_DIR/.env" ]; then
@@ -64,11 +65,12 @@ fuser -k ${PORT}/tcp 2>/dev/null || true
 mkdir -p "$DATA_DIR"/{db,voices,cache_audio,memory,projects,interview,logs,templates}
 
 # ── Start server ──────────────────────────────────────────────────────────
-# Activate venv from parent repo (that's where the shared venv lives)
-cd "$PARENT_REPO_DIR"
-source .venv-gpu/bin/activate
-# WO-10L: cwd MUST be the hornelore/server tree so `python -m uvicorn code.api.main:app`
-# loads the hornelore source tree, NOT the stale parent server/ copy.
+# WO-11: Activate the Hornelore-owned venv. No parent repo dependency.
+source "$REPO_DIR/.venv-gpu/bin/activate"
+# WO-10L: cwd MUST be hornelore/server so `python -m uvicorn code.api.main:app`
+# loads the hornelore source tree. With the standalone repo layout there is
+# no parent server/ copy to shadow, but we still cd to the canonical
+# server dir so imports resolve against a single unambiguous root.
 cd "$REPO_DIR/server"
 
 echo "[launcher] cwd=$(pwd)"

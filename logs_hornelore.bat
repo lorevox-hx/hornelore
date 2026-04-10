@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-set HORNELORE_REPO=/mnt/c/Users/chris/lorevox/hornelore
+REM WO-11: Standalone Hornelore repo layout.
+set HORNELORE_REPO=/mnt/c/Users/chris/hornelore
 
 where wt >nul 2>nul
 if errorlevel 1 goto :fallback

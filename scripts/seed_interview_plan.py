@@ -9,7 +9,7 @@ with plan_id = TARGET_PLAN_ID (default: "default").
 Run from the repo root with the LLM venv active:
 
     source .venv-gpu/bin/activate
-    export DATA_DIR=/mnt/c/lorevox_data
+    export DATA_DIR=/mnt/c/hornelore_data
     python scripts/seed_interview_plan.py
 
 Safe to re-run — uses INSERT OR REPLACE so existing rows are refreshed.
@@ -27,8 +27,9 @@ SCRIPT_DIR   = Path(__file__).resolve().parent
 REPO_DIR     = SCRIPT_DIR.parent
 PLAN_PATH    = REPO_DIR / "interview_plan.json"
 
-DATA_DIR     = Path(os.getenv("DATA_DIR", "/mnt/c/lorevox_data"))
-DB_PATH      = DATA_DIR / "db" / os.getenv("DB_NAME", "lorevox.sqlite3")
+# WO-11: Standalone Hornelore repo layout — default to hornelore_data + hornelore.sqlite3.
+DATA_DIR     = Path(os.getenv("DATA_DIR", "/mnt/c/hornelore_data"))
+DB_PATH      = DATA_DIR / "db" / os.getenv("DB_NAME", "hornelore.sqlite3")
 TARGET_PLAN_ID = "default"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

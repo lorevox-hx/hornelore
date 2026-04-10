@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Hornelore — TTS server (port 8001)
-# Uses Hornelore repo config and hornelore_data.
+# Uses Hornelore repo config, Hornelore-owned venv, and hornelore_data.
+# WO-11: Standalone repo layout. No parent lorevox dependency.
 set -e
 
-REPO_DIR=/mnt/c/Users/chris/lorevox/hornelore
-PARENT_REPO_DIR=/mnt/c/Users/chris/lorevox
+REPO_DIR=/mnt/c/Users/chris/hornelore
 
 # ── Load Hornelore .env (repo root) ───────────────────────────────────────
 if [ -f "$REPO_DIR/.env" ]; then
@@ -32,9 +32,10 @@ fuser -k ${TTS_PORT}/tcp 2>/dev/null || true
 mkdir -p "$DATA_DIR"/{db,voices,cache_audio,memory,projects,interview,logs,templates}
 
 # ── Start server ──────────────────────────────────────────────────────────
-cd "$PARENT_REPO_DIR"
-source .venv-tts/bin/activate
-# WO-10L: cwd MUST be the hornelore/server tree so uvicorn loads the hornelore copy
+# WO-11: Activate the Hornelore-owned TTS venv. No parent repo dependency.
+source "$REPO_DIR/.venv-tts/bin/activate"
+# cwd MUST be hornelore/server so uvicorn loads code.api.tts_service
+# against the canonical source tree.
 cd "$REPO_DIR/server"
 
 echo "[launcher] cwd=$(pwd)"
