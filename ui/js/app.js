@@ -843,8 +843,17 @@ async function lvxSwitchNarratorSafe(pid){
   if (!pid) return;
   if (pid === state.person_id) return;
 
-  // WO-11B: hard reset trainer/capture state before any narrator switch
-  if (typeof window.lv80ClearTrainerAndCaptureState === "function") {
+  // WO-11 (TRAINER MODE REPAIR): trainer-active stomp guard.
+  // When the trainer overlay is up, the narrator switch must NOT wipe
+  // trainer state and must NOT reset the surrounding session posture
+  // (identityPhase / assistantRole / currentPass / currentEra / currentMode /
+  // confusionTurnCount). The new person still loads — this is intentional
+  // so profile/timeline UI updates — but the trainer flow continues.
+  var _trainerLive = !!(state.trainerNarrators && state.trainerNarrators.active);
+
+  // WO-11B + WO-11: hard reset trainer/capture state before a narrator
+  // switch — but ONLY if trainer is not currently live.
+  if (!_trainerLive && typeof window.lv80ClearTrainerAndCaptureState === "function") {
     window.lv80ClearTrainerAndCaptureState();
   }
 
@@ -864,17 +873,21 @@ async function lvxSwitchNarratorSafe(pid){
   state.interview.question_id = null;
   state.interview.plan_id     = null;
 
-  // 3. Clear identity onboarding state
-  state.session.identityPhase   = null;
-  state.session.identityCapture = { name: null, dob: null, birthplace: null };
-  state.session.speakerName     = null;
-  state.session.assistantRole   = "interviewer";
+  if (!_trainerLive) {
+    // 3. Clear identity onboarding state (WO-11 guard: trainer keeps its posture)
+    state.session.identityPhase   = null;
+    state.session.identityCapture = { name: null, dob: null, birthplace: null };
+    state.session.speakerName     = null;
+    state.session.assistantRole   = "interviewer";
 
-  // 4. Clear runtime signals that are narrator-specific
-  state.session.currentPass = "pass1";
-  state.session.currentEra  = null;
-  state.session.currentMode = "open";
-  state.session.confusionTurnCount = 0;
+    // 4. Clear runtime signals that are narrator-specific (WO-11 guard)
+    state.session.currentPass = "pass1";
+    state.session.currentEra  = null;
+    state.session.currentMode = "open";
+    state.session.confusionTurnCount = 0;
+  } else {
+    console.log("[WO-11] narrator switch with trainer active — preserving trainer posture");
+  }
 
   // 5. Clear in-memory text state
   lastAssistantText = "";
@@ -4228,17 +4241,48 @@ async function _wo9BuildResumePrompt(pid) {
 }
 
 /**
- * WO-11: Start normal interview after trainer coaching flow completes.
- * Called by LorevoxTrainerNarrators.finish() when user clicks "Start Interview" or "Skip".
+ * WO-11 (TRAINER MODE REPAIR): Start normal interview after trainer
+ * coaching flow completes — now meta-aware.
+ *
+ * Called by LorevoxTrainerNarrators.finish(meta) when the user clicks
+ * "Start Interview" or "Skip". The meta object carries the trainer style
+ * captured BEFORE finish() flipped active=false, so the handoff knows
+ * which trainer just ran and can flavor:
+ *   - the assistant intro bubble (structured vs storyteller wording)
+ *   - a one-shot system prompt that nudges the next model reply into
+ *     the trainer style (no backend role change required)
+ *
+ * If meta is missing/empty, falls back to the previous neutral intro.
  */
-window.lv80StartTrainerInterview = async function () {
+window.lv80StartTrainerInterview = async function (meta) {
   try {
-    const basics = state.profile?.basics || {};
-    const name = basics.preferred || basics.fullname || state.session?.identityCapture?.name || "there";
-    const intro = "Now let\u2019s begin for real. I\u2019ll ask one gentle question at a time, and you can answer simply or tell more of the story.";
+    var m = (meta && typeof meta === "object") ? meta : {};
+    var style = (m.style === "structured" || m.style === "storyteller") ? m.style : null;
+
+    var intro;
+    if (style === "structured") {
+      intro = "Now let\u2019s begin for real. I\u2019ll ask one short, anchored question at a time \u2014 a brief answer with the time, place, and people is perfectly fine.";
+    } else if (style === "storyteller") {
+      intro = "Now let\u2019s begin for real. I\u2019ll ask one gentle question at a time \u2014 take your time, and feel free to tell as much of the story as you\u2019d like.";
+    } else {
+      intro = "Now let\u2019s begin for real. I\u2019ll ask one gentle question at a time, and you can answer simply or tell more of the story.";
+    }
 
     if (typeof appendBubble === "function") {
       appendBubble("assistant", intro);
+    }
+
+    // WO-11: one-shot system hint to flavor the next model reply.
+    // Uses the existing sendSystemPrompt path; no backend change.
+    // Wrapped in try/catch in case sendSystemPrompt is undefined on some load orders.
+    if (style && m.promptHint && typeof sendSystemPrompt === "function") {
+      try {
+        var sys =
+          "[TRAINER STYLE \u2014 " + style.toUpperCase() + "]\n" +
+          m.promptHint + "\n" +
+          "Use this style for your next several replies, then return to your normal interview tone.";
+        sendSystemPrompt(sys);
+      } catch (_) {}
     }
 
     if (typeof setAssistantRole === "function") {

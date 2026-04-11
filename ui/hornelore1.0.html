@@ -2806,7 +2806,7 @@
   <!-- WO-11B: Trainer launcher buttons (UI-only, no narrator creation) -->
   <div class="lv80-trainer-seed-row">
     <button class="lv80-settings-btn" onclick="lv80RunTrainerNarrator('structured')">Run Shatner Trainer</button>
-    <button class="lv80-settings-btn" onclick="lv80RunTrainerNarrator('story')">Run Dolly Trainer</button>
+    <button class="lv80-settings-btn" onclick="lv80RunTrainerNarrator('storyteller')">Run Dolly Trainer</button>
   </div>
 </div>
 
@@ -3664,18 +3664,50 @@ function lv80ConfirmNarratorSwitch(pid){
   lv80SwitchPerson(pid);
 }
 
-// WO-11B: UI-only trainer launcher — never creates a person record
-function lv80RunTrainerNarrator(style) {
+// WO-11B + WO-11 (TRAINER MODE REPAIR): UI-only trainer launcher.
+// Never creates a person record (WO-11B rule preserved).
+// New in WO-11: fetches the trainer template JSON so the panel and the
+// post-handoff system hint can use the canonical _trainerStyle /
+// _trainerTitle / _trainerPrompt fields. The preload path is left
+// untouched — only this launcher reads template metadata for trainers.
+async function lv80LoadTrainerTemplate(style) {
+  // Map canonical style to template filename
+  const filename = (style === "storyteller") ? "dolly-parton.json" : "william-shatner.json";
+  try {
+    const res = await fetch("templates/" + filename, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const tpl = await res.json();
+    return {
+      style:        (tpl._trainerStyle || style),
+      title:        (tpl._trainerTitle || ""),
+      promptHint:   (tpl._trainerPrompt || ""),
+      templateName: filename.replace(".json", "")
+    };
+  } catch (e) {
+    console.warn("[WO-11] trainer template load failed; using minimal meta", filename, e);
+    return { style: style, title: "", promptHint: "", templateName: null };
+  }
+}
+
+async function lv80RunTrainerNarrator(style) {
   try {
     const pop = document.getElementById("lv80NarratorSwitcher");
     try { if (pop?.matches(":popover-open")) pop.hidePopover(); } catch (_) {}
 
-    if (window.LorevoxTrainerNarrators) {
-      window.LorevoxTrainerNarrators.reset();
-      window.LorevoxTrainerNarrators.start(null, style || "structured");
-    }
+    if (!window.LorevoxTrainerNarrators) return;
+
+    // Normalize legacy "story" → "storyteller" at the launcher boundary so
+    // any old caller still works without breaking the canonical contract.
+    let canonical = style;
+    if (canonical === "story") canonical = "storyteller";
+    if (canonical !== "structured" && canonical !== "storyteller") canonical = "structured";
+
+    const meta = await lv80LoadTrainerTemplate(canonical);
+
+    window.LorevoxTrainerNarrators.reset();
+    window.LorevoxTrainerNarrators.start(meta);
   } catch (e) {
-    console.warn("[WO-11B] failed to run trainer narrator", style, e);
+    console.warn("[WO-11] failed to run trainer narrator", style, e);
   }
 }
 

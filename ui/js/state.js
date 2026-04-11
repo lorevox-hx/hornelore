@@ -146,16 +146,27 @@ let state = {
     fatigueScore:     0,           // 0–100, estimated by session_vitals
   },
 
-  /* ── WO-11 Trainer Narrators ──────────────────────────────────── */
+  /* ── WO-11 Trainer Narrators ──────────────────────────────────────
+     WO-11 (TRAINER MODE REPAIR): canonical state shape.
+     Single source of truth for trainer mode. Read by:
+       - trainer-narrators.js (panel render + step nav)
+       - interview.js          (renderInterview gate)
+       - app.js                (lvxSwitchNarratorSafe stomp guard,
+                                lv80StartTrainerInterview meta read)
+     style/title/promptHint/templateName are populated from the trainer
+     template JSON at launch time (lv80LoadTrainerTemplate).
+     completedStyle survives `active=false` so the post-handoff intro
+     and any later UI surface can still see which trainer ran.       */
   trainerNarrators: {
-    active: false,
-    personId: null,
-    style: null,          // structured | storyteller
-    stepIndex: 0,
-    completed: false
+    active:         false,
+    style:          null,   // "structured" | "storyteller"
+    title:          null,   // template _trainerTitle
+    promptHint:     null,   // template _trainerPrompt (one-shot system hint at handoff)
+    templateName:   null,   // "william-shatner" | "dolly-parton"
+    stepIndex:      0,
+    completed:      false,
+    completedStyle: null    // last completed trainer style; persists past active=false
   },
-
-  narratorTrainerMeta: {},
 
   /* ── WO-10D Input State — single source of truth for mic/camera ─── */
   inputState: {
