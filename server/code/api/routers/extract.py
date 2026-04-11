@@ -48,13 +48,18 @@ class ExtractedItem(BaseModel):
     writeMode: str        # "prefill_if_blank" | "candidate_only" | "suggest_only"
     confidence: float     # 0.0–1.0
     source: str = "backend_extract"
-    extractionMethod: str = "llm"  # "llm" | "rules"
+    # WO-13 Phase 4 — four method tags: llm | rules | hybrid | rules_fallback
+    # The "rules_fallback" tag is reserved for regex output produced after the
+    # LLM path failed; downstream (family-truth proposal layer) treats it as
+    # lower-trust and never auto-promotes it.
+    extractionMethod: str = "llm"
     repeatableGroup: Optional[str] = None  # FIX-4: group tag for same-person field association
 
 
 class ExtractFieldsResponse(BaseModel):
     items: List[ExtractedItem]
-    method: str = "llm"   # "llm" | "rules" | "fallback"
+    # WO-13 Phase 4 — mirror the four-tag taxonomy on the response envelope.
+    method: str = "llm"   # "llm" | "rules" | "hybrid" | "rules_fallback" | "fallback"
     raw_llm_output: Optional[str] = None  # debug: raw model output (only in dev)
 
 
@@ -911,13 +916,17 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                 writeMode=write_mode,
                 confidence=item["confidence"],
                 source="backend_extract",
-                extractionMethod="rules",
+                # WO-13 Phase 4 — this is the LLM fallback path, so tag items
+                # as 'rules_fallback' (not plain 'rules'). The family-truth
+                # proposal layer uses this tag to quarantine regex output and
+                # prevent it from auto-promoting.
+                extractionMethod="rules_fallback",
             ))
 
         _record_metric("rules", parsed=0, accepted=len(result_items), rejected=0)
         return ExtractFieldsResponse(
             items=result_items,
-            method="rules",
+            method="rules_fallback",
             raw_llm_output=raw_output,  # include for debugging even on rules fallback
         )
 

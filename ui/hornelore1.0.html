@@ -2054,6 +2054,224 @@
       background: rgba(71,85,105,0.1); border: 1px solid rgba(71,85,105,0.2); border-radius: 4px; }
     .wo10-toggle:hover { color: #94a3b8; }
 
+    /* ── WO-13 Phase 6 — Review Queue drawer ─────────────────────
+       Popover-based side drawer that lists proposal rows from the
+       family-truth pipeline and lets the reviewer move them through
+       the five-status vocabulary. The popover API follows the same
+       pattern as #wo10TranscriptPopover above.                       */
+    #wo13ReviewPopover[popover] {
+      inset: auto 0 0 auto; margin: 0; max-width: 720px; width: 92vw;
+      max-height: 92vh; height: 92vh; border: none; padding: 0;
+      background: #0b1220; color: #e2e8f0;
+      border-left: 1px solid rgba(99,102,241,0.3);
+      box-shadow: -8px 0 32px rgba(0,0,0,0.6);
+    }
+    #wo13ReviewPopover:popover-open { display: flex; flex-direction: column; }
+    .wo13-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid rgba(99,102,241,0.2);
+      background: rgba(15,23,42,0.9); flex-shrink: 0;
+    }
+    .wo13-title { font-size: 15px; font-weight: 600; color: #e2e8f0; }
+    .wo13-subtitle { display:block; font-size: 11px; font-weight: 400;
+      color: #94a3b8; margin-top: 2px; }
+    .wo13-header-actions { display: flex; gap: 6px; }
+    .wo13-help-btn {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: rgba(99,102,241,0.15); color: #a5b4fc;
+      border: 1px solid rgba(99,102,241,0.3); font-weight: 700;
+      cursor: pointer;
+    }
+    .wo13-help-btn:hover { background: rgba(99,102,241,0.3); }
+
+    /* Contamination banner */
+    .wo13-banner {
+      margin: 10px 14px 0; padding: 10px 12px;
+      background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.35);
+      border-radius: 6px; font-size: 12px; color: #fde68a;
+    }
+    .wo13-banner-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .wo13-banner-total { color: #fbbf24; font-weight: 600; }
+    .wo13-banner-clean {
+      margin-left: auto; padding: 4px 10px; border-radius: 4px;
+      background: rgba(234,179,8,0.15); color: #fde68a;
+      border: 1px solid rgba(234,179,8,0.4); cursor: pointer; font-size: 11px;
+    }
+    .wo13-banner-reasons { margin: 8px 0 0; padding: 0 0 0 18px; font-size: 11px; color: #fcd34d; }
+    .wo13-banner-reasons li { margin: 2px 0; }
+    .wo13-banner-reasons code { background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px; }
+    .wo13-count { color: #fbbf24; }
+
+    /* Filter tabs */
+    .wo13-filters {
+      display: flex; gap: 4px; padding: 10px 14px 4px;
+      flex-wrap: wrap; flex-shrink: 0;
+      border-bottom: 1px solid rgba(99,102,241,0.1);
+    }
+    .wo13-tab {
+      font-size: 12px; padding: 5px 10px; border-radius: 4px; cursor: pointer;
+      background: rgba(71,85,105,0.15); border: 1px solid rgba(71,85,105,0.3);
+      color: #94a3b8;
+    }
+    .wo13-tab:hover { background: rgba(71,85,105,0.3); }
+    .wo13-tab-active {
+      background: rgba(99,102,241,0.2) !important;
+      border-color: rgba(99,102,241,0.5) !important;
+      color: #c7d2fe !important;
+    }
+    .wo13-tab-count {
+      display: inline-block; margin-left: 5px; padding: 0 6px;
+      border-radius: 8px; background: rgba(0,0,0,0.3); color: #cbd5e1;
+      font-size: 10px;
+    }
+
+    /* Row list */
+    .wo13-list {
+      flex: 1 1 auto; overflow-y: auto; padding: 10px 14px 16px;
+    }
+    .wo13-empty {
+      padding: 24px 14px; text-align: center; color: #64748b; font-size: 13px;
+    }
+    .wo13-readonly-notice {
+      margin: 14px; padding: 14px; border-radius: 6px;
+      background: rgba(71,85,105,0.15); color: #cbd5e1;
+      border: 1px solid rgba(71,85,105,0.35); font-size: 13px;
+    }
+    .wo13-row {
+      padding: 10px 12px; margin-bottom: 8px; border-radius: 6px;
+      background: rgba(30,41,59,0.6); border: 1px solid rgba(99,102,241,0.1);
+      font-size: 12px;
+    }
+    .wo13-row-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    }
+    .wo13-row-check { flex: 0 0 auto; }
+    .wo13-row-subject { flex: 1; color: #e2e8f0; font-size: 13px; }
+    .wo13-row-subject code {
+      background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 3px;
+      color: #a5b4fc; font-size: 11px;
+    }
+    .wo13-row-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+    .wo13-status {
+      font-size: 10px; padding: 2px 6px; border-radius: 8px; text-transform: uppercase;
+      background: rgba(71,85,105,0.3); color: #cbd5e1;
+    }
+    .wo13-status-approve       { background: rgba(34,197,94,0.2);  color: #86efac; }
+    .wo13-status-approve_q     { background: rgba(20,184,166,0.2); color: #5eead4; }
+    .wo13-status-needs_verify  { background: rgba(99,102,241,0.2); color: #c7d2fe; }
+    .wo13-status-source_only   { background: rgba(234,179,8,0.15); color: #fde68a; }
+    .wo13-status-reject        { background: rgba(239,68,68,0.15); color: #fca5a5; }
+    .wo13-method {
+      font-size: 10px; padding: 2px 6px; border-radius: 8px;
+      background: rgba(30,41,59,0.7); color: #94a3b8;
+    }
+    .wo13-method-rules_fallback { color: #fbbf24; }
+    .wo13-method-llm            { color: #a5b4fc; }
+    .wo13-method-hybrid         { color: #5eead4; }
+    .wo13-method-manual         { color: #86efac; }
+    .wo13-conf { font-size: 10px; color: #64748b; }
+    .wo13-protected {
+      font-size: 10px; padding: 2px 6px; border-radius: 8px;
+      background: rgba(234,179,8,0.2); color: #fde68a; font-weight: 600;
+      margin-left: 6px;
+    }
+    .wo13-row-says {
+      font-style: italic; color: #cbd5e1; padding: 6px 0;
+      line-height: 1.4; font-size: 12px;
+    }
+    .wo13-row-actions {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;
+    }
+    .wo13-action {
+      font-size: 11px; padding: 3px 9px; border-radius: 4px; cursor: pointer;
+      background: rgba(71,85,105,0.15); border: 1px solid rgba(71,85,105,0.3);
+      color: #cbd5e1;
+    }
+    .wo13-action:hover:not(:disabled) { background: rgba(71,85,105,0.35); }
+    .wo13-action-active {
+      background: rgba(99,102,241,0.3) !important;
+      border-color: rgba(99,102,241,0.6) !important;
+      color: #e0e7ff !important;
+    }
+    .wo13-action-detail {
+      margin-left: auto; background: rgba(99,102,241,0.1);
+      border-color: rgba(99,102,241,0.3); color: #a5b4fc;
+    }
+
+    /* Footer controls */
+    .wo13-controls {
+      display: flex; gap: 8px; padding: 10px 14px;
+      border-top: 1px solid rgba(99,102,241,0.2);
+      background: rgba(15,23,42,0.9); flex-shrink: 0;
+    }
+    .wo13-ctrl-btn {
+      font-size: 12px; padding: 6px 12px; border-radius: 4px; cursor: pointer;
+      background: rgba(71,85,105,0.15); border: 1px solid rgba(71,85,105,0.35);
+      color: #cbd5e1;
+    }
+    .wo13-ctrl-btn:hover:not(:disabled) { background: rgba(71,85,105,0.35); }
+    .wo13-ctrl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .wo13-ctrl-promote {
+      background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.4); color: #86efac;
+    }
+    .wo13-ctrl-promote:hover:not(:disabled) { background: rgba(34,197,94,0.25); }
+
+    /* Row detail modal */
+    #wo13RowDetailModal[popover] {
+      inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+      width: 560px; max-width: 92vw; max-height: 82vh;
+      background: #0f172a; color: #e2e8f0;
+      border: 1px solid rgba(99,102,241,0.3); border-radius: 8px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.7); padding: 0;
+    }
+    #wo13RowDetailModal:popover-open { display: flex; flex-direction: column; }
+    .wo13-modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid rgba(99,102,241,0.2);
+      font-size: 14px; font-weight: 600; color: #e2e8f0;
+    }
+    .wo13-modal-close {
+      background: none; border: none; color: #94a3b8;
+      font-size: 20px; cursor: pointer; padding: 0 4px;
+    }
+    .wo13-modal-close:hover { color: #e2e8f0; }
+    .wo13-modal-body { padding: 14px; overflow-y: auto; flex: 1; }
+    .wo13-detail-head { font-size: 13px; margin-bottom: 6px; }
+    .wo13-detail-says {
+      font-style: italic; color: #cbd5e1; padding: 8px 12px;
+      background: rgba(30,41,59,0.5); border-left: 3px solid rgba(99,102,241,0.4);
+      border-radius: 0 4px 4px 0; margin: 6px 0 10px;
+    }
+    .wo13-detail-meta div { font-size: 12px; color: #94a3b8; padding: 2px 0; }
+    .wo13-detail-meta code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; }
+    .wo13-detail-audit {
+      margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.35);
+      border-radius: 4px; font-size: 11px; color: #cbd5e1;
+      max-height: 240px; overflow: auto; white-space: pre-wrap;
+    }
+
+    /* Help popover */
+    #wo13ReviewHelpPopover[popover] {
+      inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+      width: 520px; max-width: 92vw; max-height: 82vh;
+      background: #0f172a; color: #e2e8f0;
+      border: 1px solid rgba(99,102,241,0.3); border-radius: 8px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.7); padding: 0;
+    }
+    #wo13ReviewHelpPopover:popover-open { display: flex; flex-direction: column; }
+    .wo13-help-head {
+      padding: 12px 16px; border-bottom: 1px solid rgba(99,102,241,0.2);
+      font-size: 14px; font-weight: 600; color: #c7d2fe;
+    }
+    .wo13-help-body { padding: 14px 18px; overflow-y: auto; font-size: 13px; color: #cbd5e1; }
+    .wo13-help-body p { margin: 0 0 10px; line-height: 1.5; }
+    .wo13-help-body ul { margin: 0 0 10px; padding-left: 18px; }
+    .wo13-help-body li { margin: 3px 0; line-height: 1.4; }
+    .wo13-help-body code {
+      background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; color: #a5b4fc;
+      font-size: 11px;
+    }
+
   </style>
 </head>
 <body>
@@ -2157,6 +2375,12 @@
       </button>
       <button id="wo10TranscriptBtn" popovertarget="wo10TranscriptPopover" title="View transcript and resume preview">
         📋 Transcript
+      </button>
+      <!-- WO-13 Phase 6: Review Queue drawer trigger -->
+      <button id="wo13ReviewBtn" popovertarget="wo13ReviewPopover"
+              title="Review proposal rows (approve / reject / source-only)"
+              onclick="if(typeof wo13OpenReviewDrawer==='function') setTimeout(wo13OpenReviewDrawer,0)">
+        🗂 Review
       </button>
       <button id="lv80OperatorBtn"
               class="settings-btn dev-only hidden"
@@ -2415,6 +2639,112 @@
       <button class="wo10-toggle" id="wo10ToggleSystem" onclick="wo10ToggleSystemMessages()">Show System</button>
       <button class="wo10-btn" onclick="wo8ExportTranscript('txt')">Export TXT</button>
       <button class="wo10-btn" onclick="wo8ExportTranscript('txt', true)">Export All Sessions</button>
+    </div>
+  </div>
+
+  <!-- ── WO-13 PHASE 6 — REVIEW QUEUE DRAWER ───────────────────
+       The four-layer truth pipeline's human-review surface.
+       Shadow Archive → Proposal Layer → (this drawer) → Promoted Truth.
+
+       Layout:
+         header:   title + reference-narrator badge + help button
+         banner:   rolling-summary contamination filter report (Phase 5)
+         filters:  five status tabs (All + 5 statuses, counts next to each)
+         list:     proposal rows, each with per-row action buttons
+         footer:   Bulk Dismiss Visible, Promote Approved, Refresh
+  -->
+  <div id="wo13ReviewPopover" popover="auto">
+    <div class="wo13-header">
+      <div class="wo13-title">
+        🗂 Review Queue
+        <span class="wo13-subtitle">Shadow → Proposal → <em>Review</em> → Promoted Truth</span>
+      </div>
+      <div class="wo13-header-actions">
+        <button class="wo13-help-btn" type="button"
+                popovertarget="wo13ReviewHelpPopover"
+                title="How the review queue works">?</button>
+      </div>
+    </div>
+
+    <!-- Contamination banner — only visible when wo13_filtered.* is non-zero -->
+    <div id="wo13ContaminationBanner" class="wo13-banner" style="display:none"></div>
+
+    <!-- Filter tabs (All + 5 statuses) — rendered by wo13-review.js -->
+    <div id="wo13ReviewFilters" class="wo13-filters"></div>
+
+    <!-- Row list — rendered by wo13-review.js -->
+    <div id="wo13ReviewList" class="wo13-list">
+      <div class="wo13-empty">Open the drawer to load proposals.</div>
+    </div>
+
+    <!-- Bottom controls -->
+    <div class="wo13-controls">
+      <button id="wo13BulkDismissBtn" class="wo13-ctrl-btn" type="button"
+              title="Reject every row currently visible in this tab">
+        Bulk dismiss visible
+      </button>
+      <button id="wo13PromoteBtn" class="wo13-ctrl-btn wo13-ctrl-promote" type="button"
+              title="Promote all rows whose status is 'approve'">
+        Promote approved
+      </button>
+      <button id="wo13ReviewRefreshBtn" class="wo13-ctrl-btn" type="button"
+              onclick="if(typeof wo13ReloadReviewQueue==='function') wo13ReloadReviewQueue()">
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- ── WO-13 PHASE 6 — ROW DETAIL MODAL ────────────────────── -->
+  <div id="wo13RowDetailModal" popover="auto">
+    <div class="wo13-modal-head">
+      Row detail
+      <button class="wo13-modal-close" type="button"
+              onclick="var p=document.getElementById('wo13RowDetailModal'); if(p&&p.hidePopover) p.hidePopover()">×</button>
+    </div>
+    <div id="wo13RowDetailBody" class="wo13-modal-body">
+      <div class="wo13-empty">No row selected.</div>
+    </div>
+  </div>
+
+  <!-- ── WO-13 PHASE 6 — HELP POPOVER ────────────────────────── -->
+  <div id="wo13ReviewHelpPopover" popover="auto">
+    <div class="wo13-help-head">Review Queue — how it works</div>
+    <div class="wo13-help-body">
+      <p><strong>Four layers.</strong> Nothing a narrator says goes directly into
+      their bio. It first lands as a raw <em>Shadow Note</em>, then the rules_fallback
+      extractor builds <em>Proposal</em> rows from it. Proposals live in this drawer
+      until a human reviewer promotes, rejects, or source-only-records them. Only
+      approved rows become <em>Promoted Truth</em>.</p>
+
+      <p><strong>Five statuses.</strong></p>
+      <ul>
+        <li><code>needs_verify</code> — maybe true. The default for everything the
+        rules_fallback extractor produces.</li>
+        <li><code>approve</code> — confirmed. Safe to promote.</li>
+        <li><code>approve_q</code> — confirmed, but you want to come back with a
+        follow-up question.</li>
+        <li><code>source_only</code> — record that the narrator said this, but
+        never propagate it anywhere else. The only status allowed for the
+        five protected identity fields.</li>
+        <li><code>reject</code> — wrong, contamination, stress-test noise.
+        Bulk-dismiss uses this.</li>
+      </ul>
+
+      <p><strong>Protected identity fields.</strong> The five identity-critical
+      fields (<code>personal.fullName</code>, <code>personal.preferredName</code>,
+      <code>personal.dateOfBirth</code>, <code>personal.placeOfBirth</code>,
+      <code>personal.birthOrder</code>) can never be promoted by the regex
+      extractor. They always land as <code>source_only</code> with
+      <code>identity_conflict: true</code>, even if the regex guessed them.</p>
+
+      <p><strong>Reference narrators are read-only.</strong> Loading Shatner,
+      Dolly, or any other <code>narrator_type: "reference"</code> person shows
+      a read-only notice instead of a queue.</p>
+
+      <p><strong>Contamination banner.</strong> If the rolling-summary filter
+      dropped anything on the last read, the banner at the top shows
+      the reason breakdown and a "Run cleanup again" button that hits
+      <code>POST /api/transcript/rolling-summary/clean</code>.</p>
     </div>
   </div>
 
@@ -2959,6 +3289,7 @@
 <script src="js/bio-builder-life-threads.js"></script>
 <script src="js/bio-builder.js"></script>
 <script src="js/narrator-preload.js"></script>
+<script src="js/wo13-review.js"></script>
 <script src="js/bio-review.js"></script>
 <script src="js/bio-promotion-adapters.js"></script>
 <script src="js/bio-phase-f.js"></script>

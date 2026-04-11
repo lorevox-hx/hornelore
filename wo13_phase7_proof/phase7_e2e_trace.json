@@ -1,0 +1,34 @@
+{
+  "shadow_note": {
+    "id": "d3ad7500-cb07-4a77-865e-49014b854391",
+    "body": "I married Janice in the summer of 1968 \u2014 it might have been 1969.",
+    "source_ref": "sess1:1",
+    "created_by": "Kent James Horne"
+  },
+  "proposal_row_initial": {
+    "id": "bbc3591c-8511-42b2-b2cf-88c32ce6fb61",
+    "status_before": "needs_verify",
+    "field": "marriage",
+    "subject_name": "Janice Ann Horne",
+    "source_says": "married Janice in the summer of 1968"
+  },
+  "review_action": {
+    "status_after": "approve_q",
+    "qualification": "Kent is unsure if it was 1968 or 1969 \u2014 verify against marriage license.",
+    "reviewer": "chris"
+  },
+  "promoted_record": {
+    "key": [
+      "0c8579a3-2919-498c-b548-be5e60226f5d",
+      "Janice Ann Horne",
+      "marriage"
+    ],
+    "value": "married Janice in the summer of 1968",
+    "qualification": "Kent is unsure if it was 1968 or 1969 \u2014 verify against marriage license.",
+    "status": "approve_q",
+    "source_row_id": "bbc3591c-8511-42b2-b2cf-88c32ce6fb61",
+    "content_hash": "f61b371a55ceff50769e1c9824b281494c92bf5e",
+    "created_at": "2026-04-11T19:57:10.452940",
+    "updated_at": "2026-04-11T19:57:10.452940"
+  }
+}

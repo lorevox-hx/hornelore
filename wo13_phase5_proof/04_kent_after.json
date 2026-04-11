@@ -1,0 +1,51 @@
+{
+  "topic_thread": "growing up",
+  "scored_items": [
+    {
+      "text": "Dad kept a vegetable garden out behind the garage every summer.",
+      "kind": "fact",
+      "times_referenced": 2,
+      "last_seen_at": 0,
+      "status": "active"
+    },
+    {
+      "text": "I learned to drive on a 1962 Ford pickup with a column shifter.",
+      "kind": "fact",
+      "times_referenced": 3,
+      "last_seen_at": 0,
+      "status": "active"
+    },
+    {
+      "text": "We used to go fishing at Lake Shastina on Sunday afternoons.",
+      "kind": "fact",
+      "times_referenced": 1,
+      "last_seen_at": 0,
+      "status": "active"
+    }
+  ],
+  "active_threads": [
+    {
+      "thread_id": "grg01",
+      "topic_label": "Dad's garden",
+      "subtopic_label": "summer vegetables",
+      "summary": "Dad kept a vegetable garden behind the garage. Tomatoes, beans, corn every year.",
+      "status": "active",
+      "last_seen_at": 0,
+      "related_turn_ids": []
+    }
+  ],
+  "key_facts_mentioned": [
+    "Learned to drive at 14",
+    "Sunday fishing trips"
+  ],
+  "open_threads": [
+    "first car story pending"
+  ],
+  "wo13_filtered": {
+    "dropped_scored_items": 0,
+    "dropped_threads": 0,
+    "dropped_facts": 0,
+    "dropped_reasons": {},
+    "markers_checked": 4
+  }
+}

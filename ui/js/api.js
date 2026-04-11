@@ -36,6 +36,14 @@ const API = {
   // v7.4D — Phase 7: facts
   FACTS_ADD:       ORIGIN + "/api/facts/add",
   FACTS_LIST:      (pid) => `${ORIGIN}/api/facts/list?person_id=${encodeURIComponent(pid)}`,
+  // WO-13 — Family Truth (Shadow Archive + Proposal + Review + Promoted Truth)
+  FT_NOTE_ADD:     ORIGIN + "/api/family-truth/note",
+  FT_NOTES_LIST:   (pid) => `${ORIGIN}/api/family-truth/notes?person_id=${encodeURIComponent(pid)}`,
+  FT_NOTE_PROPOSE: (nid) => `${ORIGIN}/api/family-truth/note/${encodeURIComponent(nid)}/propose`,
+  FT_ROWS_LIST:    (pid) => `${ORIGIN}/api/family-truth/rows?person_id=${encodeURIComponent(pid)}`,
+  FT_ROW_PATCH:    (rid) => `${ORIGIN}/api/family-truth/row/${encodeURIComponent(rid)}`,
+  FT_PROMOTE:      ORIGIN + "/api/family-truth/promote",
+  FT_AUDIT:        (rid) => `${ORIGIN}/api/family-truth/audit/${encodeURIComponent(rid)}`,
   // v8 — Phase 2: narrator delete cascade
   PERSON_INVENTORY: (id) => `${ORIGIN}/api/people/${id}/delete-inventory`,
   PERSON_RESTORE:   (id) => `${ORIGIN}/api/people/${id}/restore`,
@@ -66,6 +74,8 @@ const API = {
   // WO-9 — Rolling summary & recent turns
   ROLLING_SUMMARY_GET: (pid) => `${ORIGIN}/api/transcript/rolling-summary?person_id=${encodeURIComponent(pid)}`,
   ROLLING_SUMMARY_PUT: ORIGIN + "/api/transcript/rolling-summary",
+  // WO-13 Phase 5 — manual contamination-filter pass (cross-narrator bleed)
+  ROLLING_SUMMARY_CLEAN: (pid) => `${ORIGIN}/api/transcript/rolling-summary/clean?person_id=${encodeURIComponent(pid)}`,
   RECENT_TURNS: (pid, sid, limit) => `${ORIGIN}/api/transcript/recent-turns?person_id=${encodeURIComponent(pid)}${sid ? '&session_id=' + encodeURIComponent(sid) : ''}${limit ? '&limit=' + limit : ''}`,
   // WO-9 — All-session export
   TRANSCRIPT_EXPORT_ALL_TXT: (pid) => `${ORIGIN}/api/transcript/export/all/txt?person_id=${encodeURIComponent(pid)}`,

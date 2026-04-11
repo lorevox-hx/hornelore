@@ -687,10 +687,15 @@ function renderPeople(items){
   (_items||[]).forEach(p=>{
     const pid=p.id||p.person_id||p.uuid; if(!pid) return;
     const name=p.display_name||p.name||pid;
+    // WO-13 Phase 3 — reference narrators get a visible read-only badge
+    const isRef = String(p.narrator_type||"live").toLowerCase() === "reference";
+    const refBadge = isRef
+      ? ` <span class="wo13-ref-badge" title="Reference narrator (read-only)" style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;background:#4b5563;color:#e5e7eb;margin-left:6px;vertical-align:middle">REF</span>`
+      : "";
     const d=document.createElement("div");
-    d.className="sb-item"+(pid===state.person_id?" active":"");
+    d.className="sb-item"+(pid===state.person_id?" active":"")+(isRef?" wo13-readonly":"");
     d.onclick=()=>loadPerson(pid);
-    d.innerHTML=`<div class="font-bold text-white truncate" style="font-size:15px">${esc(name)}</div>
+    d.innerHTML=`<div class="font-bold text-white truncate" style="font-size:15px">${esc(name)}${refBadge}</div>
       <div class="sb-meta mono dev-only">${esc(pid.slice(0,16))}</div>`;
     w.appendChild(d);
   });
@@ -2550,8 +2555,30 @@ function onAssistantReply(text){
   }
   // v7.4D — Phase 7: fire-and-forget fact extraction after each real turn.
   // Only runs when a person is loaded and onboarding is complete.
-  if(state.person_id && (!state.session?.identityPhase || state.session.identityPhase==="complete")){
+  // WO-13 Phase 3: skip reference narrators entirely — they are read-only
+  // from the narrative memory pipeline and the backend will 403 their writes.
+  if(
+    state.person_id
+    && (!state.session?.identityPhase || state.session.identityPhase==="complete")
+    && !_wo13IsReferenceNarrator(state.person_id)
+  ){
     _extractAndPostFacts(_lastUserTurn, text).catch(()=>{});
+  }
+}
+
+// ── WO-13 Phase 3 — Reference narrator helper ─────────────────────────────
+// Reads narrator_type from the cached /api/people list. Defaults to false
+// (treat as live) when unknown so we fail-open on caching races. The
+// backend guard is the authoritative enforcement.
+function _wo13IsReferenceNarrator(pid){
+  if(!pid) return false;
+  try{
+    const cache = state?.narratorUi?.peopleCache || [];
+    const hit = cache.find(p => (p.id||p.person_id||p.uuid) === pid);
+    if(!hit) return false;
+    return String(hit.narrator_type || "live").toLowerCase() === "reference";
+  }catch{
+    return false;
   }
 }
 
@@ -2623,42 +2650,75 @@ function _lv80DetectDualPersona(text) {
   };
 }
 
+// WO-13 Phase 4 — Five identity-critical fields that can NEVER be mutated by
+// the regex/rules_fallback client extractor. If the extractor would propose one
+// of these, the item is flagged identity_conflict=true in provenance and the
+// status is forced to source_only so the review UI can surface it without the
+// row ever entering the promoted-truth path.
+const _WO13_PROTECTED_IDENTITY_FIELDS = Object.freeze([
+  "personal.fullName",
+  "personal.preferredName",
+  "personal.dateOfBirth",
+  "personal.placeOfBirth",
+  "personal.birthOrder",
+]);
+
 /**
- * Extract atomic facts from a single exchange (user turn + Lori's reply).
- * Returns an array of fact objects ready to POST to /api/facts/add.
- * Each fact includes meaning_tags, narrative_role, experience, and reflection
- * fields (Meaning Engine Phase A+B).
+ * WO-13 Phase 4 — Regex-based proposal extractor (aka "rules_fallback").
+ *
+ * Returns an array of proposal items (NOT legacy fact objects) derived from a
+ * single user turn. Each item has the shape expected by
+ *   POST /api/family-truth/note/{note_id}/propose
+ * i.e. { subject_name, relationship, field, source_says, status, confidence,
+ *        narrative_role, meaning_tags, provenance, extraction_method }.
+ *
+ * This path is intentionally conservative: status defaults to 'needs_verify'
+ * and extraction_method is always 'rules_fallback'. The LLM/hybrid extractor
+ * (server side) will use the same shape but different extraction_method tags.
  */
 function _extractFacts(userText, loriText){
-  const facts = [];
+  const items = [];
   const src   = (userText||"").trim();
-  const t     = src.toLowerCase();
   const pid   = state.person_id;
-  if(!pid || !src) return facts;
+  if(!pid || !src) return items;
 
   const sid = state.chat?.conv_id || null;
+  const narratorName = (state.narratorUi?.currentNarratorName
+    || state.person?.display_name
+    || "").trim();
 
-  const _f = (statement, fact_type, date_text="", date_normalized="", confidence=0.7) => {
-    const meaning_tags   = _lv80DetectMeaningTags(src);
-    const narrative_role = _lv80DetectNarrativeRole(src, fact_type);
-    const persona        = _lv80DetectDualPersona(src);
+  const _meaning = _lv80DetectMeaningTags(src);
+
+  const _propose = (field, source_says, {
+    subject_name = narratorName,
+    relationship = "self",
+    confidence = 0.7,
+    fact_type = "",
+  } = {}) => {
+    const narrative_role = _lv80DetectNarrativeRole(src, fact_type || field);
+    const isProtected = _WO13_PROTECTED_IDENTITY_FIELDS.includes(field);
     return {
-      person_id: pid, statement, fact_type,
-      date_text, date_normalized, confidence,
-      status: "extracted", inferred: false,
-      session_id: sid,
-      meaning_tags,
+      subject_name: subject_name || "",
+      relationship: relationship || "self",
+      field,
+      source_says,
+      status: isProtected ? "source_only" : "needs_verify",
+      confidence: isProtected ? Math.min(confidence, 0.5) : confidence,
       narrative_role,
-      experience: persona.experience,
-      reflection: persona.reflection,
-      meta: { source: "chat_extraction", user_turn: src.slice(0,200) },
+      meaning_tags: _meaning,
+      extraction_method: "rules_fallback",
+      provenance: {
+        source: "chat_extraction",
+        session_id: sid,
+        user_turn: src.slice(0, 200),
+        fact_type: fact_type || "",
+        identity_conflict: isProtected || false,
+        protected_field: isProtected ? field : undefined,
+      },
     };
   };
 
-  // ── Birthplace ───────────────────────────────────────────────
-  // Capture "City" or "City, Country" format.
-  // Pattern A: "born/grew up ... in/at/near City[, Country]"
-  // Pattern B: "I'm/I am from City[, Country]" (no in/at/near needed)
+  // ── Birthplace (PROTECTED: personal.placeOfBirth) ────────────
   let m;
   const _PLACE_CAP = /([A-Z][^,.!?]{1,35}(?:,\s*[A-Z][^,.!?]{1,30})?)/;
   m = src.match(new RegExp(
@@ -2670,86 +2730,153 @@ function _extractFacts(userText, loriText){
   if(!m) m = src.match(new RegExp(
     String.raw`\boriginally\s+from\s+` + _PLACE_CAP.source, "i"
   ));
-  if(m){ const place = m[1].trim(); facts.push(_f(`Born or raised in ${place}`, "birth", place, "", 0.75)); }
+  if(m){
+    const place = m[1].trim();
+    items.push(_propose("personal.placeOfBirth", `Born or raised in ${place}`, {
+      confidence: 0.75, fact_type: "birth",
+    }));
+  }
 
-  // ── Date of birth ─────────────────────────────────────────────
+  // ── Date of birth (PROTECTED: personal.dateOfBirth) ──────────
   m = src.match(/\b(?:born on|born)\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:[,\s]+\d{4})?|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2})/i);
   if(m){
-    const dob = _parseDob(m[1]) || m[1];
-    facts.push(_f(`Date of birth: ${m[1].trim()}`, "birth", m[1].trim(), dob, 0.85));
+    items.push(_propose("personal.dateOfBirth", `Date of birth: ${m[1].trim()}`, {
+      confidence: 0.85, fact_type: "birth",
+    }));
   }
 
   // ── Marriage ─────────────────────────────────────────────────
   m = src.match(/\b(?:married|got married to|my (?:husband|wife|spouse) is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
-  if(m) facts.push(_f(`Married ${m[1].trim()}`, "marriage", "", "", 0.7));
+  if(m) items.push(_propose("marriage", `Married ${m[1].trim()}`, {
+    confidence: 0.7, fact_type: "marriage",
+  }));
 
   // ── Children ─────────────────────────────────────────────────
   m = src.match(/\b(?:my (?:son|daughter|child|kids?|children|boy|girl))[^.!?]{0,20}(?:name(?:d|s)?|is|are|called)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
-  if(m) facts.push(_f(`Child named ${m[1].trim()}`, "family_relationship", "", "", 0.65));
+  if(m) items.push(_propose("family_relationship", `Child named ${m[1].trim()}`, {
+    subject_name: m[1].trim(), relationship: "child",
+    confidence: 0.65, fact_type: "family_relationship",
+  }));
 
-  // ── Employment ────────────────────────────────────────────────
+  // ── Employment ───────────────────────────────────────────────
   m = src.match(/\b(?:worked (?:at|for)|worked as|(?:a |an )?(?:job|career) (?:at|with)|employed (?:at|by)|I was (?:a|an|the))\s+([^.!?,]{3,60})/i);
-  if(m) facts.push(_f(`Worked: ${m[1].trim()}`, "employment_start", "", "", 0.65));
+  if(m) items.push(_propose("employment", `Worked: ${m[1].trim()}`, {
+    confidence: 0.65, fact_type: "employment_start",
+  }));
 
   m = src.match(/\bI(?:'ve)? (?:been |)(?:retired|retiring|left)\s+(?:from\s+)?([^.!?,]{3,60})/i);
-  if(m) facts.push(_f(`Retired or left: ${m[1].trim()}`, "employment_end", "", "", 0.65));
+  if(m) items.push(_propose("employment", `Retired or left: ${m[1].trim()}`, {
+    confidence: 0.65, fact_type: "employment_end",
+  }));
 
   // ── Education ────────────────────────────────────────────────
   m = src.match(/\b(?:graduated from|went to|attended|studied at)\s+([A-Z][^.!?,]{3,60})/i);
-  if(m) facts.push(_f(`Education: ${m[1].trim()}`, "education", "", "", 0.65));
+  if(m) items.push(_propose("education", `Education: ${m[1].trim()}`, {
+    confidence: 0.65, fact_type: "education",
+  }));
 
-  // ── Residence / moves ─────────────────────────────────────────
-  // Gap G-01 fix: added "settled in|ended up in|made.*home in" to catch narrator idioms
-  // like "I settled in San Diego in 1980" which were previously missed.
+  // ── Residence / moves ────────────────────────────────────────
   m = src.match(/\b(?:moved to|we moved to|living in|lived in|grew up in|settled in|ended up in|made (?:my|our) home in)\s+([A-Z][^.!?,]{2,60})/i);
-  if(m) facts.push(_f(`Residence: ${m[1].trim()}`, "residence", "", "", 0.6));
+  if(m) items.push(_propose("residence", `Residence: ${m[1].trim()}`, {
+    confidence: 0.6, fact_type: "residence",
+  }));
 
   // ── Death (family member) ────────────────────────────────────
   m = src.match(/\b(?:my\s+(?:mother|father|mom|dad|sister|brother|wife|husband|spouse|son|daughter|grandpa|grandma|grandfather|grandmother))[^.!?]{0,30}(?:passed away|died|passed|is gone)\b/i);
-  if(m) facts.push(_f(`Family loss: ${m[0].trim()}`, "death", "", "", 0.7));
+  if(m) items.push(_propose("death", `Family loss: ${m[0].trim()}`, {
+    relationship: "family",
+    confidence: 0.7, fact_type: "death",
+  }));
 
-  // Deduplicate by statement (simple string equality)
+  // Deduplicate by (field, source_says)
   const seen = new Set();
-  return facts.filter(f=>{ if(seen.has(f.statement)) return false; seen.add(f.statement); return true; });
+  return items.filter(it => {
+    const key = it.field + "::" + it.source_says;
+    if(seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
- * Fire-and-forget: extract facts from a turn and POST each one to /api/facts/add.
- * Failures are silently ignored — this should never break the UI.
+ * WO-13 Phase 4 — Fire-and-forget: extract proposal items from a turn and
+ * POST them via the two-step family-truth pipeline:
+ *   1. POST /api/family-truth/note    → create shadow note (one per turn)
+ *   2. POST /api/family-truth/note/{id}/propose → batch of proposal items
+ *
+ * Writes are SKIPPED entirely for:
+ *   - reference narrators (Shatner/Dolly/…) — guarded by _wo13IsReferenceNarrator
+ *   - identity phase still in progress (handled by caller)
+ *
+ * The legacy /api/facts/add path is NOT used any more. Failures are silently
+ * ignored — this must never break the chat UI.
  */
 async function _extractAndPostFacts(userText, loriText){
   if(!state.person_id) return;
+  // Extra defence: reference narrators never get shadow writes.
+  if(typeof _wo13IsReferenceNarrator === "function"
+     && _wo13IsReferenceNarrator(state.person_id)) return;
 
   // WO-9: Chunk long user turns before extraction for better coverage
   const chunks = (typeof _wo8ChunkText === "function" && userText && userText.length > 1200)
     ? _wo8ChunkText(userText, 1200) : [userText];
 
-  const allFacts = [];
+  const allItems = [];
   for (let i = 0; i < chunks.length; i++) {
-    const facts = _extractFacts(chunks[i], i === chunks.length - 1 ? loriText : "");
-    allFacts.push(...facts);
+    const items = _extractFacts(chunks[i], i === chunks.length - 1 ? loriText : "");
+    allItems.push(...items);
   }
 
-  // WO-9: Deduplicate facts by path+value
+  // Deduplicate proposal items by (field, source_says)
   const seen = new Set();
-  const dedupedFacts = [];
-  for (const f of allFacts) {
-    const key = (f.path || "") + "::" + JSON.stringify(f.value ?? null);
-    if (!seen.has(key)) { seen.add(key); dedupedFacts.push(f); }
+  const deduped = [];
+  for (const it of allItems) {
+    const key = (it.field || "") + "::" + (it.source_says || "");
+    if (!seen.has(key)) { seen.add(key); deduped.push(it); }
   }
+  if(!deduped.length) return;
 
-  if(!dedupedFacts.length) return;
-  for(const f of dedupedFacts){
-    try{
-      await fetch(API.FACTS_ADD, {
-        method:"POST", headers: ctype(), body: JSON.stringify(f),
-      });
-    }catch{ /* silently ignore network errors */ }
-  }
-  if(dedupedFacts.length){
-    console.log(`[facts] extracted ${dedupedFacts.length} fact(s) from ${chunks.length} chunk(s).`);
-    if(typeof updateArchiveReadiness === "function") updateArchiveReadiness();
-  }
+  // Step 1 — create the shadow note for this turn.
+  let noteId = null;
+  try{
+    const sid = state.chat?.conv_id || "";
+    const turnIdx = state.chat?.turns?.length ?? 0;
+    const narratorName = (state.narratorUi?.currentNarratorName
+      || state.person?.display_name
+      || "ui").trim() || "ui";
+    const body = (userText || "").trim();
+    if(!body) return;
+    const noteReq = {
+      person_id: state.person_id,
+      body: body.slice(0, 8000),
+      source_kind: "chat",
+      source_ref: sid ? `${sid}:${turnIdx}` : String(turnIdx),
+      created_by: narratorName,
+    };
+    const res = await fetch(API.FT_NOTE_ADD, {
+      method: "POST", headers: ctype(), body: JSON.stringify(noteReq),
+    });
+    if(!res.ok){
+      if(res.status === 403){
+        console.log("[family-truth] reference narrator — note creation denied (403).");
+      }
+      return;
+    }
+    const data = await res.json().catch(()=>null);
+    noteId = data && data.note && data.note.id ? data.note.id : null;
+  }catch{ return; }
+  if(!noteId) return;
+
+  // Step 2 — derive structured proposal rows from the note.
+  try{
+    const res = await fetch(API.FT_NOTE_PROPOSE(noteId), {
+      method: "POST", headers: ctype(), body: JSON.stringify({ items: deduped }),
+    });
+    if(!res.ok) return;
+  }catch{ return; }
+
+  console.log(`[family-truth] shadow note ${noteId} → ${deduped.length} proposal row(s) from ${chunks.length} chunk(s).`);
+  if(typeof updateArchiveReadiness === "function") updateArchiveReadiness();
 }
 
 /* ═══════════════════════════════════════════════════════════════

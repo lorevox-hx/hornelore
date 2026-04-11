@@ -41,6 +41,11 @@ class PersonCreate(BaseModel):
     role: Optional[str] = Field(default=None, description="subject, father, mother, sibling, etc")
     date_of_birth: Optional[str] = None  # YYYY-MM-DD
     place_of_birth: Optional[str] = None
+    # WO-13 Phase 3 — narrator_type (live | reference)
+    narrator_type: Optional[str] = Field(
+        default="live",
+        description="'live' = real interviewable narrator; 'reference' = read-only seed narrator (Shatner/Dolly style).",
+    )
 
 
 class PersonUpdate(BaseModel):
@@ -48,6 +53,11 @@ class PersonUpdate(BaseModel):
     role: Optional[str] = None
     date_of_birth: Optional[str] = None
     place_of_birth: Optional[str] = None
+    # WO-13 Phase 3 — narrator_type mutation (admin-only affordance)
+    narrator_type: Optional[str] = Field(
+        default=None,
+        description="'live' | 'reference'. Changes the write-guard policy for this narrator.",
+    )
 
 
 @router.post("", summary="Create a new person")
@@ -57,12 +67,16 @@ def api_create_person(payload: PersonCreate):
     The previous version treated its return value as a string id, which caused:
       sqlite3.ProgrammingError: Error binding parameter 1: type 'dict' is not supported
     """
-    person = create_person(
-        display_name=payload.display_name,
-        role=payload.role,
-        date_of_birth=payload.date_of_birth,
-        place_of_birth=payload.place_of_birth,
-    )
+    try:
+        person = create_person(
+            display_name=payload.display_name,
+            role=payload.role,
+            date_of_birth=payload.date_of_birth,
+            place_of_birth=payload.place_of_birth,
+            narrator_type=payload.narrator_type or "live",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     # Defensive: support either return style (dict or id str) without crashing.
     if isinstance(person, dict):
@@ -151,5 +165,9 @@ def api_restore_person(person_id: str):
 def api_update_person(person_id: str, payload: PersonUpdate):
     if not get_person(person_id):
         raise HTTPException(status_code=404, detail="Person not found")
-    update_person(person_id, **payload.model_dump(exclude_none=True))
+    try:
+        update_person(person_id, **payload.model_dump(exclude_none=True))
+    except ValueError as e:
+        # Raised for invalid narrator_type
+        raise HTTPException(status_code=422, detail=str(e))
     return {"person": get_person(person_id)}

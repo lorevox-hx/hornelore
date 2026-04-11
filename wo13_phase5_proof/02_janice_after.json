@@ -1,0 +1,42 @@
+{
+  "topic_thread": "early life",
+  "scored_items": [
+    {
+      "text": "Mother baked bread every Saturday morning in the big cast-iron oven.",
+      "kind": "fact",
+      "times_referenced": 4,
+      "last_seen_at": 0,
+      "status": "active"
+    }
+  ],
+  "active_threads": [
+    {
+      "thread_id": "brd01",
+      "topic_label": "Saturday bread",
+      "subtopic_label": "cast-iron oven",
+      "summary": "Mother baked bread every Saturday morning. The kitchen smelled of yeast and warm flour.",
+      "status": "active",
+      "last_seen_at": 0,
+      "related_turn_ids": []
+    }
+  ],
+  "key_facts_mentioned": [
+    "Grew up on the prairie"
+  ],
+  "open_threads": [
+    "Saturday bread tradition"
+  ],
+  "wo13_filtered": {
+    "dropped_scored_items": 5,
+    "dropped_threads": 1,
+    "dropped_facts": 2,
+    "dropped_reasons": {
+      "cross_narrator:williston_source": 3,
+      "stress_test:stress_test": 2,
+      "meta_command:ignore previous": 1,
+      "cross_narrator:98342dc4-e319-4513-87f5-945ddaabd825": 2,
+      "truncation": 1
+    },
+    "markers_checked": 4
+  }
+}

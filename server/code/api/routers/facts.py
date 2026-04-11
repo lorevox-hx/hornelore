@@ -18,12 +18,25 @@ Design rules enforced here:
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import db
+
+
+def _truth_v2_enabled() -> bool:
+    """WO-13 Phase 4 — feature-flag check for truth-v2 write freeze.
+
+    When HORNELORE_TRUTH_V2 is truthy, the legacy /api/facts/add write path is
+    frozen and returns 410 Gone. Reads on /api/facts/list and status/delete
+    operations remain available for back-compat during the transition.
+    """
+    return str(os.environ.get("HORNELORE_TRUTH_V2", "")).strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
 router = APIRouter(prefix="/api/facts", tags=["facts"])
 
@@ -63,8 +76,37 @@ class FactStatusUpdateRequest(BaseModel):
 
 @router.post("/add")
 def api_add_fact(req: FactAddRequest):
-    if not db.get_person(req.person_id):
+    # WO-13 Phase 4 — legacy write freeze behind HORNELORE_TRUTH_V2.
+    # When the flag is on, /api/facts/add is retired. Callers must use the
+    # /api/family-truth/note + /propose pipeline instead. 410 Gone makes the
+    # retirement explicit and breaks any stale client that hasn't been
+    # updated, rather than silently contaminating the proposal layer.
+    if _truth_v2_enabled():
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "facts.add is retired under HORNELORE_TRUTH_V2. Use "
+                "POST /api/family-truth/note followed by "
+                "POST /api/family-truth/note/{note_id}/propose instead."
+            ),
+        )
+
+    person = db.get_person(req.person_id)
+    if not person:
         raise HTTPException(status_code=404, detail="person_id not found")
+
+    # WO-13 Phase 3 — reference-narrator write guard.
+    # Reference narrators (Shatner, Dolly, …) are read-only on the legacy
+    # facts table as well. The front-end fact-extraction path is also being
+    # retired in Phase 4, but this guard provides defence in depth.
+    if db.is_reference_narrator(req.person_id):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"'{person.get('display_name', req.person_id)}' is a reference narrator; "
+                "facts.add is not permitted. Reference narrators are read-only."
+            ),
+        )
 
     if req.status not in STATUS_VALUES:
         raise HTTPException(

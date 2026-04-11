@@ -28,6 +28,7 @@ from ..archive import (
     read_rolling_summary,
     write_rolling_summary,
     load_recent_archive_turns,
+    filter_rolling_summary_for_narrator,  # WO-13 Phase 5
 )
 
 router = APIRouter(prefix="/api/transcript", tags=["transcript"])
@@ -281,11 +282,47 @@ class RollingSummaryRequest(BaseModel):
 
 @router.get("/rolling-summary")
 def get_rolling_summary(person_id: str = Query(...)):
-    """Read the rolling summary for a narrator."""
+    """Read the rolling summary for a narrator.
+
+    WO-13 Phase 5: The returned summary is run through
+    ``filter_rolling_summary_for_narrator`` so cross-narrator bleed and
+    stress-test artefacts are stripped before the payload leaves the server.
+    The ``summary['wo13_filtered']`` block reports what was dropped so the
+    review UI can surface an "N items hidden" banner.
+    """
     if not person_id.strip():
         raise HTTPException(status_code=400, detail="person_id is required")
-    summary = read_rolling_summary(person_id)
+    raw = read_rolling_summary(person_id)
+    summary = filter_rolling_summary_for_narrator(raw, person_id)
     return {"person_id": person_id, "summary": summary}
+
+
+@router.post("/rolling-summary/clean")
+def clean_rolling_summary(person_id: str = Query(...)):
+    """WO-13 Phase 5: Apply the contamination filter to a narrator's
+    rolling summary in place. Returns the drop report so operators can
+    audit what was removed. Idempotent — running twice is a no-op.
+    """
+    if not person_id.strip():
+        raise HTTPException(status_code=400, detail="person_id is required")
+    raw = read_rolling_summary(person_id)
+    if not raw:
+        return {
+            "ok": True,
+            "person_id": person_id,
+            "noop": True,
+            "detail": "no rolling summary on disk",
+        }
+    filtered = filter_rolling_summary_for_narrator(raw, person_id)
+    # write_rolling_summary runs the filter again (idempotent), persists, and
+    # stamps last_updated. We pass the already-filtered copy so the on-disk
+    # wo13_filtered block reflects this cleaning pass.
+    write_rolling_summary(person_id, filtered)
+    return {
+        "ok": True,
+        "person_id": person_id,
+        "wo13_filtered": filtered.get("wo13_filtered", {}),
+    }
 
 
 @router.post("/rolling-summary")
@@ -374,6 +411,9 @@ def get_resume_preview(person_id: str = Query(...)):
     sid = get_latest_session_id(person_id)
     anchor = _read_anchor(person_id=person_id, session_id=sid) if sid else None
     summary = _read_summary(person_id)
+    # WO-13 Phase 5: run contamination filter before pruning so cross-narrator
+    # bleed can never show up in a resume preview.
+    summary = filter_rolling_summary_for_narrator(summary, person_id)
     summary = _prune_summary(summary)
     recent = _load_turns(person_id, session_id=sid, limit=6)
     threads = summary.get("active_threads", [])

@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,229 @@ def _json_load(s: str | None, default: Any) -> Any:
 
 def _json_dump(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False)
+
+
+# -----------------------------------------------------------------------------
+# WO-13 Phase 1 — Legacy facts → family_truth_rows backfill
+#
+# Called from init_db() after the family_truth_* schema is created. The
+# unique partial index on family_truth_rows.source_fact_id makes this
+# idempotent: re-running on an already-migrated DB is a no-op.
+#
+# Policy:
+#   - The legacy `facts` table is NEVER modified, deleted, or truncated.
+#   - Every legacy fact becomes a `needs_verify` row in family_truth_rows so
+#     a human reviewer can approve/qualify/reject it.
+#   - Rows matching the WO-12B contamination patterns get legacy_suspect=1
+#     so the UI can offer bulk dismiss.
+# -----------------------------------------------------------------------------
+_WO13_FACT_TYPE_TO_FIELD = {
+    "birth": "date_of_birth",
+    "birthplace": "place_of_birth",
+    "death": "date_of_death",
+    "marriage": "marriage",
+    "children": "children",
+    "employment_start": "employment",
+    "employment_end": "employment",
+    "education": "education",
+    "residence": "residence",
+    "family_relationship": "family_relationship",
+}
+
+_WO13_SENTENCE_TERMINATORS = set(".!?\"')”’…")
+
+
+def _wo13_flag_legacy_suspect(
+    statement: str,
+    narrator_name: str,
+    meta: Dict[str, Any],
+    narrative_role: str,
+    meaning_tags: List[str],
+) -> int:
+    """Return 1 if the legacy fact matches a WO-12B contamination pattern.
+
+    Patterns:
+      (a) Truncation: statement does not end with a sentence terminator.
+      (b) Cross-narrator bleed: statement mentions 'Williston' but the
+          narrator is not Chris (the known stress-test source).
+      (c) chat_extraction origin: meta.source set by the broken client-side
+          regex path in ui/js/app.js.
+      (d) Climax + loss combo: narrative_role='climax' with a 'loss' tag
+          (matches the climax-stamping routing bug).
+    """
+    s = (statement or "").strip()
+    if s:
+        last_char = s[-1]
+        if last_char not in _WO13_SENTENCE_TERMINATORS:
+            return 1
+    if s and "williston" in s.lower() and "chris" not in (narrator_name or "").lower():
+        return 1
+    try:
+        if str((meta or {}).get("source", "")).lower() == "chat_extraction":
+            return 1
+    except Exception:
+        pass
+    if (narrative_role or "").lower() == "climax":
+        for t in meaning_tags or []:
+            if str(t).lower() == "loss":
+                return 1
+    return 0
+
+
+def _wo13_backfill_facts_to_family_truth_rows(
+    con: sqlite3.Connection, cur: sqlite3.Cursor
+) -> None:
+    """Idempotent one-time backfill. Safe to run on every boot."""
+    try:
+        facts_rows = cur.execute(
+            "SELECT id,person_id,session_id,fact_type,statement,date_text,"
+            "date_normalized,confidence,status,inferred,source_turn_index,"
+            "created_at,updated_at,meta_json,meaning_tags_json,narrative_role,"
+            "experience,reflection FROM facts;"
+        ).fetchall()
+    except sqlite3.Error as e:
+        logger.warning("WO-13 backfill: facts table not queryable (%s); skipping", e)
+        return
+
+    if not facts_rows:
+        return
+
+    people_map = {
+        r[0]: (r[1] or "")
+        for r in cur.execute("SELECT id, display_name FROM people;").fetchall()
+    }
+
+    now = _now_iso()
+    inserted = 0
+    suspect = 0
+    for f in facts_rows:
+        fid = f["id"]
+        existing = cur.execute(
+            "SELECT 1 FROM family_truth_rows WHERE source_fact_id=? LIMIT 1;",
+            (fid,),
+        ).fetchone()
+        if existing:
+            continue
+
+        meta = _json_load(f["meta_json"], {}) or {}
+        meaning_tags = _json_load(f["meaning_tags_json"], []) or []
+        statement = (f["statement"] or "").strip()
+        fact_type = (f["fact_type"] or "general").strip() or "general"
+        person_id = f["person_id"] or ""
+        narrator_name = people_map.get(person_id, "")
+        narrative_role = f["narrative_role"] or ""
+
+        legacy_suspect = _wo13_flag_legacy_suspect(
+            statement, narrator_name, meta, narrative_role, meaning_tags
+        )
+        if legacy_suspect:
+            suspect += 1
+
+        field = _WO13_FACT_TYPE_TO_FIELD.get(fact_type, fact_type)
+
+        provenance = {
+            "session_id": f["session_id"] or "",
+            "source_turn_index": f["source_turn_index"],
+            "legacy_meta": meta,
+            "legacy_fact_type": fact_type,
+            "legacy_status": f["status"] or "",
+            "legacy_experience": f["experience"] or "",
+            "legacy_reflection": f["reflection"] or "",
+            "backfilled_at": now,
+        }
+
+        cur.execute(
+            """
+            INSERT INTO family_truth_rows(
+              id, person_id, note_id, subject_name, relationship, field,
+              source_says, approved_value, status, qualification,
+              reviewer, reviewed_at, confidence, narrative_role, meaning_tags,
+              provenance, legacy_suspect, extraction_method, source_fact_id,
+              created_at, updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            """,
+            (
+                _uuid(),
+                person_id,
+                None,
+                narrator_name,            # subject defaults to narrator (self-claim)
+                "self",
+                field,
+                statement,                # source_says = raw statement (preserved)
+                "",                       # approved_value — empty until reviewer sets it
+                "needs_verify",           # every backfilled row must be reviewed
+                "",                       # qualification
+                "",                       # reviewer
+                "",                       # reviewed_at
+                float(f["confidence"] or 0.0),
+                narrative_role,
+                _json_dump(meaning_tags),
+                _json_dump(provenance),
+                legacy_suspect,
+                "backfill",
+                fid,
+                f["created_at"] or now,
+                now,
+            ),
+        )
+        inserted += 1
+
+    if inserted:
+        logger.info(
+            "WO-13 backfill: migrated %d legacy facts → family_truth_rows "
+            "(%d flagged legacy_suspect=1). facts table untouched.",
+            inserted,
+            suspect,
+        )
+
+
+# -----------------------------------------------------------------------------
+# WO-13 Phase 3 — Reference narrator seeding
+#
+# Known reference narrators are seeded by display_name substring match. The
+# seed is idempotent — it only promotes a person from 'live' → 'reference'.
+# It never demotes. To demote, use PATCH /api/people/{id}.
+#
+# Env override:
+#   HORNELORE_REFERENCE_NARRATORS="Shatner,Dolly,Other Name"
+# -----------------------------------------------------------------------------
+_WO13_DEFAULT_REFERENCE_NAMES = ("shatner", "dolly")
+
+
+def _wo13_reference_name_patterns() -> List[str]:
+    raw = os.getenv("HORNELORE_REFERENCE_NARRATORS", "")
+    if not raw.strip():
+        return list(_WO13_DEFAULT_REFERENCE_NAMES)
+    return [p.strip().lower() for p in raw.split(",") if p.strip()]
+
+
+def _wo13_seed_reference_narrators(
+    con: sqlite3.Connection, cur: sqlite3.Cursor
+) -> None:
+    patterns = _wo13_reference_name_patterns()
+    if not patterns:
+        return
+    rows = cur.execute(
+        "SELECT id, display_name, narrator_type FROM people;"
+    ).fetchall()
+    promoted = 0
+    for r in rows:
+        name = (r["display_name"] or "").lower()
+        current = (r["narrator_type"] or "live").lower()
+        if current == "reference":
+            continue
+        if any(pat in name for pat in patterns):
+            cur.execute(
+                "UPDATE people SET narrator_type='reference', updated_at=? WHERE id=?;",
+                (_now_iso(), r["id"]),
+            )
+            promoted += 1
+    if promoted:
+        logger.info(
+            "WO-13 narrator_type seed: promoted %d people to reference (patterns=%s)",
+            promoted,
+            patterns,
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -417,6 +640,30 @@ def init_db() -> None:
     )
 
     # -----------------------------
+    # WO-13 Phase 3 — narrator_type (live | reference)
+    #
+    # live:       a real, interviewable narrator whose memories feed the memoir
+    #             (Kent, Janice, Chris, Maggie, etc). Writable through the normal
+    #             extraction + family-truth pipeline.
+    # reference:  an illustrative / role-model narrator seeded from structuredBio
+    #             or profile (Shatner, Dolly). Fully read-only from the
+    #             narrative-memory pipeline — facts.add and family_truth writes
+    #             are rejected with 403. Profile writes are still allowed so the
+    #             canonical seed data can be maintained.
+    #
+    # Default 'live' for all existing rows; the seed routine below promotes
+    # known reference narrators by display_name match.
+    # -----------------------------
+    if "narrator_type" not in people_cols:
+        cur.execute(
+            "ALTER TABLE people ADD COLUMN narrator_type TEXT NOT NULL DEFAULT 'live';"
+        )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_people_narrator_type ON people(narrator_type, is_deleted);"
+    )
+    _wo13_seed_reference_narrators(con, cur)
+
+    # -----------------------------
     # Narrator delete audit log (Phase 2 — append-only)
     # -----------------------------
     cur.execute(
@@ -559,6 +806,138 @@ def init_db() -> None:
 
     _ensure_phase_g_tables(con, cur)
     _ensure_phase_q1_tables(con, cur)
+
+    # -----------------------------
+    # WO-13 Phase 1 — Family Truth tables (Shadow Archive + Proposal + Promoted)
+    #
+    # family_truth_notes : append-only raw shadow archive (freeform body a user
+    #                      or the extractor dropped in, never promoted directly)
+    # family_truth_rows  : structured proposals that may be approved / qualified
+    #                      / flagged for verify / kept as source-only / rejected.
+    #                      Promoted truth = rows with status in ('approve','approve_q').
+    # -----------------------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS family_truth_notes (
+          id TEXT PRIMARY KEY,
+          person_id TEXT NOT NULL,
+          body TEXT NOT NULL,
+          source_kind TEXT NOT NULL DEFAULT 'chat',
+          source_ref TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL DEFAULT 'system',
+          review_locked INTEGER NOT NULL DEFAULT 0,
+          FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE
+        );
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_notes_person ON family_truth_notes(person_id, created_at);"
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS family_truth_rows (
+          id TEXT PRIMARY KEY,
+          person_id TEXT NOT NULL,
+          note_id TEXT,
+          subject_name TEXT NOT NULL DEFAULT '',
+          relationship TEXT NOT NULL DEFAULT '',
+          field TEXT NOT NULL,
+          source_says TEXT NOT NULL DEFAULT '',
+          approved_value TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'needs_verify',
+          qualification TEXT NOT NULL DEFAULT '',
+          reviewer TEXT NOT NULL DEFAULT '',
+          reviewed_at TEXT NOT NULL DEFAULT '',
+          confidence REAL NOT NULL DEFAULT 0.0,
+          narrative_role TEXT NOT NULL DEFAULT '',
+          meaning_tags TEXT NOT NULL DEFAULT '[]',
+          provenance TEXT NOT NULL DEFAULT '{}',
+          legacy_suspect INTEGER NOT NULL DEFAULT 0,
+          extraction_method TEXT NOT NULL DEFAULT '',
+          source_fact_id TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE,
+          FOREIGN KEY(note_id)  REFERENCES family_truth_notes(id) ON DELETE SET NULL
+        );
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_rows_person_status ON family_truth_rows(person_id, status);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_rows_subject_field ON family_truth_rows(person_id, subject_name, field);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_rows_note ON family_truth_rows(note_id);"
+    )
+    # Idempotency guard: a given legacy facts.id may only produce ONE backfilled row.
+    # Uses a partial unique index so non-backfilled rows (source_fact_id='') are unconstrained.
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ft_rows_source_fact "
+        "ON family_truth_rows(source_fact_id) WHERE source_fact_id <> '';"
+    )
+
+    # -----------------------------
+    # WO-13 Phase 7 — Promoted Truth table.
+    #
+    # This is the FOURTH layer of the four-layer truth pipeline:
+    #
+    #   Shadow Archive (notes) → Proposal (rows) → Review → Promoted Truth
+    #
+    # Each record is the canonical value for one (person_id, subject_name,
+    # field) triple. `ft_promote_row` UPSERTs into this table using that key
+    # as the uniqueness constraint, so re-running a promotion on an identical
+    # row is a true no-op (same values → same hash → updated_at not touched).
+    #
+    # Rules enforced at promotion time:
+    #   - Protected identity fields coming from `rules_fallback` are refused.
+    #   - Reference narrators are refused upstream by the router's 403 guard.
+    #   - Only rows with status IN ('approve','approve_q') are eligible.
+    # -----------------------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS family_truth_promoted (
+          id TEXT PRIMARY KEY,
+          person_id TEXT NOT NULL,
+          subject_name TEXT NOT NULL DEFAULT '',
+          relationship TEXT NOT NULL DEFAULT 'self',
+          field TEXT NOT NULL,
+          value TEXT NOT NULL DEFAULT '',
+          qualification TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'approve',
+          source_row_id TEXT NOT NULL DEFAULT '',
+          source_note_id TEXT NOT NULL DEFAULT '',
+          source_says TEXT NOT NULL DEFAULT '',
+          extraction_method TEXT NOT NULL DEFAULT '',
+          confidence REAL NOT NULL DEFAULT 0.0,
+          reviewer TEXT NOT NULL DEFAULT '',
+          content_hash TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE
+        );
+        """
+    )
+    # The PRIMARY uniqueness key for promoted truth. Enforces one row per
+    # (person, subject, field). ON CONFLICT DO UPDATE keyed off this index.
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ft_promoted_subject_field "
+        "ON family_truth_promoted(person_id, subject_name, field);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_promoted_person "
+        "ON family_truth_promoted(person_id, updated_at);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_promoted_source_row "
+        "ON family_truth_promoted(source_row_id);"
+    )
+
+    # One-time (idempotent) backfill of legacy facts rows into family_truth_rows.
+    _wo13_backfill_facts_to_family_truth_rows(con, cur)
 
     con.commit()
     con.close()
@@ -740,28 +1119,46 @@ def persist_turn_transaction(
 # -----------------------------------------------------------------------------
 # People (routers/people.py)
 # -----------------------------------------------------------------------------
+# WO-13 Phase 3 — narrator_type constants
+NARRATOR_TYPES = ("live", "reference")
+
+
+def _normalise_narrator_type(value: Optional[str]) -> str:
+    if value is None:
+        return "live"
+    v = str(value).strip().lower()
+    if v not in NARRATOR_TYPES:
+        raise ValueError(f"narrator_type must be one of {NARRATOR_TYPES}; got {value!r}")
+    return v
+
+
 def create_person(
     display_name: str,
     role: str = "",
     date_of_birth: str = "",
     place_of_birth: str = "",
+    narrator_type: str = "live",
 ) -> Dict[str, Any]:
     init_db()
     pid = _uuid()
     now = _now_iso()
+    nt = _normalise_narrator_type(narrator_type)
     con = _connect()
     con.execute(
         """
-        INSERT INTO people(id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?);
+        INSERT INTO people(id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,narrator_type)
+        VALUES(?,?,?,?,?,?,?,?);
         """,
-        (pid, display_name, role or "", _sanitise_dob(date_of_birth), place_of_birth or "", now, now),
+        (pid, display_name, role or "", _sanitise_dob(date_of_birth), place_of_birth or "", now, now, nt),
     )
     con.commit()
     con.close()
     ensure_profile(pid)
     # v7.4D — log person creation for DB verification (Phase 0)
-    logger.info("DB create_person: id=%s name=%r dob=%r pob=%r", pid, display_name, date_of_birth, place_of_birth)
+    logger.info(
+        "DB create_person: id=%s name=%r dob=%r pob=%r narrator_type=%s",
+        pid, display_name, date_of_birth, place_of_birth, nt,
+    )
     return get_person(pid) or {"id": pid, "display_name": display_name}
 
 
@@ -771,9 +1168,11 @@ def update_person(
     role: Optional[str] = None,
     date_of_birth: Optional[str] = None,
     place_of_birth: Optional[str] = None,
+    narrator_type: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     init_db()
     now = _now_iso()
+    nt = _normalise_narrator_type(narrator_type) if narrator_type is not None else None
     con = _connect()
     row = con.execute("SELECT id FROM people WHERE id=?;", (person_id,)).fetchone()
     if not row:
@@ -786,10 +1185,19 @@ def update_person(
             role=COALESCE(?,role),
             date_of_birth=COALESCE(?,date_of_birth),
             place_of_birth=COALESCE(?,place_of_birth),
+            narrator_type=COALESCE(?,narrator_type),
             updated_at=?
         WHERE id=?;
         """,
-        (display_name, role, _sanitise_dob(date_of_birth) if date_of_birth is not None else None, place_of_birth, now, person_id),
+        (
+            display_name,
+            role,
+            _sanitise_dob(date_of_birth) if date_of_birth is not None else None,
+            place_of_birth,
+            nt,
+            now,
+            person_id,
+        ),
     )
     con.commit()
     con.close()
@@ -803,7 +1211,7 @@ def list_people(limit: int = 50, offset: int = 0, include_deleted: bool = False)
         rows = con.execute(
             """
             SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,
-                   is_deleted,deleted_at,undo_expires_at
+                   narrator_type,is_deleted,deleted_at,undo_expires_at
             FROM people
             ORDER BY updated_at DESC
             LIMIT ? OFFSET ?;
@@ -813,7 +1221,8 @@ def list_people(limit: int = 50, offset: int = 0, include_deleted: bool = False)
     else:
         rows = con.execute(
             """
-            SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at
+            SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,
+                   narrator_type
             FROM people
             WHERE is_deleted = 0
             ORDER BY updated_at DESC
@@ -830,13 +1239,33 @@ def get_person(person_id: str) -> Optional[Dict[str, Any]]:
     con = _connect()
     row = con.execute(
         """
-        SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at
+        SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,
+               narrator_type
         FROM people WHERE id=?;
         """,
         (person_id,),
     ).fetchone()
     con.close()
     return dict(row) if row else None
+
+
+# -----------------------------------------------------------------------------
+# WO-13 Phase 3 — Reference narrator helpers
+# -----------------------------------------------------------------------------
+def get_narrator_type(person_id: str) -> Optional[str]:
+    """Return 'live' | 'reference' | None (if person does not exist)."""
+    p = get_person(person_id)
+    if not p:
+        return None
+    return (p.get("narrator_type") or "live").lower()
+
+
+def is_reference_narrator(person_id: str) -> bool:
+    return get_narrator_type(person_id) == "reference"
+
+
+def set_narrator_type(person_id: str, narrator_type: str) -> Optional[Dict[str, Any]]:
+    return update_person(person_id, narrator_type=narrator_type)
 
 
 # -----------------------------------------------------------------------------
@@ -1619,6 +2048,586 @@ def delete_fact(fact_id: str) -> bool:
     con.commit()
     con.close()
     return cur.rowcount > 0
+
+
+# -----------------------------------------------------------------------------
+# WO-13 — Family Truth helpers (notes + rows)
+#
+# This is the new write path for narrative memory. Legacy `facts` stays frozen.
+#   * family_truth_notes  = shadow archive (raw text, append-only)
+#   * family_truth_rows   = structured proposals; promoted truth is the subset
+#                           with status in ('approve','approve_q')
+#
+# Valid row statuses (five-status vocabulary from WO-13 v2):
+#   approve | approve_q | needs_verify | source_only | reject
+# -----------------------------------------------------------------------------
+FT_ROW_STATUSES = ("approve", "approve_q", "needs_verify", "source_only", "reject")
+FT_EXTRACTION_METHODS = ("llm", "rules", "hybrid", "rules_fallback", "backfill", "manual", "questionnaire")
+
+# WO-13 Phase 4/6/7 — The five identity-critical fields.
+# These fields can NEVER be promoted from a rules_fallback row (regex-based
+# client-side extraction). They MAY be promoted from a manual, llm, or
+# questionnaire source, but the rules_fallback path is permanently blocked
+# as defence in depth against the WO-12B contamination class.
+FT_PROTECTED_IDENTITY_FIELDS = (
+    "personal.fullName",
+    "personal.preferredName",
+    "personal.dateOfBirth",
+    "personal.placeOfBirth",
+    "personal.birthOrder",
+)
+
+
+def ft_add_note(
+    person_id: str,
+    body: str,
+    source_kind: str = "chat",
+    source_ref: str = "",
+    created_by: str = "system",
+) -> Dict[str, Any]:
+    """Append a raw shadow-archive note. Never promoted directly."""
+    init_db()
+    nid = _uuid()
+    now = _now_iso()
+    con = _connect()
+    con.execute(
+        """
+        INSERT INTO family_truth_notes(
+          id, person_id, body, source_kind, source_ref,
+          created_at, created_by, review_locked
+        ) VALUES(?,?,?,?,?,?,?,0);
+        """,
+        (nid, person_id, body or "", source_kind or "chat", source_ref or "", now, created_by or "system"),
+    )
+    con.commit()
+    con.close()
+    return {
+        "id": nid,
+        "person_id": person_id,
+        "body": body or "",
+        "source_kind": source_kind or "chat",
+        "source_ref": source_ref or "",
+        "created_at": now,
+        "created_by": created_by or "system",
+        "review_locked": 0,
+    }
+
+
+def ft_list_notes(person_id: str, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+    init_db()
+    con = _connect()
+    rows = con.execute(
+        "SELECT id,person_id,body,source_kind,source_ref,created_at,created_by,review_locked "
+        "FROM family_truth_notes WHERE person_id=? "
+        "ORDER BY created_at ASC LIMIT ? OFFSET ?;",
+        (person_id, int(limit), int(offset)),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def ft_get_note(note_id: str) -> Optional[Dict[str, Any]]:
+    init_db()
+    con = _connect()
+    r = con.execute(
+        "SELECT id,person_id,body,source_kind,source_ref,created_at,created_by,review_locked "
+        "FROM family_truth_notes WHERE id=?;",
+        (note_id,),
+    ).fetchone()
+    con.close()
+    return dict(r) if r else None
+
+
+def ft_add_row(
+    person_id: str,
+    field: str,
+    source_says: str,
+    note_id: Optional[str] = None,
+    subject_name: str = "",
+    relationship: str = "self",
+    status: str = "needs_verify",
+    approved_value: str = "",
+    qualification: str = "",
+    confidence: float = 0.0,
+    narrative_role: str = "",
+    meaning_tags: Optional[List[str]] = None,
+    provenance: Optional[Dict[str, Any]] = None,
+    extraction_method: str = "manual",
+    legacy_suspect: int = 0,
+    source_fact_id: str = "",
+) -> Dict[str, Any]:
+    """Create a new structured proposal row in family_truth_rows.
+
+    Status defaults to `needs_verify`. `approve` and `approve_q` are only set
+    through the review endpoints or the promotion flow.
+    """
+    if status not in FT_ROW_STATUSES:
+        raise ValueError(f"invalid status {status!r}, expected one of {FT_ROW_STATUSES}")
+    init_db()
+    rid = _uuid()
+    now = _now_iso()
+    con = _connect()
+    con.execute(
+        """
+        INSERT INTO family_truth_rows(
+          id, person_id, note_id, subject_name, relationship, field,
+          source_says, approved_value, status, qualification,
+          reviewer, reviewed_at, confidence, narrative_role, meaning_tags,
+          provenance, legacy_suspect, extraction_method, source_fact_id,
+          created_at, updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+        """,
+        (
+            rid,
+            person_id,
+            note_id,
+            subject_name or "",
+            relationship or "self",
+            field,
+            source_says or "",
+            approved_value or "",
+            status,
+            qualification or "",
+            "",
+            "",
+            float(confidence or 0.0),
+            narrative_role or "",
+            _json_dump(meaning_tags or []),
+            _json_dump(provenance or {}),
+            int(legacy_suspect or 0),
+            extraction_method or "manual",
+            source_fact_id or "",
+            now,
+            now,
+        ),
+    )
+    con.commit()
+    con.close()
+    return ft_get_row(rid) or {}
+
+
+def ft_get_row(row_id: str) -> Optional[Dict[str, Any]]:
+    init_db()
+    con = _connect()
+    r = con.execute(
+        "SELECT * FROM family_truth_rows WHERE id=?;", (row_id,)
+    ).fetchone()
+    con.close()
+    if not r:
+        return None
+    d = dict(r)
+    d["meaning_tags"] = _json_load(d.get("meaning_tags"), [])
+    d["provenance"] = _json_load(d.get("provenance"), {})
+    return d
+
+
+def ft_list_rows(
+    person_id: str,
+    status: Optional[Union[str, List[str]]] = None,
+    include_suspect: bool = True,
+    subject_name: Optional[str] = None,
+    field: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    init_db()
+    con = _connect()
+    where = ["person_id = ?"]
+    params: List[Any] = [person_id]
+    if status:
+        if isinstance(status, str):
+            status_list = [s.strip() for s in status.split(",") if s.strip()]
+        else:
+            status_list = list(status)
+        if status_list:
+            where.append(f"status IN ({','.join('?' * len(status_list))})")
+            params.extend(status_list)
+    if not include_suspect:
+        where.append("legacy_suspect = 0")
+    if subject_name:
+        where.append("subject_name = ?")
+        params.append(subject_name)
+    if field:
+        where.append("field = ?")
+        params.append(field)
+    sql = (
+        "SELECT * FROM family_truth_rows WHERE " + " AND ".join(where) +
+        " ORDER BY created_at ASC LIMIT ? OFFSET ?;"
+    )
+    params.extend([int(limit), int(offset)])
+    rows = con.execute(sql, tuple(params)).fetchall()
+    con.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["meaning_tags"] = _json_load(d.get("meaning_tags"), [])
+        d["provenance"] = _json_load(d.get("provenance"), {})
+        out.append(d)
+    return out
+
+
+def ft_update_row(
+    row_id: str,
+    status: Optional[str] = None,
+    approved_value: Optional[str] = None,
+    qualification: Optional[str] = None,
+    reviewer: Optional[str] = None,
+    subject_name: Optional[str] = None,
+    relationship: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Reviewer-facing partial update. Records `reviewed_at` whenever status changes."""
+    if status is not None and status not in FT_ROW_STATUSES:
+        raise ValueError(f"invalid status {status!r}, expected one of {FT_ROW_STATUSES}")
+    init_db()
+    current = ft_get_row(row_id)
+    if not current:
+        return None
+    fields: List[str] = []
+    params: List[Any] = []
+    if status is not None and status != current.get("status"):
+        fields.append("status = ?")
+        params.append(status)
+        fields.append("reviewed_at = ?")
+        params.append(_now_iso())
+        if reviewer is not None:
+            fields.append("reviewer = ?")
+            params.append(reviewer)
+    elif reviewer is not None:
+        fields.append("reviewer = ?")
+        params.append(reviewer)
+    if approved_value is not None:
+        fields.append("approved_value = ?")
+        params.append(approved_value)
+    if qualification is not None:
+        fields.append("qualification = ?")
+        params.append(qualification)
+    if subject_name is not None:
+        fields.append("subject_name = ?")
+        params.append(subject_name)
+    if relationship is not None:
+        fields.append("relationship = ?")
+        params.append(relationship)
+    if not fields:
+        return current
+    fields.append("updated_at = ?")
+    params.append(_now_iso())
+    params.append(row_id)
+    con = _connect()
+    con.execute(
+        f"UPDATE family_truth_rows SET {', '.join(fields)} WHERE id = ?;",
+        tuple(params),
+    )
+    con.commit()
+    con.close()
+    return ft_get_row(row_id)
+
+
+def ft_bulk_update_rows(
+    row_ids: List[str],
+    status: str,
+    reviewer: Optional[str] = None,
+) -> int:
+    """Bulk status update used for e.g. 'bulk dismiss legacy_suspect'. Returns count."""
+    if status not in FT_ROW_STATUSES:
+        raise ValueError(f"invalid status {status!r}")
+    if not row_ids:
+        return 0
+    init_db()
+    now = _now_iso()
+    con = _connect()
+    placeholders = ",".join("?" * len(row_ids))
+    con.execute(
+        f"UPDATE family_truth_rows SET status=?, reviewer=COALESCE(?, reviewer), "
+        f"reviewed_at=?, updated_at=? WHERE id IN ({placeholders});",
+        tuple([status, reviewer, now, now, *row_ids]),
+    )
+    n = con.total_changes
+    con.commit()
+    con.close()
+    return n
+
+
+def ft_row_audit(row_id: str) -> Optional[Dict[str, Any]]:
+    """Return provenance + full row snapshot for audit UI (Phase 2 surface).
+
+    A full append-only audit log is deferred to Phase 7; for now we return
+    the row's current state plus its provenance JSON, which is sufficient
+    for the review UI to display where a claim came from.
+    """
+    row = ft_get_row(row_id)
+    if not row:
+        return None
+    return {
+        "row": row,
+        "provenance": row.get("provenance") or {},
+        "legacy_suspect": row.get("legacy_suspect") or 0,
+        "extraction_method": row.get("extraction_method") or "",
+        "source_fact_id": row.get("source_fact_id") or "",
+    }
+
+
+def _ft_is_protected_identity_field(field: str) -> bool:
+    """True when `field` is one of the five identity-critical fields that
+    can never be promoted from a rules_fallback row."""
+    return str(field or "").strip() in FT_PROTECTED_IDENTITY_FIELDS
+
+
+def _ft_promoted_content_hash(
+    value: str,
+    qualification: str,
+    status: str,
+    extraction_method: str,
+    subject_name: str,
+    relationship: str,
+    source_says: str,
+) -> str:
+    """Stable hash over the fields that define 'meaning' of a promoted row.
+
+    If this hash is unchanged on an upsert, the row is considered a no-op
+    and `updated_at` is NOT touched — which is what makes idempotency
+    directly provable with a timestamp check.
+    """
+    import hashlib
+    payload = "\x1e".join([
+        value or "",
+        qualification or "",
+        status or "",
+        extraction_method or "",
+        subject_name or "",
+        relationship or "",
+        source_says or "",
+    ])
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def ft_get_promoted(person_id: str, subject_name: str, field: str) -> Optional[Dict[str, Any]]:
+    """Fetch a single promoted row by the natural key."""
+    init_db()
+    con = _connect()
+    r = con.execute(
+        "SELECT * FROM family_truth_promoted "
+        "WHERE person_id=? AND subject_name=? AND field=?;",
+        (person_id, subject_name or "", field),
+    ).fetchone()
+    con.close()
+    return dict(r) if r else None
+
+
+def ft_list_promoted(
+    person_id: str,
+    subject_name: Optional[str] = None,
+    field: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """List promoted rows for a person. Optional filters by subject/field."""
+    init_db()
+    con = _connect()
+    where = ["person_id = ?"]
+    params: List[Any] = [person_id]
+    if subject_name is not None:
+        where.append("subject_name = ?")
+        params.append(subject_name)
+    if field is not None:
+        where.append("field = ?")
+        params.append(field)
+    sql = (
+        "SELECT * FROM family_truth_promoted WHERE " + " AND ".join(where) +
+        " ORDER BY updated_at DESC LIMIT ? OFFSET ?;"
+    )
+    params.extend([int(limit), int(offset)])
+    rows = con.execute(sql, tuple(params)).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def ft_promoted_upsert(row_id: str, reviewer: str = "") -> Dict[str, Any]:
+    """Upsert a proposal row into family_truth_promoted, keyed by
+    (person_id, subject_name, field).
+
+    Returns a dict with:
+      - ok          : bool
+      - op          : 'created' | 'updated' | 'noop' | 'blocked' | 'skipped'
+      - reason      : str  (only for blocked/skipped)
+      - record      : dict (the promoted row, or None)
+      - row_id      : the source row id
+      - from_status : the source row status at time of promotion
+
+    Rules:
+      - Source row must exist and have status in ('approve','approve_q').
+        Anything else returns op='skipped' with reason='not_approved'.
+      - Protected identity fields coming from rules_fallback are refused
+        with op='blocked' reason='protected_identity_rules_fallback'.
+      - When the content hash is unchanged the existing record's
+        updated_at is not touched; op='noop' is returned.
+      - When no prior record exists the row is INSERTed; op='created'.
+      - When values differ from the existing record the row is UPDATEd;
+        op='updated' and updated_at is refreshed.
+    """
+    init_db()
+    src = ft_get_row(row_id)
+    if not src:
+        return {"ok": False, "op": "skipped", "reason": "row_not_found",
+                "record": None, "row_id": row_id, "from_status": None}
+
+    if src.get("status") not in ("approve", "approve_q"):
+        return {"ok": False, "op": "skipped", "reason": "not_approved",
+                "record": None, "row_id": row_id,
+                "from_status": src.get("status")}
+
+    field = (src.get("field") or "").strip()
+    extraction = (src.get("extraction_method") or "").strip()
+    if _ft_is_protected_identity_field(field) and extraction == "rules_fallback":
+        return {"ok": False, "op": "blocked",
+                "reason": "protected_identity_rules_fallback",
+                "record": None, "row_id": row_id,
+                "from_status": src.get("status")}
+
+    person_id = src["person_id"]
+    subject_name = (src.get("subject_name") or "").strip()
+    relationship = (src.get("relationship") or "self").strip()
+    source_says = src.get("source_says") or ""
+    qualification = src.get("qualification") or ""
+    status = src.get("status") or "approve"
+    # The canonical value: prefer a reviewer-approved value; otherwise fall
+    # back to the narrator's source_says. This matches the review UI, which
+    # stores explicit approved_value only when the reviewer edits the text.
+    value = (src.get("approved_value") or "").strip() or source_says
+    confidence = float(src.get("confidence") or 0.0)
+    note_id = src.get("note_id") or ""
+
+    new_hash = _ft_promoted_content_hash(
+        value=value,
+        qualification=qualification,
+        status=status,
+        extraction_method=extraction,
+        subject_name=subject_name,
+        relationship=relationship,
+        source_says=source_says,
+    )
+
+    existing = ft_get_promoted(person_id, subject_name, field)
+    now = _now_iso()
+    con = _connect()
+    if existing is None:
+        pid = _uuid()
+        con.execute(
+            """
+            INSERT INTO family_truth_promoted(
+              id, person_id, subject_name, relationship, field, value,
+              qualification, status, source_row_id, source_note_id,
+              source_says, extraction_method, confidence, reviewer,
+              content_hash, created_at, updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            """,
+            (
+                pid, person_id, subject_name, relationship, field, value,
+                qualification, status, row_id, note_id, source_says,
+                extraction, confidence, reviewer or "",
+                new_hash, now, now,
+            ),
+        )
+        con.commit()
+        con.close()
+        record = ft_get_promoted(person_id, subject_name, field)
+        return {"ok": True, "op": "created", "record": record,
+                "row_id": row_id, "from_status": status}
+
+    # Already exists — compare hashes for true no-op semantics.
+    if existing.get("content_hash") == new_hash:
+        con.close()
+        return {"ok": True, "op": "noop", "record": existing,
+                "row_id": row_id, "from_status": status}
+
+    con.execute(
+        """
+        UPDATE family_truth_promoted SET
+          subject_name = ?, relationship = ?, field = ?, value = ?,
+          qualification = ?, status = ?, source_row_id = ?,
+          source_note_id = ?, source_says = ?, extraction_method = ?,
+          confidence = ?, reviewer = ?, content_hash = ?, updated_at = ?
+        WHERE id = ?;
+        """,
+        (
+            subject_name, relationship, field, value, qualification, status,
+            row_id, note_id, source_says, extraction, confidence,
+            reviewer or existing.get("reviewer") or "",
+            new_hash, now, existing["id"],
+        ),
+    )
+    con.commit()
+    con.close()
+    record = ft_get_promoted(person_id, subject_name, field)
+    return {"ok": True, "op": "updated", "record": record,
+            "row_id": row_id, "from_status": status}
+
+
+def ft_promote_row(row_id: str, reviewer: str = "", qualification: str = "") -> Dict[str, Any]:
+    """WO-13 Phase 7 — real promotion semantics.
+
+    Flow:
+      1. Flip the source row's status to 'approve' (or 'approve_q' if a
+         qualification is supplied) — preserves prior Phase 2 semantics.
+      2. UPSERT into family_truth_promoted keyed by
+         (person_id, subject_name, field). This is the authoritative truth
+         layer that downstream consumers will read from in Phase 8.
+
+    The return shape is:
+      {
+        "row":      <updated proposal row>,
+        "promoted": <op result from ft_promoted_upsert>,
+      }
+
+    Idempotency is guaranteed by the content_hash check inside
+    ft_promoted_upsert — calling ft_promote_row a second time with the same
+    inputs returns op='noop' and does NOT advance updated_at.
+
+    Protected identity fields from rules_fallback are still blocked: the
+    source row's status flip still happens (a reviewer DID approve the
+    claim, after all), but the UPSERT returns op='blocked' so no
+    promoted-truth record is ever created for a rules_fallback identity
+    field. Downstream readers never see it.
+    """
+    target_status = "approve_q" if (qualification or "").strip() else "approve"
+    updated = ft_update_row(
+        row_id,
+        status=target_status,
+        qualification=qualification or None,
+        reviewer=reviewer or None,
+    )
+    if not updated:
+        return {"row": None, "promoted": {
+            "ok": False, "op": "skipped", "reason": "row_not_found",
+            "record": None, "row_id": row_id, "from_status": None,
+        }}
+    promoted = ft_promoted_upsert(row_id, reviewer=reviewer or "")
+    return {"row": updated, "promoted": promoted}
+
+
+def ft_promote_all_approved(person_id: str, reviewer: str = "") -> Dict[str, Any]:
+    """Bulk-upsert every approve/approve_q row for a person into
+    family_truth_promoted. Drives the 'Promote approved' button in the
+    Phase 6 review drawer.
+
+    Returns counts per op-class plus the full list of results so the
+    caller can show a detailed summary if desired.
+    """
+    init_db()
+    approved = ft_list_rows(person_id=person_id, status=["approve", "approve_q"])
+    results: List[Dict[str, Any]] = []
+    counts = {"created": 0, "updated": 0, "noop": 0, "blocked": 0, "skipped": 0}
+    for r in approved:
+        res = ft_promoted_upsert(r["id"], reviewer=reviewer or "")
+        results.append(res)
+        op = res.get("op", "skipped")
+        if op in counts:
+            counts[op] += 1
+    return {
+        "person_id": person_id,
+        "eligible": len(approved),
+        "counts": counts,
+        "results": results,
+    }
 
 
 # -----------------------------------------------------------------------------

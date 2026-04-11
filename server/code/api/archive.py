@@ -334,11 +334,258 @@ def export_transcript_txt(*, person_id: Optional[str], session_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# WO-13 Phase 5 — Rolling-summary contamination filter
+#
+# The rolling-summary layer aggregates distilled "scored items" and "active
+# threads" per narrator. WO-12B showed that cross-narrator content can leak in
+# (Janice's "Williston" memory surfacing in Kent's context) along with legacy
+# stress-test artefacts from earlier development builds.
+#
+# Two pieces of defence:
+#   1. Read-time filter applied by transcript router endpoints and by any
+#      downstream reader that calls filter_rolling_summary_for_narrator().
+#   2. Write-time filter applied inside write_rolling_summary so any new
+#      content persisted to disk is already cleaned.
+#
+# Known contamination heuristics:
+#   - Another LIVE narrator's distinctive name/alias appears in item text.
+#   - Text contains a legacy stress-test marker such as "williston" without
+#     the Chris/Montana anchor, or explicit marker strings.
+#   - Text is obviously truncated (no sentence terminator, dangling clause).
+#
+# The filter is non-destructive: it never mutates the input summary in place;
+# it returns a filtered shallow-copy. It also records the drop counts under
+# summary["wo13_filtered"] so the UI banner can surface "N items hidden".
+# ---------------------------------------------------------------------------
+
+# Explicit stress-test markers from earlier Hornelore builds.
+_WO13_STRESS_TEST_MARKERS = (
+    "stress_test",
+    "stress-test",
+    "test_narrator",
+    "synthetic_turn",
+    "artifact_marker",
+    "__wo12b__",
+)
+
+# WO-13 Phase 5b — meta-command / prompt-injection patterns. Rolling summary
+# items containing these fragments are almost certainly either (a) debug
+# instructions someone typed into chat or (b) adversarial prompt-injection
+# attempts the LLM shouldn't be memorising as biographical truth.
+_WO13_META_COMMAND_PATTERNS = (
+    "ignore previous",
+    "ignore the previous",
+    "ignore all previous",
+    "disregard previous",
+    "disregard the previous",
+    "you are now",
+    "pretend you are",
+    "pretend to be",
+    "act as if you",
+    "jailbreak",
+    "dan mode",
+    "/reset",
+    "!!reset",
+    "reset_narrator",
+    "system prompt",
+    "[system:",
+    "<|system|>",
+    "override instructions",
+)
+
+# Sentence terminators used for truncation detection (mirrors db._WO13_SENTENCE_TERMINATORS).
+_WO13_RS_SENTENCE_TERMINATORS = {".", "!", "?", "\"", "'", ")", "]", "…"}
+
+
+def _wo13_rs_other_narrator_markers(exclude_person_id: Optional[str]) -> Dict[str, str]:
+    """Build a {marker_lower: owner_person_id} map of every LIVE narrator
+    OTHER than the one being filtered for. Markers include the display name,
+    a distinctive first name (≥4 chars), and — if available — the place of
+    birth from the narrator's profile. Reference narrators are NOT included
+    because they're not live contamination sources in rolling summaries.
+    """
+    markers: Dict[str, str] = {}
+    try:
+        from . import db as _db  # local import to avoid circular at module load
+    except Exception:
+        return markers
+
+    try:
+        people = _db.list_people(limit=500)
+    except Exception:
+        return markers
+
+    for p in people:
+        pid = p.get("id")
+        if not pid or pid == exclude_person_id:
+            continue
+        nt = str(p.get("narrator_type") or "live").lower()
+        if nt != "live":
+            continue
+        name = (p.get("display_name") or "").strip()
+        if not name:
+            continue
+        markers[name.lower()] = pid
+        first = name.split()[0] if name.split() else ""
+        if len(first) >= 4:
+            # Distinctive first name — avoids false positives for short tokens.
+            markers[first.lower()] = pid
+    return markers
+
+
+def _wo13_rs_drop_reason(
+    text: str,
+    other_markers: Dict[str, str],
+    self_name_lower: str,
+) -> Optional[str]:
+    """Return a drop-reason string if `text` should be filtered, else None."""
+    if not text:
+        return None
+    tl = text.lower()
+
+    # 1. Explicit stress-test markers
+    for marker in _WO13_STRESS_TEST_MARKERS:
+        if marker in tl:
+            return f"stress_test:{marker}"
+
+    # 1b. Meta-command / prompt-injection patterns (Phase 5b). These are
+    # never legitimate biographical content and must be quarantined regardless
+    # of which narrator they appear under.
+    for pat in _WO13_META_COMMAND_PATTERNS:
+        if pat in tl:
+            return f"meta_command:{pat}"
+
+    # 2. The known WO-12B Williston contamination. "Williston" is a legitimate
+    #    token only when Chris (the source narrator) is the one being filtered
+    #    for — for every other narrator it is treated as bleed.
+    if "williston" in tl and "chris" not in self_name_lower:
+        return "cross_narrator:williston_source"
+
+    # 3. Another live narrator's distinctive marker appears in this narrator's
+    #    summary. A self-match is allowed (it's just the narrator's own name).
+    for marker, owner_pid in other_markers.items():
+        if marker in tl:
+            return f"cross_narrator:{owner_pid}"
+
+    # 4. Obvious truncation — dangling text with no sentence terminator and
+    #    >40 chars (the length cut-off avoids dropping keyword-style items).
+    stripped = text.strip()
+    if len(stripped) > 40 and stripped[-1] not in _WO13_RS_SENTENCE_TERMINATORS:
+        return "truncation"
+
+    return None
+
+
+def filter_rolling_summary_for_narrator(
+    summary: Optional[Dict[str, Any]],
+    person_id: Optional[str],
+) -> Dict[str, Any]:
+    """Return a filtered copy of `summary` with cross-narrator bleed and
+    stress-test artefacts removed. The original input is not mutated.
+
+    The filtered summary exposes ``summary['wo13_filtered']`` with counts and
+    drop reasons so the review UI can surface a banner ("N items hidden").
+    """
+    if not summary:
+        return summary or {}
+    # Shallow copy — we only replace the list-valued keys.
+    out: Dict[str, Any] = dict(summary)
+
+    other_markers = _wo13_rs_other_narrator_markers(person_id)
+
+    # Determine the filtered narrator's own name (for the Chris/Williston rule).
+    self_name_lower = ""
+    try:
+        from . import db as _db
+        if person_id:
+            me = _db.get_person(person_id)
+            if me:
+                self_name_lower = (me.get("display_name") or "").lower()
+    except Exception:
+        pass
+
+    dropped_scored = 0
+    dropped_threads = 0
+    dropped_facts = 0
+    dropped_reasons: Dict[str, int] = {}
+
+    def _note_drop(reason: str) -> None:
+        dropped_reasons[reason] = dropped_reasons.get(reason, 0) + 1
+
+    # Filter scored_items
+    kept_items: List[Dict[str, Any]] = []
+    for item in summary.get("scored_items", []) or []:
+        text = str(item.get("text", ""))
+        reason = _wo13_rs_drop_reason(text, other_markers, self_name_lower)
+        if reason:
+            dropped_scored += 1
+            _note_drop(reason)
+            continue
+        kept_items.append(item)
+    out["scored_items"] = kept_items
+
+    # Filter active_threads (combines topic_label + summary for detection)
+    kept_threads: List[Dict[str, Any]] = []
+    for thread in summary.get("active_threads", []) or []:
+        probe = " ".join([
+            str(thread.get("topic_label") or ""),
+            str(thread.get("subtopic_label") or ""),
+            str(thread.get("summary") or ""),
+        ])
+        reason = _wo13_rs_drop_reason(probe, other_markers, self_name_lower)
+        if reason:
+            dropped_threads += 1
+            _note_drop(reason)
+            continue
+        kept_threads.append(thread)
+    out["active_threads"] = kept_threads
+
+    # Filter legacy WO-9 flat fields if present
+    if "key_facts_mentioned" in summary:
+        kept_facts: List[str] = []
+        for fact in summary.get("key_facts_mentioned") or []:
+            reason = _wo13_rs_drop_reason(str(fact), other_markers, self_name_lower)
+            if reason:
+                dropped_facts += 1
+                _note_drop(reason)
+                continue
+            kept_facts.append(fact)
+        out["key_facts_mentioned"] = kept_facts
+
+    if "open_threads" in summary:
+        kept_open: List[str] = []
+        for t in summary.get("open_threads") or []:
+            reason = _wo13_rs_drop_reason(str(t), other_markers, self_name_lower)
+            if reason:
+                _note_drop(reason)
+                continue
+            kept_open.append(t)
+        out["open_threads"] = kept_open
+
+    out["wo13_filtered"] = {
+        "dropped_scored_items": dropped_scored,
+        "dropped_threads": dropped_threads,
+        "dropped_facts": dropped_facts,
+        "dropped_reasons": dropped_reasons,
+        "markers_checked": len(other_markers),
+    }
+    return out
+
+
+# ---------------------------------------------------------------------------
 # WO-9: Rolling summary  — compact narrator-scoped conversation memory
 # WO-10: Upgraded with scoring, pruning, multi-thread, and confidence
+# WO-13 Phase 5: Writes now go through filter_rolling_summary_for_narrator so
+# cross-narrator bleed and stress-test artefacts never persist to disk.
 # ---------------------------------------------------------------------------
 def read_rolling_summary(person_id: Optional[str]) -> Dict[str, Any]:
-    """Read the rolling summary for a narrator, or {} if absent."""
+    """Read the rolling summary for a narrator, or {} if absent.
+
+    NOTE: This function returns the RAW on-disk summary. Callers that need a
+    filtered view should wrap the result with
+    :func:`filter_rolling_summary_for_narrator`. The transcript router does
+    this for every outward-facing endpoint.
+    """
     path = person_root(person_id) / "rolling_summary.json"
     if not path.exists():
         return {}
@@ -349,13 +596,21 @@ def read_rolling_summary(person_id: Optional[str]) -> Dict[str, Any]:
 
 
 def write_rolling_summary(person_id: Optional[str], payload: Dict[str, Any]) -> None:
-    """Write the rolling summary for a narrator."""
+    """Write the rolling summary for a narrator.
+
+    WO-13 Phase 5: Every payload is passed through the contamination filter
+    before being persisted, so new writes cannot accidentally reintroduce
+    cross-narrator bleed (e.g. Janice's Williston material in Kent's file).
+    The ``wo13_filtered`` metadata block is preserved on disk so downstream
+    audits can see what was dropped and when.
+    """
+    filtered = filter_rolling_summary_for_narrator(payload, person_id)
     root = person_root(person_id)
     root.mkdir(parents=True, exist_ok=True)
     path = root / "rolling_summary.json"
-    payload["last_updated"] = _now_iso()
+    filtered["last_updated"] = _now_iso()
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(filtered, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
 
