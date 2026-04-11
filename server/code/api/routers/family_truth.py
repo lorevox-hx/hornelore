@@ -375,3 +375,26 @@ def api_row_audit(row_id: str):
     if not audit:
         raise HTTPException(status_code=404, detail="row_id not found")
     return {"ok": True, "audit": audit}
+
+
+# -----------------------------------------------------------------------------
+# WO-13 Phase 8 — backfill endpoint
+# -----------------------------------------------------------------------------
+class BackfillRequest(BaseModel):
+    person_id: str = Field(..., description="Live narrator whose profile_json should be backfilled")
+
+
+@router.post("/backfill")
+def api_backfill(req: BackfillRequest):
+    """Seed shadow notes + needs_verify proposal rows from an existing
+    profile_json blob. No auto-promotion.
+
+    Used once per live narrator before flipping HORNELORE_TRUTH_V2_PROFILE
+    on, so the reviewer has something to approve in the Phase 6 drawer.
+    Idempotent — re-running on a partially reviewed narrator does not
+    create duplicates.
+    """
+    _require_person(req.person_id)
+    _block_if_reference(req.person_id, "backfill from profile_json")
+    result = db.ft_backfill_from_profile_json(req.person_id)
+    return {"ok": True, **result}

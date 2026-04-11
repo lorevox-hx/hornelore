@@ -18,13 +18,13 @@ Design rules enforced here:
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import db
+from ..flags import truth_v2_enabled
 
 
 def _truth_v2_enabled() -> bool:
@@ -33,10 +33,12 @@ def _truth_v2_enabled() -> bool:
     When HORNELORE_TRUTH_V2 is truthy, the legacy /api/facts/add write path is
     frozen and returns 410 Gone. Reads on /api/facts/list and status/delete
     operations remain available for back-compat during the transition.
+
+    WO-13 Phase 8 — this wrapper now delegates to the shared
+    ``flags.truth_v2_enabled('facts_write')`` helper so every router
+    reads the same env vars. Behaviour unchanged.
     """
-    return str(os.environ.get("HORNELORE_TRUTH_V2", "")).strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    return truth_v2_enabled("facts_write")
 
 router = APIRouter(prefix="/api/facts", tags=["facts"])
 

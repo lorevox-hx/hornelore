@@ -2631,6 +2631,267 @@ def ft_promote_all_approved(person_id: str, reviewer: str = "") -> Dict[str, Any
 
 
 # -----------------------------------------------------------------------------
+# WO-13 Phase 8 — profile builder + backfill
+# -----------------------------------------------------------------------------
+#
+# build_profile_from_promoted assembles a profile_json-shaped dict from
+# family_truth_promoted. It is the single server-side rewire that makes
+# Phase 8's "make truth visible" guarantee work — every downstream
+# surface (profile form, obituary, memoir source, timeline spine, chat
+# context) reads from state.profile on the client, which is populated
+# from GET /api/profiles/{id}, which calls this function when
+# HORNELORE_TRUTH_V2_PROFILE is on.
+#
+# The mapping from promoted-truth field names to profile_json.basics
+# keys is deliberately narrow: only the 5 protected identity fields
+# overlap directly. Everything else in basics.* (culture, country,
+# pronouns, language, legal*, timeOfBirth*, zodiac*, placeOfBirth{Raw,
+# Normalized}) passes through unchanged from the legacy profile_json
+# blob, as do kinship[] and pets[]. This is a hybrid read: truth for
+# what has been promoted, legacy for everything else.
+#
+# Free-form promoted rows (employment, marriage, residence, education,
+# ...) go into a new basics.truth[] sidecar list. approve_q rows carry
+# their qualification into basics._qualifications[field] AND into the
+# truth[] entry for the same field.
+#
+# Empty-promoted fallback: if a person has zero promoted rows, the
+# function returns the legacy profile_json unchanged so the first
+# flag-flip on an unreviewed narrator produces the same output as
+# flag-off. No empty-UI regression.
+
+_PROMOTED_TO_BASICS: Dict[str, str] = {
+    "personal.fullName":      "fullname",
+    "personal.preferredName": "preferred",
+    "personal.dateOfBirth":   "dob",
+    "personal.placeOfBirth":  "pob",
+    "personal.birthOrder":    "birthOrder",
+}
+
+# Inverse of _PROMOTED_TO_BASICS — used by the backfill helper.
+_BASICS_TO_PROMOTED: Dict[str, str] = {v: k for k, v in _PROMOTED_TO_BASICS.items()}
+
+
+def build_profile_from_promoted(person_id: str) -> Dict[str, Any]:
+    """Assemble a profile_json-shaped dict from family_truth_promoted.
+
+    Hybrid read: promoted-truth data takes precedence where it exists,
+    legacy profile_json fills in everywhere else.
+
+    Returns a dict with the same shape api_get_profile currently
+    returns under key ``profile``:
+
+        {
+          "basics": {
+              "fullname": ..., "preferred": ..., "dob": ..., "pob": ...,
+              "birthOrder": ...,
+              # unmapped basics pass through from legacy:
+              "culture": ..., "country": ..., "pronouns": ...,
+              "phonetic": ..., "language": ...,
+              "legalFirstName": ..., "legalMiddleName": ..., "legalLastName": ...,
+              "timeOfBirth": ..., "timeOfBirthDisplay": ...,
+              "birthOrderCustom": ..., "zodiacSign": ...,
+              "placeOfBirthRaw": ..., "placeOfBirthNormalized": ...,
+              # new sidecar keys (additive — normalizeProfile tolerates them):
+              "_qualifications": { "<field>": "<qualification text>" },
+              "truth": [ { "subject_name", "relationship", "field",
+                           "value", "qualification", "status", "reviewer",
+                           "source_row_id", "updated_at" }, ... ],
+          },
+          "kinship": [ ... ],   # passed through unchanged
+          "pets":    [ ... ],   # passed through unchanged
+        }
+    """
+    init_db()
+
+    # Always start from the legacy blob — this is the passthrough layer
+    # for unmapped basics.* fields, kinship, and pets.
+    legacy = get_profile(person_id) or {"profile_json": {}}
+    legacy_profile = dict(legacy.get("profile_json") or {})
+    legacy_basics = dict(legacy_profile.get("basics") or {})
+    legacy_kinship = list(legacy_profile.get("kinship") or [])
+    legacy_pets = list(legacy_profile.get("pets") or [])
+
+    promoted_rows = ft_list_promoted(person_id, limit=10_000, offset=0)
+
+    if not promoted_rows:
+        # Empty-promoted fallback: behave exactly like flag-off.
+        return {
+            "basics": legacy_basics,
+            "kinship": legacy_kinship,
+            "pets": legacy_pets,
+        }
+
+    # Start from the legacy basics so unmapped fields pass through.
+    basics: Dict[str, Any] = dict(legacy_basics)
+
+    # approve_q qualification sidecar (by promoted-truth field name).
+    qualifications: Dict[str, str] = {}
+
+    # Free-form promoted rows go here (everything that doesn't map to a
+    # protected identity field).
+    truth_rows: List[Dict[str, Any]] = []
+
+    for row in promoted_rows:
+        field = str(row.get("field") or "")
+        status = str(row.get("status") or "")
+        value = row.get("value") or ""
+        qualification = row.get("qualification") or ""
+
+        if field in _PROMOTED_TO_BASICS:
+            # Protected identity field — write directly into basics.
+            # The Phase 7 blocking rule already filtered out
+            # rules_fallback for protected fields, so anything in
+            # promoted here is safe to render.
+            target_key = _PROMOTED_TO_BASICS[field]
+            basics[target_key] = value
+            if qualification:
+                qualifications[field] = qualification
+        else:
+            # Free-form field — append to truth[] sidecar.
+            truth_rows.append({
+                "subject_name":  row.get("subject_name") or "",
+                "relationship":  row.get("relationship") or "self",
+                "field":         field,
+                "value":         value,
+                "qualification": qualification,
+                "status":        status,
+                "reviewer":      row.get("reviewer") or "",
+                "source_row_id": row.get("source_row_id") or "",
+                "updated_at":    row.get("updated_at") or "",
+            })
+            if qualification:
+                qualifications[field] = qualification
+
+    if qualifications:
+        basics["_qualifications"] = qualifications
+    if truth_rows:
+        basics["truth"] = truth_rows
+
+    return {
+        "basics": basics,
+        "kinship": legacy_kinship,
+        "pets": legacy_pets,
+    }
+
+
+def ft_backfill_from_profile_json(person_id: str) -> Dict[str, Any]:
+    """Seed shadow notes + proposal rows from existing profile_json.
+
+    For each protected identity field (5) that is present and
+    non-empty on the legacy basics.*, create:
+      1. A shadow note in family_truth_notes with
+           source_kind='backfill'
+           source_ref='profile_json.basics.<key>'
+           created_by='backfill'
+      2. A proposal row in family_truth_rows with
+           status            = 'needs_verify'
+           extraction_method = 'manual'
+           confidence        = 1.0
+           source_says       = <current value>
+           subject_name      = <display_name>
+           relationship      = 'self'
+           field             = <promoted-truth field name>
+
+    Does NOT auto-promote. Does NOT write to family_truth_promoted.
+
+    Idempotent: skips any field that already has ANY row (in any
+    status) for (person_id, subject_name=display_name, field=<name>),
+    so re-running the backfill on a partially-reviewed narrator
+    doesn't create duplicates.
+
+    Returns {person_id, created_rows, skipped_existing, skipped_empty,
+             reference_refused}.
+    """
+    init_db()
+
+    person = get_person(person_id)
+    if not person:
+        return {
+            "person_id": person_id,
+            "created_rows": 0,
+            "skipped_existing": 0,
+            "skipped_empty": 0,
+            "reference_refused": False,
+            "error": "person_not_found",
+        }
+
+    # Reference narrators never get a backfill — same guard as the rest
+    # of the FT write path.
+    if is_reference_narrator(person_id):
+        return {
+            "person_id": person_id,
+            "created_rows": 0,
+            "skipped_existing": 0,
+            "skipped_empty": 0,
+            "reference_refused": True,
+        }
+
+    display_name = str(person.get("display_name") or "").strip() or "(unknown)"
+
+    legacy = get_profile(person_id) or {"profile_json": {}}
+    legacy_profile = dict(legacy.get("profile_json") or {})
+    legacy_basics = dict(legacy_profile.get("basics") or {})
+
+    # Build an index of existing proposal rows for this person so we
+    # can do idempotent skip on (subject_name, field).
+    existing_rows = ft_list_rows(person_id=person_id, limit=10_000, offset=0)
+    existing_keys: set = set()
+    for r in existing_rows:
+        k = (str(r.get("subject_name") or ""), str(r.get("field") or ""))
+        existing_keys.add(k)
+
+    created = 0
+    skipped_existing = 0
+    skipped_empty = 0
+
+    for basics_key, ft_field in _BASICS_TO_PROMOTED.items():
+        raw_value = legacy_basics.get(basics_key)
+        value = str(raw_value or "").strip()
+        if not value:
+            skipped_empty += 1
+            continue
+
+        key = (display_name, ft_field)
+        if key in existing_keys:
+            skipped_existing += 1
+            continue
+
+        note = ft_add_note(
+            person_id=person_id,
+            body=value,
+            source_kind="backfill",
+            source_ref=f"profile_json.basics.{basics_key}",
+            created_by="backfill",
+        )
+        ft_add_row(
+            person_id=person_id,
+            note_id=note["id"],
+            subject_name=display_name,
+            relationship="self",
+            field=ft_field,
+            source_says=value,
+            status="needs_verify",
+            confidence=1.0,
+            extraction_method="manual",
+        )
+        created += 1
+
+    logger.info(
+        "ft_backfill_from_profile_json: person_id=%s created=%d skipped_existing=%d skipped_empty=%d",
+        person_id, created, skipped_existing, skipped_empty,
+    )
+
+    return {
+        "person_id": person_id,
+        "created_rows": created,
+        "skipped_existing": skipped_existing,
+        "skipped_empty": skipped_empty,
+        "reference_refused": False,
+    }
+
+
+# -----------------------------------------------------------------------------
 # Life phases
 # -----------------------------------------------------------------------------
 def add_life_phase(

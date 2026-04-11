@@ -544,7 +544,17 @@
     const pid = _wo13CurrentPersonId();
     if(!pid) return { ok: false };
     const res = await wo13PromoteApproved(pid);
-    if(res.ok) await wo13ReloadReviewQueue();
+    if(res.ok){
+      await wo13ReloadReviewQueue();
+      // WO-13 Phase 8: after a successful bulk promote, pull the fresh
+      // promoted-truth profile back into state so memoir/obituary/chat
+      // surfaces reflect it without a manual reload.
+      try{
+        if(typeof global.lvxRefreshProfileFromServer === "function"){
+          await global.lvxRefreshProfileFromServer(pid);
+        }
+      }catch(e){ /* non-fatal — promote already succeeded */ }
+    }
     return res;
   }
 

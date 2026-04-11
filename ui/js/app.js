@@ -1173,6 +1173,41 @@ async function saveProfile(){
   }catch{ sysBubble("⚠ Save failed — is the server running?"); }
 }
 
+// WO-13 Phase 8: refresh state.profile from server and push to session.
+// Called by wo13PromoteClicked after a successful promote so the
+// memoir/obituary/chat surfaces all see the new promoted truth
+// without a manual page reload.
+window.lvxRefreshProfileFromServer = async function(pid) {
+  if (!pid) return;
+  try {
+    const r = await fetch(API.PROFILE(pid));
+    if (!r.ok) return;
+    const j = await r.json();
+    state.profile = normalizeProfile(j.profile || j || {});
+    try { localStorage.setItem("lorevox_offline_profile_"+pid, JSON.stringify(state.profile)); } catch {}
+    hydrateProfileForm();
+    updateObitIdentityCard(state.profile?.basics || {});
+    const msn = document.getElementById("memoirSourceName");
+    if (msn) {
+      const n = state.profile?.basics?.preferred || state.profile?.basics?.fullname || "No person selected";
+      msn.textContent = n;
+    }
+    renderTimeline();
+    if (state.chat?.conv_id) {
+      fetch(API.SESS_PUT, {
+        method: "POST",
+        headers: ctype(),
+        body: JSON.stringify({
+          conv_id: state.chat.conv_id,
+          payload: { profile: state.profile, person_id: pid },
+        }),
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn("[lvx] refresh profile after promote failed:", e);
+  }
+};
+
 /* ── v8.0: Bio Builder → Profile sync bridge ── */
 /**
  * Applies Bio Builder personal-section data to state.profile.basics
