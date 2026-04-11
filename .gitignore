@@ -22,10 +22,11 @@ htmlcov/
 venv/
 env/
 
-# ── Runtime state (logs, pids, ephemeral) ──
-.runtime/logs/
-.runtime/pids/
-.runtime/tmp/
+# ── Runtime state (logs, pids, signal flags, ephemeral) ──
+# Ignore the whole .runtime/ tree. Launcher scripts mkdir -p the
+# subdirs they need (logs, pids) and drop transient signal files
+# like reset_on_start. None of it should ever be tracked.
+.runtime/
 *.log
 *.log.prev*
 *.log.[0-9]*
