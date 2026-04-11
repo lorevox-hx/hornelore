@@ -1,0 +1,1932 @@
+[
+  {
+    "table": "affect_events",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "session_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "section_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "affect_state",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "confidence",
+        "type": "REAL",
+        "notnull": 1,
+        "default": "0.0",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "duration_ms",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'camera'",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "ts",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "bio_builder_questionnaires",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "questionnaire_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'unknown'",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "version",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "1",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "facts",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "session_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "fact_type",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'general'",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "statement",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "date_text",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "date_normalized",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "confidence",
+        "type": "REAL",
+        "notnull": 0,
+        "default": "0.0",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'extracted'",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "inferred",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "source_turn_index",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "meaning_tags_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "narrative_role",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "experience",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "reflection",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "graph_persons",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "narrator_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "display_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "first_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "middle_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "last_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "maiden_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "birth_date",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "birth_place",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "occupation",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "deceased",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "is_narrator",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'manual'",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "provenance",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "confidence",
+        "type": "REAL",
+        "notnull": 1,
+        "default": "1.0",
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "graph_relationships",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "narrator_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "from_person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "to_person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "relationship_type",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "subtype",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "label",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'active'",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "notes",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'manual'",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "provenance",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "confidence",
+        "type": "REAL",
+        "notnull": 1,
+        "default": "1.0",
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "start_date",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "end_date",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "identity_change_log",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "field_path",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "old_value",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "new_value",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'unknown'",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'proposed'",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "accepted_by",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "resolved_at",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "interview_answers",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "session_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "question_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "answer",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "skipped",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "ts",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "interview_plans",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "interview_projections",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "projection_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'unknown'",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "version",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "1",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "interview_questions",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "plan_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "section_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "ord",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "prompt",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "kind",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'text'",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "required",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "profile_path",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "interview_sections",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "plan_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "ord",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "interview_sessions",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "plan_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "started_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "active_question_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "interview_softened",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "softened_until_turn",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "turn_count",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": "0",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "life_phases",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "start_date",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "end_date",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "date_precision",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'year'",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "description",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "ord",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "media",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "kind",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'image'",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "filename",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "mime",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "bytes",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "sha256",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "description",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "taken_at",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "location_name",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "latitude",
+        "type": "REAL",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "longitude",
+        "type": "REAL",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "exif_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "media_attachments",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "media_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "entity_type",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'memoir_section'",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "entity_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "narrator_delete_audit",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "action",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "display_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "requested_by",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "dependency_counts_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "result",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'success'",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "error_detail",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "ts",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "people",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "display_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "role",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "date_of_birth",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "place_of_birth",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "is_deleted",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "deleted_at",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "deleted_by",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "delete_reason",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "undo_expires_at",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "NULL",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "profiles",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "profile_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "rag_chunks",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "doc_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "chunk_index",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "text",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "rag_docs",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "source",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "text",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "section_summaries",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "session_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "section_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "section_title",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "summary",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "segment_flags",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "session_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "question_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "section_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "sensitive",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "sensitive_category",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "excluded_from_memoir",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "1",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "private",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "1",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "deleted",
+        "type": "INTEGER",
+        "notnull": 1,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "sessions",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "conv_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "updated_at",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "payload_json",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "sqlite_sequence",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "name",
+        "type": "",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 1,
+        "name": "seq",
+        "type": "",
+        "notnull": 0,
+        "default": null,
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "timeline_events",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "person_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "date",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "title",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "body",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "kind",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'event'",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "created_at",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": "'{}'",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "end_date",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "date_precision",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'exact_day'",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "is_approximate",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": "0",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "confidence",
+        "type": "REAL",
+        "notnull": 0,
+        "default": "1.0",
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "status",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'reviewed'",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "source_session_ids",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "source_fact_ids",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "tags",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "display_date",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "phase_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      }
+    ]
+  },
+  {
+    "table": "turns",
+    "columns": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "INTEGER",
+        "notnull": 0,
+        "default": null,
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "conv_id",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "role",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "content",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "ts",
+        "type": "TEXT",
+        "notnull": 1,
+        "default": null,
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "anchor_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "''",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "meta_json",
+        "type": "TEXT",
+        "notnull": 0,
+        "default": "'{}'",
+        "pk": 0
+      }
+    ]
+  }
+]

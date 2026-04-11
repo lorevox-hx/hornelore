@@ -1,0 +1,209 @@
+{
+  "_template": "Lorevox 8.0 Narrator Preload Template",
+  "_version": 1,
+  "_instructions": "Fill in fields below. Repeatable sections (parents, grandparents, siblings, children, pets) are arrays — add as many entries as needed. Load via: lv80PreloadNarrator(template) or lv80PreloadFromFile(file)",
+  "_trainer": true,
+  "_trainerStyle": "structured",
+  "_trainerTitle": "Short, clear answers",
+  "_trainerPrompt": "Use this trainer to show concise, anchored answers with time, place, and people.",
+
+  "personal": {
+    "fullName": "William Alan Shatner",
+    "preferredName": "Bill",
+    "legalFirstName": "William",
+    "legalMiddleName": "Alan",
+    "legalLastName": "Shatner",
+    "dateOfBirth": "1931-03-22",
+    "timeOfBirth": "",
+    "placeOfBirth": "Notre-Dame-de-Grace, Montreal, Quebec, Canada",
+    "birthOrder": "2 (Middle child)",
+    "zodiacSign": "Aries",
+    "pronouns": "he/him",
+    "culture": "Canadian-Jewish (Conservative)",
+    "country": "CA",
+    "language": "English"
+  },
+
+  "parents": [
+    {
+      "relation": "Mother",
+      "firstName": "Anne",
+      "middleName": "",
+      "lastName": "Shatner",
+      "maidenName": "Garmaise",
+      "birthDate": "",
+      "birthPlace": "",
+      "occupation": "Homemaker",
+      "deceased": true,
+      "notableLifeEvents": "Nurtured William's early interests in the arts.",
+      "notes": ""
+    },
+    {
+      "relation": "Father",
+      "firstName": "Joseph",
+      "middleName": "M.",
+      "lastName": "Shatner",
+      "maidenName": "",
+      "birthDate": "",
+      "birthPlace": "",
+      "occupation": "Clothing manufacturer",
+      "deceased": true,
+      "notableLifeEvents": "Operated a clothing business in Montreal; son of Jewish immigrants.",
+      "notes": "Original family name was Schattner before being anglicized."
+    }
+  ],
+
+  "grandparents": [
+    {
+      "firstName": "Wolf",
+      "lastName": "Schattner",
+      "ancestry": "Austrian-Jewish",
+      "culturalBackground": "Immigrant from the Bukovina region (Austro-Hungarian Empire).",
+      "memorableStories": "He was the one who anglicized the family name from 'Schattner' to 'Shatner' upon moving to Canada."
+    },
+    {
+      "firstName": "",
+      "lastName": "",
+      "ancestry": "Ukrainian / Polish / Hungarian-Jewish",
+      "culturalBackground": "Eastern European Jewish immigrants.",
+      "memorableStories": ""
+    }
+  ],
+
+  "siblings": [
+    {
+      "relation": "Sister",
+      "firstName": "Joy",
+      "middleName": "",
+      "lastName": "Rutenberg",
+      "birthOrder": "1 (Eldest)",
+      "uniqueCharacteristics": "",
+      "sharedExperiences": "Grew up together in Montreal.",
+      "memories": "",
+      "notes": "1928–2023."
+    },
+    {
+      "relation": "Sister",
+      "firstName": "Farla",
+      "middleName": "",
+      "lastName": "Cohen",
+      "birthOrder": "3 (Youngest)",
+      "uniqueCharacteristics": "",
+      "sharedExperiences": "Grew up together in Montreal.",
+      "memories": "",
+      "notes": "Born in 1940."
+    }
+  ],
+
+  "spouse": {
+    "firstName": "Elizabeth",
+    "middleName": "Anderson",
+    "lastName": "Shatner (Martin)",
+    "birthPlace": "",
+    "occupation": "Horse trainer",
+    "narrative": "Married in 2001; divorced in 2020 but remained close. They share a deep passion for the American Saddlebred industry.",
+    "deceased": false
+  },
+
+  "children": [
+    {
+      "firstName": "Leslie",
+      "middleName": "Carol",
+      "lastName": "Shatner",
+      "birthDate": "1958-08-31",
+      "narrative": "Eldest daughter; worked as an Occupational Therapist."
+    },
+    {
+      "firstName": "Lisabeth",
+      "middleName": "Mary",
+      "lastName": "Shatner",
+      "birthDate": "1961-06-06",
+      "narrative": "Middle daughter; worked as a writer and actress."
+    },
+    {
+      "firstName": "Melanie",
+      "middleName": "Ann",
+      "lastName": "Shatner",
+      "birthDate": "1964-08-01",
+      "narrative": "Youngest daughter; pursued acting in the 1990s."
+    }
+  ],
+
+  "marriage": {
+    "proposalStory": "",
+    "weddingDetails": "Four marriages: Gloria Rand (1956–1969), Marcy Lafferty (1973–1996), Nerine Kidd (1997–1999), and Elizabeth Martin (2001–2020)."
+  },
+
+  "familyTraditions": [
+    {
+      "description": "E-biking excursions to stay active with younger family members.",
+      "occasion": "Family Visits"
+    },
+    {
+      "description": "Annual Hollywood Charity Horse Show.",
+      "occasion": "Philanthropy"
+    }
+  ],
+
+  "pets": [
+    {
+      "name": "",
+      "species": "Horse",
+      "breed": "American Saddlebred",
+      "birthDate": "",
+      "adoptionDate": ""
+    },
+    {
+      "name": "Bella",
+      "species": "Dog",
+      "breed": "Doberman Pinscher",
+      "birthDate": "",
+      "adoptionDate": ""
+    }
+  ],
+
+  "earlyMemories": {
+    "firstMemory": "The physical geography of Montreal and the Jewish community in Notre-Dame-de-Grace.",
+    "favoriteToy": "",
+    "significantEvent": "Joining the Montreal Children's Theatre, which set the stage for his lifelong acting career."
+  },
+
+  "education": {
+    "schooling": "West Hill High School; Willingdon Elementary School.",
+    "higherEducation": "Bachelor of Commerce from McGill University (1952).",
+    "earlyCareer": "Business manager for a Montreal theatre; then moved to Ottawa's Canadian National Repertory Theatre.",
+    "careerProgression": "Shakespearean actor at Stratford Festival; Broadway debut in 'The Tamburlaine the Great'; Cast as Captain Kirk in 1966.",
+    "communityInvolvement": "Extensive work with therapeutic riding organizations and environmental causes.",
+    "mentorship": ""
+  },
+
+  "laterYears": {
+    "retirement": "Firmly refuses to retire, stating 'Say yes to life' is the secret to healthy aging.",
+    "lifeLessons": "'I know that good, healthy aging comes from not being solitary or brooding'.",
+    "adviceForFutureGenerations": "'Say yes to everything new, because time is too short to lose an opportunity'."
+  },
+
+  "hobbies": {
+    "hobbies": "E-biking, breeding horses, competitive reining, and digital photography.",
+    "worldEvents": "Becoming the oldest person to travel to space via Blue Origin in 2021.",
+    "personalChallenges": "Overcoming the sudden death of his third wife, Nerine, and navigating life in the public eye for over 70 years.",
+    "travel": "Global conventions; filming in locations from Vancouver to Japan."
+  },
+
+  "health": {
+    "healthMilestones": "Suffered from Tinnitus for decades; successfully managed through therapy.",
+    "lifestyleChanges": "Incorporating electric bicycles to keep pace with his grandchildren.",
+    "wellnessTips": "Mental agility is maintained through creativity and imaginative compensation for physical decline."
+  },
+
+  "technology": {
+    "firstTechExperience": "Radio broadcasts during his youth in Montreal.",
+    "favoriteGadgets": "Smartphones (for photography) and e-bikes.",
+    "culturalPractices": "Raised in Conservative Judaism; later focused on secular spirituality and environmentalism."
+  },
+
+  "additionalNotes": {
+    "unfinishedDreams": "Exploring the 'Overview Effect' and its impact on human consciousness after his space flight.",
+    "messagesForFutureGenerations": "'There is nothing better for your brain than trying to help someone else'."
+  }
+}
