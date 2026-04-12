@@ -257,6 +257,169 @@ curl -s "http://127.0.0.1:8000/api/family-truth/audit/ROW_ID" | python3 -m json.
 
 ---
 
+## Desktop Setup (Clone & Run from Scratch)
+
+Follow these steps to get Hornelore running on a new Windows machine (or your desktop after cloning from GitHub).
+
+### Quick Start (laptop → desktop transfer)
+
+```bash
+# On DESKTOP — clone, run setup, done:
+cd /mnt/c/Users/chris
+git clone https://github.com/lorevox-hx/hornelore.git
+cd hornelore
+bash scripts/setup_desktop.sh
+```
+
+The setup script creates directories, builds both venvs, unpacks the DB from the transfer bundle, and tells you what's left to do manually (model copy + .env token).
+
+### Prerequisites
+
+- Windows 10/11 with WSL2 (Ubuntu 22.04)
+- NVIDIA GPU with CUDA drivers installed in WSL
+- Python 3.12 in WSL
+- Git for Windows (or Git Bash)
+
+### 1. Clone the repo
+
+```powershell
+cd C:\Users\chris
+git clone https://github.com/lorevox-hx/hornelore.git
+```
+
+### 2. Create the data directories
+
+The model and database live outside the repo:
+
+```bash
+# In WSL:
+sudo mkdir -p /mnt/c/models/hornelore
+sudo mkdir -p /mnt/c/hornelore_data
+sudo chown -R $USER:$USER /mnt/c/models/hornelore /mnt/c/hornelore_data
+```
+
+### 3. Copy .env from template
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+cp .env.example .env
+```
+
+Edit `.env` and set your real values:
+
+| Variable | What to set |
+|---|---|
+| `HUGGINGFACE_HUB_TOKEN` | Your real HF token (from huggingface.co/settings/tokens) |
+| `MODEL_PATH` | `/mnt/c/models/hornelore/Meta-Llama-3.1-8B-Instruct` |
+| `MODEL_DIR` | `/mnt/c/models/hornelore` |
+| `DB_PATH` | `/mnt/c/hornelore_data/hornelore.sqlite3` |
+| `HF_HOME` | `/mnt/c/models/hornelore/hf_home` |
+| `TTS_HOME` | `/mnt/c/hornelore_data/tts_cache` |
+
+### 4. Download the model
+
+```bash
+# In WSL — one-time download (~16 GB):
+pip install huggingface_hub --break-system-packages
+huggingface-cli login  # paste your HF token
+huggingface-cli download meta-llama/Meta-Llama-3.1-8B-Instruct \
+  --local-dir /mnt/c/models/hornelore/Meta-Llama-3.1-8B-Instruct
+```
+
+Or copy the model folder from your existing machine:
+```
+# From the source machine, copy:
+C:\models\hornelore\Meta-Llama-3.1-8B-Instruct\  →  same path on desktop
+```
+
+### 5. Create virtual environments and install dependencies
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+
+# GPU venv (API server)
+python3.12 -m venv .venv-gpu
+source .venv-gpu/bin/activate
+pip install -r requirements-gpu.txt
+deactivate
+
+# TTS venv (text-to-speech)
+python3.12 -m venv .venv-tts
+source .venv-tts/bin/activate
+pip install -r requirements-tts.txt
+deactivate
+
+# Playwright (for trainer preload script)
+pip install -r scripts/requirements.txt --break-system-packages
+python3 -m playwright install chromium
+```
+
+### 6. Unpack the data transfer bundle
+
+If migrating from the laptop, a transfer zip is included in the repo:
+
+```bash
+# The setup script handles this automatically, but manually:
+unzip transfer/hornelore_data.zip -d /mnt/c/hornelore_data/
+```
+
+This contains the SQLite database, session memory/transcripts, and directory structure. The TTS cache (~152 MB) is excluded since it regenerates on use.
+
+If starting fresh (no transfer zip), the database is created automatically on first API startup.
+
+### 7. Start the server
+
+```bash
+./start_hornelore.bat   # or from WSL: bash scripts/start_api_visible.sh
+```
+
+### 8. Load narrators (fresh DB only — skip if you unpacked the transfer bundle)
+
+```bash
+# Preload the 3 Hornes (run import script via Playwright)
+python3 scripts/import_kent_james_horne.py
+
+# Preload trainer narrators (Shatner + Dolly)
+python3 scripts/preload_trainer.py --all
+
+# Backfill truth pipeline for all 3 Hornes
+for PID in 4aa0cc2b-1f27-433a-9152-203bb1f69a55 93479171-0b97-4072-bcf0-d44c7f9078ba a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2; do
+  curl -s -X POST http://127.0.0.1:8000/api/family-truth/backfill \
+    -H "Content-Type: application/json" \
+    -d "{\"person_id\":\"$PID\"}" | python3 -m json.tool
+done
+```
+
+Then approve and promote (see Shadow Archive Quick Reference below for curl commands).
+
+### 9. Verify
+
+```bash
+# API health
+curl -s http://127.0.0.1:8000/api/ping
+
+# UI
+# Open http://127.0.0.1:8000 in browser
+
+# Profile source should be promoted_truth
+curl -s http://127.0.0.1:8000/api/profiles/4aa0cc2b-1f27-433a-9152-203bb1f69a55 | python3 -m json.tool | grep source
+```
+
+### Key paths reference
+
+| What | Path |
+|---|---|
+| Repo | `C:\Users\chris\hornelore` (or `/mnt/c/Users/chris/hornelore` in WSL) |
+| Model weights | `/mnt/c/models/hornelore/Meta-Llama-3.1-8B-Instruct` |
+| HF cache | `/mnt/c/models/hornelore/hf_home` |
+| SQLite database | `/mnt/c/hornelore_data/hornelore.sqlite3` |
+| TTS cache | `/mnt/c/hornelore_data/tts_cache` |
+| GPU venv | `.venv-gpu/` (in repo, ~8 GB) |
+| TTS venv | `.venv-tts/` (in repo, ~7.5 GB) |
+| Desktop shortcuts | `shortcuts/` (copy to Desktop\Horne if needed) |
+
+---
+
 ## Next Steps (After Testing)
 
 1. Complete all 8 test scenarios above

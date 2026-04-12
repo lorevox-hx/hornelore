@@ -17,6 +17,7 @@ __pycache__/
 htmlcov/
 
 # ── Virtual environments (Hornelore-owned) ──
+# .venv-gpu (~8 GB), .venv-tts (~7.5 GB) — rebuild from requirements
 .venv/
 .venv-*/
 venv/
@@ -47,9 +48,36 @@ playwright-report/
 test-results/
 .playwright/
 
-# ── Local env overrides (keep .env tracked as canonical template) ──
+# ── Models & large binaries (never commit) ──
+# Model weights live at MODEL_PATH (see .env.example)
+*.safetensors
+*.gguf
+*.bin
+*.onnx
+*.pt
+*.pth
+
+# ── Database (lives outside repo at DB_PATH) ──
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.db-journal
+
+# ── Runtime data (memory agents, uploads, etc.) ──
+server/data/db/
+server/data/memory/
+
+# ── Environment files (secrets / tokens) ──
+# Never push .env — it may contain real HF tokens, API keys, etc.
+# Use .env.example as the tracked template.
+.env
 .env.local
 .env.*.local
+
+# ── Transfer bundles (for moving data between machines) ──
+transfer/
 
 # ── OS / tool junk ──
 *.orig
