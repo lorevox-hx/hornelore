@@ -1,0 +1,74 @@
+{
+  "narrator": {
+    "person_id": "68613e8e-7d9e-4a1c-ad82-a7fccd99cc4e",
+    "display_name": "Ada Lovelace"
+  },
+  "legacy_basics": {
+    "fullname": "Augusta Ada King-Noel",
+    "preferred": "Ada",
+    "dob": "1815-12-10",
+    "pob": "London, England",
+    "birthOrder": "only",
+    "culture": "English",
+    "country": "United Kingdom",
+    "pronouns": "she/her",
+    "language": "English",
+    "legalFirstName": "Augusta",
+    "legalMiddleName": "Ada",
+    "legalLastName": "King-Noel"
+  },
+  "flag_off_source": "legacy",
+  "flag_on_source": "promoted_truth",
+  "flag_on_basics": {
+    "preferred": "Ada",
+    "fullname": "Augusta Ada King-Noel",
+    "dob": "1815-12-10",
+    "culture": "English"
+  },
+  "truth_rows": [
+    {
+      "subject_name": "Ada Lovelace",
+      "relationship": "self",
+      "field": "residence",
+      "value": "Lived in London, England.",
+      "qualification": "",
+      "status": "approve",
+      "reviewer": "chris",
+      "source_row_id": "0ca397d2-d25f-4ce5-a459-9951ba349327",
+      "updated_at": "2026-04-11T20:32:23.418769"
+    },
+    {
+      "subject_name": "Ada Lovelace",
+      "relationship": "self",
+      "field": "employment",
+      "value": "Collaborated with Charles Babbage on the Analytical Engine, 1840s.",
+      "qualification": "Exact dates of the collaboration are disputed between sources.",
+      "status": "approve_q",
+      "reviewer": "chris",
+      "source_row_id": "abca2287-13f9-4ad8-a46d-c7b055ec1cc0",
+      "updated_at": "2026-04-11T20:32:23.375157"
+    }
+  ],
+  "qualifications": {
+    "employment": "Exact dates of the collaboration are disputed between sources."
+  },
+  "blocked_field": "personal.dateOfBirth (rules_fallback)",
+  "backfill_result": {
+    "person_id": "f4ce9288-2ede-4a15-89f7-1505c1ab583a",
+    "created_rows": 4,
+    "skipped_existing": 0,
+    "skipped_empty": 1,
+    "reference_refused": false
+  },
+  "backfill_idempotent_result": {
+    "person_id": "f4ce9288-2ede-4a15-89f7-1505c1ab583a",
+    "created_rows": 0,
+    "skipped_existing": 4,
+    "skipped_empty": 1,
+    "reference_refused": false
+  },
+  "reference_refused": {
+    "db": true,
+    "router": 403
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "narrator": {
+    "person_id": "dcb5d629-e3ce-4992-948a-0645e6fe23dd",
+    "display_name": "Ada Lovelace"
+  },
+  "transitions": [
+    {
+      "label": "off_1",
+      "source": "legacy",
+      "basics_key_count": 8,
+      "sidecar_keys_present": []
+    },
+    {
+      "label": "on",
+      "source": "promoted_truth",
+      "basics_key_count": 10,
+      "sidecar_keys_present": [
+        "_qualifications",
+        "truth"
+      ]
+    },
+    {
+      "label": "off_2",
+      "source": "legacy",
+      "basics_key_count": 8,
+      "sidecar_keys_present": []
+    },
+    {
+      "label": "on_2",
+      "source": "promoted_truth",
+      "basics_key_count": 10,
+      "sidecar_keys_present": [
+        "_qualifications",
+        "truth"
+      ]
+    }
+  ],
+  "ft_snapshot_before": {
+    "notes": 2,
+    "rows": 2,
+    "promoted": 2
+  },
+  "ft_snapshot_after": {
+    "notes": 2,
+    "rows": 2,
+    "promoted": 2
+  },
+  "allowed_sidecar_keys": [
+    "_qualifications",
+    "truth"
+  ]
+}
