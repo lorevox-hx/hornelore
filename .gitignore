@@ -76,9 +76,6 @@ server/data/memory/
 .env.local
 .env.*.local
 
-# ── Transfer bundles (for moving data between machines) ──
-transfer/
-
 # ── OS / tool junk ──
 *.orig
 *.rej
