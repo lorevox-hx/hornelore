@@ -942,6 +942,11 @@ async function lvxSwitchNarratorSafe(pid){
           iProj.pendingSuggestions = snap.projection.pendingSuggestions || [];
         }
       }
+      // WO-13: Stash prior user-turn count so resume prompts can be gated.
+      // A fresh narrator (count = 0) must NOT trigger "welcome back" greetings.
+      state.session = state.session || {};
+      state.session.priorUserTurns = Number(snap.user_turn_count || 0);
+      console.log("[WO-13] priorUserTurns for " + pid.slice(0, 8) + " = " + state.session.priorUserTurns);
     }
   } catch (e) {
     console.warn("[app] Phase G: state-snapshot fetch failed (proceeding with local data)", e);
@@ -4554,6 +4559,17 @@ async function wo8OnNarratorReady(pid) {
 
   // Phase 2: Load transcript history
   await wo8LoadTranscriptHistory(pid);
+
+  // WO-13: Hard gate — if this narrator has NO prior user-authored turns,
+  // suppress every resume prompt variant (auto-resume, soft confirm, bridge,
+  // cognitive re-entry, operator preview). Every narrator switch creates a
+  // fresh conv_id, so "resuming" is a misnomer for first-contact narrators
+  // and the system prompt pollutes the turns table with fake user rows.
+  const _priorUserTurns = Number((state.session && state.session.priorUserTurns) || 0);
+  if (_priorUserTurns === 0) {
+    console.log("[WO-13] wo8OnNarratorReady: suppressing resume prompt — no prior user turns for " + pid.slice(0, 8));
+    return;
+  }
 
   // WO-9/WO-10B/WO-10C: Resume flow — gated by operator mode, confidence, and CSM
   if (hasIdentityBasics74()) {

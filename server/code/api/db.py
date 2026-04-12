@@ -3811,6 +3811,32 @@ def get_narrator_state_snapshot(person_id: str) -> Dict[str, Any]:
         "personal.birthOrder": basics.get("birthOrder", ""),
     }
 
+    # WO-13: Count prior user-authored turns for this narrator.
+    # Used by the UI to gate the session-resume prompt — a fresh narrator with
+    # zero real user turns should NOT trigger a "welcome back" greeting.
+    # Turns are joined to the person via sessions.payload_json.active_person_id.
+    # Internal system prompts (role='user' but content starts with '[SYSTEM:')
+    # are excluded so they never inflate the count.
+    user_turn_count = 0
+    try:
+        con = _connect()
+        row = con.execute(
+            """
+            SELECT COUNT(*) AS n
+              FROM turns t
+              JOIN sessions s ON s.conv_id = t.conv_id
+             WHERE t.role = 'user'
+               AND t.content NOT LIKE '[SYSTEM:%'
+               AND json_extract(s.payload_json, '$.active_person_id') = ?
+            """,
+            (person_id,),
+        ).fetchone()
+        con.close()
+        if row is not None:
+            user_turn_count = int(row["n"] if hasattr(row, "keys") else row[0])
+    except Exception:
+        user_turn_count = 0
+
     now = datetime.utcnow().isoformat()
     return {
         "person_id": person_id,
@@ -3819,6 +3845,7 @@ def get_narrator_state_snapshot(person_id: str) -> Dict[str, Any]:
         "questionnaire": qq.get("questionnaire", {}),
         "projection": proj.get("projection", {}),
         "protected_identity": protected_identity,
+        "user_turn_count": user_turn_count,
         "updated_at": now,
     }
 

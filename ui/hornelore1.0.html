@@ -3658,14 +3658,25 @@ async function lv80SwitchPerson(personId) {
     const _decFrame = _decR.deceased
       ? ` This narrator is deceased${_decR.dod ? " (d. " + _decR.dod + ")" : ""}. You are speaking with a family member or archivist preserving their story. Use past tense when referring to the narrator's life. Do not address the narrator directly as if they are present.`
       : "";
-    // WO-9: Use queue-safe sender to survive startup race
-    wo9SendOrQueueSystemPrompt(
-      `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
-      `born ${basics.dob}${pob ? " in " + pob : ""}.${_decFrame} ` +
-      "Welcome them back warmly by name in one sentence, then immediately ask your " +
-      "next most meaningful interview question. Do not re-introduce yourself. " +
-      "Do not repeat the onboarding flow. Do not ask for name or DOB again.]"
-    );
+    // WO-13: Gate resume prompt on prior user-authored turns.
+    // `state.session.priorUserTurns` is hydrated during Phase G from the
+    // /api/narrator/state-snapshot endpoint and counts real, non-SYSTEM
+    // user turns joined to this narrator via sessions.active_person_id.
+    // A fresh narrator with zero user turns must NOT trigger a fake
+    // "welcome back" greeting — it only pollutes the turns table.
+    const _wo13PriorUserTurns = Number((state.session && state.session.priorUserTurns) || 0);
+    if (_wo13PriorUserTurns > 0) {
+      // WO-9: Use queue-safe sender to survive startup race
+      wo9SendOrQueueSystemPrompt(
+        `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
+        `born ${basics.dob}${pob ? " in " + pob : ""}.${_decFrame} ` +
+        "Welcome them back warmly by name in one sentence, then immediately ask your " +
+        "next most meaningful interview question. Do not re-introduce yourself. " +
+        "Do not repeat the onboarding flow. Do not ask for name or DOB again.]"
+      );
+    } else {
+      console.log("[WO-13] lv80SwitchPerson: suppressing legacy resume prompt — no prior user turns");
+    }
 
     state.narratorOpen.openStatus = "ready";
   } else {

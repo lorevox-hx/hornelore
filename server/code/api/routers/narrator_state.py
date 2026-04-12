@@ -19,6 +19,9 @@ class NarratorStateSnapshotResponse(BaseModel):
     questionnaire: Dict[str, Any] = Field(default_factory=dict)
     projection: Dict[str, Any] = Field(default_factory=dict)
     protected_identity: Dict[str, Any] = Field(default_factory=dict)
+    # WO-13: prior user-authored turn count — used by UI to gate the
+    # session-resume prompt. 0 means "do not fire a welcome-back greeting".
+    user_turn_count: int = 0
     updated_at: str
 
 
@@ -40,5 +43,6 @@ def get_state_snapshot_route(
         questionnaire=data.get("questionnaire", {}),
         projection=data.get("projection", {}),
         protected_identity=data.get("protected_identity", {}),
+        user_turn_count=int(data.get("user_turn_count") or 0),
         updated_at=data.get("updated_at") or datetime.utcnow().isoformat(),
     )

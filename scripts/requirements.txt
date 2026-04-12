@@ -1,0 +1,12 @@
+# Hornelore operator/utility scripts — Python dependencies.
+#
+# Install (WSL):
+#     python3 -m pip install -r scripts/requirements.txt --break-system-packages
+#     python3 -m playwright install chromium
+#
+# Used by:
+#   - scripts/import_kent_james_horne.py
+#   - scripts/preload_trainer.py            (WO-13 Phase A)
+#   - scripts/preload_truth_from_template.py (WO-13 Phase A — pending)
+
+playwright>=1.44,<2.0
