@@ -1999,7 +1999,10 @@
       border-radius: 12px;
       color: #e2e8f0;
       overflow: hidden;
-      display: flex;
+      /* WO-11 fix: moved display:flex to :popover-open only.
+         The base rule's display:flex overrode the UA's
+         [popover]:not(:popover-open){display:none} due to
+         ID specificity, so the popover never actually hid. */
       flex-direction: column;
     }
     #wo10TranscriptPopover:popover-open { display: flex; }
@@ -2621,6 +2624,10 @@
       <button class="wo10-tab active" data-wo10-tab="transcript" onclick="wo10SwitchTab('transcript')">Transcript</button>
       <button class="wo10-tab" data-wo10-tab="resume" onclick="wo10SwitchTab('resume')">Resume Preview</button>
       <button class="wo10-tab" data-wo10-tab="timeline" onclick="wo10SwitchTab('timeline')">Session Timeline</button>
+      <!-- WO-11: Explicit close button for transcript overlay -->
+      <button class="wo10-tab" style="margin-left:auto;font-size:1.2rem;padding:4px 10px;"
+              onclick="try{document.getElementById('wo10TranscriptPopover').hidePopover();}catch(e){}"
+              title="Close transcript">✕</button>
     </div>
     <!-- Tab 1: Transcript Viewer -->
     <div id="wo10TabTranscript" class="wo10-body">
@@ -4044,12 +4051,119 @@ async function lv80RunTrainerNarrator(style) {
     if (canonical === "story") canonical = "storyteller";
     if (canonical !== "structured" && canonical !== "storyteller") canonical = "structured";
 
+    // ── WO-11: TRAINER ISOLATION ──────────────────────────────────
+    // Suspend active narrator so trainer runs in a clean, isolated state.
+    // The real narrator's person_id, conversation, and header must NOT
+    // leak through to the trainer surface.
+
+    // 1. Suspend real narrator (stash person_id for later restore)
+    state.trainerNarrators = state.trainerNarrators || {};
+    state.trainerNarrators.suspendedNarratorId = state.person_id || null;
+    state.trainerNarrators.suspendedConvId = (state.chat && state.chat.conv_id) || null;
+    console.log("[WO-11][trainer] Suspending narrator:", state.person_id, "for trainer:", canonical);
+
+    // 2. Null out active narrator so no messages route through real person
+    state.person_id = null;
+    try { localStorage.removeItem(LS_ACTIVE); } catch (_) {}
+
+    // 3. Generate isolated trainer conv_id (never reuse real narrator conv_id)
+    state.chat = state.chat || {};
+    state.chat.conv_id = "trainer_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,6);
+
+    // 4. Clear chat messages so prior conversation is not visible
+    try { document.getElementById("chatMessages").innerHTML = ""; } catch (_) {}
+
+    // 5. Close transcript popover if open (trainer + transcript guard)
+    try {
+      const tp = document.getElementById("wo10TranscriptPopover");
+      if (tp && tp.matches(":popover-open")) tp.hidePopover();
+    } catch (_) {}
+
+    // 6. Update active narrator card to show trainer identity
+    _wo11UpdateHeaderForTrainer(canonical);
+
     const meta = await lv80LoadTrainerTemplate(canonical);
 
     window.LorevoxTrainerNarrators.reset();
     window.LorevoxTrainerNarrators.start(meta);
+    console.log("[WO-11][trainer] Trainer started:", canonical);
   } catch (e) {
     console.warn("[WO-11] failed to run trainer narrator", style, e);
+  }
+}
+
+// WO-11: Update active narrator card header to show trainer identity
+function _wo11UpdateHeaderForTrainer(style) {
+  try {
+    const card = document.getElementById("lv80ActiveNarratorCard");
+    if (!card) return;
+    const displayName = (style === "storyteller") ? "Dolly Trainer" : "Shatner Trainer";
+    const subtitle = (style === "storyteller")
+      ? "Warm, storytelling answers"
+      : "Short, clear, anchored answers";
+    card.innerHTML =
+      '<div class="lv80-active-narrator-inner" style="pointer-events:none;">' +
+        '<div class="lv80-active-narrator-avatar" style="background:#7c3aed;color:#fff;font-size:1.1rem;">' +
+          (style === "storyteller" ? "DT" : "ST") +
+        '</div>' +
+        '<div class="lv80-active-narrator-info">' +
+          '<div class="lv80-active-narrator-name">' + displayName + '</div>' +
+          '<div class="lv80-active-narrator-subtitle">' + subtitle + '</div>' +
+        '</div>' +
+      '</div>';
+    console.log("[WO-11][trainer] Header updated for:", displayName);
+  } catch (e) {
+    console.warn("[WO-11] header update failed", e);
+  }
+}
+
+// WO-11: Restore narrator after trainer exit
+function _wo11RestoreNarratorAfterTrainer() {
+  try {
+    const ts = state.trainerNarrators || {};
+    const suspendedPid = ts.suspendedNarratorId;
+    console.log("[WO-11][trainer] Restoring narrator after trainer exit. Suspended:", suspendedPid);
+
+    // Clear trainer isolation state
+    ts.suspendedNarratorId = null;
+    ts.suspendedConvId = null;
+    ts.active = false;
+
+    // Clear trainer chat messages
+    try { document.getElementById("chatMessages").innerHTML = ""; } catch (_) {}
+
+    // If a real narrator was suspended, do NOT auto-restore — require explicit selection.
+    // This prevents Janice from silently becoming active underneath.
+    // Re-open narrator selector so user can choose.
+    state.person_id = null;
+    state.chat.conv_id = null;
+    // Clear stale profile basics so header doesn't show the previous narrator
+    if (state.profile) state.profile.basics = {};
+
+    // WO-11 fix: Restore the original narrator card DOM structure.
+    // _wo11UpdateHeaderForTrainer replaced innerHTML with trainer-specific HTML
+    // that lacks the original element IDs (lv80NarratorAvatar, lv80ActiveNarratorName,
+    // lv80ActiveNarratorSub), so lv80UpdateActiveNarratorCard() silently fails.
+    try {
+      var card = document.getElementById("lv80ActiveNarratorCard");
+      if (card) {
+        card.innerHTML =
+          '<div class="lv80-narrator-avatar" id="lv80NarratorAvatar">?</div>' +
+          '<div class="lv80-narrator-meta">' +
+            '<div class="lv80-narrator-label">Active Narrator</div>' +
+            '<div class="lv80-narrator-name" id="lv80ActiveNarratorName">Choose a narrator</div>' +
+            '<div class="lv80-narrator-sub" id="lv80ActiveNarratorSub">Choose a narrator</div>' +
+          '</div>' +
+          '<div class="lv80-narrator-caret">▾</div>';
+      }
+    } catch (_) {}
+    lv80UpdateActiveNarratorCard();
+    console.log("[WO-11][trainer] Trainer exited — narrator selector will open for explicit choice.");
+    setTimeout(function() {
+      if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
+    }, 300);
+  } catch (e) {
+    console.warn("[WO-11] narrator restore failed", e);
   }
 }
 
@@ -6567,6 +6681,42 @@ async function lv80Init() {
     });
   }
 
+  // WO-11: Transcript popover — toggle listener + trainer guard
+  const wo11TranscriptPopover = document.getElementById("wo10TranscriptPopover");
+  if (wo11TranscriptPopover) {
+    wo11TranscriptPopover.addEventListener("toggle", (event) => {
+      console.log("[WO-11][transcript]", event.newState);
+      if (event.newState === "open") {
+        // Trainer guard: close immediately if trainer is active
+        const trainerActive = state.trainerNarrators && state.trainerNarrators.active;
+        if (trainerActive) {
+          console.log("[WO-11][transcript] Blocked — trainer mode active. Closing transcript.");
+          try { wo11TranscriptPopover.hidePopover(); } catch(_) {}
+          return;
+        }
+        // No narrator selected guard
+        if (!state.person_id) {
+          console.log("[WO-11][transcript] Blocked — no narrator selected.");
+          try { wo11TranscriptPopover.hidePopover(); } catch(_) {}
+          return;
+        }
+      }
+    });
+  }
+
+  // WO-11: Transcript button — block opening in trainer mode
+  const wo11TranscriptBtn = document.getElementById("wo10TranscriptBtn");
+  if (wo11TranscriptBtn) {
+    wo11TranscriptBtn.addEventListener("click", (event) => {
+      const trainerActive = state.trainerNarrators && state.trainerNarrators.active;
+      if (trainerActive || !state.person_id) {
+        event.preventDefault();
+        event.stopPropagation();
+        console.log("[WO-11][transcript] Click blocked — trainer active or no narrator.");
+      }
+    }, true); // capture phase to beat popovertarget
+  }
+
   // 6. Load people into selector
   await lv80LoadPeople();
 
@@ -6582,17 +6732,10 @@ async function lv80Init() {
   // 7. Initial capture bar state
   lv80RefreshCaptureBar();
 
-  // 8. Hornelore: auto-select first narrator if none selected
-  if (!state.person_id) {
-    const people = state?.narratorUi?.peopleCache || [];
-    if (people.length > 0) {
-      const firstPid = people[0].person_id || people[0].id;
-      if (firstPid) {
-        console.log("[Hornelore] No narrator selected — auto-loading first:", firstPid);
-        lv80SwitchPerson(firstPid);
-      }
-    }
-  }
+  // 8. [WO-11] REMOVED — auto-select first narrator defeated startup neutrality.
+  //    Trainer entry must be possible from blank state. User picks their narrator
+  //    explicitly from the selector. See _enforceBlankStartupState() in app.js.
+  console.log("[WO-11] Startup neutral — no auto-load. User must choose narrator or trainer.");
 
   // WO-10B: Restore operator resume gate from localStorage
   try {

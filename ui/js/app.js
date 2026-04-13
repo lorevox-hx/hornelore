@@ -2443,9 +2443,16 @@ async function sendUserMessage(){
       message:payload,params:{person_id:state.person_id,temperature:_llmT,max_new_tokens:_llmM,runtime71:_rt71}}));
     // Safety timeout: if no response within 30s, unstick the UI
     // WO-S3: Guard against stacked unavailable messages — only show once
+    // WO-11: Only show unavailable if WS is genuinely disconnected
     const _sendTimestamp = Date.now();
     setTimeout(()=>{
       if(!currentAssistantBubble){
+        // WO-11: Check if WS is actually healthy before showing error
+        if (ws && wsReady) {
+          console.log("[WO-11][chat-state] 30s timeout but WS is connected — suppressing false unavailable");
+          setLoriState("ready");
+          return;
+        }
         // Prevent stacked error messages: check if a recent error bubble already exists
         const chatLog = document.getElementById("chatLog");
         const lastBubble = chatLog && chatLog.lastElementChild;
@@ -2453,6 +2460,7 @@ async function sendUserMessage(){
           lastBubble.textContent.includes("Chat service unavailable") &&
           (Date.now() - _sendTimestamp) < 35000;
         if (!isRecentError) {
+          console.log("[WO-11][chat-state] Chat unavailable banner SET — WS disconnected");
           appendBubble("ai","Chat service unavailable — start or restart the Lorevox AI backend to enable responses.");
         }
         setLoriState("ready");
@@ -2480,9 +2488,20 @@ async function sendSystemPrompt(instruction){
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
       message:instruction,params:{person_id:state.person_id,temperature:_llmTs,max_new_tokens:_llmMs,runtime71:_rt71sys}}));
     // Safety timeout: if no response within 30s, unstick the UI
+    // WO-11: Only show unavailable if WS is genuinely disconnected
     setTimeout(()=>{
       if(currentAssistantBubble===bubble && _bubbleBody(bubble)?.textContent==="…"){
+        // WO-11: Check if WS is actually healthy before showing error
+        if (ws && wsReady) {
+          console.log("[WO-11][chat-state] System prompt 30s timeout but WS connected — suppressing");
+          setLoriState("ready");
+          currentAssistantBubble=null;
+          // Remove the "…" bubble since WS is fine, just slow
+          try { bubble.remove(); } catch(_) {}
+          return;
+        }
         console.warn("[sendSystemPrompt] 30s timeout — no response from backend");
+        console.log("[WO-11][chat-state] Chat unavailable banner SET (system prompt path)");
         _bubbleBody(bubble).textContent="Chat service unavailable — start or restart the Lorevox AI backend to enable responses.";
         setLoriState("ready");
         currentAssistantBubble=null;
@@ -2927,6 +2946,9 @@ function connectWebSocket(){
     ws=new WebSocket(API.CHAT_WS);
     ws.onopen=()=>{
       wsReady=true; usingFallback=false; pill("pillWs",true);
+      console.log("[WO-11][chat-state] WS connected — clearing any stale error state");
+      // WO-11: Clear stale "chat unavailable" state on reconnect
+      setLoriState("ready");
       // WO-2: Send sync_session packet immediately on connect
       if(state.person_id){
         ws.send(JSON.stringify({type:"sync_session",person_id:state.person_id,
@@ -4426,38 +4448,23 @@ window.lv80StartTrainerInterview = async function (meta) {
     var m = (meta && typeof meta === "object") ? meta : {};
     var style = (m.style === "structured" || m.style === "storyteller") ? m.style : null;
 
-    var intro;
-    if (style === "structured") {
-      intro = "Now let\u2019s begin for real. I\u2019ll ask one short, anchored question at a time \u2014 a brief answer with the time, place, and people is perfectly fine.";
-    } else if (style === "storyteller") {
-      intro = "Now let\u2019s begin for real. I\u2019ll ask one gentle question at a time \u2014 take your time, and feel free to tell as much of the story as you\u2019d like.";
-    } else {
-      intro = "Now let\u2019s begin for real. I\u2019ll ask one gentle question at a time, and you can answer simply or tell more of the story.";
+    // WO-11: Trainer is done — restore narrator for actual interview.
+    // The trainer finish() already set active=false. Now we need to
+    // restore the real narrator context before injecting the style hint.
+    console.log("[WO-11][trainer] Trainer interview handoff — style:", style);
+
+    // Restore narrator after trainer exit — opens narrator selector
+    if (typeof _wo11RestoreNarratorAfterTrainer === "function") {
+      _wo11RestoreNarratorAfterTrainer();
     }
 
-    if (typeof appendBubble === "function") {
-      appendBubble("assistant", intro);
-    }
+    // Note: The style hint will be applied by the user selecting a narrator
+    // and the interview beginning naturally. We stash the trainer style so
+    // it can flavor the first system prompt when they do pick a narrator.
+    state.trainerNarrators = state.trainerNarrators || {};
+    state.trainerNarrators._pendingStyleHint = m.promptHint || null;
+    state.trainerNarrators._pendingStyle = style;
 
-    // WO-11: one-shot system hint to flavor the next model reply.
-    // Uses the existing sendSystemPrompt path; no backend change.
-    // Wrapped in try/catch in case sendSystemPrompt is undefined on some load orders.
-    if (style && m.promptHint && typeof sendSystemPrompt === "function") {
-      try {
-        var sys =
-          "[TRAINER STYLE \u2014 " + style.toUpperCase() + "]\n" +
-          m.promptHint + "\n" +
-          "Use this style for your next several replies, then return to your normal interview tone.";
-        sendSystemPrompt(sys);
-      } catch (_) {}
-    }
-
-    if (typeof setAssistantRole === "function") {
-      setAssistantRole("interviewer");
-    }
-
-    if (typeof renderRoadmap === "function") renderRoadmap();
-    if (typeof renderInterview === "function") renderInterview();
     if (typeof update71RuntimeUI === "function") update71RuntimeUI();
   } catch (e) {
     console.warn("[WO-11] unable to start trainer interview", e);
@@ -4470,6 +4477,17 @@ window.lv80StartTrainerInterview = async function (meta) {
  * Called on: startup, narrator switch, trainer finish, trainer skip.
  */
 window.lv80ClearTrainerAndCaptureState = function () {
+  // WO-11: If trainer was active with a suspended narrator, restore first
+  try {
+    var ts = state && state.trainerNarrators;
+    if (ts && ts.active && ts.suspendedNarratorId) {
+      console.log("[WO-11][trainer] clearTrainer detected active trainer with suspended narrator — restoring");
+      if (typeof _wo11RestoreNarratorAfterTrainer === "function") {
+        _wo11RestoreNarratorAfterTrainer();
+      }
+    }
+  } catch (_) {}
+
   try {
     if (window.LorevoxTrainerNarrators) {
       window.LorevoxTrainerNarrators.reset();
