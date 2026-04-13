@@ -80,3 +80,6 @@ server/data/memory/
 *.orig
 *.rej
 *.bak
+
+# ── Word temp files (created while .docx is open) ──
+~$*
