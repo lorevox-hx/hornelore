@@ -119,15 +119,48 @@ stop_named_process() {
 wait_for_health() {
   local name="$1" check_fn="$2" timeout_s="${3:-45}"
   local i=0
+  local _reported_starting=0
   until "$check_fn"; do
     i=$((i+1))
     if [[ "$i" -ge "$timeout_s" ]]; then
       printf '%s did not become healthy within %ss.\n' "$name" "$timeout_s"
       return 1
     fi
+    # Two-phase reporting: show "starting" at 5s, progress every 15s
+    if [[ "$_reported_starting" -eq 0 && "$i" -ge 5 ]]; then
+      printf '%s still starting... (waited %ds / %ds)\n' "$name" "$i" "$timeout_s"
+      _reported_starting=1
+    elif [[ "$_reported_starting" -eq 1 ]] && (( i % 15 == 0 )); then
+      printf '%s still starting... (%ds / %ds)\n' "$name" "$i" "$timeout_s"
+    fi
     sleep 1
   done
   printf '%s is healthy.\n' "$name"
+}
+
+# Extended health wait with retry after initial failure.
+# Useful for services that take longer than the first timeout window
+# (e.g. TTS model loading). Tries a second window before giving up.
+wait_for_health_retry() {
+  local name="$1" check_fn="$2" initial_timeout="${3:-90}" retry_timeout="${4:-120}"
+  if wait_for_health "$name" "$check_fn" "$initial_timeout"; then
+    return 0
+  fi
+  # Check if the process is still alive — if so, the service is probably
+  # still loading (not crashed). Retry with a second window.
+  local pid_file="${5:-}"
+  if [[ -n "$pid_file" && -f "$pid_file" ]]; then
+    local pid
+    pid="$(read_pid "$pid_file" || true)"
+    if pid_is_running "$pid"; then
+      printf '%s process still alive — extending health check by %ds...\n' "$name" "$retry_timeout"
+      if wait_for_health "$name" "$check_fn" "$retry_timeout"; then
+        return 0
+      fi
+    fi
+  fi
+  printf '%s health check FAILED after all retries.\n' "$name"
+  return 1
 }
 
 open_ui_in_windows() {

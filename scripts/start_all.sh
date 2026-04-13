@@ -70,7 +70,8 @@ fi
 start_named_process "Hornelore TTS" "$TTS_CMD" "$TTS_PID_FILE" "$LOG_DIR/tts.log"
 
 printf 'Waiting for TTS health...\n'
-if wait_for_health "Hornelore TTS" tts_up 90; then
+# TTS model loading can exceed 90s on cold start — retry if process is alive
+if wait_for_health_retry "Hornelore TTS" tts_up 90 120 "$TTS_PID_FILE"; then
   if [[ -f "$ROOT_DIR/scripts/warm_tts.py" ]]; then
     printf 'Warming TTS...\n'
     python3 "$ROOT_DIR/scripts/warm_tts.py" \
@@ -78,7 +79,15 @@ if wait_for_health "Hornelore TTS" tts_up 90; then
       || printf 'TTS warmup failed (non-fatal).\n'
   fi
 else
-  printf 'TTS health check failed (non-fatal — continuing without TTS).\n'
+  # Try warmup anyway — server may have come up between health check and now
+  if [[ -f "$ROOT_DIR/scripts/warm_tts.py" ]]; then
+    printf 'TTS health check timed out — attempting warmup anyway...\n'
+    python3 "$ROOT_DIR/scripts/warm_tts.py" \
+      && printf 'TTS came up late — warm.\n' \
+      || printf 'TTS not available (non-fatal — continuing without TTS).\n'
+  else
+    printf 'TTS health check failed (non-fatal — continuing without TTS).\n'
+  fi
 fi
 
 # ── 3. UI ────────────────────────────────────────────────────────

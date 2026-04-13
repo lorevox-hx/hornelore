@@ -344,7 +344,7 @@
   }
 
   function _renderTabs() {
-    ["bbTabCapture","bbTabQuestionnaire","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads"].forEach(function (tid) {
+    ["bbTabCapture","bbTabQuestionnaire","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads","bbTabShadowReview","bbTabConflicts"].forEach(function (tid) {
       var el = _el(tid); if (!el) return;
       el.classList.toggle("bb-tab-active", el.dataset.tab === _activeTab);
     });
@@ -360,6 +360,38 @@
     else if (_activeTab === "candidates")    _renderCandidatesTab(content, pid);
     else if (_activeTab === "familyTree")    _renderFamilyTreeTab(content, pid);
     else if (_activeTab === "lifeThreads")   _renderLifeThreadsTab(content, pid);
+    else if (_activeTab === "shadowReview") _renderShadowReviewTab(content, pid);
+    else if (_activeTab === "conflicts")    _renderConflictsTab(content, pid);
+  }
+
+  function _renderShadowReviewTab(container, pid) {
+    if (!pid) {
+      container.innerHTML = _emptyStateHtml(
+        "No narrator selected",
+        "Choose a narrator from the dropdown above to review their sources.",
+        []
+      );
+      return;
+    }
+    container.innerHTML = '<div id="shadowReviewRoot"></div>';
+    if (window.HorneloreShadowReview && window.HorneloreShadowReview.init) {
+      window.HorneloreShadowReview.init("shadowReviewRoot");
+    }
+  }
+
+  function _renderConflictsTab(container, pid) {
+    if (!pid) {
+      container.innerHTML = _emptyStateHtml(
+        "No narrator selected",
+        "Choose a narrator from the dropdown above to review conflicts.",
+        []
+      );
+      return;
+    }
+    container.innerHTML = '<div id="conflictConsoleRoot"></div>';
+    if (window.HorneloreConflictConsole && window.HorneloreConflictConsole.init) {
+      window.HorneloreConflictConsole.init("conflictConsoleRoot");
+    }
   }
 
   /* ── Quick Capture Tab ──────────────────────────────────── */

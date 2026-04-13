@@ -1328,6 +1328,15 @@ function _extractAndProjectMultiField(answerText, turnId) {
     if (typeof LorevoxProjectionSync.forcePersist === "function") {
       LorevoxProjectionSync.forcePersist();
     }
+
+    // WO-13X Part B: Show inline claim panel after extraction
+    if (data.items.length > 0 && window.HorneloreShadowReview && window.HorneloreShadowReview.showInlineClaims) {
+      try {
+        window.HorneloreShadowReview.showInlineClaims(data.items, answerText);
+      } catch (e) {
+        console.warn("[extract] Inline claims panel error:", e);
+      }
+    }
   })
   .catch(function (err) {
     // Non-fatal: backend extraction is supplementary

@@ -14,7 +14,12 @@ print_status() {
   local proc_state="stopped"
   if pid_is_running "$pid"; then proc_state="running (pid $pid)"; fi
   local health="down"
-  if "$check_fn"; then health="healthy"; fi
+  if "$check_fn" 2>/dev/null; then
+    health="healthy"
+  elif [[ "$proc_state" != "stopped" ]]; then
+    # Process is running but health check failed — probably still loading
+    health="starting"
+  fi
   printf '%-14s  %-18s  %s\n' "$name" "$proc_state" "$health"
 }
 

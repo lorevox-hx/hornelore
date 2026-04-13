@@ -19,6 +19,7 @@ Then open:
 import http.server
 import socketserver
 import os
+import errno
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +39,24 @@ REPO_TEMPLATES = ROOT / "ui" / "templates"
 class HorneloreHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def handle_one_request(self):
+        """Suppress BrokenPipeError when browser closes mid-transfer."""
+        try:
+            super().handle_one_request()
+        except BrokenPipeError:
+            pass  # browser closed connection — harmless
+        except ConnectionResetError:
+            pass  # browser reset connection — harmless
+
+    def handle(self):
+        """Suppress BrokenPipeError at the connection level."""
+        try:
+            super().handle()
+        except BrokenPipeError:
+            pass
+        except ConnectionResetError:
+            pass
 
     def do_GET(self):
         """Override GET to resolve /templates/ from DATA_DIR first."""

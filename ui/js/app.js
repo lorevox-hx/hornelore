@@ -95,7 +95,7 @@ function _setWarmupBanner(visible, message) {
   const banner = document.getElementById("lv80WarmupBanner");
   if (!banner) return;
   if (visible) {
-    banner.querySelector(".warmup-msg").textContent = message || "Lorevox is warming up…";
+    banner.querySelector(".warmup-msg").textContent = message || "Hornelore is warming up…";
     banner.classList.remove("hidden");
   } else {
     banner.classList.add("hidden");
@@ -115,7 +115,7 @@ async function pollModelReady() {
   const MAX_WAIT      = 300000; // 5 minutes max
   const startedAt     = Date.now();
 
-  _setWarmupBanner(true, "Lorevox is warming up — model loading…");
+  _setWarmupBanner(true, "Hornelore is warming up — model loading…");
   pill("pillChat", false);
 
   // Disable chat input during warmup
@@ -153,7 +153,7 @@ async function pollModelReady() {
 
     // Update banner with elapsed time
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
-    _setWarmupBanner(true, `Lorevox is warming up — model loading… (${elapsed}s)`);
+    _setWarmupBanner(true, `Hornelore is warming up — model loading… (${elapsed}s)`);
 
     await new Promise(r => setTimeout(r, POLL_INTERVAL));
   }
@@ -1839,7 +1839,7 @@ function copyObituary(){ nav_copy(document.getElementById("obituaryOutput").valu
 async function initSession(){
   try{
     const r=await fetch(API.SESS_NEW,{method:"POST",headers:ctype(),
-      body:JSON.stringify({title:"Lorevox v5.5"})});
+      body:JSON.stringify({title:"Hornelore 1.0"})});
     const j=await r.json();
     state.chat.conv_id=j.conv_id||j.session_id||null;
     document.getElementById("chatSessionLabel").textContent=state.chat.conv_id||"Local session";
@@ -1949,8 +1949,8 @@ function startIdentityOnboarding(){
   sendSystemPrompt(
     "[SYSTEM: Begin the identity onboarding sequence. " +
     "Introduce yourself as Lori. " +
-    "You may briefly share what your name means — Lorevox: 'Lore' means stories and oral tradition, " +
-    "'Vox' is Latin for voice, so Lorevox means the voice of your stories. Lori is your nickname from that. " +
+    "You may briefly share what your name means — Hornelore: 'Horne' is the family name, " +
+    "'Lore' means stories and oral tradition, so Hornelore means the Horne family stories. Lori is your nickname from that. " +
     "Explain that your purpose is to help them build a Life Archive — a lasting record of their life story " +
     "told in their own voice. " +
     "Then explain you need just three things to get started: their name, their date of birth, and where they were born. " +
@@ -2356,7 +2356,7 @@ async function sendUserMessage(){
   const text=getv("chatInput").trim(); if(!text) return;
   // Phase Q.4: Block user sends while model is still warming up
   if (!_llmReady) {
-    appendBubble("ai", "Lorevox is still warming up — please wait a moment for the model to finish loading.");
+    appendBubble("ai", "Hornelore is still warming up — please wait a moment for the model to finish loading.");
     return;
   }
   // v7.4D — Phase 7: capture for post-reply fact extraction.
@@ -2461,7 +2461,7 @@ async function sendUserMessage(){
           (Date.now() - _sendTimestamp) < 35000;
         if (!isRecentError) {
           console.log("[WO-11][chat-state] Chat unavailable banner SET — WS disconnected");
-          appendBubble("ai","Chat service unavailable — start or restart the Lorevox AI backend to enable responses.");
+          appendBubble("ai","Chat service unavailable — start or restart the Hornelore AI backend to enable responses.");
         }
         setLoriState("ready");
       }
@@ -2502,7 +2502,7 @@ async function sendSystemPrompt(instruction){
         }
         console.warn("[sendSystemPrompt] 30s timeout — no response from backend");
         console.log("[WO-11][chat-state] Chat unavailable banner SET (system prompt path)");
-        _bubbleBody(bubble).textContent="Chat service unavailable — start or restart the Lorevox AI backend to enable responses.";
+        _bubbleBody(bubble).textContent="Chat service unavailable — start or restart the Hornelore AI backend to enable responses.";
         setLoriState("ready");
         currentAssistantBubble=null;
       }
@@ -2530,7 +2530,7 @@ IMPORTANT INTERVIEW RULES:
 1. DATE DISAMBIGUATION — When someone uses numbers to describe family members (e.g. "my brothers were 60 and 61", "born in '38 and '40", "she's 68"), do NOT assume these are current ages. If the person was born in a year that makes the numbers plausible as birth years (e.g. speaker born 1962, says "brothers 60 and 61" → likely birth years 1960 and 1961), treat them as birth years. When genuinely ambiguous, ask once: "Just to confirm — do you mean they were born in 1960 and 1961, or that they are currently 60 and 61 years old?" Never record an assumed age as fact without confirmation.
 2. BIRTHPLACE vs. CHILDHOOD — If the person says they moved away from their birthplace in infancy or very early childhood (before age 4), do NOT ask for memories from the birthplace. Their meaningful early memories will be from where they were raised. Ask about the place they grew up in, not where they were born.
 3. BIRTH YEARS — Always distinguish between a birth year and a current age. When collecting data for siblings, children, or parents, explicitly note whether a number is a birth year or an age.`;
-  const sys=`You are Lori, a warm oral historian and memoir biographer working for Lorevox.${_langNote}${_rules} PROFILE_JSON: ${JSON.stringify({person_id:state.person_id,profile:state.profile})}`;
+  const sys=`You are Lori, a warm oral historian and memoir biographer working for Hornelore.${_langNote}${_rules} PROFILE_JSON: ${JSON.stringify({person_id:state.person_id,profile:state.profile})}`;
   const body={messages:[{role:"system",content:sys},{role:"user",content:text}],
     temp:0.7,max_new:512,conv_id:state.chat.conv_id||"default"};
   let full="";

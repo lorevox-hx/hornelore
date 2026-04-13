@@ -70,7 +70,7 @@
           lori: [
             "Hi\u2026 I\u2019m Lori.",
             "I\u2019m here to help you tell your life story \u2014 the long way, with feeling and color.",
-            "Lorevox is a place where memories can live, breathe, and turn into something whole.",
+            "Hornelore is a place where memories can live, breathe, and turn into something whole.",
             "There are no right or wrong answers here \u2014 only the ones that matter to you.",
             "Even small moments can open into something much larger."
           ],
@@ -116,7 +116,7 @@
         lori: [
           "Hi\u2026 I\u2019m Lori.",
           "I\u2019m here to help you tell your life story \u2014 clearly, one fact at a time.",
-          "Lorevox is a place where your memories can be saved, organized, and turned into a story \u2014 in your own words.",
+          "Hornelore is a place where your memories can be saved, organized, and turned into a story \u2014 in your own words.",
           "There\u2019s no test, and there are no right or wrong answers.",
           "Short and clear is welcome here. So is wandering, but you don\u2019t have to."
         ],
