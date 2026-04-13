@@ -726,6 +726,13 @@ async function loadPerson(pid){
   state.person_id=pid;
   document.getElementById("activePerson").textContent=`person_id: ${pid}`;
   localStorage.setItem(LS_ACTIVE,pid);
+  // WO-11C: If footer was locked pending narrator selection (post-trainer handoff),
+  // unlock it now that a real narrator is being loaded.
+  if (state.trainerNarrators && state.trainerNarrators._wo11cPendingUnlock && pid) {
+    state.trainerNarrators._wo11cPendingUnlock = false;
+    if (typeof window._wo11cUnlockFooter === "function") window._wo11cUnlockFooter();
+    console.log("[WO-11C] Footer unlocked — narrator selected after trainer exit:", pid);
+  }
   // WO-2: Send sync_session to backend when person changes
   if(ws && wsReady && pid !== _prevPersonId){
     ws.send(JSON.stringify({type:"sync_session",person_id:pid,
@@ -2351,7 +2358,24 @@ function _isHelpIntent(text){
   return _HELP_KEYWORDS.some(k=>t.includes(k));
 }
 
+/* WO-11C: Trainer active check — single helper used by all input guards.
+   Returns true when trainer is actively running OR when trainer has finished
+   but no narrator has been selected yet (pending-unlock state). */
+function _wo11cIsTrainerActive() {
+  if (!state || !state.trainerNarrators) return false;
+  return !!(state.trainerNarrators.active || state.trainerNarrators._wo11cPendingUnlock);
+}
+
 async function sendUserMessage(){
+  // WO-11C: Block normal send while trainer mode is active.
+  // Trainer is a coaching screen, not a live Lori interview.
+  if (_wo11cIsTrainerActive()) {
+    console.log("[WO-11C] sendUserMessage() BLOCKED — trainer mode active");
+    if (typeof sysBubble === "function") {
+      sysBubble("Complete the trainer first, then we\u2019ll begin your interview.");
+    }
+    return;
+  }
   unlockAudio();
   const text=getv("chatInput").trim(); if(!text) return;
   // WO-MIC-UI-02A: Confirm send source and content
@@ -3306,6 +3330,14 @@ async function drainTts(){
    The finally{} block in drainTts() is the enforced safety net.
 ═══════════════════════════════════════════════════════════════ */
 function toggleRecording(){
+  // WO-11C: Block mic while trainer mode is active.
+  if (_wo11cIsTrainerActive()) {
+    console.log("[WO-11C] toggleRecording() BLOCKED — trainer mode active");
+    if (typeof sysBubble === "function") {
+      sysBubble("Complete the trainer first, then we\u2019ll begin your interview.");
+    }
+    return;
+  }
   // WO-MIC-UI-02A: Targeted debug logging — mic click entry point
   console.log("[WO-MIC-UI-02A] toggleRecording() — isRecording:", isRecording,
     "isLoriSpeaking:", isLoriSpeaking,
@@ -3433,6 +3465,11 @@ function _ensureRecognition(){
   return recognition;
 }
 function startRecording(){
+  // WO-11C: Block mic start while trainer mode is active.
+  if (_wo11cIsTrainerActive()) {
+    console.log("[WO-11C] startRecording() BLOCKED — trainer mode active");
+    return;
+  }
   const r=_ensureRecognition(); if(!r) return;
   try{
     r.start(); isRecording=true;

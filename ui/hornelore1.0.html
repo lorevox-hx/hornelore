@@ -1441,6 +1441,26 @@
       margin: 16px auto 0;
       padding: 0 16px;
     }
+    /* WO-11C: Footer locked while trainer is active */
+    footer.trainer-locked {
+      pointer-events: none;
+      opacity: 0.3;
+      position: relative;
+    }
+    footer.trainer-locked::after {
+      content: "Trainer in progress \u2014 start or skip the trainer to begin the interview.";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #818cf8;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 10;
+    }
     .lv80-trainer-shell {
       background: rgba(15, 23, 42, 0.92);
       border: 1px solid rgba(99, 102, 241, 0.22);
@@ -4094,6 +4114,28 @@ function lv80ConfirmNarratorSwitch(pid){
 // WO-11B + WO-11 (TRAINER MODE REPAIR): UI-only trainer launcher.
 // Never creates a person record (WO-11B rule preserved).
 // New in WO-11: fetches the trainer template JSON so the panel and the
+/* WO-11C: Lock/unlock the footer input area during trainer mode.
+   When locked, the footer is visually dimmed, pointer-events disabled,
+   and a banner message is shown via CSS ::after pseudo-element.
+   This prevents the illusion that normal chat is available. */
+function _wo11cLockFooter() {
+  var footer = document.querySelector("footer");
+  if (footer) {
+    footer.classList.add("trainer-locked");
+    console.log("[WO-11C] Footer LOCKED — trainer mode active");
+  }
+}
+function _wo11cUnlockFooter() {
+  var footer = document.querySelector("footer");
+  if (footer) {
+    footer.classList.remove("trainer-locked");
+    console.log("[WO-11C] Footer UNLOCKED — trainer mode exited");
+  }
+}
+// Expose globally so trainer-narrators.js can call them
+window._wo11cLockFooter = _wo11cLockFooter;
+window._wo11cUnlockFooter = _wo11cUnlockFooter;
+
 // post-handoff system hint can use the canonical _trainerStyle /
 // _trainerTitle / _trainerPrompt fields. The preload path is left
 // untouched — only this launcher reads template metadata for trainers.
@@ -4133,6 +4175,9 @@ async function lv80RunTrainerNarrator(style) {
     // Suspend active narrator so trainer runs in a clean, isolated state.
     // The real narrator's person_id, conversation, and header must NOT
     // leak through to the trainer surface.
+
+    // WO-11C: Lock footer immediately so no normal input can leak through
+    _wo11cLockFooter();
 
     // 1. Suspend real narrator (stash person_id for later restore)
     state.trainerNarrators = state.trainerNarrators || {};
@@ -4207,8 +4252,10 @@ function _wo11RestoreNarratorAfterTrainer() {
     ts.suspendedConvId = null;
     ts.active = false;
 
-    // Clear trainer chat messages
+    // WO-11C: Clear any trainer-era contamination from visible chat.
+    // These are null-narrator bubbles that leaked through before Fix 1.
     try { document.getElementById("chatMessages").innerHTML = ""; } catch (_) {}
+    console.log("[WO-11C] Trainer contamination cleanup — chat cleared on exit");
 
     // If a real narrator was suspended, do NOT auto-restore — require explicit selection.
     // This prevents Janice from silently becoming active underneath.
@@ -4217,6 +4264,13 @@ function _wo11RestoreNarratorAfterTrainer() {
     state.chat.conv_id = null;
     // Clear stale profile basics so header doesn't show the previous narrator
     if (state.profile) state.profile.basics = {};
+
+    // WO-11C: Keep footer LOCKED until a real narrator is selected.
+    // Set pending-unlock flag — loadPerson() in app.js checks this and
+    // unlocks when person_id becomes non-null.
+    ts._wo11cPendingUnlock = true;
+    // Footer stays locked from trainer start — do NOT unlock here.
+    console.log("[WO-11C] Footer remains locked — pending narrator selection");
 
     // WO-11 fix: Restore the original narrator card DOM structure.
     // _wo11UpdateHeaderForTrainer replaced innerHTML with trainer-specific HTML
