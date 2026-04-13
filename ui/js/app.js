@@ -2354,6 +2354,8 @@ function _isHelpIntent(text){
 async function sendUserMessage(){
   unlockAudio();
   const text=getv("chatInput").trim(); if(!text) return;
+  // WO-MIC-UI-02A: Confirm send source and content
+  console.log("[WO-MIC-UI-02A] sendUserMessage() — source: #chatInput, length:", text.length, "preview:", text.slice(0, 80));
   // Phase Q.4: Block user sends while model is still warming up
   if (!_llmReady) {
     appendBubble("ai", "Hornelore is still warming up — please wait a moment for the model to finish loading.");
@@ -3177,6 +3179,9 @@ async function drainTts(){
   // This prevents the STT engine from transcribing Lori's own voice.
   isLoriSpeaking=true;
   if(isRecording) stopRecording();
+  // WO-MIC-UI-02A: Show WAIT state so narrator knows Lori has the floor.
+  // stopRecording() sets MIC OFF, but we override to WAIT while Lori speaks.
+  _setMicVisual("wait");
   try {
     while(ttsQueue.length){
       const chunk=ttsQueue.shift();
@@ -3265,6 +3270,9 @@ async function drainTts(){
     // stuck true permanently, silently suppressing all STT forever.
     isLoriSpeaking=false;
     ttsBusy=false;
+    // WO-MIC-UI-02A: Clear WAIT visual now that Lori is done speaking.
+    // If WO-10H auto-starts recording below, startRecording() will set LISTENING.
+    _setMicVisual(false);
 
     // WO-10H: Record TTS finish time and transition narrator turn-claim if pending.
     if (state.narratorTurn) {
@@ -3298,6 +3306,10 @@ async function drainTts(){
    The finally{} block in drainTts() is the enforced safety net.
 ═══════════════════════════════════════════════════════════════ */
 function toggleRecording(){
+  // WO-MIC-UI-02A: Targeted debug logging — mic click entry point
+  console.log("[WO-MIC-UI-02A] toggleRecording() — isRecording:", isRecording,
+    "isLoriSpeaking:", isLoriSpeaking,
+    "FocusCanvas open:", (typeof FocusCanvas !== "undefined" && FocusCanvas.isOpen && FocusCanvas.isOpen()));
   unlockAudio();
   // WO-10H: If Lori is still speaking TTS, claim next turn instead of starting immediately.
   if (isLoriSpeaking && !isRecording) {
@@ -3363,21 +3375,50 @@ function _ensureRecognition(){
       sendUserMessage();
       return;
     }
-    setv("chatInput",getv("chatInput")+_normalisePunctuation(fin));
+    const _normalized02a = _normalisePunctuation(fin);
+    setv("chatInput",getv("chatInput")+_normalized02a);
+    // WO-MIC-UI-02A: Confirm text reaches main surface
+    console.log("[WO-MIC-UI-02A] Final text → #chatInput:", _normalized02a.slice(0, 60));
   };
   // v7.4D — only auto-restart if user explicitly left mic on AND Lori is not speaking.
   // This prevents the engine from restarting mid-TTS and catching Lori's audio.
   recognition.onend=()=>{ if(isRecording && !isLoriSpeaking){ try{ recognition.start(); }catch(e){ console.warn("[STT] auto-restart failed:",e.message); } } };
+  // WO-07: no-speech error cascade mitigation for elderly narrators.
+  // Web Speech API fires no-speech every ~5s during silence (Kent's natural pauses).
+  // Counter tracks consecutive no-speech events; backoff reduces log spam.
+  let _noSpeechCount = 0;
+  const _NO_SPEECH_LOG_INTERVAL = 5;  // Only log every Nth no-speech event
+  // WO-MIC-UI-02A: Raised from 10 to 20 — Kent and Janice pause naturally for
+  // 30-90 seconds while thinking. 10 events (~50s) was too aggressive.
+  const _NO_SPEECH_GENTLE_THRESHOLD = 20;  // After 20, show gentle nudge once
+
+  recognition.onresult = (function(origOnResult) {
+    return function(e) {
+      _noSpeechCount = 0;  // Reset on any speech detected
+      return origOnResult(e);
+    };
+  })(recognition.onresult);
+
   // v8.0 — error handler: surface recognition failures to the user.
   recognition.onerror=e=>{
-    console.error("[STT] recognition error:",e.error,e.message);
     if(e.error==="not-allowed"){
+      console.error("[STT] recognition error:",e.error,e.message);
       stopRecording();
+      // WO-MIC-UI-02A: Show persistent BLOCKED visual state
+      _setMicVisual("blocked");
       sysBubble("🎤 Microphone access was denied. Please allow microphone in your browser settings and try again.");
     } else if(e.error==="no-speech"){
-      // Benign — no speech detected, recognition will auto-restart via onend
-      console.log("[STT] no speech detected — waiting…");
+      // WO-07: Suppress cascade — only log periodically, gentle nudge after threshold
+      _noSpeechCount++;
+      if(_noSpeechCount % _NO_SPEECH_LOG_INTERVAL === 1){
+        console.log("[STT] no speech detected (count: " + _noSpeechCount + ") — waiting…");
+      }
+      if(_noSpeechCount === _NO_SPEECH_GENTLE_THRESHOLD && typeof sysBubble === "function"){
+        // WO-MIC-UI-02A: Calmer message — Kent/Janice may be gathering thoughts
+        sysBubble("🎤 The microphone is still on — no rush, speak whenever you're ready.");
+      }
     } else if(e.error==="network"){
+      console.error("[STT] recognition error:",e.error,e.message);
       stopRecording();
       sysBubble("🎤 Speech recognition requires an internet connection (Chrome sends audio to Google's servers). Please check your connection.");
     } else if(e.error==="service-not-allowed"){
@@ -3416,15 +3457,39 @@ function stopRecording(){
 }
 // v8.0 — mic button visual state. Adds/removes a CSS class instead of
 // replacing innerHTML (which destroyed the SVG icon).
+/* WO-MIC-UI-02A: Expanded mic visual states.
+   States: true/"listening" (red pulse), false/"off" (grey), "wait" (amber),
+           "blocked" (red static, no pulse).
+   The label and button styling communicate clearly to elderly narrators what
+   the mic is doing at all times. */
 function _setMicVisual(active){
   const btn=document.getElementById("btnMic");
   if(!btn) return;
-  if(active){
+  const label=document.getElementById("btnMicLabel");
+
+  // Clear all mic state classes first
+  btn.classList.remove("mic-active", "mic-wait", "mic-blocked");
+  if(label) label.classList.remove("mic-label-active", "mic-label-wait", "mic-label-blocked");
+
+  if(active === "wait"){
+    // WAIT — LORI IS SPEAKING: amber glow, narrator knows Lori has the floor
+    btn.classList.add("mic-wait");
+    btn.title="Lori is speaking — mic will resume when she finishes";
+    if(label){ label.textContent="WAIT — LORI IS SPEAKING"; label.classList.add("mic-label-wait"); }
+    console.log("[WO-MIC-UI-02A] Mic visual → WAIT (Lori speaking)");
+  } else if(active === "blocked"){
+    // BLOCKED — permission denied or hardware unavailable
+    btn.classList.add("mic-blocked");
+    btn.title="Microphone is blocked — check browser permissions";
+    if(label){ label.textContent="MIC BLOCKED"; label.classList.add("mic-label-blocked"); }
+    console.log("[WO-MIC-UI-02A] Mic visual → BLOCKED");
+  } else if(active){
     btn.classList.add("mic-active");
     btn.title="Microphone is on — click to stop";
+    if(label){ label.textContent="LISTENING"; label.classList.add("mic-label-active"); }
   } else {
-    btn.classList.remove("mic-active");
     btn.title="Click to toggle microphone";
+    if(label){ label.textContent="MIC OFF"; }
   }
 }
 
@@ -3960,11 +4025,12 @@ function _wo8HandleRecognitionResult(e) {
     }
   }
 
-  // Update interim display
+  // WO-MIC-UI-02A: wo8VoiceStatus was a competing interim display. Keep updating
+  // for diagnostics but ensure it stays hidden — narrator sees only #chatInput.
   const statusEl = document.getElementById("wo8VoiceStatus");
   if (statusEl && interim) {
     statusEl.textContent = interim;
-    statusEl.className = "wo8-voice-status wo8-listening";
+    statusEl.className = "wo8-voice-status wo8-listening wo8-hidden";
   }
 
   if (!fin) return;
@@ -3994,11 +4060,17 @@ function _wo8HandleRecognitionResult(e) {
   const fullText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
   setv("chatInput", fullText);
 
-  // Update the live transcript scroll area
+  // WO-MIC-UI-02A: #wo8LiveTranscript was a competing visible surface that confused
+  // narrators ("text appears underneath"). The canonical display is now #chatInput only.
+  // We still write to wo8LiveTranscript for debug/diagnostics but keep it hidden.
   const transcriptEl = document.getElementById("wo8LiveTranscript");
   if (transcriptEl) {
     transcriptEl.textContent = fullText;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    // Ensure it stays hidden — single surface authority
+    if (!transcriptEl.classList.contains("wo8-hidden")) {
+      transcriptEl.classList.add("wo8-hidden");
+    }
   }
 
   // Clear interim display
@@ -5190,6 +5262,22 @@ function lv10dRefreshBugPanel() {
   _v("lv10dBpCam", cameraActive ? "ON" : "OFF", cameraActive ? "ok" : "off");
   _v("lv10dBpEmotion", emotionAware ? "ON" : "OFF", emotionAware ? "ok" : "off");
 
+  // WO-04: Camera preview, facial consent, STT engine
+  const previewEl = document.getElementById("lv74-cam-preview");
+  const previewVisible = previewEl && !previewEl.classList.contains("lv74-preview-hidden");
+  _v("lv10dBpCamPreview", previewEl ? (previewVisible ? "Visible" : "Hidden") : "Not created", previewEl ? (previewVisible ? "ok" : "warn") : "off");
+
+  const fcGranted = typeof FacialConsent !== "undefined" && FacialConsent.isGranted();
+  const fcDeclined = typeof FacialConsent !== "undefined" && FacialConsent.isDeclined();
+  _v("lv10dBpFacialConsent", fcGranted ? "Granted" : (fcDeclined ? "Declined" : "Pending"), fcGranted ? "ok" : (fcDeclined ? "err" : "warn"));
+
+  let consentStored = false;
+  try { consentStored = localStorage.getItem("lorevox_facial_consent_granted") === "true"; } catch(_){}
+  _v("lv10dBpConsentStored", consentStored ? "Yes (persistent)" : "No", consentStored ? "ok" : "off");
+
+  const hasSR = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  _v("lv10dBpSttEngine", hasSR ? "Web Speech API" : "None (browser unsupported)", hasSR ? "ok" : "err");
+
   // Affect / visual signals
   const vs = state.session?.visualSignals;
   const hasFresh = !!(vs?.affectState && vs?.timestamp && (Date.now() - vs.timestamp < 8000));
@@ -5242,6 +5330,9 @@ function lv10dRefreshBugPanel() {
   if (listeningPaused && isRecording) warnings.push("Mic recording while listening is paused — state conflict");
   if (nt && nt.state === "awaiting_tts_end" && !isLoriSpeaking) warnings.push("Turn state stuck in awaiting_tts_end but TTS is not active");
   if (nt && nt.state !== "idle" && nt.checkInFired) warnings.push("Check-in already fired for this claimed turn");
+  // WO-04: Consent/camera consistency checks
+  if (emotionAware && typeof FacialConsent !== "undefined" && FacialConsent.isDeclined()) warnings.push("emotionAware=true but facial consent was declined — camera will not start");
+  if (cameraActive && !document.getElementById("lv74-cam-preview")) warnings.push("Camera active but preview DOM not created — camera-preview.js may not be loaded");
 
   const warnList = document.getElementById("lv10dBpWarnings");
   if (warnList) {
@@ -5290,7 +5381,8 @@ function lv10dCopyDiag() {
     role: getAssistantRole(),
     llmReady: _llmReady,
     mic: { recording: isRecording, paused: listeningPaused, wo8Paused: _wo8VoicePaused },
-    camera: { active: cameraActive, emotionAware: emotionAware },
+    camera: { active: cameraActive, emotionAware: emotionAware, previewVisible: !!document.getElementById("lv74-cam-preview") },
+    facialConsent: { granted: typeof FacialConsent !== "undefined" && FacialConsent.isGranted(), stored: (() => { try { return localStorage.getItem("lorevox_facial_consent_granted") === "true"; } catch(_) { return false; } })() },
     visualSignals: state.session?.visualSignals || null,
     ws: { connected: !!(ws && wsReady), fallback: usingFallback },
     llmParams: window._lv10dLlmParams,

@@ -17,10 +17,18 @@
 (function (global) {
   'use strict';
 
+  /* ── Constants ──────────────────────────────────────────────── */
+  const LS_KEY = 'lorevox_facial_consent_granted';
+
   /* ── State ─────────────────────────────────────────────────── */
-  let _consentGranted  = false;   // true once user confirms
-  let _consentDeclined = false;   // true if user explicitly declined
-  let _pendingResolve  = null;    // Promise resolver waiting on consent answer
+  // WO-02: Check localStorage for prior consent (family-friendly persistence).
+  // On a family machine, narrators should not have to re-confirm every session.
+  let _storedConsent   = false;
+  try { _storedConsent = localStorage.getItem(LS_KEY) === 'true'; } catch(_){}
+
+  let _consentGranted  = _storedConsent;  // auto-grant if previously consented
+  let _consentDeclined = false;           // true if user explicitly declined
+  let _pendingResolve  = null;            // Promise resolver waiting on consent answer
 
   /* ── Public API ─────────────────────────────────────────────── */
   const FacialConsent = {
@@ -41,7 +49,10 @@
      * If consent was already given, resolves immediately.
      */
     request() {
-      if (_consentGranted)  return Promise.resolve(true);
+      if (_consentGranted) {
+        if (_storedConsent) console.log('[Lorevox] Facial expression consent: auto-granted from prior session.');
+        return Promise.resolve(true);
+      }
       if (_consentDeclined) return Promise.resolve(false);
 
       return new Promise((resolve) => {
@@ -57,8 +68,10 @@
     _confirm() {
       _consentGranted  = true;
       _consentDeclined = false;
+      _storedConsent   = true;
+      try { localStorage.setItem(LS_KEY, 'true'); } catch(_){}
       _hideOverlay();
-      console.log('[Lorevox] Facial expression consent: GRANTED');
+      console.log('[Lorevox] Facial expression consent: GRANTED (persisted)');
       if (_pendingResolve) { _pendingResolve(true); _pendingResolve = null; }
     },
 
@@ -74,12 +87,25 @@
     },
 
     /**
-     * Reset consent state (e.g. when a new person is selected).
+     * Reset session consent state (e.g. when a new person is selected).
+     * Does NOT clear localStorage — use revokeStored() for that.
      */
     reset() {
-      _consentGranted  = false;
+      _consentGranted  = _storedConsent;  // WO-02: preserve stored consent on narrator switch
       _consentDeclined = false;
       _pendingResolve  = null;
+    },
+
+    /**
+     * WO-02: Revoke stored consent entirely (from settings panel).
+     * Next camera activation will show the full consent overlay again.
+     */
+    revokeStored() {
+      _consentGranted  = false;
+      _consentDeclined = false;
+      _storedConsent   = false;
+      try { localStorage.removeItem(LS_KEY); } catch(_){}
+      console.log('[Lorevox] Facial expression consent: stored consent revoked.');
     },
   };
 

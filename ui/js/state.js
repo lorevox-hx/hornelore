@@ -275,11 +275,11 @@ let sensitiveSegments = [];
 let pendingConfirmAction = null; // callback for confirm dialog
 
 /* ── v6.1 Track B — Affect/emotion state ── */
-let emotionAware   = false;  // user has opted in to affect-aware mode
+let emotionAware   = true;   // WO-02: default ON for family narrators (affect-aware mode)
 let cameraActive   = false;  // camera + MediaPipe running
 let showAffectArc  = false;  // timeline affect arc toggle
 let permMicOn      = true;   // mic permission (default on)
-let permCamOn      = false;  // camera permission (default off)
+let permCamOn      = true;   // WO-02: camera permission default ON for family use
 let permLocOn      = false;  // location permission (default off — Step 3: optional, consent-gated)
 let permCardShown  = false;  // has the permission card been shown this session?
 // Session affect events: { ts, section_id, affect_state, confidence }[]

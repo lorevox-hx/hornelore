@@ -136,11 +136,14 @@
     }
 
     /* ── WO-8: Voice status & transcript history styles ────── */
-    .wo8-voice-status { color: #64748b; }
-    .wo8-voice-status.wo8-listening { color: #22c55e; background: rgba(34,197,94,0.1); }
-    .wo8-voice-status.wo8-processing { color: #818cf8; background: rgba(99,102,241,0.1); }
-    .wo8-voice-status.wo8-paused { color: #eab308; background: rgba(234,179,8,0.1); }
+    /* WO-03: Enlarged voice status for older narrators (12→16px) */
+    .wo8-voice-status { color: #64748b; font-size: 16px; font-weight: 600; }
+    .wo8-voice-status.wo8-listening { color: #22c55e; background: rgba(34,197,94,0.15); }
+    .wo8-voice-status.wo8-processing { color: #818cf8; background: rgba(99,102,241,0.15); }
+    .wo8-voice-status.wo8-paused { color: #eab308; background: rgba(234,179,8,0.15); }
     .wo8-voice-status.wo8-ready { color: #94a3b8; }
+    /* WO-MIC-UI-02A: Hide competing WO-8 surfaces — single surface authority */
+    .wo8-hidden { display: none !important; }
     .wo8-session-divider {
       text-align: center;
       padding: 8px 0;
@@ -256,27 +259,69 @@
       align-items: center;
       gap: 12px;
     }
+    /* WO-03: Enlarged mic button for older narrators (48→64px) */
     #btnMic {
       flex-shrink: 0;
-      width: 48px; height: 48px;
+      width: 64px; height: 64px;
       border-radius: 50%;
       background: #1e293b;
-      border: 1px solid #334155;
+      border: 2px solid #475569;
       display: flex; align-items: center; justify-content: center;
       color: #94a3b8;
       cursor: pointer;
       transition: all 0.2s;
     }
+    #btnMic svg { width: 26px; height: 26px; }
     #btnMic.mic-active {
       background: #7f1d1d;
       border-color: #ef4444;
+      border-width: 3px;
       color: #fca5a5;
-      box-shadow: 0 0 12px rgba(239,68,68,0.4);
+      box-shadow: 0 0 20px rgba(239,68,68,0.5), 0 0 40px rgba(239,68,68,0.2);
       animation: mic-pulse 1.5s ease-in-out infinite;
     }
     @keyframes mic-pulse {
-      0%, 100% { box-shadow: 0 0 12px rgba(239,68,68,0.4); }
-      50%      { box-shadow: 0 0 24px rgba(239,68,68,0.7); }
+      0%, 100% { box-shadow: 0 0 20px rgba(239,68,68,0.5), 0 0 40px rgba(239,68,68,0.2); }
+      50%      { box-shadow: 0 0 30px rgba(239,68,68,0.7), 0 0 50px rgba(239,68,68,0.3); }
+    }
+    /* WO-03: Mic label beside button for older narrators */
+    #btnMicLabel {
+      margin-left: 8px;
+      font-size: 14px; font-weight: 700; letter-spacing: 0.5px;
+      white-space: nowrap; pointer-events: none;
+      color: #64748b; transition: color 0.2s;
+      user-select: none;
+    }
+    .mic-label-active {
+      color: #ef4444 !important;
+    }
+    /* WO-MIC-UI-02A: WAIT state — amber glow when Lori is speaking */
+    #btnMic.mic-wait {
+      background: #78350f;
+      border-color: #f59e0b;
+      border-width: 3px;
+      color: #fcd34d;
+      box-shadow: 0 0 15px rgba(245,158,11,0.4);
+      animation: mic-wait-pulse 2s ease-in-out infinite;
+    }
+    @keyframes mic-wait-pulse {
+      0%, 100% { box-shadow: 0 0 15px rgba(245,158,11,0.4); }
+      50%      { box-shadow: 0 0 25px rgba(245,158,11,0.6); }
+    }
+    .mic-label-wait {
+      color: #f59e0b !important;
+      font-size: 13px !important;
+    }
+    /* WO-MIC-UI-02A: BLOCKED state — static red, no pulse */
+    #btnMic.mic-blocked {
+      background: #450a0a;
+      border-color: #991b1b;
+      border-width: 3px;
+      color: #fca5a5;
+      opacity: 0.7;
+    }
+    .mic-label-blocked {
+      color: #991b1b !important;
     }
     #chatInput {
       flex: 1;
@@ -2430,8 +2475,9 @@
 
   <!-- ── WO-8 VOICE STATUS BAR ──────────────────────────────── -->
   <div id="wo8VoiceBar" style="display:flex;align-items:center;gap:8px;padding:4px 16px;background:rgba(15,23,42,0.95);border-top:1px solid rgba(99,102,241,0.15);font-size:12px;color:#94a3b8;min-height:28px;flex-shrink:0;">
-    <div id="wo8VoiceStatus" class="wo8-voice-status" style="flex:0 0 auto;padding:2px 8px;border-radius:10px;font-weight:500;">Mic off</div>
-    <div id="wo8LiveTranscript" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#cbd5e1;font-style:italic;max-height:40px;overflow-y:auto;white-space:normal;"></div>
+    <!-- WO-MIC-UI-02A: Hidden by default — single surface authority. chatInput is the only visible capture surface. -->
+    <div id="wo8VoiceStatus" class="wo8-voice-status wo8-hidden" style="flex:0 0 auto;padding:2px 8px;border-radius:10px;font-weight:500;">Mic off</div>
+    <div id="wo8LiveTranscript" class="wo8-hidden" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#cbd5e1;font-style:italic;max-height:40px;overflow-y:auto;white-space:normal;"></div>
     <button id="wo8PauseBtn" class="hidden" onclick="wo8PauseListening()" style="padding:2px 10px;border-radius:6px;border:1px solid rgba(234,179,8,0.4);background:rgba(234,179,8,0.1);color:#eab308;font-size:11px;cursor:pointer;" title="Pause listening">⏸ Pause</button>
     <button id="wo8ResumeBtn" class="hidden" onclick="wo8ResumeListening()" style="padding:2px 10px;border-radius:6px;border:1px solid rgba(34,197,94,0.4);background:rgba(34,197,94,0.1);color:#22c55e;font-size:11px;cursor:pointer;" title="Resume listening">▶ Resume</button>
     <button id="wo8SendNowBtn" class="hidden" onclick="wo8SendNow()" style="padding:2px 10px;border-radius:6px;border:1px solid rgba(99,102,241,0.4);background:rgba(99,102,241,0.15);color:#818cf8;font-size:11px;cursor:pointer;" title="End turn and send">✓ Send Now</button>
@@ -2444,12 +2490,16 @@
   <!-- ── FOOTER / INPUT BAR ─────────────────────────────────── -->
   <footer>
     <div>
-      <button id="btnMic" title="Click to toggle microphone" onclick="toggleMic()">
-        <svg style="width:20px;height:20px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-        </svg>
-      </button>
+      <!-- WO-03: Mic button with visible label for older narrators -->
+      <div style="position:relative;display:inline-flex;align-items:center;">
+        <button id="btnMic" title="Click to toggle microphone" onclick="toggleMic()">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+          </svg>
+        </button>
+        <span id="btnMicLabel">MIC OFF</span>
+      </div>
 
       <textarea
         id="chatInput"
@@ -2944,6 +2994,11 @@
       <div class="lv10d-bp-row"><span class="lv10d-bp-label">Emotion Aware</span><span class="lv10d-bp-value" id="lv10dBpEmotion">—</span></div>
       <div class="lv10d-bp-row"><span class="lv10d-bp-label">Affect State</span><span class="lv10d-bp-value" id="lv10dBpAffect">—</span></div>
       <div class="lv10d-bp-row"><span class="lv10d-bp-label">Signal Age</span><span class="lv10d-bp-value" id="lv10dBpSignalAge">—</span></div>
+      <!-- WO-04: Hardened diagnostic rows -->
+      <div class="lv10d-bp-row"><span class="lv10d-bp-label">Camera Preview</span><span class="lv10d-bp-value" id="lv10dBpCamPreview">—</span></div>
+      <div class="lv10d-bp-row"><span class="lv10d-bp-label">Facial Consent</span><span class="lv10d-bp-value" id="lv10dBpFacialConsent">—</span></div>
+      <div class="lv10d-bp-row"><span class="lv10d-bp-label">Consent Stored</span><span class="lv10d-bp-value" id="lv10dBpConsentStored">—</span></div>
+      <div class="lv10d-bp-row"><span class="lv10d-bp-label">STT Engine</span><span class="lv10d-bp-value" id="lv10dBpSttEngine">—</span></div>
     </div>
 
     <!-- WO-10H: Turn State -->
@@ -3286,6 +3341,7 @@
 <script src="js/facial-consent.js"></script>
 <script src="js/affect-bridge.js"></script>
 <script src="js/emotion-ui.js"></script>
+<script src="js/camera-preview.js"></script>
 <script src="js/timeline-ui.js"></script>
 <script src="js/interview.js"></script>
 <script src="js/app.js"></script>
@@ -3315,6 +3371,7 @@
 <script src="js/bio-control-center.js"></script>
 <script src="js/focus-canvas.js"></script>
 <script src="js/test-harness.js"></script>
+<script src="js/emotion-pipeline-tests.js"></script>
 
 <script>
 /* ── Auto-reset on startup ──────────────────────────────────────
@@ -3719,6 +3776,17 @@ async function lv80SwitchPerson(personId) {
   // 6. Clear loading state
   state.narratorOpen.loadingPid = null;
   console.log("[v9-gate] Narrator open complete. Status:", state.narratorOpen.openStatus);
+
+  // WO-CAM-FIX: Auto-start camera on narrator load if family defaults are on.
+  // Previously camera only started from interview.js _ivStartActual() (fresh section start)
+  // or lv80ToggleCam() (which had a session_id gate). Narrator-resume loads never
+  // triggered either path, so camera stayed off despite emotionAware=true, permCamOn=true.
+  if (state.narratorOpen.openStatus === "ready" && permCamOn && emotionAware && !cameraActive) {
+    if (typeof startEmotionEngine === "function") {
+      console.log("[WO-CAM-FIX] Auto-starting camera for ready narrator (permCamOn + emotionAware)");
+      startEmotionEngine();
+    }
+  }
 }
 
 /* ── v9: Incomplete narrator explicit UI ─────────────────────────
@@ -4293,9 +4361,28 @@ function lv80ResetCaptureBar() {
 // Ported from lori7.5.html with lv80 prefixes.
 // 30 s visual cue → 75 s one spoken check-in → done.
 
-const LV80_IDLE_SOFT_MS      = 30_000;
-const LV80_IDLE_CHECKIN_OPEN = 75_000;
-const LV80_IDLE_CHECKIN_MEM  = 55_000;
+// WO-08: Age-aware idle timers for gentle re-entry.
+// Elderly narrators (age >= 75) get extended patience.
+function _wo08GetNarratorAge() {
+  try {
+    if (state?.profile?.basics?.dob) {
+      var dob = new Date(state.profile.basics.dob);
+      if (!isNaN(dob.getTime())) return Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    }
+  } catch(_){}
+  return 0;
+}
+function _wo08IsElderly() { return _wo08GetNarratorAge() >= 75; }
+
+// These are now functions so they can adapt to narrator changes
+function _LV80_IDLE_SOFT_MS()      { return _wo08IsElderly() ? 60_000  : 30_000; }
+function _LV80_IDLE_CHECKIN_OPEN() { return _wo08IsElderly() ? 120_000 : 75_000; }
+function _LV80_IDLE_CHECKIN_MEM()  { return _wo08IsElderly() ? 90_000  : 55_000; }
+
+// Backward compat — constants for code that reads them directly
+var LV80_IDLE_SOFT_MS      = 60_000;   // WO-08: default to elderly (safe default for Horne family)
+var LV80_IDLE_CHECKIN_OPEN = 120_000;
+var LV80_IDLE_CHECKIN_MEM  = 90_000;
 
 /* WO-10C — Cognitive Support Mode timing constants.
    These replace standard idle timers when cognitiveSupportMode is active.
@@ -4344,6 +4431,8 @@ function lv80ArmIdle(reason) {
     return;
   }
 
+  // WO-08: Use dynamic timer functions for age-aware patience
+  const _softMs = typeof _LV80_IDLE_SOFT_MS === "function" ? _LV80_IDLE_SOFT_MS() : LV80_IDLE_SOFT_MS;
   _lv80IdleSoftTimer = setTimeout(() => {
     if (window._wo8VoicePaused) return;    // WO-8: no visual cue while paused
     // WO-10B: No visual cue if narrator is still actively speaking
@@ -4353,10 +4442,12 @@ function lv80ArmIdle(reason) {
     const cs = window._wo10bCurrentConversationState;
     if (cs === "storytelling" || cs === "reflecting" || cs === "emotional_pause") return;
     document.getElementById("lv80IdleCue")?.classList.add("visible");
-  }, LV80_IDLE_SOFT_MS);
+  }, _softMs);
 
   const modeIdx = (typeof _mcModeIdx !== "undefined") ? _mcModeIdx : 0;
-  const checkInMs = modeIdx === 0 ? LV80_IDLE_CHECKIN_OPEN : LV80_IDLE_CHECKIN_MEM;
+  const _openMs = typeof _LV80_IDLE_CHECKIN_OPEN === "function" ? _LV80_IDLE_CHECKIN_OPEN() : LV80_IDLE_CHECKIN_OPEN;
+  const _memMs  = typeof _LV80_IDLE_CHECKIN_MEM === "function" ? _LV80_IDLE_CHECKIN_MEM() : LV80_IDLE_CHECKIN_MEM;
+  const checkInMs = modeIdx === 0 ? _openMs : _memMs;
 
   _lv80IdleCheckInTimer = setTimeout(lv80FireCheckIn, checkInMs);
 }
@@ -6530,6 +6621,15 @@ function lv80ToggleCam() {
   if (permCamOn) {
     emotionAware = true;
     if (typeof updateEmotionAwareBtn === "function") updateEmotionAwareBtn();
+    // WO-CAM-FIX: Start emotion engine whenever cam is toggled on.
+    // Removed session_id gate — narrator-resume loads don't create a fresh
+    // interview session, so session_id stays null. Camera must still start.
+    if (typeof startEmotionEngine === "function") {
+      startEmotionEngine();
+    }
+  } else {
+    // WO-02: Stop engine when camera toggled off from settings
+    if (typeof stopEmotionEngine === "function") stopEmotionEngine();
   }
   _lv80SyncCamStatus();
 }

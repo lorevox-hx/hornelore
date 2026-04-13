@@ -540,6 +540,23 @@
     // N.1-02: Initialize scroll management on chat wrap
     _initScrollManagement();
 
+    // WO-MIC-UI-02A: Focus Canvas intercepts permanently bypassed for Hornelore.
+    // The overlay split-surface confuses elderly narrators ("nothing here when I
+    // speak but underneath it is there to send"). All mic and text input routes
+    // through the main chat surface — one surface, no confusion.
+    //
+    // To re-enable Focus Canvas for development/testing, set:
+    //   window._wo_focusCanvasBypass = false
+    // BEFORE this script loads.
+    var _bypassFocusCanvas = (typeof window._wo_focusCanvasBypass !== "undefined")
+      ? !window._wo_focusCanvasBypass  // explicit false re-enables
+      : true;                          // default: always bypass
+
+    if (_bypassFocusCanvas) {
+      console.log("[WO-MIC-UI-02A] Focus Canvas intercepts BYPASSED — mic and text use main chat surface directly.");
+      return;
+    }
+
     // Intercept mic button
     var mic = _el("btnMic");
     if (mic) {
