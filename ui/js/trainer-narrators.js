@@ -1,14 +1,31 @@
-/* trainer-narrators.js — WO-11 Trainer Narrators
+/* trainer-narrators.js — WO-11 / WO-11D / WO-11E Trainer Narrators
    WO-11 TRAINER MODE REPAIR:
-     - Canonical style names: "structured" | "storyteller" (no more "story")
+     - Canonical style names: "questionnaire" | "structured" | "storyteller"
      - state.trainerNarrators is the single source of truth and now carries
        full trainer meta (style, title, promptHint, templateName)
      - start() accepts a meta object {style, title, promptHint, templateName}
        OR the legacy (personId, style) signature for back-compat
-     - _steps() is style-aware: separate Shatner / Dolly example pairs
+     - _steps() is style-aware: three branches with user-facing copy
      - finish() captures meta locally BEFORE clearing active so the handoff
        receives the trainer flavor it needs
      - Exposes window.LorevoxTrainerNarrators
+
+   WO-11D TRAINER CHOOSER REFRESH:
+     - Replaced celebrity-forward labels with user-facing choices:
+       Questionnaire First / Clear & Direct / Warm Storytelling
+     - Shared Lori explanation block across all trainers
+     - Examples use normal life-history complexity (preferred names,
+       pronouns, multiple marriages, blended families)
+     - Internal keys preserved for handoff compatibility
+
+   WO-11E TRAINER TTS NARRATION + SPOKEN GUIDANCE:
+     - Lori reads each trainer step aloud automatically
+     - Spoken navigation guidance at end of each step
+     - Replay button and speaking indicator in panel
+     - Stop narration on Back/Next/Skip/Start Interview
+     - TTS failure fallback — trainer still works visually
+     - All narration goes through enqueueTts (no chat bubbles)
+     - Preserves WO-11C modal isolation
 
    WO-11B history kept: trainers remain UI-only launcher actions.
    They never create person records or bind narrator metadata via preload.
@@ -22,29 +39,41 @@
     if (!state.trainerNarrators) {
       state.trainerNarrators = {
         active: false,
-        style: null,            // "structured" | "storyteller"
+        style: null,            // "questionnaire" | "structured" | "storyteller"
         title: null,
         promptHint: null,
         templateName: null,
         stepIndex: 0,
         completed: false,
-        completedStyle: null
+        completedStyle: null,
+        // WO-11E: Narration state
+        _wo11eNarrating: false,  // true while trainer TTS is in progress
+        _wo11eStopped: false     // true when user manually stopped narration
       };
     }
     return state.trainerNarrators;
   }
 
   function _normalizeStyle(s) {
-    // Canonical pair: structured | storyteller.
-    // Legacy "story" is mapped to "storyteller" so old call sites still work.
+    // WO-11D: Three canonical styles.
+    // Legacy "story" maps to "storyteller" for back-compat.
+    if (s === "questionnaire") return "questionnaire";
     if (s === "structured") return "structured";
     if (s === "storyteller" || s === "story") return "storyteller";
     return "structured";
   }
 
+  // WO-11D: User-facing display names (never show internal keys)
+  var _STYLE_DISPLAY = {
+    questionnaire: { name: "Questionnaire First",  sub: "Start with the basics, step by step." },
+    structured:    { name: "Clear & Direct",        sub: "Short answers. One fact at a time." },
+    storyteller:   { name: "Warm Storytelling",     sub: "Tell it with detail, feeling, and scene." }
+  };
+
   function _reset() {
     var s = _ensureTrainerState();
     if (!s) return;
+    _wo11eStopNarration(); // WO-11E: stop any playing narration
     s.active = false;
     s.style = null;
     s.title = null;
@@ -53,32 +82,84 @@
     s.stepIndex = 0;
     s.completed = false;
     s.completedStyle = null;
+    s._wo11eNarrating = false;
+    s._wo11eStopped = false;
     _renderPanel();
   }
 
-  // WO-11: Style-aware step content. Both styles share the same three step
-  // IDs (about_lorevox / how_lori_works / try_your_way) and the same visual
-  // structure, but the simple/story example pairs are different so the
-  // trainer actually demonstrates its style.
+  // ── WO-11D: Shared Lori explanation (used by all three trainers) ──
+  var _SHARED_LORI_INTRO = [
+    "Hi\u2026 I\u2019m Lori.",
+    "Lorevox is a place to save and organize your life story \u2014 in your own words, at your own pace.",
+    "I\u2019ll ask questions, listen, and help shape what you share into a growing life story.",
+    "There\u2019s no test and no perfect way to answer. Brief answers are fine. Fuller stories are welcome too.",
+    "Real lives are welcome here \u2014 preferred names, pronouns, multiple marriages, blended families, all of it. Complexity is normal, and I can handle it.",
+    "Use Back, Next, or Skip at any time."
+  ];
+
+  // ── WO-11D: Style-aware step content ──────────────────────────
   function _steps(style) {
     var canonical = _normalizeStyle(style);
-    if (canonical === "storyteller") {
-      // Dolly trainer — warm, flowing storytelling examples
+
+    if (canonical === "questionnaire") {
       return [
         {
           id: "about_lorevox",
+          lori: _SHARED_LORI_INTRO.concat([
+            "This is a gentle, step-by-step way to begin.",
+            "We\u2019ll start with the basics \u2014 names, dates, places, relationships, and other important life details.",
+            "You don\u2019t have to tell the whole story at once."
+          ]),
+          question: "Here are some examples of simple answers to get started.",
+          simpleLabel: "Basic fact",
+          simple: "My full legal name is Margaret Louise Carter, but everyone calls me Maggie.",
+          storyLabel: "A little more detail",
+          story: "I was born in Spokane, Washington, in 1939. My mother\u2019s family had been there for two generations."
+        },
+        {
+          id: "how_lori_works",
           lori: [
-            "Hi\u2026 I\u2019m Lori.",
-            "I\u2019m here to help you tell your life story \u2014 the long way, with feeling and color.",
-            "Hornelore is a place where memories can live, breathe, and turn into something whole.",
-            "There are no right or wrong answers here \u2014 only the ones that matter to you.",
-            "Even small moments can open into something much larger."
+            "I\u2019ll ask one question at a time, starting simple.",
+            "Names, dates, places \u2014 then we\u2019ll build from there.",
+            "If something is complicated, just say so. I\u2019ll follow your lead."
           ],
+          question: "You can share as much or as little as you\u2019d like.",
+          simpleLabel: "Short and clear",
+          simple: "I use they and them pronouns.",
+          storyLabel: "With a bit of context",
+          story: "I was married twice. My first marriage ended young, and I later married David. My son is from my first marriage, and my younger daughter is from my second."
+        },
+        {
+          id: "try_your_way",
+          lori: [
+            "That\u2019s all there is to it.",
+            "Short facts are perfect. More detail is welcome anytime.",
+            "Now you\u2019re ready to begin \u2014 your own life, your own words.",
+            "Tap Start Interview to begin, or Skip if you\u2019d rather jump right in."
+          ],
+          question: "When you answer Lori, simple facts are all you need to start.",
+          simpleLabel: "Simple fact",
+          simple: "I was born in Spokane, Washington.",
+          storyLabel: "With a bit more",
+          story: "I was born in Spokane in the spring of 1939. My father worked at the aluminum plant, and we lived in a small house on the north side of town."
+        }
+      ];
+    }
+
+    if (canonical === "storyteller") {
+      return [
+        {
+          id: "about_lorevox",
+          lori: _SHARED_LORI_INTRO.concat([
+            "This path is good for fuller answers.",
+            "You can include people, feelings, atmosphere, and detail.",
+            "You don\u2019t need to be polished \u2014 just tell it in your own way."
+          ]),
           question: "Let me show you what a storytelling answer can sound like.",
           simpleLabel: "Short answer",
-          simple: "I was born in Locust Ridge, Tennessee.",
+          simple: "I remember holidays being complicated after our family changed.",
           storyLabel: "Storytelling answer",
-          story: "I was born up in Locust Ridge, in a one-room cabin on the Little Pigeon River \u2014 my daddy paid the doctor with a sack of cornmeal, and the mountains that morning were blue and quiet, the way they always are when something new is just about to begin."
+          story: "After my second marriage, the holidays took on a different shape \u2014 my children from the first marriage, his boys from his side, all of us trying to figure out where everyone belonged, and somehow making a kind of family out of it anyway."
         },
         {
           id: "how_lori_works",
@@ -89,9 +170,9 @@
           ],
           question: "Here\u2019s how a name can become a story.",
           simpleLabel: "Short answer",
-          simple: "My name is Dolly Rebecca Parton.",
+          simple: "My full name is Margaret Louise Carter, but I\u2019ve always gone by Maggie.",
           storyLabel: "Storytelling answer",
-          story: "My name is Dolly Rebecca Parton \u2014 Dolly because Mama just liked the sound of it, Rebecca after one of the women in our family who held everybody together, and Parton from a long line of folks who could pick a guitar and tell you the truth in three verses or less."
+          story: "My name is Margaret Louise Carter \u2014 Margaret after my grandmother who came over from Norway, Louise because my mother just liked the sound of it. But nobody has ever called me Margaret. I\u2019ve been Maggie since before I could walk, and that\u2019s the name that feels like mine."
         },
         {
           id: "try_your_way",
@@ -99,7 +180,8 @@
             "Both kinds of answers are welcome here.",
             "But if you can, lean into the telling.",
             "Let the colors and the people and the feelings come along.",
-            "Now you give it a try \u2014 your own life, your own voice."
+            "Now you give it a try \u2014 your own life, your own voice.",
+            "Tap Start Interview to begin, or Skip if you\u2019d rather jump right in."
           ],
           question: "When you answer Lori, you can be brief, or you can really paint the scene.",
           simpleLabel: "Short answer",
@@ -109,49 +191,49 @@
         }
       ];
     }
-    // Default: structured (Shatner) trainer — short, anchored, factual
+
+    // Default: structured — short, anchored, factual
     return [
       {
         id: "about_lorevox",
-        lori: [
-          "Hi\u2026 I\u2019m Lori.",
-          "I\u2019m here to help you tell your life story \u2014 clearly, one fact at a time.",
-          "Hornelore is a place where your memories can be saved, organized, and turned into a story \u2014 in your own words.",
-          "There\u2019s no test, and there are no right or wrong answers.",
-          "Short and clear is welcome here. So is wandering, but you don\u2019t have to."
-        ],
+        lori: _SHARED_LORI_INTRO.concat([
+          "This path is good for short, clear answers.",
+          "One fact at a time is enough.",
+          "Names, dates, places, and simple descriptions are all welcome."
+        ]),
         question: "Let me show you two ways someone might answer.",
         simpleLabel: "Short answer",
-        simple: "I was born in Bismarck, North Dakota, in 1947.",
-        storyLabel: "Anchored answer",
-        story: "I was born March 22, 1947, in Bismarck, North Dakota \u2014 my father was working at the rail yard at the time, and we lived two blocks from the river."
+        simple: "I was born in Spokane, Washington, in 1939.",
+        storyLabel: "Clear answer",
+        story: "My full name is Margaret Louise Carter, but I\u2019ve always gone by Maggie. I use she and her pronouns."
       },
       {
         id: "how_lori_works",
         lori: [
           "I usually ask gentle questions one at a time.",
           "We move through life step by step, starting at the beginning.",
-          "An anchored answer gives me three things: the time, the place, and the people."
+          "A clear answer gives me the key facts: the time, the place, and the people."
         ],
-        question: "Here\u2019s a name example.",
+        question: "Here\u2019s an example with a little more detail.",
         simpleLabel: "Short answer",
-        simple: "My name is William Alan Shatner.",
-        storyLabel: "Anchored answer",
-        story: "My name is William Alan Shatner \u2014 William after my grandfather, Alan after my uncle, born March 1931 in Montreal, Quebec."
+        simple: "I was married twice.",
+        storyLabel: "Clear answer",
+        story: "I was married twice. My first marriage ended young, and I later married David. My son is from my first marriage, and my younger daughter is from my second."
       },
       {
         id: "try_your_way",
         lori: [
           "Both ways are good.",
           "A short answer gives clear facts.",
-          "An anchored answer adds the time, the place, and the people \u2014 enough to hold the moment.",
-          "Now you can do it your way."
+          "A fuller answer adds the time, the place, and the people \u2014 enough to hold the moment.",
+          "Now you can do it your way.",
+          "Tap Start Interview to begin, or Skip if you\u2019d rather jump right in."
         ],
-        question: "When you answer Lori, you can be brief, or you can anchor the moment with time, place, and people.",
+        question: "When you answer Lori, you can be brief, or you can add a little context.",
         simpleLabel: "Short answer",
         simple: "I remember playing outside behind our house.",
-        storyLabel: "Anchored answer",
-        story: "When I was about six, around 1953, I used to play in the yard behind our house on Avenue Park \u2014 my brother was usually there, and the neighbors\u2019 dog would come over and watch us."
+        storyLabel: "Clear answer",
+        story: "When I was about six, around 1945, I used to play in the yard behind our house on Maple Street \u2014 my brother was usually there, and the neighbors\u2019 dog would come over and watch us."
       }
     ];
   }
@@ -162,6 +244,138 @@
     var steps = _steps(s.style);
     return steps[s.stepIndex] || null;
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // WO-11E: Trainer Narration Orchestration
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Build the full narration text for a trainer step.
+   *  Includes: lori intro lines, question, example introductions, guidance. */
+  function _wo11eBuildNarrationText(step, stepIndex, totalSteps) {
+    var parts = [];
+
+    // 1. Lori intro/explanation lines
+    step.lori.forEach(function (line) {
+      parts.push(line);
+    });
+
+    // 2. Question / transition line
+    if (step.question) {
+      parts.push(step.question);
+    }
+
+    // 3. Example introductions (natural, conversational)
+    if (step.simple) {
+      var simLabel = (step.simpleLabel || "short answer").toLowerCase();
+      parts.push("A " + simLabel + " might sound like this: " + step.simple);
+    }
+    if (step.story) {
+      var stoLabel = (step.storyLabel || "fuller answer").toLowerCase();
+      parts.push("Or, " + stoLabel + ": " + step.story);
+    }
+
+    // 4. Spoken navigation guidance
+    if (stepIndex >= totalSteps - 1) {
+      // Last step
+      parts.push("Tap Start Interview when you\u2019re ready. Or tap Back if you want to hear that again.");
+    } else if (stepIndex === 0) {
+      // First step (no Back)
+      parts.push("Tap Next to continue. Or tap Skip if you\u2019d rather begin the interview now.");
+    } else {
+      // Middle step
+      parts.push("Tap Next to continue. Tap Back if you want to hear that again. Or Skip to begin your interview.");
+    }
+
+    return parts.join(" ");
+  }
+
+  /** Start narration for the current trainer step.
+   *  Stops any previous narration, builds text, and calls TTS. */
+  function _wo11eNarrateStep() {
+    var s = _ensureTrainerState();
+    if (!s || !s.active) return;
+
+    var step = _getCurrentStep();
+    if (!step) return;
+
+    var totalSteps = _steps(s.style).length;
+    var narrationText = _wo11eBuildNarrationText(step, s.stepIndex, totalSteps);
+
+    // Mark as narrating
+    s._wo11eNarrating = true;
+    s._wo11eStopped = false;
+    console.log("[WO-11E] Trainer narration requested — step:", s.stepIndex,
+      "id:", step.id, "textLen:", narrationText.length);
+
+    // Update speaking indicator
+    _wo11eShowSpeakingIndicator(true);
+
+    // Set completion callback before enqueueing
+    window._wo11eTtsFinishedCallback = function () {
+      console.log("[WO-11E] Trainer narration finished — step:", s.stepIndex);
+      s._wo11eNarrating = false;
+      _wo11eShowSpeakingIndicator(false);
+    };
+
+    // Call TTS (no chat bubble — just audio)
+    if (typeof enqueueTts === "function") {
+      try {
+        enqueueTts(narrationText);
+        console.log("[WO-11E] Trainer narration started — step:", s.stepIndex);
+      } catch (e) {
+        console.warn("[WO-11E] TTS unavailable — trainer continues visually", e);
+        s._wo11eNarrating = false;
+        _wo11eShowSpeakingIndicator(false);
+        _wo11eShowTtsFallback();
+      }
+    } else {
+      // TTS function not available — fallback
+      console.warn("[WO-11E] enqueueTts not found — TTS unavailable");
+      s._wo11eNarrating = false;
+      _wo11eShowSpeakingIndicator(false);
+      _wo11eShowTtsFallback();
+    }
+  }
+
+  /** Stop any in-progress trainer narration. */
+  function _wo11eStopNarration() {
+    var s = _ensureTrainerState();
+    if (s) {
+      s._wo11eNarrating = false;
+      s._wo11eStopped = true;
+    }
+    // Clear the TTS finished callback so it doesn't fire stale
+    window._wo11eTtsFinishedCallback = null;
+    // Stop TTS playback
+    if (typeof window._wo11eStopTts === "function") {
+      window._wo11eStopTts();
+      console.log("[WO-11E] Trainer narration stopped");
+    }
+    _wo11eShowSpeakingIndicator(false);
+  }
+
+  /** Show or hide the "Lori is reading..." indicator in the trainer panel. */
+  function _wo11eShowSpeakingIndicator(visible) {
+    var el = _el("wo11eTrainerSpeaking");
+    if (el) el.style.display = visible ? "flex" : "none";
+  }
+
+  /** Show a subtle fallback message when TTS is unavailable. */
+  function _wo11eShowTtsFallback() {
+    var el = _el("wo11eTrainerSpeaking");
+    if (el) {
+      el.textContent = "Voice guidance unavailable \u2014 you can follow the steps on screen.";
+      el.style.display = "flex";
+      // Auto-hide after 6 seconds
+      setTimeout(function () {
+        if (el.textContent.indexOf("unavailable") >= 0) {
+          el.style.display = "none";
+        }
+      }, 6000);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
 
   function _renderPanel() {
     var root = _el("lv80TrainerPanel");
@@ -178,25 +392,24 @@
       root.innerHTML = "";
       return;
     }
-    // Eyebrow label: prefer the trainer template title when available so the
-    // user sees the same wording the template defines. Fall back to the
-    // canonical hard-coded labels if no title was loaded.
-    var templateTitle = (s.title || "").trim();
-    var styleLabel;
-    if (s.style === "structured") {
-      styleLabel = "Shatner Trainer \u2014 " + (templateTitle || "Short, clear answers");
-    } else {
-      styleLabel = "Dolly Trainer \u2014 " + (templateTitle || "Warm, storytelling answers");
-    }
+    // WO-11D: User-facing eyebrow and title from display map
+    var display = _STYLE_DISPLAY[s.style] || _STYLE_DISPLAY.structured;
+    var eyebrow = display.name + " \u2014 " + display.sub;
+
     var loriHtml = step.lori.map(function (line) {
       return '<div class="lv80-trainer-lori-line">' + _esc(line) + '</div>';
     }).join("");
     var totalSteps = _steps(s.style).length;
+    var isLastStep = s.stepIndex >= totalSteps - 1;
     root.hidden = false;
     root.innerHTML =
       '<div class="lv80-trainer-shell">' +
-        '<div class="lv80-trainer-eyebrow">' + _esc(styleLabel) + '</div>' +
-        '<div class="lv80-trainer-title">Lori Trainer</div>' +
+        // WO-11E: Speaking indicator (hidden by default)
+        '<div id="wo11eTrainerSpeaking" class="lv80-trainer-speaking" style="display:none;">' +
+          '<span class="lv80-trainer-speaking-dot"></span> Lori is reading this step\u2026' +
+        '</div>' +
+        '<div class="lv80-trainer-eyebrow">' + _esc(eyebrow) + '</div>' +
+        '<div class="lv80-trainer-title">Getting Started with Lori</div>' +
         '<div class="lv80-trainer-copy">' + loriHtml + '</div>' +
         '<div class="lv80-trainer-question">' + _esc(step.question) + '</div>' +
         '<div class="lv80-trainer-examples">' +
@@ -212,11 +425,16 @@
         '<div class="lv80-trainer-actions">' +
           (s.stepIndex > 0 ? '<button class="lv80-trainer-btn secondary" onclick="LorevoxTrainerNarrators.prev()">Back</button>' : '') +
           '<button class="lv80-trainer-btn" onclick="LorevoxTrainerNarrators.next()">' +
-            (s.stepIndex >= totalSteps - 1 ? 'Start Interview' : 'Next') +
+            (isLastStep ? 'Start Interview' : 'Next') +
           '</button>' +
           '<button class="lv80-trainer-btn secondary" onclick="LorevoxTrainerNarrators.skip()">Skip</button>' +
+          // WO-11E: Replay button
+          '<button class="lv80-trainer-btn secondary lv80-trainer-replay-btn" onclick="LorevoxTrainerNarrators.replay()" title="Replay this step">' +
+            '\u25B6 Replay' +
+          '</button>' +
         '</div>' +
       '</div>';
+    console.log("[WO-11E] Trainer step rendered — index:", s.stepIndex, "id:", step.id);
     // WO-10J: Ensure trainer panel is visible after any re-render
     setTimeout(function() { root.scrollIntoView({behavior: "smooth", block: "start"}); }, 50);
   }
@@ -230,8 +448,8 @@
   }
 
   // WO-11: meta-aware start. Accepts either:
-  //   start({style, title, promptHint, templateName})    ← new canonical
-  //   start(personId, style)                              ← legacy back-compat
+  //   start({style, title, promptHint, templateName})    <- new canonical
+  //   start(personId, style)                              <- legacy back-compat
   function start(metaOrPersonId, maybeStyle) {
     var s = _ensureTrainerState();
     if (!s) return;
@@ -250,16 +468,28 @@
     s.stepIndex      = 0;
     s.completed      = false;
     s.completedStyle = null;
+    s._wo11eNarrating = false;
+    s._wo11eStopped   = false;
+    console.log("[WO-11D] Trainer started — style:", s.style,
+      "display:", (_STYLE_DISPLAY[s.style] || {}).name);
     _renderPanel();
+    // WO-11E: Auto-narrate the first step
+    // Small delay to let the panel render and scroll into view first
+    setTimeout(function () { _wo11eNarrateStep(); }, 200);
   }
 
   function next() {
     var s = _ensureTrainerState();
     if (!s || !s.active) return;
+    // WO-11E: Stop current narration before step change
+    _wo11eStopNarration();
+    console.log("[WO-11E] Trainer narration stopped on Next");
     var total = _steps(s.style).length;
     if (s.stepIndex < total - 1) {
       s.stepIndex += 1;
       _renderPanel();
+      // WO-11E: Auto-narrate the new step
+      setTimeout(function () { _wo11eNarrateStep(); }, 200);
       return;
     }
     finish();
@@ -268,12 +498,29 @@
   function prev() {
     var s = _ensureTrainerState();
     if (!s || !s.active) return;
+    // WO-11E: Stop current narration before step change
+    _wo11eStopNarration();
+    console.log("[WO-11E] Trainer narration stopped on Back");
     s.stepIndex = Math.max(0, s.stepIndex - 1);
     _renderPanel();
+    // WO-11E: Auto-narrate the step from the beginning
+    setTimeout(function () { _wo11eNarrateStep(); }, 200);
   }
 
   function skip() {
+    // WO-11E: Stop narration before exit
+    _wo11eStopNarration();
+    console.log("[WO-11E] Trainer narration stopped on Skip");
     finish();
+  }
+
+  // WO-11E: Replay current step narration
+  function replay() {
+    var s = _ensureTrainerState();
+    if (!s || !s.active) return;
+    _wo11eStopNarration();
+    console.log("[WO-11E] Replay clicked — restarting narration for step:", s.stepIndex);
+    setTimeout(function () { _wo11eNarrateStep(); }, 150);
   }
 
   // WO-11: capture meta locally BEFORE clearing active=false so the handoff
@@ -283,6 +530,10 @@
   function finish() {
     var s = _ensureTrainerState();
     if (!s) return;
+
+    // WO-11E: Stop any in-progress narration before exit
+    _wo11eStopNarration();
+    console.log("[WO-11E] Trainer narration stopped on finish/Start Interview");
 
     var capturedMeta = {
       style:        s.style,
@@ -294,6 +545,7 @@
     s.active         = false;
     s.completed      = true;
     s.completedStyle = capturedMeta.style;
+    s._wo11eNarrating = false;
     // Note: style/title/promptHint are NOT cleared here. They persist on the
     // object until the next start() or reset() so any UI surface that wants
     // to show "you're in storyteller mode" can still read them.
@@ -325,6 +577,7 @@
     finish: finish,
     isActive: isActive,
     render: _renderPanel,
-    reset: _reset
+    reset: _reset,
+    replay: replay  // WO-11E
   };
 })();

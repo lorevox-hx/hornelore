@@ -3113,6 +3113,27 @@ let _audioUnlocked = false;
 // auto-restarts are suppressed whenever this flag is set.
 let isLoriSpeaking = false;
 
+// WO-11E: TTS abort mechanism for trainer narration stop
+let _ttsAbortRequested = false;
+let _ttsCurrentSource = null; // current WebAudio BufferSource for mid-chunk abort
+
+/** WO-11E: Immediately stop all queued and playing TTS.
+ *  Used by trainer narration to halt speech on step change or trainer exit.
+ *  Safe to call at any time — no-ops gracefully if nothing is playing. */
+function stopAllTts() {
+  _ttsAbortRequested = true;
+  ttsQueue.length = 0;
+  if (_ttsCurrentSource) {
+    try { _ttsCurrentSource.stop(); } catch(_){}
+    _ttsCurrentSource = null;
+  }
+  if (_ttsAudio) {
+    try { _ttsAudio.pause(); _ttsAudio.currentTime = 0; } catch(_){}
+  }
+  console.log("[WO-11E] stopAllTts() — queue cleared, playback stopped");
+}
+window._wo11eStopTts = stopAllTts;
+
 function unlockAudio(){
   if(_audioUnlocked) return;
 
@@ -3208,6 +3229,8 @@ async function drainTts(){
   _setMicVisual("wait");
   try {
     while(ttsQueue.length){
+      // WO-11E: Check abort flag between chunks (trainer stop)
+      if (_ttsAbortRequested) { console.log("[WO-11E] TTS abort — breaking drain loop"); break; }
       const chunk=ttsQueue.shift();
       try{
         const r=await fetch(TTS_ORIG+"/api/tts/speak_stream",{method:"POST",headers:ctype(),
@@ -3237,6 +3260,7 @@ async function drainTts(){
               const audioBuffer = await window._lvAudioCtx.decodeAudioData(bytes.buffer.slice(0));
               await new Promise(res => {
                 const src = window._lvAudioCtx.createBufferSource();
+                _ttsCurrentSource = src; // WO-11E: store for abort
                 src.buffer = audioBuffer;
                 src.connect(window._lvAudioCtx.destination);
                 // Safety timeout: duration + 2s margin
@@ -3294,9 +3318,18 @@ async function drainTts(){
     // stuck true permanently, silently suppressing all STT forever.
     isLoriSpeaking=false;
     ttsBusy=false;
+    // WO-11E: Reset abort state and clear source ref
+    _ttsAbortRequested = false;
+    _ttsCurrentSource = null;
     // WO-MIC-UI-02A: Clear WAIT visual now that Lori is done speaking.
     // If WO-10H auto-starts recording below, startRecording() will set LISTENING.
     _setMicVisual(false);
+
+    // WO-11E: Trainer narration completion callback
+    if (typeof window._wo11eTtsFinishedCallback === "function") {
+      try { window._wo11eTtsFinishedCallback(); } catch(_){}
+      window._wo11eTtsFinishedCallback = null;
+    }
 
     // WO-10H: Record TTS finish time and transition narrator turn-claim if pending.
     if (state.narratorTurn) {

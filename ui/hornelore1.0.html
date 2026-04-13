@@ -1539,6 +1539,37 @@
       border-color: rgba(148,163,184,0.28);
       color: #94a3b8;
     }
+    /* WO-11E: Trainer speaking indicator */
+    .lv80-trainer-speaking {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #818cf8;
+      padding: 6px 12px;
+      margin-bottom: 10px;
+      background: rgba(99,102,241,0.08);
+      border-radius: 8px;
+      border: 1px solid rgba(99,102,241,0.15);
+    }
+    .lv80-trainer-speaking-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #818cf8;
+      animation: wo11eSpeakingPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes wo11eSpeakingPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    /* WO-11E: Replay button */
+    .lv80-trainer-replay-btn {
+      margin-left: auto;
+      font-size: 12px;
+      padding: 6px 12px;
+    }
     .lv80-narrator-group-title {
       font-size: 12px;
       color: #94a3b8;
@@ -1549,11 +1580,31 @@
       border-bottom: 1px solid rgba(148,163,184,0.12);
       margin-bottom: 6px;
     }
+    /* [WO-11D-fix] Trainer chooser row — compact to match narrator cards */
     .lv80-trainer-seed-row {
       display: flex;
-      gap: 8px;
+      flex-direction: column;
+      gap: 6px;
       padding: 8px 0 4px;
     }
+    .lv80-trainer-choice-btn {
+      background: rgba(30,41,59,.45);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #e2e8f0;
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .lv80-trainer-choice-btn:hover {
+      background: rgba(99,102,241,0.15);
+      border-color: rgba(99,102,241,0.4);
+    }
+    .lv80-trainer-choice-btn strong { font-size: 13px; }
+    .lv80-trainer-choice-btn .lv80-trainer-choice-sub { color: #64748b; font-size: 11px; }
 
     .lv80-delete-dialog{
       background:#111827;border:1px solid rgba(239,68,68,.28);border-radius:14px;
@@ -3223,10 +3274,19 @@
     <span class="lv80-switcher-sub">Choose carefully — narrator identity controls questionnaire, family tree, life map, and Lori grounding.</span>
   </div>
   <div id="lv80NarratorList" class="lv80-narrator-list"></div>
-  <!-- WO-11B: Trainer launcher buttons (UI-only, no narrator creation) -->
-  <div class="lv80-trainer-seed-row">
-    <button class="lv80-settings-btn" onclick="lv80RunTrainerNarrator('structured')">Run Shatner Trainer</button>
-    <button class="lv80-settings-btn" onclick="lv80RunTrainerNarrator('storyteller')">Run Dolly Trainer</button>
+  <!-- WO-11D: User-facing trainer chooser — "How would you like to begin?" -->
+  <!-- [WO-11D-fix] Compact trainer chooser — sized to match narrator cards -->
+  <div class="lv80-trainer-seed-row" style="border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;margin-top:8px;">
+    <div style="font-size:12px;font-weight:600;color:#94a3b8;letter-spacing:0.3px;">Choose how you'd like to begin</div>
+    <button class="lv80-trainer-choice-btn" onclick="lv80RunTrainerNarrator('questionnaire')">
+      <strong>Questionnaire First</strong> <span class="lv80-trainer-choice-sub">&mdash; Start with the basics, step by step.</span>
+    </button>
+    <button class="lv80-trainer-choice-btn" onclick="lv80RunTrainerNarrator('structured')">
+      <strong>Clear &amp; Direct</strong> <span class="lv80-trainer-choice-sub">&mdash; Short answers. One fact at a time.</span>
+    </button>
+    <button class="lv80-trainer-choice-btn" onclick="lv80RunTrainerNarrator('storyteller')">
+      <strong>Warm Storytelling</strong> <span class="lv80-trainer-choice-sub">&mdash; Tell it with detail, feeling, and scene.</span>
+    </button>
   </div>
 </div>
 
@@ -4140,7 +4200,8 @@ window._wo11cUnlockFooter = _wo11cUnlockFooter;
 // _trainerTitle / _trainerPrompt fields. The preload path is left
 // untouched — only this launcher reads template metadata for trainers.
 async function lv80LoadTrainerTemplate(style) {
-  // Map canonical style to template filename
+  // WO-11D: Map canonical style to template filename.
+  // "questionnaire" uses the structured template (same handoff flavor).
   const filename = (style === "storyteller") ? "dolly-parton.json" : "william-shatner.json";
   try {
     const res = await fetch("templates/" + filename, { cache: "no-store" });
@@ -4165,11 +4226,12 @@ async function lv80RunTrainerNarrator(style) {
 
     if (!window.LorevoxTrainerNarrators) return;
 
-    // Normalize legacy "story" → "storyteller" at the launcher boundary so
-    // any old caller still works without breaking the canonical contract.
+    // WO-11D: Normalize at the launcher boundary.
+    // "questionnaire" is a new user-facing style that maps to "structured"
+    // for template loading but has its own step content in trainer-narrators.js.
     let canonical = style;
     if (canonical === "story") canonical = "storyteller";
-    if (canonical !== "structured" && canonical !== "storyteller") canonical = "structured";
+    if (canonical !== "structured" && canonical !== "storyteller" && canonical !== "questionnaire") canonical = "structured";
 
     // ── WO-11: TRAINER ISOLATION ──────────────────────────────────
     // Suspend active narrator so trainer runs in a clean, isolated state.
@@ -4220,18 +4282,21 @@ function _wo11UpdateHeaderForTrainer(style) {
   try {
     const card = document.getElementById("lv80ActiveNarratorCard");
     if (!card) return;
-    const displayName = (style === "storyteller") ? "Dolly Trainer" : "Shatner Trainer";
-    const subtitle = (style === "storyteller")
-      ? "Warm, storytelling answers"
-      : "Short, clear, anchored answers";
+    // WO-11D: User-facing display names
+    var _displayMap = {
+      questionnaire: { name: "Getting Started", sub: "Questionnaire First", avatar: "QF" },
+      structured:    { name: "Getting Started", sub: "Clear & Direct",     avatar: "CD" },
+      storyteller:   { name: "Getting Started", sub: "Warm Storytelling",  avatar: "WS" }
+    };
+    var _d = _displayMap[style] || _displayMap.structured;
     card.innerHTML =
       '<div class="lv80-active-narrator-inner" style="pointer-events:none;">' +
         '<div class="lv80-active-narrator-avatar" style="background:#7c3aed;color:#fff;font-size:1.1rem;">' +
-          (style === "storyteller" ? "DT" : "ST") +
+          _d.avatar +
         '</div>' +
         '<div class="lv80-active-narrator-info">' +
-          '<div class="lv80-active-narrator-name">' + displayName + '</div>' +
-          '<div class="lv80-active-narrator-subtitle">' + subtitle + '</div>' +
+          '<div class="lv80-active-narrator-name">' + _d.name + '</div>' +
+          '<div class="lv80-active-narrator-subtitle">' + _d.sub + '</div>' +
         '</div>' +
       '</div>';
     console.log("[WO-11][trainer] Header updated for:", displayName);
