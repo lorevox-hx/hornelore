@@ -147,115 +147,203 @@ def filter_world_events(
 
 
 # ─── LANE B: PERSONAL ANCHORS ────────────────────────────────────
-# Projection whitelist — only these promoted-truth fields become anchors.
+# Strict whitelists — only these exact keys become anchors.  No substring matching.
+#
+# Three sources, precedence highest-to-lowest:
+#   1. Promoted truth (authoritative, reviewed & approved)
+#   2. Profile basics (identity fields captured during onboarding)
+#   3. Interview projection / questionnaire (same key space, used as fallback)
+#
+# Each whitelist maps the exact source key → a short display label.
+# `_value_is_date` controls whether we try to pull a year from the value.
+# Values that don't yield a valid year are dropped silently (never invented).
 
-_ANCHOR_FIELDS = {
-    "date_of_birth":       "Born",
-    "place_of_birth":      "Birthplace",
-    "date_of_marriage":    "Married",
-    "place_of_marriage":   "Wedding",
-    "date_of_graduation":  "Graduated",
-    "date_of_enlistment":  "Enlisted",
-    "date_of_retirement":  "Retired",
-    "date_of_immigration": "Immigrated",
-    "date_of_move":        "Moved",
-    "first_job":           "First job",
-    "first_child_born":    "First child born",
+# Promoted-truth field names (family_truth_promoted.field).
+# These are what the extraction + review pipeline produces.  Expand as the
+# pipeline starts promoting more fields — keep this map explicit.
+_PROMOTED_ANCHOR_FIELDS: Dict[str, Dict[str, Any]] = {
+    "date_of_birth":         {"label": "Born",            "date": True},
+    "place_of_birth":        {"label": "Birthplace",      "date": False},
+    "date_of_marriage":      {"label": "Married",         "date": True},
+    "place_of_marriage":     {"label": "Wedding",         "date": False},
+    "date_of_graduation":    {"label": "Graduated",       "date": True},
+    "date_of_enlistment":    {"label": "Enlisted",        "date": True},
+    "date_of_discharge":     {"label": "Discharged",      "date": True},
+    "date_of_first_job":     {"label": "First job",       "date": True},
+    "date_of_retirement":    {"label": "Retired",         "date": True},
+    "date_of_immigration":   {"label": "Immigrated",      "date": True},
+    "date_of_move":          {"label": "Moved",           "date": True},
+    "date_of_first_child":   {"label": "First child",     "date": True},
+    "date_of_divorce":       {"label": "Divorced",        "date": True},
+}
+
+# Profile basics keys (profile_json.basics.<key>).
+# Only dob produces a year anchor today; pob is attached as location context.
+_PROFILE_ANCHOR_KEYS: Dict[str, Dict[str, Any]] = {
+    "dob": {"label": "Born",       "date": True,  "equiv_field": "date_of_birth"},
+    "pob": {"label": "Birthplace", "date": False, "equiv_field": "place_of_birth"},
+}
+
+# Questionnaire / interview-projection flat keys.
+# Must match the canonical key space used by bio-builder-questionnaire.js
+# and projection-sync.js (verified against live DB 2026-04-14).
+_QUESTIONNAIRE_ANCHOR_KEYS: Dict[str, Dict[str, Any]] = {
+    "personal.dateOfBirth":   {"label": "Born",       "date": True,  "equiv_field": "date_of_birth"},
+    "personal.placeOfBirth":  {"label": "Birthplace", "date": False, "equiv_field": "place_of_birth"},
+    "personal.dateOfDeath":   {"label": "Died",       "date": True,  "equiv_field": "date_of_death"},
+    # Future questionnaire sections — add keys explicitly as they go live.
+    # "education.graduationDate": {"label": "Graduated", "date": True, "equiv_field": "date_of_graduation"},
+    # "marriage.weddingDate":     {"label": "Married",   "date": True, "equiv_field": "date_of_marriage"},
 }
 
 
-def _extract_year(value: str) -> Optional[int]:
-    """Try to extract a 4-digit year from a value string."""
-    if not value:
+def _extract_year(value: Any) -> Optional[int]:
+    """Try to extract a 4-digit year from a value string.
+
+    Accepts ISO dates (1962-12-24), US-style (12/24/1962), and bare years (1962).
+    Returns None if no plausible year (1850-2100) is found.
+    """
+    if value is None:
         return None
-    # Try first 4 chars
-    candidate = str(value).strip()[:10]
-    for part in candidate.replace("-", "/").split("/"):
-        part = part.strip()
-        if len(part) == 4 and part.isdigit():
-            yr = int(part)
+    s = str(value).strip()
+    if not s:
+        return None
+    # Normalize separators so we can split once.
+    parts = s.replace("-", " ").replace("/", " ").replace(",", " ").split()
+    for p in parts:
+        if len(p) == 4 and p.isdigit():
+            yr = int(p)
             if 1850 <= yr <= 2100:
                 return yr
     return None
 
 
 def project_personal_anchors(
-    profile: Dict[str, Any],
+    basics: Dict[str, Any],
     questionnaire: Dict[str, Any],
     promoted_rows: List[Dict[str, Any]],
+    narrator_display_name: str = "",
 ) -> List[Dict[str, Any]]:
-    """Extract verified personal anchors from promoted truth, profile, and questionnaire.
+    """Extract verified personal anchors — narrator (self) only.
 
-    Only uses fields in _ANCHOR_FIELDS whitelist.  Never invents data.
+    Precedence: promoted truth > profile basics > questionnaire/projection.
     Returns ChronologyItem-shaped dicts with lane='personal'.
-    """
-    items = []
-    seen_fields = set()
 
-    # 1. Promoted truth rows (highest authority)
+    Args:
+        basics: profile_json.basics dict ({"dob": "...", "pob": "...", ...})
+        questionnaire: result of db.get_questionnaire(person_id) — {"questionnaire": {...}}
+        promoted_rows: list of family_truth_promoted rows (list of dicts)
+        narrator_display_name: used to filter promoted rows to self-subject only
+    """
+    items: List[Dict[str, Any]] = []
+    seen_equiv_fields: set = set()
+
+    # Helper: dedupe on equivalent field id (so promoted date_of_birth beats
+    # profile dob beats questionnaire personal.dateOfBirth)
+    def _already_seen(field_id: str) -> bool:
+        return field_id in seen_equiv_fields
+
+    def _remember(field_id: str) -> None:
+        seen_equiv_fields.add(field_id)
+
+    # ── 1. Promoted truth (highest authority) ────────────────────
+    # Only accept rows where the subject is the narrator themselves.
+    name_lower = (narrator_display_name or "").strip().lower()
     for row in promoted_rows:
-        field = row.get("field", "")
-        if field not in _ANCHOR_FIELDS:
+        field = (row.get("field") or "").strip()
+        spec = _PROMOTED_ANCHOR_FIELDS.get(field)
+        if not spec:
             continue
-        if field in seen_fields:
+
+        # Self-filter: skip rows about other subjects (spouse, parent, etc.)
+        subject = (row.get("subject_name") or "").strip().lower()
+        relationship = (row.get("relationship") or "").strip().lower()
+        if relationship and relationship not in ("self", "narrator", ""):
             continue
-        value = row.get("value", "")
-        yr = _extract_year(value)
-        if yr is None:
+        if subject and name_lower and subject != name_lower:
             continue
-        seen_fields.add(field)
+
+        if _already_seen(field):
+            continue
+
+        value = (row.get("value") or "").strip()
+        if not value:
+            continue
+
+        if spec["date"]:
+            yr = _extract_year(value)
+            if yr is None:
+                continue
+            label = f"{spec['label']}: {value}"
+        else:
+            # Non-date promoted anchor — skip for now since accordion is year-indexed.
+            # (place_of_birth will be shown as context on the date_of_birth anchor instead.)
+            continue
+
+        _remember(field)
         items.append({
             "year": yr,
-            "label": f"{_ANCHOR_FIELDS[field]}: {value}",
+            "label": label,
             "lane": "personal",
             "field": field,
             "source": "promoted_truth",
         })
 
-    # 2. Profile basics (fallback for fields not yet in promoted truth)
-    basics = profile.get("basics", {}) if profile else {}
-    profile_field_map = {
-        "dob": "date_of_birth",
-        "pob": "place_of_birth",
-    }
-    for profile_key, field in profile_field_map.items():
-        if field in seen_fields or field not in _ANCHOR_FIELDS:
+    # ── 2. Profile basics (identity captured during onboarding) ─
+    # Build a single enriched "Born" anchor that combines dob + pob when available.
+    dob = str(basics.get("dob") or "").strip() if basics else ""
+    pob = str(basics.get("pob") or "").strip() if basics else ""
+    if dob and not _already_seen("date_of_birth"):
+        yr = _extract_year(dob)
+        if yr is not None:
+            label = f"Born: {dob}" if not pob else f"Born in {pob} — {dob}"
+            _remember("date_of_birth")
+            _remember("place_of_birth")
+            items.append({
+                "year": yr,
+                "label": label,
+                "lane": "personal",
+                "field": "date_of_birth",
+                "source": "profile",
+            })
+
+    # ── 3. Questionnaire / interview projection (fallback) ──────
+    q_obj = questionnaire.get("questionnaire", {}) if questionnaire else {}
+
+    # Flatten nested section.* keys so "personal.dateOfBirth" can be looked up.
+    def _flatten(obj: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        if not isinstance(obj, dict):
+            return out
+        for k, v in obj.items():
+            kp = f"{prefix}.{k}" if prefix else k
+            if isinstance(v, dict):
+                out.update(_flatten(v, kp))
+            else:
+                out[kp] = v
+        return out
+
+    flat = _flatten(q_obj)
+    for q_key, spec in _QUESTIONNAIRE_ANCHOR_KEYS.items():
+        equiv = spec.get("equiv_field") or q_key
+        if _already_seen(equiv):
             continue
-        value = basics.get(profile_key, "")
-        yr = _extract_year(str(value))
+        val = flat.get(q_key)
+        if val is None or str(val).strip() == "":
+            continue
+        if not spec["date"]:
+            continue
+        yr = _extract_year(val)
         if yr is None:
             continue
-        seen_fields.add(field)
+        _remember(equiv)
         items.append({
             "year": yr,
-            "label": f"{_ANCHOR_FIELDS[field]}: {value}",
+            "label": f"{spec['label']}: {val}",
             "lane": "personal",
-            "field": field,
-            "source": "profile",
+            "field": equiv,
+            "source": "questionnaire",
         })
-
-    # 3. Questionnaire (fallback for date-bearing answers)
-    q_data = questionnaire.get("questionnaire", {}) if questionnaire else {}
-    # Walk flat questionnaire keys looking for whitelisted field patterns
-    for q_key, q_val in q_data.items():
-        if not isinstance(q_val, str):
-            continue
-        # Map questionnaire keys to anchor fields
-        for anchor_field in _ANCHOR_FIELDS:
-            if anchor_field in seen_fields:
-                continue
-            if anchor_field.replace("date_of_", "") in q_key.lower():
-                yr = _extract_year(q_val)
-                if yr is not None:
-                    seen_fields.add(anchor_field)
-                    items.append({
-                        "year": yr,
-                        "label": f"{_ANCHOR_FIELDS[anchor_field]}: {q_val}",
-                        "lane": "personal",
-                        "field": anchor_field,
-                        "source": "questionnaire",
-                    })
-                    break
 
     return items
 
@@ -380,14 +468,19 @@ def build_chronology_accordion_payload(
     profile: Dict[str, Any],
     questionnaire: Dict[str, Any],
     promoted_rows: List[Dict[str, Any]],
+    narrator_display_name: str = "",
 ) -> Dict[str, Any]:
     """Build the full chronology accordion payload.
 
     Returns the complete JSON response shape for the frontend.
     """
-    basics = (profile.get("profile") or profile.get("basics") or {})
-    if "basics" in basics:
-        basics = basics["basics"]
+    # Normalize incoming profile shape.  Accepts:
+    #   {"basics": {...}}           → use the basics sub-dict
+    #   {"dob": ..., "pob": ...}    → already a basics dict
+    if isinstance(profile, dict) and "basics" in profile:
+        basics = profile["basics"] or {}
+    else:
+        basics = profile or {}
 
     # Extract birth year
     dob = basics.get("dob", "")
@@ -413,7 +506,10 @@ def build_chronology_accordion_payload(
     # Load all three lanes
     seed = load_historical_seed()
     lane_a = filter_world_events(seed, birth_year)
-    lane_b = project_personal_anchors(basics, questionnaire, promoted_rows)
+    lane_b = project_personal_anchors(
+        basics, questionnaire, promoted_rows,
+        narrator_display_name=narrator_display_name,
+    )
     lane_c = build_band_ghosts(birth_year, periods, lane_b)
 
     # Merge all items
@@ -459,9 +555,11 @@ def api_chronology_accordion(
 
     ensure_profile(person_id)
     profile_row = get_profile(person_id)
-    profile_obj = profile_row.get("profile_json", {}) if profile_row else {}
+    legacy_profile = profile_row.get("profile_json", {}) if profile_row else {}
 
-    # Flag-gated promoted-truth profile build
+    # Flag-gated promoted-truth profile build.  build_profile_from_promoted
+    # returns {basics, kinship, pets}; legacy_profile also has that shape.
+    profile_obj: Dict[str, Any] = legacy_profile or {}
     if truth_v2_enabled("profile"):
         try:
             profile_obj = db.build_profile_from_promoted(person_id)
@@ -470,15 +568,20 @@ def api_chronology_accordion(
                 "chronology: build_profile_from_promoted failed for %s: %s",
                 person_id, exc,
             )
+            profile_obj = legacy_profile or {}
 
     promoted_rows = ft_list_promoted(person_id, limit=10_000)
     questionnaire = get_questionnaire(person_id)
 
+    # Pull the narrator's display name for self-filtering promoted rows.
+    narrator_name = (person.get("display_name") or "").strip()
+
     payload = build_chronology_accordion_payload(
         person_id=person_id,
-        profile={"basics": profile_obj} if "basics" not in profile_obj else profile_obj,
+        profile=profile_obj,
         questionnaire=questionnaire,
         promoted_rows=promoted_rows,
+        narrator_display_name=narrator_name,
     )
 
     return payload
