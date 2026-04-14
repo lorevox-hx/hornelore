@@ -27,6 +27,31 @@ TEMPLATE_DIR = REPO_ROOT / "data" / "narrator_templates"
 TEST_TEMPLATES = ["test_structured.json", "test_storyteller.json"]
 
 
+def _load_env() -> None:
+    """Load repo .env so DATA_DIR / DB_NAME resolve the same way the API does.
+
+    Without this, running the seed script from a bare shell would fall back
+    to ./data/db/ (relative to cwd) instead of /mnt/c/hornelore_data/db/.
+    Mirrors the dotenv-or-manual-parse pattern in server/code/api/main.py.
+    """
+    env_file = REPO_ROOT / ".env"
+    if not env_file.exists():
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(str(env_file), override=False)  # shell env takes precedence
+    except ImportError:
+        with env_file.open() as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env()
+
+
 def _resolve_db_path() -> str:
     """Mirror db.py's DB_PATH composition so this script finds the same file.
 
@@ -78,10 +103,17 @@ def upsert_narrator(conn: sqlite3.Connection, narrator: Dict[str, Any]) -> None:
     pob = narrator.get("place_of_birth", "")
     narrator_type = narrator.get("narrator_type", "test")
 
+    # Provide created_at / updated_at / is_deleted explicitly — the live schema
+    # marks created_at NOT NULL without a SQL-level default, so the UPSERT
+    # must supply them on the INSERT side. On conflict, updated_at is bumped
+    # but created_at is preserved (first-insert wins).
     conn.execute(
         """
-        INSERT INTO people (id, display_name, role, date_of_birth, place_of_birth, narrator_type)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO people (
+            id, display_name, role, date_of_birth, place_of_birth,
+            narrator_type, created_at, updated_at, is_deleted
+        )
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 0)
         ON CONFLICT(id) DO UPDATE SET
             display_name = excluded.display_name,
             role = excluded.role,
