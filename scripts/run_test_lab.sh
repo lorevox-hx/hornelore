@@ -18,6 +18,18 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "[WO-QA-01] root=$ROOT_DIR"
+
+# Ensure Python deps — httpx + websockets are needed by test_lab_runner.py
+MISSING=()
+python3 -c "import httpx" 2>/dev/null      || MISSING+=("httpx")
+python3 -c "import websockets" 2>/dev/null || MISSING+=("websockets")
+if (( ${#MISSING[@]} )); then
+  echo "[WO-QA-01] installing missing deps: ${MISSING[*]}"
+  python3 -m pip install --user "${MISSING[@]}" >/dev/null 2>&1 \
+    || python3 -m pip install --break-system-packages "${MISSING[@]}" >/dev/null 2>&1 \
+    || { echo "[WO-QA-01] pip install failed — install httpx and websockets manually"; exit 1; }
+fi
+
 echo "[WO-QA-01] seeding synthetic test narrators…"
 python3 scripts/seed_test_narrators.py
 

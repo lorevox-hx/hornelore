@@ -28,6 +28,32 @@ ok()   { echo -e "${GREEN}  ✓${NC} $*"; }
 warn() { echo -e "${YELLOW}  ⚠${NC} $*"; }
 fail() { echo -e "${RED}  ✗${NC} $*"; }
 
+# ── 0. Ensure Python deps (httpx, websockets) ────────────────────
+say "Step 0 — verifying Python dependencies"
+MISSING=()
+python3 -c "import httpx" 2>/dev/null      || MISSING+=("httpx")
+python3 -c "import websockets" 2>/dev/null || MISSING+=("websockets")
+
+if (( ${#MISSING[@]} )); then
+  warn "missing: ${MISSING[*]} — installing"
+  # Try a few install strategies in order; first one to succeed wins.
+  INSTALL_OK=0
+  if python3 -m pip install --user "${MISSING[@]}" >/tmp/wo_qa01_pip.log 2>&1; then
+    INSTALL_OK=1
+  elif python3 -m pip install --break-system-packages "${MISSING[@]}" >>/tmp/wo_qa01_pip.log 2>&1; then
+    INSTALL_OK=1
+  fi
+  if (( INSTALL_OK )); then
+    ok "installed: ${MISSING[*]}"
+  else
+    fail "pip install failed — see /tmp/wo_qa01_pip.log"
+    tail -20 /tmp/wo_qa01_pip.log
+    exit 1
+  fi
+else
+  ok "httpx + websockets present"
+fi
+
 # ── 1. Kill any stuck harness processes ──────────────────────────
 say "Step 1 — killing any stuck harness processes"
 pkill -f test_lab_runner 2>/dev/null && ok "killed test_lab_runner" || ok "no test_lab_runner processes"
