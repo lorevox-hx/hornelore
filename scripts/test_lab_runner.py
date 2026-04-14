@@ -187,35 +187,39 @@ async def fetch_people() -> list[dict[str, Any]]:
     raise RuntimeError(f"Unexpected /api/people shape: {type(data).__name__}")
 
 
-def find_test_narrators(people: list[dict[str, Any]]) -> dict[str, str]:
-    """Match by narrator_type='test' + basics.style — not by display_name substring.
+TEST_NARRATOR_IDS = {
+    "structured":  "test-structured-001",
+    "storyteller": "test-storyteller-001",
+}
 
-    Survives future renames and keeps the fixture discovery intentional.
+
+def find_test_narrators(people: list[dict[str, Any]]) -> dict[str, str]:
+    """Match by the fixed template IDs seeded from data/narrator_templates/.
+
+    /api/people returns people-table rows only (no profile_json), so we
+    cannot match on basics.style here. The seed script sets narrator_type
+    to 'test' and writes well-known IDs, so we key on IDs. We also
+    cross-check narrator_type as an assertion.
     """
-    structured = None
-    storyteller = None
-    for p in people:
-        if (p.get("narrator_type") or "").lower() != "test":
+    found: dict[str, str] = {}
+    by_id = {(p.get("id") or p.get("person_id")): p for p in people}
+    for style, pid in TEST_NARRATOR_IDS.items():
+        row = by_id.get(pid)
+        if not row:
             continue
-        pid = p.get("id") or p.get("person_id")
-        profile = p.get("profile_json") or {}
-        if isinstance(profile, str):
-            try:
-                profile = json.loads(profile)
-            except Exception:
-                profile = {}
-        basics = (profile.get("basics") or {}) if isinstance(profile, dict) else {}
-        style = str(basics.get("style") or "").lower()
-        if style == "structured":
-            structured = pid
-        elif style == "storyteller":
-            storyteller = pid
-    if not structured or not storyteller:
+        if (row.get("narrator_type") or "").lower() != "test":
+            # Seeded narrator exists but its narrator_type was changed —
+            # refuse to use it to avoid accidentally writing to a live record
+            continue
+        found[style] = pid
+    if len(found) != len(TEST_NARRATOR_IDS):
+        missing = [s for s in TEST_NARRATOR_IDS if s not in found]
         raise RuntimeError(
-            "Synthetic test narrators not found. Run seed_test_narrators.py first "
-            "and confirm narrator_type='test' + profile_json.basics.style."
+            f"Synthetic test narrators missing: {missing}. "
+            f"Run `python3 scripts/seed_test_narrators.py` and confirm rows exist "
+            f"in the people table with narrator_type='test'."
         )
-    return {"structured": structured, "storyteller": storyteller}
+    return found
 
 
 def build_sync_session(person_id: str) -> dict[str, Any]:
