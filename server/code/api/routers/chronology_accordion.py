@@ -27,6 +27,7 @@ from ..db import (
     get_questionnaire,
 )
 from ..flags import truth_v2_enabled
+from ..life_spine import derive_life_spine
 
 logger = logging.getLogger("chronology_accordion")
 
@@ -640,10 +641,33 @@ def build_chronology_accordion_payload(
         basics, questionnaire, promoted_rows,
         narrator_display_name=narrator_display_name,
     )
-    lane_c = build_band_ghosts(birth_year, periods, lane_b)
+
+    # WO-LIFE-SPINE-01: derive school-years projection from DOB, add as
+    # source='derived' Lane B entries. Dedup against existing Lane B items
+    # (which carry source profile/questionnaire/promoted_truth) by event_kind
+    # so a confirmed school_graduation never gets a ghost duplicate.
+    #
+    # Override propagation: any Lane B item whose event_kind matches a spine
+    # entry counts as "confirmed" and shifts the spine offset accordingly.
+    confirmed_for_spine: List[Dict[str, Any]] = [
+        {
+            "event_kind": item.get("event_kind"),
+            "year": item.get("year"),
+            "source": item.get("source"),
+        }
+        for item in lane_b
+        if item.get("event_kind") and item.get("year") is not None
+    ]
+    spine_items = derive_life_spine(dob, confirmed_events=confirmed_for_spine)
+    # Drop spine items whose event_kind already exists in Lane B (dedup).
+    existing_kinds = {it.get("event_kind") for it in lane_b if it.get("event_kind")}
+    spine_items = [it for it in spine_items if it.get("event_kind") not in existing_kinds]
+    lane_b_with_spine = lane_b + spine_items
+
+    lane_c = build_band_ghosts(birth_year, periods, lane_b_with_spine)
 
     # Merge all items
-    all_items = lane_a + lane_b + lane_c
+    all_items = lane_a + lane_b_with_spine + lane_c
 
     # Group into decades
     decades = group_by_decade(all_items, periods)
@@ -662,7 +686,8 @@ def build_chronology_accordion_payload(
         "decades": decades,
         "lane_counts": {
             "world": len(lane_a),
-            "personal": len(lane_b),
+            "personal": len(lane_b_with_spine),
+            "personal_derived": len(spine_items),
             "ghost": len(lane_c),
         },
     }

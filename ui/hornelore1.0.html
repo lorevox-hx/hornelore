@@ -334,13 +334,27 @@
       background: rgba(34,197,94,0.18);
     }
     /* Provenance hinting — promoted_truth items render with a shield-style
-       brighter border; profile/questionnaire items stay softer. */
+       brighter border; profile/questionnaire items stay softer; derived
+       (WO-LIFE-SPINE-01) ghosts render dashed + lower opacity so the
+       operator never confuses an estimate with a fact. */
     .cr-event[data-lane="personal"][data-source="promoted_truth"] {
       border-left-color: #4ade80;
       border-left-width: 5px;
     }
     .cr-event[data-lane="personal"][data-source="questionnaire"] {
       border-left-color: #22c55e;
+      opacity: 0.95;
+    }
+    .cr-event[data-lane="personal"][data-source="derived"] {
+      border-left: 3px dashed rgba(34,197,94,0.55);
+      background: rgba(34,197,94,0.05);
+      color: rgba(187,247,208,0.78);
+      opacity: 0.78;
+      font-weight: 500;
+      font-style: italic;
+    }
+    .cr-event[data-lane="personal"][data-source="derived"]:hover {
+      background: rgba(34,197,94,0.10);
       opacity: 0.95;
     }
 
