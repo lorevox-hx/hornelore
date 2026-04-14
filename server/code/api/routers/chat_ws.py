@@ -282,6 +282,19 @@ async def ws_chat(ws: WebSocket):
         top_p = float(params.get("top_p", 0.95))
         # WO-QA-01: per-request repetition_penalty, env default, hardcode fallback.
         repetition_penalty = float(params.get("repetition_penalty", _REP_PENALTY_DEFAULT))
+        # WO-QA-02B: optional per-request seed for deterministic regression tests.
+        # When supplied, we set torch.manual_seed before generate() so the
+        # same prompt + same sampling params reproduces the same response
+        # exactly. The harness sets seed=0 in its config grid; the production
+        # UI omits it so behavior stays naturally varied for narrators.
+        _seed = params.get("seed")
+        if _seed is not None:
+            try:
+                torch.manual_seed(int(_seed))
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(int(_seed))
+            except Exception as _seed_err:
+                logger.warning("[chat_ws][WO-QA-02B] seed apply failed: %s", _seed_err)
 
         # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
         _do_sample = temperature > 0

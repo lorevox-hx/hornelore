@@ -54,6 +54,9 @@ DATA_ROOT = Path(os.getenv(
 PEOPLE_ENDPOINT = f"{API_BASE}/api/people"
 EXTRACT_ENDPOINT = f"{API_BASE}/api/extract-fields"
 
+# WO-QA-02: narrator statements fixture for Channel A ceiling computation
+STATEMENTS_PATH = Path("data/test_lab/narrator_statements.json")
+
 # ── Timeouts (EDIT #1) ────────────────────────────────────────────
 # Inter-token recv timeout: 30s. If no token arrives within 30s of the
 # previous one the server is stuck — fail the turn.
@@ -163,11 +166,32 @@ class MetricRow:
     stability_score: int | None
     tts_pass: bool | None
     tts_drift_ms: float | None
+    # WO-QA-02 channel discriminator. "lori" = response from /api/chat/ws,
+    # "narrator" = direct extraction from a synthetic narrator statement
+    # (Channel A — used to compute archive-yield ceilings, not config-ranked).
+    channel: str = "lori"
+    statement_id: str | None = None
 
 
 # ── Utilities ─────────────────────────────────────────────────────
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_narrator_statements(path: Path) -> dict[str, list[dict[str, str]]]:
+    """WO-QA-02: load Channel A statements. Returns empty lists if missing
+    so the harness still runs with Lori-channel only."""
+    if not path.exists():
+        return {"structured": [], "storyteller": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {
+            "structured": data.get("structured", []) or [],
+            "storyteller": data.get("storyteller", []) or [],
+        }
+    except Exception as exc:
+        print(f"  [warn] failed to load narrator_statements.json: {exc}", file=sys.stderr)
+        return {"structured": [], "storyteller": []}
 
 
 def word_count(text: str) -> int:
@@ -242,6 +266,11 @@ def build_start_turn(
     }
     if sampling.get("repetition_penalty") is not None:
         params["repetition_penalty"] = sampling["repetition_penalty"]
+    # WO-QA-02B: forward seed if config provides one (chat_ws.py honors it
+    # via torch.manual_seed). Only applied when present so production UI
+    # turns stay naturally varied.
+    if sampling.get("seed") is not None:
+        params["seed"] = int(sampling["seed"])
     return {
         "type": "start_turn",
         "session_id": session_id,
@@ -671,14 +700,58 @@ async def run_contamination_test(
 
 
 # ── Summarization / ranking ───────────────────────────────────────
-def summarize_scores(metrics: list[MetricRow]) -> list[dict[str, Any]]:
+def summarize_narrator_ceilings(metrics: list[MetricRow]) -> dict[str, dict[str, Any]]:
+    """WO-QA-02 Channel A: aggregate narrator-statement extraction yields
+    into per-narrator ceilings. These are config-independent — they
+    represent the maximum extractable yield from the narrator's own text,
+    against which Lori-channel suppression is measured."""
+    by_style: dict[str, list[MetricRow]] = {}
+    for r in metrics:
+        if r.channel != "narrator":
+            continue
+        by_style.setdefault(r.narrator_style, []).append(r)
+
+    ceilings: dict[str, dict[str, Any]] = {}
+    for style, rows in by_style.items():
+        total = sum(r.proposal_row_count for r in rows)
+        per_statement = [
+            {"id": r.statement_id, "yield": r.proposal_row_count}
+            for r in rows
+        ]
+        ceilings[style] = {
+            "total": total,
+            "statement_count": len(rows),
+            "avg_per_statement": round(total / len(rows), 2) if rows else 0.0,
+            "per_statement": per_statement,
+        }
+    return ceilings
+
+
+def summarize_scores(
+    metrics: list[MetricRow],
+    ceilings: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """WO-QA-02 ranking: per (narrator × config), report Lori-channel yield,
+    archive ceiling for that narrator, and SUPPRESSION = ceiling - lori_yield.
+    Lower suppression = config preserves more of the narrator's truth content
+    in Lori's interview behavior. Ceilings dict is optional for
+    backward-compat (callers without Channel A get suppression=None)."""
+    ceilings = ceilings or {}
+
     grouped: dict[tuple[str, str], list[MetricRow]] = {}
     for row in metrics:
+        # Only Lori-channel rows are aggregated here. Channel A (narrator)
+        # rows are config-independent and live in ceilings.
+        if row.channel != "lori":
+            continue
         grouped.setdefault((row.narrator_style, row.config_id), []).append(row)
 
     out: list[dict[str, Any]] = []
     for (style, config_id), rows in grouped.items():
-        yield_sum = sum(r.proposal_row_count for r in rows)
+        lori_yield = sum(r.proposal_row_count for r in rows)
+        ceiling = ceilings.get(style, {}).get("total")
+        suppression = (ceiling - lori_yield) if ceiling is not None else None
+
         ttfts = [r.ttft_ms for r in rows if r.ttft_ms is not None]
         tps = [r.tokens_per_sec for r in rows if r.tokens_per_sec is not None]
         contam_rows = [r for r in rows if r.scenario_id == "scn_contamination"]
@@ -689,26 +762,54 @@ def summarize_scores(metrics: list[MetricRow]) -> list[dict[str, Any]]:
             ) if s is not None
         ]
         blocked_count = sum(1 for r in rows if r.blocked or r.oom)
+
         out.append({
             "narrator_style": style,
             "config_id": config_id,
-            "proposal_row_yield": yield_sum,
+            "archive_yield_ceiling": ceiling,
+            "lori_yield_total": lori_yield,
+            "suppression": suppression,
             "avg_ttft_ms": round(statistics.mean(ttfts), 2) if ttfts else None,
             "avg_tokens_per_sec": round(statistics.mean(tps), 2) if tps else None,
             "contamination_pass": contam_pass,
             "avg_human_score": round(statistics.mean(human_vals), 2) if human_vals else None,
             "blocked_cells": blocked_count,
         })
-    # Priority: contamination PASS > yield DESC > TTFT ASC
+
+    # WO-QA-02 ranking:
+    #   1) contamination PASS (gate — fail sinks to bottom)
+    #   2) suppression ASC  (lower = config preserves more narrator truth)
+    #   3) TTFT ASC         (faster wins)
+    #   4) human score DESC (tie-break)
+    # Cells without ceilings sort with effective suppression = +inf so they
+    # don't outrank cells we can actually score.
+    SUPP_SENTINEL = 10**9
+    TTFT_SENTINEL = 10**9
     out.sort(key=lambda x: (
         not x["contamination_pass"],
-        -x["proposal_row_yield"],
-        x["avg_ttft_ms"] if x["avg_ttft_ms"] is not None else 10**9,
+        x["suppression"] if x["suppression"] is not None else SUPP_SENTINEL,
+        x["avg_ttft_ms"] if x["avg_ttft_ms"] is not None else TTFT_SENTINEL,
+        -(x["avg_human_score"] if x["avg_human_score"] is not None else 0),
     ))
     return out
 
 
 def compare_runs(current: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compare suppression / TTFT / contamination across runs.
+
+    Backward-compat: handles old baselines that only had proposal_row_yield
+    by deriving suppression from that field when it's all we have. New runs
+    always carry suppression directly.
+    """
+    def _supp(r: dict[str, Any]) -> float | None:
+        # Prefer explicit suppression. Otherwise approximate from old-style
+        # proposal_row_yield (lower is better in old runs too, by accident).
+        if r.get("suppression") is not None:
+            return r["suppression"]
+        if r.get("proposal_row_yield") is not None:
+            return -r["proposal_row_yield"]  # invert to keep "lower = better"
+        return None
+
     prev_map = {(r["narrator_style"], r["config_id"]): r for r in baseline}
     rows = []
     for row in current:
@@ -716,15 +817,20 @@ def compare_runs(current: list[dict[str, Any]], baseline: list[dict[str, Any]]) 
         prev = prev_map.get(key)
         if not prev:
             continue
+        cur_s = _supp(row)
+        prv_s = _supp(prev)
         rows.append({
             "narrator_style": row["narrator_style"],
             "config_id": row["config_id"],
-            "yield_delta": row["proposal_row_yield"] - prev.get("proposal_row_yield", 0),
+            "suppression_delta": (
+                None if cur_s is None or prv_s is None
+                else (cur_s - prv_s)
+            ),
             "ttft_delta_ms": (
-                None if row["avg_ttft_ms"] is None or prev.get("avg_ttft_ms") is None
+                None if row.get("avg_ttft_ms") is None or prev.get("avg_ttft_ms") is None
                 else round(row["avg_ttft_ms"] - prev["avg_ttft_ms"], 2)
             ),
-            "contamination_delta": f"{prev.get('contamination_pass')} → {row['contamination_pass']}",
+            "contamination_delta": f"{prev.get('contamination_pass')} → {row.get('contamination_pass')}",
         })
     return rows
 
@@ -825,12 +931,54 @@ async def main() -> None:
         )
         return
 
+    # WO-QA-02 Channel A — narrator-statement extraction, ONCE per narrator.
+    # The extractor is config-independent (it has its own LLM + own params),
+    # so this loop is outside the config grid. Yields here become per-narrator
+    # ceilings against which Lori-channel suppression is measured below.
+    narrator_statements = load_narrator_statements(STATEMENTS_PATH)
+    print(f"[WO-QA-02] Channel A — narrator statements loaded: "
+          f"{ {k: len(v) for k, v in narrator_statements.items()} }")
+
+    metrics: list[MetricRow] = []
+    for style, statements in narrator_statements.items():
+        if style not in narrator_ids or not statements:
+            continue
+        pid = narrator_ids[style]
+        for st in statements:
+            y = await extract_yield(pid, st["text"])
+            metrics.append(MetricRow(
+                narrator_style=style,
+                narrator_id=pid,
+                config_id="__ceiling__",
+                scenario_id="scn_narrator_statement",
+                prompt=st["text"],
+                response=st["text"],
+                proposal_row_count=y,
+                ttft_ms=None,
+                total_ms=0,
+                tokens_per_sec=None,
+                token_timestamps_ms=[],
+                blocked=None,
+                oom=False,
+                contamination_pass=None,
+                coherence_score=None,
+                adherence_score=None,
+                style_score=None,
+                stability_score=None,
+                tts_pass=None,
+                tts_drift_ms=None,
+                channel="narrator",
+                statement_id=st["id"],
+            ))
+        ceiling_total = sum(m.proposal_row_count for m in metrics
+                            if m.channel == "narrator" and m.narrator_style == style)
+        print(f"[WO-QA-02] {style} ceiling: {ceiling_total} facts across {len(statements)} statements")
+
     # Hardware time-series sampling — runs concurrently with the matrix
     sampler = HardwareSampler(interval_sec=5.0)
     sampler.start()
     print("[hardware] sampler started @ 5s interval")
 
-    metrics: list[MetricRow] = []
     transcripts: list[dict[str, Any]] = []
 
     for narrator_style, narrator_id in narrator_ids.items():
@@ -1001,7 +1149,15 @@ async def main() -> None:
         json.dumps(cfg_doc, indent=2),
         encoding="utf-8",
     )
-    scores = summarize_scores(metrics)
+    # WO-QA-02 Channel A — write per-narrator ceilings (config-independent).
+    ceilings = summarize_narrator_ceilings(metrics)
+    (run_root / "narrator_ceilings.json").write_text(
+        json.dumps(ceilings, indent=2),
+        encoding="utf-8",
+    )
+
+    # WO-QA-02 ranked scores — ceilings feed into suppression computation.
+    scores = summarize_scores(metrics, ceilings=ceilings)
     (run_root / "scores.json").write_text(
         json.dumps(scores, indent=2),
         encoding="utf-8",
@@ -1019,31 +1175,48 @@ async def main() -> None:
             )
 
     # summary.md
-    lines = [f"# WO-QA-01 Summary — {run_id}", ""]
+    lines = [f"# WO-QA-02 Summary — {run_id}", ""]
     lines.append(f"- narrators: {list(narrator_ids.keys())}")
     lines.append(f"- configs: {[c['id'] for c in cfg_doc['configs']]}")
     lines.append(f"- total metric rows: {len(metrics)}")
     lines.append("")
-    lines.append("## Ranked configs (contamination → yield → TTFT)")
+
+    # Channel A — ceilings (config-independent, narrator-only)
+    if ceilings:
+        lines.append("## Channel A — Narrator ceilings (max extractable yield)")
+        lines.append("")
+        for style, c in ceilings.items():
+            lines.append(
+                f"- **{style}** — ceiling={c['total']} facts across "
+                f"{c['statement_count']} statements "
+                f"(avg {c['avg_per_statement']}/statement)"
+            )
+        lines.append("")
+
+    # Channel B — Lori behavior under each config, ranked by suppression ASC
+    lines.append("## Channel B — Ranked configs (contam gate → suppression ASC → TTFT ASC)")
     lines.append("")
     for row in scores[:8]:
+        supp = row.get("suppression")
+        ceiling = row.get("archive_yield_ceiling")
         lines.append(
             f"- **{row['narrator_style']} / {row['config_id']}** — "
-            f"yield={row['proposal_row_yield']}, "
-            f"ttft={row['avg_ttft_ms']}, "
-            f"tok/s={row['avg_tokens_per_sec']}, "
-            f"contamination={row['contamination_pass']}, "
-            f"blocked={row['blocked_cells']}, "
-            f"human={row['avg_human_score']}"
+            f"suppression={supp} (ceiling={ceiling}, lori_yield={row.get('lori_yield_total')}), "
+            f"ttft={row.get('avg_ttft_ms')}, "
+            f"tok/s={row.get('avg_tokens_per_sec')}, "
+            f"contamination={row.get('contamination_pass')}, "
+            f"blocked={row.get('blocked_cells')}, "
+            f"human={row.get('avg_human_score')}"
         )
+
     if compare_output:
         lines.extend(["", "## Compare vs baseline", ""])
         for row in compare_output:
             lines.append(
                 f"- **{row['narrator_style']} / {row['config_id']}** — "
-                f"yield Δ={row['yield_delta']}, "
-                f"ttft Δ={row['ttft_delta_ms']}, "
-                f"contamination={row['contamination_delta']}"
+                f"suppression Δ={row.get('suppression_delta')}, "
+                f"ttft Δ={row.get('ttft_delta_ms')}, "
+                f"contamination={row.get('contamination_delta')}"
             )
 
     # Hardware summary block — surfaces bottleneck info alongside scores
@@ -1059,7 +1232,7 @@ async def main() -> None:
 
     (run_root / "summary.md").write_text("\n".join(lines), encoding="utf-8")
 
-    print(f"\n[WO-QA-01] complete → {run_root}")
+    print(f"\n[WO-QA-02] complete → {run_root}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,49 @@
+{
+  "_wo": "WO-QA-02 Archive-Truth Harness — Narrator Statements Fixture",
+  "_notes": [
+    "Narrator-originated content used to compute Channel A ceilings.",
+    "Statements align with synthetic narrator templates in data/narrator_templates/.",
+    "Each statement contains real extractable facts that the /api/extract-fields",
+    "pipeline should be able to recognize (names, dates, places, occupations,",
+    "kinship). Yield from these statements defines the maximum possible archive",
+    "yield for that narrator — Lori-channel yield in any config is then",
+    "compared against this ceiling to compute SUPPRESSION (lower = better).",
+    "Do NOT edit ad hoc: changes invalidate regression baselines."
+  ],
+  "structured": [
+    {
+      "id": "st_001",
+      "text": "I was born in Helena, Montana on March 12, 1941. My father Elias Vale was a railroad mechanic for the Northern Pacific, and my mother Ruth Vale was a school secretary at Helena West Elementary."
+    },
+    {
+      "id": "st_002",
+      "text": "We lived in a white clapboard house on 11th Avenue near the Helena rail yard. My younger sister June Vale and I shared a room growing up. We had a dog named Patch from 1948 until 1961."
+    },
+    {
+      "id": "st_003",
+      "text": "I attended Helena West Elementary and then Helena High School, graduating in 1959. After that, I worked in the Lewis and Clark County clerk's office for thirty-two years until I retired in 1998."
+    },
+    {
+      "id": "st_004",
+      "text": "I married Thomas Dale in 1964 and moved to Missoula in 1968. My family was Anglo-Scottish on my mother's side; her maiden name was McIntyre. I kept newspaper clippings and ledgers in labeled binders all my life."
+    }
+  ],
+  "storyteller": [
+    {
+      "id": "st_101",
+      "text": "I was born in Taos, New Mexico on September 18, 1943. My father Luis March was a carpenter from Santa Fe, and my mother Isabel March, whose maiden name was Chavez, came from Chimayó and worked as a seamstress."
+    },
+    {
+      "id": "st_102",
+      "text": "We grew up in a low adobe house on Ledoux Street in Taos with a deep front porch. My older brother Tomás March and I had a cat named Luna from 1951 until she passed in 1963."
+    },
+    {
+      "id": "st_103",
+      "text": "I attended Taos public schools and graduated in 1961. Then I earned a BFA from the University of New Mexico in 1965 and went on to teach art in Santa Fe schools for twenty-seven years."
+    },
+    {
+      "id": "st_104",
+      "text": "In 1988 I founded a community mural program that painted over twenty murals across northern New Mexico villages. I retired in 2004 and returned to Taos, where I now live two blocks from my childhood home."
+    }
+  ]
+}

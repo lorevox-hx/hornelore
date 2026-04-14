@@ -3374,13 +3374,30 @@
           </div>
 
           <div class="testlab-block">
-            <h4 class="testlab-section-title">Scores (ranked: contam → yield → TTFT)</h4>
+            <h4 class="testlab-section-title">Channel A — Narrator ceilings (config-independent)</h4>
+            <table class="testlab-table">
+              <thead>
+                <tr>
+                  <th>Style</th>
+                  <th>Ceiling (facts)</th>
+                  <th># Statements</th>
+                  <th>Avg / Stmt</th>
+                </tr>
+              </thead>
+              <tbody id="testLabCeilingBody"></tbody>
+            </table>
+          </div>
+
+          <div class="testlab-block">
+            <h4 class="testlab-section-title">Scores (ranked: contam → suppression ASC → TTFT)</h4>
             <table class="testlab-table">
               <thead>
                 <tr>
                   <th>Style</th>
                   <th>Config</th>
-                  <th>Yield</th>
+                  <th>Suppression</th>
+                  <th>Ceiling</th>
+                  <th>Lori Yield</th>
                   <th>TTFT</th>
                   <th>Tok/s</th>
                   <th>Contam</th>
@@ -3399,7 +3416,7 @@
                 <tr>
                   <th>Style</th>
                   <th>Config</th>
-                  <th>Yield Δ</th>
+                  <th>Suppression Δ</th>
                   <th>TTFT Δ</th>
                   <th>Contam Δ</th>
                 </tr>

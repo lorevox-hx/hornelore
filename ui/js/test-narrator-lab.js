@@ -57,6 +57,7 @@
     if (!el) return;
     let txt = `Status: ${status.state || "idle"}`;
     if (status.pid)           txt += ` (pid ${status.pid})`;
+    if (status.run_label)     txt += ` · label=${status.run_label}`;
     if (status.latest_run)    txt += ` · latest=${status.latest_run}`;
     if (status.compare_to)    txt += ` · compare=${status.compare_to}`;
     if (status.dry_run)       txt += ` · dry-run`;
@@ -105,12 +106,30 @@
       const tr = document.createElement("tr");
       tr.appendChild(td(row.narrator_style));
       tr.appendChild(td(row.config_id));
-      tr.appendChild(td(row.proposal_row_yield));
+      // WO-QA-02: suppression is primary; old runs fall back to inverted yield
+      tr.appendChild(td(row.suppression ?? (row.proposal_row_yield != null ? -row.proposal_row_yield : null)));
+      tr.appendChild(td(row.archive_yield_ceiling));
+      tr.appendChild(td(row.lori_yield_total ?? row.proposal_row_yield));
       tr.appendChild(td(row.avg_ttft_ms));
       tr.appendChild(td(row.avg_tokens_per_sec));
       tr.appendChild(td(row.contamination_pass, { "data-contam": String(row.contamination_pass) }));
       tr.appendChild(td(row.blocked_cells));
       tr.appendChild(td(row.avg_human_score));
+      body.appendChild(tr);
+    }
+  }
+
+  function renderNarratorCeilings(ceilings) {
+    const body = byId("testLabCeilingBody");
+    clearNode(body);
+    if (!body) return;
+    if (!ceilings || typeof ceilings !== "object") return;
+    for (const [style, c] of Object.entries(ceilings)) {
+      const tr = document.createElement("tr");
+      tr.appendChild(td(style));
+      tr.appendChild(td(c.total));
+      tr.appendChild(td(c.statement_count));
+      tr.appendChild(td(c.avg_per_statement));
       body.appendChild(tr);
     }
   }
@@ -123,7 +142,8 @@
       const tr = document.createElement("tr");
       tr.appendChild(td(row.narrator_style));
       tr.appendChild(td(row.config_id));
-      tr.appendChild(td(row.yield_delta));
+      // WO-QA-02: prefer suppression_delta; old comparisons used yield_delta
+      tr.appendChild(td(row.suppression_delta ?? row.yield_delta));
       tr.appendChild(td(row.ttft_delta_ms));
       tr.appendChild(td(row.contamination_delta));
       body.appendChild(tr);
@@ -237,6 +257,7 @@
   async function loadRun(runId) {
     if (!runId) return;
     const data = await jget(API.result(runId));
+    renderNarratorCeilings(data.narrator_ceilings);   // WO-QA-02 Channel A
     renderScores(data.scores);
     renderCompare(data.compare);
     renderSummary(data.summary);

@@ -59,6 +59,16 @@ def _read_status() -> Dict[str, Any]:
         return {"state": "unknown"}
 
 
+def _latest_run_id() -> str | None:
+    """Newest run on disk by mtime — works regardless of label format."""
+    _ensure_root()
+    all_runs = [p for p in RUNS_ROOT.iterdir() if p.is_dir()]
+    if not all_runs:
+        return None
+    all_runs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return all_runs[0].name
+
+
 def _proc_alive(pid: int) -> bool:
     """Is the PID still running? POSIX-only; returns False on any error."""
     try:
@@ -111,6 +121,7 @@ async def run_test_lab(payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
         "compare_to": compare_to,
         "run_label": run_label,
         "dry_run": dry_run,
+        "latest_run": None,  # WO-QA-02: explicitly cleared at start
         "log_path": str(log_path),
     })
     return {"ok": True, "pid": proc.pid, "log_path": str(log_path)}
@@ -122,17 +133,11 @@ async def get_status() -> Dict[str, Any]:
     if state.get("state") == "running":
         pid = state.get("pid")
         if not pid or not _proc_alive(int(pid)):
-            # Process finished — determine success.
+            # Process finished — determine success and persist latest_run.
             # Full matrix run → scores.json
             # Dry run          → dry_run_complete.json
-            # Neither          → assume failed
-            RUNS_ROOT.mkdir(parents=True, exist_ok=True)
-            # Sort by modification time (newest first) so labeled runs
-            # like "doctor_dry" don't outrank numeric timestamps.
-            all_runs = [p for p in RUNS_ROOT.iterdir() if p.is_dir()]
-            all_runs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            runs = [p.name for p in all_runs]
-            latest = runs[0] if runs else None
+            # Neither          → assume failed (latest still recorded)
+            latest = _latest_run_id()
             if latest:
                 latest_dir = RUNS_ROOT / latest
                 if (latest_dir / "scores.json").exists():
@@ -144,8 +149,10 @@ async def get_status() -> Dict[str, Any]:
                     state["dry_run_result"] = "ok"
                 else:
                     state["state"] = "failed"
+                    state["latest_run"] = latest
             else:
                 state["state"] = "failed"
+                state["latest_run"] = None
             _write_status(state)
     return state
 
@@ -185,6 +192,7 @@ async def get_result(run_id: str) -> Dict[str, Any]:
         "compare": load("compare.json"),
         "configs": load("configs.json"),
         "hardware_summary": load("hardware_summary.json"),
+        "narrator_ceilings": load("narrator_ceilings.json"),  # WO-QA-02 Channel A
     }
 
 
