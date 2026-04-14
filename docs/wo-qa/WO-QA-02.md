@@ -1,6 +1,7 @@
 # WO-QA-02 — Archive-Truth Methodology Patch
 
-**Status:** Complete
+**Status:** Complete — `cfg_expressive` adopted as production default
+**Production-default decision:** see [`WO-QA-02-RESULTS.md`](WO-QA-02-RESULTS.md)
 **Commits:** `b3fb8ff` (main patch) + `7fe1520` (timing instrumentation)
 **Owner area:** `scripts/test_lab_runner.py`, `data/test_lab/narrator_statements.json`,
 `server/code/api/routers/test_lab.py`, `ui/`

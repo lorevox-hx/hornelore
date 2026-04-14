@@ -303,8 +303,9 @@ python3 scripts/preload_trainer.py --all
 | WO-CR-01 | Complete | Left Chronology Accordion — three-lane timeline sidebar |
 | WO-CR-PACK-01 | Complete | Chronology Phase 2 — mapper expansion, visual tuning, Lori awareness |
 | WO-QA-01 | Complete | Quality Harness — synthetic test narrators, scoring, hardware/timing capture |
-| WO-QA-02 | Complete | Archive-truth methodology — Channel A ceilings + suppression ranking |
-| WO-QA-02B | Complete | Seed determinism — `chat_ws.py` honors `params.seed` for reproducible runs |
+| WO-QA-02 | Complete | Archive-truth methodology — Channel A ceilings + suppression ranking. **`cfg_expressive` adopted as production default** (see `docs/wo-qa/WO-QA-02-RESULTS.md`) |
+| WO-QA-02B | Complete | Seed determinism — `chat_ws.py` honors `params.seed`. CUDA INT4 kernels remain non-deterministic; documented noise floor ±4 on suppression. |
+| WO-QA-03 | Planned | TTS Option A — `--with-tts` flag for end-to-end latency + GPU contention measurement |
 | WO-14 | Deferred | TensorRT-LLM runtime swap (deferred pending Blackwell SM_120 maturity) |
 
 ### WO-13 Phase Status
