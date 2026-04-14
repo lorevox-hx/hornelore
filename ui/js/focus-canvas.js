@@ -216,7 +216,7 @@
    * behavior, and pauses auto-scroll when the user scrolls up.
    */
   function _initScrollManagement() {
-    var chatWrap = document.getElementById("lv80ChatWrap");
+    var chatWrap = document.getElementById("crChatInner") || document.getElementById("lv80ChatWrap");
     if (!chatWrap || chatWrap._n1ScrollInit) return;
     chatWrap._n1ScrollInit = true;
 

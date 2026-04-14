@@ -84,4 +84,6 @@ const API = {
   RESUME_PREVIEW: (pid) => `${ORIGIN}/api/transcript/resume-preview?person_id=${encodeURIComponent(pid)}`,
   SESSION_TIMELINE: (pid) => `${ORIGIN}/api/transcript/session-timeline?person_id=${encodeURIComponent(pid)}`,
   UPDATE_THREADS: ORIGIN + "/api/transcript/update-threads",
+  // WO-CR-01 — Chronology Accordion (read-only)
+  CHRONOLOGY_ACCORDION: (id) => `${ORIGIN}/api/chronology-accordion?person_id=${encodeURIComponent(id)}`,
 };

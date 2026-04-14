@@ -84,6 +84,10 @@
     s.completedStyle = null;
     s._wo11eNarrating = false;
     s._wo11eStopped = false;
+    // WO-CR-01: Re-show chronology accordion after trainer reset
+    if (typeof crInitAccordion === "function") {
+      try { crInitAccordion(); } catch (_) {}
+    }
     _renderPanel();
   }
 
@@ -636,6 +640,10 @@
     s._wo11eStopped   = false;
     console.log("[WO-11D] Trainer started — style:", s.style,
       "display:", (_STYLE_DISPLAY[s.style] || {}).name);
+    // WO-CR-01: Hide chronology accordion during trainer mode
+    if (typeof crHideAccordion === "function") {
+      try { crHideAccordion(); } catch (_) {}
+    }
     _renderPanel();
     // WO-11E: Auto-narrate the first step
     // Small delay to let the panel render and scroll into view first
@@ -713,6 +721,11 @@
     // Note: style/title/promptHint are NOT cleared here. They persist on the
     // object until the next start() or reset() so any UI surface that wants
     // to show "you're in storyteller mode" can still read them.
+
+    // WO-CR-01: Re-show chronology accordion after trainer mode ends
+    if (typeof crInitAccordion === "function") {
+      try { crInitAccordion(); } catch (_) {}
+    }
 
     _renderPanel();
 

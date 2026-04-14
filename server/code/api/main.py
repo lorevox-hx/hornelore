@@ -96,6 +96,7 @@ from .routers import (  # type: ignore
     relationships,   # Phase Q.1 — Relationship Graph Layer
     transcript,      # WO-8 — Transcript History & Thread Anchor
     family_truth,    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
+    chronology_accordion,  # WO-CR-01 — Chronology Accordion (read-only)
 )
 
 # Core Entity & State Routers
@@ -120,6 +121,7 @@ app.include_router(identity_review.router) # Phase G — Identity change review
 app.include_router(relationships.router)   # Phase Q.1 — Relationship Graph Layer
 app.include_router(transcript.router)      # WO-8 — Transcript History & Thread Anchor
 app.include_router(family_truth.router)    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
+app.include_router(chronology_accordion.router)  # WO-CR-01 — Chronology Accordion
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)

@@ -3641,6 +3641,11 @@ function initTimelineSpine() {
   renderTimeline();
   updateArchiveReadiness();
   sysBubble("◉ Timeline spine initialized — Pass 2A (Timeline Walk) ready.");
+
+  // WO-CR-01: Initialize chronology accordion after spine is ready
+  if (typeof crInitAccordion === "function") {
+    try { crInitAccordion(); } catch (_) {}
+  }
 }
 
 /* ── v7.1 — update all runtime badge elements in the UI ──── */

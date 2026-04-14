@@ -176,8 +176,166 @@
 
     #lv80ChatWrap {
       flex: 1;
-      overflow-y: auto;
+      overflow: hidden;
       position: relative;
+      display: flex;
+      flex-direction: row;
+    }
+    /* WO-CR-01: Chronology Accordion — left column */
+    #crAccordionCol {
+      width: 80px;
+      min-width: 80px;
+      max-width: 280px;
+      flex-shrink: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      background: rgba(10,10,20,0.97);
+      border-right: 1px solid rgba(99,102,241,0.15);
+      transition: width 0.25s ease;
+      display: none;
+      flex-direction: column;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(99,102,241,0.3) transparent;
+    }
+    #crAccordionCol.cr-visible { display: flex; }
+    #crAccordionCol.cr-expanded { width: 280px; }
+    /* Toggle tab at the top */
+    .cr-toggle-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: rgba(15,23,42,0.95);
+      border-bottom: 1px solid rgba(99,102,241,0.15);
+      cursor: pointer;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .cr-toggle-bar:hover { background: rgba(30,41,59,0.95); }
+    .cr-toggle-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cr-toggle-arrow {
+      font-size: 14px;
+      color: #64748b;
+      transition: transform 0.2s;
+    }
+    .cr-expanded .cr-toggle-arrow { transform: rotate(180deg); }
+    /* Decade rows */
+    .cr-decade {
+      border-bottom: 1px solid rgba(99,102,241,0.08);
+    }
+    .cr-decade-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 13px;
+      font-weight: 600;
+      color: #a5b4fc;
+      transition: background 0.15s;
+    }
+    .cr-decade-header:hover { background: rgba(99,102,241,0.08); }
+    .cr-decade-caret {
+      font-size: 10px;
+      color: #64748b;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .cr-decade.cr-open > .cr-decade-header .cr-decade-caret { transform: rotate(90deg); }
+    .cr-decade-count {
+      font-size: 10px;
+      color: #475569;
+      margin-left: auto;
+    }
+    .cr-decade-body {
+      display: none;
+      padding-left: 6px;
+    }
+    .cr-decade.cr-open > .cr-decade-body { display: block; }
+    /* Year rows */
+    .cr-year-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px 4px 14px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      font-weight: 500;
+      color: #cbd5e1;
+      transition: background 0.15s;
+    }
+    .cr-year-header:hover { background: rgba(99,102,241,0.06); }
+    .cr-year-caret {
+      font-size: 9px;
+      color: #475569;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .cr-year.cr-open > .cr-year-header .cr-year-caret { transform: rotate(90deg); }
+    .cr-year-body {
+      display: none;
+      padding: 0 8px 4px 20px;
+    }
+    .cr-year.cr-open > .cr-year-body { display: block; }
+    /* Event cards */
+    .cr-event {
+      padding: 4px 8px;
+      margin: 2px 0;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #94a3b8;
+      cursor: default;
+      transition: background 0.15s;
+    }
+    .cr-event:hover { background: rgba(99,102,241,0.08); }
+    .cr-event[data-lane="world"] {
+      border-left: 2px solid #6366f1;
+      color: #a5b4fc;
+    }
+    .cr-event[data-lane="personal"] {
+      border-left: 2px solid #22c55e;
+      color: #86efac;
+      cursor: pointer;
+    }
+    .cr-event[data-lane="ghost"] {
+      border-left: 2px solid #f59e0b;
+      color: #fbbf24;
+      font-style: italic;
+      cursor: pointer;
+    }
+    /* Era tag badge */
+    .cr-era-tag {
+      display: inline-block;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 8px;
+      background: rgba(99,102,241,0.15);
+      color: #818cf8;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    /* Collapsed mode: decade labels become vertical abbreviated text */
+    #crAccordionCol:not(.cr-expanded) .cr-decade-body { display: none !important; }
+    #crAccordionCol:not(.cr-expanded) .cr-decade-count { display: none; }
+    #crAccordionCol:not(.cr-expanded) .cr-toggle-label { writing-mode: vertical-rl; text-orientation: mixed; font-size: 10px; }
+    #crAccordionCol:not(.cr-expanded) .cr-decade-header { justify-content: center; padding: 10px 4px; }
+    #crAccordionCol:not(.cr-expanded) .cr-decade-caret { display: none; }
+    /* Chat area — right side, scrollable */
+    #crChatInner {
+      flex: 1;
+      overflow-y: auto;
       scroll-behavior: smooth;
     }
     #chatMessages {
@@ -2564,26 +2722,38 @@
 
   <!-- ── CHAT AREA ───────────────────────────────────────────── -->
   <main id="lv80ChatWrap">
-    <!-- WO-11: Trainer narrator coaching panel -->
-    <div id="lv80TrainerPanel" hidden></div>
-    <!-- app.js renders all chat bubbles into #chatMessages -->
-    <div id="chatMessages"></div>
-
-    <!-- N.1-02: See New Message floating button -->
-    <button id="seeNewMsgBtn" class="see-new-msg-btn fc-hidden" onclick="window._scrollToLatest && window._scrollToLatest()" aria-label="See new message">
-      ↓ See New Message
-    </button>
-
-    <!-- Thinking indicator — shown while Lori is generating -->
-    <div id="lv80Thinking" class="hidden">
-      <div class="thinking-wrap">
-        <span class="dot-bounce"><span></span><span></span><span></span></span>
-        <span>Lori is thinking…</span>
+    <!-- WO-CR-01: Chronology Accordion — left column -->
+    <aside id="crAccordionCol">
+      <div class="cr-toggle-bar" onclick="crToggleExpand()">
+        <span class="cr-toggle-label">Timeline</span>
+        <span class="cr-toggle-arrow">◂</span>
       </div>
-    </div>
+      <div id="crAccordionBody"></div>
+    </aside>
 
-    <!-- Idle re-engagement cue — floats above input bar -->
-    <div id="lv80IdleCue">Take your time…</div>
+    <!-- Chat content — right side -->
+    <div id="crChatInner">
+      <!-- WO-11: Trainer narrator coaching panel -->
+      <div id="lv80TrainerPanel" hidden></div>
+      <!-- app.js renders all chat bubbles into #chatMessages -->
+      <div id="chatMessages"></div>
+
+      <!-- N.1-02: See New Message floating button -->
+      <button id="seeNewMsgBtn" class="see-new-msg-btn fc-hidden" onclick="window._scrollToLatest && window._scrollToLatest()" aria-label="See new message">
+        ↓ See New Message
+      </button>
+
+      <!-- Thinking indicator — shown while Lori is generating -->
+      <div id="lv80Thinking" class="hidden">
+        <div class="thinking-wrap">
+          <span class="dot-bounce"><span></span><span></span><span></span></span>
+          <span>Lori is thinking…</span>
+        </div>
+      </div>
+
+      <!-- Idle re-engagement cue — floats above input bar -->
+      <div id="lv80IdleCue">Take your time…</div>
+    </div>
   </main>
 
   <!-- ── WO-8 VOICE STATUS BAR ──────────────────────────────── -->
@@ -3492,6 +3662,7 @@
 <script src="js/bio-phase-f-test-harness.js"></script>
 <script src="js/bio-control-center.js"></script>
 <script src="js/focus-canvas.js"></script>
+<script src="js/chronology-accordion.js"></script>
 <script src="js/test-harness.js"></script>
 <script src="js/emotion-pipeline-tests.js"></script>
 
@@ -3898,6 +4069,11 @@ async function lv80SwitchPerson(personId) {
   // 6. Clear loading state
   state.narratorOpen.loadingPid = null;
   console.log("[v9-gate] Narrator open complete. Status:", state.narratorOpen.openStatus);
+
+  // WO-CR-01: Initialize chronology accordion on narrator load
+  if (typeof crInitAccordion === "function") {
+    try { crInitAccordion(); } catch (_) {}
+  }
 
   // WO-CAM-FIX: Auto-start camera on narrator load if family defaults are on.
   // Previously camera only started from interview.js _ivStartActual() (fresh section start)
@@ -6509,7 +6685,7 @@ function lv80ObserveChat() {
 }
 
 function lv80ObserveScroll() {
-  const wrap = document.getElementById("lv80ChatWrap");
+  const wrap = document.getElementById("crChatInner") || document.getElementById("lv80ChatWrap");
   const msgs = document.getElementById("chatMessages");
   if (!wrap || !msgs) return;
   const obs = new MutationObserver(() => {

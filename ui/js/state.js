@@ -223,6 +223,22 @@ let state = {
     pendingSuggestions: [],// { fieldPath, value, confidence, turnId, ts } — for suggest_only fields
     syncLog: [],          // { fieldPath, action, fromValue, toValue, ts } — audit trail, capped at 200
   },
+
+  /* ── WO-CR-01 Chronology Accordion ──────────────────────────────
+     Left-side accordion state.  Read-only — never writes truth.
+     openDecades / openYears track which decade/year rows are expanded.
+     visible: whether the accordion column is shown at all.
+     collapsed: whether accordion is in narrow (80px) or wide (280px) mode.
+  ─────────────────────────────────────────────────────────────── */
+  chronologyAccordion: {
+    visible: false,
+    collapsed: true,        // true = 80px narrow, false = 280px expanded
+    openDecades: {},        // { "1940": true, "1950": true, ... }
+    openYears: {},          // { "1940": { "1942": true, "1945": true }, ... }
+    payload: null,          // cached API response
+    loading: false,
+    error: null,
+  },
 };
 
 /* ── v8 Debug: expose projection state globally for console inspection ── */
