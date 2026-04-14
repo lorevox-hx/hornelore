@@ -77,6 +77,42 @@ Both flags are currently **ON** in `.env`. The profile read seam uses a hybrid s
 
 Every narrator switch checks `user_turn_count` from `/api/narrator/state-snapshot`. If a narrator has zero prior user-authored turns, both resume-prompt paths (legacy `lv80SwitchPerson` and WO-8 `wo8OnNarratorReady`) are suppressed. This prevents fake "welcome back" greetings from polluting the turns table.
 
+### Chronology Accordion (WO-CR-01, WO-CR-PACK-01)
+
+A read-only left-side timeline sidebar that merges three lanes at request time — never in the database. Shown as an 80px collapsed column / 280px expanded column to the left of the chat area, hidden during trainer mode.
+
+**Three-lane data model** (derived per narrator on every fetch):
+
+| Lane | Source | Authority |
+|---|---|---|
+| A — World | `server/data/historical/historical_events_1900_2026.json` | Context only (never personal fact) |
+| B — Personal | profile basics → questionnaire fallback → promoted truth | Trusted anchors |
+| C — Ghost | Static life-stage prompts (one per band, at midpoint year) | Question shaping only |
+
+**Authority contract.** The `GET /api/chronology-accordion` endpoint is strictly read-only. It never writes to `facts`, `timeline`, `questionnaire`, `archive`, or any truth table. UI state writes are limited to `state.chronologyAccordion` (visibility + focus — never truth).
+
+**Personal-anchor source priority** (Lane B):
+1. **Profile basics** — `dob` + `pob` produce an enriched `Born — {pob}` anchor at year-of-birth
+2. **Questionnaire fallback** — strictly limited to `personal.dateOfBirth` / `personal.placeOfBirth` / `personal.dateOfDeath`. No other questionnaire keys are promoted to Lane B.
+3. **Promoted truth** — primary source for expansion anchors (marriage, child, move, work_begin, retirement, graduation, military, immigration, divorce, death). 14 date-bearing fields whitelisted; nothing else becomes an anchor.
+
+**Compound dedup keys** prevent collisions when expansion anchors land:
+- Single-occurrence: `birth:self`, `death:self`, `retirement:self`, `work_begin:self`
+- Multi-occurrence: `marriage:{spouse}:{year}`, `child:{name}:{year}`, `move:{place}:{year}`, etc.
+
+**Visual hierarchy** (CR-03): Personal anchors dominate (12.5px bold, tinted green bg, 4px left bar; `source=promoted_truth` renders with a brighter 5px bar as a shield-weight authority signal). World events are quieter (10.5px, muted, 0.85 opacity). Ghost prompts are clearly non-factual (dashed amber border, italic, `?` prefix, 0.78 opacity). Active-era year rows get an inset indigo bar.
+
+**Lori timeline awareness** (CR-04). When a year or item is clicked, the runtime payload gains a `chronology_context` block (parallel to `memoir_context` / `projection_family`) with a narrow focus slice — capped at 3 personal / 3 world / 2 ghost items. Every item carries a `source` tag so `prompt_composer` can enforce provenance rules:
+
+| Source tag | Lori treatment |
+|---|---|
+| `promoted_truth` | May assert as confirmed anchor |
+| `profile` / `questionnaire` | Soft cue only — may probe, must not assert |
+| `historical_json` | Context only — never rephrased as personal biography |
+| `life_stage_template` | Question shaping only — never stated as known history |
+
+The ladder appears automatically for any narrator with a DOB; the backend returns `{"error": "no_dob"}` for narrators missing identity basics and the UI hides the column cleanly.
+
 ---
 
 ## Hardening
@@ -175,17 +211,21 @@ python3 scripts/preload_trainer.py --all
 - `WS /api/chat/ws` — websocket for live chat
 - `POST /api/extract-fields` — LLM-based field extraction from chat turns
 
+**Chronology Accordion:**
+- `GET /api/chronology-accordion?person_id=` — read-only three-lane timeline payload (world events + personal anchors + ghost prompts, grouped by decade and year). Never writes; returns `{"error": "no_dob"}` when profile basics lack a DOB.
+
 ---
 
 ## File Inventory
 
 | Category | Count | Key Files |
 |---|---|---|
-| JavaScript (UI) | 37 | app.js, api.js, state.js, wo13-review.js, narrator-preload.js |
+| JavaScript (UI) | 42 | app.js, api.js, state.js, wo13-review.js, narrator-preload.js, chronology-accordion.js, shadow-review.js, conflict-console.js |
 | CSS | 11 | |
 | HTML shell | 1 | `hornelore1.0.html` |
 | Narrator templates | 6 | 3 family + 2 trainers + 1 base |
-| Server routers | 25 | family_truth.py, profiles.py, extract.py, narrator_state.py |
+| Server routers | 27 | family_truth.py, profiles.py, extract.py, narrator_state.py, chronology_accordion.py |
+| Historical seed | 1 | `server/data/historical/historical_events_1900_2026.json` (152 world events, 1900–2026) |
 | Scripts | 21 | preload_trainer.py, import_kent_james_horne.py, start/stop/restart |
 | Tests | 4+ | test_api_smoke.py, test_db_smoke.py, e2e/ |
 | Config | 4 | .env, package.json, playwright.config.ts, tsconfig |
@@ -199,9 +239,15 @@ python3 scripts/preload_trainer.py --all
 | WO-8 | Complete | Transcript history, thread anchors, narrator resume flow |
 | WO-9 | Complete | Rolling summaries, recent turns, memory intelligence |
 | WO-10 | Complete | Cognitive support, operator tools, memory intelligence |
-| WO-11 | Complete | Standalone repo separation from Lorevox |
+| WO-11 | Complete | Standalone repo separation from Lorevox, trainer isolation |
+| WO-11E-HL | Complete | Amber read-along highlighting for Lori narration, TTS timing polish |
 | WO-12B | Complete | Cross-narrator contamination hunt and evidence archive |
-| WO-13 | **Active** | Four-layer truth pipeline (phases 1-9) |
+| WO-13 | Complete | Four-layer truth pipeline (phases 1–9) |
+| WO-13X / 13YZ | Complete | Conflict console + shadow review redesign |
+| WO-CAM-FIX | Complete | Camera orchestration repair (auto-start on ready narrator load) |
+| WO-MIC-UI-02A | Complete | Single-surface voice capture UI |
+| WO-CR-01 | Complete | Left Chronology Accordion — three-lane timeline sidebar |
+| WO-CR-PACK-01 | Complete | Chronology Phase 2 — mapper expansion, visual tuning, Lori awareness |
 
 ### WO-13 Phase Status
 
@@ -215,7 +261,17 @@ python3 scripts/preload_trainer.py --all
 | 6 | Complete | Review drawer UI (wo13-review.js) |
 | 7 | Complete | Promote with UPSERT semantics into family_truth_promoted |
 | 8 | Complete | Flag-gated profile read seam (hybrid builder) |
-| 9 | **In Progress** | Kent dry run — validation, operator runbook |
+| 9 | Complete | Kent dry run — validation, operator runbook |
+
+### WO-CR Phase Status
+
+| Phase | Status | Description |
+|---|---|---|
+| CR-01 | Complete | Left Chronology Accordion scaffold — three-lane merge, API endpoint, UI column |
+| CR-01B | Complete | Intra-year sort hotfix — personal before ghost before world |
+| CR-02 | Complete | Mapper expansion — compound dedup keys, strict questionnaire fallback, 14-field promoted whitelist |
+| CR-03 | Complete | Visual tuning — personal anchors dominate, ghost clearly non-factual, active-era emphasis |
+| CR-04 | Complete | Lori timeline awareness — provenance-tagged `chronology_context` in runtime payload |
 
 ---
 
@@ -228,4 +284,5 @@ Hornelore is not a fork. It is a curated subset with a different product surface
 - **No creation or deletion** — UI controls for adding and removing narrators are disabled.
 - **Separate data** — Hornelore uses its own database and filesystem. Running both products simultaneously is safe.
 - **Four-layer truth pipeline** — WO-13 adds shadow archive, proposals, review, and promoted truth layers that Lorevox does not have.
+- **Chronology Accordion** — WO-CR-01 / WO-CR-PACK-01 add a read-only left-side time ladder that merges three lanes (world / personal / ghost) at request time. Never writes to the database; gives Lori provenance-tagged temporal context without creating a new truth layer.
 - **Renamed shell** — `hornelore1.0.html` instead of `lori9.0.html`. Brand reads "Hornelore 1.0 — Horne Family Archive".
