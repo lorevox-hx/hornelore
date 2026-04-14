@@ -154,6 +154,18 @@ async def get_status() -> Dict[str, Any]:
                 state["state"] = "failed"
                 state["latest_run"] = None
             _write_status(state)
+
+    # WO-QA-02: overlay live progress (elapsed + ETA + cells) when a run
+    # has written progress.json. The runner refreshes it after every cell.
+    # When state is 'finished' we still surface final timing if present.
+    latest_for_progress = state.get("latest_run") or _latest_run_id()
+    if latest_for_progress:
+        prog_path = RUNS_ROOT / latest_for_progress / "progress.json"
+        if prog_path.exists():
+            try:
+                state["progress"] = json.loads(prog_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
     return state
 
 
@@ -193,6 +205,7 @@ async def get_result(run_id: str) -> Dict[str, Any]:
         "configs": load("configs.json"),
         "hardware_summary": load("hardware_summary.json"),
         "narrator_ceilings": load("narrator_ceilings.json"),  # WO-QA-02 Channel A
+        "run_meta": load("run_meta.json"),                    # WO-QA-02 timing
     }
 
 

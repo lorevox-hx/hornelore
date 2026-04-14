@@ -52,6 +52,14 @@
   }
 
   /* ── Status ──────────────────────────────────────────────── */
+  function _fmtSec(s) {
+    if (s == null) return "?";
+    const total = Math.round(s);
+    const m = Math.floor(total / 60);
+    const sec = total % 60;
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  }
+
   function renderStatus(status) {
     const el = byId("testLabStatus");
     if (!el) return;
@@ -61,6 +69,19 @@
     if (status.latest_run)    txt += ` · latest=${status.latest_run}`;
     if (status.compare_to)    txt += ` · compare=${status.compare_to}`;
     if (status.dry_run)       txt += ` · dry-run`;
+    // WO-QA-02: live elapsed + ETA from progress.json
+    if (status.progress) {
+      const p = status.progress;
+      if (p.cells_total) {
+        txt += ` · ${p.cells_completed}/${p.cells_total} cells`;
+      }
+      if (p.elapsed_sec != null) {
+        txt += ` · elapsed ${_fmtSec(p.elapsed_sec)}`;
+      }
+      if (p.eta_sec != null && status.state === "running") {
+        txt += ` · ETA ${_fmtSec(p.eta_sec)}`;
+      }
+    }
     el.textContent = txt;
   }
 
@@ -224,6 +245,29 @@
     el.scrollTop = el.scrollHeight;  // auto-scroll to bottom
   }
 
+  function renderRunMeta(meta) {
+    const el = byId("testLabTiming");
+    if (!el) return;
+    if (!meta) {
+      el.textContent = "(no timing data for this run)";
+      return;
+    }
+    const lines = [
+      `Total: ${_fmtSec(meta.matrix_duration_sec)}`,
+      `Cells: ${meta.cells_completed} / ${meta.cells_total}`,
+      `Avg cell: ${_fmtSec(meta.avg_cell_sec)}    fastest: ${_fmtSec(meta.min_cell_sec)}    slowest: ${_fmtSec(meta.max_cell_sec)}`,
+    ];
+    if (Array.isArray(meta.per_cell) && meta.per_cell.length > 0) {
+      const sorted = [...meta.per_cell].sort((a, b) => b.duration_sec - a.duration_sec);
+      lines.push("");
+      lines.push("Per cell (slowest first):");
+      for (const c of sorted) {
+        lines.push(`  ${c.narrator_style} × ${c.config_id}: ${_fmtSec(c.duration_sec)}`);
+      }
+    }
+    el.textContent = lines.join("\n");
+  }
+
   function renderHardwareSummary(summary) {
     const el = byId("testLabHwSummary");
     if (!el) return;
@@ -264,6 +308,7 @@
     renderTranscripts(data.transcripts);
     renderConfigs(data.configs);
     renderHardwareSummary(data.hardware_summary);
+    renderRunMeta(data.run_meta);                     // WO-QA-02 timing
     setText("testLabLoadedRun", `Loaded run: ${runId}`);
   }
 

@@ -979,6 +979,38 @@ async def main() -> None:
     sampler.start()
     print("[hardware] sampler started @ 5s interval")
 
+    # WO-QA-02 timing — total wall-clock + per-cell durations.
+    # progress.json is written incrementally so the API can compute an ETA
+    # while the run is in flight (cells_completed / cells_total → estimate).
+    matrix_started_at = time.time()
+    cells_total = sum(1 for _ in narrator_ids) * len(cfg_doc["configs"])
+    cells_completed = 0
+    cell_durations: list[dict[str, Any]] = []
+    progress_path = run_root / "progress.json"
+
+    def _write_progress() -> None:
+        try:
+            elapsed = time.time() - matrix_started_at
+            avg_cell = (elapsed / cells_completed) if cells_completed else None
+            remaining = cells_total - cells_completed
+            eta_sec = (avg_cell * remaining) if avg_cell is not None else None
+            progress_path.write_text(
+                json.dumps({
+                    "matrix_started_at": matrix_started_at,
+                    "now": time.time(),
+                    "elapsed_sec": round(elapsed, 1),
+                    "cells_total": cells_total,
+                    "cells_completed": cells_completed,
+                    "avg_cell_sec": round(avg_cell, 1) if avg_cell is not None else None,
+                    "eta_sec": round(eta_sec, 1) if eta_sec is not None else None,
+                    "last_cells": cell_durations[-3:],
+                }, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    _write_progress()
     transcripts: list[dict[str, Any]] = []
 
     for narrator_style, narrator_id in narrator_ids.items():
@@ -991,6 +1023,7 @@ async def main() -> None:
             }
             print(f"\n[run] {narrator_style} × {cfg['id']} "
                   f"(T={cfg['temperature']}, p={cfg['top_p']}, r={cfg.get('repetition_penalty')})")
+            cell_started_at = time.time()
 
             # Pre-stress baseline (for recovery measurement)
             pre = await run_turn_with_retry(
@@ -1123,6 +1156,23 @@ async def main() -> None:
                 tts_drift_ms=None,
             ))
 
+            # Cell finished — record duration and update progress
+            cell_dur = round(time.time() - cell_started_at, 1)
+            cells_completed += 1
+            cell_durations.append({
+                "narrator_style": narrator_style,
+                "config_id": cfg["id"],
+                "duration_sec": cell_dur,
+            })
+            print(f"[run] {narrator_style} × {cfg['id']} done in {cell_dur}s "
+                  f"({cells_completed}/{cells_total})")
+            _write_progress()
+
+    matrix_finished_at = time.time()
+    matrix_duration_sec = round(matrix_finished_at - matrix_started_at, 1)
+    print(f"\n[WO-QA-02] matrix duration: {matrix_duration_sec}s "
+          f"({matrix_duration_sec/60:.1f} min)")
+
     # Stop hardware sampler and write timeseries + summary
     await sampler.stop()
     hw_summary = sampler.summary()
@@ -1135,6 +1185,28 @@ async def main() -> None:
         encoding="utf-8",
     )
     print(f"[hardware] {hw_summary.get('sample_count', 0)} samples captured")
+
+    # WO-QA-02 timing summary
+    cell_dur_values = [c["duration_sec"] for c in cell_durations]
+    run_meta = {
+        "run_id": run_id,
+        "matrix_started_at": matrix_started_at,
+        "matrix_finished_at": matrix_finished_at,
+        "matrix_duration_sec": matrix_duration_sec,
+        "cells_total": cells_total,
+        "cells_completed": cells_completed,
+        "avg_cell_sec": (
+            round(sum(cell_dur_values) / len(cell_dur_values), 1)
+            if cell_dur_values else None
+        ),
+        "min_cell_sec": min(cell_dur_values) if cell_dur_values else None,
+        "max_cell_sec": max(cell_dur_values) if cell_dur_values else None,
+        "per_cell": cell_durations,
+    }
+    (run_root / "run_meta.json").write_text(
+        json.dumps(run_meta, indent=2),
+        encoding="utf-8",
+    )
 
     # Write artifacts
     (run_root / "metrics.json").write_text(
@@ -1218,6 +1290,18 @@ async def main() -> None:
                 f"ttft Δ={row.get('ttft_delta_ms')}, "
                 f"contamination={row.get('contamination_delta')}"
             )
+
+    # WO-QA-02 timing block — total wall-clock + slowest/fastest cells
+    lines.extend(["", "## Timing", ""])
+    lines.append(f"- Total: {matrix_duration_sec}s ({matrix_duration_sec/60:.1f} min)")
+    if cell_dur_values:
+        slowest = max(cell_durations, key=lambda c: c["duration_sec"])
+        fastest = min(cell_durations, key=lambda c: c["duration_sec"])
+        lines.append(f"- Avg cell: {run_meta['avg_cell_sec']}s")
+        lines.append(f"- Slowest cell: {slowest['narrator_style']} × {slowest['config_id']} "
+                     f"({slowest['duration_sec']}s)")
+        lines.append(f"- Fastest cell: {fastest['narrator_style']} × {fastest['config_id']} "
+                     f"({fastest['duration_sec']}s)")
 
     # Hardware summary block — surfaces bottleneck info alongside scores
     if hw_summary.get("sample_count", 0) > 0:
