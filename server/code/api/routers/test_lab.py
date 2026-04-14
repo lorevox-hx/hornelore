@@ -123,7 +123,11 @@ async def get_status() -> Dict[str, Any]:
             # Dry run          → dry_run_complete.json
             # Neither          → assume failed
             RUNS_ROOT.mkdir(parents=True, exist_ok=True)
-            runs = sorted([p.name for p in RUNS_ROOT.iterdir() if p.is_dir()], reverse=True)
+            # Sort by modification time (newest first) so labeled runs
+            # like "doctor_dry" don't outrank numeric timestamps.
+            all_runs = [p for p in RUNS_ROOT.iterdir() if p.is_dir()]
+            all_runs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            runs = [p.name for p in all_runs]
             latest = runs[0] if runs else None
             if latest:
                 latest_dir = RUNS_ROOT / latest
@@ -145,7 +149,9 @@ async def get_status() -> Dict[str, Any]:
 @router.get("/results")
 async def list_results() -> Dict[str, Any]:
     _ensure_root()
-    runs = sorted([p.name for p in RUNS_ROOT.iterdir() if p.is_dir()], reverse=True)
+    all_runs = [p for p in RUNS_ROOT.iterdir() if p.is_dir()]
+    all_runs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    runs = [p.name for p in all_runs]
     return {"runs": runs}
 
 
