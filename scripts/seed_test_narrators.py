@@ -26,10 +26,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_DIR = REPO_ROOT / "data" / "narrator_templates"
 TEST_TEMPLATES = ["test_structured.json", "test_storyteller.json"]
 
-DEFAULT_DB = os.getenv(
-    "HORNELORE_DB_PATH",
-    "/mnt/c/hornelore_data/hornelore.sqlite3",
-)
+
+def _resolve_db_path() -> str:
+    """Mirror db.py's DB_PATH composition so this script finds the same file.
+
+    db.py: DATA_DIR / "db" / DB_NAME   (defaults: ./data/db/lorevox.sqlite3)
+    Hornelore .env overrides both:
+        DATA_DIR=/mnt/c/hornelore_data
+        DB_NAME=hornelore.sqlite3
+    Net: /mnt/c/hornelore_data/db/hornelore.sqlite3
+    """
+    override = os.getenv("HORNELORE_DB_PATH")
+    if override:
+        return override
+    data_dir = os.getenv("DATA_DIR", "data")
+    db_name = os.getenv("DB_NAME", "lorevox.sqlite3").strip() or "lorevox.sqlite3"
+    return str(Path(data_dir).expanduser() / "db" / db_name)
+
+
+DEFAULT_DB = _resolve_db_path()
 
 
 def load_template(name: str) -> Dict[str, Any]:
