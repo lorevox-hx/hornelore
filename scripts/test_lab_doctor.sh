@@ -109,6 +109,12 @@ fi
 if [[ "${NO_DRY:-0}" == "1" ]]; then
   say "Step 8 — skipped (NO_DRY=1)"
 else
+  # Rotate the runner log so this run's output is isolated from prior attempts
+  if [[ -f "${LOG_PATH}" ]]; then
+    mv "${LOG_PATH}" "${LOG_PATH}.$(date +%Y%m%d_%H%M%S).prev" 2>/dev/null
+    ok "rotated previous runner.log out of the way"
+  fi
+
   say "Step 8 — starting dry-run via /api/test-lab/run"
   RESP="$(curl -sS --max-time 10 -X POST "${API_BASE}/api/test-lab/run" \
            -H 'Content-Type: application/json' \
@@ -127,41 +133,44 @@ else
     exit 0
   fi
 
-  # ── 9. Tail the log and wait for completion ───────────────────
-  say "Step 9 — tailing log while dry-run finishes (Ctrl-C to stop tailing; run continues in background)"
-  : > /tmp/wo_qa01_tail_marker
-  # Wait up to 4 minutes, watching for the completion line
-  tail -n 0 -F "${LOG_PATH}" &
-  TAIL_PID=$!
-  trap 'kill $TAIL_PID 2>/dev/null' EXIT
-
-  DEADLINE=$(( $(date +%s) + 240 ))
+  # ── 9. Poll the status endpoint (the authoritative source) ────
+  say "Step 9 — polling status until dry-run finishes"
+  DEADLINE=$(( $(date +%s) + 300 ))   # 5-minute ceiling
+  OUTCOME="timeout"
   while (( $(date +%s) < DEADLINE )); do
-    if grep -q "WO-QA-01] complete" "${LOG_PATH}" 2>/dev/null; then
-      echo ""
-      ok "dry-run completed"
-      break
-    fi
-    if grep -q "Traceback" "${LOG_PATH}" 2>/dev/null && ! grep -q "preflight" "${LOG_PATH}"; then
-      echo ""
-      fail "traceback detected — dry-run failed"
-      break
-    fi
-    sleep 2
+    STATUS="$(curl -sS --max-time 5 "${API_BASE}/api/test-lab/status" 2>/dev/null)"
+    STATE="$(echo "${STATUS}" | grep -oE '"state":"[^"]+"' | head -1 | cut -d'"' -f4)"
+    case "${STATE}" in
+      finished)   OUTCOME="finished"; break ;;
+      failed)     OUTCOME="failed";   break ;;
+      running|starting)  : ;;
+      *)          : ;;
+    esac
+    # Print a progress marker so the user sees the doctor is alive
+    printf "."
+    sleep 3
   done
-
-  kill $TAIL_PID 2>/dev/null
   echo ""
 
-  # ── 10. Summary ───────────────────────────────────────────────
-  say "Step 10 — summary"
+  case "${OUTCOME}" in
+    finished) ok "dry-run finished cleanly" ;;
+    failed)   fail "dry-run reported failed state" ;;
+    timeout)  warn "dry-run still running after 5 min — not giving up, just exiting the wait" ;;
+  esac
+
+  # ── 10. Show what actually happened ──────────────────────────
+  say "Step 10 — runner.log tail (last 40 lines)"
+  echo "-----------------------------------------------------------------"
+  tail -n 40 "${LOG_PATH}" 2>/dev/null || warn "log not found at ${LOG_PATH}"
+  echo "-----------------------------------------------------------------"
+
+  say "Step 11 — summary"
   STATUS="$(curl -sS --max-time 5 "${API_BASE}/api/test-lab/status" 2>/dev/null)"
   echo "    status: ${STATUS}"
   LATEST="$(curl -sS --max-time 5 "${API_BASE}/api/test-lab/results" 2>/dev/null | \
-            grep -oE '\[[^]]*\]' | tr -d '[]' | tr ',' '\n' | head -3)"
+            grep -oE '"runs":\[[^]]*\]' | head -1)"
   if [[ -n "${LATEST}" ]]; then
-    ok "recent runs:"
-    echo "${LATEST}" | awk '{print "    "$0}'
+    echo "    ${LATEST}"
   fi
 fi
 
