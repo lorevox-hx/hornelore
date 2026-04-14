@@ -1,0 +1,1712 @@
+{
+  "_template": "Hornelore Historical Events Seed",
+  "_version": 2,
+  "_coverage": "1900-2026",
+  "_notes": [
+    "Shared historical backdrop only. Do not place narrator-specific personal facts in this file.",
+    "Multiple events may share the same year; the accordion loader must group them by decade and year.",
+    "Entries are intentionally curated and sparse enough for filtering by decade, tags, and narrator relevance.",
+    "Personal anchors should come from approved truth/questionnaire/profile data and be merged separately.",
+    "Optional regional tags support future filtering for narrators tied to places like the Great Plains, North Dakota, or the Pacific Northwest."
+  ],
+  "events": [
+    {
+      "year": 1900,
+      "label": "Galveston hurricane devastates Texas",
+      "category": "disaster",
+      "tags": [
+        "us",
+        "weather",
+        "disaster"
+      ],
+      "id": "galveston_hurricane_devastates_texas_1900"
+    },
+    {
+      "year": 1901,
+      "label": "President William McKinley is assassinated; Theodore Roosevelt becomes president",
+      "category": "politics",
+      "tags": [
+        "us",
+        "presidency",
+        "politics"
+      ],
+      "id": "president_william_mckinley_assassinated_1901"
+    },
+    {
+      "year": 1902,
+      "label": "Coal Strike of 1902 highlights labor tensions in the United States",
+      "category": "economy",
+      "tags": [
+        "us",
+        "labor",
+        "industry"
+      ],
+      "id": "coal_strike_1902_highlights_1902"
+    },
+    {
+      "year": 1903,
+      "label": "Wright brothers achieve first powered flight",
+      "category": "technology",
+      "tags": [
+        "us",
+        "aviation",
+        "innovation"
+      ],
+      "id": "wright_brothers_achieve_first_1903"
+    },
+    {
+      "year": 1904,
+      "label": "St. Louis hosts the World's Fair and Summer Olympics",
+      "category": "culture",
+      "tags": [
+        "us",
+        "fair",
+        "olympics",
+        "culture"
+      ],
+      "id": "louis_hosts_worlds_fair_1904"
+    },
+    {
+      "year": 1905,
+      "label": "Einstein publishes papers that reshape modern physics",
+      "category": "science",
+      "tags": [
+        "science",
+        "global",
+        "innovation"
+      ],
+      "id": "einstein_publishes_papers_reshape_1905"
+    },
+    {
+      "year": 1906,
+      "label": "San Francisco earthquake and fire destroy much of the city",
+      "category": "disaster",
+      "tags": [
+        "us",
+        "earthquake",
+        "disaster"
+      ],
+      "id": "san_francisco_earthquake_fire_1906"
+    },
+    {
+      "year": 1907,
+      "label": "Panic of 1907 shakes banks and markets",
+      "category": "economy",
+      "tags": [
+        "us",
+        "finance",
+        "economy"
+      ],
+      "id": "panic_1907_shakes_banks_1907"
+    },
+    {
+      "year": 1908,
+      "label": "Ford introduces the Model T",
+      "category": "technology",
+      "tags": [
+        "us",
+        "cars",
+        "industry"
+      ],
+      "id": "ford_introduces_model_1908"
+    },
+    {
+      "year": 1909,
+      "label": "NAACP is founded",
+      "category": "society",
+      "tags": [
+        "us",
+        "civil_rights",
+        "society"
+      ],
+      "id": "naacp_founded_1909"
+    },
+    {
+      "year": 1910,
+      "label": "Boy Scouts of America is founded",
+      "category": "society",
+      "tags": [
+        "us",
+        "youth",
+        "community"
+      ],
+      "id": "boy_scouts_america_founded_1910"
+    },
+    {
+      "year": 1911,
+      "label": "Triangle Shirtwaist Factory fire kills 146 workers",
+      "category": "society",
+      "tags": [
+        "us",
+        "labor",
+        "safety"
+      ],
+      "id": "triangle_shirtwaist_factory_fire_1911"
+    },
+    {
+      "year": 1912,
+      "label": "RMS Titanic sinks on its maiden voyage",
+      "category": "disaster",
+      "tags": [
+        "global",
+        "shipping",
+        "disaster"
+      ],
+      "id": "rms_titanic_sinks_maiden_1912"
+    },
+    {
+      "year": 1913,
+      "label": "Federal Reserve System is created",
+      "category": "economy",
+      "tags": [
+        "us",
+        "banking",
+        "economy"
+      ],
+      "id": "federal_reserve_system_created_1913"
+    },
+    {
+      "year": 1914,
+      "label": "World War I begins in Europe",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "europe"
+      ],
+      "id": "world_war_europe_1914"
+    },
+    {
+      "year": 1915,
+      "label": "Lusitania is sunk during World War I",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "shipping"
+      ],
+      "id": "lusitania_sunk_world_war_1915"
+    },
+    {
+      "year": 1916,
+      "label": "National Park Service is established",
+      "category": "society",
+      "tags": [
+        "us",
+        "parks",
+        "nature"
+      ],
+      "id": "national_park_service_established_1916"
+    },
+    {
+      "year": 1917,
+      "label": "United States enters World War I",
+      "category": "war",
+      "tags": [
+        "us",
+        "war",
+        "global"
+      ],
+      "id": "united_states_enters_world_1917"
+    },
+    {
+      "year": 1918,
+      "label": "World War I ends and influenza pandemic spreads worldwide",
+      "category": "health",
+      "tags": [
+        "global",
+        "war",
+        "pandemic"
+      ],
+      "id": "world_war_ends_influenza_1918"
+    },
+    {
+      "year": 1919,
+      "label": "Treaty of Versailles is signed; Prohibition is approved in the U.S.",
+      "category": "politics",
+      "tags": [
+        "global",
+        "us",
+        "politics"
+      ],
+      "id": "treaty_versailles_signed_prohibition_1919"
+    },
+    {
+      "year": 1920,
+      "label": "Nineteenth Amendment guarantees women the right to vote in the U.S.",
+      "category": "society",
+      "tags": [
+        "us",
+        "women",
+        "politics"
+      ],
+      "id": "nineteenth_amendment_guarantees_women_1920"
+    },
+    {
+      "year": 1921,
+      "label": "Tulsa Race Massacre devastates Black Wall Street",
+      "category": "society",
+      "tags": [
+        "us",
+        "race",
+        "civil_rights"
+      ],
+      "id": "tulsa_race_massacre_devastates_1921"
+    },
+    {
+      "year": 1922,
+      "label": "BBC begins broadcasting in Britain",
+      "category": "media",
+      "tags": [
+        "uk",
+        "radio",
+        "media"
+      ],
+      "id": "bbc_broadcasting_britain_1922"
+    },
+    {
+      "year": 1923,
+      "label": "Large Hollywood sign is erected in Los Angeles",
+      "category": "culture",
+      "tags": [
+        "us",
+        "movies",
+        "culture"
+      ],
+      "id": "large_hollywood_sign_erected_1923"
+    },
+    {
+      "year": 1924,
+      "label": "First Winter Olympic Games are held",
+      "category": "sports",
+      "tags": [
+        "global",
+        "sports",
+        "olympics"
+      ],
+      "id": "first_winter_olympic_games_1924"
+    },
+    {
+      "year": 1925,
+      "label": "Scopes 'Monkey Trial' focuses national attention on evolution and religion",
+      "category": "society",
+      "tags": [
+        "us",
+        "education",
+        "religion"
+      ],
+      "id": "scopes_monkey_trial_focuses_1925"
+    },
+    {
+      "year": 1926,
+      "label": "Route 66 is established",
+      "category": "transportation",
+      "tags": [
+        "us",
+        "roads",
+        "travel"
+      ],
+      "id": "route_established_1926"
+    },
+    {
+      "year": 1927,
+      "label": "Charles Lindbergh completes solo nonstop flight across the Atlantic",
+      "category": "technology",
+      "tags": [
+        "aviation",
+        "global",
+        "innovation"
+      ],
+      "id": "charles_lindbergh_completes_solo_1927"
+    },
+    {
+      "year": 1928,
+      "label": "Penicillin is discovered",
+      "category": "science",
+      "tags": [
+        "science",
+        "medicine",
+        "global"
+      ],
+      "id": "penicillin_discovered_1928"
+    },
+    {
+      "year": 1929,
+      "label": "Stock market crash triggers the Great Depression",
+      "category": "economy",
+      "tags": [
+        "us",
+        "global",
+        "economy"
+      ],
+      "id": "stock_market_crash_triggers_1929"
+    },
+    {
+      "year": 1930,
+      "label": "Dust Bowl conditions begin across the Great Plains",
+      "category": "environment",
+      "tags": [
+        "us",
+        "plains",
+        "agriculture"
+      ],
+      "id": "dust_bowl_conditions_great_1930"
+    },
+    {
+      "year": 1931,
+      "label": "Empire State Building opens in New York",
+      "category": "culture",
+      "tags": [
+        "us",
+        "architecture",
+        "city"
+      ],
+      "id": "empire_state_building_opens_1931"
+    },
+    {
+      "year": 1932,
+      "label": "Franklin D. Roosevelt is elected president during the Depression",
+      "category": "politics",
+      "tags": [
+        "us",
+        "presidency",
+        "economy"
+      ],
+      "id": "franklin_roosevelt_elected_president_1932"
+    },
+    {
+      "year": 1933,
+      "label": "New Deal programs begin and Prohibition ends",
+      "category": "politics",
+      "tags": [
+        "us",
+        "new_deal",
+        "economy"
+      ],
+      "id": "deal_programs_prohibition_ends_1933"
+    },
+    {
+      "year": 1934,
+      "label": "Great Plains drought deepens during the Dust Bowl",
+      "category": "environment",
+      "tags": [
+        "us",
+        "drought",
+        "agriculture"
+      ],
+      "id": "great_plains_drought_deepens_1934"
+    },
+    {
+      "year": 1935,
+      "label": "Rural Electrification expands power access in farm communities",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "great_plains",
+        "farm_life",
+        "infrastructure"
+      ],
+      "id": "rural_electrification_expands_power_1935"
+    },
+    {
+      "year": 1935,
+      "label": "Social Security Act is signed",
+      "category": "society",
+      "tags": [
+        "us",
+        "retirement",
+        "policy"
+      ],
+      "id": "social_security_act_signed_1935"
+    },
+    {
+      "year": 1936,
+      "label": "Drought and hardship push many Great Plains families to relocate or adapt farm life",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "great_plains",
+        "drought",
+        "farm_life"
+      ],
+      "id": "drought_hardship_push_great_1936"
+    },
+    {
+      "year": 1936,
+      "label": "Jesse Owens wins four gold medals at the Berlin Olympics",
+      "category": "sports",
+      "tags": [
+        "global",
+        "sports",
+        "olympics"
+      ],
+      "id": "jesse_owens_wins_four_1936"
+    },
+    {
+      "year": 1937,
+      "label": "Hindenburg airship explodes in New Jersey",
+      "category": "disaster",
+      "tags": [
+        "us",
+        "aviation",
+        "disaster"
+      ],
+      "id": "hindenburg_airship_explodes_jersey_1937"
+    },
+    {
+      "year": 1938,
+      "label": "Orson Welles's 'War of the Worlds' radio broadcast causes a sensation",
+      "category": "media",
+      "tags": [
+        "us",
+        "radio",
+        "culture"
+      ],
+      "id": "orson_welless_war_worlds_1938"
+    },
+    {
+      "year": 1939,
+      "label": "World War II begins in Europe",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "europe"
+      ],
+      "id": "world_war_europe_1939"
+    },
+    {
+      "year": 1940,
+      "label": "Battle of Britain becomes a turning point in World War II",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "uk"
+      ],
+      "id": "battle_britain_turning_point_1940"
+    },
+    {
+      "year": 1941,
+      "label": "Japan attacks Pearl Harbor and the U.S. enters World War II",
+      "category": "war",
+      "tags": [
+        "us",
+        "war",
+        "global"
+      ],
+      "id": "japan_attacks_pearl_harbor_1941"
+    },
+    {
+      "year": 1941,
+      "label": "Ration books and war bond drives become part of ordinary home life",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "home_life",
+        "war",
+        "rationing"
+      ],
+      "id": "ration_books_war_bond_1941"
+    },
+    {
+      "year": 1942,
+      "label": "War production transforms U.S. industry and home life",
+      "category": "economy",
+      "tags": [
+        "us",
+        "war",
+        "industry"
+      ],
+      "id": "war_production_transforms_industry_1942"
+    },
+    {
+      "year": 1943,
+      "label": "Allied forces advance in Europe and the Pacific",
+      "category": "war",
+      "tags": [
+        "global",
+        "war"
+      ],
+      "id": "allied_forces_advance_europe_1943"
+    },
+    {
+      "year": 1944,
+      "label": "D-Day invasion begins liberation of Western Europe",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "europe"
+      ],
+      "id": "dday_invasion_liberation_western_1944"
+    },
+    {
+      "year": 1945,
+      "label": "World War II ends",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "peace"
+      ],
+      "id": "world_war_ends_1945"
+    },
+    {
+      "year": 1946,
+      "label": "Families begin building postwar routines around new appliances and suburban growth",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "home_life",
+        "postwar",
+        "family"
+      ],
+      "id": "families_building_postwar_routines_1946"
+    },
+    {
+      "year": 1946,
+      "label": "Postwar baby boom begins in the United States",
+      "category": "society",
+      "tags": [
+        "us",
+        "family",
+        "postwar"
+      ],
+      "id": "postwar_baby_boom_united_1946"
+    },
+    {
+      "year": 1947,
+      "label": "Cold War tensions sharpen and Jackie Robinson integrates Major League Baseball",
+      "category": "society",
+      "tags": [
+        "us",
+        "cold_war",
+        "sports",
+        "civil_rights"
+      ],
+      "id": "cold_war_tensions_sharpen_1947"
+    },
+    {
+      "year": 1948,
+      "label": "Long-playing record (LP) is introduced",
+      "category": "technology",
+      "tags": [
+        "music",
+        "technology",
+        "culture"
+      ],
+      "id": "longplaying_record_introduced_1948"
+    },
+    {
+      "year": 1948,
+      "label": "Mail-order shopping and catalogs remain central for many rural households",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "rural",
+        "shopping",
+        "great_plains"
+      ],
+      "id": "mailorder_shopping_catalogs_remain_1948"
+    },
+    {
+      "year": 1949,
+      "label": "NATO is formed",
+      "category": "politics",
+      "tags": [
+        "global",
+        "cold_war",
+        "military"
+      ],
+      "id": "nato_formed_1949"
+    },
+    {
+      "year": 1950,
+      "label": "Korean War begins",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "us"
+      ],
+      "id": "korean_war_1950"
+    },
+    {
+      "year": 1950,
+      "label": "Party-line telephones are still common in many small towns and rural areas",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "phones",
+        "rural",
+        "small_town"
+      ],
+      "id": "partyline_telephones_still_common_1950"
+    },
+    {
+      "year": 1951,
+      "label": "Color television broadcasting expands in the U.S.",
+      "category": "media",
+      "tags": [
+        "us",
+        "tv",
+        "culture"
+      ],
+      "id": "color_television_broadcasting_expands_1951"
+    },
+    {
+      "year": 1952,
+      "label": "Polio vaccine trials accelerate public health hopes",
+      "category": "health",
+      "tags": [
+        "us",
+        "medicine",
+        "children"
+      ],
+      "id": "polio_vaccine_trials_accelerate_1952"
+    },
+    {
+      "year": 1953,
+      "label": "Korean War armistice is signed",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "us"
+      ],
+      "id": "korean_war_armistice_signed_1953"
+    },
+    {
+      "year": 1954,
+      "label": "Brown v. Board of Education rules school segregation unconstitutional",
+      "category": "society",
+      "tags": [
+        "us",
+        "civil_rights",
+        "education"
+      ],
+      "id": "brown_board_education_rules_1954"
+    },
+    {
+      "year": 1954,
+      "label": "Frozen TV dinners symbolize changing family meals and modern convenience",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "food",
+        "home_life",
+        "culture"
+      ],
+      "id": "frozen_dinners_symbolize_changing_1954"
+    },
+    {
+      "year": 1955,
+      "label": "Rock and roll, teen culture, and drive-ins reshape youth social life",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "music",
+        "teen_life",
+        "cars"
+      ],
+      "id": "rock_roll_teen_culture_1955"
+    },
+    {
+      "year": 1955,
+      "label": "Television becomes common in American homes",
+      "category": "culture",
+      "tags": [
+        "us",
+        "tv",
+        "culture"
+      ],
+      "id": "television_common_american_homes_1955"
+    },
+    {
+      "year": 1955,
+      "label": "Television begins replacing radio as the center of family evening entertainment",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "tv",
+        "radio",
+        "family_life"
+      ],
+      "id": "television_replacing_radio_center_1955"
+    },
+    {
+      "year": 1956,
+      "label": "Interstate Highway Act launches large-scale road building",
+      "category": "transportation",
+      "tags": [
+        "us",
+        "roads",
+        "cars"
+      ],
+      "id": "interstate_highway_act_launches_1956"
+    },
+    {
+      "year": 1957,
+      "label": "American Bandstand premieres on national television",
+      "category": "culture",
+      "tags": [
+        "us",
+        "music",
+        "tv",
+        "youth"
+      ],
+      "id": "american_bandstand_premieres_national_1957"
+    },
+    {
+      "year": 1957,
+      "label": "Sputnik launches and the Space Race begins",
+      "category": "technology",
+      "tags": [
+        "global",
+        "space",
+        "technology"
+      ],
+      "id": "sputnik_launches_space_race_1957"
+    },
+    {
+      "year": 1958,
+      "label": "NASA is established",
+      "category": "technology",
+      "tags": [
+        "us",
+        "space",
+        "science"
+      ],
+      "id": "nasa_established_1958"
+    },
+    {
+      "year": 1958,
+      "label": "Sears catalogs remain a familiar way many rural families buy clothing and household goods",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "rural",
+        "shopping",
+        "catalog"
+      ],
+      "id": "sears_catalogs_remain_familiar_1958"
+    },
+    {
+      "year": 1959,
+      "label": "Alaska and Hawaii become U.S. states",
+      "category": "politics",
+      "tags": [
+        "us",
+        "states",
+        "politics"
+      ],
+      "id": "alaska_hawaii_states_1959"
+    },
+    {
+      "year": 1960,
+      "label": "John F. Kennedy is elected president",
+      "category": "politics",
+      "tags": [
+        "us",
+        "presidency",
+        "politics"
+      ],
+      "id": "john_kennedy_elected_president_1960"
+    },
+    {
+      "year": 1960,
+      "label": "S&H Green Stamps become a familiar part of grocery and household shopping",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "shopping",
+        "grocery",
+        "family_life"
+      ],
+      "id": "green_stamps_familiar_grocery_1960"
+    },
+    {
+      "year": 1961,
+      "label": "Yuri Gagarin becomes the first human in space",
+      "category": "technology",
+      "tags": [
+        "global",
+        "space",
+        "science"
+      ],
+      "id": "yuri_gagarin_first_human_1961"
+    },
+    {
+      "year": 1962,
+      "label": "Cuban Missile Crisis brings the Cold War to the brink",
+      "category": "politics",
+      "tags": [
+        "global",
+        "cold_war",
+        "us"
+      ],
+      "id": "cuban_missile_crisis_brings_1962"
+    },
+    {
+      "year": 1963,
+      "label": "Families increasingly gather around television for national news and shared moments",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "tv",
+        "news",
+        "family_life"
+      ],
+      "id": "families_increasingly_gather_around_1963"
+    },
+    {
+      "year": 1963,
+      "label": "President Kennedy is assassinated in Dallas",
+      "category": "politics",
+      "tags": [
+        "us",
+        "presidency",
+        "history"
+      ],
+      "id": "president_kennedy_assassinated_dallas_1963"
+    },
+    {
+      "year": 1964,
+      "label": "Civil Rights Act becomes law and the Beatles surge in America",
+      "category": "society",
+      "tags": [
+        "us",
+        "civil_rights",
+        "music"
+      ],
+      "id": "civil_rights_act_law_1964"
+    },
+    {
+      "year": 1965,
+      "label": "Home freezers, convenience foods, and supermarket culture become more common",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "food",
+        "home_life",
+        "shopping"
+      ],
+      "id": "home_freezers_convenience_foods_1965"
+    },
+    {
+      "year": 1965,
+      "label": "Voting Rights Act passes and U.S. involvement in Vietnam deepens",
+      "category": "society",
+      "tags": [
+        "us",
+        "civil_rights",
+        "war"
+      ],
+      "id": "voting_rights_act_passes_1965"
+    },
+    {
+      "year": 1966,
+      "label": "A major blizzard affects parts of the northern Plains",
+      "category": "regional",
+      "tags": [
+        "us",
+        "great_plains",
+        "north_dakota",
+        "weather"
+      ],
+      "id": "major_blizzard_affects_parts_1966"
+    },
+    {
+      "year": 1966,
+      "label": "Seat belts are required in all new U.S. cars",
+      "category": "transportation",
+      "tags": [
+        "us",
+        "cars",
+        "safety"
+      ],
+      "id": "seat_belts_required_all_1966"
+    },
+    {
+      "year": 1967,
+      "label": "Summer of Love reflects major youth and cultural change",
+      "category": "culture",
+      "tags": [
+        "us",
+        "music",
+        "culture"
+      ],
+      "id": "summer_love_reflects_major_1967"
+    },
+    {
+      "year": 1968,
+      "label": "Color television becomes more common in American living rooms",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "tv",
+        "technology",
+        "family_life"
+      ],
+      "id": "color_television_common_american_1968"
+    },
+    {
+      "year": 1968,
+      "label": "Martin Luther King Jr. and Robert F. Kennedy are assassinated",
+      "category": "society",
+      "tags": [
+        "us",
+        "civil_rights",
+        "politics"
+      ],
+      "id": "martin_luther_king_robert_1968"
+    },
+    {
+      "year": 1969,
+      "label": "Apollo 11 lands humans on the moon",
+      "category": "technology",
+      "tags": [
+        "global",
+        "space",
+        "science"
+      ],
+      "id": "apollo_lands_humans_moon_1969"
+    },
+    {
+      "year": 1970,
+      "label": "First Earth Day is celebrated",
+      "category": "environment",
+      "tags": [
+        "us",
+        "environment",
+        "culture"
+      ],
+      "id": "first_earth_day_celebrated_1970"
+    },
+    {
+      "year": 1970,
+      "label": "Long-distance family phone calls remain important but expensive for many households",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "phones",
+        "family_life",
+        "small_town"
+      ],
+      "id": "longdistance_family_phone_calls_1970"
+    },
+    {
+      "year": 1971,
+      "label": "Microprocessor is introduced, helping launch the digital age",
+      "category": "technology",
+      "tags": [
+        "technology",
+        "computers",
+        "global"
+      ],
+      "id": "microprocessor_introduced_helping_launch_1971"
+    },
+    {
+      "year": 1972,
+      "label": "Watergate break-in occurs",
+      "category": "politics",
+      "tags": [
+        "us",
+        "politics",
+        "presidency"
+      ],
+      "id": "watergate_breakin_occurs_1972"
+    },
+    {
+      "year": 1973,
+      "label": "Gas lines and fuel-saving habits become part of daily life during the oil crisis",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "cars",
+        "energy",
+        "family_life"
+      ],
+      "id": "gas_lines_fuelsaving_habits_1973"
+    },
+    {
+      "year": 1973,
+      "label": "Oil crisis leads to gas shortages and rationing",
+      "category": "economy",
+      "tags": [
+        "us",
+        "energy",
+        "cars"
+      ],
+      "id": "oil_crisis_leads_gas_1973"
+    },
+    {
+      "year": 1974,
+      "label": "President Nixon resigns",
+      "category": "politics",
+      "tags": [
+        "us",
+        "presidency",
+        "politics"
+      ],
+      "id": "president_nixon_resigns_1974"
+    },
+    {
+      "year": 1975,
+      "label": "A severe winter storm hits parts of the northern Plains",
+      "category": "regional",
+      "tags": [
+        "us",
+        "great_plains",
+        "north_dakota",
+        "weather"
+      ],
+      "id": "severe_winter_storm_hits_1975"
+    },
+    {
+      "year": 1975,
+      "label": "Vietnam War ends",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "us"
+      ],
+      "id": "vietnam_war_ends_1975"
+    },
+    {
+      "year": 1976,
+      "label": "United States Bicentennial is celebrated",
+      "category": "culture",
+      "tags": [
+        "us",
+        "history",
+        "culture"
+      ],
+      "id": "united_states_bicentennial_celebrated_1976"
+    },
+    {
+      "year": 1977,
+      "label": "CB radios and road-trip culture become a recognizable part of American car life",
+      "category": "everyday_life",
+      "tags": [
+        "us",
+        "cars",
+        "travel",
+        "culture"
+      ],
+      "id": "radios_roadtrip_culture_recognizable_1977"
+    },
+    {
+      "year": 1977,
+      "label": "Star Wars is released and Elvis Presley dies",
+      "category": "culture",
+      "tags": [
+        "us",
+        "movies",
+        "music"
+      ],
+      "id": "star_wars_released_elvis_1977"
+    },
+    {
+      "year": 1978,
+      "label": "Camp David Accords are signed",
+      "category": "politics",
+      "tags": [
+        "global",
+        "diplomacy",
+        "middle_east"
+      ],
+      "id": "camp_david_accords_signed_1978"
+    },
+    {
+      "year": 1979,
+      "label": "Iran hostage crisis begins and Three Mile Island nuclear accident occurs",
+      "category": "politics",
+      "tags": [
+        "us",
+        "energy",
+        "politics"
+      ],
+      "id": "iran_hostage_crisis_three_1979"
+    },
+    {
+      "year": 1980,
+      "label": "Farm families face stress from rising costs and economic uncertainty",
+      "category": "regional",
+      "tags": [
+        "us",
+        "great_plains",
+        "agriculture",
+        "economy"
+      ],
+      "id": "farm_families_face_stress_1980"
+    },
+    {
+      "year": 1980,
+      "label": "Ronald Reagan is elected president",
+      "category": "politics",
+      "tags": [
+        "us",
+        "presidency",
+        "politics"
+      ],
+      "id": "ronald_reagan_elected_president_1980"
+    },
+    {
+      "year": 1981,
+      "label": "MTV launches and the IBM PC debuts",
+      "category": "technology",
+      "tags": [
+        "us",
+        "music",
+        "computers"
+      ],
+      "id": "mtv_launches_ibm_debuts_1981"
+    },
+    {
+      "year": 1982,
+      "label": "Compact discs begin commercial sale",
+      "category": "technology",
+      "tags": [
+        "music",
+        "technology",
+        "culture"
+      ],
+      "id": "compact_discs_commercial_sale_1982"
+    },
+    {
+      "year": 1983,
+      "label": "Cellular phone era begins with first commercial mobile service",
+      "category": "technology",
+      "tags": [
+        "technology",
+        "phones",
+        "culture"
+      ],
+      "id": "cellular_phone_era_first_1983"
+    },
+    {
+      "year": 1984,
+      "label": "Apple introduces the Macintosh computer",
+      "category": "technology",
+      "tags": [
+        "computers",
+        "us",
+        "technology"
+      ],
+      "id": "apple_introduces_macintosh_computer_1984"
+    },
+    {
+      "year": 1985,
+      "label": "Farm crisis strains many rural communities across the Plains and Midwest",
+      "category": "regional",
+      "tags": [
+        "us",
+        "great_plains",
+        "farm_life",
+        "economy"
+      ],
+      "id": "farm_crisis_strains_rural_1985"
+    },
+    {
+      "year": 1985,
+      "label": "Live Aid concerts raise money for famine relief",
+      "category": "culture",
+      "tags": [
+        "music",
+        "global",
+        "charity"
+      ],
+      "id": "live_aid_concerts_raise_1985"
+    },
+    {
+      "year": 1986,
+      "label": "Space Shuttle Challenger explodes shortly after launch",
+      "category": "disaster",
+      "tags": [
+        "us",
+        "space",
+        "disaster"
+      ],
+      "id": "space_shuttle_challenger_explodes_1986"
+    },
+    {
+      "year": 1987,
+      "label": "Stock market crash known as Black Monday shocks investors",
+      "category": "economy",
+      "tags": [
+        "us",
+        "finance",
+        "economy"
+      ],
+      "id": "stock_market_crash_known_1987"
+    },
+    {
+      "year": 1988,
+      "label": "Severe drought affects much of the United States",
+      "category": "environment",
+      "tags": [
+        "us",
+        "weather",
+        "agriculture"
+      ],
+      "id": "severe_drought_affects_united_1988"
+    },
+    {
+      "year": 1989,
+      "label": "Berlin Wall falls",
+      "category": "politics",
+      "tags": [
+        "global",
+        "cold_war",
+        "europe"
+      ],
+      "id": "berlin_wall_falls_1989"
+    },
+    {
+      "year": 1990,
+      "label": "Germany reunifies and the first web browser is developed",
+      "category": "technology",
+      "tags": [
+        "global",
+        "internet",
+        "europe"
+      ],
+      "id": "germany_reunifies_first_web_1990"
+    },
+    {
+      "year": 1991,
+      "label": "Gulf War begins and the Soviet Union dissolves",
+      "category": "politics",
+      "tags": [
+        "global",
+        "war",
+        "cold_war"
+      ],
+      "id": "gulf_war_soviet_union_1991"
+    },
+    {
+      "year": 1992,
+      "label": "Los Angeles riots follow the Rodney King verdict",
+      "category": "society",
+      "tags": [
+        "us",
+        "civil_rights",
+        "cities"
+      ],
+      "id": "los_angeles_riots_follow_1992"
+    },
+    {
+      "year": 1993,
+      "label": "World Wide Web opens to broad public use",
+      "category": "technology",
+      "tags": [
+        "global",
+        "internet",
+        "technology"
+      ],
+      "id": "world_wide_web_opens_1993"
+    },
+    {
+      "year": 1994,
+      "label": "NAFTA takes effect",
+      "category": "economy",
+      "tags": [
+        "us",
+        "trade",
+        "north_america"
+      ],
+      "id": "nafta_takes_effect_1994"
+    },
+    {
+      "year": 1995,
+      "label": "Oklahoma City bombing shocks the nation",
+      "category": "society",
+      "tags": [
+        "us",
+        "violence",
+        "history"
+      ],
+      "id": "oklahoma_city_bombing_shocks_1995"
+    },
+    {
+      "year": 1996,
+      "label": "Atlanta hosts the Summer Olympics",
+      "category": "sports",
+      "tags": [
+        "us",
+        "olympics",
+        "sports"
+      ],
+      "id": "atlanta_hosts_summer_olympics_1996"
+    },
+    {
+      "year": 1997,
+      "label": "Princess Diana dies in Paris",
+      "category": "culture",
+      "tags": [
+        "global",
+        "uk",
+        "media"
+      ],
+      "id": "princess_diana_dies_paris_1997"
+    },
+    {
+      "year": 1998,
+      "label": "Google is founded",
+      "category": "technology",
+      "tags": [
+        "internet",
+        "technology",
+        "us"
+      ],
+      "id": "google_founded_1998"
+    },
+    {
+      "year": 1999,
+      "label": "Y2K preparations dominate public discussion",
+      "category": "technology",
+      "tags": [
+        "computers",
+        "technology",
+        "culture"
+      ],
+      "id": "y2k_preparations_dominate_public_1999"
+    },
+    {
+      "year": 2000,
+      "label": "Contested U.S. presidential election ends with Bush v. Gore",
+      "category": "politics",
+      "tags": [
+        "us",
+        "election",
+        "politics"
+      ],
+      "id": "contested_presidential_election_ends_2000"
+    },
+    {
+      "year": 2001,
+      "label": "September 11 attacks occur in the United States",
+      "category": "war",
+      "tags": [
+        "us",
+        "terrorism",
+        "history"
+      ],
+      "id": "september_attacks_occur_united_2001"
+    },
+    {
+      "year": 2002,
+      "label": "Salt Lake City hosts the Winter Olympics",
+      "category": "sports",
+      "tags": [
+        "us",
+        "olympics",
+        "sports"
+      ],
+      "id": "salt_lake_city_hosts_2002"
+    },
+    {
+      "year": 2003,
+      "label": "Iraq War begins",
+      "category": "war",
+      "tags": [
+        "us",
+        "war",
+        "global"
+      ],
+      "id": "iraq_war_2003"
+    },
+    {
+      "year": 2004,
+      "label": "Facebook is founded and Indian Ocean tsunami devastates coastal regions",
+      "category": "technology",
+      "tags": [
+        "internet",
+        "global",
+        "disaster"
+      ],
+      "id": "facebook_founded_indian_ocean_2004"
+    },
+    {
+      "year": 2005,
+      "label": "Hurricane Katrina devastates the Gulf Coast",
+      "category": "disaster",
+      "tags": [
+        "us",
+        "weather",
+        "disaster"
+      ],
+      "id": "hurricane_katrina_devastates_gulf_2005"
+    },
+    {
+      "year": 2006,
+      "label": "Twitter launches",
+      "category": "technology",
+      "tags": [
+        "internet",
+        "social_media",
+        "culture"
+      ],
+      "id": "twitter_launches_2006"
+    },
+    {
+      "year": 2007,
+      "label": "iPhone is introduced and the Great Recession begins",
+      "category": "technology",
+      "tags": [
+        "phones",
+        "economy",
+        "technology"
+      ],
+      "id": "iphone_introduced_great_recession_2007"
+    },
+    {
+      "year": 2007,
+      "label": "Smartphones begin changing how families communicate day to day",
+      "category": "everyday_life",
+      "tags": [
+        "global",
+        "phones",
+        "family_life",
+        "technology"
+      ],
+      "id": "smartphones_changing_how_families_2007"
+    },
+    {
+      "year": 2008,
+      "label": "Barack Obama is elected president and financial crisis deepens",
+      "category": "politics",
+      "tags": [
+        "us",
+        "election",
+        "economy"
+      ],
+      "id": "barack_obama_elected_president_2008"
+    },
+    {
+      "year": 2009,
+      "label": "H1N1 influenza pandemic spreads globally",
+      "category": "health",
+      "tags": [
+        "global",
+        "pandemic",
+        "health"
+      ],
+      "id": "h1n1_influenza_pandemic_spreads_2009"
+    },
+    {
+      "year": 2010,
+      "label": "iPad launches and Instagram is founded",
+      "category": "technology",
+      "tags": [
+        "technology",
+        "internet",
+        "culture"
+      ],
+      "id": "ipad_launches_instagram_founded_2010"
+    },
+    {
+      "year": 2011,
+      "label": "Arab Spring protests reshape politics across the Middle East and North Africa",
+      "category": "politics",
+      "tags": [
+        "global",
+        "protest",
+        "politics"
+      ],
+      "id": "arab_spring_protests_reshape_2011"
+    },
+    {
+      "year": 2012,
+      "label": "Curiosity rover lands on Mars",
+      "category": "science",
+      "tags": [
+        "space",
+        "science",
+        "technology"
+      ],
+      "id": "curiosity_rover_lands_mars_2012"
+    },
+    {
+      "year": 2013,
+      "label": "Pope Francis begins his papacy",
+      "category": "religion",
+      "tags": [
+        "global",
+        "religion",
+        "catholic"
+      ],
+      "id": "pope_francis_his_papacy_2013"
+    },
+    {
+      "year": 2014,
+      "label": "Ebola outbreak in West Africa becomes a global concern",
+      "category": "health",
+      "tags": [
+        "global",
+        "health",
+        "epidemic"
+      ],
+      "id": "ebola_outbreak_west_africa_2014"
+    },
+    {
+      "year": 2015,
+      "label": "Paris climate agreement is adopted",
+      "category": "environment",
+      "tags": [
+        "global",
+        "climate",
+        "politics"
+      ],
+      "id": "paris_climate_agreement_adopted_2015"
+    },
+    {
+      "year": 2016,
+      "label": "Donald Trump is elected and the United Kingdom votes for Brexit",
+      "category": "politics",
+      "tags": [
+        "us",
+        "uk",
+        "election"
+      ],
+      "id": "donald_trump_elected_united_2016"
+    },
+    {
+      "year": 2017,
+      "label": "Total solar eclipse crosses the United States",
+      "category": "science",
+      "tags": [
+        "us",
+        "science",
+        "sky"
+      ],
+      "id": "total_solar_eclipse_crosses_2017"
+    },
+    {
+      "year": 2018,
+      "label": "Global attention focuses on school shootings and youth activism in the U.S.",
+      "category": "society",
+      "tags": [
+        "us",
+        "education",
+        "activism"
+      ],
+      "id": "global_attention_focuses_school_2018"
+    },
+    {
+      "year": 2019,
+      "label": "Notre-Dame Cathedral fire shocks the world",
+      "category": "culture",
+      "tags": [
+        "global",
+        "heritage",
+        "disaster"
+      ],
+      "id": "notredame_cathedral_fire_shocks_2019"
+    },
+    {
+      "year": 2020,
+      "label": "COVID-19 pandemic transforms daily life worldwide",
+      "category": "health",
+      "tags": [
+        "global",
+        "pandemic",
+        "health"
+      ],
+      "id": "covid19_pandemic_transforms_daily_2020"
+    },
+    {
+      "year": 2020,
+      "label": "Masks, distancing, and video calls become part of everyday family life during the pandemic",
+      "category": "everyday_life",
+      "tags": [
+        "global",
+        "pandemic",
+        "family_life",
+        "health"
+      ],
+      "id": "masks_distancing_video_calls_2020"
+    },
+    {
+      "year": 2021,
+      "label": "COVID-19 vaccines expand and the U.S. withdraws from Afghanistan",
+      "category": "health",
+      "tags": [
+        "global",
+        "health",
+        "war"
+      ],
+      "id": "covid19_vaccines_expand_withdraws_2021"
+    },
+    {
+      "year": 2022,
+      "label": "Russia launches full-scale invasion of Ukraine",
+      "category": "war",
+      "tags": [
+        "global",
+        "war",
+        "europe"
+      ],
+      "id": "russia_launches_fullscale_invasion_2022"
+    },
+    {
+      "year": 2023,
+      "label": "Generative AI becomes part of mainstream public life",
+      "category": "technology",
+      "tags": [
+        "global",
+        "ai",
+        "technology"
+      ],
+      "id": "generative_mainstream_public_life_2023"
+    },
+    {
+      "year": 2024,
+      "label": "Paris hosts the Summer Olympic Games",
+      "category": "sports",
+      "tags": [
+        "global",
+        "olympics",
+        "sports"
+      ],
+      "id": "paris_hosts_summer_olympic_2024"
+    },
+    {
+      "year": 2025,
+      "label": "Expo 2025 opens in Osaka, Japan",
+      "category": "culture",
+      "tags": [
+        "global",
+        "expo",
+        "culture"
+      ],
+      "id": "expo_2025_opens_osaka_2025"
+    },
+    {
+      "year": 2026,
+      "label": "FIFA World Cup is hosted across North America",
+      "category": "sports",
+      "tags": [
+        "global",
+        "world_cup",
+        "sports",
+        "north_america"
+      ],
+      "id": "fifa_world_cup_hosted_2026"
+    },
+    {
+      "year": 2026,
+      "label": "Milano Cortina hosts the Winter Olympic Games",
+      "category": "sports",
+      "tags": [
+        "global",
+        "olympics",
+        "sports"
+      ],
+      "id": "milano_cortina_hosts_winter_2026"
+    }
+  ]
+}
