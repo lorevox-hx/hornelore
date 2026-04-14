@@ -1,0 +1,68 @@
+{
+  "_template": "WO-QA-01 Quality Harness — Test Narrator",
+  "_narrator": "Elena March — synthetic storyteller-style fixture",
+  "_version": 1,
+  "_notes": "Quarantined test fixture. narrator_type='test' blocks all family-truth writes. Do NOT edit ad-hoc — changes invalidate baseline comparisons in regression runs.",
+
+  "id": "test-storyteller-001",
+  "display_name": "Elena March",
+  "role": "narrator",
+  "narrator_type": "test",
+  "date_of_birth": "1943-09-18",
+  "place_of_birth": "Taos, New Mexico",
+
+  "profile_json": {
+    "basics": {
+      "fullname": "Elena Rosa March",
+      "preferred": "Elena",
+      "dob": "1943-09-18",
+      "pob": "Taos, New Mexico",
+      "culture": "New Mexican, Nuevomexicano heritage (maternal)",
+      "country": "US",
+      "pronouns": "she/her",
+      "style": "storyteller",
+      "occupation": "Art teacher (retired); community mural program founder"
+    },
+    "kinship": [
+      {
+        "relation": "father",
+        "firstName": "Luis",
+        "lastName": "March",
+        "birthDate": "1910-01-30",
+        "birthPlace": "Santa Fe, New Mexico",
+        "occupation": "Carpenter",
+        "notes": "Built their kitchen table from a single piece of ponderosa pine. Died 1982 after a long illness."
+      },
+      {
+        "relation": "mother",
+        "firstName": "Isabel",
+        "lastName": "March",
+        "maidenName": "Chavez",
+        "birthDate": "1914-07-14",
+        "birthPlace": "Chimayó, New Mexico",
+        "occupation": "Seamstress; altered wedding dresses and christening gowns for neighbors",
+        "notes": "Sang while she sewed. Taught Elena every song she knew. Died 1997."
+      },
+      {
+        "relation": "brother",
+        "firstName": "Tomás",
+        "lastName": "March",
+        "birthDate": "1939-05-02",
+        "notes": "Four years older. Became a folklorist at UNM."
+      }
+    ],
+    "pets": [
+      {"name": "Luna", "type": "cat", "years": "1951-1963"}
+    ],
+    "notes": [
+      "Grew up in a low adobe house with a deep front porch on Ledoux Street in Taos.",
+      "Remembers the smell of piñon smoke, her mother's bread on Saturdays, and the bells at San Francisco de Asís church.",
+      "Attended Taos public schools; graduated 1961.",
+      "Earned a BFA from the University of New Mexico in 1965.",
+      "Taught art in Santa Fe schools for 27 years.",
+      "Founded a community mural program in 1988 that painted over twenty murals in northern New Mexico villages.",
+      "Returned to Taos in retirement in 2004. Lives two blocks from her childhood home.",
+      "Tells stories in rolling sentences, with sensory detail, often circling back to music, kitchens, weather, and neighborhood festivals before landing on the point."
+    ]
+  }
+}

@@ -27,6 +27,7 @@
   <link rel="stylesheet" href="css/bio-phase-f-report.css">
   <link rel="stylesheet" href="css/bio-phase-f-tests.css">
   <link rel="stylesheet" href="css/bio-control-center.css">
+  <link rel="stylesheet" href="css/test-narrator-lab.css">
   <link rel="stylesheet" href="vendor/mind-elixir/mind-elixir.css">
 
   <!-- 9.0 layout stubs — tailwind.min.css is a minimal pre-compiled build;
@@ -2781,6 +2782,13 @@
               title="Hornelore operator tools">
         &#x1F6E0;
       </button>
+      <button id="lv80TestLabBtn"
+              class="settings-btn dev-only hidden"
+              type="button"
+              popovertarget="testLabPopover"
+              title="WO-QA-01 Quality Harness (operator-only)">
+        &#x1F9EA;
+      </button>
       <button class="settings-btn" onclick="toggleSettings()" title="Settings">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -3317,6 +3325,98 @@
     </div>
   </div>
 
+  <!-- ── WO-QA-01 TEST NARRATOR LAB POPOVER ──────────────────
+       Operator-only quality harness. Launches scripts/run_test_lab.sh,
+       polls status, lists prior runs, renders scores / compare /
+       summary / transcripts. Thin UI over /api/test-lab/*. -->
+  <div id="testLabPopover" popover>
+    <div class="testlab-shell">
+      <div class="testlab-header">
+        <h3>Test Narrator Lab</h3>
+        <div class="testlab-sub">
+          WO-QA-01 Quality Harness — archive yield, contamination safety,
+          performance, recovery. Operator-only. Run when no interview is active.
+        </div>
+      </div>
+
+      <div class="testlab-toolbar">
+        <button id="testLabRunBtn" type="button">Run Harness</button>
+        <button id="testLabRefreshBtn" type="button">Refresh</button>
+        <button id="testLabResetBtn" type="button">Reset Status</button>
+
+        <select id="testLabCompareTo" title="Compare to prior run"></select>
+        <input id="testLabRunLabel" type="text" placeholder="Optional run label">
+        <label class="testlab-small" style="display:flex;align-items:center;gap:6px;">
+          <input id="testLabDryRun" type="checkbox"> Dry run
+        </label>
+
+        <select id="testLabRuns" title="Load run results"></select>
+
+        <div id="testLabStatus" class="testlab-status">Status: idle</div>
+      </div>
+
+      <div class="testlab-main">
+        <div class="testlab-pane">
+          <div class="testlab-block">
+            <div id="testLabLoadedRun" class="testlab-small">Loaded run: —</div>
+          </div>
+
+          <div class="testlab-block">
+            <h4 class="testlab-section-title">Scores (ranked: contam → yield → TTFT)</h4>
+            <table class="testlab-table">
+              <thead>
+                <tr>
+                  <th>Style</th>
+                  <th>Config</th>
+                  <th>Yield</th>
+                  <th>TTFT</th>
+                  <th>Tok/s</th>
+                  <th>Contam</th>
+                  <th>Blocked</th>
+                  <th>Human</th>
+                </tr>
+              </thead>
+              <tbody id="testLabScoreBody"></tbody>
+            </table>
+          </div>
+
+          <div class="testlab-block">
+            <h4 class="testlab-section-title">Compare vs baseline</h4>
+            <table class="testlab-table">
+              <thead>
+                <tr>
+                  <th>Style</th>
+                  <th>Config</th>
+                  <th>Yield Δ</th>
+                  <th>TTFT Δ</th>
+                  <th>Contam Δ</th>
+                </tr>
+              </thead>
+              <tbody id="testLabCompareBody"></tbody>
+            </table>
+          </div>
+
+          <div class="testlab-block">
+            <h4 class="testlab-section-title">Config grid</h4>
+            <div id="testLabConfigs" class="testlab-configs"></div>
+          </div>
+
+          <div class="testlab-block">
+            <h4 class="testlab-section-title">Summary</h4>
+            <div id="testLabSummary" class="testlab-summary"></div>
+          </div>
+        </div>
+
+        <div class="testlab-pane">
+          <div class="testlab-block">
+            <h4 class="testlab-section-title">Transcript samples</h4>
+            <div id="testLabTranscripts" class="testlab-transcripts"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── WO-10D BUG PANEL ────────────────────────────────────
        Live diagnostics popover. Opened via header Bug Panel button.
        Refreshes every 2s while open. Shows real state, not fake data.
@@ -3734,6 +3834,7 @@
 <script src="js/bio-control-center.js"></script>
 <script src="js/focus-canvas.js"></script>
 <script src="js/chronology-accordion.js"></script>
+<script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
 <script src="js/emotion-pipeline-tests.js"></script>
 
@@ -6958,6 +7059,10 @@ if (typeof _origSwitchPerson === "function") {
   window.onload = async function (...args) {
     if (typeof _origLoad === "function") await _origLoad.apply(this, args);
     await lv80Init();
+    // WO-QA-01 — wire Test Narrator Lab. Safe to call every load; idempotent.
+    if (typeof window.initTestNarratorLab === "function") {
+      try { window.initTestNarratorLab(); } catch (e) { console.warn("[WO-QA-01]", e); }
+    }
   };
 })();
 

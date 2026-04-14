@@ -1,0 +1,47 @@
+{
+  "_wo": "WO-QA-01 Hornelore Quality Harness — First-Pass Config Grid",
+  "_axes": ["temperature", "top_p", "repetition_penalty"],
+  "_constants": {
+    "max_new_tokens": 2048,
+    "seed": 0
+  },
+  "_notes": [
+    "max_new_tokens is a constant, not a tuning variable — caps cannot be compared to sampling.",
+    "max_new_tokens=2048 requires MAX_NEW_TOKENS_CHAT_HARD>=2048 in .env; harness does a pre-flight check.",
+    "Four purposive design points across the archive→expressive axis; not an exhaustive grid."
+  ],
+  "configs": [
+    {
+      "id": "cfg_archive",
+      "label": "Archive First",
+      "temperature": 0.3,
+      "top_p": 0.90,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 2048
+    },
+    {
+      "id": "cfg_balanced",
+      "label": "Balanced",
+      "temperature": 0.5,
+      "top_p": 0.95,
+      "repetition_penalty": 1.10,
+      "max_new_tokens": 2048
+    },
+    {
+      "id": "cfg_expressive",
+      "label": "Expressive",
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 2048
+    },
+    {
+      "id": "cfg_focused",
+      "label": "Focused",
+      "temperature": 0.5,
+      "top_p": 0.85,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 2048
+    }
+  ]
+}

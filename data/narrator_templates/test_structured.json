@@ -1,0 +1,67 @@
+{
+  "_template": "WO-QA-01 Quality Harness — Test Narrator",
+  "_narrator": "Mara Vale — synthetic structured-style fixture",
+  "_version": 1,
+  "_notes": "Quarantined test fixture. narrator_type='test' blocks all family-truth writes. Do NOT edit ad-hoc — changes invalidate baseline comparisons in regression runs.",
+
+  "id": "test-structured-001",
+  "display_name": "Mara Vale",
+  "role": "narrator",
+  "narrator_type": "test",
+  "date_of_birth": "1941-03-12",
+  "place_of_birth": "Helena, Montana",
+
+  "profile_json": {
+    "basics": {
+      "fullname": "Mara Louise Vale",
+      "preferred": "Mara",
+      "dob": "1941-03-12",
+      "pob": "Helena, Montana",
+      "culture": "American, Anglo-Scottish descent",
+      "country": "US",
+      "pronouns": "she/her",
+      "style": "structured",
+      "occupation": "County clerk (retired)"
+    },
+    "kinship": [
+      {
+        "relation": "father",
+        "firstName": "Elias",
+        "lastName": "Vale",
+        "birthDate": "1908-06-04",
+        "birthPlace": "Butte, Montana",
+        "occupation": "Railroad mechanic for the Northern Pacific",
+        "notes": "Kept a toolbox by the back door his whole life. Died 1977."
+      },
+      {
+        "relation": "mother",
+        "firstName": "Ruth",
+        "lastName": "Vale",
+        "maidenName": "McIntyre",
+        "birthDate": "1912-10-22",
+        "birthPlace": "Missoula, Montana",
+        "occupation": "School secretary at Helena West Elementary",
+        "notes": "Grew up in a Scottish-immigrant household. Died 1989."
+      },
+      {
+        "relation": "sister",
+        "firstName": "June",
+        "lastName": "Vale",
+        "birthDate": "1944-09-08",
+        "notes": "Three years younger. Became a registered nurse in Spokane."
+      }
+    ],
+    "pets": [
+      {"name": "Patch", "type": "dog", "years": "1948-1961"}
+    ],
+    "notes": [
+      "Raised in a white clapboard house on 11th Avenue near the Helena rail yard.",
+      "Attended Helena West Elementary, then Helena High (graduated 1959).",
+      "Worked in the Lewis and Clark County clerk's office for 32 years.",
+      "Married Thomas Dale in 1964; moved to Missoula in 1968.",
+      "Known in her family for keeping meticulous archives of newspaper clippings, ledgers, and family documents in labeled binders.",
+      "Answers questions directly and chronologically. Prefers dates, names, and concrete facts over embellishment.",
+      "Retired in 1998. Lives in a small house with a south-facing kitchen window."
+    ]
+  }
+}

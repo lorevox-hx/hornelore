@@ -23,6 +23,13 @@ _WO10M_GUARD_ENABLED = os.getenv("VRAM_GUARD_ENABLED", "1") in ("1", "true", "Tr
 _WO10M_GUARD_BASE_MB = float(os.getenv("VRAM_GUARD_BASE_MB", "600"))
 _WO10M_GUARD_PER_TOKEN_MB = float(os.getenv("VRAM_GUARD_PER_TOKEN_MB", "0.14"))
 
+# ── WO-QA-01: tunable repetition_penalty ──────────────────────────────────
+# Default 1.1 preserves prior hardcoded behavior. Env override lets the
+# operator shift the production default without a code change. The harness
+# (WO-QA-01) additionally passes repetition_penalty per-request via
+# params, so individual config cells can sweep this knob.
+_REP_PENALTY_DEFAULT = float(os.getenv("REPETITION_PENALTY_DEFAULT", "1.1"))
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from transformers import TextIteratorStreamer, StoppingCriteriaList
 
@@ -273,6 +280,8 @@ async def ws_chat(ws: WebSocket):
 
         temperature = float(params.get("temperature", params.get("temp", 0.8)))
         top_p = float(params.get("top_p", 0.95))
+        # WO-QA-01: per-request repetition_penalty, env default, hardcode fallback.
+        repetition_penalty = float(params.get("repetition_penalty", _REP_PENALTY_DEFAULT))
 
         # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
         _do_sample = temperature > 0
@@ -290,7 +299,7 @@ async def ws_chat(ws: WebSocket):
                 temperature=temperature,
                 top_p=top_p,
                 do_sample=_do_sample,
-                repetition_penalty=1.1,
+                repetition_penalty=repetition_penalty,
                 stopping_criteria=stop,
                 pad_token_id=tok.eos_token_id,
                 eos_token_id=tok.eos_token_id,

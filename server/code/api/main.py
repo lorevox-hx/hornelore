@@ -97,6 +97,7 @@ from .routers import (  # type: ignore
     transcript,      # WO-8 — Transcript History & Thread Anchor
     family_truth,    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
     chronology_accordion,  # WO-CR-01 — Chronology Accordion (read-only)
+    test_lab,        # WO-QA-01 — Hornelore Quality Harness (operator-only)
 )
 
 # Core Entity & State Routers
@@ -122,6 +123,7 @@ app.include_router(relationships.router)   # Phase Q.1 — Relationship Graph La
 app.include_router(transcript.router)      # WO-8 — Transcript History & Thread Anchor
 app.include_router(family_truth.router)    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
 app.include_router(chronology_accordion.router)  # WO-CR-01 — Chronology Accordion
+app.include_router(test_lab.router)               # WO-QA-01 — Quality Harness
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)
