@@ -77,6 +77,48 @@ Both flags are currently **ON** in `.env`. The profile read seam uses a hybrid s
 
 Every narrator switch checks `user_turn_count` from `/api/narrator/state-snapshot`. If a narrator has zero prior user-authored turns, both resume-prompt paths (legacy `lv80SwitchPerson` and WO-8 `wo8OnNarratorReady`) are suppressed. This prevents fake "welcome back" greetings from polluting the turns table.
 
+### Quality Harness (WO-QA-01, WO-QA-02, WO-QA-02B)
+
+A permanent measurement system for evaluating Hornelore's behavior under different sampling configurations. Measures three orthogonal axes and writes everything to JSON artifacts so any future runtime change (TRT-LLM swap, model update, prompt change) can be evaluated against the same yardstick.
+
+**Two synthetic test narrators** (`narrator_type='test'`, permanently quarantined from family-truth via existing reference-narrator write guards):
+
+| ID | Display name | Style |
+|---|---|---|
+| `test-structured-001` | Mara Vale (Helena MT, 1941) | structured |
+| `test-storyteller-001` | Elena March (Taos NM, 1943) | storyteller |
+
+Templates live in `data/narrator_templates/test_*.json`; seeded into the `people` + `profiles` tables by `scripts/seed_test_narrators.py`.
+
+**Two-channel measurement** (WO-QA-02):
+
+- **Channel A — Narrator content (ceiling).** Static narrator statements from `data/test_lab/narrator_statements.json` are fed directly into `/api/extract-fields` once per narrator, producing the maximum extractable yield from that fixture set. Config-independent.
+- **Channel B — Lori responses (suppression).** The matrix runs each (narrator × config) combination through scenarios via `/api/chat/ws`, then computes `suppression = ceiling - lori_yield_total`. Lower suppression = config preserves more narrator truth in Lori's interview behavior.
+
+**Ranking** (per (narrator × config) cell):
+
+1. Contamination PASS (gate)
+2. Suppression ASC (lower wins)
+3. TTFT ASC (faster wins)
+4. Human score DESC (tie-break)
+
+**Hardware monitoring** runs concurrently with every matrix run — GPU util/VRAM/temp/power via `nvidia-smi`, CPU util via `/proc/stat`, RAM via `/proc/meminfo`. Sampled every 5s, written to `hardware_timeseries.json` + `hardware_summary.json` so post-hoc analysis can correlate behavioral anomalies with hardware state.
+
+**Timing instrumentation** captures wall-clock duration plus per-cell durations. `progress.json` is updated after every cell so the UI surfaces live elapsed + ETA while the run is in flight; `run_meta.json` carries the finished totals.
+
+**Operator UI** (`testLabPopover` in `hornelore1.0.html`) exposes:
+- Live console pane (GPU/CPU/RAM + runner log tail, refreshes every 2s)
+- Channel A — Narrator ceilings table
+- Scores table ranked by suppression
+- Compare table (yield/TTFT/contamination Δ vs a baseline)
+- Hardware summary + Timing panes for the loaded run
+
+The popover is operator-only (dev-mode gated via `toggleDevMode()` in the console). Run via the **Run Harness** button or directly from WSL: `bash scripts/run_test_lab.sh`. Budget 45–90 minutes for a full matrix.
+
+Detailed work-order specs live in `docs/wo-qa/`.
+
+---
+
 ### Chronology Accordion (WO-CR-01, WO-CR-PACK-01)
 
 A read-only left-side timeline sidebar that merges three lanes at request time — never in the database. Shown as an 80px collapsed column / 280px expanded column to the left of the chat area, hidden during trainer mode.
@@ -214,21 +256,33 @@ python3 scripts/preload_trainer.py --all
 **Chronology Accordion:**
 - `GET /api/chronology-accordion?person_id=` — read-only three-lane timeline payload (world events + personal anchors + ghost prompts, grouped by decade and year). Never writes; returns `{"error": "no_dob"}` when profile basics lack a DOB.
 
+**Quality Harness (operator-only, WO-QA-01 / WO-QA-02):**
+- `POST /api/test-lab/run` — launch the harness in a background subprocess (optional `compare_to`, `run_label`, `dry_run`)
+- `GET /api/test-lab/status` — running / finished / failed / idle, with live `progress` overlay (cells, elapsed, ETA) when a run is in flight
+- `GET /api/test-lab/results` — list prior run_ids by mtime DESC
+- `GET /api/test-lab/results/{run_id}` — scores / metrics / transcripts / compare / configs / hardware_summary / narrator_ceilings / run_meta
+- `POST /api/test-lab/reset` — reset status.json to idle
+- `GET /api/test-lab/gpu` — one-shot nvidia-smi parse (util %, VRAM, temp, power)
+- `GET /api/test-lab/system` — consolidated GPU + CPU + RAM snapshot
+- `GET /api/test-lab/log-tail?lines=N` — last N lines of runner.log
+
 ---
 
 ## File Inventory
 
 | Category | Count | Key Files |
 |---|---|---|
-| JavaScript (UI) | 42 | app.js, api.js, state.js, wo13-review.js, narrator-preload.js, chronology-accordion.js, shadow-review.js, conflict-console.js |
-| CSS | 11 | |
+| JavaScript (UI) | 43 | app.js, api.js, state.js, wo13-review.js, narrator-preload.js, chronology-accordion.js, shadow-review.js, conflict-console.js, test-narrator-lab.js |
+| CSS | 12 | base.css, layout.css, lori80.css, test-narrator-lab.css, … |
 | HTML shell | 1 | `hornelore1.0.html` |
-| Narrator templates | 6 | 3 family + 2 trainers + 1 base |
-| Server routers | 27 | family_truth.py, profiles.py, extract.py, narrator_state.py, chronology_accordion.py |
+| Narrator templates | 8 | 3 family + 2 trainers + 1 base + 2 synthetic test (`data/narrator_templates/test_*.json`) |
+| Server routers | 28 | family_truth.py, profiles.py, extract.py, narrator_state.py, chronology_accordion.py, test_lab.py |
 | Historical seed | 1 | `server/data/historical/historical_events_1900_2026.json` (152 world events, 1900–2026) |
-| Scripts | 21 | preload_trainer.py, import_kent_james_horne.py, start/stop/restart |
+| Quality harness fixture | 1 | `data/test_lab/narrator_statements.json` (Channel A ceilings) |
+| Scripts | 25 | preload_trainer.py, import_kent_james_horne.py, start/stop/restart, run_test_lab.sh, seed_test_narrators.py, test_lab_runner.py, test_lab_doctor.sh, test_lab_watch.sh |
 | Tests | 4+ | test_api_smoke.py, test_db_smoke.py, e2e/ |
 | Config | 4 | .env, package.json, playwright.config.ts, tsconfig |
+| WO docs | n | `docs/WO-*.md` (per-WO reports), `docs/wo-qa/WO-QA-*.md` (Quality Harness specs) |
 
 ---
 
@@ -248,6 +302,10 @@ python3 scripts/preload_trainer.py --all
 | WO-MIC-UI-02A | Complete | Single-surface voice capture UI |
 | WO-CR-01 | Complete | Left Chronology Accordion — three-lane timeline sidebar |
 | WO-CR-PACK-01 | Complete | Chronology Phase 2 — mapper expansion, visual tuning, Lori awareness |
+| WO-QA-01 | Complete | Quality Harness — synthetic test narrators, scoring, hardware/timing capture |
+| WO-QA-02 | Complete | Archive-truth methodology — Channel A ceilings + suppression ranking |
+| WO-QA-02B | Complete | Seed determinism — `chat_ws.py` honors `params.seed` for reproducible runs |
+| WO-14 | Deferred | TensorRT-LLM runtime swap (deferred pending Blackwell SM_120 maturity) |
 
 ### WO-13 Phase Status
 
