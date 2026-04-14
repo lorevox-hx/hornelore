@@ -171,3 +171,58 @@ async def get_result(run_id: str) -> Dict[str, Any]:
 async def reset_status() -> Dict[str, Any]:
     _write_status({"state": "idle"})
     return {"ok": True}
+
+
+@router.get("/gpu")
+async def gpu_stats() -> Dict[str, Any]:
+    """One-shot nvidia-smi scrape for in-UI live monitoring."""
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            timeout=4,
+        ).strip()
+    except FileNotFoundError:
+        return {"ok": False, "error": "nvidia-smi not on PATH"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "nvidia-smi timeout"}
+    except subprocess.CalledProcessError as exc:
+        return {"ok": False, "error": f"nvidia-smi failed: {exc}"}
+
+    # First GPU only — Hornelore is single-GPU.
+    first = out.splitlines()[0] if out else ""
+    parts = [p.strip() for p in first.split(",")]
+    if len(parts) < 6:
+        return {"ok": False, "error": f"unexpected nvidia-smi output: {first!r}"}
+    try:
+        name, util, vram_used, vram_total, temp, power = parts
+        return {
+            "ok": True,
+            "name": name,
+            "util_pct": int(util),
+            "vram_used_mib": int(vram_used),
+            "vram_total_mib": int(vram_total),
+            "temp_c": int(temp),
+            "power_w": float(power),
+        }
+    except ValueError as exc:
+        return {"ok": False, "error": f"parse failed: {exc}"}
+
+
+@router.get("/log-tail")
+async def log_tail(lines: int = 30) -> Dict[str, Any]:
+    """Return the last N lines of runner.log for in-UI log viewing."""
+    log_path = TEST_LAB_ROOT / "runner.log"
+    if not log_path.exists():
+        return {"ok": True, "lines": [], "note": "no runner.log yet"}
+    n = max(1, min(int(lines), 500))
+    try:
+        # Read full file (logs stay small); slice last N lines.
+        content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        return {"ok": True, "lines": content[-n:], "total_lines": len(content)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

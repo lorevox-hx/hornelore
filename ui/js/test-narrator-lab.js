@@ -23,6 +23,8 @@
     results: _origin + "/api/test-lab/results",
     result:  (id) => `${_origin}/api/test-lab/results/${encodeURIComponent(id)}`,
     reset:   _origin + "/api/test-lab/reset",
+    gpu:     _origin + "/api/test-lab/gpu",
+    logTail: _origin + "/api/test-lab/log-tail?lines=40",
   };
 
   async function jget(url) {
@@ -161,6 +163,36 @@
     catch (e) { renderStatus({ state: `error: ${e.message}` }); }
   }
 
+  /* ── Live console: GPU + log tail, every 2s ───────────────── */
+  function renderGpu(g) {
+    const el = byId("testLabGpuLine");
+    if (!el) return;
+    if (!g || g.ok === false) {
+      el.textContent = `GPU: ${g?.error || "unavailable"}`;
+      return;
+    }
+    el.textContent =
+      `GPU ${g.util_pct}%   VRAM ${g.vram_used_mib}/${g.vram_total_mib} MiB   ` +
+      `${g.temp_c}°C   ${g.power_w}W`;
+  }
+
+  function renderLogTail(data) {
+    const el = byId("testLabLogTail");
+    if (!el) return;
+    if (!data || data.ok === false) {
+      el.textContent = data?.error || "(log unavailable)";
+      return;
+    }
+    const lines = (data.lines || []);
+    el.textContent = lines.length ? lines.join("\n") : "(no runner.log yet)";
+    el.scrollTop = el.scrollHeight;  // auto-scroll to bottom
+  }
+
+  async function refreshLive() {
+    try { renderGpu(await jget(API.gpu)); } catch (e) { renderGpu({ok:false,error:e.message}); }
+    try { renderLogTail(await jget(API.logTail)); } catch (e) { renderLogTail({ok:false,error:e.message}); }
+  }
+
   async function refreshRuns() {
     try {
       const data = await jget(API.results);
@@ -218,7 +250,9 @@
 
     refreshStatus();
     refreshRuns();
+    refreshLive();
     setInterval(refreshStatus, 3000);
+    setInterval(refreshLive, 2000);
   }
 
   window.initTestNarratorLab = wire;
