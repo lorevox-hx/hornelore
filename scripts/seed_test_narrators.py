@@ -89,6 +89,22 @@ def ensure_db(path: str) -> Path:
     return p
 
 
+def ensure_narrator_type_column(conn: sqlite3.Connection) -> None:
+    """Defensively add narrator_type if the local DB predates WO-13 Phase 3.
+
+    Normal Hornelore init_db() adds this column, but if the user's DB was
+    seeded from an older snapshot or ran a partial migration, this script
+    would fail at INSERT with 'has no column named narrator_type'. Safe,
+    idempotent ALTER covers both cases.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(people)")]
+    if "narrator_type" in cols:
+        return
+    conn.execute("ALTER TABLE people ADD COLUMN narrator_type TEXT DEFAULT 'live'")
+    conn.commit()
+    print("  [migrate] added missing people.narrator_type column")
+
+
 def upsert_narrator(conn: sqlite3.Connection, narrator: Dict[str, Any]) -> None:
     """UPSERT into people + profiles using the live schema.
 
@@ -141,8 +157,10 @@ def upsert_narrator(conn: sqlite3.Connection, narrator: Dict[str, Any]) -> None:
 
 def main(argv: List[str]) -> int:
     db_path = ensure_db(DEFAULT_DB)
+    print(f"[WO-QA-01] DB path: {db_path}")
     conn = sqlite3.connect(str(db_path))
     try:
+        ensure_narrator_type_column(conn)
         seeded = 0
         for tname in TEST_TEMPLATES:
             narrator = load_template(tname)
