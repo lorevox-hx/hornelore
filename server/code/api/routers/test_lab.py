@@ -118,14 +118,24 @@ async def get_status() -> Dict[str, Any]:
     if state.get("state") == "running":
         pid = state.get("pid")
         if not pid or not _proc_alive(int(pid)):
-            # Process finished — try to determine success from whether the
-            # most recent run dir has a scores.json.
+            # Process finished — determine success.
+            # Full matrix run → scores.json
+            # Dry run          → dry_run_complete.json
+            # Neither          → assume failed
             RUNS_ROOT.mkdir(parents=True, exist_ok=True)
             runs = sorted([p.name for p in RUNS_ROOT.iterdir() if p.is_dir()], reverse=True)
             latest = runs[0] if runs else None
-            if latest and (RUNS_ROOT / latest / "scores.json").exists():
-                state["state"] = "finished"
-                state["latest_run"] = latest
+            if latest:
+                latest_dir = RUNS_ROOT / latest
+                if (latest_dir / "scores.json").exists():
+                    state["state"] = "finished"
+                    state["latest_run"] = latest
+                elif (latest_dir / "dry_run_complete.json").exists():
+                    state["state"] = "finished"
+                    state["latest_run"] = latest
+                    state["dry_run_result"] = "ok"
+                else:
+                    state["state"] = "failed"
             else:
                 state["state"] = "failed"
             _write_status(state)

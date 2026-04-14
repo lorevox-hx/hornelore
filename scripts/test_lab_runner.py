@@ -672,6 +672,19 @@ async def main() -> None:
         yield_count = await extract_yield(narrator_ids["structured"], r.response)
         print(f"[dry-run] OK — {len(r.token_timestamps_ms)} tokens, "
               f"ttft={r.ttft_ms}ms, yield={yield_count}, response={r.response[:120]!r}")
+        # Write a marker so the router can detect dry-run completion — scores.json
+        # is only written for full matrix runs. Without this marker, status stays
+        # stuck at "running" after the process exits.
+        (run_root / "dry_run_complete.json").write_text(
+            json.dumps({
+                "dry_run": True,
+                "token_count": len(r.token_timestamps_ms),
+                "ttft_ms": r.ttft_ms,
+                "yield": yield_count,
+                "response": r.response,
+            }, indent=2),
+            encoding="utf-8",
+        )
         return
 
     metrics: list[MetricRow] = []
