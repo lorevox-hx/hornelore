@@ -3196,8 +3196,11 @@ function _stripMarkdownForTts(text){
     .trim();
 }
 
-// Split cleaned text into ≤400-char chunks at sentence boundaries.
-function _splitIntoTtsChunks(text, maxLen=400){
+// Split cleaned text into ≤1000-char chunks at sentence boundaries.
+// WO-11E-HL: Raised from 400 to 1000. Lori's trainer intro runs ~700 chars;
+// at 1000 the entire intro fits in a single TTS request, eliminating
+// the mid-sentence pause caused by inter-chunk fetch latency.
+function _splitIntoTtsChunks(text, maxLen=1000){
   const sentences = text.match(/[^.!?]+[.!?]+\s*/g) || [text];
   const chunks = [];
   let current = "";
@@ -3214,6 +3217,10 @@ function _splitIntoTtsChunks(text, maxLen=400){
 }
 
 function enqueueTts(text){
+  // WO-11E: Clear stale abort flag from a previous stopAllTts() call.
+  // Without this, a stop→enqueue sequence leaves the flag set and the
+  // new drainTts() immediately aborts.
+  _ttsAbortRequested = false;
   const cleaned = _stripMarkdownForTts(text);
   _splitIntoTtsChunks(cleaned).forEach(c => ttsQueue.push(c));
   if(!ttsBusy) drainTts();
@@ -3271,7 +3278,15 @@ async function drainTts(){
                   res();
                 }, safetyMs);
                 src.onended = () => { clearTimeout(_playTimeout); res(); };
-                try { src.start(0); } catch(e) {
+                try {
+                  src.start(0);
+                  // WO-11E-HL: Signal the exact moment audio begins playing.
+                  // The highlight sequencer waits for this instead of guessing.
+                  if (typeof window._wo11eTtsPlaybackStarted === "function") {
+                    try { window._wo11eTtsPlaybackStarted(); } catch(_){}
+                    window._wo11eTtsPlaybackStarted = null; // fire only once per narration
+                  }
+                } catch(e) {
                   clearTimeout(_playTimeout);
                   console.warn("[TTS] WebAudio start failed: " + e.message);
                   res();
@@ -3305,7 +3320,13 @@ async function drainTts(){
               const _done=()=>{ clearTimeout(_playTimeout); res(); };
               a.onended=_done;
               a.onerror=_done;
-              a.play().catch(_done);
+              a.play().then(()=>{
+                // WO-11E-HL: Signal playback started (HTMLAudio fallback path)
+                if (typeof window._wo11eTtsPlaybackStarted === "function") {
+                  try { window._wo11eTtsPlaybackStarted(); } catch(_){}
+                  window._wo11eTtsPlaybackStarted = null;
+                }
+              }).catch(_done);
             });
             URL.revokeObjectURL(url);
           }

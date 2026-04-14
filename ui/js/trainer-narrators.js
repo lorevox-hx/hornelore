@@ -247,50 +247,207 @@
 
   // ═══════════════════════════════════════════════════════════════
   // WO-11E: Trainer Narration Orchestration
+  // WO-11E-HL: Read-along highlighting + button pulse
   // ═══════════════════════════════════════════════════════════════
 
-  /** Build the full narration text for a trainer step.
-   *  Includes: lori intro lines, question, example introductions, guidance. */
-  function _wo11eBuildNarrationText(step, stepIndex, totalSteps) {
-    var parts = [];
+  // Approximate Coqui VITS p335 reading rate: ~13 chars/sec (~140 WPM).
+  // Used for highlight timing — not perfect sync, just a visual guide.
+  // WO-11E-HL: Highlight timing — no fixed startup delay.
+  // The sequencer waits for the real playback-started signal from drainTts.
+  var _WO11E_CHARS_PER_SEC  = 9.8;  // calibrated for Coqui p335 "warm" voice on RTX 5080
+  var _WO11E_SECTION_GAP    = 0.6;  // breath gap between sections
+  var _wo11eHighlightTimers = [];    // active setTimeout IDs for sequencer
 
-    // 1. Lori intro/explanation lines
-    step.lori.forEach(function (line) {
-      parts.push(line);
+  /** Build narration text AND a section map for read-along highlighting.
+   *  Returns { text: String, sections: [{selector, charCount, type}] } */
+  function _wo11eBuildNarration(step, stepIndex, totalSteps) {
+    var parts = [];
+    var sections = [];
+
+    // ── 5 large sections for robust highlight sync ──
+    // Per-line highlighting drifts. These big blocks each last 10-20s
+    // so a few seconds of timing error is invisible.
+
+    // 1. ALL lori lines as one block
+    var loriText = step.lori.join(" ");
+    step.lori.forEach(function (line) { parts.push(line); });
+    sections.push({
+      selector: '[data-wo11e-idx="lori-block"]',
+      text: loriText,
+      type: "block"
     });
 
-    // 2. Question / transition line
+    // 2. Question line
     if (step.question) {
       parts.push(step.question);
+      sections.push({
+        selector: '[data-wo11e-idx="question"]',
+        text: step.question,
+        type: "question"
+      });
     }
 
-    // 3. Example introductions (natural, conversational)
+    // 3. Simple example
+    var simText = "";
     if (step.simple) {
       var simLabel = (step.simpleLabel || "short answer").toLowerCase();
-      parts.push("A " + simLabel + " might sound like this: " + step.simple);
+      simText = "A " + simLabel + " might sound like this: " + step.simple;
+      parts.push(simText);
+      sections.push({
+        selector: '[data-wo11e-idx="example-simple"]',
+        text: simText,
+        type: "example"
+      });
     }
+
+    // 4. Story example
+    var stoText = "";
     if (step.story) {
       var stoLabel = (step.storyLabel || "fuller answer").toLowerCase();
-      parts.push("Or, " + stoLabel + ": " + step.story);
+      stoText = "Or, " + stoLabel + ": " + step.story;
+      parts.push(stoText);
+      sections.push({
+        selector: '[data-wo11e-idx="example-story"]',
+        text: stoText,
+        type: "example"
+      });
     }
 
-    // 4. Spoken navigation guidance
+    // 5. Navigation guidance (pulse buttons)
+    var guidance;
     if (stepIndex >= totalSteps - 1) {
-      // Last step
-      parts.push("Tap Start Interview when you\u2019re ready. Or tap Back if you want to hear that again.");
+      guidance = "Tap Start Interview when you\u2019re ready. Or tap Back if you want to hear that again.";
     } else if (stepIndex === 0) {
-      // First step (no Back)
-      parts.push("Tap Next to continue. Or tap Skip if you\u2019d rather begin the interview now.");
+      guidance = "Tap Next to continue. Or tap Skip if you\u2019d rather begin the interview now.";
     } else {
-      // Middle step
-      parts.push("Tap Next to continue. Tap Back if you want to hear that again. Or Skip to begin your interview.");
+      guidance = "Tap Next to continue. Tap Back if you want to hear that again. Or Skip to begin your interview.";
     }
+    parts.push(guidance);
+    sections.push({
+      selector: null,
+      text: guidance,
+      type: "guidance"
+    });
 
-    return parts.join(" ");
+    return { text: parts.join(" "), sections: sections };
   }
 
+  // ── Read-along highlight sequencer ──────────────────────────────
+
+  /** Remove .wo11e-reading from all trainer elements and .wo11e-btn-pulse from buttons. */
+  function _wo11eClearActiveHighlight() {
+    var root = _el("lv80TrainerPanel");
+    if (!root) return;
+    var active = root.querySelectorAll(".wo11e-reading");
+    for (var i = 0; i < active.length; i++) {
+      active[i].classList.remove("wo11e-reading");
+    }
+    var pulsing = root.querySelectorAll(".wo11e-btn-pulse");
+    for (var j = 0; j < pulsing.length; j++) {
+      pulsing[j].classList.remove("wo11e-btn-pulse");
+    }
+  }
+
+  /** Cancel all pending highlight timers and clear visual state. */
+  function _wo11eCancelHighlights() {
+    for (var i = 0; i < _wo11eHighlightTimers.length; i++) {
+      clearTimeout(_wo11eHighlightTimers[i]);
+    }
+    _wo11eHighlightTimers = [];
+    _wo11eClearActiveHighlight();
+  }
+
+  /** Activate highlight for a section. For guidance sections, pulse buttons instead. */
+  function _wo11eActivateHighlight(section) {
+    var root = _el("lv80TrainerPanel");
+    if (!root) return;
+
+    _wo11eClearActiveHighlight();
+
+    if (section.type === "guidance") {
+      // Pulse all trainer buttons
+      var btns = root.querySelectorAll(".lv80-trainer-btn");
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.add("wo11e-btn-pulse");
+      }
+      return;
+    }
+
+    if (section.selector) {
+      var el = root.querySelector(section.selector);
+      if (el) {
+        el.classList.add("wo11e-reading");
+        // Auto-focus scroll — keep active highlight centered for weak vision
+        try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
+      }
+    }
+  }
+
+  /** Start the highlight sequencer — waits for actual audio playback to begin.
+   *  Registers a callback on window._wo11eTtsPlaybackStarted that drainTts
+   *  fires the instant the first WAV chunk starts playing. No guessing. */
+  function _wo11eStartHighlightSequence(sections) {
+    _wo11eCancelHighlights();
+
+    // Highlight line 1 immediately as a visual cue that narration is coming
+    if (sections.length > 0 && sections[0].selector) {
+      _wo11eActivateHighlight(sections[0]);
+      console.log("[WO-11E-HL] Pre-highlight first section while TTS generates");
+    }
+
+    // Register callback — drainTts fires this when src.start(0) succeeds
+    window._wo11eTtsPlaybackStarted = function () {
+      console.log("[WO-11E-HL] Audio playback started — launching highlight sequence");
+      _wo11eRunSequence(sections);
+    };
+  }
+
+  /** Punctuation-aware duration estimate for a text section.
+   *  Accounts for natural speech pauses at sentence ends and mid-clause breaks.
+   *  Formula: (chars / speed) + (periods * 0.6s) + (commas/dashes * 0.3s) */
+  function _wo11eEstimateDuration(text) {
+    var baseSec = text.length / _WO11E_CHARS_PER_SEC;
+    // Count full-stop punctuation (. ? !)
+    var stops = (text.match(/[.?!]/g) || []).length;
+    // Count mid-clause pauses (, — ; :)
+    var pauses = (text.match(/[,;:\u2014]/g) || []).length;
+    return baseSec + (stops * 0.6) + (pauses * 0.3);
+  }
+
+  /** Run the timed highlight sequence (called when audio actually starts). */
+  function _wo11eRunSequence(sections) {
+    // Clear any pre-highlight
+    _wo11eCancelHighlights();
+
+    var cumTimeMs = 0; // no startup delay — audio is already playing
+
+    sections.forEach(function (sec) {
+      var t = cumTimeMs;
+      var timer = setTimeout(function () {
+        _wo11eActivateHighlight(sec);
+        console.log("[WO-11E-HL] Highlight →", sec.type,
+          sec.selector || "(buttons)", "at", Math.round(t / 100) / 10 + "s");
+      }, t);
+      _wo11eHighlightTimers.push(timer);
+
+      cumTimeMs += (_wo11eEstimateDuration(sec.text || "") + _WO11E_SECTION_GAP) * 1000;
+    });
+
+    // Final timer: clear last highlight after it finishes
+    var finalTimer = setTimeout(function () {
+      _wo11eClearActiveHighlight();
+    }, cumTimeMs);
+    _wo11eHighlightTimers.push(finalTimer);
+
+    console.log("[WO-11E-HL] Highlight sequence running — " +
+      sections.length + " sections, estimated " +
+      Math.round(cumTimeMs / 100) / 10 + "s total");
+  }
+
+  // ── Narration control ──────────────────────────────────────────
+
   /** Start narration for the current trainer step.
-   *  Stops any previous narration, builds text, and calls TTS. */
+   *  Stops any previous narration, builds text, starts TTS + highlight sequencer. */
   function _wo11eNarrateStep() {
     var s = _ensureTrainerState();
     if (!s || !s.active) return;
@@ -299,13 +456,14 @@
     if (!step) return;
 
     var totalSteps = _steps(s.style).length;
-    var narrationText = _wo11eBuildNarrationText(step, s.stepIndex, totalSteps);
+    var narration = _wo11eBuildNarration(step, s.stepIndex, totalSteps);
 
     // Mark as narrating
     s._wo11eNarrating = true;
     s._wo11eStopped = false;
     console.log("[WO-11E] Trainer narration requested — step:", s.stepIndex,
-      "id:", step.id, "textLen:", narrationText.length);
+      "id:", step.id, "textLen:", narration.text.length,
+      "sections:", narration.sections.length);
 
     // Update speaking indicator
     _wo11eShowSpeakingIndicator(true);
@@ -315,12 +473,15 @@
       console.log("[WO-11E] Trainer narration finished — step:", s.stepIndex);
       s._wo11eNarrating = false;
       _wo11eShowSpeakingIndicator(false);
+      _wo11eCancelHighlights(); // Clean up any remaining highlights
     };
 
     // Call TTS (no chat bubble — just audio)
     if (typeof enqueueTts === "function") {
       try {
-        enqueueTts(narrationText);
+        enqueueTts(narration.text);
+        // WO-11E-HL: Start highlight sequencer alongside TTS
+        _wo11eStartHighlightSequence(narration.sections);
         console.log("[WO-11E] Trainer narration started — step:", s.stepIndex);
       } catch (e) {
         console.warn("[WO-11E] TTS unavailable — trainer continues visually", e);
@@ -337,21 +498,23 @@
     }
   }
 
-  /** Stop any in-progress trainer narration. */
+  /** Stop any in-progress trainer narration + highlight sequence. */
   function _wo11eStopNarration() {
     var s = _ensureTrainerState();
     if (s) {
       s._wo11eNarrating = false;
       s._wo11eStopped = true;
     }
-    // Clear the TTS finished callback so it doesn't fire stale
+    // Clear TTS callbacks so they don't fire stale
     window._wo11eTtsFinishedCallback = null;
+    window._wo11eTtsPlaybackStarted = null; // WO-11E-HL: cancel pending sequence launch
     // Stop TTS playback
     if (typeof window._wo11eStopTts === "function") {
       window._wo11eStopTts();
       console.log("[WO-11E] Trainer narration stopped");
     }
     _wo11eShowSpeakingIndicator(false);
+    _wo11eCancelHighlights(); // WO-11E-HL: Cancel read-along highlights
   }
 
   /** Show or hide the "Lori is reading..." indicator in the trainer panel. */
@@ -396,8 +559,9 @@
     var display = _STYLE_DISPLAY[s.style] || _STYLE_DISPLAY.structured;
     var eyebrow = display.name + " \u2014 " + display.sub;
 
-    var loriHtml = step.lori.map(function (line) {
-      return '<div class="lv80-trainer-lori-line">' + _esc(line) + '</div>';
+    // WO-11E-HL: Each lori line gets a data-wo11e-idx for highlight targeting
+    var loriHtml = step.lori.map(function (line, i) {
+      return '<div class="lv80-trainer-lori-line" data-wo11e-idx="lori-' + i + '">' + _esc(line) + '</div>';
     }).join("");
     var totalSteps = _steps(s.style).length;
     var isLastStep = s.stepIndex >= totalSteps - 1;
@@ -410,14 +574,14 @@
         '</div>' +
         '<div class="lv80-trainer-eyebrow">' + _esc(eyebrow) + '</div>' +
         '<div class="lv80-trainer-title">Getting Started with Lori</div>' +
-        '<div class="lv80-trainer-copy">' + loriHtml + '</div>' +
-        '<div class="lv80-trainer-question">' + _esc(step.question) + '</div>' +
+        '<div class="lv80-trainer-copy" data-wo11e-idx="lori-block">' + loriHtml + '</div>' +
+        '<div class="lv80-trainer-question" data-wo11e-idx="question">' + _esc(step.question) + '</div>' +
         '<div class="lv80-trainer-examples">' +
-          '<div class="lv80-trainer-example-card">' +
+          '<div class="lv80-trainer-example-card" data-wo11e-idx="example-simple">' +
             '<div class="lv80-trainer-example-label">' + _esc(step.simpleLabel) + '</div>' +
             '<div class="lv80-trainer-example-text">' + _esc(step.simple) + '</div>' +
           '</div>' +
-          '<div class="lv80-trainer-example-card">' +
+          '<div class="lv80-trainer-example-card" data-wo11e-idx="example-story">' +
             '<div class="lv80-trainer-example-label">' + _esc(step.storyLabel) + '</div>' +
             '<div class="lv80-trainer-example-text">' + _esc(step.story) + '</div>' +
           '</div>' +

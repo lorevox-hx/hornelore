@@ -1539,25 +1539,25 @@
       border-color: rgba(148,163,184,0.28);
       color: #94a3b8;
     }
-    /* WO-11E: Trainer speaking indicator */
+    /* WO-11E: Trainer speaking indicator — amber to match read-along */
     .lv80-trainer-speaking {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 12px;
-      color: #818cf8;
+      font-size: 13px;
+      color: #ffc107;
       padding: 6px 12px;
       margin-bottom: 10px;
-      background: rgba(99,102,241,0.08);
+      background: rgba(255,193,7,0.08);
       border-radius: 8px;
-      border: 1px solid rgba(99,102,241,0.15);
+      border: 1px solid rgba(255,193,7,0.18);
     }
     .lv80-trainer-speaking-dot {
       display: inline-block;
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #818cf8;
+      background: #ffc107;
       animation: wo11eSpeakingPulse 1.2s ease-in-out infinite;
     }
     @keyframes wo11eSpeakingPulse {
@@ -1569,6 +1569,48 @@
       margin-left: auto;
       font-size: 12px;
       padding: 6px 12px;
+    }
+
+    /* WO-11E-HL: Read-along highlighting for trainer narration.
+       Each section gets .wo11e-reading when Lori is reading it.
+       Amber color scheme — high contrast, gentle on aging eyes. */
+    .lv80-trainer-copy,
+    .lv80-trainer-question,
+    .lv80-trainer-example-card {
+      transition: all 0.2s ease;
+      border-radius: 8px;
+      border-left: 4px solid transparent;
+    }
+    .lv80-trainer-copy {
+      padding-left: 10px;
+      margin-left: -10px;
+    }
+    .lv80-trainer-question {
+      padding: 6px 10px;
+      margin: 0 -10px 14px;
+    }
+    /* Active reading highlight — high-contrast amber for weak vision */
+    .wo11e-reading {
+      background: rgba(255,193,7,0.15) !important;
+      border-left-color: #ffc107 !important;
+      padding-left: 10px !important;
+      font-weight: 500 !important;
+      text-shadow: 0.5px 0.5px 0px rgba(0,0,0,0.1) !important;
+    }
+    /* Example cards: amber border + subtle warmth */
+    .lv80-trainer-example-card.wo11e-reading {
+      background: rgba(255,193,7,0.10) !important;
+      border-color: rgba(255,193,7,0.45) !important;
+      box-shadow: 0 0 14px rgba(255,193,7,0.08), -3px 0 0 0 #ffc107 !important;
+    }
+    /* WO-11E-HL: Button pulse — amber glow, infinite while guidance plays */
+    @keyframes wo11eBtnPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,193,7,0); }
+      50% { box-shadow: 0 0 15px rgba(255,193,7,0.6); }
+    }
+    .lv80-trainer-btn.wo11e-btn-pulse {
+      animation: wo11eBtnPulse 1.5s ease-in-out infinite;
+      border-color: rgba(255,193,7,0.5) !important;
     }
     .lv80-narrator-group-title {
       font-size: 12px;
@@ -4138,6 +4180,10 @@ function lv80RenderNarratorCards(){
 }
 
 function lv80ToggleNarratorSwitcher(){
+  // WO-11E: Block switcher during trainer mode — card is cosmetic only
+  try {
+    if (state.trainerNarrators && state.trainerNarrators.active) return;
+  } catch (_) {}
   const pop = document.getElementById("lv80NarratorSwitcher");
   if (!pop) return;
   lv80RenderNarratorCards();
@@ -4268,6 +4314,9 @@ async function lv80RunTrainerNarrator(style) {
     _wo11UpdateHeaderForTrainer(canonical);
 
     const meta = await lv80LoadTrainerTemplate(canonical);
+    // WO-11E fix: Preserve canonical style — template _trainerStyle is for
+    // template-level defaults, but the user's chosen style must take priority.
+    meta.style = canonical;
 
     window.LorevoxTrainerNarrators.reset();
     window.LorevoxTrainerNarrators.start(meta);
@@ -4299,7 +4348,7 @@ function _wo11UpdateHeaderForTrainer(style) {
           '<div class="lv80-active-narrator-subtitle">' + _d.sub + '</div>' +
         '</div>' +
       '</div>';
-    console.log("[WO-11][trainer] Header updated for:", displayName);
+    console.log("[WO-11][trainer] Header updated for:", style, "→", _d.sub);
   } catch (e) {
     console.warn("[WO-11] header update failed", e);
   }
