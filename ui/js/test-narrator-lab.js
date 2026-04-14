@@ -10,12 +10,19 @@
 (() => {
   "use strict";
 
+  // WO-QA-01: Hornelore's UI server on 8082 is a plain static file server —
+  // it does NOT proxy /api/* to the FastAPI backend. Use the same ORIGIN
+  // constant api.js uses, which points at http://localhost:8000 by default.
+  const _origin = (typeof ORIGIN !== "undefined" && ORIGIN)
+    ? ORIGIN
+    : (window.LOREVOX_API || "http://localhost:8000");
+
   const API = {
-    run:     "/api/test-lab/run",
-    status:  "/api/test-lab/status",
-    results: "/api/test-lab/results",
-    result:  (id) => `/api/test-lab/results/${encodeURIComponent(id)}`,
-    reset:   "/api/test-lab/reset",
+    run:     _origin + "/api/test-lab/run",
+    status:  _origin + "/api/test-lab/status",
+    results: _origin + "/api/test-lab/results",
+    result:  (id) => `${_origin}/api/test-lab/results/${encodeURIComponent(id)}`,
+    reset:   _origin + "/api/test-lab/reset",
   };
 
   async function jget(url) {
