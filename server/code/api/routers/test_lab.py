@@ -10,12 +10,16 @@ Endpoints:
   GET  /api/test-lab/results       — list prior run_ids
   GET  /api/test-lab/results/{id}  — scores / metrics / transcripts / compare / summary
   POST /api/test-lab/reset         — reset status.json to idle
+  GET  /api/test-lab/gpu           — one-shot GPU stats (nvidia-smi)
+  GET  /api/test-lab/system        — consolidated GPU + CPU + RAM snapshot
+  GET  /api/test-lab/log-tail      — last N lines of runner.log
 """
 from __future__ import annotations
 
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -180,6 +184,7 @@ async def get_result(run_id: str) -> Dict[str, Any]:
         "transcripts": load("transcripts.json"),
         "compare": load("compare.json"),
         "configs": load("configs.json"),
+        "hardware_summary": load("hardware_summary.json"),
     }
 
 
@@ -227,6 +232,84 @@ async def gpu_stats() -> Dict[str, Any]:
         }
     except ValueError as exc:
         return {"ok": False, "error": f"parse failed: {exc}"}
+
+
+# ── CPU / RAM sampling (/proc-based, zero-dependency) ────────────
+_CPU_PREV: Dict[str, int] = {"total": 0, "idle": 0}
+
+
+def _read_cpu_stat() -> Dict[str, int]:
+    """Read aggregate /proc/stat 'cpu' line and return {total, idle}."""
+    try:
+        with open("/proc/stat") as f:
+            line = f.readline()
+        fields = line.split()
+        # fields[0] == 'cpu' ; following are user nice system idle iowait irq softirq steal ...
+        nums = [int(x) for x in fields[1:8]]
+        idle = nums[3] + (nums[4] if len(nums) > 4 else 0)  # idle + iowait
+        total = sum(nums)
+        return {"total": total, "idle": idle}
+    except Exception:
+        return {"total": 0, "idle": 0}
+
+
+def _cpu_util_pct() -> float:
+    """Return CPU utilization % since the previous sample.
+
+    First call returns 0.0 (no baseline yet). Subsequent calls use
+    the delta against the last sample. Stateless from caller's POV.
+    """
+    global _CPU_PREV
+    now = _read_cpu_stat()
+    prev = _CPU_PREV
+    _CPU_PREV = now
+    if prev["total"] == 0:
+        return 0.0
+    d_total = now["total"] - prev["total"]
+    d_idle = now["idle"] - prev["idle"]
+    if d_total <= 0:
+        return 0.0
+    return round(100.0 * (d_total - d_idle) / d_total, 1)
+
+
+def _ram_info() -> Dict[str, int]:
+    """Return RAM stats in MiB from /proc/meminfo."""
+    try:
+        info: Dict[str, int] = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split(":")
+                if len(parts) != 2:
+                    continue
+                k = parts[0].strip()
+                v = parts[1].strip().split()
+                if v and v[0].isdigit():
+                    info[k] = int(v[0])  # kB
+        total_mib = info.get("MemTotal", 0) // 1024
+        avail_mib = info.get("MemAvailable", 0) // 1024
+        used_mib = max(0, total_mib - avail_mib)
+        return {
+            "used_mib": used_mib,
+            "total_mib": total_mib,
+            "avail_mib": avail_mib,
+        }
+    except Exception:
+        return {"used_mib": 0, "total_mib": 0, "avail_mib": 0}
+
+
+@router.get("/system")
+async def system_snapshot() -> Dict[str, Any]:
+    """Consolidated hardware snapshot: GPU + CPU + RAM. One call for the UI."""
+    gpu = await gpu_stats()
+    cpu_util = _cpu_util_pct()
+    ram = _ram_info()
+    return {
+        "ok": True,
+        "ts": time.time(),
+        "gpu": gpu if gpu.get("ok") else {"ok": False, "error": gpu.get("error")},
+        "cpu": {"util_pct": cpu_util},
+        "ram": ram,
+    }
 
 
 @router.get("/log-tail")

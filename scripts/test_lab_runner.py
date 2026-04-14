@@ -340,6 +340,144 @@ def tts_drift_placeholder(_text: str) -> tuple[None, None]:
     return None, None
 
 
+# ── Hardware sampler (background, no external deps) ──────────────
+class HardwareSampler:
+    """Background async task that samples GPU/CPU/RAM every interval seconds.
+
+    Writes raw samples to self.samples; computes a summary on stop().
+    Self-contained: reads /proc directly + shells nvidia-smi, no API calls.
+    """
+
+    def __init__(self, interval_sec: float = 5.0):
+        self.interval_sec = interval_sec
+        self.samples: list[dict[str, Any]] = []
+        self._task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+        self._cpu_prev = self._read_cpu_stat()
+
+    def _read_cpu_stat(self) -> tuple[int, int]:
+        try:
+            with open("/proc/stat") as f:
+                fields = f.readline().split()
+            nums = [int(x) for x in fields[1:8]]
+            idle = nums[3] + (nums[4] if len(nums) > 4 else 0)
+            total = sum(nums)
+            return total, idle
+        except Exception:
+            return 0, 0
+
+    def _cpu_util_pct(self) -> float:
+        now = self._read_cpu_stat()
+        prev = self._cpu_prev
+        self._cpu_prev = now
+        if prev[0] == 0:
+            return 0.0
+        d_total = now[0] - prev[0]
+        d_idle = now[1] - prev[1]
+        if d_total <= 0:
+            return 0.0
+        return round(100.0 * (d_total - d_idle) / d_total, 1)
+
+    def _ram_used_mib(self) -> tuple[int, int]:
+        try:
+            info: dict[str, int] = {}
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) != 2:
+                        continue
+                    v = parts[1].strip().split()
+                    if v and v[0].isdigit():
+                        info[parts[0].strip()] = int(v[0])
+            total = info.get("MemTotal", 0) // 1024
+            avail = info.get("MemAvailable", 0) // 1024
+            return max(0, total - avail), total
+        except Exception:
+            return 0, 0
+
+    def _gpu_snapshot(self) -> dict[str, Any]:
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+                    "--format=csv,noheader,nounits",
+                ],
+                text=True, timeout=4,
+            ).strip().splitlines()[0]
+            parts = [p.strip() for p in out.split(",")]
+            return {
+                "util_pct": int(parts[0]),
+                "vram_used_mib": int(parts[1]),
+                "vram_total_mib": int(parts[2]),
+                "temp_c": int(parts[3]),
+                "power_w": float(parts[4]),
+            }
+        except Exception:
+            return {"util_pct": None, "vram_used_mib": None, "vram_total_mib": None,
+                    "temp_c": None, "power_w": None}
+
+    async def _loop(self) -> None:
+        # Prime CPU baseline
+        await asyncio.sleep(0.1)
+        self._cpu_prev = self._read_cpu_stat()
+        while not self._stop.is_set():
+            sample = {
+                "ts": time.time(),
+                "cpu_util_pct": self._cpu_util_pct(),
+                "gpu": self._gpu_snapshot(),
+            }
+            ram_used, ram_total = self._ram_used_mib()
+            sample["ram_used_mib"] = ram_used
+            sample["ram_total_mib"] = ram_total
+            self.samples.append(sample)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.interval_sec)
+            except asyncio.TimeoutError:
+                pass
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._task:
+            try:
+                await asyncio.wait_for(self._task, timeout=5)
+            except asyncio.TimeoutError:
+                self._task.cancel()
+
+    def summary(self) -> dict[str, Any]:
+        if not self.samples:
+            return {"sample_count": 0, "interval_sec": self.interval_sec}
+
+        def _vals(getter):
+            return [v for v in (getter(s) for s in self.samples) if v is not None]
+
+        gpu_utils = _vals(lambda s: s["gpu"].get("util_pct"))
+        gpu_temps = _vals(lambda s: s["gpu"].get("temp_c"))
+        gpu_vrams = _vals(lambda s: s["gpu"].get("vram_used_mib"))
+        cpu_utils = _vals(lambda s: s.get("cpu_util_pct"))
+        ram_useds = _vals(lambda s: s.get("ram_used_mib"))
+
+        def _avg(xs): return round(statistics.mean(xs), 1) if xs else None
+        def _max(xs): return max(xs) if xs else None
+
+        return {
+            "sample_count": len(self.samples),
+            "interval_sec": self.interval_sec,
+            "duration_sec": round(self.samples[-1]["ts"] - self.samples[0]["ts"], 1),
+            "gpu_util_avg":  _avg(gpu_utils),
+            "gpu_util_peak": _max(gpu_utils),
+            "vram_peak_mib": _max(gpu_vrams),
+            "gpu_temp_peak": _max(gpu_temps),
+            "cpu_util_avg":  _avg(cpu_utils),
+            "cpu_util_peak": _max(cpu_utils),
+            "ram_peak_mib":  _max(ram_useds),
+        }
+
+
 # ── WebSocket turn ─────────────────────────────────────────────────
 async def recv_json_with_timeout(ws) -> dict[str, Any]:
     raw = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT_SECONDS)
@@ -687,6 +825,11 @@ async def main() -> None:
         )
         return
 
+    # Hardware time-series sampling — runs concurrently with the matrix
+    sampler = HardwareSampler(interval_sec=5.0)
+    sampler.start()
+    print("[hardware] sampler started @ 5s interval")
+
     metrics: list[MetricRow] = []
     transcripts: list[dict[str, Any]] = []
 
@@ -832,6 +975,19 @@ async def main() -> None:
                 tts_drift_ms=None,
             ))
 
+    # Stop hardware sampler and write timeseries + summary
+    await sampler.stop()
+    hw_summary = sampler.summary()
+    (run_root / "hardware_timeseries.json").write_text(
+        json.dumps(sampler.samples, indent=2),
+        encoding="utf-8",
+    )
+    (run_root / "hardware_summary.json").write_text(
+        json.dumps(hw_summary, indent=2),
+        encoding="utf-8",
+    )
+    print(f"[hardware] {hw_summary.get('sample_count', 0)} samples captured")
+
     # Write artifacts
     (run_root / "metrics.json").write_text(
         json.dumps([asdict(m) for m in metrics], indent=2),
@@ -889,6 +1045,18 @@ async def main() -> None:
                 f"ttft Δ={row['ttft_delta_ms']}, "
                 f"contamination={row['contamination_delta']}"
             )
+
+    # Hardware summary block — surfaces bottleneck info alongside scores
+    if hw_summary.get("sample_count", 0) > 0:
+        lines.extend(["", "## Hardware summary", ""])
+        lines.append(f"- Samples: {hw_summary['sample_count']} @ {hw_summary['interval_sec']}s "
+                     f"({hw_summary.get('duration_sec', '?')}s total)")
+        lines.append(f"- GPU util: avg {hw_summary['gpu_util_avg']}% / peak {hw_summary['gpu_util_peak']}%")
+        lines.append(f"- VRAM peak: {hw_summary['vram_peak_mib']} MiB")
+        lines.append(f"- CPU util: avg {hw_summary['cpu_util_avg']}% / peak {hw_summary['cpu_util_peak']}%")
+        lines.append(f"- RAM peak used: {hw_summary['ram_peak_mib']} MiB")
+        lines.append(f"- GPU temp peak: {hw_summary['gpu_temp_peak']}°C")
+
     (run_root / "summary.md").write_text("\n".join(lines), encoding="utf-8")
 
     print(f"\n[WO-QA-01] complete → {run_root}")

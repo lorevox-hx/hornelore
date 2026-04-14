@@ -24,6 +24,7 @@
     result:  (id) => `${_origin}/api/test-lab/results/${encodeURIComponent(id)}`,
     reset:   _origin + "/api/test-lab/reset",
     gpu:     _origin + "/api/test-lab/gpu",
+    system:  _origin + "/api/test-lab/system",
     logTail: _origin + "/api/test-lab/log-tail?lines=40",
   };
 
@@ -163,17 +164,32 @@
     catch (e) { renderStatus({ state: `error: ${e.message}` }); }
   }
 
-  /* ── Live console: GPU + log tail, every 2s ───────────────── */
-  function renderGpu(g) {
-    const el = byId("testLabGpuLine");
-    if (!el) return;
-    if (!g || g.ok === false) {
-      el.textContent = `GPU: ${g?.error || "unavailable"}`;
+  /* ── Live console: GPU + CPU + RAM + log tail, every 2s ───── */
+  function renderSystem(s) {
+    const elGpu = byId("testLabGpuLine");
+    const elCpu = byId("testLabCpuLine");
+    if (!s || s.ok === false) {
+      if (elGpu) elGpu.textContent = `GPU: ${s?.error || "unavailable"}`;
+      if (elCpu) elCpu.textContent = "CPU/RAM: unavailable";
       return;
     }
-    el.textContent =
-      `GPU ${g.util_pct}%   VRAM ${g.vram_used_mib}/${g.vram_total_mib} MiB   ` +
-      `${g.temp_c}°C   ${g.power_w}W`;
+    const g = s.gpu || {};
+    if (elGpu) {
+      if (g.ok === false) {
+        elGpu.textContent = `GPU: ${g.error || "unavailable"}`;
+      } else {
+        elGpu.textContent =
+          `GPU ${g.util_pct}%   VRAM ${g.vram_used_mib}/${g.vram_total_mib} MiB   ` +
+          `${g.temp_c}°C   ${g.power_w}W`;
+      }
+    }
+    const cpu = s.cpu || {};
+    const ram = s.ram || {};
+    if (elCpu) {
+      elCpu.textContent =
+        `CPU ${cpu.util_pct ?? "?"}%   ` +
+        `RAM ${ram.used_mib ?? "?"}/${ram.total_mib ?? "?"} MiB`;
+    }
   }
 
   function renderLogTail(data) {
@@ -188,8 +204,26 @@
     el.scrollTop = el.scrollHeight;  // auto-scroll to bottom
   }
 
+  function renderHardwareSummary(summary) {
+    const el = byId("testLabHwSummary");
+    if (!el) return;
+    if (!summary) {
+      el.textContent = "(no hardware timeseries for this run)";
+      return;
+    }
+    const lines = [
+      `Samples: ${summary.sample_count ?? "?"} @ ${summary.interval_sec ?? "?"}s`,
+      `GPU util:  avg ${summary.gpu_util_avg ?? "?"}%   peak ${summary.gpu_util_peak ?? "?"}%`,
+      `VRAM:      peak ${summary.vram_peak_mib ?? "?"} MiB`,
+      `CPU util:  avg ${summary.cpu_util_avg ?? "?"}%   peak ${summary.cpu_util_peak ?? "?"}%`,
+      `RAM used:  peak ${summary.ram_peak_mib ?? "?"} MiB`,
+      `GPU temp:  peak ${summary.gpu_temp_peak ?? "?"}°C`,
+    ];
+    el.textContent = lines.join("\n");
+  }
+
   async function refreshLive() {
-    try { renderGpu(await jget(API.gpu)); } catch (e) { renderGpu({ok:false,error:e.message}); }
+    try { renderSystem(await jget(API.system)); } catch (e) { renderSystem({ok:false,error:e.message}); }
     try { renderLogTail(await jget(API.logTail)); } catch (e) { renderLogTail({ok:false,error:e.message}); }
   }
 
@@ -208,6 +242,7 @@
     renderSummary(data.summary);
     renderTranscripts(data.transcripts);
     renderConfigs(data.configs);
+    renderHardwareSummary(data.hardware_summary);
     setText("testLabLoadedRun", `Loaded run: ${runId}`);
   }
 
