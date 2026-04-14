@@ -513,8 +513,14 @@ _DATE_YEAR = re.compile(
 
 # Place patterns — v8.0 FIX: handle "grew up right there in Dartford", "lived in X"
 # FIX: Added \b word boundaries to stop-words so "I" doesn't match inside "Island", etc.
+# WO-EX-01: drop "lived" — it's residence semantics, not birth-place.
+# Live example that triggered this fix: in School Years, narrator says
+# "we lived in West Fargo in a trailer court" and the rules extractor
+# slotted West Fargo into personal.placeOfBirth, contradicting his
+# already-promoted Williston, North Dakota. "born/raised/grew up" still
+# correlate with birth place strongly enough to keep; "lived" is too general.
 _PLACE_BORN = re.compile(
-    r'\b(?:born|raised|grew up|lived)\s+(?:\w+\s+)*?(?:in|at|near)\s+'
+    r'\b(?:born|raised|grew up)\s+(?:\w+\s+)*?(?:in|at|near)\s+'
     r'([A-Z][a-zA-Z\s,]+?)'
     r'(?:\.|,?\s+(?:(?:and|my|I|we|the|where|when)\b|\d))',
     re.IGNORECASE
@@ -578,27 +584,53 @@ _PARENT_OCCUPATION = re.compile(
 )
 
 
+# WO-EX-01: birth-context era guard. When the interview has moved past the
+# early-childhood / personal-identity range, the rules extractor must NOT
+# fire birth-place / date-of-birth patterns. Live example: in School Years
+# the narrator says "we lived in West Fargo when I was in kindergarten" —
+# the regex (even after the "lived" drop) could still match more permissive
+# phrasings like "I grew up in West Fargo." Era awareness blocks those out.
+# None is included so older callers that don't pass current_section default
+# to permissive (current behavior preserved).
+_BIRTH_CONTEXT_SECTIONS = {
+    "early_childhood",
+    "earliest_memories",
+    "personal",
+    None,
+}
+
+
+def _is_birth_context(current_section: Optional[str]) -> bool:
+    """True when current interview section is within birth-identity territory."""
+    if current_section is None:
+        return True  # backward compat — no section info means don't filter
+    return current_section.lower() in _BIRTH_CONTEXT_SECTIONS
+
+
 def _extract_via_rules(answer: str, current_section: Optional[str], current_target: Optional[str]) -> List[dict]:
     """Fallback: regex-based extraction when LLM is unavailable."""
     items = []
+    in_birth_context = _is_birth_context(current_section)
 
     # Full name
     m = _NAME_FULL.search(answer)
     if m:
         items.append({"fieldPath": "personal.fullName", "value": m.group(1).strip(), "confidence": 0.85})
 
-    # Date of birth
-    m = _DATE_FULL.search(answer)
-    if m:
-        items.append({"fieldPath": "personal.dateOfBirth", "value": m.group(0).split("born")[-1].strip().strip(",. "), "confidence": 0.85})
-    elif _DATE_YEAR.search(answer):
-        m = _DATE_YEAR.search(answer)
-        items.append({"fieldPath": "personal.dateOfBirth", "value": m.group(1), "confidence": 0.7})
+    # Date of birth — only fire when we're plausibly talking about birth
+    if in_birth_context:
+        m = _DATE_FULL.search(answer)
+        if m:
+            items.append({"fieldPath": "personal.dateOfBirth", "value": m.group(0).split("born")[-1].strip().strip(",. "), "confidence": 0.85})
+        elif _DATE_YEAR.search(answer):
+            m = _DATE_YEAR.search(answer)
+            items.append({"fieldPath": "personal.dateOfBirth", "value": m.group(1), "confidence": 0.7})
 
-    # Place of birth
-    m = _PLACE_BORN.search(answer)
-    if m:
-        items.append({"fieldPath": "personal.placeOfBirth", "value": m.group(1).strip().rstrip(","), "confidence": 0.8})
+    # Place of birth — same era guard
+    if in_birth_context:
+        m = _PLACE_BORN.search(answer)
+        if m:
+            items.append({"fieldPath": "personal.placeOfBirth", "value": m.group(1).strip().rstrip(","), "confidence": 0.8})
 
     # Father
     m = _PARENT_FATHER.search(answer)
