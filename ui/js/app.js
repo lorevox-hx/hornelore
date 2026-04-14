@@ -531,6 +531,21 @@ function buildRuntime71() {
        When true, backend shifts to extended silence, invitational prompts,
        single-thread context, no correction, no observation language. */
     cognitive_support_mode: !!(state.session?.cognitiveSupportMode),
+    /* WO-CR-PACK-01 (CR-04) — chronology context for Lori.
+       Lightweight, provenance-aware snapshot of the currently focused
+       year/era slice of the accordion. Null when trainer mode is active,
+       accordion is hidden, or no focus/era context is available.
+
+       Prompt-composer rules (enforced downstream, not here):
+         • personal_items[source=promoted_truth] — may be asserted as fact.
+         • personal_items[source=profile|questionnaire] — soft cue only.
+         • world_items[source=historical_json]  — context only, never
+           rephrased as personal biography.
+         • ghost_items[source=life_stage_template] — question-shaping
+           only, never stated as known history. */
+    chronology_context: (typeof crBuildChronologyContext === "function")
+      ? crBuildChronologyContext()
+      : null,
   };
 }
 

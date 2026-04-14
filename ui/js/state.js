@@ -238,6 +238,10 @@ let state = {
     payload: null,          // cached API response
     loading: false,
     error: null,
+    /* CR-04 Lori awareness — focus set when the user clicks a year/item.
+       Used by the runtime payload builder to compose a narrow
+       chronology_context slice. Cleared on narrator switch. */
+    focus: null,            // { year, era, lane, at } | null
   },
 };
 

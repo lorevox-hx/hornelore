@@ -142,59 +142,101 @@ def filter_world_events(
             "category": ev.get("category", ""),
             "tags": ev.get("tags", []),
             "id": ev.get("id", ""),
+            # CR-04 provenance: world items are context-only; Lori must
+            # never rephrase them as personal biography.
+            "source": "historical_json",
         })
     return items
 
 
 # ─── LANE B: PERSONAL ANCHORS ────────────────────────────────────
-# Strict whitelists — only these exact keys become anchors.  No substring matching.
+# WO-CR-PACK-01 strict authority model.
 #
-# Three sources, precedence highest-to-lowest:
-#   1. Promoted truth (authoritative, reviewed & approved)
-#   2. Profile basics (identity fields captured during onboarding)
-#   3. Interview projection / questionnaire (same key space, used as fallback)
+# Source priority (highest → lowest):
+#   1. profile basics            — dob / pob (identity captured during onboarding)
+#   2. questionnaire fallback    — personal.dateOfBirth / personal.placeOfBirth ONLY
+#   3. promoted truth            — primary for expanded anchors (marriages, jobs,
+#                                  moves, retirement, etc.)
 #
-# Each whitelist maps the exact source key → a short display label.
-# `_value_is_date` controls whether we try to pull a year from the value.
-# Values that don't yield a valid year are dropped silently (never invented).
+# CRITICAL: expansion beyond birth identity comes from PROMOTED TRUTH ONLY.
+# Questionnaire fallback is intentionally restricted to the two canonical birth
+# identity fields so unreviewed answers never leak into the sidebar as verified
+# anchors.
+#
+# Dedup uses compound event-kind keys, not generic field names:
+#   single-occurrence  : birth:self / death:self
+#   multi-occurrence   : marriage:{spouse}:{year} / child:{name}:{year} /
+#                        move:{place}:{year} / work_begin:{employer}:{year} ...
+# This keeps repeatables from colliding while keeping one-per-narrator anchors
+# stable across source layers.
 
-# Promoted-truth field names (family_truth_promoted.field).
-# These are what the extraction + review pipeline produces.  Expand as the
-# pipeline starts promoting more fields — keep this map explicit.
+# ── Promoted-truth field whitelist ───────────────────────────────
+# Keys = family_truth_promoted.field values produced by extraction + review.
+# Spec carries: event_kind (dedup family), label, date (bool), and
+# cardinality ("single" one-per-narrator; "multi" repeatable per narrator).
 _PROMOTED_ANCHOR_FIELDS: Dict[str, Dict[str, Any]] = {
-    "date_of_birth":         {"label": "Born",            "date": True},
-    "place_of_birth":        {"label": "Birthplace",      "date": False},
-    "date_of_marriage":      {"label": "Married",         "date": True},
-    "place_of_marriage":     {"label": "Wedding",         "date": False},
-    "date_of_graduation":    {"label": "Graduated",       "date": True},
-    "date_of_enlistment":    {"label": "Enlisted",        "date": True},
-    "date_of_discharge":     {"label": "Discharged",      "date": True},
-    "date_of_first_job":     {"label": "First job",       "date": True},
-    "date_of_retirement":    {"label": "Retired",         "date": True},
-    "date_of_immigration":   {"label": "Immigrated",      "date": True},
-    "date_of_move":          {"label": "Moved",           "date": True},
-    "date_of_first_child":   {"label": "First child",     "date": True},
-    "date_of_divorce":       {"label": "Divorced",        "date": True},
+    # single-occurrence identity anchors
+    "date_of_birth":           {"event_kind": "birth",       "label": "Born",            "date": True,  "cardinality": "single"},
+    "place_of_birth":          {"event_kind": "birth_place", "label": "Birthplace",      "date": False, "cardinality": "single"},
+    "date_of_death":           {"event_kind": "death",       "label": "Died",            "date": True,  "cardinality": "single"},
+    # education
+    "date_of_graduation":      {"event_kind": "graduation",  "label": "Graduated",       "date": True,  "cardinality": "multi"},
+    # military service
+    "date_of_military_service":{"event_kind": "military",    "label": "Military service","date": True,  "cardinality": "single"},
+    "date_of_enlistment":      {"event_kind": "military",    "label": "Enlisted",        "date": True,  "cardinality": "single"},
+    "date_of_discharge":       {"event_kind": "discharge",   "label": "Discharged",      "date": True,  "cardinality": "single"},
+    # work / career
+    "date_of_first_job":       {"event_kind": "work_begin",  "label": "First job",       "date": True,  "cardinality": "single"},
+    "date_of_retirement":      {"event_kind": "retirement",  "label": "Retired",         "date": True,  "cardinality": "single"},
+    # relationships
+    "date_of_marriage":        {"event_kind": "marriage",    "label": "Married",         "date": True,  "cardinality": "multi"},
+    "date_of_divorce":         {"event_kind": "divorce",     "label": "Divorced",        "date": True,  "cardinality": "multi"},
+    # moves / residence
+    "date_of_move":            {"event_kind": "move",        "label": "Moved",           "date": True,  "cardinality": "multi"},
+    "date_of_immigration":     {"event_kind": "immigration", "label": "Immigrated",      "date": True,  "cardinality": "single"},
+    # children (narrator-as-parent)
+    "date_of_first_child":     {"event_kind": "child",       "label": "First child",     "date": True,  "cardinality": "multi"},
 }
 
-# Profile basics keys (profile_json.basics.<key>).
-# Only dob produces a year anchor today; pob is attached as location context.
+# ── Profile basics whitelist (fallback when promoted is empty) ───
+# basics.dob + basics.pob combine into a single enriched "Born" anchor.
 _PROFILE_ANCHOR_KEYS: Dict[str, Dict[str, Any]] = {
-    "dob": {"label": "Born",       "date": True,  "equiv_field": "date_of_birth"},
-    "pob": {"label": "Birthplace", "date": False, "equiv_field": "place_of_birth"},
+    "dob":          {"event_kind": "birth", "label": "Born",       "date": True,  "cardinality": "single"},
+    "pob":          {"event_kind": "birth", "label": "Birthplace", "date": False, "cardinality": "single"},
+    # dateOfDeath is allowed at basics level only if a trusted basics slot
+    # carries it (not currently populated; wired for forward-compat).
+    "dateOfDeath":  {"event_kind": "death", "label": "Died",       "date": True,  "cardinality": "single"},
 }
 
-# Questionnaire / interview-projection flat keys.
-# Must match the canonical key space used by bio-builder-questionnaire.js
-# and projection-sync.js (verified against live DB 2026-04-14).
+# ── Questionnaire fallback — STRICT identity subset only ─────────
+# CR-02 contract: questionnaire fallback is limited to canonical birth
+# identity fields. Expanded anchors (marriage/child/job/move/etc.) MUST
+# come from promoted truth, not raw questionnaire answers.
 _QUESTIONNAIRE_ANCHOR_KEYS: Dict[str, Dict[str, Any]] = {
-    "personal.dateOfBirth":   {"label": "Born",       "date": True,  "equiv_field": "date_of_birth"},
-    "personal.placeOfBirth":  {"label": "Birthplace", "date": False, "equiv_field": "place_of_birth"},
-    "personal.dateOfDeath":   {"label": "Died",       "date": True,  "equiv_field": "date_of_death"},
-    # Future questionnaire sections — add keys explicitly as they go live.
-    # "education.graduationDate": {"label": "Graduated", "date": True, "equiv_field": "date_of_graduation"},
-    # "marriage.weddingDate":     {"label": "Married",   "date": True, "equiv_field": "date_of_marriage"},
+    "personal.dateOfBirth":   {"event_kind": "birth", "label": "Born",       "date": True,  "cardinality": "single"},
+    "personal.placeOfBirth":  {"event_kind": "birth", "label": "Birthplace", "date": False, "cardinality": "single"},
+    # dateOfDeath accepted only because it's still a canonical identity
+    # field. No other questionnaire keys are promoted to Lane B — that
+    # path is reserved for promoted truth.
+    "personal.dateOfDeath":   {"event_kind": "death", "label": "Died",       "date": True,  "cardinality": "single"},
 }
+
+
+def _dedup_key_single(event_kind: str) -> str:
+    """One-per-narrator anchor (e.g. birth:self, death:self)."""
+    return f"{event_kind}:self"
+
+
+def _dedup_key_multi(event_kind: str, identity: str, year: Optional[int]) -> str:
+    """Repeatable anchor keyed by (kind, identity, year).
+
+    identity is a qualifier like spouse name, child name, place, employer —
+    whatever makes this instance distinct. Unknown identities fall back to
+    the empty string, which still differentiates via year.
+    """
+    ident = (identity or "").strip().lower()
+    yr = str(year) if year is not None else ""
+    return f"{event_kind}:{ident}:{yr}"
 
 
 def _extract_year(value: Any) -> Optional[int]:
@@ -218,6 +260,30 @@ def _extract_year(value: Any) -> Optional[int]:
     return None
 
 
+def _flatten(obj: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    """Flatten nested dict keys so 'personal.dateOfBirth' becomes a top-level lookup."""
+    out: Dict[str, Any] = {}
+    if not isinstance(obj, dict):
+        return out
+    for k, v in obj.items():
+        kp = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            out.update(_flatten(v, kp))
+        else:
+            out[kp] = v
+    return out
+
+
+def _promoted_identity(spec: Dict[str, Any], row: Dict[str, Any]) -> str:
+    """Derive the identity qualifier for a multi-cardinality promoted anchor.
+
+    For marriage / child / move / work_begin / work_end, the subject_name
+    on the promoted row is the natural identity (spouse name, child name,
+    place, employer). For single-cardinality anchors, identity is unused.
+    """
+    return (row.get("subject_name") or "").strip()
+
+
 def project_personal_anchors(
     basics: Dict[str, Any],
     questionnaire: Dict[str, Any],
@@ -226,123 +292,175 @@ def project_personal_anchors(
 ) -> List[Dict[str, Any]]:
     """Extract verified personal anchors — narrator (self) only.
 
-    Precedence: promoted truth > profile basics > questionnaire/projection.
-    Returns ChronologyItem-shaped dicts with lane='personal'.
+    Source order (highest → lowest):
+      1. profile basics          — trusted identity fields (dob, pob)
+      2. questionnaire           — STRICT subset: personal.dateOfBirth /
+                                   placeOfBirth / dateOfDeath only
+      3. promoted truth          — expansion layer (marriage, jobs, moves,
+                                   retirement, etc.) — self-subject only
 
-    Args:
-        basics: profile_json.basics dict ({"dob": "...", "pob": "...", ...})
-        questionnaire: result of db.get_questionnaire(person_id) — {"questionnaire": {...}}
-        promoted_rows: list of family_truth_promoted rows (list of dicts)
-        narrator_display_name: used to filter promoted rows to self-subject only
+    Dedup: compound event-kind keys
+      single-occurrence : "{event_kind}:self"                — one per narrator
+      multi-occurrence  : "{event_kind}:{identity}:{year}"   — per instance
+
+    Returns ChronologyItem-shaped dicts with lane='personal' and a
+    provenance tag source in {"profile","questionnaire","promoted_truth"}.
     """
     items: List[Dict[str, Any]] = []
-    seen_equiv_fields: set = set()
+    seen_dedup: set = set()
+    # Track whether the single "birth" anchor has been claimed (prevents
+    # double-counting birth across profile/questionnaire/promoted layers).
+    birth_claimed = False
 
-    # Helper: dedupe on equivalent field id (so promoted date_of_birth beats
-    # profile dob beats questionnaire personal.dateOfBirth)
-    def _already_seen(field_id: str) -> bool:
-        return field_id in seen_equiv_fields
+    def _claim(dedup_key: str) -> bool:
+        """Claim a dedup slot. Returns True if newly claimed, False if already taken."""
+        if dedup_key in seen_dedup:
+            return False
+        seen_dedup.add(dedup_key)
+        return True
 
-    def _remember(field_id: str) -> None:
-        seen_equiv_fields.add(field_id)
-
-    # ── 1. Promoted truth (highest authority) ────────────────────
-    # Only accept rows where the subject is the narrator themselves.
+    # Normalize inputs
+    basics = basics or {}
+    dob = str(basics.get("dob") or "").strip()
+    pob = str(basics.get("pob") or "").strip()
     name_lower = (narrator_display_name or "").strip().lower()
-    for row in promoted_rows:
-        field = (row.get("field") or "").strip()
-        spec = _PROMOTED_ANCHOR_FIELDS.get(field)
-        if not spec:
-            continue
 
-        # Self-filter: skip rows about other subjects (spouse, parent, etc.)
-        subject = (row.get("subject_name") or "").strip().lower()
-        relationship = (row.get("relationship") or "").strip().lower()
-        if relationship and relationship not in ("self", "narrator", ""):
-            continue
-        if subject and name_lower and subject != name_lower:
-            continue
-
-        if _already_seen(field):
-            continue
-
-        value = (row.get("value") or "").strip()
-        if not value:
-            continue
-
-        if spec["date"]:
-            yr = _extract_year(value)
-            if yr is None:
-                continue
-            label = f"{spec['label']}: {value}"
-        else:
-            # Non-date promoted anchor — skip for now since accordion is year-indexed.
-            # (place_of_birth will be shown as context on the date_of_birth anchor instead.)
-            continue
-
-        _remember(field)
-        items.append({
-            "year": yr,
-            "label": label,
-            "lane": "personal",
-            "field": field,
-            "source": "promoted_truth",
-        })
-
-    # ── 2. Profile basics (identity captured during onboarding) ─
-    # Build a single enriched "Born" anchor that combines dob + pob when available.
-    dob = str(basics.get("dob") or "").strip() if basics else ""
-    pob = str(basics.get("pob") or "").strip() if basics else ""
-    if dob and not _already_seen("date_of_birth"):
+    # ── 1. Profile basics (identity captured during onboarding) ─
+    # Enriched "Born" anchor combining dob + pob when both are present.
+    if dob:
         yr = _extract_year(dob)
         if yr is not None:
-            label = f"Born: {dob}" if not pob else f"Born in {pob} — {dob}"
-            _remember("date_of_birth")
-            _remember("place_of_birth")
-            items.append({
-                "year": yr,
-                "label": label,
-                "lane": "personal",
-                "field": "date_of_birth",
-                "source": "profile",
-            })
+            key = _dedup_key_single("birth")
+            if _claim(key):
+                if pob:
+                    label = f"Born — {pob}"
+                else:
+                    label = "Born"
+                items.append({
+                    "year": yr,
+                    "label": label,
+                    "lane": "personal",
+                    "event_kind": "birth",
+                    "dedup_key": key,
+                    "source": "profile",
+                })
+                birth_claimed = True
 
-    # ── 3. Questionnaire / interview projection (fallback) ──────
+    # Profile-level dateOfDeath (forward-compat slot — not populated today).
+    dod_basics = str(basics.get("dateOfDeath") or "").strip()
+    if dod_basics:
+        yr = _extract_year(dod_basics)
+        if yr is not None:
+            key = _dedup_key_single("death")
+            if _claim(key):
+                items.append({
+                    "year": yr,
+                    "label": "Died",
+                    "lane": "personal",
+                    "event_kind": "death",
+                    "dedup_key": key,
+                    "source": "profile",
+                })
+
+    # ── 2. Questionnaire fallback (strict identity subset) ──────
     q_obj = questionnaire.get("questionnaire", {}) if questionnaire else {}
-
-    # Flatten nested section.* keys so "personal.dateOfBirth" can be looked up.
-    def _flatten(obj: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
-        if not isinstance(obj, dict):
-            return out
-        for k, v in obj.items():
-            kp = f"{prefix}.{k}" if prefix else k
-            if isinstance(v, dict):
-                out.update(_flatten(v, kp))
-            else:
-                out[kp] = v
-        return out
-
     flat = _flatten(q_obj)
     for q_key, spec in _QUESTIONNAIRE_ANCHOR_KEYS.items():
-        equiv = spec.get("equiv_field") or q_key
-        if _already_seen(equiv):
-            continue
+        if not spec["date"]:
+            continue  # place-only keys don't produce year-indexed anchors
         val = flat.get(q_key)
         if val is None or str(val).strip() == "":
-            continue
-        if not spec["date"]:
             continue
         yr = _extract_year(val)
         if yr is None:
             continue
-        _remember(equiv)
+        event_kind = spec["event_kind"]
+        key = _dedup_key_single(event_kind)
+        if not _claim(key):
+            continue  # already claimed by profile (or earlier questionnaire key)
+
+        # If we're filling in the "Born" slot from questionnaire, try to
+        # attach a place hint from flat["personal.placeOfBirth"] so the
+        # label still reads "Born — {pob}".
+        if event_kind == "birth":
+            q_pob = str(flat.get("personal.placeOfBirth") or "").strip()
+            label = f"Born — {q_pob}" if q_pob else "Born"
+        else:
+            label = spec["label"]
+
         items.append({
             "year": yr,
-            "label": f"{spec['label']}: {val}",
+            "label": label,
             "lane": "personal",
-            "field": equiv,
+            "event_kind": event_kind,
+            "dedup_key": key,
             "source": "questionnaire",
+        })
+
+    # ── 3. Promoted truth (expansion layer) ─────────────────────
+    # Self-filter: only accept rows where subject is the narrator.
+    # Non-date promoted rows are skipped (year-indexed accordion).
+    for row in promoted_rows or []:
+        field = (row.get("field") or "").strip()
+        spec = _PROMOTED_ANCHOR_FIELDS.get(field)
+        if not spec:
+            continue
+        if not spec["date"]:
+            # place_of_birth etc. — not an anchor on its own; handled via
+            # enriched birth label when both dob and pob are available.
+            continue
+
+        subject = (row.get("subject_name") or "").strip().lower()
+        relationship = (row.get("relationship") or "").strip().lower()
+        cardinality = spec.get("cardinality", "single")
+
+        # Narrator-self filter. `relationship` is the authoritative signal:
+        # anything flagged spouse/parent/child/friend belongs to a different
+        # subject's timeline, not the narrator's.
+        if relationship and relationship not in ("self", "narrator", ""):
+            continue
+
+        # subject_name self-check applies ONLY to single-cardinality events
+        # (birth, death, retirement, first_job, immigration, etc.) where
+        # subject_name should be the narrator. For multi-cardinality events
+        # (marriage, child, move, work_begin, divorce, graduation),
+        # subject_name is the event identity qualifier (spouse name, child
+        # name, place, employer) — not a different-person marker.
+        if cardinality == "single":
+            if subject and name_lower and subject != name_lower:
+                continue
+
+        value = (row.get("value") or "").strip()
+        if not value:
+            continue
+        yr = _extract_year(value)
+        if yr is None:
+            continue
+
+        event_kind = spec["event_kind"]
+
+        if cardinality == "single":
+            key = _dedup_key_single(event_kind)
+            label = spec["label"]
+        else:
+            identity = _promoted_identity(spec, row)
+            key = _dedup_key_multi(event_kind, identity, yr)
+            # Enrich label with identity qualifier when present.
+            if identity:
+                label = f"{spec['label']} — {identity}"
+            else:
+                label = spec["label"]
+
+        if not _claim(key):
+            continue
+
+        items.append({
+            "year": yr,
+            "label": label,
+            "lane": "personal",
+            "event_kind": event_kind,
+            "dedup_key": key,
+            "source": "promoted_truth",
         })
 
     return items
@@ -399,6 +517,9 @@ def build_band_ghosts(
             "label": _GHOST_TEMPLATES[label],
             "lane": "ghost",
             "era": label,
+            # CR-04 provenance: ghost items shape question style only;
+            # never asserted as known history about the narrator.
+            "source": "life_stage_template",
         })
 
     return items
@@ -441,16 +562,25 @@ def group_by_decade(
             decade_map[decade][yr] = []
         decade_map[decade][yr].append(item)
 
-    # Build sorted output
+    # Build sorted output.
+    # CR-01B: Within each year, enforce lane priority so personal anchors
+    # always appear above ghost prompts, and both above world context.
+    # Without this sort, items render in Lane A+B+C concat order, which
+    # pushes the narrator's own anchors below Cold War trivia.
+    _LANE_PRIORITY = {"personal": 0, "ghost": 1, "world": 2}
     result = []
     for decade in sorted(decade_map.keys()):
         year_groups = []
         for yr in sorted(decade_map[decade].keys()):
             era = year_to_era(yr, periods)
+            items_sorted = sorted(
+                decade_map[decade][yr],
+                key=lambda x: _LANE_PRIORITY.get(x.get("lane"), 9),
+            )
             year_groups.append({
                 "year": yr,
                 "era": era,
-                "items": decade_map[decade][yr],
+                "items": items_sorted,
             })
         result.append({
             "decade": decade,

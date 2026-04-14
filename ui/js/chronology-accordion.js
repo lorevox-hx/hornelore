@@ -123,7 +123,12 @@ function crRenderAccordion(data) {
         ? `<span class="cr-era-tag">${_crPrettyEra(yearGroup.era)}</span>`
         : "";
 
-      html += `<div class="cr-year${yrOpen ? " cr-open" : ""}" data-year="${yrKey}">`;
+      // CR-03 active-era emphasis: mark the year container when its era
+      // matches the currently selected interview era.
+      const currentEra = _crCurrentEra();
+      const isActiveEra = !!(yearGroup.era && currentEra && yearGroup.era === currentEra);
+
+      html += `<div class="cr-year${yrOpen ? " cr-open" : ""}${isActiveEra ? " cr-active-era" : ""}" data-year="${yrKey}">`;
       html += `<div class="cr-year-header" onclick="crToggleYear('${decadeKey}','${yrKey}')">`;
       html += `<span class="cr-year-caret">▸</span>`;
       html += `<span>${yrKey}</span>${eraTag}`;
@@ -132,10 +137,15 @@ function crRenderAccordion(data) {
 
       for (const item of yearGroup.items) {
         const lane = item.lane || "world";
-        const clickAttr = (lane === "personal" || lane === "ghost")
-          ? ` onclick="crJumpToEra('${yearGroup.era || ""}')" `
-          : "";
-        html += `<div class="cr-event" data-lane="${lane}"${clickAttr}>`;
+        // Provenance → CSS hook (promoted_truth renders stronger)
+        const src  = item.source || "";
+        // CR-04: all lanes become clickable so Lori can use year as focus cue.
+        // Personal and ghost still drive era navigation; world items now
+        // also set focus without asserting era shift.
+        const clickAttr = ` onclick="crOnItemClick('${yearGroup.year}','${yearGroup.era || ""}','${lane}',event)" `;
+        const srcAttr = src ? ` data-source="${_crAttr(src)}"` : "";
+        const kindAttr = item.event_kind ? ` data-kind="${_crAttr(item.event_kind)}"` : "";
+        html += `<div class="cr-event" data-lane="${lane}"${srcAttr}${kindAttr}${clickAttr}>`;
         html += _crEscapeHtml(item.label);
         html += `</div>`;
       }
@@ -191,6 +201,61 @@ function crJumpToEra(eraLabel) {
   console.log("[WO-CR-01] Navigation bridge → era:", eraLabel);
 }
 
+/* ── CR-04: Item click — track focus + optionally shift era ──
+   Sets state.chronologyAccordion.focus = {year, era, lane} so the
+   runtime payload builder can attach a chronology_context slice
+   to the next turn. Only personal/ghost clicks trigger era navigation;
+   world items update focus silently so they remain contextual-only. */
+function crOnItemClick(year, era, lane, ev) {
+  try {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+  } catch (_) {}
+
+  const y = parseInt(year, 10) || null;
+  state.chronologyAccordion.focus = {
+    year: y,
+    era: era || null,
+    lane: lane || null,
+    at:   Date.now(),
+  };
+
+  // Visually mark the focused item (scoped to accordion body)
+  try {
+    const body = _crBody();
+    if (body) {
+      body.querySelectorAll(".cr-event.cr-focused").forEach(el => el.classList.remove("cr-focused"));
+      if (ev && ev.currentTarget) ev.currentTarget.classList.add("cr-focused");
+    }
+  } catch (_) {}
+
+  // Personal / ghost click → era navigation (existing bridge).
+  // World click → focus update only (no era shift).
+  if ((lane === "personal" || lane === "ghost") && era) {
+    crJumpToEra(era);
+  }
+
+  console.log("[WO-CR-PACK-01] focus:", state.chronologyAccordion.focus);
+}
+
+/* ── Return the currently selected interview era, best-effort.  ─
+   Used for active-era visual emphasis in the accordion. */
+function _crCurrentEra() {
+  try {
+    if (typeof getCurrentEra === "function") {
+      const e = getCurrentEra();
+      if (e) return e;
+    }
+    return state?.session?.currentEra || null;
+  } catch (_) { return null; }
+}
+
+/* ── Safe attribute escaper (small subset; not HTML content) ── */
+function _crAttr(s) {
+  return String(s || "").replace(/[<>"'&]/g, c => ({
+    "<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","&":"&amp;"
+  }[c]));
+}
+
 /* ── Utilities ──────────────────────────────────────────────── */
 function _crPrettyEra(label) {
   if (!label) return "";
@@ -205,6 +270,101 @@ function _crEscapeHtml(text) {
   return d.innerHTML;
 }
 
+/* ── CR-04: Build lightweight chronology_context slice ────────
+   Returns a compact, provenance-aware snapshot for the runtime
+   payload. NEVER returns the full accordion. Trainer mode and
+   absent payloads both yield null (Lori gets no context).
+
+   Priority:
+     1. explicit focus (user clicked year/item) — narrow, per-year
+     2. current era                             — wide, era-bounded
+     3. nothing                                 — null
+
+   Guardrails (enforced by the runtime contract, not this function):
+     - personal items carry source: profile | questionnaire |
+       promoted_truth — only promoted_truth is assert-grade.
+     - world items carry source: historical_json (context only).
+     - ghost items carry source: life_stage_template (prompt shaping).
+   ─────────────────────────────────────────────────────────────── */
+function crBuildChronologyContext() {
+  try {
+    // Trainer mode: suppress entirely
+    if (state.trainerNarrators && state.trainerNarrators.active) return null;
+
+    const cs = state.chronologyAccordion;
+    if (!cs || !cs.visible) return null;
+
+    const payload = cs.payload;
+    if (!payload || !payload.decades || payload.decades.length === 0) return null;
+
+    const focus = cs.focus || null;
+    const focusYear = focus && Number.isFinite(focus.year) ? focus.year : null;
+
+    // Determine era scope: explicit focus era → current era → null
+    const focusEra = (focus && focus.era) || _crCurrentEra() || null;
+
+    // Hard caps to keep the block small (never ship the whole accordion)
+    const MAX_WORLD = 3;
+    const MAX_GHOST = 2;
+    const MAX_PERSONAL = 3;
+
+    const personal_items = [];
+    const world_items = [];
+    const ghost_items = [];
+
+    // Walk decades → years. Only gather from the focused year (when
+    // present) or from years matching the focused era.
+    for (const decade of payload.decades) {
+      for (const yr of decade.years || []) {
+        const matchYear = focusYear ? (yr.year === focusYear) : false;
+        const matchEra  = focusEra  ? (yr.era === focusEra)  : false;
+        if (!matchYear && !matchEra) continue;
+
+        for (const it of yr.items || []) {
+          if (it.lane === "personal" && personal_items.length < MAX_PERSONAL) {
+            personal_items.push({
+              label:   String(it.label || ""),
+              year:    yr.year,
+              source:  String(it.source || "profile"),
+              event_kind: it.event_kind || null,
+            });
+          } else if (it.lane === "world" && world_items.length < MAX_WORLD) {
+            world_items.push({
+              label:   String(it.label || ""),
+              year:    yr.year,
+              source:  "historical_json",
+            });
+          } else if (it.lane === "ghost" && ghost_items.length < MAX_GHOST) {
+            ghost_items.push({
+              label:   String(it.label || ""),
+              year:    yr.year,
+              source:  "life_stage_template",
+            });
+          }
+        }
+      }
+    }
+
+    // If we have nothing to say, return null so Lori isn't nudged
+    // by an empty chronology block.
+    if (!personal_items.length && !world_items.length && !ghost_items.length) {
+      return null;
+    }
+
+    return {
+      visible: true,
+      focus_year: focusYear,
+      focus_era:  focusEra,
+      personal_items,
+      world_items,
+      ghost_items,
+    };
+  } catch (err) {
+    console.warn("[WO-CR-PACK-01] crBuildChronologyContext failed:", err);
+    return null;
+  }
+}
+
 /* ── Init: load accordion on narrator switch ────────────────── */
 async function crInitAccordion() {
   if (crCheckTrainerIsolation()) return;
@@ -213,6 +373,11 @@ async function crInitAccordion() {
   if (!pid) {
     crHideAccordion();
     return;
+  }
+
+  // CR-04: clear any stale focus from the previous narrator
+  if (state.chronologyAccordion) {
+    state.chronologyAccordion.focus = null;
   }
 
   const data = await crFetchAccordion(pid);
@@ -242,3 +407,5 @@ window.crToggleExpand = crToggleExpand;
 window.crToggleDecade = crToggleDecade;
 window.crToggleYear = crToggleYear;
 window.crJumpToEra = crJumpToEra;
+window.crOnItemClick = crOnItemClick;
+window.crBuildChronologyContext = crBuildChronologyContext;
