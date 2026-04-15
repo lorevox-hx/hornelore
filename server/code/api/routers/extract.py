@@ -40,6 +40,12 @@ class ExtractFieldsRequest(BaseModel):
     current_section: Optional[str] = None
     current_target_path: Optional[str] = None
     profile_context: Optional[Dict[str, Any]] = None
+    # WO-LIFE-SPINE-04: optional phase hint from the life spine. When
+    # provided, the birth-context era guard uses this for decisions
+    # instead of string-matching current_section. Valid values match
+    # life_spine.school.school_phase_for_year output:
+    # "pre_school" | "elementary" | "middle" | "high_school" | "post_school"
+    current_phase: Optional[str] = None
 
 
 class ExtractedItem(BaseModel):
@@ -608,8 +614,27 @@ _BIRTH_FIELD_PATHS = {
 }
 
 
-def _is_birth_context(current_section: Optional[str]) -> bool:
-    """True when current interview section is within birth-identity territory."""
+def _is_birth_context(
+    current_section: Optional[str],
+    current_phase: Optional[str] = None,
+) -> bool:
+    """True when the narrator is plausibly discussing birth-era memories.
+
+    WO-LIFE-SPINE-04: `current_phase` (from the life spine) takes priority
+    when supplied. Phase values come from life_spine.school.school_phase_for_year
+    and are grounded in real age math instead of string-matching a section
+    name. Falls back to the original `current_section` check when phase is
+    absent, preserving all existing behavior for callers that don't supply it.
+    """
+    if current_phase is not None:
+        # Lazy import to keep extract.py importable without the spine
+        # package available (e.g. unit tests that stub out the world).
+        try:
+            from ..life_spine import is_birth_relevant_phase
+            return is_birth_relevant_phase(current_phase)
+        except Exception:
+            # Spine unavailable — fall through to section-based logic
+            pass
     if current_section is None:
         return True  # backward compat — no section info means don't filter
     return current_section.lower() in _BIRTH_CONTEXT_SECTIONS
@@ -633,8 +658,10 @@ def _apply_birth_context_filter(
     items: List[dict],
     current_section: Optional[str],
     answer: str,
+    current_phase: Optional[str] = None,
 ) -> List[dict]:
-    """WO-EX-01B: strip birth-related LLM extractions outside birth context.
+    """WO-EX-01B / WO-LIFE-SPINE-04: strip birth-related LLM extractions
+    outside birth context.
 
     Applied to llm_items BEFORE they become ExtractedItem instances. Rules
     path has its own equivalent guard baked into _extract_via_rules. Together
@@ -644,8 +671,11 @@ def _apply_birth_context_filter(
     "born" — which catches legitimate volunteer statements like "I was born
     in X" while dropping the residence-during-life false positives that
     motivated this WO.
+
+    current_phase (WO-LIFE-SPINE-04) takes priority over current_section
+    when provided — grounded in real age math from the life spine.
     """
-    if _is_birth_context(current_section):
+    if _is_birth_context(current_section, current_phase):
         return items  # birth era — no filtering needed
     if _answer_has_explicit_birth_phrase(answer):
         return items  # "born" present — narrator is plausibly discussing birth
@@ -654,9 +684,9 @@ def _apply_birth_context_filter(
     if dropped:
         try:
             logger.info(
-                "[extract][WO-EX-01B] stripping %d birth-field item(s) outside birth context "
-                "(section=%s): %s",
-                len(dropped), current_section,
+                "[extract][WO-LIFE-SPINE-04] stripping %d birth-field item(s) outside birth context "
+                "(section=%s, phase=%s): %s",
+                len(dropped), current_section, current_phase,
                 [(it.get("fieldPath"), it.get("value")) for it in dropped],
             )
         except Exception:
@@ -664,10 +694,20 @@ def _apply_birth_context_filter(
     return [it for it in items if it.get("fieldPath") not in _BIRTH_FIELD_PATHS]
 
 
-def _extract_via_rules(answer: str, current_section: Optional[str], current_target: Optional[str]) -> List[dict]:
-    """Fallback: regex-based extraction when LLM is unavailable."""
+def _extract_via_rules(
+    answer: str,
+    current_section: Optional[str],
+    current_target: Optional[str],
+    current_phase: Optional[str] = None,
+) -> List[dict]:
+    """Fallback: regex-based extraction when LLM is unavailable.
+
+    WO-LIFE-SPINE-04: current_phase (from life spine) now takes priority
+    over current_section for the birth-context guard. Falls back to
+    section-based logic when phase is absent.
+    """
     items = []
-    in_birth_context = _is_birth_context(current_section)
+    in_birth_context = _is_birth_context(current_section, current_phase)
 
     # Full name
     m = _NAME_FULL.search(answer)
@@ -915,14 +955,19 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_target=req.current_target_path,
     )
 
-    # WO-EX-01B: apply the same birth-context era guard to LLM output that
-    # the rules path already uses. The LLM semantically conflates residence
-    # statements ("we lived in X") with birth-place — this filter catches
-    # that at the endpoint boundary so both extraction paths behave
-    # consistently on era context.
+    # WO-EX-01B / WO-LIFE-SPINE-04: apply the birth-context era guard to
+    # LLM output. The LLM semantically conflates residence statements
+    # ("we lived in X") with birth-place — this filter catches that at the
+    # endpoint boundary so both extraction paths behave consistently on
+    # era context. current_phase (from life spine) takes priority over
+    # current_section when provided — phase-based decisions are grounded
+    # in real age math instead of string matching.
     if llm_items:
         llm_items = _apply_birth_context_filter(
-            llm_items, req.current_section, answer,
+            llm_items,
+            req.current_section,
+            answer,
+            current_phase=req.current_phase,
         )
 
     # WO: Summary line — log outcome at endpoint level
@@ -991,6 +1036,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         answer=answer,
         current_section=req.current_section,
         current_target=req.current_target_path,
+        current_phase=req.current_phase,
     )
 
     if rules_items:

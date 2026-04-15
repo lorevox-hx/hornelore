@@ -18,5 +18,10 @@ it in engine.py's CATALOGS dict. The accordion + extractor consume the
 spine generically.
 """
 from .engine import derive_life_spine
+from .school import is_birth_relevant_phase, school_phase_for_year
 
-__all__ = ["derive_life_spine"]
+__all__ = [
+    "derive_life_spine",
+    "school_phase_for_year",
+    "is_birth_relevant_phase",
+]

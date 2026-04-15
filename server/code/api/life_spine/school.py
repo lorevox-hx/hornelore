@@ -18,7 +18,7 @@ HS grad 1981 — matches reality).
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 def _coerce_dob(dob: Union[str, date, datetime]) -> date:
@@ -138,3 +138,24 @@ def school_phase_for_year(dob: Union[str, date, datetime], year: int) -> str | N
     if year <= k_start + 13:
         return "high_school"
     return "post_school"
+
+
+# Phases within which "we lived in X" / "I was raised in X" could plausibly
+# refer to the birthplace. Extractor uses this to gate birth-field
+# extraction. "pre_school" is the only phase within which a generic
+# residence statement is likely to be birth-relevant. Everything after
+# elementary is out of birth-era territory.
+_BIRTH_RELEVANT_PHASES = frozenset({"pre_school"})
+
+
+def is_birth_relevant_phase(phase: Optional[str]) -> bool:
+    """Return True when the phase is one where birth-place extractions
+    from generic residence statements ('lived in X') should be allowed.
+
+    Outside these phases, birth-field extractions are filtered out unless
+    the narrator's answer explicitly contains the word 'born'. See the
+    WO-EX-01B filter in extract.py.
+    """
+    if phase is None:
+        return True  # backward compat — no phase info = don't filter
+    return phase in _BIRTH_RELEVANT_PHASES

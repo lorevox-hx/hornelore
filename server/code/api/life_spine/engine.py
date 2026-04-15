@@ -20,7 +20,11 @@ from .family import derive_family_spine
 from .later_life import derive_later_life_spine
 from .midlife import derive_midlife_spine
 from .overrides import apply_overrides
-from .school import derive_school_spine, school_phase_for_year
+from .school import (
+    derive_school_spine,
+    is_birth_relevant_phase,
+    school_phase_for_year,
+)
 
 
 # Catalog signature: either takes (dob) or (dob, facts). Flagged in the
@@ -87,4 +91,8 @@ def derive_life_spine(
 
 # Re-export for callers that want the phase-for-year helper without
 # importing school.py directly. Convenient for the prompt composer.
-__all__ = ["derive_life_spine", "school_phase_for_year"]
+__all__ = [
+    "derive_life_spine",
+    "school_phase_for_year",
+    "is_birth_relevant_phase",
+]
