@@ -658,7 +658,14 @@ def build_chronology_accordion_payload(
         for item in lane_b
         if item.get("event_kind") and item.get("year") is not None
     ]
-    spine_items = derive_life_spine(dob, confirmed_events=confirmed_for_spine)
+    # Pass the full profile to the spine so the family catalog can read
+    # children. Other catalogs ignore facts. basics-only or full-profile
+    # shapes are both accepted by the family catalog's _collect_children.
+    spine_items = derive_life_spine(
+        dob,
+        confirmed_events=confirmed_for_spine,
+        facts=profile if isinstance(profile, dict) else basics,
+    )
     # Drop spine items whose event_kind already exists in Lane B (dedup).
     existing_kinds = {it.get("event_kind") for it in lane_b if it.get("event_kind")}
     spine_items = [it for it in spine_items if it.get("event_kind") not in existing_kinds]
