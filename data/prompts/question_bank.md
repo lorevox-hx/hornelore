@@ -1,25 +1,20 @@
-# Phase-Aware Question Bank — Review Copy (v2)
+# Phase-Aware Question Bank — Review Copy (v3)
 
-*Rendered from `data/prompts/question_bank.json` (version 2). Read-through for voice/quality before flipping `HORNELORE_PHASE_AWARE_QUESTIONS=1`. Edits you mark here get applied to the JSON source.*
+*Rendered from `data/prompts/question_bank.json` (version 3). Read-through for voice/quality before flipping `HORNELORE_PHASE_AWARE_QUESTIONS=1`. Edits you mark here get applied to the JSON source.*
 
-## What changed from v1
+## What changed from v2 → v3
 
-- v2 — Full voice pass across all openers (sensory anchors, de-stacked 'and'
--      questions, one-at-a-time framing). Three pushback fixes applied:
--      (1) 'close your eyes' stage direction removed from earliest_memory,
--      (2) branch-specific 'yellow footprints' removed from post_education,
--      (3) partnership_midlife reworked to include the divorce/shift case.
+- v3 — Deterministic anchor tightening pass.
+-      Added a dedicated age-18 civic-entry sub-topic for first-adult paperwork
+-      and civic threshold memories (voting, Selective Service if applicable,
+-      other adulthood markers).
+-      Tightened launch prompts to explicitly pull graduation month/year and
+-      immediate post-graduation residence.
+-      Tightened autonomy follow-ups to pull age/year for first legal/financial
+-      milestones.
+-      Corrected retirement anchor from Social Security timing to the actual
+-      work-exit / off-ramp event.
 
--      Ten new sub-topics added to cover narrative dimensions missing from v1:
--        Phase 1: family_stories_and_lore, childhood_pets,
--                 childhood_fears_and_comforts, family_rituals_and_holidays
--        Phase 2: first_car_and_possessions
--        Phase 3: siblings_as_adults
--        Phase 4: pets_and_vehicles_family_years, holidays_and_traditions_built
--        Phase 5: objects_that_hold_meaning, present_fears_and_hopes
-
--      Total: 35 sub-topics (from 25), ~140 openers (from 99),
--      ~105 follow-ups (from 75). Spine anchors unchanged.
 
 ---
 
@@ -222,12 +217,13 @@
 **Voice notes:**
 - Narrator begins to be the subject of their own decisions — invite agency framing.
 - Emotional stakes rise; some memories may be guarded. Pace matters.
-- Legal milestones (license, first job, graduation) are anchors for dating other memories.
+- Legal milestones (license, first job, graduation, civic threshold) are anchors for dating other memories.
 
 **Gating questions (operator, yes/no):**
 - Did you change schools during your teenage years?
 - Did you have a job before you finished high school?
 - Did you get a driver's license as a teenager?
+- Do you remember voting, registering for Selective Service if it applied to you, or handling some other first adult paperwork around eighteen?
 
 ---
 
@@ -249,7 +245,7 @@
 ---
 
 ## 2.2 Autonomy milestones — license, first job, first money
-**Intent:** Pin concrete legal/financial firsts. The driver's license is a spine anchor at age 16.
+**Intent:** Pin concrete legal and financial firsts with age/year anchors. The driver's license is a spine anchor at age 16.
 **Spine anchor:** `civic_drivers_license_age`
 **Extract priority:** `education.earlyCareer`, `residence.period`
 
@@ -260,13 +256,31 @@
 4. Was there a first vehicle or bike of your own before you graduated high school?
 
 **Follow-ups:**
+- How old were you, and what year was it?
 - Where did you take the driving test?
 - What was the name of the place that first employed you?
-- Did that first job teach you something you still carry?
 
 ---
 
-## 2.3 Family dynamics in the teenage years
+## 2.3 Civic entry at eighteen
+**Intent:** Capture the first formal threshold of adulthood — voting, Selective Service if applicable, or other official adult paperwork — with date context.
+**Spine anchor:** `civic_majority_age`
+**Extract priority:** `laterYears.significantEvent`, `education.earlyCareer`
+
+**Questions:**
+1. When you turned eighteen, what was the first thing that made adulthood feel official?
+2. Do you remember registering to vote, registering for Selective Service if that applied to you, or handling some other first adult paperwork around that time?
+3. Was there a moment around eighteen when you realized the law now saw you differently than it had at sixteen?
+4. What did civic adulthood look like in your world at eighteen — paperwork, responsibility, a draft board, a polling place, something else?
+
+**Follow-ups:**
+- How old were you exactly, and what year was it?
+- Where did that happen — a school, a courthouse, a post office, another office?
+- Did it feel routine to you then, or did it feel significant?
+
+---
+
+## 2.4 Family dynamics in the teenage years
 **Intent:** Capture relationships with parents and siblings during the independence push.
 **Extract priority:** `parents.notableLifeEvents`, `siblings.uniqueCharacteristics`
 
@@ -283,7 +297,7 @@
 
 ---
 
-## 2.4 Adolescent friendships
+## 2.5 Adolescent friendships
 **Intent:** Identify the people who mattered during the formative teenage years.
 **Extract priority:** `hobbies.hobbies`
 
@@ -300,25 +314,25 @@
 
 ---
 
-## 2.5 The launch — graduation and what came next
-**Intent:** Anchor HS graduation year and the first post-graduation decision.
+## 2.6 The launch — graduation and what came next
+**Intent:** Anchor high-school graduation month/year, the first post-graduation decision, and the immediate next residence.
 **Spine anchor:** `school_graduation`
 **Extract priority:** `education.higherEducation`, `education.earlyCareer`, `residence.place`
 
 **Questions:**
-1. Once the high school graduation ceremony was over, what was the very first 'adult' decision you had to make?
-2. Do you remember your graduation day — who was sitting in the audience for you?
-3. What did you think you would do with your life when you walked out of high school?
-4. Was there a moment that summer when you realized childhood was actually over?
+1. Once the high school graduation ceremony was over, what was the very first adult decision you had to make?
+2. What month and year did you graduate from high school?
+3. Where did you live right after graduation — that first place after childhood was officially over?
+4. Do you remember your graduation day itself — who was there, and what did you think was coming next?
 
 **Follow-ups:**
-- Did you go on to college, the military, a job, or something else?
-- Where did you live right after graduation?
+- Did you go on to college, the military, a job, or something else first?
 - Who did you spend that first summer with?
+- What was the first move you made after the ceremony — even if it was only temporary?
 
 ---
 
-## 2.6 First car and early possessions
+## 2.7 First car and early possessions
 **Intent:** Capture the vehicle or object that gave the narrator their first real independence.
 **Extract priority:** `hobbies.hobbies`, `residence.place`
 
@@ -613,18 +627,18 @@
 ---
 
 ## 5.1 The off-ramp — retirement
-**Intent:** Anchor the last day of professional work and the early days of retirement.
-**Spine anchor:** `civic_social_security_early`
+**Intent:** Anchor the last day of professional work, the first month of retirement, and the immediate shift in daily life.
+**Spine anchor:** `retirement_off_ramp`
 **Extract priority:** `laterYears.retirement`
 
 **Questions:**
 1. Can you describe the feeling of walking out of your workplace on your very last day?
-2. Was there a ceremony or a lunch, or did you just quietly close the door on that part of your life?
-3. What did you think retirement would feel like, and what did it actually feel like?
-4. What did you start doing in retirement that you'd never done before?
+2. What date or at least what month and year was that last day of work?
+3. In the first thirty days after you retired, what did your days actually look like?
+4. Was there a ceremony or a lunch, or did you just quietly close the door on that part of your life?
 
 **Follow-ups:**
-- Did you miss the work?
+- Did you miss the work right away, or did that come later?
 - What did you finally have time for?
 - Did your daily rhythm change all at once, or slowly?
 
@@ -734,12 +748,4 @@
 
 # Review notes
 
-When you find a question to change, mark it here or in the JSON directly. Common patterns to watch for:
-
-- **Stacked questions** — any question with 'and' splitting two asks (fix: pick one, move the other to follow-ups).
-- **Leading** — 'wasn't that…' / 'don't you think…' (fix: open-ended reframing).
-- **Generic** — 'tell me about your childhood' (fix: pin to specific anchor — an address, a date, a specific object).
-- **Presumes** — asks about spouse when narrator may never have married (fix: conditional phrasing, or move behind a gating question).
-- **Wrong voice for Horne family** — anything that sounds like a therapist or journalist instead of a memoirist.
-
-When you're ready, say the word and I'll apply your edits and bump `_version` to 3.
+When you find a question to change, mark it here or in the JSON directly.

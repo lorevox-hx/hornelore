@@ -1,7 +1,18 @@
 {
   "_wo": "WO-LIFE-SPINE-05 — Phase-aware question bank (authored content)",
-  "_version": 2,
+  "_version": 3,
   "_changelog": [
+    "v3 — Deterministic anchor tightening pass.",
+    "     Added a dedicated age-18 civic-entry sub-topic for first-adult paperwork",
+    "     and civic threshold memories (voting, Selective Service if applicable,",
+    "     other adulthood markers).",
+    "     Tightened launch prompts to explicitly pull graduation month/year and",
+    "     immediate post-graduation residence.",
+    "     Tightened autonomy follow-ups to pull age/year for first legal/financial",
+    "     milestones.",
+    "     Corrected retirement anchor from Social Security timing to the actual",
+    "     work-exit / off-ramp event.",
+    "",
     "v2 — Full voice pass across all openers (sensory anchors, de-stacked 'and'",
     "     questions, one-at-a-time framing). Three pushback fixes applied:",
     "     (1) 'close your eyes' stage direction removed from earliest_memory,",
@@ -288,12 +299,13 @@
       "voice_notes": [
         "Narrator begins to be the subject of their own decisions — invite agency framing.",
         "Emotional stakes rise; some memories may be guarded. Pace matters.",
-        "Legal milestones (license, first job, graduation) are anchors for dating other memories."
+        "Legal milestones (license, first job, graduation, civic threshold) are anchors for dating other memories."
       ],
       "gating_questions": [
         "Did you change schools during your teenage years?",
         "Did you have a job before you finished high school?",
-        "Did you get a driver's license as a teenager?"
+        "Did you get a driver's license as a teenager?",
+        "Do you remember voting, registering for Selective Service if it applied to you, or handling some other first adult paperwork around eighteen?"
       ],
       "sub_topics": {
         "pivot_point": {
@@ -318,7 +330,7 @@
         },
         "autonomy_milestones": {
           "label": "Autonomy milestones — license, first job, first money",
-          "intent": "Pin concrete legal/financial firsts. The driver's license is a spine anchor at age 16.",
+          "intent": "Pin concrete legal and financial firsts with age/year anchors. The driver's license is a spine anchor at age 16.",
           "spine_anchor": "civic_drivers_license_age",
           "extract_priority": [
             "education.earlyCareer",
@@ -331,9 +343,29 @@
             "Was there a first vehicle or bike of your own before you graduated high school?"
           ],
           "follow_ups": [
+            "How old were you, and what year was it?",
             "Where did you take the driving test?",
-            "What was the name of the place that first employed you?",
-            "Did that first job teach you something you still carry?"
+            "What was the name of the place that first employed you?"
+          ]
+        },
+        "civic_entry_age_18": {
+          "label": "Civic entry at eighteen",
+          "intent": "Capture the first formal threshold of adulthood — voting, Selective Service if applicable, or other official adult paperwork — with date context.",
+          "spine_anchor": "civic_majority_age",
+          "extract_priority": [
+            "laterYears.significantEvent",
+            "education.earlyCareer"
+          ],
+          "questions": [
+            "When you turned eighteen, what was the first thing that made adulthood feel official?",
+            "Do you remember registering to vote, registering for Selective Service if that applied to you, or handling some other first adult paperwork around that time?",
+            "Was there a moment around eighteen when you realized the law now saw you differently than it had at sixteen?",
+            "What did civic adulthood look like in your world at eighteen — paperwork, responsibility, a draft board, a polling place, something else?"
+          ],
+          "follow_ups": [
+            "How old were you exactly, and what year was it?",
+            "Where did that happen — a school, a courthouse, a post office, another office?",
+            "Did it feel routine to you then, or did it feel significant?"
           ]
         },
         "family_dynamics_teen": {
@@ -375,7 +407,7 @@
         },
         "the_launch": {
           "label": "The launch — graduation and what came next",
-          "intent": "Anchor HS graduation year and the first post-graduation decision.",
+          "intent": "Anchor high-school graduation month/year, the first post-graduation decision, and the immediate next residence.",
           "spine_anchor": "school_graduation",
           "extract_priority": [
             "education.higherEducation",
@@ -383,15 +415,15 @@
             "residence.place"
           ],
           "questions": [
-            "Once the high school graduation ceremony was over, what was the very first 'adult' decision you had to make?",
-            "Do you remember your graduation day — who was sitting in the audience for you?",
-            "What did you think you would do with your life when you walked out of high school?",
-            "Was there a moment that summer when you realized childhood was actually over?"
+            "Once the high school graduation ceremony was over, what was the very first adult decision you had to make?",
+            "What month and year did you graduate from high school?",
+            "Where did you live right after graduation — that first place after childhood was officially over?",
+            "Do you remember your graduation day itself — who was there, and what did you think was coming next?"
           ],
           "follow_ups": [
-            "Did you go on to college, the military, a job, or something else?",
-            "Where did you live right after graduation?",
-            "Who did you spend that first summer with?"
+            "Did you go on to college, the military, a job, or something else first?",
+            "Who did you spend that first summer with?",
+            "What was the first move you made after the ceremony — even if it was only temporary?"
           ]
         },
         "first_car_and_possessions": {
@@ -731,19 +763,19 @@
       "sub_topics": {
         "the_off_ramp": {
           "label": "The off-ramp — retirement",
-          "intent": "Anchor the last day of professional work and the early days of retirement.",
-          "spine_anchor": "civic_social_security_early",
+          "intent": "Anchor the last day of professional work, the first month of retirement, and the immediate shift in daily life.",
+          "spine_anchor": "retirement_off_ramp",
           "extract_priority": [
             "laterYears.retirement"
           ],
           "questions": [
             "Can you describe the feeling of walking out of your workplace on your very last day?",
-            "Was there a ceremony or a lunch, or did you just quietly close the door on that part of your life?",
-            "What did you think retirement would feel like, and what did it actually feel like?",
-            "What did you start doing in retirement that you'd never done before?"
+            "What date or at least what month and year was that last day of work?",
+            "In the first thirty days after you retired, what did your days actually look like?",
+            "Was there a ceremony or a lunch, or did you just quietly close the door on that part of your life?"
           ],
           "follow_ups": [
-            "Did you miss the work?",
+            "Did you miss the work right away, or did that come later?",
             "What did you finally have time for?",
             "Did your daily rhythm change all at once, or slowly?"
           ]
