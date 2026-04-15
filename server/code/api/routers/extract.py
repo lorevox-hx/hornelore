@@ -599,12 +599,69 @@ _BIRTH_CONTEXT_SECTIONS = {
     None,
 }
 
+# Fields the era guard filters. The LLM may confidently produce these from
+# residence-during-life statements ("we lived in X"); outside birth context
+# those are false positives unless the narrator explicitly uses "born".
+_BIRTH_FIELD_PATHS = {
+    "personal.placeOfBirth",
+    "personal.dateOfBirth",
+}
+
 
 def _is_birth_context(current_section: Optional[str]) -> bool:
     """True when current interview section is within birth-identity territory."""
     if current_section is None:
         return True  # backward compat — no section info means don't filter
     return current_section.lower() in _BIRTH_CONTEXT_SECTIONS
+
+
+def _answer_has_explicit_birth_phrase(answer: str) -> bool:
+    """True iff the raw answer unambiguously uses the word 'born' as a birth marker.
+
+    Lets statements like "I was born in Williston" surface a placeOfBirth
+    candidate even in School Years section, while blocking "we lived in X"
+    or "grew up in X" from proposing placeOfBirth outside birth context.
+    """
+    if not answer:
+        return False
+    # Require "born" as a whole word. Intentionally conservative —
+    # "newborn", "born-again", etc. are excluded to keep the guard sharp.
+    return bool(re.search(r"\bborn\b", answer, re.IGNORECASE))
+
+
+def _apply_birth_context_filter(
+    items: List[dict],
+    current_section: Optional[str],
+    answer: str,
+) -> List[dict]:
+    """WO-EX-01B: strip birth-related LLM extractions outside birth context.
+
+    Applied to llm_items BEFORE they become ExtractedItem instances. Rules
+    path has its own equivalent guard baked into _extract_via_rules. Together
+    both extraction paths behave consistently on the era guard.
+
+    Allowed outside birth context IFF the answer explicitly uses the word
+    "born" — which catches legitimate volunteer statements like "I was born
+    in X" while dropping the residence-during-life false positives that
+    motivated this WO.
+    """
+    if _is_birth_context(current_section):
+        return items  # birth era — no filtering needed
+    if _answer_has_explicit_birth_phrase(answer):
+        return items  # "born" present — narrator is plausibly discussing birth
+    # Outside birth context AND no explicit "born" → strip birth-field items
+    dropped = [it for it in items if it.get("fieldPath") in _BIRTH_FIELD_PATHS]
+    if dropped:
+        try:
+            logger.info(
+                "[extract][WO-EX-01B] stripping %d birth-field item(s) outside birth context "
+                "(section=%s): %s",
+                len(dropped), current_section,
+                [(it.get("fieldPath"), it.get("value")) for it in dropped],
+            )
+        except Exception:
+            pass
+    return [it for it in items if it.get("fieldPath") not in _BIRTH_FIELD_PATHS]
 
 
 def _extract_via_rules(answer: str, current_section: Optional[str], current_target: Optional[str]) -> List[dict]:
@@ -857,6 +914,16 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_section=req.current_section,
         current_target=req.current_target_path,
     )
+
+    # WO-EX-01B: apply the same birth-context era guard to LLM output that
+    # the rules path already uses. The LLM semantically conflates residence
+    # statements ("we lived in X") with birth-place — this filter catches
+    # that at the endpoint boundary so both extraction paths behave
+    # consistently on era context.
+    if llm_items:
+        llm_items = _apply_birth_context_filter(
+            llm_items, req.current_section, answer,
+        )
 
     # WO: Summary line — log outcome at endpoint level
     _accepted = len(llm_items) if llm_items else 0
