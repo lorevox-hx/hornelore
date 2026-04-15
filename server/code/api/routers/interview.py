@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import db
+from .. import db, flags
 from ..db import save_section_summary, get_interview_progress
 from ..archive import (
     ensure_session as archive_ensure_session,
@@ -110,6 +110,79 @@ def _qout(row: Optional[dict]) -> Optional[QuestionOut]:
     )
 
 
+# ── WO-LIFE-SPINE-05: phase-aware question override ─────────────────────────
+# When HORNELORE_PHASE_AWARE_QUESTIONS is on AND the narrator has a DOB,
+# substitute a question from data/prompts/question_bank.json instead of
+# the next sequential DB row. Falls back transparently to sequential when:
+#   - flag is off
+#   - bank file missing or malformed
+#   - narrator DOB missing
+#   - no unasked phase-appropriate questions remain
+# Asked-key tracking uses the session's question_id history — questions
+# previously asked via the bank carry an "qb:..." id prefix that mirrors
+# the composer's ask_key encoding, so re-deriving the set is cheap.
+
+def _asked_keys_for_session(session_id: str) -> set[str]:
+    """Collect qb:* question ids previously asked in this session and
+    translate them back into ask_keys the composer recognizes.
+
+    Queries interview_answers directly to avoid adding a new DB helper
+    just for this flag-gated path. Returns empty set on any failure so
+    the composer sees "nothing asked yet" — worst case is a repeated
+    question, never a crash.
+    """
+    keys: set[str] = set()
+    try:
+        con = db._connect()
+        rows = con.execute(
+            "SELECT question_id FROM interview_answers WHERE session_id=?;",
+            (session_id,),
+        ).fetchall()
+        con.close()
+        for r in rows or []:
+            qid = (r["question_id"] or "").strip()
+            if qid.startswith("qb:"):
+                # qb:<phase>:<sub>:<idx>  →  <phase>:<sub>:<idx>
+                keys.add(qid[3:])
+    except Exception:
+        return set()
+    return keys
+
+
+def _phase_aware_next_question(
+    session_id: str,
+    person_id: str,
+) -> Optional[dict]:
+    """Return a phase-aware question dict shaped like db.get_next_question
+    output, or None to signal 'fall back to sequential'.
+
+    Never raises. Any failure path returns None so the caller can safely
+    continue with the existing DB flow.
+    """
+    try:
+        prof = db.get_profile(person_id) or {}
+        blob = prof.get("profile_json") or {}
+        basics = ((blob.get("profile") or blob).get("basics")) or {}
+        personal = ((blob.get("profile") or blob).get("personal")) or {}
+        dob = basics.get("dateOfBirth") or personal.get("dateOfBirth") or ""
+        if not dob:
+            return None
+        from ..phase_aware_composer import pick_next_question
+        asked = _asked_keys_for_session(session_id)
+        picked = pick_next_question(dob=dob, asked_keys=asked)
+        if not picked:
+            return None
+        # Shape it like a DB row for _qout compatibility
+        return {
+            "id": picked["id"],
+            "section_id": picked["section_id"],
+            "ord": picked["ord"],
+            "prompt": picked["prompt"],
+        }
+    except Exception:
+        return None
+
+
 @router.post("/start", response_model=StartInterviewResponse)
 def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
     db.init_db()
@@ -146,6 +219,13 @@ def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
 
     # FIXED: Added the required 3rd argument (current_question_id=None) for the start
     next_q = db.get_next_question(sess["id"], req.plan_id, None)
+
+    # WO-LIFE-SPINE-05 — optional phase-aware override (flag off by default)
+    if flags.phase_aware_questions_enabled():
+        pa = _phase_aware_next_question(sess["id"], req.person_id)
+        if pa is not None:
+            next_q = pa
+
     if next_q:
         db.set_session_active_question(sess["id"], next_q["id"])
 
@@ -249,6 +329,13 @@ def answer_interview(req: AnswerInterviewRequest) -> AnswerInterviewResponse:
 
     # 2) Find the next question (Passing the current question ID)
     next_q = db.get_next_question(req.session_id, sess["plan_id"], req.question_id)
+
+    # WO-LIFE-SPINE-05 — phase-aware override (flag off by default).
+    # Prefer a bank-sourced question when enabled AND narrator has DOB.
+    if flags.phase_aware_questions_enabled():
+        pa = _phase_aware_next_question(req.session_id, sess["person_id"])
+        if pa is not None:
+            next_q = pa
 
     generated_summary: Optional[str] = None
     summary_section_id: Optional[str] = None

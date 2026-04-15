@@ -61,6 +61,14 @@ class ExtractedItem(BaseModel):
     extractionMethod: str = "llm"
     repeatableGroup: Optional[str] = None  # FIX-4: group tag for same-person field association
 
+    # WO-EX-VALIDATE-01 — age-math plausibility annotations. Populated only
+    # when HORNELORE_AGE_VALIDATOR=1. Frontend may use plausibility_flag
+    # to render warn badges. 'impossible' items are dropped before
+    # response assembly so they should never reach here.
+    plausibility_flag: Optional[str] = None     # "ok" | "warn" | None
+    plausibility_reason: Optional[str] = None   # human-readable explanation
+    plausibility_age: Optional[int] = None      # computed age at event
+
 
 class ExtractFieldsResponse(BaseModel):
     items: List[ExtractedItem]
@@ -590,68 +598,202 @@ _PARENT_OCCUPATION = re.compile(
 )
 
 
-# WO-EX-01: birth-context era guard. When the interview has moved past the
-# early-childhood / personal-identity range, the rules extractor must NOT
-# fire birth-place / date-of-birth patterns. Live example: in School Years
-# the narrator says "we lived in West Fargo when I was in kindergarten" —
-# the regex (even after the "lived" drop) could still match more permissive
-# phrasings like "I grew up in West Fargo." Era awareness blocks those out.
-# None is included so older callers that don't pass current_section default
-# to permissive (current behavior preserved).
+# WO-EX-01 / WO-EX-01B / WO-EX-01C: birth-context era guard.
+#
+# Sections in which the narrator is plausibly giving their OWN birth info.
+# Outside these sections, a `personal.placeOfBirth` or `personal.dateOfBirth`
+# extraction is almost always a false positive (residence-during-life, a
+# child's birth date mentioned in passing, etc.).
+#
+# WO-EX-01C (April 2026 production bug): dropped the pre-existing `None`
+# entry because the *absence* of a section signal was letting everything
+# through (frontend not always sends current_section). Callers that truly
+# don't know the section now get the strict filter — this is the safer
+# default given the live bug: "we lived in west Fargo in a trailer court"
+# → placeOfBirth=west_Fargo.
+#
+# Also dropped the phase-based escape hatch. Phase "pre_school" used to
+# return True here (is_birth_relevant_phase), which meant discussing any
+# kindergarten-era memory re-opened the birth-field spigot. Phase is now
+# advisory at the router level only and does NOT relax this guard.
 _BIRTH_CONTEXT_SECTIONS = {
     "early_childhood",
     "earliest_memories",
     "personal",
-    None,
+    "personal_information",
 }
 
 # Fields the era guard filters. The LLM may confidently produce these from
 # residence-during-life statements ("we lived in X"); outside birth context
-# those are false positives unless the narrator explicitly uses "born".
+# those are false positives.
 _BIRTH_FIELD_PATHS = {
     "personal.placeOfBirth",
     "personal.dateOfBirth",
 }
 
+# WO-EX-01C: sanity blacklist for placeOfBirth values. The LLM occasionally
+# extracts fragments like "april" from "born in april 10 2002" and proposes
+# them as placeOfBirth. Months (full and common abbreviations) are never
+# valid placeOfBirth values. Expand as other false-positive tokens surface.
+_MONTH_NAMES = frozenset({
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+    "jan", "feb", "mar", "apr", "may.", "jun", "jul", "aug",
+    "sep", "sept", "oct", "nov", "dec",
+})
+
+
+# WO-EX-01C: third-person / family-member subject patterns. If any match
+# the answer, the `born` signal is almost certainly about SOMEONE ELSE
+# (child, parent, sibling, spouse) — narrator-identity fields must not be
+# proposed in that context.
+_NON_NARRATOR_SUBJECT_PATTERNS = [
+    r"\bhe was born\b",
+    r"\bshe was born\b",
+    r"\bhe's born\b",
+    r"\bshe's born\b",
+    r"\bmy son was born\b",
+    r"\bmy daughter was born\b",
+    r"\bmy child was born\b",
+    r"\bour son was born\b",
+    r"\bour daughter was born\b",
+    r"\bhis birthday\b",
+    r"\bher birthday\b",
+    r"\bmy son's birthday\b",
+    r"\bmy daughter's birthday\b",
+    r"\bmy son\b",
+    r"\bmy daughter\b",
+    r"\bmy child\b",
+    r"\bmy kids?\b",
+    r"\bmy baby\b",
+    r"\bour son\b",
+    r"\bour daughter\b",
+    r"\bmy father\b",
+    r"\bmy mother\b",
+    r"\bmy dad\b",
+    r"\bmy mom\b",
+    r"\bmy papa\b",
+    r"\bmy mama\b",
+    r"\bmy brother\b",
+    r"\bmy sister\b",
+    r"\bmy sibling\b",
+    r"\bmy wife\b",
+    r"\bmy husband\b",
+    r"\bmy spouse\b",
+    r"\bmy partner\b",
+    r"\bmy grand(?:mother|father|ma|pa|son|daughter|child|kid)\b",
+]
+
+# WO-EX-01C: first-person narrator birth signals. An explicit claim of the
+# narrator's own birth overrides ambiguous third-person references and
+# lets identity-field extractions survive the subject filter.
+_NARRATOR_BIRTH_SIGNALS = [
+    r"\bi was born\b",
+    r"\bi'm born\b",  # speech-recognition artifact
+    r"\bi was born on\b",
+    r"\bi was born in\b",
+    r"\bmy birthday is\b",
+    r"\bmy date of birth is\b",
+]
+
 
 def _is_birth_context(
     current_section: Optional[str],
-    current_phase: Optional[str] = None,
+    current_phase: Optional[str] = None,  # kept for signature compat; not used
 ) -> bool:
-    """True when the narrator is plausibly discussing birth-era memories.
+    """True when the narrator is plausibly discussing their OWN birth-era memories.
 
-    WO-LIFE-SPINE-04: `current_phase` (from the life spine) takes priority
-    when supplied. Phase values come from life_spine.school.school_phase_for_year
-    and are grounded in real age math instead of string-matching a section
-    name. Falls back to the original `current_section` check when phase is
-    absent, preserving all existing behavior for callers that don't supply it.
+    WO-EX-01C: SECTION-ONLY. Previous versions consulted current_phase and
+    treated None-section as permissive; both behaviors were the root cause
+    of the 'west Fargo → placeOfBirth' production bug. The second argument
+    is preserved for callers that still pass it, but has no effect.
     """
-    if current_phase is not None:
-        # Lazy import to keep extract.py importable without the spine
-        # package available (e.g. unit tests that stub out the world).
-        try:
-            from ..life_spine import is_birth_relevant_phase
-            return is_birth_relevant_phase(current_phase)
-        except Exception:
-            # Spine unavailable — fall through to section-based logic
-            pass
-    if current_section is None:
-        return True  # backward compat — no section info means don't filter
+    if not current_section:
+        return False  # strict default — no section means no birth context
     return current_section.lower() in _BIRTH_CONTEXT_SECTIONS
 
 
 def _answer_has_explicit_birth_phrase(answer: str) -> bool:
     """True iff the raw answer unambiguously uses the word 'born' as a birth marker.
 
-    Lets statements like "I was born in Williston" surface a placeOfBirth
-    candidate even in School Years section, while blocking "we lived in X"
-    or "grew up in X" from proposing placeOfBirth outside birth context.
+    Used by _apply_birth_context_filter to decide whether to run the subject
+    guard branch on items even outside a birth-context section. The subject
+    guard then gates whether the narrator is actually the subject.
     """
     if not answer:
         return False
-    # Require "born" as a whole word. Intentionally conservative —
-    # "newborn", "born-again", etc. are excluded to keep the guard sharp.
     return bool(re.search(r"\bborn\b", answer, re.IGNORECASE))
+
+
+def _subject_is_narrator_context(answer: str) -> bool:
+    """WO-EX-01C: Return True when the sentence appears to be about the
+    NARRATOR, not a child/parent/other family member.
+
+    Positive-first conservative semantics:
+      1. explicit 1st-person birth signals → True (allow narrator identity)
+      2. explicit 3rd-person / family-member patterns → False (strip identity)
+      3. generic 'born' without narrator signal → False (ambiguous, strip)
+      4. no birth claim either way → True (nothing to gate)
+
+    False negatives here are safer than corrupting narrator DOB/POB, so the
+    ambiguous-'born' case defaults to False.
+    """
+    if not answer:
+        return False
+    text = answer.lower()
+
+    # Strong narrator signals — these override everything else
+    for pat in _NARRATOR_BIRTH_SIGNALS:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+
+    # Strong non-narrator signals
+    for pat in _NON_NARRATOR_SUBJECT_PATTERNS:
+        if re.search(pat, text, re.IGNORECASE):
+            return False
+
+    # Generic 'born' without narrator signal is too risky
+    if re.search(r"\bborn\b", text, re.IGNORECASE):
+        return False
+
+    # No explicit birth claim either way
+    return True
+
+
+def _apply_narrator_identity_subject_filter(
+    items: List[dict],
+    answer: str,
+) -> List[dict]:
+    """WO-EX-01C: Drop narrator-identity field proposals when the answer is
+    plausibly about SOMEONE ELSE.
+
+    Protects the full PROTECTED_IDENTITY_FIELDS set (fullName, preferredName,
+    dateOfBirth, placeOfBirth, birthOrder). Catches cases like:
+        'my youngest son Cole ... he was born April 10 2002'
+    where the extractor would otherwise map the child's birth facts onto
+    the narrator's canonical identity.
+
+    Applied to both LLM and rules paths. Complementary to the section-based
+    birth-context filter — one gates on section, the other on subject.
+    """
+    if not items:
+        return items
+    if _subject_is_narrator_context(answer):
+        return items
+    dropped = [it for it in items
+               if it.get("fieldPath") in PROTECTED_IDENTITY_FIELDS]
+    if dropped:
+        try:
+            logger.info(
+                "[extract][subject-filter] stripping %d narrator-identity item(s) "
+                "from non-narrator context: %s",
+                len(dropped),
+                [(it.get("fieldPath"), it.get("value")) for it in dropped],
+            )
+        except Exception:
+            pass
+    return [it for it in items
+            if it.get("fieldPath") not in PROTECTED_IDENTITY_FIELDS]
 
 
 def _apply_birth_context_filter(
@@ -660,38 +802,66 @@ def _apply_birth_context_filter(
     answer: str,
     current_phase: Optional[str] = None,
 ) -> List[dict]:
-    """WO-EX-01B / WO-LIFE-SPINE-04: strip birth-related LLM extractions
-    outside birth context.
+    """WO-EX-01C: section-gated birth filter, layered with the
+    narrator-identity subject filter on EVERY branch.
 
-    Applied to llm_items BEFORE they become ExtractedItem instances. Rules
-    path has its own equivalent guard baked into _extract_via_rules. Together
-    both extraction paths behave consistently on the era guard.
-
-    Allowed outside birth context IFF the answer explicitly uses the word
-    "born" — which catches legitimate volunteer statements like "I was born
-    in X" while dropping the residence-during-life false positives that
-    motivated this WO.
-
-    current_phase (WO-LIFE-SPINE-04) takes priority over current_section
-    when provided — grounded in real age math from the life spine.
+    Defense-in-depth:
+      - In a birth-context section: subject filter still runs so a child's
+        birth mentioned during personal_information doesn't pollute the
+        narrator's canonical DOB.
+      - Outside a birth-context section, with 'born' in the answer:
+        subject filter decides whether the narrator is the subject. If
+        not, identity fields are stripped.
+      - Outside a birth-context section, no 'born' phrase: birth fields
+        stripped wholesale; subject filter also runs on the remainder
+        to catch any non-birth personal-identity leakage.
     """
     if _is_birth_context(current_section, current_phase):
-        return items  # birth era — no filtering needed
+        # Even in birth-era context, still do NOT allow narrator identity
+        # fields when the sentence is explicitly about someone else.
+        return _apply_narrator_identity_subject_filter(items, answer)
+
     if _answer_has_explicit_birth_phrase(answer):
-        return items  # "born" present — narrator is plausibly discussing birth
-    # Outside birth context AND no explicit "born" → strip birth-field items
+        # 'born' alone is NOT enough — could be talking about a child.
+        # Only allow if the narrator is plausibly the subject.
+        return _apply_narrator_identity_subject_filter(items, answer)
+
+    # Outside birth context AND no explicit 'born' → strip birth-field items
     dropped = [it for it in items if it.get("fieldPath") in _BIRTH_FIELD_PATHS]
     if dropped:
         try:
             logger.info(
-                "[extract][WO-LIFE-SPINE-04] stripping %d birth-field item(s) outside birth context "
+                "[extract][WO-EX-01C] stripping %d birth-field item(s) outside birth context "
                 "(section=%s, phase=%s): %s",
                 len(dropped), current_section, current_phase,
                 [(it.get("fieldPath"), it.get("value")) for it in dropped],
             )
         except Exception:
             pass
-    return [it for it in items if it.get("fieldPath") not in _BIRTH_FIELD_PATHS]
+    filtered = [it for it in items if it.get("fieldPath") not in _BIRTH_FIELD_PATHS]
+    return _apply_narrator_identity_subject_filter(filtered, answer)
+
+
+def _apply_month_name_sanity(items: List[dict]) -> List[dict]:
+    """WO-EX-01C: drop placeOfBirth extractions whose value is just a
+    month name. Catches LLM mistakes like parsing 'born in april 10 2002'
+    as placeOfBirth=april.
+    """
+    out = []
+    for it in items:
+        if it.get("fieldPath") == "personal.placeOfBirth":
+            val = str(it.get("value", "")).strip().lower().rstrip(",. ")
+            if val in _MONTH_NAMES:
+                try:
+                    logger.info(
+                        "[extract][WO-EX-01C] dropping placeOfBirth=%r (month-name sanity check)",
+                        it.get("value"),
+                    )
+                except Exception:
+                    pass
+                continue
+        out.append(it)
+    return out
 
 
 def _extract_via_rules(
@@ -881,7 +1051,10 @@ def _extract_via_rules(
                 "confidence": 0.7
             })
 
-    return items
+    # WO-EX-01C: subject filter on the rules path too, so both extraction
+    # routes behave the same when the answer is about a non-narrator subject
+    # ('my son was born april 10 2002').
+    return _apply_narrator_identity_subject_filter(items, answer)
 
 
 # ── Repeatable field grouping ────────────────────────────────────────────────
@@ -936,6 +1109,79 @@ def _group_repeatable_items(items: List[dict]) -> List[dict]:
     return result
 
 
+# ── WO-EX-VALIDATE-01: age-math plausibility filter ─────────────────────────
+
+def _fetch_dob_for_validation(person_id: Optional[str]) -> Optional[str]:
+    """Return ISO DOB string from the narrator profile, or None if missing.
+
+    Called only when HORNELORE_AGE_VALIDATOR is on. Failure-silent: if the
+    profile lookup blows up for any reason, we return None and the
+    validator short-circuits to 'ok'. Never raises.
+    """
+    if not person_id:
+        return None
+    try:
+        from ..db import get_profile
+        prof = get_profile(person_id) or {}
+        blob = prof.get("profile_json") or {}
+        # profile_json may be {profile: {basics: {...}}} or flat {basics: {...}}
+        basics = ((blob.get("profile") or blob).get("basics")) or {}
+        personal = ((blob.get("profile") or blob).get("personal")) or {}
+        dob = basics.get("dateOfBirth") or personal.get("dateOfBirth") or ""
+        return dob or None
+    except Exception as e:
+        logger.warning("[extract][validator] DOB lookup failed: %s", e)
+        return None
+
+
+def _apply_age_math_filter(
+    items: List["ExtractedItem"],
+    dob: Optional[str],
+) -> List["ExtractedItem"]:
+    """Run each item through life_spine.validator and drop 'impossible'
+    entries. Remaining items are annotated with plausibility_* fields.
+
+    Safe when dob is None — validator returns 'ok' with reason 'no dob'
+    and items pass through unchanged.
+    """
+    if not items:
+        return items
+    try:
+        from ..life_spine.validator import validate_fact
+    except Exception as e:
+        logger.error("[extract][validator] validator import failed: %s", e)
+        return items
+
+    surviving: List[ExtractedItem] = []
+    dropped = 0
+    for it in items:
+        try:
+            result = validate_fact(it.fieldPath, it.value, dob)
+        except Exception as e:
+            logger.warning("[extract][validator] validate_fact raised on %s=%r: %s",
+                           it.fieldPath, it.value, e)
+            surviving.append(it)
+            continue
+
+        if result.flag == "impossible":
+            dropped += 1
+            logger.info(
+                "[extract][validator] DROP field=%s value=%r reason=%s age=%s",
+                it.fieldPath, it.value, result.reason, result.age_at_event,
+            )
+            continue
+
+        # Annotate ok / warn items so the frontend can surface a badge if desired
+        it.plausibility_flag = result.flag
+        it.plausibility_reason = result.reason
+        it.plausibility_age = result.age_at_event
+        surviving.append(it)
+
+    if dropped:
+        logger.info("[extract][validator] dropped=%d kept=%d", dropped, len(surviving))
+    return surviving
+
+
 # ── Main endpoint ────────────────────────────────────────────────────────────
 
 @router.post("/extract-fields", response_model=ExtractFieldsResponse)
@@ -955,13 +1201,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_target=req.current_target_path,
     )
 
-    # WO-EX-01B / WO-LIFE-SPINE-04: apply the birth-context era guard to
-    # LLM output. The LLM semantically conflates residence statements
-    # ("we lived in X") with birth-place — this filter catches that at the
-    # endpoint boundary so both extraction paths behave consistently on
-    # era context. current_phase (from life spine) takes priority over
-    # current_section when provided — phase-based decisions are grounded
-    # in real age math instead of string matching.
+    # WO-EX-01C: three-layer LLM output guard.
+    #   1. birth-context filter  — section-gated + layered subject guard
+    #                              (handles both Bug A West-Fargo residence
+    #                              and Bug B child-DOB contamination)
+    #   2. month-name sanity     — drop placeOfBirth values that are month names
+    # The birth-context filter itself calls the narrator-identity subject
+    # filter on every branch, so a separate pre-call is not needed.
     if llm_items:
         llm_items = _apply_birth_context_filter(
             llm_items,
@@ -969,6 +1215,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             answer,
             current_phase=req.current_phase,
         )
+        llm_items = _apply_month_name_sanity(llm_items)
 
     # WO: Summary line — log outcome at endpoint level
     _accepted = len(llm_items) if llm_items else 0
@@ -1022,6 +1269,17 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             ei.repeatableGroup = rg
             final_items.append(ei)
 
+        # WO-EX-VALIDATE-01 — age-math plausibility filter. Flag-gated; off
+        # by default. When on, fetches DOB once and drops temporally
+        # impossible items, annotating survivors with plausibility_flag.
+        try:
+            from .. import flags as _flags
+            if _flags.age_validator_enabled():
+                _dob = _fetch_dob_for_validation(req.person_id)
+                final_items = _apply_age_math_filter(final_items, _dob)
+        except Exception as _e:
+            logger.warning("[extract][validator] filter skipped (llm path): %s", _e)
+
         _record_metric("llm", parsed=len(llm_items), accepted=len(final_items), rejected=0)
         return ExtractFieldsResponse(
             items=final_items,
@@ -1038,6 +1296,18 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_target=req.current_target_path,
         current_phase=req.current_phase,
     )
+
+    # WO-EX-01C: same guard stack on rules output (subject filter is also
+    # applied inside _extract_via_rules itself, so the birth-context call
+    # here is defense-in-depth for any future regex that escapes era gating).
+    if rules_items:
+        rules_items = _apply_birth_context_filter(
+            rules_items,
+            req.current_section,
+            answer,
+            current_phase=req.current_phase,
+        )
+        rules_items = _apply_month_name_sanity(rules_items)
 
     if rules_items:
         result_items = []
@@ -1067,6 +1337,16 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                 # prevent it from auto-promoting.
                 extractionMethod="rules_fallback",
             ))
+
+        # WO-EX-VALIDATE-01 — same flag-gated filter on the rules path so
+        # both extraction routes behave consistently.
+        try:
+            from .. import flags as _flags
+            if _flags.age_validator_enabled():
+                _dob = _fetch_dob_for_validation(req.person_id)
+                result_items = _apply_age_math_filter(result_items, _dob)
+        except Exception as _e:
+            logger.warning("[extract][validator] filter skipped (rules path): %s", _e)
 
         _record_metric("rules", parsed=0, accepted=len(result_items), rejected=0)
         return ExtractFieldsResponse(

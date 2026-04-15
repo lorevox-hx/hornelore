@@ -13,6 +13,16 @@ Consumers:
         the raw profiles.profile_json blob.
 
 Default for every consumer is OFF.
+
+WO-LIFE-SPINE-05 / WO-EX-VALIDATE-01 additions:
+  - age_validator_enabled()         → HORNELORE_AGE_VALIDATOR
+        Runtime age-math plausibility gate in /api/extract-fields.
+        When on, extractor annotates items with plausibility_flag and
+        drops items marked 'impossible'. Default OFF for pre-test safety.
+  - phase_aware_questions_enabled() → HORNELORE_PHASE_AWARE_QUESTIONS
+        Interview router uses data/prompts/question_bank.json to pick
+        phase-appropriate questions instead of strict sequential DB
+        ordering. Default OFF so tomorrow's test sees unchanged flow.
 """
 
 from __future__ import annotations
@@ -38,3 +48,18 @@ def truth_v2_enabled(consumer: str) -> bool:
     if consumer == "profile":
         return _truthy(os.environ.get("HORNELORE_TRUTH_V2_PROFILE"))
     return False
+
+
+def age_validator_enabled() -> bool:
+    """WO-EX-VALIDATE-01. When True, /api/extract-fields runs each item
+    through life_spine.validator.validate_fact() and drops any item
+    flagged 'impossible'. Default OFF."""
+    return _truthy(os.environ.get("HORNELORE_AGE_VALIDATOR"))
+
+
+def phase_aware_questions_enabled() -> bool:
+    """WO-LIFE-SPINE-05. When True, interview router uses the phase-aware
+    composer (question_bank.json) to pick the next question when a
+    narrator DOB is available. Falls back to sequential DB ordering when
+    composer returns None. Default OFF."""
+    return _truthy(os.environ.get("HORNELORE_PHASE_AWARE_QUESTIONS"))
