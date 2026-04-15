@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List
 
+from .adolescence import derive_adolescence_spine
+from .early_adulthood import derive_early_adulthood_spine
 from .overrides import apply_overrides
 from .school import derive_school_spine, school_phase_for_year
 
@@ -22,6 +24,8 @@ from .school import derive_school_spine, school_phase_for_year
 # returns List[ChronologyItem]. Add new eras here as catalogs land.
 CATALOGS: Dict[str, Callable[..., List[Dict[str, Any]]]] = {
     "school_years": derive_school_spine,
+    "adolescence": derive_adolescence_spine,
+    "early_adulthood": derive_early_adulthood_spine,
 }
 
 
