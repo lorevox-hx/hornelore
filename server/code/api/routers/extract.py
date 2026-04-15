@@ -864,6 +864,97 @@ def _apply_month_name_sanity(items: List[dict]) -> List[dict]:
     return out
 
 
+# ── WO-EX-01D: field-value sanity blacklists ────────────────────────────────
+# Tactical pre-claims-layer patch. Catches the worst token-level extraction
+# artifacts that reach shadow review when the LLM mis-parses compound phrases.
+#
+# Live cases this was built against (2026-04-15 Chris session):
+#   "my dad Stanley ND"  → extracted parents.firstName=Stanley, lastName=ND
+#   "mother and dad"     → extracted parents.firstName=and, lastName=dad
+#
+# This is a band-aid, not a fix. The real solution is claim-level extraction
+# (WO-CLAIMS-01). Until that lands, these filters stop the worst fragments
+# from reaching the Approve/Reject UI and misleading operators.
+
+# US states, territories, and DC — never valid as a lastName.
+_US_STATE_ABBREVIATIONS = frozenset({
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga",
+    "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md",
+    "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj",
+    "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc",
+    "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
+    "dc", "pr", "vi", "gu", "as", "mp",
+})
+
+# Stopwords, pronouns, relation-words — never valid as a firstName.
+# If the LLM tokenizes "my mom Janice" into [firstName=my, firstName=mom,
+# firstName=Janice], only Janice survives this gate.
+_FIRSTNAME_STOPWORDS = frozenset({
+    # Articles & connectives
+    "a", "an", "the", "and", "or", "but", "if", "so", "that", "this",
+    # Pronouns
+    "i", "he", "she", "it", "we", "they", "you",
+    # Possessives
+    "my", "our", "your", "their", "his", "her", "its",
+    # Relation words
+    "mom", "mother", "mama", "mum", "ma",
+    "dad", "father", "papa", "pop",
+    "brother", "sister", "sibling",
+    "son", "daughter", "child", "kid", "baby",
+    "wife", "husband", "spouse", "partner",
+    "grandma", "grandpa", "grandfather", "grandmother", "granddad",
+    "uncle", "aunt", "cousin", "nephew", "niece",
+    # Common filler / linking verbs that shouldn't surface as names
+    "was", "is", "born", "named", "called", "said", "told", "been",
+})
+
+
+def _apply_field_value_sanity(items: List[dict]) -> List[dict]:
+    """WO-EX-01D: drop fragment-level mis-extractions on known-bad patterns.
+
+    Rules:
+      - any *.lastName field whose value is a US state abbreviation is
+        almost always a place-fragment leak ('Stanley, ND' → lastName=ND)
+      - any *.firstName field whose value is a pronoun, article, possessive,
+        relation-word, or stopword is a token-split artifact ('and', 'mom')
+
+    Applied on both LLM and rules paths. Tactical — real fix is the claims
+    layer (WO-CLAIMS-01).
+    """
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        raw = str(it.get("value", ""))
+        normalized = raw.strip().strip(".,;:'\"").lower()
+        # For state-abbr check only, collapse interior dots ('N.D.' → 'nd').
+        # Done locally — we don't want to strip dots globally and break
+        # hypothetical abbreviations elsewhere.
+        collapsed = normalized.replace(".", "")
+
+        if fp.endswith(".lastName") and collapsed in _US_STATE_ABBREVIATIONS:
+            try:
+                logger.info(
+                    "[extract][WO-EX-01D] dropping %s=%r (US state abbreviation)",
+                    fp, raw,
+                )
+            except Exception:
+                pass
+            continue
+
+        if fp.endswith(".firstName") and normalized in _FIRSTNAME_STOPWORDS:
+            try:
+                logger.info(
+                    "[extract][WO-EX-01D] dropping %s=%r (stopword / relation / pronoun)",
+                    fp, raw,
+                )
+            except Exception:
+                pass
+            continue
+
+        out.append(it)
+    return out
+
+
 def _extract_via_rules(
     answer: str,
     current_section: Optional[str],
@@ -1201,13 +1292,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_target=req.current_target_path,
     )
 
-    # WO-EX-01C: three-layer LLM output guard.
-    #   1. birth-context filter  — section-gated + layered subject guard
-    #                              (handles both Bug A West-Fargo residence
-    #                              and Bug B child-DOB contamination)
-    #   2. month-name sanity     — drop placeOfBirth values that are month names
-    # The birth-context filter itself calls the narrator-identity subject
-    # filter on every branch, so a separate pre-call is not needed.
+    # WO-EX-01C + WO-EX-01D: four-layer LLM output guard.
+    #   1. birth-context filter    — section-gated + layered subject guard
+    #                                (Bug A West-Fargo residence; Bug B
+    #                                child-DOB contamination)
+    #   2. month-name sanity       — drop placeOfBirth=month-name
+    #   3. field-value sanity      — drop *.lastName=US-state-abbr and
+    #                                *.firstName=stopword/pronoun/relation
     if llm_items:
         llm_items = _apply_birth_context_filter(
             llm_items,
@@ -1216,6 +1307,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             current_phase=req.current_phase,
         )
         llm_items = _apply_month_name_sanity(llm_items)
+        llm_items = _apply_field_value_sanity(llm_items)
 
     # WO: Summary line — log outcome at endpoint level
     _accepted = len(llm_items) if llm_items else 0
@@ -1297,9 +1389,11 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_phase=req.current_phase,
     )
 
-    # WO-EX-01C: same guard stack on rules output (subject filter is also
-    # applied inside _extract_via_rules itself, so the birth-context call
-    # here is defense-in-depth for any future regex that escapes era gating).
+    # WO-EX-01C + WO-EX-01D: same guard stack on rules output (subject filter
+    # is also applied inside _extract_via_rules itself, so the birth-context
+    # call here is defense-in-depth for any future regex that escapes era
+    # gating; field-value sanity catches state-abbr and stopword fragments
+    # regardless of whether they came from rules or LLM).
     if rules_items:
         rules_items = _apply_birth_context_filter(
             rules_items,
@@ -1308,6 +1402,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             current_phase=req.current_phase,
         )
         rules_items = _apply_month_name_sanity(rules_items)
+        rules_items = _apply_field_value_sanity(rules_items)
 
     if rules_items:
         result_items = []

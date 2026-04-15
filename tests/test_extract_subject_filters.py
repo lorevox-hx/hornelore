@@ -48,6 +48,7 @@ if "pydantic" not in sys.modules:
 
 from api.routers.extract import (  # noqa: E402
     _apply_birth_context_filter,
+    _apply_field_value_sanity,
     _apply_month_name_sanity,
     _apply_narrator_identity_subject_filter,
     _is_birth_context,
@@ -245,6 +246,111 @@ class MonthNameSanityTests(unittest.TestCase):
         items = [{"fieldPath": "hobbies.hobbies", "value": "march",
                   "confidence": 0.5}]
         self.assertEqual(_apply_month_name_sanity(items), items)
+
+
+class FieldValueSanityTests(unittest.TestCase):
+    """WO-EX-01D regressions — the 2026-04-15 Chris session fragments."""
+
+    def test_state_abbreviation_stripped_from_lastname(self):
+        """'my dad Stanley ND' must not produce lastName=ND."""
+        items = [
+            {"fieldPath": "parents.relation", "value": "Father", "confidence": 0.9},
+            {"fieldPath": "parents.firstName", "value": "Stanley", "confidence": 0.8},
+            {"fieldPath": "parents.lastName", "value": "ND", "confidence": 0.6},
+        ]
+        out = _apply_field_value_sanity(items)
+        field_paths = [x["fieldPath"] for x in out]
+        self.assertNotIn("parents.lastName", field_paths)
+        # Other items survive
+        self.assertIn("parents.relation", field_paths)
+        self.assertIn("parents.firstName", field_paths)
+
+    def test_state_abbreviation_case_insensitive(self):
+        for v in ("ND", "nd", "Nd", "N.D.", "nd,", "Ca", "TX", "MN"):
+            items = [{"fieldPath": "parents.lastName", "value": v, "confidence": 0.6}]
+            self.assertEqual(
+                _apply_field_value_sanity(items), [],
+                f"failed to drop lastName={v!r}",
+            )
+
+    def test_legit_surnames_pass(self):
+        for v in ("Horne", "Smith", "O'Brien", "Van Horne", "Fitzgerald"):
+            items = [{"fieldPath": "parents.lastName", "value": v, "confidence": 0.9}]
+            self.assertEqual(
+                len(_apply_field_value_sanity(items)), 1,
+                f"incorrectly dropped valid surname {v!r}",
+            )
+
+    def test_firstname_stopword_and_dropped(self):
+        """'mother and dad' must not produce firstName=and."""
+        items = [
+            {"fieldPath": "parents.relation", "value": "Mother", "confidence": 0.9},
+            {"fieldPath": "parents.firstName", "value": "and", "confidence": 0.5},
+            {"fieldPath": "parents.lastName", "value": "dad", "confidence": 0.4},
+        ]
+        out = _apply_field_value_sanity(items)
+        field_paths = [x["fieldPath"] for x in out]
+        self.assertNotIn("parents.firstName", field_paths)
+        # Only the relation survives (lastName "dad" is not a state abbr,
+        # but "dad" AS firstName would be stopword-filtered)
+
+    def test_firstname_relation_words_dropped(self):
+        for v in ("Dad", "mom", "MOTHER", "brother", "son", "wife", "grandma"):
+            items = [{"fieldPath": "parents.firstName", "value": v, "confidence": 0.5}]
+            self.assertEqual(
+                _apply_field_value_sanity(items), [],
+                f"failed to drop firstName={v!r}",
+            )
+
+    def test_firstname_pronouns_dropped(self):
+        for v in ("He", "she", "I", "they", "we"):
+            items = [{"fieldPath": "parents.firstName", "value": v, "confidence": 0.5}]
+            self.assertEqual(
+                _apply_field_value_sanity(items), [],
+                f"failed to drop firstName={v!r}",
+            )
+
+    def test_legit_firstnames_pass(self):
+        for v in ("Janice", "Kent", "Cole", "Christopher", "Mary"):
+            items = [{"fieldPath": "parents.firstName", "value": v, "confidence": 0.9}]
+            self.assertEqual(
+                len(_apply_field_value_sanity(items)), 1,
+                f"incorrectly dropped valid firstName {v!r}",
+            )
+
+    def test_applies_across_field_families(self):
+        """Rules apply to parents.*, siblings.*, personal.* — anything
+        ending in .lastName or .firstName."""
+        items = [
+            {"fieldPath": "siblings.lastName", "value": "WI", "confidence": 0.5},
+            {"fieldPath": "siblings.firstName", "value": "the", "confidence": 0.5},
+            {"fieldPath": "personal.lastName", "value": "CA", "confidence": 0.5},
+        ]
+        self.assertEqual(_apply_field_value_sanity(items), [])
+
+    def test_verbatim_chris_session_fragments(self):
+        """Exact extraction output from the live 2026-04-15 Chris session.
+        These three fragments should ALL be dropped by the sanity filter."""
+        items = [
+            # From 'my dad Stanley ND' (dad was born in Stanley, ND — place, not name)
+            {"fieldPath": "parents.firstName", "value": "Stanley", "confidence": 0.8},
+            {"fieldPath": "parents.lastName", "value": "ND", "confidence": 0.6},
+            # From 'mother and dad' tokenized garbage
+            {"fieldPath": "parents.firstName", "value": "and", "confidence": 0.5},
+            {"fieldPath": "parents.lastName", "value": "dad", "confidence": 0.4},
+        ]
+        out = _apply_field_value_sanity(items)
+        field_paths_and_values = [(x["fieldPath"], x["value"]) for x in out]
+        # 'Stanley' as firstName is NOT a stopword and survives this gate
+        # (later WO-CLAIMS-01 claim-level reasoning is what will rescue it
+        # into parents.birthplace = Stanley, ND). What matters here is that
+        # 'ND', 'and', and 'dad' as fragments are DROPPED.
+        self.assertNotIn(("parents.lastName", "ND"), field_paths_and_values)
+        self.assertNotIn(("parents.firstName", "and"), field_paths_and_values)
+        # 'dad' is not a state abbr, but it IS a stopword-as-firstName.
+        # It's NOT a stopword-as-lastName in this filter's current scope,
+        # so 'lastName=dad' survives. This is a known limit flagged for
+        # WO-CLAIMS-01 to address semantically.
 
 
 class IsBirthContextTests(unittest.TestCase):
