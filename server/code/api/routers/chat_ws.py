@@ -156,6 +156,55 @@ async def ws_chat(ws: WebSocket):
         history = export_turns(conv_id)
         # v7.1: extract runtime context forwarded from UI on every start_turn
         runtime71: Dict[str, Any] = params.get("runtime71") or {}
+
+        # WO-ARCH-07A — explicit mode routing before LLM generation
+        turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
+        if turn_mode == "memory_echo":
+            from api.prompt_composer import compose_memory_echo
+            assistant_text = compose_memory_echo(
+                text=user_text,
+                runtime=runtime71,
+            )
+            logger.info("[chat_ws][WO-ARCH-07A] memory_echo turn for conv=%s", conv_id)
+            persist_turn_transaction(
+                conv_id=conv_id,
+                user_message=user_text,
+                assistant_message=assistant_text,
+                model_name="memory-echo",
+                meta={"ws": True, "turn_mode": "memory_echo"},
+            )
+            await _ws_send(ws, {"type": "token", "delta": assistant_text})
+            await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "memory_echo"})
+            return
+        if turn_mode == "correction":
+            from api.prompt_composer import compose_correction_ack
+            from api.memory_echo import parse_correction_rule_based
+            parsed = parse_correction_rule_based(user_text)
+            logger.info("[chat_ws][WO-ARCH-07A] correction turn for conv=%s parsed=%s", conv_id, parsed)
+
+            # WO-ARCH-07A PS2 — emit structured correction payload for client write-back
+            await _ws_send(ws, {
+                "type": "correction_payload",
+                "parsed": parsed,
+                "source_text": user_text,
+                "turn_mode": "correction",
+            })
+
+            assistant_text = compose_correction_ack(
+                text=user_text,
+                runtime=runtime71,
+            )
+            persist_turn_transaction(
+                conv_id=conv_id,
+                user_message=user_text,
+                assistant_message=assistant_text,
+                model_name="correction-ack",
+                meta={"ws": True, "turn_mode": "correction", "parsed_corrections": parsed},
+            )
+            await _ws_send(ws, {"type": "token", "delta": assistant_text})
+            await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "correction"})
+            return
+
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
 
         # ── Debug logging ───────────────────────────────────────────────
@@ -376,7 +425,7 @@ async def ws_chat(ws: WebSocket):
             except Exception as arch_err:
                 logger.error("[chat-ws] Phase G: archive write failed — %s", arch_err)
 
-        await _ws_send(ws, {"type": "done", "final_text": final_text})
+        await _ws_send(ws, {"type": "done", "final_text": final_text, "turn_mode": turn_mode})
 
     try:
         while True:
@@ -402,6 +451,8 @@ async def ws_chat(ws: WebSocket):
                 conv_id = msg.get("session_id") or msg.get("conv_id") or "default"
                 user_text = msg.get("message") or ""
                 params = msg.get("params") or {}
+                # WO-ARCH-07A — explicit turn mode from client router
+                params["turn_mode"] = (msg.get("turn_mode") or "interview").strip() or "interview"
 
                 # WO-2: check person_id in params matches active session
                 turn_pid = str(params.get("person_id") or "")

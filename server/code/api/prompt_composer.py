@@ -19,6 +19,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 from . import db
+from .memory_echo import parse_correction_rule_based
 
 logger = logging.getLogger(__name__)
 
@@ -528,6 +529,94 @@ def _detect_memory_scenario(
         return "resume_after_gap"
 
     return "short_recent_thread"
+
+
+# ─── WO-ARCH-07A — Memory Echo + Correction Composers ───────────────────────
+
+def _fmt_line(label: str, value) -> str:
+    """Format a single read-back line, showing 'unknown' for empty values."""
+    v = (value or "").strip() if isinstance(value, str) else value
+    return f"- {label}: {v}" if v else f"- {label}: unknown"
+
+
+def compose_memory_echo(
+    text: str,
+    runtime: Optional[Dict[str, Any]] = None,
+    state_snapshot: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Build a deterministic structured read-back from current runtime state.
+
+    This is the smallest viable Memory Echo — reads from runtime71 fields
+    that the UI already sends. No LLM call. No hallucination possible.
+    """
+    runtime = runtime or {}
+
+    speaker_name = runtime.get("speaker_name") or "you"
+    dob = runtime.get("dob") or None
+    pob = runtime.get("pob") or None
+    projection_family = runtime.get("projection_family") or {}
+
+    parents = projection_family.get("parents") or []
+    siblings = projection_family.get("siblings") or []
+
+    lines = [
+        f"What I know about {speaker_name} so far:",
+        "",
+        "Identity",
+        _fmt_line("Date of birth", dob),
+        _fmt_line("Place of birth", pob),
+        "",
+        "Confidence",
+        "- Confirmed facts come from profile or direct correction.",
+        "- Working drafts come from interview projection and may still need correction.",
+        "",
+        "Family",
+    ]
+
+    if parents:
+        for p in parents:
+            label = (p.get("relation") or "Parent").strip() or "Parent"
+            name = (p.get("name") or "").strip() or "unknown"
+            occ = (p.get("occupation") or "").strip()
+            extra = f" ({occ})" if occ else ""
+            lines.append(f"- {label}: {name}{extra}")
+    else:
+        lines.append("- Parents: uncertain")
+
+    if siblings:
+        for s in siblings:
+            label = (s.get("relation") or "Sibling").strip() or "Sibling"
+            name = (s.get("name") or "").strip() or "unknown"
+            lines.append(f"- {label}: {name}")
+    else:
+        lines.append("- Siblings: uncertain")
+
+    lines.extend([
+        "",
+        "What I'm less sure about",
+        "- Some family, work, and timeline details are still working drafts unless you correct or confirm them.",
+        "",
+        "You can correct anything that is wrong, missing, or too vague. One correction at a time works best."
+    ])
+    return "\n".join(lines)
+
+
+def compose_correction_ack(
+    text: str,
+    runtime: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Parse correction and acknowledge specific fields, or ask for clarification."""
+    parsed = parse_correction_rule_based(text)
+    if parsed:
+        labels = ", ".join(parsed.keys())
+        return (
+            f"Got it \u2014 I've updated the working read-back for: {labels}. "
+            "Ask me again what I know about you, or keep going."
+        )
+    return (
+        "I heard that as a correction, but I'm not fully certain which field it changes yet. "
+        "You can say it one piece at a time \u2014 for example, 'I was born in ...' or 'My father's name was ...'."
+    )
 
 
 def compose_system_prompt(

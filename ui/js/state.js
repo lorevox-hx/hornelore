@@ -70,6 +70,11 @@ let state = {
     currentPass: "pass1",
     currentEra:  null,
     currentMode: "open",
+
+    /* WO-ARCH-07A — explicit turn routing */
+    turnMode: "interview",      // interview | followup | memory_echo | correction | clarify | trainer
+    lastTurnMode: null,         // previous completed mode for correction follow-through
+    pendingCorrection: false,   // set true after memory echo until next resolved turn
     /* v7.2 — Sustained confusion tracking (persisted within session) */
     confusionTurnCount: 0,  // increments on confused turns, decrements on clear turns
     /* v7.4A — Real visual affect bridge target.
@@ -139,6 +144,22 @@ let state = {
   /* ── v7.1 Runtime affect / cognitive signals ─────────────────
      Populated by the affect engine; read by the pass engine.
   ─────────────────────────────────────────────────────────────── */
+  /* WO-ARCH-07A — Memory Echo snapshot
+     Rebuilt from state on demand. Never treated as canonical truth by itself. */
+  memoryEcho: {
+    builtAt: null,
+    entity: null,          // structured read-back object
+    lastRenderedText: null // UI convenience only; not an authority source
+  },
+
+  /* WO-ARCH-07A PATCH SET 2 — correction ledger
+     Narrator-scoped, UI-readable, not canonical by itself. */
+  correctionState: {
+    applied: [],   // [{ fieldPath, newValue, oldValue, sourceText, ts }]
+    conflicts: [], // [{ fieldPath, activeValue, conflictingValue, sourceText, ts }]
+    uncertain: []  // ["family.children", "education.retirement", ...]
+  },
+
   runtime: {
     affectState:      "neutral",   // latest smoothed affect label
     affectConfidence: 0,

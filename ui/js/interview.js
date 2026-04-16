@@ -554,6 +554,23 @@ function lv80SelectBestMemoirQuestion(era, pass) {
   return best;
 }
 
+/* ── WO-ARCH-07A — known-fact suppression after memory echo ──── */
+function _suppressKnownBasicsAfterMemoryEcho(q){
+  const t = String(q || "").toLowerCase();
+  const hadEcho = state?.session?.lastTurnMode === "memory_echo";
+  if (!hadEcho) return q;
+
+  const knowsDob = !!state?.profile?.basics?.dob;
+  const knowsPob = !!state?.profile?.basics?.pob;
+  const knowsName = !!(state?.profile?.basics?.preferred || state?.profile?.basics?.fullname);
+
+  if (knowsDob && /when were you born|date of birth/.test(t)) return null;
+  if (knowsPob && /where were you born|place of birth/.test(t)) return null;
+  if (knowsName && /what is your name|full name|prefer to go by/.test(t)) return null;
+
+  return q;
+}
+
 /* ── v7.1 — pass-aware prompt builder ───────────────────────── */
 function build71InterviewPrompt(){
   const pass = getCurrentPass();
@@ -561,30 +578,44 @@ function build71InterviewPrompt(){
   const mode = getCurrentMode();
   const name = state.profile?.basics?.preferred || state.profile?.basics?.fullname || "this person";
 
+  var candidate = null;
+
   // v10: Try memoir strategy layer first
   var memoirQ = lv80SelectBestMemoirQuestion(era, pass);
   if (memoirQ) {
     var base = memoirQ.prompt;
     var draftHint = _buildDraftContextHint(era);
-    return draftHint ? base + " " + draftHint : base;
+    candidate = draftHint ? base + " " + draftHint : base;
   }
 
   // v8: Fall back to projection-based question selection
-  var projectionQ = _getNextProjectionQuestion(era, pass);
-  if (projectionQ) {
-    var base = projectionQ;
-    var draftHint = _buildDraftContextHint(era);
-    return draftHint ? base + " " + draftHint : base;
+  if (!candidate) {
+    var projectionQ = _getNextProjectionQuestion(era, pass);
+    if (projectionQ) {
+      var base = projectionQ;
+      var draftHint = _buildDraftContextHint(era);
+      candidate = draftHint ? base + " " + draftHint : base;
+    }
   }
 
-  var base;
-  if(pass==="pass2a") base = _timelinePassPrompt(era, mode);
-  else if(pass==="pass2b") base = _depthPassPrompt(era, mode, name);
-  else base = "When were you born? And where were you born?";
+  if (!candidate) {
+    var base;
+    if(pass==="pass2a") base = _timelinePassPrompt(era, mode);
+    else if(pass==="pass2b") base = _depthPassPrompt(era, mode, name);
+    else base = "When were you born? And where were you born?";
 
-  // v5 integration — enrich with Family Tree / Life Threads draft context
-  var draftHint = _buildDraftContextHint(era);
-  return draftHint ? base + " " + draftHint : base;
+    // v5 integration — enrich with Family Tree / Life Threads draft context
+    var draftHint = _buildDraftContextHint(era);
+    candidate = draftHint ? base + " " + draftHint : base;
+  }
+
+  // WO-ARCH-07A — suppress known-basics re-ask after memory echo
+  var filtered = _suppressKnownBasicsAfterMemoryEcho(candidate);
+  if (filtered) return filtered;
+
+  // Suppressed — try next available question by re-running memoir/projection
+  // without the suppressed candidate. For now, fall back to a safe generic.
+  return "Tell me more about what comes to mind.";
 }
 
 /* ── v8 — Projection-aware question selection ──────────────────

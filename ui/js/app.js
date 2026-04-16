@@ -366,6 +366,278 @@ function normalizeLoriState(input) {
   return map[raw] || null; // null = badge-only (transitional or unknown)
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   WO-ARCH-07A — Router seed + Memory Echo helpers
+═══════════════════════════════════════════════════════════════ */
+
+const TURN_INTERVIEW   = "interview";
+const TURN_FOLLOWUP    = "followup";
+const TURN_MEMORY_ECHO = "memory_echo";
+const TURN_CORRECTION  = "correction";
+const TURN_CLARIFY     = "clarify";
+const TURN_TRAINER     = "trainer";
+
+function _lvText(s){
+  return String(s || "").trim();
+}
+
+function _looksLikeMemoryEchoRequest(text){
+  const t = _lvText(text).toLowerCase();
+  return [
+    "tell me what you know about me",
+    "what do you know about me",
+    "read back what you know about me",
+    "summarize what you know about me",
+    "read back what you know"
+  ].some(p => t.includes(p));
+}
+
+function _looksLikeCorrection(text){
+  const t = _lvText(text).toLowerCase();
+  if (!t) return false;
+  return (
+    t.startsWith("no,") ||
+    t.startsWith("actually") ||
+    t.startsWith("that is wrong") ||
+    t.startsWith("that's wrong") ||
+    t.startsWith("change that") ||
+    t.startsWith("add that") ||
+    t.includes(" not ") ||
+    t.includes(" wrong") ||
+    t.includes("i was born in") ||
+    t.includes("my father") ||
+    t.includes("my mother") ||
+    t.includes("i had ") ||
+    t.includes("i have ")
+  );
+}
+
+function lvRouteTurn(text){
+  if (_looksLikeMemoryEchoRequest(text)) return TURN_MEMORY_ECHO;
+  if (state?.session?.lastTurnMode === TURN_MEMORY_ECHO && _looksLikeCorrection(text)) return TURN_CORRECTION;
+  return TURN_INTERVIEW;
+}
+
+function _mkField(value, confidence, source, previous){
+  return {
+    value: value == null ? null : value,
+    confidence: confidence || "working_draft", // confirmed | working_draft | unclear
+    source: source || "projection",            // profile | user_correction | projection | derived
+    previous: Array.isArray(previous) ? previous : []
+  };
+}
+
+/* WO-ARCH-07A PS2 — correction-aware field resolution */
+function _ensureCorrectionState(){
+  if (!state.correctionState) {
+    state.correctionState = { applied: [], conflicts: [], uncertain: [] };
+  }
+  return state.correctionState;
+}
+
+function _activeCorrectionFor(fieldPath){
+  const cs = _ensureCorrectionState();
+  const hits = cs.applied.filter(x => x.fieldPath === fieldPath);
+  return hits.length ? hits[hits.length - 1] : null;
+}
+
+function _conflictsFor(fieldPath){
+  const cs = _ensureCorrectionState();
+  return cs.conflicts.filter(x => x.fieldPath === fieldPath);
+}
+
+function _fieldFromSources(fieldPath, baseValue, baseConfidence, baseSource){
+  const corr = _activeCorrectionFor(fieldPath);
+  if (corr) {
+    return _mkField(corr.newValue, "confirmed", "user_correction", corr.oldValue != null ? [corr.oldValue] : []);
+  }
+  const conflicts = _conflictsFor(fieldPath);
+  if (conflicts.length) {
+    return _mkField(baseValue, "unclear", baseSource || "projection", conflicts.map(c => c.conflictingValue));
+  }
+  return _mkField(baseValue, baseConfidence, baseSource);
+}
+
+/* Deterministic state read-back. This is NOT canonical truth by itself.
+   It is a coherence view built from current scoped state. */
+function buildMemoryEchoEntity(){
+  const basics = state?.profile?.basics || {};
+  const kin    = Array.isArray(state?.profile?.kinship) ? state.profile.kinship : [];
+  const spine  = state?.timeline?.spine || null;
+  const periods = Array.isArray(spine?.periods) ? spine.periods : [];
+
+  const parents = kin.filter(k => /mother|father|parent/i.test(k.relation || ""));
+  const siblings = kin.filter(k => /brother|sister|sibling/i.test(k.relation || ""));
+  const spouses = kin.filter(k => /spouse|wife|husband|partner/i.test(k.relation || ""));
+  const children = kin.filter(k => /son|daughter|child/i.test(k.relation || ""));
+
+  const entity = {
+    identity: {
+      full_name: _fieldFromSources(
+        "identity.full_name",
+        basics.fullname || basics.fullName || null,
+        (basics.fullname || basics.fullName) ? "confirmed" : "unclear",
+        "profile"
+      ),
+      preferred_name: _fieldFromSources(
+        "identity.preferred_name",
+        basics.preferred || basics.preferredName || null,
+        (basics.preferred || basics.preferredName) ? "confirmed" : "unclear",
+        "profile"
+      ),
+      date_of_birth: _fieldFromSources(
+        "identity.date_of_birth",
+        basics.dob || null,
+        basics.dob ? "confirmed" : "unclear",
+        "profile"
+      ),
+      place_of_birth: _fieldFromSources(
+        "identity.place_of_birth",
+        basics.pob || null,
+        basics.pob ? "confirmed" : "unclear",
+        "profile"
+      )
+    },
+
+    family: {
+      parents:  parents.map(p => _mkField((p.name || p.label || "").trim() || null, "working_draft", "projection")),
+      siblings: siblings.map(s => _mkField((s.name || s.label || "").trim() || null, "working_draft", "projection")),
+      spouses:  spouses.map(s => _mkField((s.name || s.label || "").trim() || null, "working_draft", "projection")),
+      children: children.map(c => _mkField((c.name || c.label || "").trim() || null, "working_draft", "projection"))
+    },
+
+    places: {
+      current_place: _mkField(basics.location || null, basics.location ? "working_draft" : "unclear", basics.location ? "projection" : "derived"),
+      first_home:    _mkField(null, "unclear", "derived")
+    },
+
+    education_work: {
+      schooling:  _mkField(null, "unclear", "derived"),
+      early_career: _mkField(null, "unclear", "derived"),
+      retirement: _mkField(null, "unclear", "derived")
+    },
+
+    timeline: {
+      birth: _mkField(
+        (basics.dob || basics.pob) ? `${basics.dob || "unknown date"} — ${basics.pob || "unknown place"}` : null,
+        (basics.dob || basics.pob) ? "confirmed" : "unclear",
+        "profile"
+      ),
+      periods: periods.map(p => ({
+        label: p.label || null,
+        start_year: p.start_year || null,
+        end_year: p.end_year == null ? null : p.end_year,
+        confidence: "working_draft",
+        source: "derived"
+      }))
+    },
+
+    themes: {
+      active_threads: []
+    },
+
+    uncertain: []
+  };
+
+  // Surface obvious missing fields
+  if (!entity.identity.full_name.value) entity.uncertain.push("full name");
+  if (!entity.identity.date_of_birth.value) entity.uncertain.push("date of birth");
+  if (!entity.identity.place_of_birth.value) entity.uncertain.push("place of birth");
+
+  // WO-ARCH-07A PS2 — merge correction ledger uncertainty + conflicts into entity
+  const cs = _ensureCorrectionState();
+  cs.uncertain.forEach(fp => {
+    if (!entity.uncertain.includes(fp)) entity.uncertain.push(fp);
+  });
+  if (cs.conflicts.length) {
+    entity.conflicts = cs.conflicts.map(c => ({
+      fieldPath: c.fieldPath,
+      activeValue: c.activeValue,
+      conflictingValue: c.conflictingValue,
+      sourceText: c.sourceText || null
+    }));
+  } else {
+    entity.conflicts = [];
+  }
+
+  state.memoryEcho = {
+    builtAt: Date.now(),
+    entity,
+    lastRenderedText: null
+  };
+
+  return entity;
+}
+
+/* WO-ARCH-07A PS2 — structured correction write-back */
+function _pushAppliedCorrection(fieldPath, newValue, oldValue, sourceText){
+  const cs = _ensureCorrectionState();
+  cs.applied.push({
+    fieldPath,
+    newValue,
+    oldValue: oldValue == null ? null : oldValue,
+    sourceText: sourceText || null,
+    ts: Date.now()
+  });
+}
+
+function _pushConflict(fieldPath, activeValue, conflictingValue, sourceText){
+  const cs = _ensureCorrectionState();
+  cs.conflicts.push({
+    fieldPath,
+    activeValue: activeValue == null ? null : activeValue,
+    conflictingValue: conflictingValue == null ? null : conflictingValue,
+    sourceText: sourceText || null,
+    ts: Date.now()
+  });
+}
+
+function applyCorrectionPayload(parsed, sourceText){
+  if (!parsed || typeof parsed !== "object") return;
+  const basics = state?.profile?.basics || {};
+
+  Object.keys(parsed).forEach(fp => {
+    const newValue = parsed[fp];
+
+    if (fp === "identity.place_of_birth") {
+      const oldValue = basics.pob || null;
+      if (oldValue && oldValue !== newValue) _pushConflict(fp, oldValue, newValue, sourceText);
+      basics.pob = newValue;
+      _pushAppliedCorrection(fp, newValue, oldValue, sourceText);
+      return;
+    }
+
+    if (fp === "identity.date_of_birth") {
+      const oldValue = basics.dob || null;
+      if (oldValue && oldValue !== newValue) _pushConflict(fp, oldValue, newValue, sourceText);
+      basics.dob = newValue;
+      _pushAppliedCorrection(fp, newValue, oldValue, sourceText);
+      return;
+    }
+
+    if (fp === "family.children.count") {
+      const cs = _ensureCorrectionState();
+      _pushAppliedCorrection(fp, newValue, null, sourceText);
+      cs.uncertain = cs.uncertain.filter(x => x !== "family.children.count");
+      return;
+    }
+
+    if (fp === "education_work.retirement") {
+      _pushAppliedCorrection(fp, newValue, null, sourceText);
+      return;
+    }
+
+    // Parent-name corrections stay in working layer for now.
+    if (fp === "family.parents.father.name" || fp === "family.parents.mother.name") {
+      _pushAppliedCorrection(fp, newValue, null, sourceText);
+      return;
+    }
+  });
+
+  // Rebuild echo with updated state
+  buildMemoryEchoEntity();
+}
+
 /**
  * Build the runtime71 block from live state.
  * This is the single source of truth for both ws.send() payloads.
@@ -2465,6 +2737,15 @@ async function sendUserMessage(){
   const payload=systemInstruction?`${text}\n\n${systemInstruction}`:text;
 
   if(ws&&wsReady&&!usingFallback){
+    // WO-ARCH-07A — local deterministic turn routing
+    const routedMode = lvRouteTurn(text);
+    state.session.turnMode = routedMode;
+
+    // WO-ARCH-07A — local deterministic memory echo build
+    if (routedMode === TURN_MEMORY_ECHO) {
+      buildMemoryEchoEntity();
+    }
+
     // v7.1: capture runtime71 BEFORE setLoriState("thinking") so transitional
     // badge updates never wipe semantic state (fatigue, cognitive mode, etc.)
     const _rt71 = buildRuntime71();
@@ -2477,11 +2758,12 @@ async function sendUserMessage(){
         console.log("[Lori 7.1] cognitive auto:", _caResult.mode, "("+_caResult.reason+")");
       }
     } catch(e) {}
+    console.log("[WO-ARCH-07A] turn_mode:", routedMode);
     console.log("[Lori 7.1] runtime71 → model:", JSON.stringify(_rt71, null, 2));
     const _llmT = (window._lv10dLlmParams && window._lv10dLlmParams.temperature) || 0.7;
     const _llmM = (window._lv10dLlmParams && window._lv10dLlmParams.max_new_tokens) || 512;
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
-      message:payload,params:{person_id:state.person_id,temperature:_llmT,max_new_tokens:_llmM,runtime71:_rt71}}));
+      message:payload,turn_mode:routedMode,params:{person_id:state.person_id,temperature:_llmT,max_new_tokens:_llmM,runtime71:_rt71}}));
     // Safety timeout: if no response within 30s, unstick the UI
     // WO-S3: Guard against stacked unavailable messages — only show once
     // WO-11: Only show unavailable if WS is genuinely disconnected
@@ -3010,6 +3292,11 @@ function connectWebSocket(){
 function _bubbleBody(el){ return el?.querySelector(".bubble-body")||el; }
 
 function handleWsMessage(j){
+  // WO-ARCH-07A PS2 — structured correction write-back from backend
+  if(j.type==="correction_payload"){
+    applyCorrectionPayload(j.parsed || {}, j.source_text || null);
+    return;
+  }
   if(j.type==="token"||j.type==="delta"){
     if(!currentAssistantBubble){
       currentAssistantBubble=appendBubble("ai","");
@@ -3040,6 +3327,14 @@ function handleWsMessage(j){
   }
   if(j.type==="done"){
     const text=j.final_text||(_bubbleBody(currentAssistantBubble)?.textContent||"");
+
+    // WO-ARCH-07A — propagate turn_mode from backend response
+    if (j.turn_mode) {
+      state.session.lastTurnMode = j.turn_mode;
+      state.session.turnMode = j.turn_mode;
+      state.session.pendingCorrection = (j.turn_mode === TURN_MEMORY_ECHO);
+    }
+
     onAssistantReply(text);
     if(text){
       setv("ivAnswer",text);
