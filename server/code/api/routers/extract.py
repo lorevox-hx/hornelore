@@ -100,6 +100,7 @@ EXTRACTABLE_FIELDS = {
     # Later years (suggest_only)
     "laterYears.retirement":               {"label": "Retirement experience", "writeMode": "suggest_only"},
     "laterYears.lifeLessons":              {"label": "Life lessons learned", "writeMode": "suggest_only"},
+    "laterYears.significantEvent":         {"label": "Significant later-life event or turning point", "writeMode": "suggest_only"},
 
     # Hobbies (suggest_only)
     "hobbies.hobbies":              {"label": "Hobbies and interests", "writeMode": "suggest_only"},
@@ -123,6 +124,42 @@ EXTRACTABLE_FIELDS = {
     "siblings.lastName":              {"label": "Sibling last name", "writeMode": "candidate_only", "repeatable": "siblings"},
     "siblings.birthOrder":            {"label": "Sibling birth order (older/younger)", "writeMode": "candidate_only", "repeatable": "siblings"},
     "siblings.uniqueCharacteristics": {"label": "Sibling unique characteristics", "writeMode": "candidate_only", "repeatable": "siblings"},
+
+    # ── WO-EX-SCHEMA-01 — Children (repeatable) ──────────────────────────────
+    "family.children.relation":       {"label": "Child relation (son/daughter/etc.)", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.firstName":      {"label": "Child first name", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.lastName":       {"label": "Child last name", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.dateOfBirth":    {"label": "Child date of birth", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.placeOfBirth":   {"label": "Child place of birth", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.preferredName":  {"label": "Child nickname", "writeMode": "candidate_only", "repeatable": "children"},
+
+    # ── WO-EX-SCHEMA-01 — Spouse / partner ────────────────────────────────────
+    "family.spouse.firstName":        {"label": "Spouse / partner first name", "writeMode": "prefill_if_blank"},
+    "family.spouse.lastName":         {"label": "Spouse / partner last name", "writeMode": "prefill_if_blank"},
+    "family.spouse.maidenName":       {"label": "Spouse / partner maiden name", "writeMode": "prefill_if_blank"},
+    "family.spouse.dateOfBirth":      {"label": "Spouse / partner DOB", "writeMode": "prefill_if_blank"},
+    "family.spouse.placeOfBirth":     {"label": "Spouse / partner place of birth", "writeMode": "prefill_if_blank"},
+
+    # ── WO-EX-SCHEMA-01 — Marriage event ──────────────────────────────────────
+    "family.marriageDate":            {"label": "Date of marriage", "writeMode": "prefill_if_blank"},
+    "family.marriagePlace":           {"label": "Place of marriage", "writeMode": "prefill_if_blank"},
+    "family.marriageNotes":           {"label": "Marriage context / how we met", "writeMode": "suggest_only"},
+
+    # ── WO-EX-SCHEMA-01 — Prior partners (repeatable) ────────────────────────
+    "family.priorPartners.firstName": {"label": "Previous partner first name", "writeMode": "candidate_only", "repeatable": "priorPartners"},
+    "family.priorPartners.lastName":  {"label": "Previous partner last name", "writeMode": "candidate_only", "repeatable": "priorPartners"},
+    "family.priorPartners.period":    {"label": "Period with previous partner", "writeMode": "candidate_only", "repeatable": "priorPartners"},
+
+    # ── WO-EX-SCHEMA-01 — Grandchildren (repeatable) ─────────────────────────
+    "family.grandchildren.firstName": {"label": "Grandchild first name", "writeMode": "candidate_only", "repeatable": "grandchildren"},
+    "family.grandchildren.relation":  {"label": "Grandchild relation (via which child)", "writeMode": "candidate_only", "repeatable": "grandchildren"},
+    "family.grandchildren.notes":     {"label": "Grandchild personality or notable trait", "writeMode": "candidate_only", "repeatable": "grandchildren"},
+
+    # ── WO-EX-SCHEMA-01 — Residence (repeatable) ─────────────────────────────
+    "residence.place":                {"label": "City / town / address lived in", "writeMode": "candidate_only", "repeatable": "residences"},
+    "residence.region":               {"label": "State / country of residence", "writeMode": "candidate_only", "repeatable": "residences"},
+    "residence.period":               {"label": "Years at this residence (e.g., 1962-1964)", "writeMode": "candidate_only", "repeatable": "residences"},
+    "residence.notes":                {"label": "Residence notes (home type, memory)", "writeMode": "candidate_only", "repeatable": "residences"},
 }
 
 # ── Phase G: Protected identity fields ─────────────────────────────────────
@@ -290,7 +327,30 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Career rules: use education.earlyCareer for first work, early service, early fieldwork, apprenticeship, or initial occupation. "
         "Use education.careerProgression for later roles, promotions, research leadership, public recognition, authorship, teaching, advocacy, public office, or major career transitions. "
         "Organization names, military branches, research settings, and travel context belong inside the value text when relevant; do not invent separate field paths for them. "
-        "Do NOT invent paths like education.career, employment.organization, education.travelDestination, career.fieldOfStudy, career.location, career.business, career.politics.*, or personal.profession."
+        "Do NOT invent paths like education.career, employment.organization, education.travelDestination, career.fieldOfStudy, career.location, career.business, career.politics.*, or personal.profession.\n"
+        "\n"
+        "Example — narrator says: \"My oldest son Vince was born in Germany in 1960, and my daughter Sarah was born in Bismarck in 1962.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"family.children.relation\",\"value\":\"son\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.firstName\",\"value\":\"Vince\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.placeOfBirth\",\"value\":\"Germany\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.dateOfBirth\",\"value\":\"1960\",\"confidence\":0.7},"
+        "{\"fieldPath\":\"family.children.relation\",\"value\":\"daughter\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.firstName\",\"value\":\"Sarah\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.placeOfBirth\",\"value\":\"Bismarck\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.dateOfBirth\",\"value\":\"1962\",\"confidence\":0.7}]\n"
+        "\n"
+        "Example — narrator says: \"I married my wife Dorothy in 1958 in Fargo.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"family.spouse.firstName\",\"value\":\"Dorothy\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"
+        "\n"
+        "Example — narrator says: \"We lived in West Fargo from 1962 to 1964, then moved to Bismarck.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"residence.place\",\"value\":\"West Fargo\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"residence.period\",\"value\":\"1962-1964\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9}]"
     )
 
     context_note = ""
@@ -484,6 +544,27 @@ def _validate_item(item: Any) -> Optional[dict]:
             "family.occupation": "parents.occupation",
             "family.sibling": "siblings.relation",
             "family.brother": "siblings.relation", "family.sister": "siblings.relation",
+            # WO-EX-SCHEMA-01 — aliases for new field families
+            "children.firstName": "family.children.firstName",
+            "children.lastName": "family.children.lastName",
+            "children.dateOfBirth": "family.children.dateOfBirth",
+            "children.placeOfBirth": "family.children.placeOfBirth",
+            "children.relation": "family.children.relation",
+            "children.preferredName": "family.children.preferredName",
+            "childName": "family.children.firstName", "child_name": "family.children.firstName",
+            "sonName": "family.children.firstName", "daughterName": "family.children.firstName",
+            "son": "family.children.relation", "daughter": "family.children.relation",
+            "spouse.firstName": "family.spouse.firstName",
+            "spouse.lastName": "family.spouse.lastName",
+            "spouseName": "family.spouse.firstName", "spouse_name": "family.spouse.firstName",
+            "wifeName": "family.spouse.firstName", "husbandName": "family.spouse.firstName",
+            "wife": "family.spouse.firstName", "husband": "family.spouse.firstName",
+            "marriageDate": "family.marriageDate", "marriage_date": "family.marriageDate",
+            "marriagePlace": "family.marriagePlace", "marriage_place": "family.marriagePlace",
+            "grandchildren.firstName": "family.grandchildren.firstName",
+            "grandchildName": "family.grandchildren.firstName",
+            "residence": "residence.place", "lived": "residence.place",
+            "residence.address": "residence.place",
             # Education
             "school": "education.schooling", "college": "education.higherEducation",
             "firstJob": "education.earlyCareer", "first_job": "education.earlyCareer",

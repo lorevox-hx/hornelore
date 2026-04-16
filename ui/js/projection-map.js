@@ -53,6 +53,7 @@
       eraTags: [],
       conversational: "What is your full name — first, middle, and last?",
       followUp: "Is there a name you prefer to go by?",
+      extractionHint: "Narrator's full legal or primary name. Extract only the name the narrator explicitly states as their own.",
       memoirClass: "background", questionKind: "fact", memoirWeight: 1,
       skipIfPreloaded: true, confirmOnlyIfMissing: true
     },
@@ -71,6 +72,7 @@
       priority: 1,
       eraTags: [],
       conversational: "When were you born?",
+      extractionHint: "Narrator's exact date of birth. Extract only what the narrator explicitly states. Preserve month/day/year precision if present.",
       inputHelper: "normalizeDob",
       memoirClass: "background", questionKind: "fact", memoirWeight: 1,
       skipIfPreloaded: true, confirmOnlyIfMissing: true
@@ -89,6 +91,7 @@
       priority: 1,
       eraTags: ["early_childhood"],
       conversational: "Where were you born — what city and state, or country?",
+      extractionHint: "Narrator's birthplace city/state/country. Extract only the location the narrator explicitly states as their own birthplace, not third-party locations.",
       inputHelper: "normalizePlace",
       memoirClass: "background", questionKind: "fact", memoirWeight: 1,
       skipIfPreloaded: true, confirmOnlyIfMissing: true,
@@ -196,6 +199,7 @@
       priority: 3,
       eraTags: ["later_life"],
       conversational: "What was retirement like for you? Was it a welcome change or a difficult transition?",
+      extractionHint: "Narrator's retirement status or experience. Extract what the narrator says about their own retirement, including if they say they never retired.",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 9,
       hookPrompt: "You retired from {value}. What was the first morning like when you realized you didn't have to go? What did you feel?"
     },
@@ -292,9 +296,9 @@
       eraTags: ["early_childhood", "school_years"],
       fields: {
         relation:          { conversational: "Was {ref} your mother, father, stepparent, or another role?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
-        firstName:         { conversational: "What was {ref}'s first name?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
+        firstName:         { conversational: "What was {ref}'s first name?", extractionHint: "The first name of this parent/parental figure as stated by the narrator. Extract only the name explicitly given.", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
         middleName:        { conversational: "Did {ref} have a middle name?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
-        lastName:          { conversational: "What was {ref}'s last name?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
+        lastName:          { conversational: "What was {ref}'s last name?", extractionHint: "The last/family name of this parent/parental figure as stated by the narrator.", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
         maidenName:        { conversational: "Did {ref} have a maiden name or birth name?", memoirClass: "background", memoirWeight: 2, skipIfPreloaded: true },
         birthDate:         { conversational: "Do you know when {ref} was born?", inputHelper: "normalizeDob", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
         birthPlace:        { conversational: "Where was {ref} born?", inputHelper: "normalizePlace", memoirClass: "background", memoirWeight: 2, skipIfPreloaded: true },

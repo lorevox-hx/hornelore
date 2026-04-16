@@ -513,7 +513,7 @@
           "intent": "Capture marriage / long-term partnership dates and origins.",
           "extract_priority": [
             "family.spouse",
-            "family.marriage_date"
+            "family.marriageDate"
           ],
           "questions": [
             "Think back to the very first time you met your partner — where were you standing?",
@@ -650,7 +650,7 @@
           "intent": "Marriage, divorce, remarriage, or sustained partnership through the midlife window.",
           "extract_priority": [
             "family.spouse",
-            "family.marriage_date"
+            "family.marriageDate"
           ],
           "questions": [
             "In the busy middle years of your life, was there one ritual you and a partner always made sure to keep — or a season when that partnership shifted?",
