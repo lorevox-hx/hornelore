@@ -6,6 +6,79 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
+## Current state (as of 2026-04-15)
+
+This section is a rolling summary of what's been shipped recently and what's still in-flight. If you're coming back after time away, read this first.
+
+### Recently shipped (committed)
+
+| Work order | What it is | State |
+|---|---|---|
+| **WO-EX-01C** | Narrator-identity subject guard + strict section-only birth-context filter | Live-proven; closed the "west Fargo → placeOfBirth" and "Cole's DOB → narrator DOB" bugs |
+| **WO-EX-01D** | Field-value sanity blacklists (US state abbr for lastName, stopwords for firstName) | Live-proven; closed "Stanley/ND" and "and/dad" token-fragment bugs |
+| **WO-LIFE-SPINE-05** | Phase-aware question composer over `data/prompts/question_bank.json` | Shipped, flag `HORNELORE_PHASE_AWARE_QUESTIONS` default OFF |
+| **WO-EX-VALIDATE-01** | Age-math plausibility validator (drops events that predate birth, age<min for civic events, etc.) | Shipped, flag `HORNELORE_AGE_VALIDATOR` default OFF |
+| **question_bank v3** | 36 sub-topics, 144 openers, 108 follow-ups. v3 adds civic_entry_age_18, tightens launch/off-ramp, fixes retirement anchor | Content-only, ready for phase-aware activation |
+
+### Unshipped / in-flight
+
+| Work order | State | Notes |
+|---|---|---|
+| **WO-GREETING-01** | Backend endpoint shipped (`GET /api/interview/opener`), tests pass. Frontend wiring pending operator review. | Endpoint testable via curl; wire to session-open in UI when ready |
+| **WO-EX-SCHEMA-01** | Spec only (`docs/wo-qa/WO-EX-SCHEMA-01.md`). P0 BLOCKER for CLAIMS-01 | Adds `family.*` and `residence.*` field families so compound children/residence extractions can land |
+| **WO-EX-CLAIMS-01** | Spec only (`docs/wo-qa/WO-EX-CLAIMS-01.md`). ~6 days scoped | Upgrades extraction from fragments to claim-shaped output. Blocked by SCHEMA-01 |
+| **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores and stays anchored. #1 felt bug from live sessions |
+| **WO-REPETITION-01** | Not yet specced | Narrator pastes same content 2-3x, Lori keeps responding |
+| **WO-MODE-01/02** | Not yet specced | Session Intent Profiles (Questionnaire First / Clear & Direct / Warm Storytelling) after narrator Open |
+| **WO-UI-SHADOWREVIEW-01** | Not yet specced | Show Phase G suppression reason ("we already have this") instead of silent drop |
+| **WO-EX-DIAG-01** | Not yet specced | Surface extraction failure reason in response envelope |
+
+### Env flag state
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `HORNELORE_TRUTH_V2` | 1 | Facts write freeze (legacy /api/facts/add → 410) |
+| `HORNELORE_TRUTH_V2_PROFILE` | 1 | Profile reads from family_truth_promoted |
+| `HORNELORE_PHASE_AWARE_QUESTIONS` | 0 | Phase-aware question composer (WO-LIFE-SPINE-05) |
+| `HORNELORE_AGE_VALIDATOR` | 0 | Age-math plausibility filter (WO-EX-VALIDATE-01) |
+
+### Test state
+
+82 unit tests across 5 suites, all passing:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+source .venv-gpu/bin/activate
+python -m unittest tests.test_extract_subject_filters \
+                   tests.test_life_spine_validator \
+                   tests.test_phase_aware_composer \
+                   tests.test_interview_opener -v
+# Plus the integration tests:
+python -m unittest tests.test_extract_api_subject_filters -v  # requires FastAPI
+```
+
+### Known issues from live observation (2026-04-15)
+
+See `docs/observations/2026-04-15-extraction-taxonomy.md` for the full writeup. Short version:
+
+- **Critical:** question bank references field paths (`family.children`, `residence.place`, etc.) that don't exist in `EXTRACTABLE_FIELDS`. Compound child/spouse/residence extractions silently fail. Fix = WO-EX-SCHEMA-01.
+- **High:** Lori ignores narrator-stated topic pivots ("let's talk about my parents"). Fix = WO-INTENT-01.
+- **High:** Compound sentences ("my sisters Linda and Sharon", "my three kids...") produce zero or partial extractions. Fix = WO-EX-CLAIMS-01 after SCHEMA-01.
+- **Medium:** Narrator repeats same content 2-3×, Lori keeps asking similar follow-ups. Fix = WO-REPETITION-01.
+- **Medium:** Lori doesn't introduce herself on session open. Fix = WO-GREETING-01 (partial shipped — needs frontend wire).
+- **Low:** Accordion shows DOB year only when canonical has full date. Display renderer issue.
+
+### Recommended activation sequence (next time you're ready to test)
+
+1. Commit any outstanding work (`git status` should be clean)
+2. Flip `HORNELORE_PHASE_AWARE_QUESTIONS=1` in `.env` if you haven't
+3. Restart API: `bash scripts/restart_api.sh`
+4. Run a fresh narrator session — confirm question IDs start with `qb:` in network tab
+5. Collect observations in `docs/observations/YYYY-MM-DD-*.md`
+6. Before building anything new, triage observations against the WO queue
+
+---
+
 ## 0. What "Hornelore on the laptop" means
 
 Hornelore is a **single-machine local-LLM** application. There's no cloud component. Everything that matters runs in WSL2 against the Windows-side NVIDIA driver. Three services come up in sequence:

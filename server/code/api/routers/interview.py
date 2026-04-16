@@ -429,6 +429,124 @@ def answer_interview(req: AnswerInterviewRequest) -> AnswerInterviewResponse:
     )
 
 
+# ── WO-GREETING-01: narrator-aware session opener ───────────────────────────
+
+class OpenerResponse(BaseModel):
+    person_id: str
+    narrator_name: str = ""
+    kind: str = "first_time"   # "first_time" | "welcome_back" | "onboarding_incomplete"
+    opener_text: str = ""
+    context: dict = {}
+
+
+def _choose_narrator_name(person: dict, profile_basics: dict) -> str:
+    """Return the best available name for greeting use.
+
+    Order: preferred > first (from fullName split) > fullName > ''.
+    Never returns lastName only; the greeting is conversational.
+    """
+    preferred = (profile_basics or {}).get("preferred") or ""
+    if preferred and str(preferred).strip():
+        return str(preferred).strip()
+
+    full = (person or {}).get("display_name") or ""
+    if full and str(full).strip():
+        first = str(full).split()[0].strip()
+        if first:
+            return first
+        return str(full).strip()
+
+    return ""
+
+
+def _identity_complete(person: dict, profile_basics: dict) -> bool:
+    """Check whether this narrator has enough identity to skip onboarding.
+
+    Requires: display_name (or preferred), date_of_birth, place_of_birth.
+    Matches the thresholds used by prompt_composer's onboarding flow.
+    """
+    name_ok = bool((person or {}).get("display_name") or (profile_basics or {}).get("preferred"))
+    dob_ok = bool((person or {}).get("date_of_birth"))
+    pob_ok = bool((person or {}).get("place_of_birth"))
+    return name_ok and dob_ok and pob_ok
+
+
+def _build_opener_text(kind: str, name: str) -> str:
+    """Compose the opener utterance Lori should say as her first turn."""
+    safe_name = name or "friend"
+    if kind == "first_time":
+        return (
+            f"Hi {safe_name}, I'm Lori.\n\n"
+            "I'm here to help you capture your life story — the memories, "
+            "the people, the places that mattered to you. There's no wrong "
+            "way to do this. We can go in order of your life, or jump "
+            "around to whatever you want to talk about today.\n\n"
+            "What would you like to start with?"
+        )
+    if kind == "welcome_back":
+        return (
+            f"Welcome back, {safe_name}. Where would you like to continue today?"
+        )
+    # onboarding_incomplete → empty; let the existing prompt_composer
+    # onboarding flow drive the first question.
+    return ""
+
+
+@router.get("/opener", response_model=OpenerResponse)
+def get_opener(person_id: str) -> OpenerResponse:
+    """Return a narrator-aware first-turn opener for Lori.
+
+    Frontend should call this when a narrator card is opened, before
+    enabling user input. The returned `opener_text` becomes Lori's
+    first utterance. An empty `opener_text` with
+    `kind="onboarding_incomplete"` tells the frontend to skip the
+    injected greeting and let the existing onboarding prompt path run.
+
+    Never raises for a missing-but-valid person_id; returns 404 only
+    when the narrator record itself cannot be found. Returns an empty
+    opener (not a 500) for any internal lookup failure so startup is
+    resilient.
+    """
+    if not person_id or not person_id.strip():
+        raise HTTPException(status_code=400, detail="person_id is required")
+
+    try:
+        snap = db.get_narrator_state_snapshot(person_id) or {}
+    except Exception:
+        snap = {}
+
+    person = snap.get("person") or {}
+    if not person:
+        raise HTTPException(status_code=404, detail="Unknown person_id")
+
+    profile = snap.get("profile") or {}
+    basics = (profile.get("basics") or {}) if isinstance(profile, dict) else {}
+    user_turn_count = int(snap.get("user_turn_count") or 0)
+
+    identity_complete = _identity_complete(person, basics)
+    name = _choose_narrator_name(person, basics)
+
+    if not identity_complete:
+        kind = "onboarding_incomplete"
+    elif user_turn_count == 0:
+        kind = "first_time"
+    else:
+        kind = "welcome_back"
+
+    opener_text = _build_opener_text(kind, name)
+
+    return OpenerResponse(
+        person_id=person_id,
+        narrator_name=name,
+        kind=kind,
+        opener_text=opener_text,
+        context={
+            "user_turn_count": user_turn_count,
+            "identity_complete": identity_complete,
+        },
+    )
+
+
 @router.get("/progress")
 def api_progress(session_id: str):
     """Return progress for the UI progress bar."""
