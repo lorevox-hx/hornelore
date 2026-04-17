@@ -5,7 +5,7 @@
 ═══════════════════════════════════════════════════════════════ */
 
 function _activePersonIdKawa(){
-  return state?.activePersonId || state?.personId || state?.narratorUi?.activePersonId || null;
+  return state?.person_id || null;
 }
 
 function _ensureKawa(){
@@ -155,7 +155,7 @@ async function kawaSaveActive(confirmFlag = false){
     narrator_note: seg.narrator_note || null,
     narrator_quote: seg.narrator_quote || null,
     confirmed: !!confirmFlag,
-    session_id: state?.session?.id || null
+    session_id: state?.interview?.session_id || null
   };
 
   const data = await apiSaveKawaSegment(payload);

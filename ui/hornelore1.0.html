@@ -4578,13 +4578,24 @@ function lv80ShowNarratorOpenError(personId, errorMsg) {
   console.log("[v9-gate] Showing error UI for", personId, ":", errorMsg);
 }
 
-function lv80NewPerson() {
-  // ── HORNELORE: New narrator creation is DISABLED ──
-  // This build is locked to the Horne family (Chris, Kent, Janice).
-  // The function is kept as a stub for compatibility but does nothing.
-  console.warn("[Hornelore] New narrator creation is disabled — locked to Horne family.");
-  if (typeof sysBubble === "function") {
-    sysBubble("Hornelore is locked to the Horne family narrators. Use the narrator switcher to select Chris, Kent, or Janice.");
+async function lv80NewPerson() {
+  const name = prompt("New narrator name (full name):");
+  if (!name || !name.trim()) return;
+  try {
+    const resp = await fetch(API.PEOPLE, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ display_name: name.trim(), role: "", narrator_type: "live" })
+    });
+    if (!resp.ok) { alert("Failed to create narrator: " + resp.status); return; }
+    const data = await resp.json();
+    const pid = data.person_id || data.person?.id;
+    if (typeof refreshPeople === "function") await refreshPeople();
+    lv80RenderNarratorCards();
+    if (pid && typeof lv80ConfirmNarratorSwitch === "function") lv80ConfirmNarratorSwitch(pid);
+  } catch (e) {
+    console.error("[Hornelore] lv80NewPerson error:", e);
+    alert("Error creating narrator: " + e.message);
   }
 }
 
@@ -4729,7 +4740,7 @@ function lv80RenderNarratorCards(){
         </div>
         <div class="lv80-narrator-card-actions">
           <button class="bb-btn-sm" onclick="lv80ConfirmNarratorSwitch('${pid}')">Open</button>
-          <!-- Hornelore: Delete disabled for family safety -->
+          ${_horneloreIsCoreNarrator(person) ? '' : `<button class="bb-btn-sm" style="color:#ef4444;border-color:#ef4444;" onclick="lv80StartDeleteNarrator('${pid}','${esc(name)}')">Delete</button>`}
         </div>
       </div>
     `;
@@ -4738,8 +4749,17 @@ function lv80RenderNarratorCards(){
 
   people.forEach(person => {
     const kind = lv80NarratorKind(person);
-    list.appendChild(_renderCard(person, kind === "real" ? "REAL" : "TEST", kind, null));
+    const isCore = _horneloreIsCoreNarrator(person);
+    list.appendChild(_renderCard(person, isCore ? "FAMILY" : "TEST", isCore ? "real" : "test", null));
   });
+
+  // Add narrator button
+  const addBtn = document.createElement("button");
+  addBtn.className = "bb-btn-sm";
+  addBtn.style.cssText = "width:100%;margin-top:10px;padding:8px;border:1px dashed rgba(255,255,255,0.2);color:#94a3b8;";
+  addBtn.textContent = "+ Add Test Narrator";
+  addBtn.onclick = () => lv80NewPerson();
+  list.appendChild(addBtn);
 }
 
 function lv80ToggleNarratorSwitcher(){
@@ -5015,11 +5035,30 @@ function _horneloreNormalizeVisibleName(person) {
 }
 
 function _horneloreFilterVisiblePeople(people) {
+  // Show all narrators — core family + any test narrators created for live testing
+  return (Array.isArray(people) ? people : []).filter(p => !p.is_deleted);
+}
+
+function _horneloreIsCoreNarrator(person) {
   const allowed = _horneloreAllowedNarratorNames();
-  return (Array.isArray(people) ? people : []).filter(p => {
-    const raw = String(p?.display_name || p?.name || "").toLowerCase().trim();
-    return allowed.has(raw);
-  });
+  const raw = String(person?.display_name || person?.name || "").toLowerCase().trim();
+  return allowed.has(raw);
+}
+
+async function lv80StartDeleteNarrator(pid, label) {
+  if (!state.narratorDelete) state.narratorDelete = {};
+  state.narratorDelete.targetId = pid;
+  state.narratorDelete.targetLabel = label;
+  state.narratorDelete.confirmText = "";
+  // Fetch inventory counts before showing dialog
+  try {
+    const resp = await fetch(API.PERSON(pid) + "/delete-inventory");
+    if (resp.ok) {
+      const inv = await resp.json();
+      state.narratorDelete.inventory = inv.counts || {};
+    }
+  } catch(e) { console.warn("Could not fetch delete inventory:", e); }
+  lv80OpenDeleteDialog();
 }
 
 function lv80OpenDeleteDialog(){

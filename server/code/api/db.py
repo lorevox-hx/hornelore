@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import json
+import shutil
 import sqlite3
 import uuid
 from pathlib import Path
@@ -3341,6 +3342,13 @@ def person_delete_inventory(person_id: str) -> Optional[Dict[str, Any]]:
     ).fetchone()
     counts["media_attachments"] = attach_row["cnt"] if attach_row else 0
 
+    # Kawa segments (JSON files on disk, not in SQLite)
+    kawa_seg_dir = DATA_DIR / "kawa" / "people" / person_id / "segments"
+    if kawa_seg_dir.exists():
+        counts["kawa_segments"] = len(list(kawa_seg_dir.glob("*.json")))
+    else:
+        counts["kawa_segments"] = 0
+
     con.close()
     return {
         "person_id": person["id"],
@@ -3503,6 +3511,7 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
     The SQLite FK cascade handles most deletions automatically:
     - profiles, timeline_events, interview_sessions, interview_answers, facts, life_phases → CASCADE
     - media, media_attachments → SET NULL (person_id nulled, records preserved)
+    - Kawa segment JSON files → removed from disk after DB commit
 
     This function wraps the delete in a transaction for all-or-nothing safety.
     """
@@ -3535,6 +3544,12 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
 
         con.commit()
         logger.info("hard_delete_person: id=%s name=%r counts=%s", person_id, display_name, counts)
+
+        # Clean up Kawa segment files (stored on disk, not in SQLite)
+        kawa_person_dir = DATA_DIR / "kawa" / "people" / person_id
+        if kawa_person_dir.exists():
+            shutil.rmtree(kawa_person_dir, ignore_errors=True)
+            logger.info("hard_delete_person: removed Kawa dir %s", kawa_person_dir)
 
     except Exception as exc:
         con.rollback()
