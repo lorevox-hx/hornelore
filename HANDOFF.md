@@ -29,6 +29,7 @@ This section is a rolling summary of what's been shipped recently and what's sti
 |---|---|---|
 | **WO-SCHEMA-02** | **Implementation complete** (2026-04-17). 35 new fields (7 families), ~50 aliases, 7 prompt examples, 14 eval cases (cases 031-044). | Fields: grandparents, military, faith, health, community, pets, travel. Eval suite expanded: 30 → 44 cases. Needs re-run. |
 | **WO-CLAIMS-02** | **Quick-win validators shipped** (2026-04-17). See `docs/CLAIMS-02_failure_taxonomy.md`. | 3 validators in extract.py: value-shape rejection (garbage words + short fragments), relation allowlist (enumerated valid values), confidence floor (<0.5 auto-reject). Flag `HORNELORE_CLAIMS_VALIDATORS` default ON. 32 new tests (114 total). Remaining: entity coherence, compound splitting, narrator style tuning. |
+| **WO-EX-REROUTE-01** | **Implementation complete** (2026-04-17). | Semantic rerouter: 4 high-precision rerouters (pets, siblings, birthplace, career) that fix valid-but-wrong fieldPaths using section+path+lexical triple-agreement. 4 prompt routing distinction exemplars. 8 micro-eval cases (4 reroute, 4 no-reroute). Eval suite: 44 → 52 cases. |
 | **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores and stays anchored. #1 felt bug from live sessions |
 | **WO-KAWA-UI-01A** | **Implementation complete** (2026-04-17). See `docs/reports/WO-KAWA-UI-01A_REPORT.md`. | River View UI as popover: segment list, detail pane, flow/rocks/driftwood/banks/spaces editing, river strip, 4 REST endpoints, local-first JSON storage. Needs live test. |
 | **WO-KAWA-01** | Fully specced (`hornelore/WO-KAWA-01_Spec.md`). 10 phases. | Parallel Kawa river layer: LLM-driven proposals, confirmation loop, instrumentation. Next: wire LLM into `kawa_projection.py`. |
@@ -43,21 +44,23 @@ This section is a rolling summary of what's been shipped recently and what's sti
 ### Priority sequence to Kawa readiness
 
 ```
-SCHEMA-02 (done) → CLAIMS-02 quick-wins (done) → re-run eval → INTENT-01 → KAWA-01 Phase 1
+SCHEMA-02 (done) → CLAIMS-02 quick-wins (done) → eval run 1-4 (done, 24/44) → EX-REROUTE-01 (done) → re-run eval → INTENT-01 → KAWA-01 Phase 1
 ```
 
-### Extraction eval baseline (2026-04-16)
+### Extraction eval baseline (2026-04-17)
 
-**22/30 passing (73.3%)** via `scripts/run_question_bank_extraction_eval.py --mode live`
+**24/44 passing (54.5%, avg score 0.615)** via `scripts/run_question_bank_extraction_eval.py --mode live`
 
-Remaining 8 failures categorized in `docs/CLAIMS-02_failure_taxonomy.md`:
+Failure breakdown (20 failures): field_path_mismatch: 9, schema_gap: 11, llm_hallucination: 8.
+Key finding: field_path_mismatch cases are semantic misrouting (valid-but-wrong paths), not invalid path generation.
 
-- **Category A:** Compound entity grouping (5 cases) — repeatable groups lose relation/birthOrder metadata
-- **Category B:** LLM hallucination (overlaps A) — produces "then", "and", "kids" as relation values
-- **Category C:** Field path mismatch (2 cases) — values routed to wrong field
-- **Category D:** 3 unexpected failures (Kent 1, Janice 2) — likely narrator-style sensitivity
+Eval suite now expanded to **52 cases** (8 new WO-EX-REROUTE-01 micro-eval cases). Needs re-run for new baseline.
 
-Eval suite now expanded to **44 cases** (14 new SCHEMA-02 cases). Needs re-run for new baseline.
+### Extraction pipeline order (updated 2026-04-17)
+
+```
+LLM generate → JSON parse → semantic rerouter → birth-context filter → month-name sanity → field-value sanity → claims validators (shape + relation + confidence + negation guard)
+```
 
 ### Reference docs saved
 

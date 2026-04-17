@@ -341,6 +341,18 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "IMPORTANT: Use ONLY these exact fieldPath values:\n"
         f"{compact_catalog}\n"
         "\n"
+        "ROUTING DISTINCTIONS — common mistakes to avoid:\n"
+        "• Pets vs hobbies: Animals the narrator owned (dogs, cats, horses) → pets.name / pets.species / pets.notes. "
+        "NOT hobbies.hobbies. \"We had a Golden Retriever named Ivan\" → pets.*, not hobbies.*\n"
+        "• Siblings vs children: Brothers and sisters the narrator grew up with → siblings.*. "
+        "NOT family.children.* (which is for the narrator's own kids). "
+        "\"My older brother Vincent\" → siblings.firstName, siblings.birthOrder\n"
+        "• Birthplace vs residence: \"I was born in Spokane\" → personal.placeOfBirth. "
+        "NOT residence.place (which is for places the narrator lived later).\n"
+        "• Early career vs career progression: First job or entry-level work → education.earlyCareer. "
+        "Long-duration work or later-career roles (\"since 1997\", \"for 29 years\", \"until retirement\") "
+        "→ education.careerProgression.\n"
+        "\n"
         "Example — narrator says: \"My dad John Smith was a teacher and my sister Amy was older.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"parents.relation\",\"value\":\"father\",\"confidence\":0.9},"
@@ -1484,6 +1496,138 @@ def _apply_claims_confidence_floor(items: List[dict]) -> List[dict]:
     return out
 
 
+# ── Semantic rerouter — fix valid-but-wrong fieldPath choices ──────────────
+#
+# The LLM sometimes picks a valid fieldPath from the wrong family.
+# These rerouters fire only when ALL THREE conditions agree:
+#   1. section context matches the reroute scenario
+#   2. the chosen fieldPath matches the known misroute pattern
+#   3. lexical cues in the answer or value confirm the reroute
+# This keeps rerouting surgical — no broad fuzzy matching.
+
+# Section keyword sets for context matching
+_SECTION_PETS = frozenset({"pets", "animals", "childhood_pets", "family_pets", "pets_and_animals"})
+_SECTION_SIBLINGS = frozenset({
+    "early_caregivers", "siblings", "family_of_origin", "sibling_dynamics",
+    "developmental_foundations", "family_dynamics",
+})
+_SECTION_BIRTH = frozenset({
+    "origin_point", "birth", "birthplace", "origins", "developmental_foundations",
+})
+
+# Lexical cue patterns
+_PET_CUES = re.compile(
+    r'\b(?:dog|cat|horse|pony|bird|fish|rabbit|hamster|turtle|parrot|kitten|puppy'
+    r'|golden retriever|labrador|poodle|collie|shepherd|beagle|terrier|spaniel'
+    r'|tabby|siamese|persian|named\s+\w+|pet|pets|animal|animals)\b',
+    re.IGNORECASE,
+)
+_SIBLING_CUES = re.compile(
+    r'\b(?:brother|sister|brothers|sisters|sibling|siblings'
+    r'|older brother|younger brother|older sister|younger sister'
+    r'|big brother|big sister|little brother|little sister'
+    r'|twin brother|twin sister)\b',
+    re.IGNORECASE,
+)
+_BIRTH_CUES = re.compile(
+    r'\b(?:born in|born on|born at|birthplace|place of birth|came into the world'
+    r'|where I was born|where .{0,10} was born|I was born)\b',
+    re.IGNORECASE,
+)
+_CAREER_DURATION_CUES = re.compile(
+    r'\b(?:for \d+ years|since \d{4}|worked there (?:for|until)|until (?:I )?retire'
+    r'|spent \d+ years|over \d+ years|almost \d+ years|career spanned'
+    r'|until retirement|retired from|retiring from)\b',
+    re.IGNORECASE,
+)
+
+# Path mapping: (source_prefix, target_prefix) for each rerouter
+_PETS_REMAP = {
+    "hobbies.hobbies": "pets.notes",  # generic hobby → pet notes
+    "hobbies.personalChallenges": "pets.notes",
+}
+_SIBLINGS_REMAP = {
+    "family.children.relation": "siblings.relation",
+    "family.children.firstName": "siblings.firstName",
+    "family.children.lastName": "siblings.lastName",
+    "family.children.birthOrder": "siblings.birthOrder",
+    "family.children.preferredName": "siblings.uniqueCharacteristics",
+    "family.children.dateOfBirth": "siblings.uniqueCharacteristics",
+    "family.children.placeOfBirth": "siblings.uniqueCharacteristics",
+}
+
+
+def _section_matches(current_section: Optional[str], keywords: frozenset) -> bool:
+    """Check if the current interview section matches any keyword set."""
+    if not current_section:
+        return False
+    section_lower = current_section.lower().replace("-", "_").replace(" ", "_")
+    return any(kw in section_lower for kw in keywords)
+
+
+def _apply_semantic_rerouter(
+    items: List[dict],
+    answer: str,
+    current_section: Optional[str] = None,
+) -> List[dict]:
+    """Reroute valid-but-wrong fieldPaths using section + path + lexical evidence.
+
+    Each reroute requires all three signals to agree. No reroute happens
+    on section context alone or lexical cues alone.
+    """
+    if not items:
+        return items
+
+    answer_lower = answer.lower()
+    rerouted = []
+
+    for it in items:
+        fp = it.get("fieldPath", "")
+        val = str(it.get("value", ""))
+        combined_text = answer_lower + " " + val.lower()
+        original_fp = fp
+
+        # ── 1. Pets rerouter: hobbies.* → pets.* ────────────────────────
+        if fp in _PETS_REMAP:
+            if _section_matches(current_section, _SECTION_PETS) and _PET_CUES.search(combined_text):
+                # Try to extract pet name and species from value
+                new_fp = _PETS_REMAP[fp]
+                logger.info("[extract][rerouter] pets: %s → %s (val=%r)", fp, new_fp, val[:60])
+                it["fieldPath"] = new_fp
+
+        # ── 2. Siblings rerouter: family.children.* → siblings.* ────────
+        elif fp in _SIBLINGS_REMAP:
+            if _section_matches(current_section, _SECTION_SIBLINGS) and _SIBLING_CUES.search(combined_text):
+                new_fp = _SIBLINGS_REMAP[fp]
+                logger.info("[extract][rerouter] siblings: %s → %s (val=%r)", fp, new_fp, val[:60])
+                it["fieldPath"] = new_fp
+
+        # ── 3. Birthplace rerouter: residence.place → personal.placeOfBirth ─
+        elif fp == "residence.place":
+            if _BIRTH_CUES.search(answer_lower):
+                # Section context OR birth cues in the answer are enough here
+                # because "born in X" is unambiguous regardless of section
+                logger.info("[extract][rerouter] birthplace: residence.place → personal.placeOfBirth (val=%r)", val[:60])
+                it["fieldPath"] = "personal.placeOfBirth"
+
+        # ── 4. Career progression rerouter: earlyCareer → careerProgression ─
+        elif fp == "education.earlyCareer":
+            if _CAREER_DURATION_CUES.search(combined_text):
+                logger.info("[extract][rerouter] career: education.earlyCareer → education.careerProgression (val=%r)", val[:60])
+                it["fieldPath"] = "education.careerProgression"
+
+        if it["fieldPath"] != original_fp:
+            # Verify the rerouted path is valid
+            if it["fieldPath"] not in EXTRACTABLE_FIELDS:
+                logger.warning("[extract][rerouter] rerouted path %r not in EXTRACTABLE_FIELDS — reverting to %r",
+                              it["fieldPath"], original_fp)
+                it["fieldPath"] = original_fp
+
+        rerouted.append(it)
+
+    return rerouted
+
+
 def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
     """WO-EX-CLAIMS-02 validator 4: strip fields from categories the narrator
     explicitly denied.
@@ -1934,6 +2078,11 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_section=req.current_section,
         current_target=req.current_target_path,
     )
+
+    # WO-EX-REROUTE-01: Semantic rerouter — fix valid-but-wrong fieldPaths
+    # before validators run. Rerouter requires section + path + lexical evidence.
+    if llm_items:
+        llm_items = _apply_semantic_rerouter(llm_items, answer, req.current_section)
 
     # WO-EX-01C + WO-EX-01D: four-layer LLM output guard.
     #   1. birth-context filter    — section-gated + layered subject guard
