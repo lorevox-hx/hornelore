@@ -6,7 +6,7 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-16)
+## Current state (as of 2026-04-17)
 
 This section is a rolling summary of what's been shipped recently and what's still in-flight. If you're coming back after time away, read this first.
 
@@ -21,35 +21,58 @@ This section is a rolling summary of what's been shipped recently and what's sti
 | **question_bank v3** | 36 sub-topics, 144 openers, 108 follow-ups. v3 adds civic_entry_age_18, tightens launch/off-ramp, fixes retirement anchor | Content-only, ready for phase-aware activation |
 | **WO-EX-SCHEMA-01** | Added `family.*` and `residence.*` field families + repeatable entity support (siblings, children, spouse, grandchildren, residence, priorPartners) | Live-proven; unblocked CLAIMS-01 |
 | **WO-EX-CLAIMS-01** | Dynamic token cap (128 simple / 384 compound), position-aware entity grouping, 20 field aliases (batch 1 + 2), narrator identity signals in subject guard | Live eval baseline: **22/30 (73.3%)**. Stable. |
+| **WO-GREETING-01** | Backend endpoint + frontend wired. Opener fetched on narrator open in `lv80SwitchPerson()`. Memory echo triggers expanded (5 → 14 phrases). | **Live-tested 2026-04-16** — all 3 narrators show greeting. |
 
 ### Unshipped / in-flight
 
 | Work order | State | Notes |
 |---|---|---|
-| **WO-GREETING-01** | Backend endpoint shipped + **frontend wired** (2026-04-16). Opener fetched in parallel with IV_START; Lori greets before first question. | Needs live test when API is up. Memory echo triggers also expanded (9 new phrases). |
-| **WO-EX-CLAIMS-02** | Not yet specced | Next wave of extraction fixes: attack remaining compound entity cases (002, 005, 013, 014, 024, 030). Categorize remaining 8 failures for targeted fixes. |
-| **WO-SCHEMA-02** | Fully specced (`hornelore/WO-SCHEMA-02_Gap-Analysis.md`). 6 phases, 1-2 sessions. | Expand life map coverage: grandparents, military, faith, health, community, pets, travel. Target: 11→22 of 37 sections with extraction fields. |
-| **WO-PHENO-01** | Fully specced (`hornelore/WO-PHENO-01_Spec.md`). 3-4 sessions. | Phenomenology layer: lived experience + wisdom extraction. Question bank (5 phases), experience schema, bio-builder staging. |
+| **WO-SCHEMA-02** | **Implementation complete** (2026-04-17). 35 new fields (7 families), ~50 aliases, 7 prompt examples, 14 eval cases (cases 031-044). | Fields: grandparents, military, faith, health, community, pets, travel. Eval suite expanded: 30 → 44 cases. Needs re-run. |
+| **WO-CLAIMS-02** | **Quick-win validators shipped** (2026-04-17). See `docs/CLAIMS-02_failure_taxonomy.md`. | 3 validators in extract.py: value-shape rejection (garbage words + short fragments), relation allowlist (enumerated valid values), confidence floor (<0.5 auto-reject). Flag `HORNELORE_CLAIMS_VALIDATORS` default ON. 32 new tests (114 total). Remaining: entity coherence, compound splitting, narrator style tuning. |
 | **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores and stays anchored. #1 felt bug from live sessions |
+| **WO-KAWA-UI-01A** | **Implementation complete** (2026-04-17). See `docs/reports/WO-KAWA-UI-01A_REPORT.md`. | River View UI as popover: segment list, detail pane, flow/rocks/driftwood/banks/spaces editing, river strip, 4 REST endpoints, local-first JSON storage. Needs live test. |
+| **WO-KAWA-01** | Fully specced (`hornelore/WO-KAWA-01_Spec.md`). 10 phases. | Parallel Kawa river layer: LLM-driven proposals, confirmation loop, instrumentation. Next: wire LLM into `kawa_projection.py`. |
+| **WO-KAWA-02A** | **Implementation complete** (2026-04-17). See `docs/reports/WO-KAWA-02A_REPORT.md`. | 3 interview modes (chronological/hybrid/kawa_reflection), 3 memoir modes (chronology/chronology_river/river_organized), plain-language toggle, Kawa weight metadata, prompt_composer directives. Needs live test. |
+| **WO-KAWA-02** (remaining) | Phases 4-9 not yet implemented. | Storage promotion, chapter weighting UI, deeper memoir panel integration, eval hooks. |
+| **WO-PHENO-01** | Fully specced (`hornelore/WO-PHENO-01_Spec.md`). 3-4 sessions. | Phenomenology layer: lived experience + wisdom extraction. Question bank (5 phases), experience schema, bio-builder staging. |
 | **WO-REPETITION-01** | Not yet specced | Narrator pastes same content 2-3x, Lori keeps responding |
 | **WO-MODE-01/02** | Not yet specced | Session Intent Profiles (Questionnaire First / Clear & Direct / Warm Storytelling) after narrator Open |
 | **WO-UI-SHADOWREVIEW-01** | Not yet specced | Show Phase G suppression reason ("we already have this") instead of silent drop |
 | **WO-EX-DIAG-01** | Not yet specced | Surface extraction failure reason in response envelope |
 
+### Priority sequence to Kawa readiness
+
+```
+SCHEMA-02 (done) → CLAIMS-02 quick-wins (done) → re-run eval → INTENT-01 → KAWA-01 Phase 1
+```
+
 ### Extraction eval baseline (2026-04-16)
 
 **22/30 passing (73.3%)** via `scripts/run_question_bank_extraction_eval.py --mode live`
 
-Remaining 8 failures are mostly compound entity cases where the LLM produces partial or differently-structured output. See eval case file for details. Next step is WO-EX-CLAIMS-02 to categorize and attack these.
+Remaining 8 failures categorized in `docs/CLAIMS-02_failure_taxonomy.md`:
 
-### Reference docs saved (2026-04-16)
+- **Category A:** Compound entity grouping (5 cases) — repeatable groups lose relation/birthOrder metadata
+- **Category B:** LLM hallucination (overlaps A) — produces "then", "and", "kids" as relation values
+- **Category C:** Field path mismatch (2 cases) — values routed to wrong field
+- **Category D:** 3 unexpected failures (Kent 1, Janice 2) — likely narrator-style sensitivity
+
+Eval suite now expanded to **44 cases** (14 new SCHEMA-02 cases). Needs re-run for new baseline.
+
+### Reference docs saved
 
 | File | What it is |
 |---|---|
+| `hornelore/WO-KAWA-01_Spec.md` | Full 10-phase Kawa data/engine work order |
+| `hornelore/WO-KAWA-UI-01_Spec.md` | Full River View UI work order |
 | `hornelore/WO-PHENO-01_Spec.md` | Full phenomenology layer work order |
 | `hornelore/WO-SCHEMA-02_Gap-Analysis.md` | Life map coverage expansion execution pack |
 | `hornelore/Memoir-Upgrade-Phased-Plan.md` | 7-phase memoir system roadmap |
 | `hornelore/Hornelore-WO-Checklist.docx` | Printable priority checklist of all pending WOs |
+| `docs/CLAIMS-02_failure_taxonomy.md` | Failure root cause analysis + fix priorities |
+| `docs/reports/WO-KAWA-UI-01A_REPORT.md` | River View implementation report |
+| `docs/reports/WO-KAWA-02A_REPORT.md` | Kawa questioning + memoir integration report |
+| `docs/references/` | 4 Kawa/OT reference papers (Iwama, Newbury/Lape, Crepeau, Norell) |
 
 ### Env flag state
 
@@ -59,15 +82,17 @@ Remaining 8 failures are mostly compound entity cases where the LLM produces par
 | `HORNELORE_TRUTH_V2_PROFILE` | 1 | Profile reads from family_truth_promoted |
 | `HORNELORE_PHASE_AWARE_QUESTIONS` | 0 | Phase-aware question composer (WO-LIFE-SPINE-05) |
 | `HORNELORE_AGE_VALIDATOR` | 0 | Age-math plausibility filter (WO-EX-VALIDATE-01) |
+| `HORNELORE_CLAIMS_VALIDATORS` | 1 | Value-shape, relation allowlist, confidence floor (WO-EX-CLAIMS-02) |
 
 ### Test state
 
-82 unit tests across 5 suites, all passing:
+114 unit tests across 6 suites, all passing:
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
 source .venv-gpu/bin/activate
 python -m unittest tests.test_extract_subject_filters \
+                   tests.test_extract_claims_validators \
                    tests.test_life_spine_validator \
                    tests.test_phase_aware_composer \
                    tests.test_interview_opener -v
@@ -75,16 +100,16 @@ python -m unittest tests.test_extract_subject_filters \
 python -m unittest tests.test_extract_api_subject_filters -v  # requires FastAPI
 ```
 
-### Known issues from live observation (2026-04-16)
+### Known issues from live observation (updated 2026-04-17)
 
 See `docs/observations/2026-04-15-extraction-taxonomy.md` for the full writeup. Short version:
 
 - ~~**Critical:** question bank references field paths that don't exist in `EXTRACTABLE_FIELDS`.~~ **FIXED** by WO-EX-SCHEMA-01.
 - **High:** Lori ignores narrator-stated topic pivots ("let's talk about my parents"). Fix = WO-INTENT-01.
-- **High:** Compound sentences ("my sisters Linda and Sharon", "my three kids...") produce partial extractions (~8 of 30 eval cases still fail). Fix = WO-EX-CLAIMS-02.
-- **High:** Life map coverage gaps — 16 of 37 interview sections have no extraction fields. Fix = WO-SCHEMA-02 (specced, ready).
+- **High:** Compound sentences ("my sisters Linda and Sharon", "my three kids...") produce partial extractions (~8 of 30 eval cases still fail). Fix = WO-EX-CLAIMS-02. Root causes now categorized in `docs/CLAIMS-02_failure_taxonomy.md`.
+- ~~**High:** Life map coverage gaps — 16 of 37 interview sections have no extraction fields.~~ **FIXED** by WO-SCHEMA-02 (35 new fields across 7 families).
 - **Medium:** Narrator repeats same content 2-3×, Lori keeps asking similar follow-ups. Fix = WO-REPETITION-01.
-- ~~**Medium:** Lori doesn't introduce herself on session open.~~ **WIRED** — WO-GREETING-01 frontend done, needs live test.
+- ~~**Medium:** Lori doesn't introduce herself on session open.~~ **FIXED** — WO-GREETING-01 live-tested, all 3 narrators show greeting.
 - **Low:** Accordion shows DOB year only when canonical has full date. Display renderer issue.
 
 ### Recommended activation sequence (next time you're ready to test)
