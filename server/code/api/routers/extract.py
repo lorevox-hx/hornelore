@@ -1535,9 +1535,13 @@ _BIRTH_CUES = re.compile(
     re.IGNORECASE,
 )
 _CAREER_DURATION_CUES = re.compile(
-    r'\b(?:for \d+ years|since \d{4}|worked there (?:for|until)|until (?:I )?retire'
-    r'|spent \d+ years|over \d+ years|almost \d+ years|career spanned'
-    r'|until retirement|retired from|retiring from)\b',
+    r'\b(?:for \d+ years|for (?:twenty|thirty|forty|fifty)\S* years'
+    r'|since \d{4}|worked there (?:for|until)|until (?:I )?retire'
+    r'|spent \d+ years|spent (?:twenty|thirty|forty|fifty)\S* years'
+    r'|over \d+ years|over (?:twenty|thirty|forty|fifty)\S* years'
+    r'|almost \d+ years|almost (?:twenty|thirty|forty|fifty)\S* years'
+    r'|career spanned|until retirement|retired from|retiring from'
+    r'|whole career|entire career|long career|worked (?:there |here )?my whole)\b',
     re.IGNORECASE,
 )
 
