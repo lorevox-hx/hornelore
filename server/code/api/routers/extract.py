@@ -368,6 +368,54 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
     return system, user
 
 
+def _is_compound_answer(answer: str) -> bool:
+    """Detect whether a narrator answer contains multiple entities/facts.
+
+    WO-EX-CLAIMS-01: Compound answers need more tokens for the LLM to emit
+    a complete JSON array. Heuristics:
+      - Multiple capitalized proper names (≥2 distinct)
+      - List patterns: "and", commas separating named entities
+      - Multiple date/year mentions
+    """
+    # Find capitalized multi-word names (e.g. "Vincent Edward", "Dorothy")
+    # Exclude common sentence starters by requiring preceding comma, and, or lowercase
+    proper_names = set()
+    for m in re.finditer(r'(?<![.!?]\s)(?:^|(?<=[\s,;]))[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*', answer):
+        name = m.group()
+        # Skip common non-name capitalized words
+        if name.lower() not in {"the", "my", "our", "we", "they", "when", "then",
+                                 "after", "before", "during", "yes", "no", "well",
+                                 "oh", "so", "but", "and", "north", "south", "east",
+                                 "west", "january", "february", "march", "april",
+                                 "may", "june", "july", "august", "september",
+                                 "october", "november", "december", "monday",
+                                 "tuesday", "wednesday", "thursday", "friday",
+                                 "saturday", "sunday"}:
+            proper_names.add(name)
+
+    # Count distinct years mentioned
+    years = set(re.findall(r'\b(?:19|20)\d{2}\b', answer))
+
+    # Check for multi-word full names (3+ capitalized words, e.g. "Janice Josephine Zarr")
+    # These generate extra LLM fields (middleName, maidenName, etc.) that need more tokens
+    has_full_name = bool(re.search(r'[A-Z][a-z]+\s+[A-Z][a-z]+\s+[A-Z][a-z]+', answer))
+
+    # Compound if: 2+ proper names, or 3+ years, or full name present,
+    # or answer is long with list markers
+    has_list_pattern = bool(re.search(r'(?:,\s*and\s+|;\s+\w)', answer))
+    is_compound = (
+        len(proper_names) >= 2 or
+        len(years) >= 3 or
+        has_full_name or
+        (has_list_pattern and len(answer) > 150)
+    )
+
+    if is_compound:
+        logger.info("[extract][CLAIMS-01] Compound answer detected: %d names=%s, %d years, list=%s",
+                    len(proper_names), proper_names, len(years), has_list_pattern)
+    return is_compound
+
+
 def _extract_via_llm(answer: str, current_section: Optional[str], current_target: Optional[str]) -> tuple[List[dict], Optional[str]]:
     """Call the local LLM to extract fields. Returns (items, raw_output).
 
@@ -389,12 +437,15 @@ def _extract_via_llm(answer: str, current_section: Optional[str], current_target
     # FIX-3: Use a unique ephemeral conv_id for each extraction call to prevent
     # cross-narrator context contamination via shared session/RAG state.
     ephemeral_conv_id = f"_extract_{_uuid.uuid4().hex[:12]}"
-    # WO-10M: Extraction output is a small JSON array (typically 3–8 items).
-    # The old 600-token cap allowed the LLM to generate verbose prose or
-    # multiple JSON blobs, both of which waste VRAM and confuse the parser.
-    # 128 is generous for a structured JSON response. One-shot only — parse
-    # failures fall straight through to rules, never re-call the LLM.
-    _extract_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT", "128"))
+    # WO-10M / WO-EX-CLAIMS-01: Token cap is now dynamic.
+    # Simple single-fact answers: 128 tokens (original cap, ample for 1-3 items).
+    # Compound answers (multiple names, years, list patterns): 384 tokens so the
+    # LLM can emit a complete JSON array for 5-10+ items without truncation.
+    # The old static 128 cap caused compound answers to truncate mid-JSON,
+    # falling to regex fallback which loses entity grouping entirely.
+    _base_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT", "128"))
+    _compound_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT_COMPOUND", "384"))
+    _extract_cap = _compound_cap if _is_compound_answer(answer) else _base_cap
     logger.info("[extract][WO-10M] calling LLM max_new=%d temp=0.15 conv=%s",
                 _extract_cap, ephemeral_conv_id)
     raw = _try_call_llm(system, user, max_new=_extract_cap, temp=0.15, top_p=0.9, conv_id=ephemeral_conv_id)
@@ -572,6 +623,47 @@ def _validate_item(item: Any) -> Optional[dict]:
             # Memory paths
             "memory": "earlyMemories.firstMemory", "firstMemory": "earlyMemories.firstMemory",
             "childhood": "earlyMemories.firstMemory",
+            # WO-EX-CLAIMS-01: LLM-invented family.siblings.* → siblings.*
+            # The LLM frequently prepends "family." to sibling paths.
+            "family.siblings.firstName": "siblings.firstName",
+            "family.siblings.lastName": "siblings.lastName",
+            "family.siblings.relation": "siblings.relation",
+            "family.siblings.birthOrder": "siblings.birthOrder",
+            "family.siblings.uniqueCharacteristics": "siblings.uniqueCharacteristics",
+            # WO-EX-CLAIMS-01: LLM-invented parents.parent* → parents.*
+            "parents.parentFirstName": "parents.firstName",
+            "parents.parentRelation": "parents.relation",
+            "parents.parentLastName": "parents.lastName",
+            "parents.parentOccupation": "parents.occupation",
+            # WO-EX-CLAIMS-01: LLM-invented education.work* → education.careerProgression
+            "education.workHistory": "education.careerProgression",
+            "education.workStartYear": "education.careerProgression",
+            "education.career": "education.careerProgression",
+            "education.job": "education.earlyCareer",
+            # WO-EX-CLAIMS-01: LLM-invented ethnicity/heritage → earlyMemories
+            "parents.ethnicity": "earlyMemories.significantEvent",
+            "personal.ethnicity": "earlyMemories.significantEvent",
+            "personal.heritage": "earlyMemories.significantEvent",
+            "ancestors.familyName": "earlyMemories.significantEvent",
+            "ancestors.placeOfBirth": "earlyMemories.significantEvent",
+            # WO-EX-CLAIMS-01: LLM-invented fear/comfort → earlyMemories
+            "earlyMemories.fear": "earlyMemories.significantEvent",
+            "earlyMemories.comfort": "earlyMemories.significantEvent",
+            # WO-EX-CLAIMS-01 batch 2: additional log-observed aliases
+            # civic.* → laterYears (no civic section in schema)
+            "civic.entryAge": "laterYears.significantEvent",
+            "civic.service": "laterYears.significantEvent",
+            "civic.role": "laterYears.significantEvent",
+            # parents.sibling.* → parents.notableLifeEvents (lossy stopgap)
+            "parents.sibling.firstName": "parents.notableLifeEvents",
+            "parents.sibling.middleNames": "parents.notableLifeEvents",
+            "parents.sibling.lastName": "parents.notableLifeEvents",
+            "parents.sibling.relation": "parents.notableLifeEvents",
+            "parents.sibling.birthLocation": "parents.notableLifeEvents",
+            # parents.parentAttitude → parents.notableLifeEvents
+            "parents.parentAttitude": "parents.notableLifeEvents",
+            # family.siblings.dateOfBirth has no schema target — route to significantEvent
+            "family.siblings.dateOfBirth": "earlyMemories.significantEvent",
         }
         alias = _FIELD_ALIASES.get(base_path) or _FIELD_ALIASES.get(fp)
         if alias and alias in EXTRACTABLE_FIELDS:
@@ -775,6 +867,15 @@ _NARRATOR_BIRTH_SIGNALS = [
     r"\bi was born in\b",
     r"\bmy birthday is\b",
     r"\bmy date of birth is\b",
+    # WO-EX-CLAIMS-01: narrator identity signals (not birth-specific)
+    # "I was the youngest of three boys" is a narrator identity statement
+    # even when the answer also mentions "my mom" / "my dad".
+    r"\bi was the (?:youngest|oldest|eldest|middle|only)\b",
+    r"\bi(?:'m| am) the (?:youngest|oldest|eldest|middle|only)\b",
+    r"\bi was (?:first|second|third|fourth|fifth|last)[- ]born\b",
+    r"\bi was number \d\b",
+    r"\bi grew up\b",
+    r"\bi was raised\b",
 ]
 
 
@@ -1231,16 +1332,21 @@ def _extract_via_rules(
 
 # ── Repeatable field grouping ────────────────────────────────────────────────
 
-def _group_repeatable_items(items: List[dict]) -> List[dict]:
-    """Group repeatable fields by person reference.
+def _group_repeatable_items(items: List[dict], answer: str = "") -> List[dict]:
+    """Group repeatable fields by entity, using position-aware assignment.
+
+    WO-EX-CLAIMS-01: Position-aware entity compiler.
 
     When the LLM extracts e.g. parents.firstName + parents.lastName for the
     same parent, they need the same entry index. The frontend handles indexing,
     but we group them so same-person fields travel together.
 
-    Strategy: group by repeatable section. Fields from the same section in the
-    same answer are assumed to be about the same person (unless there are
-    multiple names indicating different people).
+    Strategy for multi-entity sections:
+      1. Find each firstName's character position in the narrator's answer.
+      2. Find each non-name field's value position in the answer.
+      3. Assign each non-name field to the entity whose firstName appears
+         closest-before it in the answer text.
+      4. Fall back to LLM output order when positions can't be resolved.
     """
     non_repeatable = []
     repeatable_groups: Dict[str, List[dict]] = {}  # section → [items]
@@ -1253,30 +1359,71 @@ def _group_repeatable_items(items: List[dict]) -> List[dict]:
         else:
             non_repeatable.append(item)
 
-    # Check for multiple distinct people in the same section
     result = list(non_repeatable)
+    answer_lower = answer.lower()
+
     for section, group in repeatable_groups.items():
-        # Check if we have multiple first names → multiple people
-        first_names = [i["value"] for i in group if i["fieldPath"].endswith(".firstName")]
-        if len(first_names) > 1:
-            # Multiple people: split into groups by first name occurrence in answer
-            # Mark each group with a _group index so the frontend can assign separate indices
-            for idx, name in enumerate(first_names):
-                for item in group:
-                    # Assign group based on whether this item is associated with this name
-                    # Simple heuristic: firstName gets its own group, other fields get grouped
-                    # with the most recently seen firstName
-                    if item["fieldPath"].endswith(".firstName") and item["value"] == name:
-                        item["_repeatableGroup"] = f"{section}_{idx}"
-                    elif item.get("_repeatableGroup") is None:
-                        item["_repeatableGroup"] = f"{section}_{idx}"
-                result.extend(group)
-        else:
-            # Single person: all fields share same entry index
+        name_items = [i for i in group if i["fieldPath"].endswith(".firstName")]
+        non_name_items = [i for i in group if not i["fieldPath"].endswith(".firstName")]
+
+        if len(name_items) <= 1:
+            # Single entity (or no name at all): all fields share one group
             group_id = f"{section}_0"
             for item in group:
                 item["_repeatableGroup"] = group_id
             result.extend(group)
+            continue
+
+        # ── Multi-entity: position-aware assignment ──────────────────────
+        # Step 1: locate each firstName in the answer text
+        name_positions: List[tuple] = []  # (position, idx, name_value)
+        for idx, ni in enumerate(name_items):
+            name_val = ni["value"].lower()
+            pos = answer_lower.find(name_val)
+            name_positions.append((pos if pos >= 0 else idx * 10000, idx, ni["value"]))
+            ni["_repeatableGroup"] = f"{section}_{idx}"
+
+        # Sort by position so we know the textual order of names
+        name_positions.sort(key=lambda x: x[0])
+        # Build ordered list: (position_in_answer, group_idx)
+        ordered_names = [(pos, idx) for pos, idx, _name in name_positions]
+
+        logger.info("[extract][CLAIMS-01] Multi-entity grouping section=%s: %d names at positions %s",
+                    section, len(name_positions),
+                    [(n[2], n[0]) for n in name_positions])
+
+        # Step 2: assign each non-name field to the nearest-preceding name
+        for item in non_name_items:
+            val_lower = item["value"].lower()
+            val_pos = answer_lower.find(val_lower)
+
+            if val_pos >= 0 and ordered_names:
+                # Find the name whose position is closest-before (or at) this value
+                best_idx = ordered_names[0][1]  # default: first name
+                for name_pos, name_idx in ordered_names:
+                    if name_pos <= val_pos:
+                        best_idx = name_idx
+                    else:
+                        break  # names are sorted; no point continuing
+                item["_repeatableGroup"] = f"{section}_{best_idx}"
+            else:
+                # Can't locate value in answer — fall back to LLM output order.
+                # Assign to the last name item seen before this item in the
+                # original LLM output sequence.
+                last_seen_idx = 0
+                for g_item in group:
+                    if g_item is item:
+                        break
+                    if g_item in name_items:
+                        last_seen_idx = name_items.index(g_item)
+                item["_repeatableGroup"] = f"{section}_{last_seen_idx}"
+
+            logger.debug("[extract][CLAIMS-01] %s=%r → pos=%d → group=%s",
+                         item["fieldPath"], item["value"],
+                         val_pos if val_pos >= 0 else -1,
+                         item["_repeatableGroup"])
+
+        result.extend(group)
 
     return result
 
@@ -1434,7 +1581,8 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             ))
 
         # Group repeatable fields — FIX-4: preserve _repeatableGroup as repeatableGroup
-        grouped = _group_repeatable_items([i.model_dump() for i in result_items])
+        # WO-EX-CLAIMS-01: pass answer for position-aware entity grouping
+        grouped = _group_repeatable_items([i.model_dump() for i in result_items], answer=answer)
         final_items = []
         for item in grouped:
             rg = item.pop("_repeatableGroup", None)

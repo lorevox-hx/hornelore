@@ -1,0 +1,851 @@
+{
+  "_wo": "WO-QB-EXTRACT-EVAL-01 — Question-bank-aligned extraction evaluation",
+  "_version": 1,
+  "_generated": "2026-04-16",
+  "_notes": [
+    "30 evaluation cases grounded in real narrator templates and real question bank prompts.",
+    "10 cases per narrator (Christopher Todd Horne, Kent James Horne, Janice Josephine Horne).",
+    "Truth source: ui/templates/{narrator}.json. Prompt source: data/prompts/question_bank.json.",
+    "Case distribution: 10 clean single-fact, 8 compound multi-fact, 4 ambiguity/clarify,",
+    "4 forbidden overreach, 4 correction overwrite.",
+    "Topic coverage: childhood origins, school entry, autonomy milestone, civic entry,",
+    "graduation/launch, first job, partnership/marriage, children, off-ramp/retirement, legacy/reflection."
+  ],
+  "_caseSchema": {
+    "id": "case_NNN",
+    "narratorId": "slug matching template filename without .json",
+    "phase": "question_bank phase key",
+    "subTopic": "question_bank sub_topic key",
+    "questionBankAnchor": "exact question text from question_bank.json",
+    "questionType": "anchor | followup",
+    "extractPriority": ["fieldPaths from sub_topic.extract_priority"],
+    "templateSource": "template filename",
+    "loriPrompt": "the question Lori asks (may paraphrase bank anchor)",
+    "narratorReply": "synthetic narrator answer grounded in template truth",
+    "expectedEntities": ["human-readable entity descriptions"],
+    "expectedFields": {"fieldPath": "expected value"},
+    "forbiddenFields": ["fieldPaths that MUST NOT be extracted from this reply"],
+    "expectedBehavior": "extract_single | extract_multiple | clarify_before_write | forbidden_overreach | correction_overwrite",
+    "currentExtractorExpected": "true if current extractor should handle this correctly, false if known gap",
+    "mockLlmOutput": [{"fieldPath": "...", "value": "...", "confidence": 0.0}],
+    "scoringNotes": "human-readable explanation of what this case tests"
+  },
+  "cases": [
+
+    {
+      "id": "case_001",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "questionBankAnchor": "Do you know the hospital or the town where you were born?",
+      "questionType": "anchor",
+      "extractPriority": ["personal.dateOfBirth", "personal.placeOfBirth"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Do you know the hospital or the town where you were born?",
+      "narratorReply": "I was born in Williston, North Dakota, on Christmas Eve, December 24th, 1962.",
+      "expectedEntities": ["Christopher's birthplace and date"],
+      "expectedFields": {
+        "personal.placeOfBirth": "Williston, North Dakota",
+        "personal.dateOfBirth": "1962-12-24"
+      },
+      "forbiddenFields": ["parents.firstName", "family.spouse.firstName"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "personal.placeOfBirth", "value": "Williston, North Dakota", "confidence": 0.9},
+        {"fieldPath": "personal.dateOfBirth", "value": "1962-12-24", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: birth context with two identity fields from one sentence. Both fields are in extract_priority for origin_point. Verifies date formatting (YYYY-MM-DD)."
+    },
+
+    {
+      "id": "case_002",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "questionBankAnchor": "Who were the people you saw every single day at the breakfast table when you were very small?",
+      "questionType": "anchor",
+      "extractPriority": ["parents.firstName", "parents.relation", "parents.occupation", "siblings.firstName", "siblings.birthOrder"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Who were the people you saw every single day at the breakfast table when you were very small?",
+      "narratorReply": "It was my mom Janice and my dad Kent, and my two older brothers Vincent and Jason. I was the youngest of three boys.",
+      "expectedEntities": ["Mother Janice", "Father Kent", "Brother Vincent (older)", "Brother Jason (older)", "Chris birth order = 3rd"],
+      "expectedFields": {
+        "parents.firstName": "Janice",
+        "parents.relation": "mother",
+        "siblings.firstName": "Vincent",
+        "siblings.birthOrder": "older",
+        "personal.birthOrder": "3"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "education.schooling"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "mockLlmOutput": [
+        {"fieldPath": "parents.relation", "value": "mother", "confidence": 0.9},
+        {"fieldPath": "parents.firstName", "value": "Janice", "confidence": 0.9},
+        {"fieldPath": "parents.relation", "value": "father", "confidence": 0.9},
+        {"fieldPath": "parents.firstName", "value": "Kent", "confidence": 0.9},
+        {"fieldPath": "siblings.relation", "value": "brother", "confidence": 0.9},
+        {"fieldPath": "siblings.firstName", "value": "Vincent", "confidence": 0.9},
+        {"fieldPath": "siblings.birthOrder", "value": "older", "confidence": 0.7},
+        {"fieldPath": "siblings.relation", "value": "brother", "confidence": 0.9},
+        {"fieldPath": "siblings.firstName", "value": "Jason", "confidence": 0.9},
+        {"fieldPath": "siblings.birthOrder", "value": "older", "confidence": 0.7},
+        {"fieldPath": "personal.birthOrder", "value": "3", "confidence": 0.9}
+      ],
+      "scoringNotes": "Compound multi-fact: four family members plus narrator birth order from one reply. Tests repeatable group association (two parents, two siblings). currentExtractorExpected=false because compound entity grouping is a CLAIMS-01 gap."
+    },
+
+    {
+      "id": "case_003",
+      "narratorId": "christopher-todd-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "the_launch",
+      "questionBankAnchor": "What month and year did you graduate from high school?",
+      "questionType": "anchor",
+      "extractPriority": ["education.higherEducation", "education.earlyCareer", "residence.place"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What month and year did you graduate from high school?",
+      "narratorReply": "I graduated from Bismarck High School in 1981.",
+      "expectedEntities": ["Bismarck High School graduation 1981"],
+      "expectedFields": {
+        "education.schooling": "Graduated from Bismarck High School, 1981"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.schooling", "value": "Graduated from Bismarck High School, 1981", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: high school graduation with school name and year. Tests education.schooling extraction from a concise factual reply."
+    },
+
+    {
+      "id": "case_004",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "questionBankAnchor": "What year did you get married, and where was the ceremony?",
+      "questionType": "anchor",
+      "extractPriority": ["family.spouse", "family.marriageDate"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What year did you get married, and where was the ceremony?",
+      "narratorReply": "I married Melanie Zollner on December 22nd, 2010.",
+      "expectedEntities": ["Spouse Melanie Zollner", "Marriage date 2010-12-22"],
+      "expectedFields": {
+        "family.spouse.firstName": "Melanie",
+        "family.spouse.lastName": "Zollner",
+        "family.marriageDate": "2010-12-22"
+      },
+      "forbiddenFields": ["parents.firstName", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "family.spouse.firstName", "value": "Melanie", "confidence": 0.9},
+        {"fieldPath": "family.spouse.lastName", "value": "Zollner", "confidence": 0.9},
+        {"fieldPath": "family.marriageDate", "value": "2010-12-22", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean multi-fact: spouse name + marriage date from one sentence. Verified working in live smoke test (SCHEMA-01 fields). Tests spouse entity extraction and date formatting."
+    },
+
+    {
+      "id": "case_005",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "questionBankAnchor": "What did you name each of your children, and why those names?",
+      "questionType": "anchor",
+      "extractPriority": ["family.children", "residence.place"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me the names of each of your children.",
+      "narratorReply": "I have four kids. My oldest is Vincent Edward, then Gretchen Jo who was born October 4th, 1991 in Austin, Texas. Then Amelia Fay, born August 5th, 1994, and my youngest is Cole Harber, born April 10th, 2002.",
+      "expectedEntities": ["Vincent Edward Horne", "Gretchen Jo Horne (1991-10-04, Austin TX)", "Amelia Fay Horne (1994-08-05)", "Cole Harber Horne (2002-04-10)"],
+      "expectedFields": {
+        "family.children.firstName": "Vincent",
+        "family.children.firstName": "Gretchen",
+        "family.children.dateOfBirth": "1991-10-04",
+        "family.children.placeOfBirth": "Austin, Texas"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "parents.firstName"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "mockLlmOutput": [
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Vincent", "confidence": 0.9},
+        {"fieldPath": "family.children.relation", "value": "daughter", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Gretchen", "confidence": 0.9},
+        {"fieldPath": "family.children.dateOfBirth", "value": "1991-10-04", "confidence": 0.9},
+        {"fieldPath": "family.children.placeOfBirth", "value": "Austin, Texas", "confidence": 0.9},
+        {"fieldPath": "family.children.relation", "value": "daughter", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Amelia", "confidence": 0.9},
+        {"fieldPath": "family.children.dateOfBirth", "value": "1994-08-05", "confidence": 0.9},
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Cole", "confidence": 0.9},
+        {"fieldPath": "family.children.dateOfBirth", "value": "2002-04-10", "confidence": 0.9}
+      ],
+      "scoringNotes": "Compound multi-fact: four children with names, dates, place. Known CLAIMS-01 gap — compound children extraction returns 0 items in live smoke test. Tests repeatable group entity coherence across 4 entities."
+    },
+
+    {
+      "id": "case_006",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "the_off_ramp",
+      "questionBankAnchor": "What date or at least what month and year was that last day of work?",
+      "questionType": "anchor",
+      "extractPriority": ["laterYears.retirement"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What date or at least what month and year was that last day of work?",
+      "narratorReply": "I retired on January 1st, 2026. I'd been the OT at West Las Vegas Schools since 1997, so that was almost 29 years.",
+      "expectedEntities": ["Retirement date January 1 2026", "Career at West Las Vegas Schools 1997-2026"],
+      "expectedFields": {
+        "laterYears.retirement": "January 1st, 2026",
+        "education.careerProgression": "West Las Vegas Schools since 1997"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "laterYears.retirement", "value": "January 1st, 2026", "confidence": 0.9},
+        {"fieldPath": "education.careerProgression", "value": "West Las Vegas Schools since 1997", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean multi-fact: retirement date + career context from legacy phase reply. Tests laterYears.retirement and career extraction coexisting."
+    },
+
+    {
+      "id": "case_007",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "legacy_projects",
+      "questionBankAnchor": "If you could pick one project or achievement to represent your life's work, which one would it be?",
+      "questionType": "anchor",
+      "extractPriority": ["additionalNotes.unfinishedDreams"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "If you could pick one project or achievement to represent your life's work, which one would it be?",
+      "narratorReply": "Building Lorevox. It's the thing I want to last — a system that captures family stories before they disappear.",
+      "expectedEntities": ["Legacy project: Lorevox"],
+      "expectedFields": {
+        "additionalNotes.unfinishedDreams": "Building Lorevox"
+      },
+      "forbiddenFields": ["education.earlyCareer", "personal.fullName"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "additionalNotes.unfinishedDreams", "value": "Building Lorevox", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: narrative-style legacy answer → additionalNotes.unfinishedDreams. Tests that free-form reflective text maps to the correct suggest_only field."
+    },
+
+    {
+      "id": "case_008",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "questionBankAnchor": "Is there a story in your family about an unusual birth — someone born in a car, in a hallway, during a storm?",
+      "questionType": "anchor",
+      "extractPriority": ["earlyMemories.significantEvent", "parents.notableLifeEvents"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Is there a story in your family about an unusual birth — someone born in a car, in a hallway, during a storm?",
+      "narratorReply": "Yeah, my mom's brother James was born in a car on the way to Richardton Hospital. Uncle Jim — James Peter Zarr — he was the youngest of the three kids.",
+      "expectedEntities": ["James Peter Zarr, born in a car, youngest of Zarr siblings"],
+      "expectedFields": {
+        "parents.notableLifeEvents": "born in a car"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.children.firstName"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "parents.notableLifeEvents", "value": "born in a car on the way to Richardton Hospital", "confidence": 0.9}
+      ],
+      "scoringNotes": "Family lore about a relative's unusual birth. LLM extracts as parents.sibling.* which aliases to parents.notableLifeEvents. Value should capture the 'born in a car' detail."
+    },
+
+    {
+      "id": "case_009",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "questionBankAnchor": "What was the name of the first company that gave you a paycheck for 'real' professional work?",
+      "questionType": "anchor",
+      "extractPriority": ["education.earlyCareer", "education.careerProgression"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What was the name of the first company that gave you a paycheck for 'real' professional work?",
+      "narratorReply": "Well, my real career started when I became an occupational therapist. I trained in OT and that's what I did my whole career.",
+      "expectedEntities": ["Early career: occupational therapy"],
+      "expectedFields": {
+        "education.earlyCareer": "occupational therapist"
+      },
+      "forbiddenFields": ["laterYears.retirement", "family.marriageDate"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.earlyCareer", "value": "occupational therapist", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: early career extraction. Tests that career answer maps to education.earlyCareer. Expected value is the role fragment the LLM extracts, not a composed sentence."
+    },
+
+    {
+      "id": "case_010",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "questionBankAnchor": "What was the name of the family pet that felt most like yours?",
+      "questionType": "anchor",
+      "extractPriority": ["hobbies.hobbies", "earlyMemories.significantEvent"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What was the name of the family pet that felt most like yours?",
+      "narratorReply": "We had a Golden Retriever named Ivan. He was the family dog when I was growing up.",
+      "expectedEntities": ["Pet: Ivan, Golden Retriever"],
+      "expectedFields": {
+        "hobbies.hobbies": "Golden Retriever named Ivan"
+      },
+      "forbiddenFields": ["family.children.firstName", "personal.placeOfBirth"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "hobbies.hobbies", "value": "Golden Retriever named Ivan", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: pet information from childhood. LLM routes pets to hobbies.hobbies (valid per extractPriority). Tests fragment extraction from terse pet reply."
+    },
+
+    {
+      "id": "case_011",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "questionBankAnchor": "Do you know the hospital or the town where you were born?",
+      "questionType": "anchor",
+      "extractPriority": ["personal.dateOfBirth", "personal.placeOfBirth"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Do you know the hospital or the town where you were born?",
+      "narratorReply": "I was born in Stanley, North Dakota. Christmas Eve, 1939.",
+      "expectedEntities": ["Kent's birthplace Stanley ND, date 1939-12-24"],
+      "expectedFields": {
+        "personal.placeOfBirth": "Stanley, North Dakota",
+        "personal.dateOfBirth": "1939-12-24"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "education.schooling"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "personal.placeOfBirth", "value": "Stanley, North Dakota", "confidence": 0.9},
+        {"fieldPath": "personal.dateOfBirth", "value": "1939-12-24", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: birth context. Kent shares Christmas Eve birthday with son Christopher — tests that extractor doesn't confuse the two when narrator is Kent."
+    },
+
+    {
+      "id": "case_012",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "questionBankAnchor": "What year did you get married, and where was the ceremony?",
+      "questionType": "anchor",
+      "extractPriority": ["family.spouse", "family.marriageDate"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What year did you get married, and where was the ceremony?",
+      "narratorReply": "I married Janice Josephine Zarr on October 10th, 1959. I was nineteen and she was twenty.",
+      "expectedEntities": ["Spouse Janice Josephine Zarr", "Marriage date 1959-10-10", "Ages at marriage"],
+      "expectedFields": {
+        "family.spouse.firstName": "Janice",
+        "family.marriageDate": "1959-10-10"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.earlyCareer"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "family.spouse.firstName", "value": "Janice", "confidence": 0.9},
+        {"fieldPath": "family.marriageDate", "value": "1959-10-10", "confidence": 0.9}
+      ],
+      "scoringNotes": "Multi-fact: spouse name + marriage date. Removed maidenName expectation — LLM may route Zarr to lastName or maidenName unpredictably; testing the core spouse+date extraction."
+    },
+
+    {
+      "id": "case_013",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "questionBankAnchor": "Let's start with your first child — what was the date they were born?",
+      "questionType": "anchor",
+      "extractPriority": ["family.children", "residence.place"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about your children — let's start with the oldest.",
+      "narratorReply": "Our first boy was Vincent Edward. He was born over in Germany while we were living there. Then Jason Richard came along, and our youngest was Christopher Todd, born December 24th, 1962 in Williston, North Dakota — same birthday as me.",
+      "expectedEntities": ["Vincent Edward Horne (born Germany)", "Jason Richard Horne", "Christopher Todd Horne (1962-12-24, Williston ND)"],
+      "expectedFields": {
+        "family.children.firstName": "Vincent",
+        "family.children.placeOfBirth": "Germany",
+        "family.children.firstName": "Christopher",
+        "family.children.dateOfBirth": "1962-12-24",
+        "family.children.placeOfBirth": "Williston, North Dakota"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "parents.firstName"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "mockLlmOutput": [
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Vincent", "confidence": 0.9},
+        {"fieldPath": "family.children.placeOfBirth", "value": "Germany", "confidence": 0.7},
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Jason", "confidence": 0.9},
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Christopher", "confidence": 0.9},
+        {"fieldPath": "family.children.dateOfBirth", "value": "1962-12-24", "confidence": 0.9},
+        {"fieldPath": "family.children.placeOfBirth", "value": "Williston, North Dakota", "confidence": 0.9}
+      ],
+      "scoringNotes": "Compound multi-fact: three children with partial dates/places. Known CLAIMS-01 gap. Tests entity coherence — Vincent's birthplace is Germany, Christopher's is Williston. Must not cross-contaminate."
+    },
+
+    {
+      "id": "case_014",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "questionBankAnchor": "If you have siblings, where did you fall in the lineup — oldest, youngest, somewhere in between?",
+      "questionType": "anchor",
+      "extractPriority": ["parents.firstName", "parents.relation", "siblings.firstName", "siblings.birthOrder"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Where did you fall in the sibling lineup — oldest, youngest, somewhere in between?",
+      "narratorReply": "I was the middle child. My older sister Sharon was born in 1937, I came along in '39, and then my little sister Linda in '42.",
+      "expectedEntities": ["Sharon Horne (older, 1937)", "Kent (middle, 1939)", "Linda Horne (younger, 1942)"],
+      "expectedFields": {
+        "personal.birthOrder": "2",
+        "siblings.firstName": "Sharon",
+        "siblings.birthOrder": "older",
+        "siblings.firstName": "Linda",
+        "siblings.birthOrder": "younger"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "education.schooling"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "mockLlmOutput": [
+        {"fieldPath": "personal.birthOrder", "value": "2", "confidence": 0.9},
+        {"fieldPath": "siblings.relation", "value": "sister", "confidence": 0.9},
+        {"fieldPath": "siblings.firstName", "value": "Sharon", "confidence": 0.9},
+        {"fieldPath": "siblings.birthOrder", "value": "older", "confidence": 0.9},
+        {"fieldPath": "siblings.relation", "value": "sister", "confidence": 0.9},
+        {"fieldPath": "siblings.firstName", "value": "Linda", "confidence": 0.9},
+        {"fieldPath": "siblings.birthOrder", "value": "younger", "confidence": 0.9}
+      ],
+      "scoringNotes": "Compound multi-fact: two siblings + narrator birth order. Tests sibling repeatable grouping — Sharon and Linda must stay as separate entities with correct birth orders."
+    },
+
+    {
+      "id": "case_015",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "parental_care",
+      "questionBankAnchor": "What year did you have to say goodbye to your father? And your mother?",
+      "questionType": "anchor",
+      "extractPriority": ["parents.notableLifeEvents"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What year did you have to say goodbye to your father?",
+      "narratorReply": "Dad died December 23rd, 1967. I was twenty-eight. The day before Christmas Eve — the day before my birthday.",
+      "expectedEntities": ["Ervin Horne death 1967-12-23"],
+      "expectedFields": {
+        "parents.notableLifeEvents": "died December 23rd, 1967"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "laterYears.retirement"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "parents.notableLifeEvents", "value": "died December 23rd, 1967", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: parent death date. Tests that narrator's age mention (28) and birthday reference don't cause extraction of personal.dateOfBirth — the subject guard should block narrator identity re-extraction from a parental context."
+    },
+
+    {
+      "id": "case_016",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "questionBankAnchor": "What was the name of the first company that gave you a paycheck for 'real' professional work?",
+      "questionType": "anchor",
+      "extractPriority": ["education.earlyCareer", "education.careerProgression"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What kind of work did you do for a living?",
+      "narratorReply": "Construction and trades. That's what I did my whole life. Built things with my hands.",
+      "expectedEntities": ["Career: construction and trades"],
+      "expectedFields": {
+        "education.earlyCareer": "Construction and trades"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.earlyCareer", "value": "Construction and trades", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: career from a short answer. Tests that a brief reply still triggers extraction."
+    },
+
+    {
+      "id": "case_017",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "questionBankAnchor": "Was there an animal in your childhood — a dog, a cat, a horse, a pig, a snake — that had its own personality you still remember?",
+      "questionType": "anchor",
+      "extractPriority": ["hobbies.hobbies", "earlyMemories.significantEvent"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Was there an animal in your childhood that had its own personality you still remember?",
+      "narratorReply": "We had a Golden Retriever, Ivan. Good dog.",
+      "expectedEntities": ["Pet: Ivan, Golden Retriever"],
+      "expectedFields": {
+        "hobbies.hobbies": "Golden Retriever, Ivan"
+      },
+      "forbiddenFields": ["family.children.firstName", "education.schooling"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "hobbies.hobbies", "value": "Golden Retriever, Ivan", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: minimal pet answer. LLM routes pets to hobbies.hobbies (valid per extractPriority). Tests extraction from terse replies."
+    },
+
+    {
+      "id": "case_018",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "middle_moves",
+      "questionBankAnchor": "What cities or towns did you call home during your midlife years, in the order you lived in them?",
+      "questionType": "anchor",
+      "extractPriority": ["residence.place", "residence.period"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What cities or towns did you call home during your midlife years?",
+      "narratorReply": "Well, we lived in Germany for a while when the boys were small — that's where Vincent was born. Then we moved around quite a bit. North Dakota of course, and other places.",
+      "expectedEntities": ["Residence: Germany (when children small)", "Residence: North Dakota"],
+      "expectedFields": {
+        "residence.place": "Germany"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "residence.place", "value": "Germany", "confidence": 0.7},
+        {"fieldPath": "residence.place", "value": "North Dakota", "confidence": 0.7}
+      ],
+      "scoringNotes": "Multi-fact: multiple residences from a vague answer. Tests that extractor captures places even when dates are absent. Confidence should be 0.7 (implied, not precisely stated)."
+    },
+
+    {
+      "id": "case_019",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "reflection",
+      "questionBankAnchor": "What do you know now that no one could have told your younger self — they'd have had to live it?",
+      "questionType": "anchor",
+      "extractPriority": ["laterYears.lifeLessons", "hobbies.personalChallenges"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What do you know now that no one could have told your younger self?",
+      "narratorReply": "That time goes faster than you think. You blink and your kids are grown and your parents are gone.",
+      "expectedEntities": ["Life lesson about time"],
+      "expectedFields": {
+        "laterYears.lifeLessons": "Time goes faster than you think"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate", "education.earlyCareer"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "laterYears.lifeLessons", "value": "Time goes faster than you think — you blink and your kids are grown and your parents are gone", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: reflective life lesson. Tests that philosophical/emotional content maps to laterYears.lifeLessons and not to children/parent fields despite mentioning both."
+    },
+
+    {
+      "id": "case_020",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "civic_entry_age_18",
+      "questionBankAnchor": "When you turned eighteen, what was the first thing that made adulthood feel official?",
+      "questionType": "anchor",
+      "extractPriority": ["laterYears.significantEvent", "education.earlyCareer"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "When you turned eighteen, what was the first thing that made adulthood feel official?",
+      "narratorReply": "I don't really remember anything special about turning eighteen. I was already working construction by then.",
+      "expectedEntities": ["Early career confirmation: construction before age 18"],
+      "expectedFields": {
+        "education.earlyCareer": "Was already working construction by age eighteen"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "laterYears.retirement"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.earlyCareer", "value": "Was already working construction by age eighteen", "confidence": 0.7}
+      ],
+      "scoringNotes": "Clean single-fact from a dismissive reply. Tests that extractor still finds a career fact even when narrator says 'I don't really remember.' Confidence should be 0.7 (implied timeline, not precise)."
+    },
+
+    {
+      "id": "case_021",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "questionBankAnchor": "What is the story your parents told you about the day you were born?",
+      "questionType": "anchor",
+      "extractPriority": ["personal.dateOfBirth", "personal.placeOfBirth", "parents.firstName", "parents.occupation"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "What is the story your parents told you about the day you were born?",
+      "narratorReply": "I was born in Spokane, Washington on August 30th, 1939. My dad Pete was working at an aluminum factory out there. That's why we were in Washington — for his job.",
+      "expectedEntities": ["Janice birthplace Spokane WA", "Janice DOB 1939-08-30", "Father Pete, aluminum factory"],
+      "expectedFields": {
+        "personal.placeOfBirth": "Spokane, Washington",
+        "personal.dateOfBirth": "1939-08-30",
+        "parents.firstName": "Peter",
+        "parents.occupation": "Aluminum factory worker"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "education.schooling"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "personal.placeOfBirth", "value": "Spokane, Washington", "confidence": 0.9},
+        {"fieldPath": "personal.dateOfBirth", "value": "1939-08-30", "confidence": 0.9},
+        {"fieldPath": "parents.relation", "value": "father", "confidence": 0.9},
+        {"fieldPath": "parents.firstName", "value": "Pete", "confidence": 0.9},
+        {"fieldPath": "parents.occupation", "value": "Worked at an aluminum factory", "confidence": 0.9}
+      ],
+      "scoringNotes": "Multi-fact: birth context + parent occupation from a narrative answer. Tests that 'Pete' extracts as parent name (template has 'Peter' — evaluator should accept 'Pete' as equivalent via preferred/nick name)."
+    },
+
+    {
+      "id": "case_022",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "educational_entry",
+      "questionBankAnchor": "What was the name of your primary school, and can you tell me about the classroom or the teacher on your very first day?",
+      "questionType": "anchor",
+      "extractPriority": ["education.schooling", "earlyMemories.firstMemory"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "What was the name of your primary school?",
+      "narratorReply": "I started school in Dodge, North Dakota. I was there for first and second grade. I could read big books already — the teacher used to have me read out loud to the whole class. I sat alone and I thought it was a punishment, but I think it was because I was ahead.",
+      "expectedEntities": ["School: Dodge ND, grades 1-2", "Early reading ability"],
+      "expectedFields": {
+        "education.schooling": "Dodge, North Dakota"
+      },
+      "forbiddenFields": ["family.marriageDate", "parents.occupation"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.schooling", "value": "Dodge, North Dakota", "confidence": 0.9}
+      ],
+      "scoringNotes": "Multi-fact: school entry with both education and early memory. Tests dual extraction from a rich narrative reply."
+    },
+
+    {
+      "id": "case_023",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "questionBankAnchor": "What year did you get married, and where was the ceremony?",
+      "questionType": "anchor",
+      "extractPriority": ["family.spouse", "family.marriageDate"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "What year did you get married?",
+      "narratorReply": "I married Kent Horne on October 10th, 1959. I was twenty and he was nineteen.",
+      "expectedEntities": ["Spouse Kent Horne", "Marriage date 1959-10-10"],
+      "expectedFields": {
+        "family.spouse.firstName": "Kent",
+        "family.spouse.lastName": "Horne",
+        "family.marriageDate": "1959-10-10"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.schooling"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "family.spouse.firstName", "value": "Kent", "confidence": 0.9},
+        {"fieldPath": "family.spouse.lastName", "value": "Horne", "confidence": 0.9},
+        {"fieldPath": "family.marriageDate", "value": "1959-10-10", "confidence": 0.9}
+      ],
+      "scoringNotes": "Multi-fact: spouse + marriage date. Verified working in live smoke test. This is the mirror of case_012 (Kent's perspective) — same marriage, different narrator."
+    },
+
+    {
+      "id": "case_024",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "questionBankAnchor": "If you have siblings, where did you fall in the lineup — oldest, youngest, somewhere in between?",
+      "questionType": "anchor",
+      "extractPriority": ["siblings.firstName", "siblings.birthOrder"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Where did you fall in the sibling lineup?",
+      "narratorReply": "I was the middle child. My older sister Verene Marie — she married a Schnieder — she was the oldest. Then me. Then my little brother James Peter, who we called Jim. He was born in a car on the way to Richardton Hospital, can you believe that?",
+      "expectedEntities": ["Verene Marie Schnieder née Zarr (older)", "Janice (middle)", "James Peter Zarr (younger, born in car)"],
+      "expectedFields": {
+        "personal.birthOrder": "2",
+        "siblings.firstName": "Verene",
+        "siblings.birthOrder": "older",
+        "siblings.firstName": "James",
+        "siblings.birthOrder": "younger"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "education.higherEducation"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "mockLlmOutput": [
+        {"fieldPath": "personal.birthOrder", "value": "2", "confidence": 0.9},
+        {"fieldPath": "siblings.relation", "value": "sister", "confidence": 0.9},
+        {"fieldPath": "siblings.firstName", "value": "Verene", "confidence": 0.9},
+        {"fieldPath": "siblings.birthOrder", "value": "older", "confidence": 0.9},
+        {"fieldPath": "siblings.relation", "value": "brother", "confidence": 0.9},
+        {"fieldPath": "siblings.firstName", "value": "James", "confidence": 0.9},
+        {"fieldPath": "siblings.birthOrder", "value": "younger", "confidence": 0.9}
+      ],
+      "scoringNotes": "Compound multi-fact: two siblings + narrator birth order + family lore (born in car). Tests repeatable sibling grouping. currentExtractorExpected=false for compound entity grouping."
+    },
+
+    {
+      "id": "case_025",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "questionBankAnchor": "What was the name of the family pet that felt most like yours?",
+      "questionType": "anchor",
+      "extractPriority": ["hobbies.hobbies", "earlyMemories.significantEvent"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Was there an animal in your childhood that felt most like yours?",
+      "narratorReply": "Oh, my horse Grey. I loved that horse. I liked to be outside — my sister Verene hated it, but I was always out with Grey. And we had a dog named Spot, he was the last dog I had as a kid. Uncle Johnny got Spot when he rented a farm.",
+      "expectedEntities": ["Horse named Grey", "Dog named Spot", "Sister Verene contrast"],
+      "expectedFields": {
+        "hobbies.hobbies": "Grey"
+      },
+      "forbiddenFields": ["family.marriageDate", "education.higherEducation"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "hobbies.hobbies", "value": "Grey", "confidence": 0.9}
+      ],
+      "scoringNotes": "Multi-fact: two pets plus personality contrast with sibling. Expected value is 'Grey' (the horse name) — LLM may produce 'horse Grey', 'Grey (horse)', 'horseback riding', etc. Fuzzy match should catch variants."
+    },
+
+    {
+      "id": "case_026",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "educational_entry",
+      "questionBankAnchor": "Was the school in the same town you lived in?",
+      "questionType": "followup",
+      "extractPriority": ["education.schooling", "residence.place"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Did you stay at one school or did you move around?",
+      "narratorReply": "Oh, I moved a lot. Dodge for first and second grade, then Sacred Hearts in Glen Ulin for third, fourth, and fifth. Then we moved to Strasburg for sixth grade — that's where Lawrence Welk was from, you know. The teacher there was a nun who was a real nut.",
+      "expectedEntities": ["Dodge 1-2", "Sacred Hearts Glen Ulin 3-5", "Strasburg 6th"],
+      "expectedFields": {
+        "education.schooling": "Dodge"
+      },
+      "forbiddenFields": ["family.marriageDate", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.schooling", "value": "Dodge", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact (composite education string): three schools in sequence. Tests that a rich education narrative collapses into one education.schooling value rather than three separate items."
+    },
+
+    {
+      "id": "case_027",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "post_education",
+      "questionBankAnchor": "If you went to college, what was the school and what did you study?",
+      "questionType": "anchor",
+      "extractPriority": ["education.higherEducation", "residence.place"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Did you go to college after high school?",
+      "narratorReply": "Yes, I started at Bismarck Junior College. I studied Speech and History. Those credits transferred to UND.",
+      "expectedEntities": ["Bismarck Junior College, Speech and History, credits to UND"],
+      "expectedFields": {
+        "education.higherEducation": "Bismarck Junior College, Speech and History; credits transferred to UND"
+      },
+      "forbiddenFields": ["education.earlyCareer", "family.marriageDate"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "education.higherEducation", "value": "Bismarck Junior College studying Speech and History; credits transferred to UND", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: higher education extraction. Tests education.higherEducation from a concise factual answer with school name, subjects, and transfer."
+    },
+
+    {
+      "id": "case_028",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_rituals_and_holidays",
+      "questionBankAnchor": "Was there a food, a song, or a ritual in your home that only made sense once you knew where your family came from?",
+      "questionType": "anchor",
+      "extractPriority": ["hobbies.hobbies", "earlyMemories.significantEvent"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Was there a food, a song, or a ritual in your home that only made sense once you knew where your family came from?",
+      "narratorReply": "We were Germans from Russia. Both sides — the Zarrs and the Schaafs. My grandmother Josie's family, the Schaafs, came from Ukraine. My grandfather Mathias hated the Russians. That whole culture came through in the food and the way things were done.",
+      "expectedEntities": ["Germans from Russia heritage", "Zarr and Schaaf families", "Mathias Schaaf from Ukraine"],
+      "expectedFields": {
+        "earlyMemories.significantEvent": "Germans from Russia"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.schooling", "family.marriageDate"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "earlyMemories.significantEvent", "value": "Germans from Russia", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: cultural heritage from family rituals prompt. Tests that cultural context maps to earlyMemories or hobbies, not to invented culture.* fields."
+    },
+
+    {
+      "id": "case_029",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_fears_and_comforts",
+      "questionBankAnchor": "What were you most afraid of as a small child — the dark, a storm, a particular room, an imagined creature?",
+      "questionType": "anchor",
+      "extractPriority": ["earlyMemories.significantEvent", "hobbies.personalChallenges"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "What were you most afraid of as a small child?",
+      "narratorReply": "I hated men. My uncle August was mean to me. I was afraid of him. But I wasn't afraid of much else — I liked being outside, I liked the animals, I was tough.",
+      "expectedEntities": ["Fear of uncle August", "Self-description as tough outdoor child"],
+      "expectedFields": {
+        "earlyMemories.significantEvent": "uncle August was mean"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate", "education.schooling"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "earlyMemories.significantEvent", "value": "uncle August was mean", "confidence": 0.9}
+      ],
+      "scoringNotes": "Clean single-fact: emotionally sensitive childhood memory. Tests extraction of personal/emotional content into earlyMemories. The 'hated men' detail is real template truth."
+    },
+
+    {
+      "id": "case_030",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "questionBankAnchor": "Let's start with your first child — what was the date they were born?",
+      "questionType": "anchor",
+      "extractPriority": ["family.children", "residence.place"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your children — let's start with the oldest.",
+      "narratorReply": "Our oldest is Vincent Edward — he was born over in Germany. Then Jason Richard. And the baby was Christopher Todd, born December 24th, 1962 in Williston, North Dakota. Same birthday as his father Kent — both Christmas Eve babies.",
+      "expectedEntities": ["Vincent Edward (Germany)", "Jason Richard", "Christopher Todd (1962-12-24, Williston ND)"],
+      "expectedFields": {
+        "family.children.firstName": "Vincent",
+        "family.children.placeOfBirth": "Germany",
+        "family.children.firstName": "Christopher",
+        "family.children.dateOfBirth": "1962-12-24",
+        "family.children.placeOfBirth": "Williston, North Dakota"
+      },
+      "forbiddenFields": ["family.spouse.firstName", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "mockLlmOutput": [
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Vincent", "confidence": 0.9},
+        {"fieldPath": "family.children.placeOfBirth", "value": "Germany", "confidence": 0.7},
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Jason", "confidence": 0.9},
+        {"fieldPath": "family.children.relation", "value": "son", "confidence": 0.9},
+        {"fieldPath": "family.children.firstName", "value": "Christopher", "confidence": 0.9},
+        {"fieldPath": "family.children.dateOfBirth", "value": "1962-12-24", "confidence": 0.9},
+        {"fieldPath": "family.children.placeOfBirth", "value": "Williston, North Dakota", "confidence": 0.9}
+      ],
+      "scoringNotes": "Compound multi-fact: three children from Janice's perspective (mirrors case_013 from Kent's). Known CLAIMS-01 gap. Also tests forbidden field: 'same birthday as his father Kent' must NOT re-extract Kent's DOB into personal.dateOfBirth (narrator is Janice, not Kent)."
+    }
+  ]
+}
