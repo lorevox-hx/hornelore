@@ -132,6 +132,7 @@ EXTRACTABLE_FIELDS = {
     "family.children.dateOfBirth":    {"label": "Child date of birth", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.placeOfBirth":   {"label": "Child place of birth", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.preferredName":  {"label": "Child nickname", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.birthOrder":     {"label": "Child birth order (oldest, youngest, etc.)", "writeMode": "candidate_only", "repeatable": "children"},
 
     # ── WO-EX-SCHEMA-01 — Spouse / partner ────────────────────────────────────
     "family.spouse.firstName":        {"label": "Spouse / partner first name", "writeMode": "prefill_if_blank"},
@@ -706,6 +707,7 @@ def _validate_item(item: Any) -> Optional[dict]:
             "children.placeOfBirth": "family.children.placeOfBirth",
             "children.relation": "family.children.relation",
             "children.preferredName": "family.children.preferredName",
+            "children.birthOrder": "family.children.birthOrder",
             "childName": "family.children.firstName", "child_name": "family.children.firstName",
             "sonName": "family.children.firstName", "daughterName": "family.children.firstName",
             "son": "family.children.relation", "daughter": "family.children.relation",
@@ -764,6 +766,13 @@ def _validate_item(item: Any) -> Optional[dict]:
             "parents.sibling.lastName": "parents.notableLifeEvents",
             "parents.sibling.relation": "parents.notableLifeEvents",
             "parents.sibling.birthLocation": "parents.notableLifeEvents",
+            # parents.siblings.* (plural) — LLM uses both singular and plural
+            "parents.siblings.firstName": "parents.notableLifeEvents",
+            "parents.siblings.middleName": "parents.notableLifeEvents",
+            "parents.siblings.lastName": "parents.notableLifeEvents",
+            "parents.siblings.relation": "parents.notableLifeEvents",
+            "parents.siblings.birthPlace": "parents.notableLifeEvents",
+            "parents.siblings.birthOrder": "parents.notableLifeEvents",
             # parents.parentAttitude → parents.notableLifeEvents
             "parents.parentAttitude": "parents.notableLifeEvents",
             # family.siblings.dateOfBirth has no schema target — route to significantEvent
@@ -1408,13 +1417,34 @@ def _apply_claims_relation_allowlist(items: List[dict]) -> List[dict]:
 
     This catches LLM artifacts like relation='then', relation='and',
     relation='kids' that leak from compound sentence parsing.
+
+    Includes a normalizer that converts plural/informal relation words to
+    their canonical singular form before checking the allowlist.
     """
+    # Normalize plural/informal → canonical singular before allowlist check
+    _RELATION_NORMALIZER = {
+        "brothers": "brother", "sisters": "sister", "siblings": "sibling",
+        "kids": "child", "sons": "son", "daughters": "daughter",
+        "parents": "parent", "mothers": "mother", "fathers": "father",
+        "uncles": "uncle", "aunts": "aunt", "cousins": "cousin",
+        "nephews": "nephew", "nieces": "niece",
+        "grandmothers": "grandmother", "grandfathers": "grandfather",
+        "grandparents": "grandparent",
+    }
+
     out = []
     for it in items:
         fp = str(it.get("fieldPath", ""))
         if fp.endswith(".relation"):
             raw = str(it.get("value", ""))
             normalized = raw.strip().strip(".,;:'\"").lower()
+            # Try plural → singular normalization first
+            canonical = _RELATION_NORMALIZER.get(normalized, normalized)
+            if canonical != normalized:
+                logger.info("[extract][WO-CLAIMS-02] relation normalized: %r → %r", normalized, canonical)
+                it = dict(it)  # shallow copy to avoid mutating original
+                it["value"] = canonical.capitalize()
+                normalized = canonical
             # Normalize hyphens and spaces for matching
             normalized_check = normalized.replace(" ", "-")
             if normalized_check not in _RELATION_ALLOWLIST and normalized not in _RELATION_ALLOWLIST:
@@ -1454,8 +1484,54 @@ def _apply_claims_confidence_floor(items: List[dict]) -> List[dict]:
     return out
 
 
-def _apply_claims_validators(items: List[dict]) -> List[dict]:
-    """WO-EX-CLAIMS-02: apply all three quick-win validators in sequence.
+def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
+    """WO-EX-CLAIMS-02 validator 4: strip fields from categories the narrator
+    explicitly denied.
+
+    When the narrator says "I never served", "I didn't go to college",
+    "I've been pretty healthy" etc., the LLM sometimes still emits fields
+    for those categories. This validator detects denial patterns and removes
+    any fields belonging to the denied category.
+    """
+    if not items or not answer:
+        return items
+
+    lower = answer.lower()
+
+    # Map: (denial regex, set of field prefixes to strip)
+    _DENIAL_PATTERNS = [
+        # Military negation
+        (re.compile(r'\b(?:never served|didn\'?t serve|did not serve|wasn\'?t in the (?:military|service|army|navy|marines)|no military|not military)\b', re.IGNORECASE),
+         {"military.branch", "military.rank", "military.yearsOfService", "military.deploymentLocation"}),
+        # Health negation — "been pretty healthy", "never had health problems"
+        (re.compile(r'\b(?:(?:been |was |am )?(?:pretty |very |always )?healthy|never (?:had|been) (?:any |serious )?(?:health|medical)|no (?:health|medical) (?:issues|problems|conditions))\b', re.IGNORECASE),
+         {"health.majorCondition", "health.milestone", "health.lifestyleChange"}),
+        # Education negation
+        (re.compile(r'\b(?:never went to college|didn\'?t go to college|did not go to college|didn\'?t attend college|no college|never attended college)\b', re.IGNORECASE),
+         {"education.higherEducation"}),
+    ]
+
+    denied_fields = set()
+    for pattern, fields in _DENIAL_PATTERNS:
+        if pattern.search(lower):
+            denied_fields.update(fields)
+            logger.info("[extract][negation-guard] denial detected: stripping %s", fields)
+
+    if not denied_fields:
+        return items
+
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        if fp in denied_fields:
+            logger.info("[extract][negation-guard] dropping %s=%r (narrator denied this category)", fp, it.get("value"))
+            continue
+        out.append(it)
+    return out
+
+
+def _apply_claims_validators(items: List[dict], answer: str = "") -> List[dict]:
+    """WO-EX-CLAIMS-02: apply all validators in sequence.
     Flag-gated behind HORNELORE_CLAIMS_VALIDATORS (default ON).
     """
     try:
@@ -1469,6 +1545,7 @@ def _apply_claims_validators(items: List[dict]) -> List[dict]:
     items = _apply_claims_value_shape(items)
     items = _apply_claims_relation_allowlist(items)
     items = _apply_claims_confidence_floor(items)
+    items = _apply_negation_guard(items, answer)
     dropped = before - len(items)
     if dropped:
         logger.info("[extract][WO-CLAIMS-02] validators dropped %d of %d items", dropped, before)
@@ -1874,7 +1951,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         )
         llm_items = _apply_month_name_sanity(llm_items)
         llm_items = _apply_field_value_sanity(llm_items)
-        llm_items = _apply_claims_validators(llm_items)  # WO-EX-CLAIMS-02
+        llm_items = _apply_claims_validators(llm_items, answer=answer)  # WO-EX-CLAIMS-02
 
     # WO: Summary line — log outcome at endpoint level
     _accepted = len(llm_items) if llm_items else 0
@@ -1971,7 +2048,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         )
         rules_items = _apply_month_name_sanity(rules_items)
         rules_items = _apply_field_value_sanity(rules_items)
-        rules_items = _apply_claims_validators(rules_items)  # WO-EX-CLAIMS-02
+        rules_items = _apply_claims_validators(rules_items, answer=answer)  # WO-EX-CLAIMS-02
 
     if rules_items:
         result_items = []
