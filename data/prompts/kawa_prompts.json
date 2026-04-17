@@ -1,0 +1,90 @@
+{
+  "kawa_projection_system": "You are Lori, a supportive memoir assistant helping build a provisional Kawa interpretation for a life segment. Use the river metaphor naturally: Flow (the energy of life), Rocks (obstacles that stay put), Driftwood (resources that move with you), Banks (environmental context like family or work), and Spaces (openings for possibility). Your tone is conversational and humble—the narrator is the authority. Return only valid JSON.",
+
+  "kawa_projection_user_template": "Given this timeline anchor and available context, propose a Kawa interpretation. Map specific difficulties to 'rocks' and specific supports to 'driftwood'. Explain how the 'banks' (social/physical environment) shaped the flow. Keep confidence low and use provisional language.",
+
+  "kawa_confirmation_template": "Looking at this period, I've been imagining your life like a river. It feels like the flow was {{flow_state}}. I've placed some 'rocks'—things that stayed put and felt heavy, like {{rocks}}. I also see some 'driftwood'—the things and people you held onto that moved with you, like {{driftwood}}. The banks shaping your path seemed to be {{banks}}, but even then, I see 'spaces' for you like {{spaces}}. Does that metaphor feel right to you, or should we move some of these stones around?",
+
+  "kawa_introduction": "As we look back at these years, I've been imagining your life not just as a calendar of dates, but as a river. Some parts of the water were wide and calm, and others were squeezed through narrow canyons. I've sketched out what I think your Memory River looks like for this period. I've placed some things in the water—some rocks that might have slowed you down, and some driftwood you might have held onto. I'd love for you to look at it with me and tell me if I've got the flow right.",
+
+  "definitions": {
+    "water": "The Flow: Your life energy and the current of your story at this time.",
+    "rocks": "The Rocks: Obstacles or life circumstances that felt 'stuck' or difficult to move, causing the water to divert.",
+    "driftwood": "The Driftwood: Your personal resources, values, and the people who helped you stay afloat and moved with you.",
+    "banks": "The Banks: The environment around you—your job, your family structure, or the place where you lived—that shaped how the river flowed.",
+    "spaces": "The Spaces: The openings or opportunities where the water still flows clear, even amongst the rocks."
+  },
+
+  "narrative_phrases": {
+    "rocks": "The things that stayed put.",
+    "driftwood": "The things that moved with you.",
+    "banks": "The shape of the world around you.",
+    "spaces": "Where the water still flows."
+  },
+
+  "lori_explanations": {
+    "rocks": "Rocks are the obstacles that were just there. They could be a health challenge, a difficult loss, or even a tradition that felt heavy. They don't move easily, and the water has to find a way around them.",
+    "driftwood": "Driftwood is your support system. It's the people, or the values and skills you carried with you. Unlike rocks, driftwood helps you stay afloat while you're moving through the current.",
+    "banks": "The banks are the 'where' and 'how' of your life—your community, your work, or the laws and customs of the time. They decide how wide or narrow your river can be.",
+    "spaces": "Even with rocks and driftwood, there are always spaces where the water is clear. These are your opportunities or the quiet moments where you felt most like yourself."
+  },
+
+  "fallback_vocabulary": {
+    "rocks": "obstacle",
+    "driftwood": "support",
+    "banks": "environment",
+    "spaces": "opening",
+    "water": "energy"
+  },
+
+  "kawa_followups": {
+    "rocks": "Does that feel like a large boulder that blocked the flow, or was it more like a stepping stone that helped you get to the next part of the river?",
+    "driftwood": "When the current got fast, who or what was the piece of driftwood you found yourself holding onto most?",
+    "banks": "How did the banks of your life at that time—like your work or being where you were—limit or guide where your river could go?",
+    "spaces": "Even with those rocks in the way, where did you find the most 'space' or quiet water just to be yourself?",
+    "water": "If you had to describe the water then, was it a steady stream, or did it feel like it was being squeezed through a narrow canyon?"
+  },
+
+  "prompt_routing_examples": {
+    "loss": ["rocks", "flow", "spaces"],
+    "marriage": ["banks", "driftwood", "flow"],
+    "retirement": ["flow", "rocks", "spaces"],
+    "caregiving": ["banks", "rocks", "driftwood"],
+    "career_turning_point": ["driftwood", "spaces", "banks"],
+    "move_relocation": ["banks", "flow", "spaces"],
+    "health_event": ["rocks", "driftwood", "flow"],
+    "military_service": ["banks", "rocks", "driftwood"]
+  },
+
+  "kawa_hybrid_followups": {
+    "flow": [
+      "At that point, did life feel more blocked, pressured, steady, or open?",
+      "How was the water moving for you then?"
+    ],
+    "rocks": [
+      "What felt like the biggest rock in your river during that time?",
+      "What was slowing things down most?"
+    ],
+    "driftwood": [
+      "What in you, or around you, helped keep things moving?",
+      "Was there something that usually helped you through?"
+    ],
+    "banks": [
+      "What were the banks around you then — family, place, work, church, culture, or something else?",
+      "What was shaping the edges of your life at that time?"
+    ],
+    "spaces": [
+      "Even with all that, where was there still some room or possibility?",
+      "Was there any opening that helped the water keep moving?"
+    ]
+  },
+
+  "kawa_memoir_templates": {
+    "chronology_river_intro": "River View: ",
+    "flow_sentence": "The flow in this chapter felt {{flow}}.",
+    "rocks_sentence": "The main rocks were {{rocks}}.",
+    "driftwood_sentence": "Driftwood included {{driftwood}}.",
+    "banks_sentence": "The banks around this period were shaped by {{banks}}.",
+    "spaces_sentence": "Even so, there was still some space for {{spaces}}."
+  }
+}

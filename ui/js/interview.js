@@ -898,7 +898,12 @@ async function processInterviewAnswer(text, skipped=false){
     const j=await r.json();
     if(j.next_question){
       state.interview.question_id=j.next_question.id;
-      state.interview.prompt=j.next_question.prompt;
+      // WO-KAWA-02A: intercept question with Kawa follow-up in hybrid/reflection modes
+      const _anchorForKawa = j.anchor || state?.timeline?.activeEvent || state?.chronologyAccordion?.focus || null;
+      state.interview.prompt = normalizeKawaLanguageForUser(
+        maybeApplyKawaFollowup(j.next_question.prompt, _anchorForKawa)
+      );
+      if (typeof tickKawaPromptCooldown === "function") tickKawaPromptCooldown();
     }
     if(j.summary_section_id){
       // Translate backend plan ID → UI roadmap ID (they use different naming conventions)
@@ -1383,4 +1388,78 @@ function _ivResetProjectionForNarrator(newPid) {
   if (typeof LorevoxProjectionSync !== "undefined") {
     LorevoxProjectionSync.resetForNarrator(newPid);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-KAWA-UI-01A — Kawa interview mode hooks
+═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Set the Kawa interview mode.
+ * 'chronological' — default, no Kawa prompts
+ * 'hybrid'        — chronological + selective Kawa follow-ups
+ * 'kawa_reflection' — river-first questioning
+ */
+function setKawaMode(mode) {
+  if (!state?.session) return;
+  state.session.lastKawaMode = state.session.kawaMode || "chronological";
+  state.session.kawaMode = mode;
+  console.log("[kawa] Interview mode set to:", mode);
+}
+
+function getKawaMode() {
+  return state?.session?.kawaMode || "chronological";
+}
+
+/**
+ * Check if a given anchor is a high-meaning life event
+ * that warrants offering Kawa reflection.
+ */
+function shouldOfferKawaReflection(anchor){
+  if (!anchor) return false;
+  const label = String(anchor.label || "").toLowerCase();
+  return [
+    "marriage","divorce","move","retirement","first job","loss","death",
+    "caregiving","graduation","military","health","birth","relocation",
+    "diagnosis","separation"
+  ].some(x => label.includes(x));
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-KAWA-02A — Kawa follow-up interception + language normalization
+   Called from the question assignment path to inject Kawa prompts
+   in hybrid/kawa_reflection modes.
+═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Intercept the next question and optionally replace it with a Kawa
+ * follow-up in hybrid or kawa_reflection mode.
+ */
+function maybeApplyKawaFollowup(nextQuestion, anchor){
+  const mode = state?.session?.kawaMode || "chronological";
+  if (mode === "chronological") return nextQuestion;
+  if (typeof shouldOfferKawaReflectionForAnchor !== "function") return nextQuestion;
+  if (!shouldOfferKawaReflectionForAnchor(anchor)) return nextQuestion;
+  if (typeof buildKawaFollowup !== "function") return nextQuestion;
+  const kawaQuestion = buildKawaFollowup(anchor);
+  if (!kawaQuestion) return nextQuestion;
+  return kawaQuestion;
+}
+
+/**
+ * Replace river metaphor language with plain equivalents when the
+ * narrator has opted into plain meaning language.
+ */
+function normalizeKawaLanguageForUser(text){
+  if (!text) return text;
+  const prefersPlain = !!state?.ui?.prefersPlainMeaningLanguage;
+  if (!prefersPlain) return text;
+  const fb = window.KAWA_PROMPTS?.fallback_vocabulary || {};
+  return text
+    .replace(/\briver\b/gi, fb.water || "life")
+    .replace(/\brock(s?)\b/gi, (fb.rocks || "obstacle") + "$1")
+    .replace(/\bdriftwood\b/gi, fb.driftwood || "support")
+    .replace(/\bbanks\b/gi, fb.banks || "context")
+    .replace(/\bwater\b/gi, fb.water || "flow");
 }

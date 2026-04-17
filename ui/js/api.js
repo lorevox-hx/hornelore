@@ -87,4 +87,43 @@ const API = {
   UPDATE_THREADS: ORIGIN + "/api/transcript/update-threads",
   // WO-CR-01 — Chronology Accordion (read-only)
   CHRONOLOGY_ACCORDION: (id) => `${ORIGIN}/api/chronology-accordion?person_id=${encodeURIComponent(id)}`,
+  // WO-KAWA-UI-01A — Kawa River View
+  KAWA_LIST:    (pid) => `${ORIGIN}/api/kawa/list?person_id=${encodeURIComponent(pid)}`,
+  KAWA_SEGMENT: (pid, sid) => `${ORIGIN}/api/kawa/segment?person_id=${encodeURIComponent(pid)}&segment_id=${encodeURIComponent(sid)}`,
+  KAWA_BUILD:   `${ORIGIN}/api/kawa/build`,
+  KAWA_SAVE:    `${ORIGIN}/api/kawa/segment`,
 };
+
+/* ── WO-KAWA-UI-01A — Kawa API helpers ───────────────────────── */
+
+async function apiListKawaSegments(personId){
+  const r = await fetch(API.KAWA_LIST(personId));
+  if (!r.ok) throw new Error(`Kawa list failed: ${r.status}`);
+  return r.json();
+}
+
+async function apiGetKawaSegment(personId, segmentId){
+  const r = await fetch(API.KAWA_SEGMENT(personId, segmentId));
+  if (!r.ok) throw new Error(`Kawa get failed: ${r.status}`);
+  return r.json();
+}
+
+async function apiBuildKawaSegment(personId, anchor){
+  const r = await fetch(API.KAWA_BUILD, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ person_id: personId, anchor })
+  });
+  if (!r.ok) throw new Error(`Kawa build failed: ${r.status}`);
+  return r.json();
+}
+
+async function apiSaveKawaSegment(payload){
+  const r = await fetch(API.KAWA_SAVE, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!r.ok) throw new Error(`Kawa save failed: ${r.status}`);
+  return r.json();
+}

@@ -203,6 +203,10 @@ window.onload = async () => {
   renderMemoirChapters();
   updateArchiveReadiness();
   update71RuntimeUI();   // v7.1 — paint runtime badges on first load
+  // WO-KAWA-UI-01A: Pre-load river segments (non-blocking)
+  if (typeof kawaRefreshList === "function") {
+    kawaRefreshList().catch(e => console.warn("[kawa] initial load skipped:", e));
+  }
   document.addEventListener("keydown", e => { if(e.key==="Escape" && isFocusMode) toggleFocus(); });
   // Step 3 (Task 6 audit): identityPhase starts as null in state.js.
   // getIdentityPhase74() handles null by checking hasIdentityBasics74():
@@ -813,6 +817,11 @@ function buildRuntime71() {
        When true, backend shifts to extended silence, invitational prompts,
        single-thread context, no correction, no observation language. */
     cognitive_support_mode: !!(state.session?.cognitiveSupportMode),
+    /* WO-KAWA-02A — Kawa interview mode for mode-aware prompt routing.
+       'chronological': default (no Kawa prompts from backend)
+       'hybrid': chronological + selective Kawa follow-ups
+       'kawa_reflection': river-first reflective questioning */
+    kawa_mode: state?.session?.kawaMode || "chronological",
     /* WO-CR-PACK-01 (CR-04) — chronology context for Lori.
        Lightweight, provenance-aware snapshot of the currently focused
        year/era slice of the accordion. Null when trainer mode is active,
@@ -1971,7 +1980,25 @@ function generateMemoirDraft(){
   const style=framingInstructions[framing]||framingInstructions["chronological"];
   const pronouns=state.profile?.basics?.pronouns||"";
   const pronNote=pronouns?` Use ${pronouns} pronouns.`:"";
-  const prompt=`Please write a memoir draft for ${name}.${pronNote} Completed interview sections: ${done.join(", ")}. ${style} Ground every detail in the collected interview answers. Do not invent facts.`;
+  // WO-KAWA-02A: append Kawa river context to memoir prompt when mode warrants it
+  let kawaContext = "";
+  const _memoirMode = typeof getMemoirMode === "function" ? getMemoirMode() : "chronology";
+  if (_memoirMode !== "chronology") {
+    const _confirmedSegs = (state?.kawa?.segmentList || []).filter(s => s?.provenance?.confirmed);
+    if (_confirmedSegs.length) {
+      const _overlays = _confirmedSegs.map(seg =>
+        typeof buildKawaOverlayText === "function" ? buildKawaOverlayText(seg) : ""
+      ).filter(Boolean);
+      if (_overlays.length) {
+        if (_memoirMode === "river_organized") {
+          kawaContext = ` The narrator has also confirmed river reflections for ${_confirmedSegs.length} life periods. Organize the memoir around these river themes (flow, rocks, driftwood, banks, spaces) rather than strict chronology. River context: ${_overlays.join(" | ")}`;
+        } else {
+          kawaContext = ` The narrator has also confirmed river reflections for ${_confirmedSegs.length} life periods. Weave these naturally into the chronological narrative where they apply. River context: ${_overlays.join(" | ")}`;
+        }
+      }
+    }
+  }
+  const prompt=`Please write a memoir draft for ${name}.${pronNote} Completed interview sections: ${done.join(", ")}. ${style}${kawaContext} Ground every detail in the collected interview answers. Do not invent facts.`;
   setv("chatInput",prompt); document.getElementById("chatInput").focus();
   sysBubble("Memoir prompt loaded — press Send to have Lori write the draft.");
 }
@@ -5830,3 +5857,312 @@ window.lv10dCopyDiag = lv10dCopyDiag;
 
 /* ── WO-10D: Periodic header control sync (every 1s) ── */
 setInterval(lv10dSyncHeaderControls, 1000);
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-KAWA-UI-01A — River View (Kawa) UI renderers
+═══════════════════════════════════════════════════════════════ */
+
+function _escKawa(s){
+  return String(s || "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;");
+}
+
+function renderKawaUI(){
+  const root = document.getElementById("kawaPanel");
+  if (!root) return;
+
+  const kawa = state?.kawa || {};
+  const segs = Array.isArray(kawa.segmentList) ? kawa.segmentList : [];
+  const active = kawa.activeSegment;
+
+  /* ── Segment list ───────────────────────────────────────────── */
+  const listHtml = segs.length ? segs.map(seg => {
+    const isActive = seg.segment_id === kawa.activeSegmentId;
+    const flow = seg?.kawa?.water?.flow_state || "unknown";
+    const status = seg?.provenance?.confirmed ? "confirmed" : "proposed";
+    const label = _escKawa(seg?.anchor?.label || seg?.segment_id);
+    const year = seg?.anchor?.year != null ? seg.anchor.year : "";
+    return `
+      <button class="kawa-segment-row ${isActive ? "active" : ""}" onclick="kawaSelectSegment('${seg.segment_id}')">
+        <div class="kawa-row-top">
+          <span class="kawa-row-year">${year}</span>
+          <span class="kawa-row-label">${label}</span>
+        </div>
+        <div class="kawa-row-meta">
+          <span>Flow: ${flow}</span>
+          <span class="kawa-badge ${status}">${status}</span>
+        </div>
+      </button>
+    `;
+  }).join("") : '<div class="kawa-empty">No river segments yet.</div>';
+
+  /* ── Detail pane ────────────────────────────────────────────── */
+  const detailHtml = active ? `
+    <div class="kawa-detail">
+      <div class="kawa-toolbar">
+        <button onclick="kawaBuildFromCurrentAnchor()">Rebuild</button>
+        <button onclick="kawaSaveActive(false)" ${kawa.isDirty ? "" : "disabled"}>Save</button>
+        <button onclick="kawaSaveActive(true)">Confirm Segment</button>
+      </div>
+
+      <section class="kawa-card">
+        <h3>Flow</h3>
+        <label>Flow State</label>
+        <select onchange="_bindKawaField('kawa.water.flow_state', this.value)">
+          ${["unknown","blocked","constricted","steady","open","strong"].map(x =>
+            '<option value="' + x + '"' + (active?.kawa?.water?.flow_state === x ? " selected" : "") + '>' + x + '</option>'
+          ).join("")}
+        </select>
+        <label>Summary</label>
+        <textarea oninput="_bindKawaField('kawa.water.summary', this.value)">${_escKawa(active?.kawa?.water?.summary || "")}</textarea>
+      </section>
+
+      <section class="kawa-card">
+        <h3>Rocks</h3>
+        ${_renderKawaItemList("rocks", active?.kawa?.rocks || [])}
+      </section>
+
+      <section class="kawa-card">
+        <h3>Driftwood</h3>
+        ${_renderKawaItemList("driftwood", active?.kawa?.driftwood || [])}
+      </section>
+
+      <section class="kawa-card">
+        <h3>Banks</h3>
+        ${_renderKawaBanks(active?.kawa?.banks || {})}
+      </section>
+
+      <section class="kawa-card">
+        <h3>Spaces</h3>
+        ${_renderKawaItemList("spaces", active?.kawa?.spaces || [])}
+      </section>
+
+      <section class="kawa-card">
+        <h3>Narrator Voice</h3>
+        <label>Note</label>
+        <textarea oninput="_bindKawaField('narrator_note', this.value)">${_escKawa(active?.narrator_note || "")}</textarea>
+        <label>Quote</label>
+        <textarea oninput="_bindKawaField('narrator_quote', this.value)">${_escKawa(active?.narrator_quote || "")}</textarea>
+      </section>
+
+      <section class="kawa-card">
+        <h3>Status</h3>
+        <div>Anchor: ${_escKawa(active?.anchor?.label || "")}</div>
+        <div>Year: ${active?.anchor?.year ?? ""}</div>
+        <div>Source: ${active?.provenance?.source || "unknown"}</div>
+        <div>Memoir Mode: ${typeof getMemoirMode === "function" ? getMemoirMode() : "chronology"}</div>
+        <div class="kawa-badge ${active?.provenance?.confirmed ? "confirmed" : "proposed"}">${active?.provenance?.confirmed ? "Confirmed" : "Proposed"}</div>
+        ${active?.provenance?.confirmed ? '<div class="river-informed-badge">eligible for river-informed memoir</div>' : ""}
+        ${kawa.isDirty ? '<div class="kawa-dirty">Unsaved river edits</div>' : ""}
+      </section>
+    </div>
+  ` : `
+    <div class="kawa-empty-detail">
+      <p>No active river segment.</p>
+      <button onclick="kawaBuildFromCurrentAnchor()">Build Proposal</button>
+    </div>
+  `;
+
+  /* ── Assemble layout ────────────────────────────────────────── */
+  root.innerHTML = `
+    <div class="kawa-layout">
+      <aside class="kawa-sidebar">
+        <div class="kawa-sidebar-head">
+          <h2>Memory River</h2>
+          <button onclick="kawaBuildFromCurrentAnchor()">+ Build Proposal</button>
+        </div>
+        <div id="kawaStrip">${_renderKawaStrip(segs)}</div>
+        <div class="kawa-segment-list">${listHtml}</div>
+      </aside>
+      <main class="kawa-main">${detailHtml}</main>
+    </div>
+  `;
+}
+
+/* ── Helper renderers ───────────────────────────────────────── */
+
+function _renderKawaItemList(kind, items){
+  const rows = (items || []).map((item, idx) => `
+    <div class="kawa-item ${kind}">
+      <input value="${_escKawa(item.label || "")}" placeholder="label"
+             oninput="_updateKawaListItem('${kind}', ${idx}, 'label', this.value)">
+      <textarea placeholder="notes"
+                oninput="_updateKawaListItem('${kind}', ${idx}, 'notes', this.value)">${_escKawa(item.notes || "")}</textarea>
+      <div class="kawa-item-actions">
+        <span class="kawa-confidence">confidence: ${item.confidence ?? 0}</span>
+        <button onclick="_deleteKawaListItem('${kind}', ${idx})">Delete</button>
+      </div>
+    </div>
+  `).join("");
+
+  return `
+    <div>${rows || '<div class="kawa-empty">No ' + kind + ' yet.</div>'}</div>
+    <button onclick="_addKawaListItem('${kind}')">+ Add ${kind.slice(0, -1) || kind}</button>
+  `;
+}
+
+function _renderKawaBanks(banks){
+  const sections = ["social","physical","cultural","institutional"];
+  return sections.map(sec => `
+    <div class="kawa-bank-group">
+      <h4>${sec}</h4>
+      ${(banks[sec] || []).map((val, idx) => `
+        <div class="kawa-bank-item">
+          <input value="${_escKawa(val || "")}" oninput="_updateKawaBank('${sec}', ${idx}, this.value)">
+          <button onclick="_deleteKawaBank('${sec}', ${idx})">Delete</button>
+        </div>
+      `).join("")}
+      <button onclick="_addKawaBank('${sec}')">+ Add ${sec}</button>
+    </div>
+  `).join("");
+}
+
+function _renderKawaStrip(segs){
+  if (!Array.isArray(segs) || !segs.length) return "";
+  return `
+    <div class="kawa-strip">
+      ${segs.map(seg => {
+        const flow = seg?.kawa?.water?.flow_state || "unknown";
+        const label = _escKawa(seg?.anchor?.label || seg?.segment_id);
+        return '<button class="kawa-strip-seg flow-' + flow + '" onclick="kawaSelectSegment(\'' + seg.segment_id + '\')">' + label + '</button>';
+      }).join("")}
+    </div>
+  `;
+}
+
+/* ── List item CRUD ─────────────────────────────────────────── */
+
+function _addKawaListItem(kind){
+  const seg = state?.kawa?.activeSegment;
+  if (!seg) return;
+  seg.kawa[kind] = seg.kawa[kind] || [];
+  seg.kawa[kind].push({ label: "", notes: "", confidence: 0 });
+  kawaMarkDirty();
+}
+
+function _updateKawaListItem(kind, idx, field, value){
+  const seg = state?.kawa?.activeSegment;
+  if (!seg?.kawa?.[kind]?.[idx]) return;
+  seg.kawa[kind][idx][field] = value;
+  kawaMarkDirty();
+}
+
+function _deleteKawaListItem(kind, idx){
+  const seg = state?.kawa?.activeSegment;
+  if (!seg?.kawa?.[kind]) return;
+  seg.kawa[kind].splice(idx, 1);
+  kawaMarkDirty();
+}
+
+function _addKawaBank(kind){
+  const seg = state?.kawa?.activeSegment;
+  if (!seg) return;
+  seg.kawa.banks = seg.kawa.banks || {};
+  seg.kawa.banks[kind] = seg.kawa.banks[kind] || [];
+  seg.kawa.banks[kind].push("");
+  kawaMarkDirty();
+}
+
+function _updateKawaBank(kind, idx, value){
+  const seg = state?.kawa?.activeSegment;
+  if (!seg?.kawa?.banks?.[kind]) return;
+  seg.kawa.banks[kind][idx] = value;
+  kawaMarkDirty();
+}
+
+function _deleteKawaBank(kind, idx){
+  const seg = state?.kawa?.activeSegment;
+  if (!seg?.kawa?.banks?.[kind]) return;
+  seg.kawa.banks[kind].splice(idx, 1);
+  kawaMarkDirty();
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-KAWA-02A — Mode setters + memoir Kawa overlay
+═══════════════════════════════════════════════════════════════ */
+
+function setInterviewMode(mode){
+  if (typeof setKawaMode === "function") setKawaMode(mode);
+  if (typeof renderKawaUI === "function") renderKawaUI();
+}
+
+function setMemoirMode(mode){
+  if (state?.session) state.session.memoirMode = mode;
+  if (state?.kawa?.memoir) state.kawa.memoir.organizationMode = mode;
+  // Re-render memoir chapters to reflect the new mode
+  if (typeof renderMemoirChapters === "function") renderMemoirChapters();
+}
+
+/**
+ * Build a Kawa river overlay for each chapter that has a confirmed segment.
+ * Returns the chapters array with river overlay appended in chronology_river mode,
+ * or a completely restructured array in river_organized mode.
+ * In plain chronology mode, returns chapters unchanged.
+ */
+function applyKawaToMemoirChapters(chapters){
+  const mode = typeof getMemoirMode === "function" ? getMemoirMode() : "chronology";
+  const segs = state?.kawa?.segmentList || [];
+  if (mode === "chronology" || !segs.length) return chapters;
+
+  if (mode === "chronology_river") {
+    return chapters.map(ch => {
+      const seg = segs.find(s =>
+        s?.provenance?.confirmed &&
+        (s?.anchor?.ref_id === ch.event_id || s?.anchor?.label === ch.title || s?.anchor?.label === ch.label)
+      );
+      if (!seg) return ch;
+      const overlay = typeof buildKawaOverlayText === "function" ? buildKawaOverlayText(seg) : "";
+      if (!overlay) return ch;
+      return {
+        ...ch,
+        river_overlay: overlay,
+        river_informed: true,
+        body: ch.body ? `${ch.body}\n\n${overlay}` : overlay
+      };
+    });
+  }
+
+  if (mode === "river_organized") {
+    const confirmed = segs.filter(s => s?.provenance?.confirmed);
+    if (!confirmed.length) return chapters;
+    const groups = {
+      "Seasons of Open Water": [],
+      "Rocks That Changed the Course": [],
+      "Driftwood That Kept the River Moving": [],
+      "The Banks Around My Life": [],
+      "Where Space Opened Again": []
+    };
+
+    confirmed.forEach(seg => {
+      const flow = seg?.kawa?.water?.flow_state || "";
+      if (["open","strong"].includes(flow)) groups["Seasons of Open Water"].push(seg);
+      if ((seg?.kawa?.rocks || []).length) groups["Rocks That Changed the Course"].push(seg);
+      if ((seg?.kawa?.driftwood || []).length) groups["Driftwood That Kept the River Moving"].push(seg);
+      if ([
+        ...(seg?.kawa?.banks?.social || []),
+        ...(seg?.kawa?.banks?.physical || []),
+        ...(seg?.kawa?.banks?.cultural || []),
+        ...(seg?.kawa?.banks?.institutional || [])
+      ].length) groups["The Banks Around My Life"].push(seg);
+      if ((seg?.kawa?.spaces || []).length) groups["Where Space Opened Again"].push(seg);
+    });
+
+    return Object.entries(groups)
+      .filter(([, arr]) => arr.length)
+      .map(([title, arr], idx) => ({
+        id: `river_${idx}`,
+        title,
+        label: title,
+        river_informed: true,
+        body: arr.map(seg =>
+          typeof buildKawaOverlayText === "function" ? buildKawaOverlayText(seg) : ""
+        ).filter(Boolean).join("\n\n")
+      }));
+  }
+
+  return chapters;
+}

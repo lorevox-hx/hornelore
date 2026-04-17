@@ -98,6 +98,7 @@ from .routers import (  # type: ignore
     family_truth,    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
     chronology_accordion,  # WO-CR-01 — Chronology Accordion (read-only)
     test_lab,        # WO-QA-01 — Hornelore Quality Harness (operator-only)
+    kawa,            # WO-KAWA-UI-01A — River View (Kawa meaning layer)
 )
 
 # Core Entity & State Routers
@@ -124,6 +125,7 @@ app.include_router(transcript.router)      # WO-8 — Transcript History & Threa
 app.include_router(family_truth.router)    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
 app.include_router(chronology_accordion.router)  # WO-CR-01 — Chronology Accordion
 app.include_router(test_lab.router)               # WO-QA-01 — Quality Harness
+app.include_router(kawa.router)                   # WO-KAWA-UI-01A — River View
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)

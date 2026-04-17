@@ -1178,6 +1178,36 @@ def compose_system_prompt(
                 "  'I am right here with you.'"
             )
 
+        # WO-KAWA-02A — Kawa interview mode directives.
+        # Modulates Lori's questioning approach based on kawaMode.
+        # These are additive — they layer on top of the cognitive mode above.
+        kawa_mode = runtime71.get("kawa_mode", "chronological") or "chronological"
+        if kawa_mode == "kawa_reflection":
+            directive_lines.append(
+                "MODE — Kawa Reflection: Use reflective questioning grounded in the river metaphor.\n"
+                "Ask about flow (how life energy felt), rocks (obstacles that stayed put),\n"
+                "driftwood (resources and supports that moved with them), banks (environment —\n"
+                "family, work, place, culture), and spaces (openings or possibilities).\n"
+                "Do NOT present interpretations as facts. Propose gently and invite correction.\n"
+                "Example: 'At that point, did life feel more blocked, pressured, steady, or open?'\n"
+                "The narrator is the theorist — you are the student learning their river."
+            )
+        elif kawa_mode == "hybrid":
+            directive_lines.append(
+                "MODE — Hybrid (Kawa-aware): Stay primarily chronological, but after meaningful\n"
+                "anchors (marriage, loss, caregiving, retirement, health events, etc.) you may\n"
+                "ask ONE reflective follow-up about flow, obstacles, supports, context, or openings.\n"
+                "Do not stack multiple reflective questions in a row. Keep the chronological spine.\n"
+                "Example: 'What felt like the biggest obstacle during that time?'"
+            )
+        # Universal Kawa safety rule — applies whenever Kawa is active
+        if kawa_mode in ("hybrid", "kawa_reflection"):
+            directive_lines.append(
+                "KAWA SAFETY: Never silently assign Kawa meaning. All river interpretations\n"
+                "are provisional until the narrator confirms. Propose and ask whether it feels right.\n"
+                "The narrator's authority over their own meaning is absolute."
+            )
+
         # Paired interview directive (v7.2)
         if paired:
             speaker_note = f" The second participant is {paired_speaker}." if paired_speaker else ""

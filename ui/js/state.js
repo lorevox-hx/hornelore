@@ -115,6 +115,16 @@ let state = {
        'safety'      : safety companion mode                                        */
     assistantRole: "interviewer",
 
+    /* WO-KAWA-UI-01A — Interview mode for Kawa integration.
+       'chronological' : default milestone-driven interview (no Kawa prompts)
+       'hybrid'        : chronological skeleton + selective Kawa follow-ups
+       'kawa_reflection': narrator explores life in river/meaning terms      */
+    kawaMode: "chronological",
+    lastKawaMode: null,
+    kawaPromptCooldown: 0,         // WO-KAWA-02A: suppress Kawa prompts for N turns after one fires
+    lastKawaSegmentId: null,       // WO-KAWA-02A: last segment used in a Kawa prompt
+    memoirMode: "chronology",      // WO-KAWA-02A: chronology | chronology_river | river_organized
+
     /* WO-10C — Cognitive Support Mode: narrator-scoped flag.
        When true, the entire stack shifts to dementia-safe companion behavior:
        extended silence thresholds, invitational (not interrogative) prompts,
@@ -165,6 +175,38 @@ let state = {
     affectConfidence: 0,
     cognitiveMode:    null,        // null | 'open' | 'recognition' | 'grounding' | 'light' | 'alongside'
     fatigueScore:     0,           // 0–100, estimated by session_vitals
+  },
+
+  /* ── WO-KAWA-UI-01A — Kawa River View ─────────────────────────
+     Parallel meaning layer. Never canonical by itself.
+     Segment-level, narrator-confirmed only when explicitly saved.
+  ─────────────────────────────────────────────────────────────── */
+  kawa: {
+    mode: "river",              // river | timeline_split
+    segmentList: [],            // [{ segment_id, anchor, kawa, provenance }]
+    activeSegmentId: null,
+    activeSegment: null,
+    isLoading: false,
+    isDirty: false,
+    lastBuiltAt: null,
+    /* WO-KAWA-02A — question context for hybrid/reflection modes */
+    questionContext: {
+      lastAnchorId: null,
+      lastPromptType: null
+    },
+    /* WO-KAWA-02A — memoir overlay configuration */
+    memoir: {
+      overlayEnabled: true,
+      organizationMode: "chronology_river"  // chronology | chronology_river | river_organized
+    },
+    metrics: {
+      proposalsBuilt: 0,
+      promptsShown: 0,
+      confirmed: 0,
+      edited: 0,
+      hybridPromptsShown: 0,           // WO-KAWA-02A
+      kawaSegmentsUsedInMemoir: 0      // WO-KAWA-02A
+    }
   },
 
   /* ── WO-11 Trainer Narrators ──────────────────────────────────────
