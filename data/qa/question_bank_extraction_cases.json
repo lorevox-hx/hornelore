@@ -1,15 +1,24 @@
 {
   "_wo": "WO-QB-EXTRACT-EVAL-01 — Question-bank-aligned extraction evaluation",
-  "_version": 1,
-  "_generated": "2026-04-16",
+  "_version": 2,
+  "_generated": "2026-04-17",
   "_notes": [
-    "30 evaluation cases grounded in real narrator templates and real question bank prompts.",
-    "10 cases per narrator (Christopher Todd Horne, Kent James Horne, Janice Josephine Horne).",
+    "44 evaluation cases grounded in real narrator templates and real question bank prompts.",
+    "Cases 001-030: original 30 cases (10 per narrator).",
+    "Cases 031-044: WO-SCHEMA-02 expansion — 14 new cases across 7 field families.",
+    "  grandparents: cases 031, 032 (Janice, Christopher)",
+    "  military: cases 033, 034 (Kent, Christopher)",
+    "  faith: cases 035, 036 (Janice, Christopher)",
+    "  health: cases 037, 038 (Kent, Janice — includes null case)",
+    "  community: cases 039, 040 (Janice, Christopher)",
+    "  pets: cases 041, 042 (Janice, Christopher — migration from hobbies.hobbies)",
+    "  travel: cases 043, 044 (Christopher, Kent — includes residence overlap)",
     "Truth source: ui/templates/{narrator}.json. Prompt source: data/prompts/question_bank.json.",
-    "Case distribution: 10 clean single-fact, 8 compound multi-fact, 4 ambiguity/clarify,",
-    "4 forbidden overreach, 4 correction overwrite.",
+    "Case distribution: 12 clean single-fact, 18 compound multi-fact, 5 ambiguity/clarify,",
+    "4 forbidden overreach, 4 correction overwrite, 1 null case.",
     "Topic coverage: childhood origins, school entry, autonomy milestone, civic entry,",
-    "graduation/launch, first job, partnership/marriage, children, off-ramp/retirement, legacy/reflection."
+    "graduation/launch, first job, partnership/marriage, children, off-ramp/retirement, legacy/reflection,",
+    "grandparents, military, faith, health, community, pets, travel."
   ],
   "_caseSchema": {
     "id": "case_NNN",
@@ -846,6 +855,395 @@
         {"fieldPath": "family.children.placeOfBirth", "value": "Williston, North Dakota", "confidence": 0.9}
       ],
       "scoringNotes": "Compound multi-fact: three children from Janice's perspective (mirrors case_013 from Kent's). Known CLAIMS-01 gap. Also tests forbidden field: 'same birthday as his father Kent' must NOT re-extract Kent's DOB into personal.dateOfBirth (narrator is Janice, not Kent)."
+    },
+
+    {
+      "id": "case_031",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "questionBankAnchor": "Did you know any of your grandparents? What do you remember about them?",
+      "questionType": "anchor",
+      "extractPriority": ["grandparents.side", "grandparents.firstName", "grandparents.lastName", "grandparents.ancestry", "grandparents.memorableStory"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Did you know any of your grandparents? What do you remember about them?",
+      "narratorReply": "My grandmother on my mother's side was Josie — Josephine Schaaf. She was fifty years old when she had my mother, which embarrassed her. And my grandfather Mathias Schaaf hated the Russians. His family came from Ukraine — we were Germans from Russia.",
+      "expectedEntities": ["Grandmother Josephine Schaaf (maternal)", "Grandfather Mathias Schaaf (maternal)", "Germans from Russia ancestry"],
+      "expectedFields": {
+        "grandparents.side": "maternal",
+        "grandparents.firstName": "Josephine",
+        "grandparents.lastName": "Schaaf",
+        "grandparents.ancestry": "Germans from Russia"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.spouse.firstName"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "grandparents.side", "value": "maternal", "confidence": 0.9},
+        {"fieldPath": "grandparents.firstName", "value": "Josephine", "confidence": 0.9},
+        {"fieldPath": "grandparents.lastName", "value": "Schaaf", "confidence": 0.9},
+        {"fieldPath": "grandparents.ancestry", "value": "Germans from Russia", "confidence": 0.9},
+        {"fieldPath": "grandparents.memorableStory", "value": "Was fifty years old when she had Janice's mother, which embarrassed her", "confidence": 0.8},
+        {"fieldPath": "grandparents.side", "value": "maternal", "confidence": 0.9},
+        {"fieldPath": "grandparents.firstName", "value": "Mathias", "confidence": 0.9},
+        {"fieldPath": "grandparents.lastName", "value": "Schaaf", "confidence": 0.9},
+        {"fieldPath": "grandparents.ancestry", "value": "Germans from Russia, from Ukraine", "confidence": 0.9}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 grandparents: compound multi-fact with two grandparents from one answer. Tests repeatable grandparents grouping — Josephine and Mathias must stay as separate entities. Also tests ancestry extraction for Germans from Russia heritage."
+    },
+
+    {
+      "id": "case_032",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "questionBankAnchor": "What do you know about your father's parents — your grandparents on that side?",
+      "questionType": "anchor",
+      "extractPriority": ["grandparents.side", "grandparents.firstName", "grandparents.lastName", "grandparents.birthPlace", "grandparents.memorableStory"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What do you know about your father's parents — your grandparents on that side?",
+      "narratorReply": "My grandfather Ervin was born November 12th, 1909. His father George died when Ervin was only four, April 12th, 1914. George had come to Ross, North Dakota in 1902 — walked north from Ross looking for land and filed a claim.",
+      "expectedEntities": ["Grandfather Ervin Horne (paternal, 1909)", "Great-grandfather George Horne (arrived Ross ND 1902, died 1914)"],
+      "expectedFields": {
+        "grandparents.side": "paternal",
+        "grandparents.firstName": "Ervin",
+        "grandparents.birthPlace": "North Dakota"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "parents.firstName"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "grandparents.side", "value": "paternal", "confidence": 0.9},
+        {"fieldPath": "grandparents.firstName", "value": "Ervin", "confidence": 0.9},
+        {"fieldPath": "grandparents.memorableStory", "value": "His father George died when Ervin was only four. George had come to Ross, North Dakota in 1902 and walked north looking for land.", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 grandparents: paternal grandparent with family lore spanning generations. Tests that great-grandparent George data routes to grandparents.memorableStory (not a separate entity) and that Ervin is correctly tagged as paternal."
+    },
+
+    {
+      "id": "case_033",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "questionBankAnchor": "Did anyone in your family serve in the military?",
+      "questionType": "anchor",
+      "extractPriority": ["military.branch", "military.yearsOfService", "military.significantEvent"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Did anyone in your family serve in the military?",
+      "narratorReply": "My great-grandfather John Michael Shong served in the Civil War. Company G of the 28th Infantry, from February 1865 to January 1866. He was stationed in Kansas and Missouri.",
+      "expectedEntities": ["John Michael Shong, Civil War, Company G 28th Infantry, 1865-1866, Kansas and Missouri"],
+      "expectedFields": {
+        "military.branch": "Army",
+        "military.yearsOfService": "1865-1866",
+        "military.deploymentLocation": "Kansas and Missouri",
+        "military.significantEvent": "Civil War service, Company G, 28th Infantry"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.earlyCareer"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "military.branch", "value": "Army", "confidence": 0.8},
+        {"fieldPath": "military.yearsOfService", "value": "February 1865 to January 1866", "confidence": 0.9},
+        {"fieldPath": "military.deploymentLocation", "value": "Kansas and Missouri", "confidence": 0.9},
+        {"fieldPath": "military.significantEvent", "value": "Served in Civil War, Company G, 28th Infantry", "confidence": 0.9}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 military: family military history from great-grandfather. Tests that branch is inferred as Army from 'Infantry' context. Note: this is family military, not narrator's own service — field should still capture it since it's narrator-reported family history."
+    },
+
+    {
+      "id": "case_034",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "questionBankAnchor": "Did you ever serve in the military, or was that something you considered?",
+      "questionType": "anchor",
+      "extractPriority": ["military.branch", "military.yearsOfService"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Did you ever serve in the military, or was that something you considered?",
+      "narratorReply": "No, I never served. But my great-great-grandfather John Michael Shong fought in the Civil War — Company G of the 28th Infantry. He was in Kansas and Missouri from 1865 to 1866.",
+      "expectedEntities": ["Narrator did not serve", "Family military: John Michael Shong, Civil War"],
+      "expectedFields": {
+        "military.significantEvent": "Family history: great-great-grandfather John Michael Shong served in Civil War"
+      },
+      "forbiddenFields": ["military.branch", "military.rank"],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "military.significantEvent", "value": "Family history: great-great-grandfather John Michael Shong served in Civil War, Company G, 28th Infantry, Kansas and Missouri 1865-1866", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 military: narrator explicitly says 'I never served' but shares family military. Tests forbidden field guard — military.branch should NOT be extracted for narrator since narrator did not serve. The family military detail routes to significantEvent as family lore."
+    },
+
+    {
+      "id": "case_035",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_rituals_and_holidays",
+      "questionBankAnchor": "What role did church or faith play in your family growing up?",
+      "questionType": "anchor",
+      "extractPriority": ["faith.denomination", "faith.role", "faith.significantMoment"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "What role did church or faith play in your family growing up?",
+      "narratorReply": "We were Catholic. My sister Verene's confirmation name was Gertrude. My mother Josie went to Mount Marty in Yankton for high school — that was a Catholic school run by nuns. The faith was a big part of everything.",
+      "expectedEntities": ["Catholic denomination", "Mother attended Mount Marty Catholic school"],
+      "expectedFields": {
+        "faith.denomination": "Catholic",
+        "faith.significantMoment": "Mother Josie attended Mount Marty Catholic school in Yankton"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.schooling"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "faith.denomination", "value": "Catholic", "confidence": 0.9},
+        {"fieldPath": "faith.significantMoment", "value": "Mother attended Mount Marty Catholic school in Yankton, SD", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 faith: denomination and family faith history. Tests that faith.denomination extracts cleanly and that mother's school routes to faith.significantMoment (not education.schooling, which belongs to narrator)."
+    },
+
+    {
+      "id": "case_036",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "reflection",
+      "questionBankAnchor": "What values or beliefs guided you through the hardest times?",
+      "questionType": "anchor",
+      "extractPriority": ["faith.values", "faith.denomination"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What values or beliefs guided you through the hardest times?",
+      "narratorReply": "Family loyalty, definitely. And faith — we're Catholic. The Shong family was Catholic going back to France. I think the belief that you show up and do the work no matter what — that's what got passed down.",
+      "expectedEntities": ["Catholic faith", "Values: family loyalty, showing up, work ethic"],
+      "expectedFields": {
+        "faith.denomination": "Catholic",
+        "faith.values": "Family loyalty; showing up and doing the work"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.earlyCareer"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "faith.denomination", "value": "Catholic", "confidence": 0.9},
+        {"fieldPath": "faith.values", "value": "Family loyalty, showing up and doing the work no matter what", "confidence": 0.9}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 faith: values extraction from reflective answer. Tests that faith.values captures the narrator's articulated core values and that denomination extracts alongside them."
+    },
+
+    {
+      "id": "case_037",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "health_and_body",
+      "questionBankAnchor": "Was there a time when your health changed how you lived your daily life?",
+      "questionType": "anchor",
+      "extractPriority": ["health.majorCondition", "health.milestone", "health.lifestyleChange"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Was there a time when your health changed how you lived your daily life?",
+      "narratorReply": "When I got older my knees gave out from all those years of construction. Concrete and roofing — that's hard on the body. I had to slow down a lot in my seventies.",
+      "expectedEntities": ["Knee problems from construction work", "Lifestyle change: slowed down in seventies"],
+      "expectedFields": {
+        "health.majorCondition": "Knee problems from construction work",
+        "health.lifestyleChange": "Had to slow down in seventies"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "education.earlyCareer"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "health.majorCondition", "value": "Knee problems from years of construction work", "confidence": 0.8},
+        {"fieldPath": "health.lifestyleChange", "value": "Had to slow down a lot in seventies", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 health: occupational health impact. Tests that health.majorCondition and lifestyleChange extract from a narrative about aging and physical wear. Confidence should be 0.8 — narrator implies rather than states a diagnosis."
+    },
+
+    {
+      "id": "case_038",
+      "narratorId": "janice-josephine-horne",
+      "phase": "midlife",
+      "subTopic": "health_and_body",
+      "questionBankAnchor": "Was there a health scare or a recovery that changed how you saw your own body?",
+      "questionType": "anchor",
+      "extractPriority": ["health.majorCondition", "health.milestone"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Was there a health scare or a recovery that changed how you saw things?",
+      "narratorReply": "I've been pretty healthy my whole life, honestly. I was tough. I was always outside, always working. I don't have any big health stories to tell.",
+      "expectedEntities": [],
+      "expectedFields": {},
+      "forbiddenFields": ["health.majorCondition", "health.milestone", "health.lifestyleChange"],
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [],
+      "scoringNotes": "WO-SCHEMA-02 health: null case — narrator explicitly says no health events. Tests that extractor produces ZERO health fields. All health fields are forbidden here. The 'tough' and 'always outside' details should not invent a health entry."
+    },
+
+    {
+      "id": "case_039",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "community_belonging",
+      "questionBankAnchor": "Was your family involved in any organizations or community groups?",
+      "questionType": "anchor",
+      "extractPriority": ["community.organization", "community.role", "community.significantEvent"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Was your family involved in any organizations or community groups?",
+      "narratorReply": "My father Pete worked on the Garrison Dam as a foreman of a finishing crew for cement forms. And the Gustins — my mother's side — Arno Gustin was one of the founders of the College of Mary. Uncle Al Gustin was an agricultural reporter.",
+      "expectedEntities": ["Peter Zarr, Garrison Dam foreman", "Arno Gustin, founder College of Mary", "Al Gustin, agricultural reporter"],
+      "expectedFields": {
+        "community.organization": "Garrison Dam project",
+        "community.role": "Foreman of finishing crew for cement forms"
+      },
+      "forbiddenFields": ["education.earlyCareer", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "community.organization", "value": "Garrison Dam", "confidence": 0.8},
+        {"fieldPath": "community.role", "value": "Foreman of finishing crew for cement forms", "confidence": 0.9},
+        {"fieldPath": "community.significantEvent", "value": "Arno Gustin was a founder of the College of Mary", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 community: family civic contributions. Tests community.organization and role extraction from family narrative. Also tests that College of Mary founding routes to significantEvent as family lore rather than education."
+    },
+
+    {
+      "id": "case_040",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "community_belonging",
+      "questionBankAnchor": "Were you part of any groups, clubs, or organizations during your working years?",
+      "questionType": "anchor",
+      "extractPriority": ["community.organization", "community.role", "community.yearsActive"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Were you part of any groups, clubs, or organizations during your working years?",
+      "narratorReply": "I was the OT at West Las Vegas Schools from 1997 to 2026. That was basically my whole professional community. Almost twenty-nine years with those kids and teachers.",
+      "expectedEntities": ["West Las Vegas Schools, OT, 1997-2026"],
+      "expectedFields": {
+        "community.organization": "West Las Vegas Schools",
+        "community.role": "Occupational therapist",
+        "community.yearsActive": "1997-2026"
+      },
+      "forbiddenFields": ["laterYears.retirement", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "community.organization", "value": "West Las Vegas Schools", "confidence": 0.9},
+        {"fieldPath": "community.role", "value": "Occupational therapist", "confidence": 0.9},
+        {"fieldPath": "community.yearsActive", "value": "1997-2026", "confidence": 0.9}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 community: professional community. Tests that a work-as-community answer routes to community fields rather than education.careerProgression. Both are valid but community should be preferred when the prompt specifically asks about organizations."
+    },
+
+    {
+      "id": "case_041",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "questionBankAnchor": "What was the name of the family pet that felt most like yours?",
+      "questionType": "anchor",
+      "extractPriority": ["pets.name", "pets.species", "pets.notes"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your animals growing up — which ones do you still remember?",
+      "narratorReply": "Oh, my horse Grey. I loved that horse more than anything. I was always outside with Grey. And then later we had a dog named Spot — Uncle Johnny got Spot when he rented a farm. Spot was the last dog I had as a kid.",
+      "expectedEntities": ["Horse Grey (childhood)", "Dog Spot (from Uncle Johnny)"],
+      "expectedFields": {
+        "pets.name": "Grey",
+        "pets.species": "horse",
+        "pets.name": "Spot",
+        "pets.species": "dog"
+      },
+      "forbiddenFields": ["hobbies.hobbies", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "pets.name", "value": "Grey", "confidence": 0.9},
+        {"fieldPath": "pets.species", "value": "horse", "confidence": 0.9},
+        {"fieldPath": "pets.notes", "value": "Childhood horse, Janice loved horses and was always outside with Grey", "confidence": 0.8},
+        {"fieldPath": "pets.name", "value": "Spot", "confidence": 0.9},
+        {"fieldPath": "pets.species", "value": "dog", "confidence": 0.9},
+        {"fieldPath": "pets.notes", "value": "Uncle Johnny got Spot when he rented a farm; last dog Janice had as a kid", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 pets: two pets from one answer. Tests repeatable pets grouping — Grey (horse) and Spot (dog) must stay as separate entities. Also tests that pets route to pets.* fields rather than hobbies.hobbies (which is now forbidden for pet data). This is a SCHEMA-02 migration test."
+    },
+
+    {
+      "id": "case_042",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "questionBankAnchor": "What was the name of the family pet that felt most like yours?",
+      "questionType": "anchor",
+      "extractPriority": ["pets.name", "pets.species", "pets.notes"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What was the name of the family pet that felt most like yours?",
+      "narratorReply": "We had a Golden Retriever named Ivan. He was the family dog when I was growing up. Born around 1964 I think.",
+      "expectedEntities": ["Pet: Ivan, Golden Retriever, ~1964"],
+      "expectedFields": {
+        "pets.name": "Ivan",
+        "pets.species": "Golden Retriever"
+      },
+      "forbiddenFields": ["hobbies.hobbies", "family.children.firstName"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "pets.name", "value": "Ivan", "confidence": 0.9},
+        {"fieldPath": "pets.species", "value": "Golden Retriever", "confidence": 0.9},
+        {"fieldPath": "pets.notes", "value": "Family dog growing up, born around 1964", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 pets: single pet with species detail. Tests that pet data now routes to pets.name and pets.species rather than hobbies.hobbies. Mirror of case_010 but targeting SCHEMA-02 fields. If extractor still routes to hobbies.hobbies, this case fails — that's the signal to update prompt hints."
+    },
+
+    {
+      "id": "case_043",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "travel_and_world",
+      "questionBankAnchor": "What was the most memorable trip you ever took?",
+      "questionType": "anchor",
+      "extractPriority": ["travel.destination", "travel.purpose", "travel.significantTrip"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What was the most memorable trip you ever took?",
+      "narratorReply": "Hawaii was special. We went there as a family. And I've been to France — that's where the Shong family came from originally. John Michael Shong was from near Nancy in Lorraine.",
+      "expectedEntities": ["Hawaii (family vacation)", "France (ancestry visit)"],
+      "expectedFields": {
+        "travel.destination": "Hawaii",
+        "travel.purpose": "Family vacation",
+        "travel.destination": "France",
+        "travel.purpose": "Ancestry connection"
+      },
+      "forbiddenFields": ["residence.place", "personal.dateOfBirth"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "travel.destination", "value": "Hawaii", "confidence": 0.9},
+        {"fieldPath": "travel.purpose", "value": "Family vacation", "confidence": 0.9},
+        {"fieldPath": "travel.destination", "value": "France", "confidence": 0.9},
+        {"fieldPath": "travel.purpose", "value": "Ancestry — Shong family from Lorraine", "confidence": 0.8},
+        {"fieldPath": "travel.significantTrip", "value": "France, tracing Shong family origins near Nancy in Lorraine", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 travel: two destinations with different purposes. Tests repeatable travel grouping and that travel.significantTrip captures the most meaningful trip. Also tests that France routes to travel.destination, NOT residence.place (narrator visited, did not live there)."
+    },
+
+    {
+      "id": "case_044",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "first_home",
+      "questionBankAnchor": "Where was the first place you lived after leaving your parents' home?",
+      "questionType": "anchor",
+      "extractPriority": ["travel.destination", "travel.purpose", "residence.place"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Where was the first place you and Janice lived after getting married?",
+      "narratorReply": "We went to Germany. That's where our first boy Vincent was born. I was working construction over there. We came back to North Dakota after that.",
+      "expectedEntities": ["Germany (work relocation)", "North Dakota (return)"],
+      "expectedFields": {
+        "residence.place": "Germany",
+        "travel.destination": "Germany",
+        "travel.purpose": "Work — construction"
+      },
+      "forbiddenFields": ["personal.dateOfBirth", "family.marriageDate"],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "mockLlmOutput": [
+        {"fieldPath": "residence.place", "value": "Germany", "confidence": 0.9},
+        {"fieldPath": "travel.destination", "value": "Germany", "confidence": 0.7},
+        {"fieldPath": "travel.purpose", "value": "Work — construction", "confidence": 0.9},
+        {"fieldPath": "residence.place", "value": "North Dakota", "confidence": 0.8}
+      ],
+      "scoringNotes": "WO-SCHEMA-02 travel + residence overlap: Germany is both a residence and a travel/relocation event. Tests that extractor can produce both residence.place AND travel.destination for the same place when the context warrants both. Travel confidence should be lower (0.7) since it's more of a relocation than a trip."
     }
   ]
 }

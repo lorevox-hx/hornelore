@@ -63,3 +63,11 @@ def phase_aware_questions_enabled() -> bool:
     narrator DOB is available. Falls back to sequential DB ordering when
     composer returns None. Default OFF."""
     return _truthy(os.environ.get("HORNELORE_PHASE_AWARE_QUESTIONS"))
+
+
+def claims_validators_enabled() -> bool:
+    """WO-EX-CLAIMS-02. When True, /api/extract-fields runs three
+    post-extraction validators: value-shape rejection, relation allowlist,
+    and confidence floor. Default ON — these are safe guardrails that only
+    drop clearly-bad items."""
+    return _truthy(os.environ.get("HORNELORE_CLAIMS_VALIDATORS", "1"))

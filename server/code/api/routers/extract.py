@@ -160,6 +160,49 @@ EXTRACTABLE_FIELDS = {
     "residence.region":               {"label": "State / country of residence", "writeMode": "candidate_only", "repeatable": "residences"},
     "residence.period":               {"label": "Years at this residence (e.g., 1962-1964)", "writeMode": "candidate_only", "repeatable": "residences"},
     "residence.notes":                {"label": "Residence notes (home type, memory)", "writeMode": "candidate_only", "repeatable": "residences"},
+
+    # ── WO-SCHEMA-02 Priority 1 — Grandparents (repeatable) ─────────────────
+    "grandparents.side":              {"label": "Grandparent side (maternal/paternal)", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.firstName":         {"label": "Grandparent first name", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.lastName":          {"label": "Grandparent last name", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.maidenName":        {"label": "Grandparent maiden name", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.birthPlace":        {"label": "Grandparent birthplace", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.ancestry":          {"label": "Grandparent ancestry or ethnic background", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.memorableStory":    {"label": "Memorable story about grandparent", "writeMode": "suggest_only", "repeatable": "grandparents"},
+
+    # ── WO-SCHEMA-02 Priority 2 — Military ──────────────────────────────────
+    "military.branch":                {"label": "Military branch (Army, Navy, etc.)", "writeMode": "suggest_only"},
+    "military.yearsOfService":        {"label": "Years of military service (e.g., 1965-1968)", "writeMode": "suggest_only"},
+    "military.rank":                  {"label": "Highest military rank attained", "writeMode": "suggest_only"},
+    "military.deploymentLocation":    {"label": "Military deployment location", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.significantEvent":      {"label": "Significant military event or experience", "writeMode": "suggest_only", "repeatable": "military"},
+
+    # ── WO-SCHEMA-02 Priority 3 — Faith & Values ────────────────────────────
+    "faith.denomination":             {"label": "Faith denomination (Catholic, Lutheran, etc.)", "writeMode": "suggest_only"},
+    "faith.role":                     {"label": "Role in faith community (choir, deacon, etc.)", "writeMode": "suggest_only"},
+    "faith.significantMoment":        {"label": "Significant faith moment or turning point", "writeMode": "suggest_only"},
+    "faith.values":                   {"label": "Core values or beliefs", "writeMode": "suggest_only"},
+
+    # ── WO-SCHEMA-02 Priority 4 — Health ────────────────────────────────────
+    "health.majorCondition":          {"label": "Major health condition or diagnosis", "writeMode": "suggest_only", "repeatable": "health"},
+    "health.milestone":               {"label": "Health milestone (surgery, recovery, etc.)", "writeMode": "suggest_only"},
+    "health.lifestyleChange":         {"label": "Significant lifestyle change for health", "writeMode": "suggest_only"},
+
+    # ── WO-SCHEMA-02 Priority 5 — Community & Civic Life ────────────────────
+    "community.organization":         {"label": "Community organization or group", "writeMode": "suggest_only", "repeatable": "community"},
+    "community.role":                 {"label": "Role in community organization", "writeMode": "suggest_only", "repeatable": "community"},
+    "community.yearsActive":          {"label": "Years active in community role", "writeMode": "suggest_only", "repeatable": "community"},
+    "community.significantEvent":     {"label": "Significant community event or contribution", "writeMode": "suggest_only"},
+
+    # ── WO-SCHEMA-02 Priority 6 — Pets ──────────────────────────────────────
+    "pets.name":                      {"label": "Pet name", "writeMode": "candidate_only", "repeatable": "pets"},
+    "pets.species":                   {"label": "Pet species (dog, cat, horse, etc.)", "writeMode": "candidate_only", "repeatable": "pets"},
+    "pets.notes":                     {"label": "Pet notes (personality, story, meaning)", "writeMode": "suggest_only", "repeatable": "pets"},
+
+    # ── WO-SCHEMA-02 Priority 7 — Travel ────────────────────────────────────
+    "travel.destination":             {"label": "Travel destination", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.purpose":                 {"label": "Purpose of travel (vacation, work, family, military)", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.significantTrip":         {"label": "Most significant or memorable trip", "writeMode": "suggest_only"},
 }
 
 # ── Phase G: Protected identity fields ─────────────────────────────────────
@@ -350,7 +393,50 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Output:\n"
         "[{\"fieldPath\":\"residence.place\",\"value\":\"West Fargo\",\"confidence\":0.9},"
         "{\"fieldPath\":\"residence.period\",\"value\":\"1962-1964\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9}]"
+        "{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9}]\n"
+        "\n"
+        "Example — narrator says: \"My grandmother on my mother's side came from Russia. Her name was Anna Petrova.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"grandparents.side\",\"value\":\"maternal\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"grandparents.firstName\",\"value\":\"Anna\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"grandparents.lastName\",\"value\":\"Petrova\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"grandparents.birthPlace\",\"value\":\"Russia\",\"confidence\":0.7}]\n"
+        "\n"
+        "Example — narrator says: \"I served in the Army from 1965 to 1968. I was stationed in Germany and made Sergeant.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"military.branch\",\"value\":\"Army\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"military.yearsOfService\",\"value\":\"1965-1968\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"military.deploymentLocation\",\"value\":\"Germany\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"military.rank\",\"value\":\"Sergeant\",\"confidence\":0.9}]\n"
+        "\n"
+        "Example — narrator says: \"We were Catholic, and I sang in the church choir for thirty years. My faith got me through the hard times.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"faith.denomination\",\"value\":\"Catholic\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"faith.role\",\"value\":\"church choir for thirty years\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"faith.values\",\"value\":\"faith got me through the hard times\",\"confidence\":0.7}]\n"
+        "\n"
+        "Example — narrator says: \"I had a heart attack in 2005 and had to change everything about how I ate.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"health.majorCondition\",\"value\":\"heart attack\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"health.milestone\",\"value\":\"heart attack in 2005\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"health.lifestyleChange\",\"value\":\"changed everything about how I ate\",\"confidence\":0.8}]\n"
+        "\n"
+        "Example — narrator says: \"I volunteered with the Lions Club for twenty years and was president twice.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"community.organization\",\"value\":\"Lions Club\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"community.role\",\"value\":\"president\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"community.yearsActive\",\"value\":\"twenty years\",\"confidence\":0.9}]\n"
+        "\n"
+        "Example — narrator says: \"We always had dogs. Our first was a collie named Laddie.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"pets.notes\",\"value\":\"collie, first family dog\",\"confidence\":0.8}]\n"
+        "\n"
+        "Example — narrator says: \"We took a trip to Europe in 1985. It was our anniversary.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"travel.destination\",\"value\":\"Europe\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"travel.purpose\",\"value\":\"anniversary trip\",\"confidence\":0.8}]"
     )
 
     context_note = ""
@@ -664,6 +750,66 @@ def _validate_item(item: Any) -> Optional[dict]:
             "parents.parentAttitude": "parents.notableLifeEvents",
             # family.siblings.dateOfBirth has no schema target — route to significantEvent
             "family.siblings.dateOfBirth": "earlyMemories.significantEvent",
+
+            # ── WO-SCHEMA-02: Aliases for new field families ──────────────────
+            # Grandparents — LLM may use family.grandparents.* or grandmother/grandfather
+            "family.grandparents.firstName": "grandparents.firstName",
+            "family.grandparents.lastName": "grandparents.lastName",
+            "family.grandparents.maidenName": "grandparents.maidenName",
+            "family.grandparents.birthPlace": "grandparents.birthPlace",
+            "family.grandparents.side": "grandparents.side",
+            "family.grandparents.ancestry": "grandparents.ancestry",
+            "family.grandparents.memorableStory": "grandparents.memorableStory",
+            "grandmother.firstName": "grandparents.firstName",
+            "grandmother.lastName": "grandparents.lastName",
+            "grandmother.maidenName": "grandparents.maidenName",
+            "grandfather.firstName": "grandparents.firstName",
+            "grandfather.lastName": "grandparents.lastName",
+            "origins.grandparentName": "grandparents.firstName",
+            "origins.ancestry": "grandparents.ancestry",
+            # Military — LLM may use service.* or veteran.*
+            "service.branch": "military.branch",
+            "service.years": "military.yearsOfService",
+            "service.rank": "military.rank",
+            "service.location": "military.deploymentLocation",
+            "veteran.branch": "military.branch",
+            "veteran.years": "military.yearsOfService",
+            "veteran.rank": "military.rank",
+            "personal.militaryService": "military.branch",
+            "laterYears.militaryService": "military.branch",
+            # Faith — LLM may use religion.* or church.* or spirituality.*
+            "religion.denomination": "faith.denomination",
+            "religion.role": "faith.role",
+            "church.denomination": "faith.denomination",
+            "church.role": "faith.role",
+            "spirituality.faith": "faith.denomination",
+            "spirituality.values": "faith.values",
+            "personal.faith": "faith.denomination",
+            "personal.values": "faith.values",
+            # Health — LLM may use medical.* or wellness.*
+            "medical.condition": "health.majorCondition",
+            "medical.diagnosis": "health.majorCondition",
+            "medical.surgery": "health.milestone",
+            "wellness.change": "health.lifestyleChange",
+            "personal.health": "health.majorCondition",
+            "laterYears.health": "health.majorCondition",
+            # Community — LLM may use civic.* (already partially aliased above)
+            "civic.organization": "community.organization",
+            "civic.role": "community.role",
+            "civic.years": "community.yearsActive",
+            "volunteer.organization": "community.organization",
+            "volunteer.role": "community.role",
+            # Pets — LLM may use animals.* or pet.*
+            "animals.name": "pets.name",
+            "animals.species": "pets.species",
+            "pet.name": "pets.name",
+            "pet.species": "pets.species",
+            "pet.notes": "pets.notes",
+            # Travel — LLM may use trips.* or places.*
+            "trips.destination": "travel.destination",
+            "trips.purpose": "travel.purpose",
+            "places.visited": "travel.destination",
+            "hobbies.travel": "travel.significantTrip",
         }
         alias = _FIELD_ALIASES.get(base_path) or _FIELD_ALIASES.get(fp)
         if alias and alias in EXTRACTABLE_FIELDS:
@@ -1137,6 +1283,180 @@ def _apply_field_value_sanity(items: List[dict]) -> List[dict]:
     return out
 
 
+# ── WO-EX-CLAIMS-02: quick-win post-extraction validators ─────────────────
+# Three guardrails that reject clearly-bad items before they reach shadow
+# review or the claims layer. Gated behind HORNELORE_CLAIMS_VALIDATORS flag
+# (default ON — these are safe to run always).
+#
+# 1. Value-shape rejection — connector words, bare fragments, sub-3-char
+#    narrative values
+# 2. Relation allowlist — enumerated valid values for *.relation fields
+# 3. Confidence floor — auto-reject items below 0.5
+
+_RELATION_ALLOWLIST = frozenset({
+    # Parent/child
+    "son", "daughter", "child", "children",
+    "mother", "father", "parent", "mom", "dad",
+    # Siblings
+    "brother", "sister", "sibling", "half-brother", "half-sister",
+    "stepbrother", "stepsister", "stepsibling",
+    # Grandparents
+    "grandmother", "grandfather", "grandparent", "grandma", "grandpa",
+    # Extended family
+    "uncle", "aunt", "cousin", "nephew", "niece",
+    # In-laws
+    "mother-in-law", "father-in-law", "sister-in-law", "brother-in-law",
+    "son-in-law", "daughter-in-law",
+    # Step relations
+    "stepmother", "stepfather", "stepson", "stepdaughter",
+    # Spouse/partner
+    "wife", "husband", "spouse", "partner", "ex-wife", "ex-husband",
+    # Great-grandparents
+    "great-grandmother", "great-grandfather",
+})
+
+# Connector words and sentence fragments that appear as field values when the
+# LLM mis-tokenizes compound sentences. These are never valid field values
+# for any field, period.
+_VALUE_GARBAGE_WORDS = frozenset({
+    "then", "and", "or", "but", "the", "a", "an", "of", "in", "to",
+    "for", "with", "from", "at", "by", "on", "so", "if", "as", "that",
+    "this", "also", "just", "too", "very", "really", "yeah", "yes", "no",
+    "not", "was", "were", "is", "are", "been", "be", "had", "has", "have",
+    "do", "did", "does", "will", "would", "could", "should",
+    "kids", "ones", "them", "things",
+})
+
+# Minimum confidence threshold. Items below this are almost always
+# hallucinations or low-signal guesses.
+_CONFIDENCE_FLOOR = 0.5
+
+# Minimum value length for narrative/suggest_only fields. Fields that hold
+# descriptive text (not names, dates, or codes) should have meaningful content.
+# Name fields and short-value fields are exempt.
+_SHORT_VALUE_EXEMPT_SUFFIXES = frozenset({
+    "firstName", "lastName", "middleName", "maidenName", "nickname",
+    "dateOfBirth", "dateOfDeath", "birthYear", "deathYear",
+    "birthOrder", "gender", "relation", "branch", "denomination",
+    "rank", "status", "species", "type", "yearEnlisted", "yearDischarged",
+    "yearStarted", "yearEnded", "startYear", "endYear",
+    "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",
+})
+
+
+def _apply_claims_value_shape(items: List[dict]) -> List[dict]:
+    """WO-EX-CLAIMS-02 validator 1: reject garbage connector words and
+    bare fragments that leak from compound-sentence mis-parsing.
+
+    Also rejects sub-3-character values for narrative fields (but exempts
+    name, date, and code fields where short values are valid).
+    """
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        raw = str(it.get("value", ""))
+        normalized = raw.strip().strip(".,;:'\"").lower()
+
+        # Reject universal garbage words
+        if normalized in _VALUE_GARBAGE_WORDS:
+            try:
+                logger.info(
+                    "[extract][WO-CLAIMS-02] dropping %s=%r (garbage connector word)",
+                    fp, raw,
+                )
+            except Exception:
+                pass
+            continue
+
+        # Reject sub-3-char values for non-exempt fields
+        suffix = fp.rsplit(".", 1)[-1] if "." in fp else fp
+        if suffix not in _SHORT_VALUE_EXEMPT_SUFFIXES and len(normalized) < 3:
+            try:
+                logger.info(
+                    "[extract][WO-CLAIMS-02] dropping %s=%r (too short for narrative field)",
+                    fp, raw,
+                )
+            except Exception:
+                pass
+            continue
+
+        out.append(it)
+    return out
+
+
+def _apply_claims_relation_allowlist(items: List[dict]) -> List[dict]:
+    """WO-EX-CLAIMS-02 validator 2: reject extracted .relation values that
+    aren't in the known relation vocabulary.
+
+    This catches LLM artifacts like relation='then', relation='and',
+    relation='kids' that leak from compound sentence parsing.
+    """
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        if fp.endswith(".relation"):
+            raw = str(it.get("value", ""))
+            normalized = raw.strip().strip(".,;:'\"").lower()
+            # Normalize hyphens and spaces for matching
+            normalized_check = normalized.replace(" ", "-")
+            if normalized_check not in _RELATION_ALLOWLIST and normalized not in _RELATION_ALLOWLIST:
+                try:
+                    logger.info(
+                        "[extract][WO-CLAIMS-02] dropping %s=%r (not in relation allowlist)",
+                        fp, raw,
+                    )
+                except Exception:
+                    pass
+                continue
+        out.append(it)
+    return out
+
+
+def _apply_claims_confidence_floor(items: List[dict]) -> List[dict]:
+    """WO-EX-CLAIMS-02 validator 3: reject items below the confidence floor.
+
+    Items with confidence < 0.5 are almost always hallucinations or
+    low-signal guesses. The threshold is deliberately conservative — 0.5
+    is low enough that legitimate extractions rarely fall below it, but
+    high enough to catch the worst LLM garbage.
+    """
+    out = []
+    for it in items:
+        conf = it.get("confidence")
+        if conf is not None and isinstance(conf, (int, float)) and conf < _CONFIDENCE_FLOOR:
+            try:
+                logger.info(
+                    "[extract][WO-CLAIMS-02] dropping %s=%r confidence=%.2f (below floor %.2f)",
+                    it.get("fieldPath"), it.get("value"), conf, _CONFIDENCE_FLOOR,
+                )
+            except Exception:
+                pass
+            continue
+        out.append(it)
+    return out
+
+
+def _apply_claims_validators(items: List[dict]) -> List[dict]:
+    """WO-EX-CLAIMS-02: apply all three quick-win validators in sequence.
+    Flag-gated behind HORNELORE_CLAIMS_VALIDATORS (default ON).
+    """
+    try:
+        from .. import flags as _flags
+        if not _flags.claims_validators_enabled():
+            return items
+    except Exception:
+        return items  # if flag module fails, skip gracefully
+
+    before = len(items)
+    items = _apply_claims_value_shape(items)
+    items = _apply_claims_relation_allowlist(items)
+    items = _apply_claims_confidence_floor(items)
+    dropped = before - len(items)
+    if dropped:
+        logger.info("[extract][WO-CLAIMS-02] validators dropped %d of %d items", dropped, before)
+    return items
+
+
 def _extract_via_rules(
     answer: str,
     current_section: Optional[str],
@@ -1536,6 +1856,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         )
         llm_items = _apply_month_name_sanity(llm_items)
         llm_items = _apply_field_value_sanity(llm_items)
+        llm_items = _apply_claims_validators(llm_items)  # WO-EX-CLAIMS-02
 
     # WO: Summary line — log outcome at endpoint level
     _accepted = len(llm_items) if llm_items else 0
@@ -1632,6 +1953,7 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         )
         rules_items = _apply_month_name_sanity(rules_items)
         rules_items = _apply_field_value_sanity(rules_items)
+        rules_items = _apply_claims_validators(rules_items)  # WO-EX-CLAIMS-02
 
     if rules_items:
         result_items = []
