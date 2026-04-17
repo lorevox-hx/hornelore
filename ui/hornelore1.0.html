@@ -4262,7 +4262,16 @@ async function lv80SwitchPerson(personId) {
         "Do not repeat the onboarding flow. Do not ask for name or DOB again.]"
       );
     } else {
-      console.log("[WO-13] lv80SwitchPerson: suppressing legacy resume prompt — no prior user turns");
+      console.log("[WO-13] lv80SwitchPerson: no prior user turns — fetching opener greeting");
+      // WO-GREETING-01: First-time narrator gets Lori's canned greeting
+      fetch(API.IV_OPENER(personId))
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.opener_text) {
+            appendBubble("ai", data.opener_text);
+          }
+        })
+        .catch(e => console.warn("[WO-GREETING-01] Opener fetch failed:", e));
     }
 
     state.narratorOpen.openStatus = "ready";

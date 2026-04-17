@@ -23,6 +23,7 @@ const API = {
   CHAT_SSE:   ORIGIN + "/api/chat/stream",
   CHAT_WS:    ORIGIN.replace(/^http/,"ws") + "/api/chat/ws",
   IV_START:   ORIGIN + "/api/interview/start",
+  IV_OPENER:  (pid) => `${ORIGIN}/api/interview/opener?person_id=${encodeURIComponent(pid)}`,
   IV_ANSWER:  ORIGIN + "/api/interview/answer",
   TIMELINE:   (id) => `${ORIGIN}/api/timeline/list?person_id=${encodeURIComponent(id)}`,
   TL_ADD:     ORIGIN + "/api/timeline/add",

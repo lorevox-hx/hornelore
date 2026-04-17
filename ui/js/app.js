@@ -388,7 +388,17 @@ function _looksLikeMemoryEchoRequest(text){
     "what do you know about me",
     "read back what you know about me",
     "summarize what you know about me",
-    "read back what you know"
+    "read back what you know",
+    // WO-GREETING-01: expanded trigger phrases
+    "what have you learned about me",
+    "what do you remember about me",
+    "what have i told you",
+    "what have i told you about me",
+    "what have i shared with you",
+    "show me what you know",
+    "do you remember me",
+    "repeat what you know about me",
+    "recap what you know"
   ].some(p => t.includes(p));
 }
 
