@@ -306,15 +306,17 @@
       "narratorReply": "We had a Golden Retriever named Ivan. He was the family dog when I was growing up.",
       "expectedEntities": ["Pet: Ivan, Golden Retriever"],
       "expectedFields": {
-        "hobbies.hobbies": "Golden Retriever named Ivan"
+        "pets.name": "Ivan",
+        "pets.species": "dog"
       },
       "forbiddenFields": ["family.children.firstName", "personal.placeOfBirth"],
-      "expectedBehavior": "extract_single",
+      "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": true,
       "mockLlmOutput": [
-        {"fieldPath": "hobbies.hobbies", "value": "Golden Retriever named Ivan", "confidence": 0.9}
+        {"fieldPath": "pets.name", "value": "Ivan", "confidence": 0.9},
+        {"fieldPath": "pets.species", "value": "dog", "confidence": 0.9}
       ],
-      "scoringNotes": "Clean single-fact: pet information from childhood. LLM routes pets to hobbies.hobbies (valid per extractPriority). Tests fragment extraction from terse pet reply."
+      "scoringNotes": "Pet extraction: Golden Retriever named Ivan. WO-SCHEMA-02 routes to pets.* fields. Tests structured pet extraction from terse reply."
     },
 
     {
@@ -500,15 +502,17 @@
       "narratorReply": "We had a Golden Retriever, Ivan. Good dog.",
       "expectedEntities": ["Pet: Ivan, Golden Retriever"],
       "expectedFields": {
-        "hobbies.hobbies": "Golden Retriever, Ivan"
+        "pets.name": "Ivan",
+        "pets.species": "dog"
       },
       "forbiddenFields": ["family.children.firstName", "education.schooling"],
-      "expectedBehavior": "extract_single",
+      "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": true,
       "mockLlmOutput": [
-        {"fieldPath": "hobbies.hobbies", "value": "Golden Retriever, Ivan", "confidence": 0.9}
+        {"fieldPath": "pets.name", "value": "Ivan", "confidence": 0.9},
+        {"fieldPath": "pets.species", "value": "dog", "confidence": 0.9}
       ],
-      "scoringNotes": "Clean single-fact: minimal pet answer. LLM routes pets to hobbies.hobbies (valid per extractPriority). Tests extraction from terse replies."
+      "scoringNotes": "Pet extraction: Golden Retriever named Ivan from terse reply. WO-SCHEMA-02 routes to pets.* fields."
     },
 
     {
@@ -714,15 +718,17 @@
       "narratorReply": "Oh, my horse Grey. I loved that horse. I liked to be outside — my sister Verene hated it, but I was always out with Grey. And we had a dog named Spot, he was the last dog I had as a kid. Uncle Johnny got Spot when he rented a farm.",
       "expectedEntities": ["Horse named Grey", "Dog named Spot", "Sister Verene contrast"],
       "expectedFields": {
-        "hobbies.hobbies": "Grey"
+        "pets.name": "Grey",
+        "pets.species": "horse"
       },
       "forbiddenFields": ["family.marriageDate", "education.higherEducation"],
       "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": true,
       "mockLlmOutput": [
-        {"fieldPath": "hobbies.hobbies", "value": "Grey", "confidence": 0.9}
+        {"fieldPath": "pets.name", "value": "Grey", "confidence": 0.9},
+        {"fieldPath": "pets.species", "value": "horse", "confidence": 0.9}
       ],
-      "scoringNotes": "Multi-fact: two pets plus personality contrast with sibling. Expected value is 'Grey' (the horse name) — LLM may produce 'horse Grey', 'Grey (horse)', 'horseback riding', etc. Fuzzy match should catch variants."
+      "scoringNotes": "Multi-fact: two pets (Grey horse, Spot dog) plus sibling contrast. WO-SCHEMA-02 routes to pets.* fields. Primary expected extraction is Grey the horse."
     },
 
     {

@@ -1,24 +1,24 @@
 {
   "_wo": "WO-QB-EXTRACT-EVAL-01",
-  "_generated": "2026-04-17T14:25:16",
+  "_generated": "2026-04-17T14:51:10",
   "mode": "live",
   "summary": {
     "total_cases": 44,
     "passed": 24,
     "failed": 20,
     "pass_rate": 0.545,
-    "avg_overall_score": 0.565
+    "avg_overall_score": 0.615
   },
   "by_behavior": {
     "extract_single": {
-      "total": 17,
+      "total": 15,
       "passed": 12,
-      "failed": 5
+      "failed": 3
     },
     "extract_multiple": {
-      "total": 26,
+      "total": 28,
       "passed": 12,
-      "failed": 14
+      "failed": 16
     },
     "clarify_before_write": {
       "total": 1,
@@ -29,34 +29,34 @@
   "by_narrator": {
     "christopher-todd-horne": {
       "total": 16,
-      "passed": 10,
-      "avg_score": 0.646
+      "passed": 8,
+      "avg_score": 0.587
     },
     "kent-james-horne": {
       "total": 13,
-      "passed": 7,
-      "avg_score": 0.554
+      "passed": 9,
+      "avg_score": 0.7
     },
     "janice-josephine-horne": {
       "total": 15,
       "passed": 7,
-      "avg_score": 0.488
+      "avg_score": 0.571
     }
   },
   "expected_extractor_results": {
     "should_pass": {
       "total": 38,
-      "actually_passed": 22
+      "actually_passed": 21
     },
     "known_gaps": {
       "total": 6,
-      "actually_passed": 2
+      "actually_passed": 3
     }
   },
   "failure_categories": {
+    "field_path_mismatch": 9,
     "schema_gap": 11,
-    "field_path_mismatch": 6,
-    "llm_hallucination": 11
+    "llm_hallucination": 8
   },
   "case_results": [
     {
@@ -86,7 +86,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12851,
+      "elapsed_ms": 12631,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -151,8 +151,8 @@
       "forbidden_violations": [],
       "overall_score": 0.2,
       "failure_categories": [
-        "schema_gap",
-        "field_path_mismatch"
+        "field_path_mismatch",
+        "schema_gap"
       ],
       "pass": false,
       "case_id": "case_002",
@@ -163,8 +163,8 @@
       "currentExtractorExpected": false,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12939,
-      "extracted_count": 5,
+      "elapsed_ms": 16030,
+      "extracted_count": 8,
       "raw_items": [
         {
           "fieldPath": "parents.firstName",
@@ -215,6 +215,42 @@
           "plausibility_age": null
         },
         {
+          "fieldPath": "family.children.relation",
+          "value": "Brother",
+          "writeMode": "candidate_only",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": "children_0",
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "older",
+          "writeMode": "candidate_only",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": "children_0",
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "older",
+          "writeMode": "candidate_only",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": "children_0",
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
           "fieldPath": "family.children.birthOrder",
           "value": "youngest",
           "writeMode": "candidate_only",
@@ -249,8 +285,8 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12129,
-      "extracted_count": 3,
+      "elapsed_ms": 9853,
+      "extracted_count": 2,
       "raw_items": [
         {
           "fieldPath": "education.schooling",
@@ -266,19 +302,7 @@
         },
         {
           "fieldPath": "education.higherEducation",
-          "value": "graduated",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "education.higherEducation",
-          "value": "from Bismarck High School in 1981",
+          "value": "graduated from Bismarck High School in 1981",
           "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -323,7 +347,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12364,
+      "elapsed_ms": 9437,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -374,7 +398,7 @@
         },
         "family.children.dateOfBirth": {
           "expected": "1991-10-04",
-          "actual": "1991-10-04",
+          "actual": "October 4th, 1991",
           "score": 1.0,
           "status": "exact"
         },
@@ -397,7 +421,7 @@
       "currentExtractorExpected": false,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 26485,
+      "elapsed_ms": 20266,
       "extracted_count": 8,
       "raw_items": [
         {
@@ -425,8 +449,8 @@
           "plausibility_age": null
         },
         {
-          "fieldPath": "family.children.placeOfBirth",
-          "value": "Austin, Texas",
+          "fieldPath": "family.children.dateOfBirth",
+          "value": "October 4th, 1991",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -437,8 +461,8 @@
           "plausibility_age": null
         },
         {
-          "fieldPath": "family.children.dateOfBirth",
-          "value": "1991-10-04",
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Austin, Texas",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -462,7 +486,7 @@
         },
         {
           "fieldPath": "family.children.dateOfBirth",
-          "value": "1994-08-05",
+          "value": "August 5th, 1994",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -486,7 +510,7 @@
         },
         {
           "fieldPath": "family.children.dateOfBirth",
-          "value": "2002-04-10",
+          "value": "April 10th, 2002",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -508,15 +532,17 @@
         },
         "education.careerProgression": {
           "expected": "West Las Vegas Schools since 1997",
-          "actual": "since 1997",
-          "score": 0.8,
-          "status": "partial"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.9,
-      "failure_categories": [],
-      "pass": true,
+      "overall_score": 0.5,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
       "case_id": "case_006",
       "narratorId": "christopher-todd-horne",
       "phase": "legacy_reflection",
@@ -525,7 +551,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10477,
+      "elapsed_ms": 12931,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -541,8 +567,8 @@
           "plausibility_age": null
         },
         {
-          "fieldPath": "education.earlyCareer",
-          "value": "OT at West Las Vegas Schools",
+          "fieldPath": "laterYears.retirement",
+          "value": "almost 29 years",
           "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -553,8 +579,8 @@
           "plausibility_age": null
         },
         {
-          "fieldPath": "education.careerProgression",
-          "value": "since 1997",
+          "fieldPath": "education.earlyCareer",
+          "value": "OT at West Las Vegas Schools",
           "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -587,7 +613,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 1866,
+      "elapsed_ms": 1807,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -627,7 +653,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13041,
+      "elapsed_ms": 12290,
       "extracted_count": 5,
       "raw_items": [
         {
@@ -713,12 +739,24 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 3525,
-      "extracted_count": 1,
+      "elapsed_ms": 7692,
+      "extracted_count": 2,
       "raw_items": [
         {
           "fieldPath": "education.earlyCareer",
           "value": "occupational therapist",
+          "writeMode": "suggest_only",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "trained in OT",
           "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -732,26 +770,35 @@
     },
     {
       "field_scores": {
-        "hobbies.hobbies": {
-          "expected": "Golden Retriever named Ivan",
-          "actual": "Golden Retriever",
-          "score": 0.8,
-          "status": "partial"
+        "pets.name": {
+          "expected": "Ivan",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "pets.species": {
+          "expected": "dog",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.8,
-      "failure_categories": [],
-      "pass": true,
+      "overall_score": 0.0,
+      "failure_categories": [
+        "field_path_mismatch",
+        "schema_gap"
+      ],
+      "pass": false,
       "case_id": "case_010",
       "narratorId": "christopher-todd-horne",
       "phase": "developmental_foundations",
       "subTopic": "childhood_pets",
-      "expectedBehavior": "extract_single",
+      "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 5285,
+      "elapsed_ms": 6090,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -784,24 +831,21 @@
       "field_scores": {
         "personal.placeOfBirth": {
           "expected": "Stanley, North Dakota",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
+          "actual": "Stanley, North Dakota",
+          "score": 1.0,
+          "status": "exact"
         },
         "personal.dateOfBirth": {
           "expected": "1939-12-24",
-          "actual": "I was born in Stanley, North Dakota. Christmas Eve, 1939.",
-          "score": 0.0,
-          "status": "wrong"
+          "actual": "1939-12-24",
+          "score": 1.0,
+          "status": "exact"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "llm_hallucination",
-        "field_path_mismatch"
-      ],
-      "pass": false,
+      "overall_score": 1.0,
+      "failure_categories": [],
+      "pass": true,
       "case_id": "case_011",
       "narratorId": "kent-james-horne",
       "phase": "developmental_foundations",
@@ -809,17 +853,29 @@
       "expectedBehavior": "extract_single",
       "currentExtractorExpected": true,
       "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 8027,
-      "extracted_count": 1,
+      "method": "llm",
+      "elapsed_ms": 7959,
+      "extracted_count": 2,
       "raw_items": [
         {
-          "fieldPath": "personal.dateOfBirth",
-          "value": "I was born in Stanley, North Dakota. Christmas Eve, 1939.",
-          "writeMode": "suggest_only",
-          "confidence": 0.7,
+          "fieldPath": "personal.placeOfBirth",
+          "value": "Stanley, North Dakota",
+          "writeMode": "prefill_if_blank",
+          "confidence": 0.9,
           "source": "backend_extract",
-          "extractionMethod": "rules_fallback",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "value": "1939-12-24",
+          "writeMode": "prefill_if_blank",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
           "repeatableGroup": null,
           "plausibility_flag": null,
           "plausibility_reason": null,
@@ -831,9 +887,9 @@
       "field_scores": {
         "family.spouse.firstName": {
           "expected": "Janice",
-          "actual": "Janice",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "Janice Josephine",
+          "score": 0.8,
+          "status": "partial"
         },
         "family.marriageDate": {
           "expected": "1959-10-10",
@@ -843,7 +899,7 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 1.0,
+      "overall_score": 0.9,
       "failure_categories": [],
       "pass": true,
       "case_id": "case_012",
@@ -854,24 +910,12 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10879,
+      "elapsed_ms": 10716,
       "extracted_count": 3,
       "raw_items": [
         {
-          "fieldPath": "family.marriageDate",
-          "value": "October 10th, 1959",
-          "writeMode": "prefill_if_blank",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
           "fieldPath": "family.spouse.firstName",
-          "value": "Janice",
+          "value": "Janice Josephine",
           "writeMode": "prefill_if_blank",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -883,7 +927,19 @@
         },
         {
           "fieldPath": "family.spouse.lastName",
-          "value": "Josephine Zarr",
+          "value": "Zarr",
+          "writeMode": "prefill_if_blank",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "family.marriageDate",
+          "value": "October 10th, 1959",
           "writeMode": "prefill_if_blank",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -911,7 +967,7 @@
         },
         "family.children.dateOfBirth": {
           "expected": "1962-12-24",
-          "actual": "December 24th, 1962",
+          "actual": "1962-12-24",
           "score": 1.0,
           "status": "exact"
         }
@@ -928,7 +984,7 @@
       "currentExtractorExpected": false,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 26073,
+      "elapsed_ms": 31497,
       "extracted_count": 6,
       "raw_items": [
         {
@@ -981,7 +1037,7 @@
         },
         {
           "fieldPath": "family.children.dateOfBirth",
-          "value": "December 24th, 1962",
+          "value": "1962-12-24",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -1029,8 +1085,8 @@
       "forbidden_violations": [],
       "overall_score": 0.333,
       "failure_categories": [
-        "schema_gap",
-        "llm_hallucination"
+        "llm_hallucination",
+        "schema_gap"
       ],
       "pass": false,
       "case_id": "case_014",
@@ -1041,7 +1097,7 @@
       "currentExtractorExpected": false,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 16588,
+      "elapsed_ms": 14541,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -1103,7 +1159,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12700,
+      "elapsed_ms": 11088,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -1122,7 +1178,7 @@
           "fieldPath": "parents.notableLifeEvents",
           "value": "day before Christmas Eve",
           "writeMode": "candidate_only",
-          "confidence": 0.8,
+          "confidence": 0.7,
           "source": "backend_extract",
           "extractionMethod": "llm",
           "repeatableGroup": "parents_0",
@@ -1134,7 +1190,7 @@
           "fieldPath": "parents.notableLifeEvents",
           "value": "day before birthday",
           "writeMode": "candidate_only",
-          "confidence": 0.8,
+          "confidence": 0.7,
           "source": "backend_extract",
           "extractionMethod": "llm",
           "repeatableGroup": "parents_0",
@@ -1165,7 +1221,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 7342,
+      "elapsed_ms": 5643,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -1196,33 +1252,37 @@
     },
     {
       "field_scores": {
-        "hobbies.hobbies": {
-          "expected": "Golden Retriever, Ivan",
-          "actual": "had a Golden Retriever",
-          "score": 0.0,
-          "status": "wrong"
+        "pets.name": {
+          "expected": "Ivan",
+          "actual": "Ivan",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "pets.species": {
+          "expected": "dog",
+          "actual": "dog",
+          "score": 1.0,
+          "status": "exact"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "llm_hallucination"
-      ],
-      "pass": false,
+      "overall_score": 1.0,
+      "failure_categories": [],
+      "pass": true,
       "case_id": "case_017",
       "narratorId": "kent-james-horne",
       "phase": "developmental_foundations",
       "subTopic": "childhood_pets",
-      "expectedBehavior": "extract_single",
+      "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10777,
+      "elapsed_ms": 10102,
       "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "hobbies.hobbies",
-          "value": "had a Golden Retriever",
+          "value": "Golden Retriever",
           "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -1233,8 +1293,8 @@
           "plausibility_age": null
         },
         {
-          "fieldPath": "pets.species",
-          "value": "dog",
+          "fieldPath": "pets.name",
+          "value": "Ivan",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -1245,8 +1305,8 @@
           "plausibility_age": null
         },
         {
-          "fieldPath": "pets.name",
-          "value": "Ivan",
+          "fieldPath": "pets.species",
+          "value": "dog",
           "writeMode": "candidate_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -1291,7 +1351,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 5183,
+      "elapsed_ms": 4950,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -1341,7 +1401,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 1847,
+      "elapsed_ms": 1828,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -1379,7 +1439,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 6883,
+      "elapsed_ms": 5805,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -1400,9 +1460,9 @@
       "field_scores": {
         "personal.placeOfBirth": {
           "expected": "Spokane, Washington",
-          "actual": "Spokane, Washington",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         },
         "personal.dateOfBirth": {
           "expected": "1939-08-30",
@@ -1424,9 +1484,11 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.9,
-      "failure_categories": [],
-      "pass": true,
+      "overall_score": 0.65,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
       "case_id": "case_021",
       "narratorId": "janice-josephine-horne",
       "phase": "developmental_foundations",
@@ -1435,25 +1497,13 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10964,
+      "elapsed_ms": 12720,
       "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "personal.dateOfBirth",
           "value": "August 30th, 1939",
           "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Spokane, Washington",
-          "writeMode": "prefill_if_blank",
           "confidence": 0.9,
           "source": "backend_extract",
           "extractionMethod": "llm",
@@ -1478,10 +1528,22 @@
           "fieldPath": "parents.occupation",
           "value": "an aluminum factory worker",
           "writeMode": "candidate_only",
-          "confidence": 0.8,
+          "confidence": 0.9,
           "source": "backend_extract",
           "extractionMethod": "llm",
           "repeatableGroup": "parents_0",
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Washington",
+          "writeMode": "candidate_only",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": "residences_0",
           "plausibility_flag": null,
           "plausibility_reason": null,
           "plausibility_age": null
@@ -1509,8 +1571,8 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13515,
-      "extracted_count": 5,
+      "elapsed_ms": 16031,
+      "extracted_count": 7,
       "raw_items": [
         {
           "fieldPath": "education.schooling",
@@ -1526,7 +1588,19 @@
         },
         {
           "fieldPath": "education.schooling",
-          "value": "first and second grade",
+          "value": "first grade",
+          "writeMode": "suggest_only",
+          "confidence": 0.9,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "second grade",
           "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
@@ -1562,7 +1636,19 @@
         },
         {
           "fieldPath": "education.schooling",
-          "value": "was ahead of peers",
+          "value": "thought it was a punishment",
+          "writeMode": "suggest_only",
+          "confidence": 0.8,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "ahead of peers",
           "writeMode": "suggest_only",
           "confidence": 0.7,
           "source": "backend_extract",
@@ -1607,7 +1693,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13823,
+      "elapsed_ms": 11476,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -1658,9 +1744,9 @@
         },
         "siblings.firstName": {
           "expected": "James",
-          "actual": "James Peter",
-          "score": 0.8,
-          "status": "partial"
+          "actual": "James",
+          "score": 1.0,
+          "status": "exact"
         },
         "siblings.birthOrder": {
           "expected": "younger",
@@ -1670,7 +1756,7 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.267,
+      "overall_score": 0.333,
       "failure_categories": [
         "schema_gap"
       ],
@@ -1682,30 +1768,66 @@
       "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": false,
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 18298,
-      "extracted_count": 2,
+      "method": "rules_fallback",
+      "elapsed_ms": 16827,
+      "extracted_count": 5,
       "raw_items": [
         {
-          "fieldPath": "siblings.firstName",
-          "value": "Verene Marie",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
+          "fieldPath": "personal.fullName",
+          "value": "Jim",
+          "writeMode": "suggest_only",
+          "confidence": 0.85,
           "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "siblings_0",
+          "extractionMethod": "rules_fallback",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "siblings.relation",
+          "value": "Sister",
+          "writeMode": "candidate_only",
+          "confidence": 0.85,
+          "source": "backend_extract",
+          "extractionMethod": "rules_fallback",
+          "repeatableGroup": null,
           "plausibility_flag": null,
           "plausibility_reason": null,
           "plausibility_age": null
         },
         {
           "fieldPath": "siblings.firstName",
-          "value": "James Peter",
+          "value": "Verene",
           "writeMode": "candidate_only",
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "siblings_1",
+          "extractionMethod": "rules_fallback",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "siblings.relation",
+          "value": "Brother",
+          "writeMode": "candidate_only",
+          "confidence": 0.85,
+          "source": "backend_extract",
+          "extractionMethod": "rules_fallback",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "James",
+          "writeMode": "candidate_only",
+          "confidence": 0.85,
+          "source": "backend_extract",
+          "extractionMethod": "rules_fallback",
+          "repeatableGroup": null,
           "plausibility_flag": null,
           "plausibility_reason": null,
           "plausibility_age": null
@@ -1714,15 +1836,21 @@
     },
     {
       "field_scores": {
-        "hobbies.hobbies": {
+        "pets.name": {
           "expected": "Grey",
-          "actual": "horse riding",
+          "actual": "Grey",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "pets.species": {
+          "expected": "horse",
+          "actual": "dog",
           "score": 0.0,
           "status": "wrong"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
+      "overall_score": 0.5,
       "failure_categories": [
         "llm_hallucination"
       ],
@@ -1735,7 +1863,7 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 24609,
+      "elapsed_ms": 26044,
       "extracted_count": 7,
       "raw_items": [
         {
@@ -1845,8 +1973,8 @@
       "currentExtractorExpected": true,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 25219,
-      "extracted_count": 9,
+      "elapsed_ms": 28100,
+      "extracted_count": 14,
       "raw_items": [
         {
           "fieldPath": "education.schooling",
@@ -1874,9 +2002,21 @@
         },
         {
           "fieldPath": "education.schooling",
-          "value": "first and second grade",
+          "value": "first grade",
           "writeMode": "suggest_only",
-          "confidence": 0.9,
+          "confidence": 0.7,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "second grade",
+          "writeMode": "suggest_only",
+          "confidence": 0.7,
           "source": "backend_extract",
           "extractionMethod": "llm",
           "repeatableGroup": null,
@@ -1910,9 +2050,33 @@
         },
         {
           "fieldPath": "education.schooling",
-          "value": "third, fourth, and fifth",
+          "value": "third grade",
           "writeMode": "suggest_only",
-          "confidence": 0.9,
+          "confidence": 0.7,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "fourth grade",
+          "writeMode": "suggest_only",
+          "confidence": 0.7,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "fifth grade",
+          "writeMode": "suggest_only",
+          "confidence": 0.7,
           "source": "backend_extract",
           "extractionMethod": "llm",
           "repeatableGroup": null,
@@ -1936,6 +2100,30 @@
           "fieldPath": "education.schooling",
           "value": "sixth grade",
           "writeMode": "suggest_only",
+          "confidence": 0.7,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "Lawrence Welk was from there",
+          "writeMode": "suggest_only",
+          "confidence": 0.8,
+          "source": "backend_extract",
+          "extractionMethod": "llm",
+          "repeatableGroup": null,
+          "plausibility_flag": null,
+          "plausibility_reason": null,
+          "plausibility_age": null
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "had a teacher who was a nun",
+          "writeMode": "suggest_only",
           "confidence": 0.9,
           "source": "backend_extract",
           "extractionMethod": "llm",
@@ -1946,1148 +2134,12 @@
         },
         {
           "fieldPath": "education.schooling",
-          "value": "Lawrence Welk",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "education.higherEducation": {
-          "expected": "Bismarck Junior College, Speech and History; credits transferred to UND",
-          "actual": "Bismarck Junior College",
-          "score": 0.8,
-          "status": "partial"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.8,
-      "failure_categories": [],
-      "pass": true,
-      "case_id": "case_027",
-      "narratorId": "janice-josephine-horne",
-      "phase": "early_adulthood",
-      "subTopic": "post_education",
-      "expectedBehavior": "extract_single",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 11791,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "education.higherEducation",
-          "value": "Bismarck Junior College",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "education.higherEducation",
-          "value": "Speech",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "education.higherEducation",
-          "value": "History",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "earlyMemories.significantEvent": {
-          "expected": "Germans from Russia",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
-      "case_id": "case_028",
-      "narratorId": "janice-josephine-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "family_rituals_and_holidays",
-      "expectedBehavior": "extract_single",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 14538,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "grandparents.side",
-          "value": "both maternal and paternal",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "grandparents.firstName",
-          "value": "Josie",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "grandparents.firstName",
-          "value": "Mathias",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_1",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "earlyMemories.significantEvent": {
-          "expected": "uncle August was mean",
-          "actual": "uncle August was mean to me",
-          "score": 0.8,
-          "status": "partial"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.8,
-      "failure_categories": [],
-      "pass": true,
-      "case_id": "case_029",
-      "narratorId": "janice-josephine-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "childhood_fears_and_comforts",
-      "expectedBehavior": "extract_single",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 9162,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "earlyMemories.significantEvent",
-          "value": "uncle August was mean to me",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "earlyMemories.significantEvent",
-          "value": "men",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "earlyMemories.significantEvent",
-          "value": "being outside, animals",
-          "writeMode": "suggest_only",
-          "confidence": 0.8,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "family.children.firstName": {
-          "expected": "Christopher",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        },
-        "family.children.placeOfBirth": {
-          "expected": "Williston, North Dakota",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        },
-        "family.children.dateOfBirth": {
-          "expected": "1962-12-24",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
-      "case_id": "case_030",
-      "narratorId": "janice-josephine-horne",
-      "phase": "early_adulthood",
-      "subTopic": "parenthood",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": false,
-      "mode": "live",
-      "method": "fallback",
-      "elapsed_ms": 31245,
-      "extracted_count": 0,
-      "raw_items": []
-    },
-    {
-      "field_scores": {
-        "grandparents.side": {
-          "expected": "maternal",
-          "actual": "maternal",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "grandparents.firstName": {
-          "expected": "Josephine",
-          "actual": "Josie",
-          "score": 0.0,
-          "status": "wrong"
-        },
-        "grandparents.lastName": {
-          "expected": "Schaaf",
-          "actual": "Schaaf",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "grandparents.ancestry": {
-          "expected": "Germans from Russia",
-          "actual": "Germans from Russia",
-          "score": 1.0,
-          "status": "exact"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.75,
-      "failure_categories": [
-        "llm_hallucination"
-      ],
-      "pass": true,
-      "case_id": "case_031",
-      "narratorId": "janice-josephine-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "family_stories_and_lore",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 21284,
-      "extracted_count": 6,
-      "raw_items": [
-        {
-          "fieldPath": "grandparents.side",
-          "value": "maternal",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "grandparents.firstName",
-          "value": "Josie",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "grandparents.lastName",
-          "value": "Schaaf",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "grandparents.birthPlace",
-          "value": "Ukraine",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "grandparents.ancestry",
-          "value": "Germans from Russia",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "grandparents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "parents.relation",
-          "value": "mother",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "parents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "grandparents.side": {
-          "expected": "paternal",
-          "actual": "My grandfather Ervin was born November 12th, 1909. His father George died when Ervin was only four, April 12th, 1914. George had come to Ross, North Dakota in 1902 — walked north from Ross looking for land and filed a claim.",
-          "score": 0.0,
-          "status": "wrong"
-        },
-        "grandparents.firstName": {
-          "expected": "Ervin",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        },
-        "grandparents.birthPlace": {
-          "expected": "North Dakota",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "llm_hallucination",
-        "field_path_mismatch"
-      ],
-      "pass": false,
-      "case_id": "case_032",
-      "narratorId": "christopher-todd-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "family_stories_and_lore",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 24542,
-      "extracted_count": 1,
-      "raw_items": [
-        {
-          "fieldPath": "grandparents.side",
-          "value": "My grandfather Ervin was born November 12th, 1909. His father George died when Ervin was only four, April 12th, 1914. George had come to Ross, North Dakota in 1902 — walked north from Ross looking for land and filed a claim.",
-          "writeMode": "candidate_only",
-          "confidence": 0.7,
-          "source": "backend_extract",
-          "extractionMethod": "rules_fallback",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "military.branch": {
-          "expected": "Army",
-          "actual": "My great-grandfather John Michael Shong served in the Civil War. Company G of the 28th Infantry, from February 1865 to January 1866. He was stationed in Kansas and Missouri.",
-          "score": 0.0,
-          "status": "wrong"
-        },
-        "military.yearsOfService": {
-          "expected": "1865-1866",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        },
-        "military.deploymentLocation": {
-          "expected": "Kansas and Missouri",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        },
-        "military.significantEvent": {
-          "expected": "Civil War service, Company G, 28th Infantry",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "schema_gap",
-        "llm_hallucination",
-        "field_path_mismatch"
-      ],
-      "pass": false,
-      "case_id": "case_033",
-      "narratorId": "kent-james-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "family_stories_and_lore",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 21414,
-      "extracted_count": 1,
-      "raw_items": [
-        {
-          "fieldPath": "military.branch",
-          "value": "My great-grandfather John Michael Shong served in the Civil War. Company G of the 28th Infantry, from February 1865 to January 1866. He was stationed in Kansas and Missouri.",
+          "value": "nun was a real nut",
           "writeMode": "suggest_only",
           "confidence": 0.7,
           "source": "backend_extract",
-          "extractionMethod": "rules_fallback",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "military.significantEvent": {
-          "expected": "Family history: great-great-grandfather John Michael Shong served in Civil War",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
-      "case_id": "case_034",
-      "narratorId": "christopher-todd-horne",
-      "phase": "early_adulthood",
-      "subTopic": "professional_genesis",
-      "expectedBehavior": "extract_single",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "fallback",
-      "elapsed_ms": 18089,
-      "extracted_count": 0,
-      "raw_items": []
-    },
-    {
-      "field_scores": {
-        "faith.denomination": {
-          "expected": "Catholic",
-          "actual": "Catholic",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "faith.significantMoment": {
-          "expected": "Mother Josie attended Mount Marty Catholic school in Yankton",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.5,
-      "failure_categories": [
-        "field_path_mismatch"
-      ],
-      "pass": false,
-      "case_id": "case_035",
-      "narratorId": "janice-josephine-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "family_rituals_and_holidays",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 23808,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "faith.denomination",
-          "value": "Catholic",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
           "extractionMethod": "llm",
           "repeatableGroup": null,
           "plausibility_flag": null,
           "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "siblings.firstName",
-          "value": "Verene",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "siblings_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "parents.firstName",
-          "value": "Josie",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "parents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "faith.denomination": {
-          "expected": "Catholic",
-          "actual": "Catholic",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "faith.values": {
-          "expected": "Family loyalty; showing up and doing the work",
-          "actual": "family loyalty",
-          "score": 0.8,
-          "status": "partial"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.9,
-      "failure_categories": [],
-      "pass": true,
-      "case_id": "case_036",
-      "narratorId": "christopher-todd-horne",
-      "phase": "legacy_reflection",
-      "subTopic": "reflection",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 12663,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "faith.denomination",
-          "value": "Catholic",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "faith.values",
-          "value": "show up and do the work no matter what",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "faith.values",
-          "value": "family loyalty",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "health.majorCondition": {
-          "expected": "Knee problems from construction work",
-          "actual": "knees gave out",
-          "score": 0.0,
-          "status": "wrong"
-        },
-        "health.lifestyleChange": {
-          "expected": "Had to slow down in seventies",
-          "actual": "years of construction",
-          "score": 0.0,
-          "status": "wrong"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "llm_hallucination"
-      ],
-      "pass": false,
-      "case_id": "case_037",
-      "narratorId": "kent-james-horne",
-      "phase": "midlife",
-      "subTopic": "health_and_body",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 8478,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "health.milestone",
-          "value": "had to slow down a lot in my seventies",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "health.lifestyleChange",
-          "value": "years of construction",
-          "writeMode": "suggest_only",
-          "confidence": 0.8,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "health.majorCondition",
-          "value": "knees gave out",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "health_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {},
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [],
-      "pass": false,
-      "case_id": "case_038",
-      "narratorId": "janice-josephine-horne",
-      "phase": "midlife",
-      "subTopic": "health_and_body",
-      "expectedBehavior": "clarify_before_write",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "fallback",
-      "elapsed_ms": 3238,
-      "extracted_count": 0,
-      "raw_items": []
-    },
-    {
-      "field_scores": {
-        "community.organization": {
-          "expected": "Garrison Dam project",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        },
-        "community.role": {
-          "expected": "Foreman of finishing crew for cement forms",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.0,
-      "failure_categories": [
-        "schema_gap",
-        "field_path_mismatch"
-      ],
-      "pass": false,
-      "case_id": "case_039",
-      "narratorId": "janice-josephine-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "community_belonging",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 14921,
-      "extracted_count": 2,
-      "raw_items": [
-        {
-          "fieldPath": "parents.firstName",
-          "value": "Pete",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "parents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "parents.occupation",
-          "value": "foreman of a finishing crew for cement forms",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "parents_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "community.organization": {
-          "expected": "West Las Vegas Schools",
-          "actual": "West Las Vegas Schools",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "community.role": {
-          "expected": "Occupational therapist",
-          "actual": "OT (Occupational Therapist)",
-          "score": 0.8,
-          "status": "partial"
-        },
-        "community.yearsActive": {
-          "expected": "1997-2026",
-          "actual": "almost twenty-nine years",
-          "score": 0.0,
-          "status": "wrong"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.6,
-      "failure_categories": [
-        "llm_hallucination"
-      ],
-      "pass": false,
-      "case_id": "case_040",
-      "narratorId": "christopher-todd-horne",
-      "phase": "midlife",
-      "subTopic": "community_belonging",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 10875,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "community.organization",
-          "value": "West Las Vegas Schools",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "community_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "community.role",
-          "value": "OT (Occupational Therapist)",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "community_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "community.yearsActive",
-          "value": "almost twenty-nine years",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "community_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "pets.name": {
-          "expected": "Spot",
-          "actual": "Spot",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "pets.species": {
-          "expected": "dog",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.5,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
-      "case_id": "case_041",
-      "narratorId": "janice-josephine-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "childhood_pets",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 5818,
-      "extracted_count": 2,
-      "raw_items": [
-        {
-          "fieldPath": "pets.name",
-          "value": "Grey",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "pets_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "pets.name",
-          "value": "Spot",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "pets_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "pets.name": {
-          "expected": "Ivan",
-          "actual": "Ivan",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "pets.species": {
-          "expected": "Golden Retriever",
-          "actual": "Golden Retriever",
-          "score": 1.0,
-          "status": "exact"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 1.0,
-      "failure_categories": [],
-      "pass": true,
-      "case_id": "case_042",
-      "narratorId": "christopher-todd-horne",
-      "phase": "developmental_foundations",
-      "subTopic": "childhood_pets",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 11773,
-      "extracted_count": 3,
-      "raw_items": [
-        {
-          "fieldPath": "pets.species",
-          "value": "Golden Retriever",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "pets_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "pets.name",
-          "value": "Ivan",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "pets_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "pets.notes",
-          "value": "family dog when I was growing up",
-          "writeMode": "suggest_only",
-          "confidence": 0.8,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "pets_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "travel.destination": {
-          "expected": "France",
-          "actual": "France",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "travel.purpose": {
-          "expected": "Ancestry connection",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.5,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
-      "case_id": "case_043",
-      "narratorId": "christopher-todd-horne",
-      "phase": "midlife",
-      "subTopic": "travel_and_world",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 17557,
-      "extracted_count": 2,
-      "raw_items": [
-        {
-          "fieldPath": "travel.destination",
-          "value": "Hawaii",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "travel_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "travel.destination",
-          "value": "France",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "travel_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    },
-    {
-      "field_scores": {
-        "residence.place": {
-          "expected": "Germany",
-          "actual": "North Dakota",
-          "score": 0.0,
-          "status": "wrong"
-        },
-        "travel.destination": {
-          "expected": "Germany",
-          "actual": "Germany",
-          "score": 1.0,
-          "status": "exact"
-        },
-        "travel.purpose": {
-          "expected": "Work — construction",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
-        }
-      },
-      "forbidden_violations": [],
-      "overall_score": 0.333,
-      "failure_categories": [
-        "schema_gap",
-        "llm_hallucination"
-      ],
-      "pass": false,
-      "case_id": "case_044",
-      "narratorId": "kent-james-horne",
-      "phase": "early_adulthood",
-      "subTopic": "first_home",
-      "expectedBehavior": "extract_multiple",
-      "currentExtractorExpected": true,
-      "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 15359,
-      "extracted_count": 5,
-      "raw_items": [
-        {
-          "fieldPath": "education.earlyCareer",
-          "value": "construction worker",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": null,
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "travel.destination",
-          "value": "Germany",
-          "writeMode": "suggest_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "travel_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "family.children.firstName",
-          "value": "Vincent",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "children_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "family.children.placeOfBirth",
-          "value": "there (Germany)",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "children_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        },
-        {
-          "fieldPath": "residence.place",
-          "value": "North Dakota",
-          "writeMode": "candidate_only",
-          "confidence": 0.9,
-          "source": "backend_extract",
-          "extractionMethod": "llm",
-          "repeatableGroup": "residences_0",
-          "plausibility_flag": null,
-          "plausibility_reason": null,
-          "plausibility_age": null
-        }
-      ]
-    }
-  ]
-}
+          "plausibility_ag
