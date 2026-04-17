@@ -563,9 +563,11 @@ def _extract_via_llm(answer: str, current_section: Optional[str], current_target
     _base_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT", "128"))
     _compound_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT_COMPOUND", "384"))
     _extract_cap = _compound_cap if _is_compound_answer(answer) else _base_cap
-    logger.info("[extract][WO-10M] calling LLM max_new=%d temp=0.15 conv=%s",
-                _extract_cap, ephemeral_conv_id)
-    raw = _try_call_llm(system, user, max_new=_extract_cap, temp=0.15, top_p=0.9, conv_id=ephemeral_conv_id)
+    _extract_temp = float(os.getenv("EXTRACTION_TEMP", "0.15"))
+    _extract_top_p = float(os.getenv("EXTRACTION_TOP_P", "0.9"))
+    logger.info("[extract][WO-10M] calling LLM max_new=%d temp=%.2f top_p=%.2f conv=%s",
+                _extract_cap, _extract_temp, _extract_top_p, ephemeral_conv_id)
+    raw = _try_call_llm(system, user, max_new=_extract_cap, temp=_extract_temp, top_p=_extract_top_p, conv_id=ephemeral_conv_id)
     if not raw:
         # Empty response: mark temporarily unavailable so we retry soon,
         # but do not get stuck for 2 minutes.
