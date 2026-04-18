@@ -8,138 +8,300 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ## Current state (as of 2026-04-18)
 
-This section is a rolling summary of what's been shipped recently and what's still in-flight. If you're coming back after time away, read this first.
+This section is a rolling summary of what's been shipped recently and what's still in-flight. If you're coming back after time away, read this first. For the full work order checklist with statuses, baselines, and priority sequence, see `docs/Hornelore-WO-Checklist.md`.
 
 ### Recently shipped (committed)
 
-| Work order | What it is | State |
-|---|---|---|
-| **WO-EX-01C** | Narrator-identity subject guard + strict section-only birth-context filter | Live-proven; closed the "west Fargo → placeOfBirth" and "Cole's DOB → narrator DOB" bugs |
-| **WO-EX-01D** | Field-value sanity blacklists (US state abbr for lastName, stopwords for firstName) | Live-proven; closed "Stanley/ND" and "and/dad" token-fragment bugs |
-| **WO-LIFE-SPINE-05** | Phase-aware question composer over `data/prompts/question_bank.json` | Shipped, flag `HORNELORE_PHASE_AWARE_QUESTIONS` default OFF |
-| **WO-EX-VALIDATE-01** | Age-math plausibility validator (drops events that predate birth, age<min for civic events, etc.) | Shipped, flag `HORNELORE_AGE_VALIDATOR` default OFF |
-| **question_bank v3** | 36 sub-topics, 144 openers, 108 follow-ups. v3 adds civic_entry_age_18, tightens launch/off-ramp, fixes retirement anchor | Content-only, ready for phase-aware activation |
-| **WO-EX-SCHEMA-01** | Added `family.*` and `residence.*` field families + repeatable entity support (siblings, children, spouse, grandchildren, residence, priorPartners) | Live-proven; unblocked CLAIMS-01 |
-| **WO-EX-CLAIMS-01** | Dynamic token cap (128 simple / 384 compound), position-aware entity grouping, 20 field aliases (batch 1 + 2), narrator identity signals in subject guard | Live eval baseline: **22/30 (73.3%)**. Stable. |
-| **WO-GREETING-01** | Backend endpoint + frontend wired. Opener fetched on narrator open in `lv80SwitchPerson()`. Memory echo triggers expanded (5 → 14 phrases). | **Live-tested 2026-04-16** — all 3 narrators show greeting. |
-| **WO-QB-MASTER-EVAL-01** | Master eval suite expanded 62 → 104 cases. v2/v3 dual scoring, case filters (--case-ids, --narrator, --failed-only, --max-cases), atomic JSON writer, compact raw_items. | **Live-tested 2026-04-18.** Single-pass baseline confirmed: 33/62 v2 (above 32/62 prior). |
-| **WO-EX-GUARD-REFUSAL-01** | Topic-refusal guard + community denial patterns. Catches "nothing I want to go into", "I'd rather not", "not something I want written down", "wasn't a joiner". | **Live-tested 2026-04-18.** 0 must_not_write violations on full 104-case suite. Fixes cases 094, 096, 097, 100. null_clarify 7/7. |
-| **WO-QB-GENERATIONAL-01** (content) | 4 decade packs (1930s–1960s, 12 questions each), present_life_realities subtopic (8 questions + follow-ups + sensory), 5 new extractable fields, 14-case generational eval pack. | **Content shipped 2026-04-18.** Extraction baseline: 2/14 (refusal cases pass, story extraction is a known gap). Runtime JS integration not yet wired. |
+| # | Work order | What it is | State |
+|---|---|---|---|
+| 1 | **WO-EX-01C** | Narrator-identity subject guard + strict section-only birth-context filter | Live-proven; closed "west Fargo → placeOfBirth" and "Cole's DOB → narrator DOB" bugs |
+| 2 | **WO-EX-01D** | Field-value sanity blacklists (US state abbr for lastName, stopwords for firstName) | Live-proven; closed "Stanley/ND" and "and/dad" token-fragment bugs |
+| 3 | **WO-LIFE-SPINE-05** | Phase-aware question composer over `data/prompts/question_bank.json` | Shipped, flag OFF, content ready |
+| 4 | **WO-EX-VALIDATE-01** | Age-math plausibility validator | Shipped, flag OFF |
+| 5 | **WO-EX-SCHEMA-01** | `family.*` + `residence.*` field families + repeatable entity support | Live-proven; unblocked CLAIMS-01 |
+| 6 | **WO-EX-SCHEMA-02** | 35 new fields (7 families), ~50 aliases, 7 prompt examples | Live-proven; 104-case eval |
+| 7 | **WO-EX-CLAIMS-01** | Dynamic token cap (128→384), position-aware grouping, 20 aliases | Live-proven; 22/30 (73.3%) |
+| 8 | **WO-EX-CLAIMS-02** | Quick-win validators + refusal guard + community denial | Live-proven; 114 unit tests, flag ON |
+| 9 | **WO-EX-REROUTE-01** | Semantic rerouter: 4 high-precision paths | Live-proven; 104-case eval |
+| 10 | **WO-GREETING-01** | Backend endpoint + frontend. Memory echo triggers (5→14 phrases). | Live-tested 2026-04-16 — all 3 narrators |
+| 11 | **WO-QB-MASTER-EVAL-01** | 62→104 cases, v2/v3 scoring, filters, atomic writer | Live-tested; baseline 56/104 |
+| 12 | **WO-EX-GUARD-REFUSAL-01** | Topic-refusal guard + community denial patterns | Live-tested; 0 must_not_write. Fixes 094/096/097/100 |
+| 13 | **WO-QB-GENERATIONAL-01** (content) | 4 decade packs, present_life_realities, 5 new fields, 14 eval cases | Live-tested; baseline 5/14 |
+| 14 | **WO-QB-GENERATIONAL-01B** (Part 1+3) | 6 extraction prompt examples, 2 rerouter rules, scorer collision fix | Live-tested; moved generational 2/14→5/14 |
+| 15 | **WO-KAWA-UI-01A** | River View UI | Implementation complete, needs live test |
+| 16 | **WO-KAWA-02A** | 3 interview modes, 3 memoir modes, plain-language toggle | Implementation complete, needs live test |
 
-### Unshipped / in-flight
+### Regressed / shelved
 
-| Work order | State | Notes |
+| Work order | What | Why |
 |---|---|---|
-| **WO-SCHEMA-02** | **Implementation complete** (2026-04-17). | 35 new fields (7 families), ~50 aliases, 7 prompt examples. Live-proven via 104-case eval. |
-| **WO-CLAIMS-02** | **Quick-win validators shipped** (2026-04-17). | 3 validators + refusal guard + community denial. Flag `HORNELORE_CLAIMS_VALIDATORS` default ON. 114 unit tests. Remaining: entity coherence, compound splitting. |
-| **WO-EX-REROUTE-01** | **Implementation complete** (2026-04-17). | Semantic rerouter: 4 high-precision paths. Live-proven. |
-| **WO-EX-TWOPASS-01** | **REGRESSED — flag OFF** (2026-04-17). | 16/62 vs 32/62 baseline. Root cause: token starvation + context loss. Flag accidentally left ON in .env caused regression in 04-17 eval; removed 04-18. |
-| **WO-QB-GENERATIONAL-01** (runtime) | **Content done, runtime not yet wired** | JS ranking logic, world-event hookup, session suppression still needed. Spec: `docs/WO-QB-GENERATIONAL.md`. Full WO: WO-QB-GENERATIONAL-01. |
-| **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores. **#1 felt bug from live sessions.** |
-| **WO-EX-DENSE-01** | Not yet specced | Dense-truth (1/8), large chunk (0/4), good-garbage (5/14) extraction. **#1 extraction frontier.** |
-| **WO-KAWA-UI-01A** | **Implementation complete** (2026-04-17). | River View UI. Needs live test. |
-| **WO-KAWA-01** | Fully specced. 10 phases. | Parallel Kawa river layer. Next: wire LLM into `kawa_projection.py`. |
-| **WO-KAWA-02A** | **Implementation complete** (2026-04-17). | 3 interview modes, 3 memoir modes, plain-language toggle. Needs live test. |
-| **WO-KAWA-02** (remaining) | Phases 4-9 not yet implemented. | Storage promotion, chapter weighting, deeper memoir integration. |
-| **WO-PHENO-01** | Fully specced. 3-4 sessions. | Phenomenology layer: lived experience + wisdom extraction. |
-| **WO-REPETITION-01** | Not yet specced | Narrator pastes same content 2-3×, Lori keeps responding. |
-| **WO-MODE-01/02** | Not yet specced | Session Intent Profiles after narrator Open. |
-| **WO-UI-SHADOWREVIEW-01** | Not yet specced | Show Phase G suppression reason instead of silent drop. |
-| **WO-EX-DIAG-01** | Not yet specced | Surface extraction failure reason in response envelope. |
+| **WO-EX-TWOPASS-01** | Two-pass extraction: span tagger + classifier | Regressed 16/62 vs 32/62 baseline. Token starvation + context loss. Flag OFF. See "Mistakes and lessons" below. |
+| **WO-EX-FIELDPATH-NORMALIZE-01A** | Confusion-table-driven field-path normalization | Regressed 32/62→14/62. Answer vs value text mismatch. Reverted. |
+
+### In-flight / ready to implement
+
+| Work order | State | Next action |
+|---|---|---|
+| **WO-QB-GENERATIONAL-01B** (Part 2) | Specced | Code `_pick_generational_question()` in phase_aware_composer.py — runtime composer wiring, interleave overlays at 1:4 ratio |
+| **WO-INTENT-01** | Not specced | **#1 felt bug from live sessions.** Narrator says "let's talk about X" → composer ignores. Spec it next. |
+| **WO-EX-DENSE-01** | Not specced | **#1 extraction frontier.** Dense-truth 1/8, large chunk 0/4, good-garbage 5/14. |
+| **WO-KAWA-01** | Fully specced, 10 phases | Parallel Kawa river layer. Next: wire LLM into `kawa_projection.py`. |
+| **WO-KAWA-02** (remaining) | Phases 4-9 | Storage promotion, chapter weighting, deeper memoir. Depends on KAWA-01. |
+| **WO-PHENO-01** | Fully specced | Phenomenology layer: lived experience + wisdom extraction. 3-4 sessions. |
+
+### Backlog (not specced)
+
+| Work order | What | Priority |
+|---|---|---|
+| **WO-REPETITION-01** | Narrator repeats same content 2-3×, Lori keeps responding | Medium |
+| **WO-MODE-01/02** | Session Intent Profiles after narrator Open | Low |
+| **WO-UI-SHADOWREVIEW-01** | Show Phase G suppression reason instead of silent drop | Low |
+| **WO-EX-DIAG-01** | Surface extraction failure reason in response envelope | Low |
 
 ### Priority sequence (updated 2026-04-18)
 
 ```
-EX-GUARD-REFUSAL-01 (done, 0 violations) → QB-GENERATIONAL-01 content (done) → INTENT-01 (next) → EX-DENSE-01 (extraction frontier) → QB-GENERATIONAL-01 runtime (JS hookup) → KAWA-01 Phase 1
+EX-GUARD-REFUSAL-01 (done)
+  → QB-GENERATIONAL-01 content (done)
+    → QB-GENERATIONAL-01B Part 1+3 (done)
+      → INTENT-01 (next — #1 felt bug)
+        → EX-DENSE-01 (extraction frontier)
+          → QB-GENERATIONAL-01B Part 2 (runtime wiring)
+            → KAWA-01 Phase 1
 ```
 
-### Extraction eval baseline (2026-04-18)
+### Extraction eval baselines (2026-04-18)
 
-**Full suite (104 cases):** 55/104 (52.9%, avg 0.666).
+| Suite | Cases | Score | Safety |
+|---|---|---|---|
+| Master suite | 104 | 56/104 (53.8%) | 1 must_not_write (case_094, known cross-family bug) |
+| Contract subset (v3) | 62 | 35/62 (56.5%) | — |
+| Contract subset (v2) | 62 | 32/62 (51.6%) | — |
+| Generational pack | 14 | 5/14 (35.7%) | 0 must_not_write |
+| null_clarify | 7+2 | 9/9 (100%) | Refusal guard healthy |
 
-**Contract subset:** v3 33/62 (53.2%), v2 30-33/62 (48-53%, ±3 LLM variance). Prior v2 baseline: 32/62.
-
-**Safety:** 0 must_not_write violations. null_clarify 7/7. Refusal guard active.
-
-Failure breakdown (49 failures): schema_gap: 27, field_path_mismatch: 19, llm_hallucination: 13, noise_leakage: 13.
-
-**By case type:** contract 33/62, mixed_narrative 7/19, dense_truth 1/8, follow_up 7/8, null_clarify 7/7.
-
-**By chunk size:** tiny 26/42, small 19/34, medium 10/24, large 0/4.
-
-**Two-pass (flag OFF):** Regressed to 16/62. Was accidentally enabled in .env during 04-17 eval; removed 04-18.
-
-**Generational pack (14 cases):** 2/14 baseline (refusal cases pass, extraction is a known gap).
-
-Eval suite: **104 master cases** + **14 generational cases** (separate file).
+**Expected after eval case fix (cases 211, 214):** generational should move to ~7/14. Those cases were written before `health.cognitiveChange` and `laterYears.desiredStory` existed; the LLM correctly routes to the new fields but the old case expectations pointed at workaround paths.
 
 ### New extractable fields (2026-04-18)
 
-5 fields added by WO-QB-GENERATIONAL-01: `cultural.touchstoneMemory` (repeatable), `health.currentMedications`, `health.cognitiveChange`, `laterYears.dailyRoutine`, `laterYears.desiredStory` (repeatable).
+5 fields added by WO-QB-GENERATIONAL-01:
 
-### Extraction pipeline order (updated 2026-04-18)
+- `cultural.touchstoneMemory` (repeatable) — era-defining events witnessed firsthand
+- `health.currentMedications` — medication lists, pill management
+- `health.cognitiveChange` — self-reported cognitive changes ("I forget things")
+- `laterYears.dailyRoutine` — daily structure and rhythms
+- `laterYears.desiredStory` (repeatable) — stories they want told, legacy priorities
 
-**Single-pass (active):**
+### Extraction pipeline order (active)
+
 ```
-LLM generate → JSON parse → semantic rerouter → birth-context filter → month-name sanity → field-value sanity → claims validators (refusal guard → shape → relation → confidence → negation guard)
-```
-
-**Two-pass (HORNELORE_TWOPASS_EXTRACT=1, OFF — regressed):**
-```
-Pass 1: span tagger (LLM, schema-blind) → span JSON parse
-→ Pass 2A: rule-based classifier (deterministic)
-→ Pass 2B: LLM classifier (unresolved spans only)
-→ merge → semantic rerouter → birth-context filter → month-name sanity → field-value sanity → claims validators
-Falls back to single-pass on pass 1 failure.
-```
-
-### Reference docs saved
-
-| File | What it is |
-|---|---|
-| `docs/WO-QB-GENERATIONAL.md` | Generational era-overlay spec (touchstones + late-life + new fields) |
-| `hornelore/WO-KAWA-01_Spec.md` | Full 10-phase Kawa data/engine work order |
-| `hornelore/WO-KAWA-UI-01_Spec.md` | Full River View UI work order |
-| `hornelore/WO-PHENO-01_Spec.md` | Full phenomenology layer work order |
-| `hornelore/WO-SCHEMA-02_Gap-Analysis.md` | Life map coverage expansion execution pack |
-| `hornelore/Memoir-Upgrade-Phased-Plan.md` | 7-phase memoir system roadmap |
-| `hornelore/Hornelore-WO-Checklist.docx` | Printable priority checklist of all pending WOs |
-| `docs/CLAIMS-02_failure_taxonomy.md` | Failure root cause analysis + fix priorities |
-| `docs/reports/WO-KAWA-UI-01A_REPORT.md` | River View implementation report |
-| `docs/reports/WO-KAWA-02A_REPORT.md` | Kawa questioning + memoir integration report |
-| `docs/references/` | 4 Kawa/OT reference papers + 6 extraction papers + 5 architecture papers |
-
-### Eval commands quick reference
-
-```bash
-# Full 104-case suite
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000
-
-# Guard cases only
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --case-ids case_094,case_096,case_097,case_100
-
-# Generational pack (14 cases, separate file)
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --cases data/qa/question_bank_generational_cases.json
-
-# Kent only
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --narrator kent-james-horne
-
-# Failed cases from prior report
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --failed-only docs/reports/question_bank_extraction_eval_report.json
+LLM generate
+  → JSON parse
+    → semantic rerouter (4 rules + touchstone dup + story-priority)
+      → birth-context filter
+        → month-name sanity
+          → field-value sanity
+            → claims validators:
+                refusal guard → shape → relation → confidence → negation guard
 ```
 
 ### Env flag state
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `HORNELORE_TRUTH_V2` | 1 | Facts write freeze (legacy /api/facts/add → 410) |
-| `HORNELORE_TRUTH_V2_PROFILE` | 1 | Profile reads from family_truth_promoted |
-| `HORNELORE_PHASE_AWARE_QUESTIONS` | 0 | Phase-aware question composer (WO-LIFE-SPINE-05) |
-| `HORNELORE_AGE_VALIDATOR` | 0 | Age-math plausibility filter (WO-EX-VALIDATE-01) |
-| `HORNELORE_CLAIMS_VALIDATORS` | 1 | Value-shape, relation allowlist, confidence floor (WO-EX-CLAIMS-02) |
-| `HORNELORE_TWOPASS_EXTRACT` | 0 | Two-pass extraction pipeline: span tagger + field classifier (WO-EX-TWOPASS-01) |
+| `HORNELORE_TRUTH_V2` | 1 | Facts write freeze |
+| `HORNELORE_TRUTH_V2_PROFILE` | 1 | Profile reads from promoted truth |
+| `HORNELORE_PHASE_AWARE_QUESTIONS` | 0 | Phase-aware question composer |
+| `HORNELORE_AGE_VALIDATOR` | 0 | Age-math plausibility filter |
+| `HORNELORE_CLAIMS_VALIDATORS` | 1 | Value-shape, relation, confidence validators |
+| `HORNELORE_TWOPASS_EXTRACT` | 0 | Two-pass extraction (**REGRESSED — keep OFF**) |
 
-### Test state
+---
+
+## Development history and lessons (2026-04-17 → 2026-04-18)
+
+This section documents what was tried, what failed, what worked, and why — so the next person doesn't repeat mistakes. This covers two intensive sessions with Claude (Anthropic) and ChatGPT (OpenAI) working in parallel.
+
+### The two-AI workflow
+
+Development used two AI assistants simultaneously:
+
+- **Claude** — primary implementation partner. Wrote code, ran tests, committed changes, created specs. Has direct repo access.
+- **ChatGPT** — strategic advisor and second opinion. Reviewed eval results, suggested approaches, caught bugs Claude missed. Operates on copy-pasted code and results; no repo access.
+
+This worked well. ChatGPT identified the scorer collision bug (case_203, `hobbies.hobbies` in two truth zones) as a "mechanical harness issue" that Claude then fixed. Claude pushed back on ChatGPT's recommendation to rewrite eval case expectations (cases 201-208) because those cases were *deliberately* written with `currentExtractorExpected: false` — they're future targets, not current failures.
+
+**Lesson:** Two AIs are better than one when they have different roles. The advisor catches things the implementer is too deep to see. The implementer catches things the advisor gets wrong without code access.
+
+### Mistake 1: Two-pass extraction (WO-EX-TWOPASS-01)
+
+**What happened:** Built a two-pass extraction pipeline — Pass 1 tags spans schema-blind, Pass 2 classifies spans into field paths. The idea was to separate "what's a fact" from "where does it go."
+
+**Result:** Regressed from 32/62 to 16/62 (50% worse). Root cause was token starvation — Pass 1 consumed most of the context window tagging spans, leaving Pass 2 with insufficient context to classify accurately. The schema-blind span tagger also lost the extraction prompt's field-path examples, which turned out to be critical for routing accuracy.
+
+**Compounding error:** The `HORNELORE_TWOPASS_EXTRACT=1` flag was accidentally left ON in `.env` during the 04-17 eval run. This meant the baseline numbers from that eval were artificially low (the two-pass pipeline was running instead of single-pass). The flag was discovered and set to 0 on 04-18.
+
+**Lesson:** Flags that regress must be immediately set to 0 in `.env.example` AND the local `.env`. A regressed feature running silently behind a flag you forgot about will poison all subsequent measurements.
+
+### Mistake 2: Field-path normalization (WO-EX-FIELDPATH-NORMALIZE-01A)
+
+**What happened:** Built a confusion-table-driven normalizer that would remap commonly-misrouted field paths to their correct destinations. For example, if the LLM routes "we moved to Bismarck" to `laterYears.significantEvent`, the normalizer would check the *answer text* for location cues and reroute to `residence.place`.
+
+**Result:** Regressed from 32/62 to 14/62 (56% worse). The normalizer checked the LLM's `value` field, not the original `answer` text. But the LLM's value is a cleaned extraction (e.g., "Bismarck" not "we moved to Bismarck"), so the cue phrases that the confusion table depended on were absent.
+
+**Lesson:** Rerouter rules must check the narrator's original answer text (`answer` field), not the extracted value. This insight directly informed the successful semantic rerouter (WO-EX-REROUTE-01) which always operates on `answer_lower`.
+
+### Mistake 3: Stale eval cases (211, 214)
+
+**What happened:** Eval cases 211 and 214 were written before `health.cognitiveChange` and `laterYears.desiredStory` existed as extractable fields. The LLM was correctly routing narrator answers to these new fields, but the eval cases expected the old workaround paths (`hobbies.personalChallenges` and `additionalNotes.unfinishedDreams`).
+
+**Result:** These cases showed as failures even though the extractor was doing the right thing. The fix was to update the cases to expect the correct new fields and move the old paths to `may_extract`.
+
+**Lesson:** When you add new extractable fields, audit existing eval cases that cover similar narrator content. The LLM will discover the new fields before your test expectations do.
+
+### What worked: Extraction prompt tuning (01B Part 1)
+
+Added 6 few-shot examples to the extraction prompt teaching the LLM how to handle generational-era answer styles:
+
+1. Moon landing touchstone → `cultural.touchstoneMemory` + `laterYears.significantEvent`
+2. Gas lines with place → `laterYears.significantEvent` + `residence.place`
+3. Medications list → `health.currentMedications`
+4. Cognitive self-report → `health.cognitiveChange`
+5. Elder frustrations → `laterYears.dailyRoutine`
+6. Desired story list → `laterYears.desiredStory` (multiple items)
+
+Each example includes routing notes explaining *why* the field path is correct. This moved the generational pack from 2/14 to 5/14.
+
+### What worked: Semantic rerouter rules (01B Part 3)
+
+Two new rerouter rules with pattern-based gating:
+
+**Rule 5 — Story-priority reroute:** When the narrator uses language like "want my family to hear" or "before it's too late," reroutes `additionalNotes.unfinishedDreams` or `laterYears.lifeLessons` → `laterYears.desiredStory`.
+
+**Rule 6 — Touchstone duplicate:** When the answer contains both a touchstone event keyword (moon landing, Vietnam, 9/11, etc.) AND a witness-memory cue ("I remember," "we watched," "sitting in the living room"), ADDS a `cultural.touchstoneMemory` duplicate alongside the existing `laterYears.significantEvent`. This is an ADD, not a replace — both field paths are populated.
+
+**Witness-memory cue gate (3-signal requirement):** ChatGPT recommended gating the touchstone rerouter to prevent false positives on personal events that mention historical periods ("my son was born during COVID"). The gate requires all three: touchstone event keyword + `laterYears.significantEvent` route + witness-memory cue in the answer text. Tested against all 14 generational cases — zero false positives.
+
+### What worked: Scorer collision fix
+
+**Bug:** Case 203 has `hobbies.hobbies` in both `must_extract` and `should_ignore` truth zones (intentionally — the same field path can be a valid extraction AND have noise that should be ignored). The scorer's flat dict used `fieldPath` as key, so the `should_ignore` entry overwrote the `must_extract` entry.
+
+**Fix:** Changed the truthZones builder to use a `_multi` wrapper pattern. When a fieldPath appears in multiple zones, it stores `{"_multi": [{zone, expected}, ...]}` instead of a single entry. The scoring loop unpacks these and scores each zone entry independently.
+
+### Known remaining failures (generational pack)
+
+| Case | Narrator text | What happens | Root cause |
+|---|---|---|---|
+| 202 | Vietnam era + cousin | LLM hallucinates non-existent field paths | Schema gap — no military/draft field |
+| 203 | Drive-in memories | Routes everything to significantEvent | Misses hobbies.hobbies and residence.place |
+| 205 | First computers | Routes to education.earlyCareer | Should hit laterYears.significantEvent |
+| 206-208 | Various era content | Missing secondary extractions | personalChallenges, lifeLessons not triggered |
+
+These are targets for WO-EX-DENSE-01 (dense-truth extraction frontier).
+
+---
+
+## Testing methodology — 3-terminal standard
+
+This is the standard method for running extraction evals. A separate detailed guide is in the `Workorders and Updates` desktop folder (`Testing-Procedure-3-Terminal.md`).
+
+### Terminal setup
+
+**Tab 1 — Filtered API log** (leave running entire session):
+```bash
+tail -f /mnt/c/Users/chris/hornelore/.runtime/logs/api.log | grep --line-buffered -E "\[extract\]|\[extract-parse\]|CLAIMS|rerouter|refusal-guard|negation|validator|fallback"
+```
+
+**Tab 2 — Eval runner** (run generational first, then master suite):
+```bash
+cd /mnt/c/Users/chris/hornelore
+
+echo "=== Generational pack ==="
+python scripts/run_question_bank_extraction_eval.py \
+  --mode live \
+  --api http://localhost:8000 \
+  --cases data/qa/question_bank_generational_cases.json
+
+echo "=== Full 104-case master suite ==="
+python scripts/run_question_bank_extraction_eval.py \
+  --mode live \
+  --api http://localhost:8000
+```
+
+**Tab 3 — General purpose** (git, file inspection, targeted runs):
+```bash
+cd /mnt/c/Users/chris/hornelore
+
+# Guard cases only
+python scripts/run_question_bank_extraction_eval.py \
+  --mode live --api http://localhost:8000 \
+  --case-ids case_094,case_096,case_097,case_100
+
+# Single narrator
+python scripts/run_question_bank_extraction_eval.py \
+  --mode live --api http://localhost:8000 \
+  --narrator kent-james-horne
+
+# Failed cases from last report
+python scripts/run_question_bank_extraction_eval.py \
+  --mode live --api http://localhost:8000 \
+  --failed-only docs/reports/question_bank_extraction_eval_report.json
+```
+
+### What to collect
+
+When a run finishes, save three things:
+1. **Tab 2 output** — eval summary with pass/fail counts, truth zone metrics, failed case list
+2. **Tab 1 output** — filtered log showing what the extractor actually did
+3. **The JSON report** — written automatically to `docs/reports/question_bank_extraction_eval_report.json`
+
+### Key log lines
+
+| Log line | What it tells you |
+|---|---|
+| `[extract] Attempting LLM extraction for person=..., section=...` | Which narrator and section |
+| `[CLAIMS-01] Compound answer detected` | Token cap bumped to 384 |
+| `[extract-parse] Raw LLM output (N chars): [...]` | Raw LLM JSON |
+| `[extract-validate] REJECT: fieldPath '...' not in EXTRACTABLE_FIELDS` | LLM hallucinated a field |
+| `[rerouter] touchstone-dup:` | Touchstone rerouter fired |
+| `[rerouter] story-priority:` | Story-priority rerouter fired |
+| `[refusal-guard] topic refusal detected` | Refusal guard stripped all items |
+| `[negation-guard] denial detected: stripping {...}` | Negation guard stripped items |
+| `rules-fallback` | LLM returned nothing valid, fell back to regex |
+
+### Interpreting results
+
+Two scoring layers:
+- **v3 (truth zones):** must_extract recall ≥ 0.7 with must_not_write gate. Primary metric.
+- **v2 (field avg):** Average field match score ≥ 0.7. Backward-compatible baseline.
+
+Safety gates (must always hold):
+- **must_not_write violations: must be 0.** Any violation is a safety regression.
+- **null_clarify: must be 7/7 (master) or 2/2 (generational).** Refusal guard health check.
+- **Contract subset v2: must be ≥ 32/62.** Regression floor.
+
+---
+
+## Reference docs
+
+| File | What it is |
+|---|---|
+| `docs/Hornelore-WO-Checklist.md` | Master work order checklist with all statuses and baselines |
+| `docs/WO-QB-GENERATIONAL.md` | Generational era-overlay spec |
+| `docs/WO-QB-GENERATIONAL-01B.md` | Extraction prompt tuning + runtime wiring spec |
+| `docs/CLAIMS-02_failure_taxonomy.md` | Failure root cause analysis + fix priorities |
+| `docs/reports/WO-KAWA-UI-01A_REPORT.md` | River View implementation report |
+| `docs/reports/WO-KAWA-02A_REPORT.md` | Kawa questioning + memoir integration report |
+| `hornelore/WO-KAWA-01_Spec.md` | Full 10-phase Kawa data/engine work order |
+| `hornelore/WO-KAWA-UI-01_Spec.md` | Full River View UI work order |
+| `hornelore/WO-PHENO-01_Spec.md` | Full phenomenology layer work order |
+| `hornelore/WO-SCHEMA-02_Gap-Analysis.md` | Life map coverage expansion |
+| `hornelore/Memoir-Upgrade-Phased-Plan.md` | 7-phase memoir system roadmap |
+| `docs/references/` | 4 Kawa/OT reference papers + 6 extraction papers + 5 architecture papers |
+
+---
+
+## Test state
 
 114 unit tests across 6 suites, all passing:
 
@@ -151,30 +313,29 @@ python -m unittest tests.test_extract_subject_filters \
                    tests.test_life_spine_validator \
                    tests.test_phase_aware_composer \
                    tests.test_interview_opener -v
-# Plus the integration tests:
+# Plus integration tests:
 python -m unittest tests.test_extract_api_subject_filters -v  # requires FastAPI
 ```
 
-### Known issues from live observation (updated 2026-04-17)
+---
 
-See `docs/observations/2026-04-15-extraction-taxonomy.md` for the full writeup. Short version:
+## Known issues from live observation
 
 - ~~**Critical:** question bank references field paths that don't exist in `EXTRACTABLE_FIELDS`.~~ **FIXED** by WO-EX-SCHEMA-01.
 - **High:** Lori ignores narrator-stated topic pivots ("let's talk about my parents"). Fix = WO-INTENT-01.
-- **High:** Compound sentences ("my sisters Linda and Sharon", "my three kids...") produce partial extractions (~8 of 30 eval cases still fail). Fix = WO-EX-CLAIMS-02. Root causes now categorized in `docs/CLAIMS-02_failure_taxonomy.md`.
-- ~~**High:** Life map coverage gaps — 16 of 37 interview sections have no extraction fields.~~ **FIXED** by WO-SCHEMA-02 (35 new fields across 7 families).
+- **High:** Compound sentences produce partial extractions (~8 of 30 eval cases still fail). Fix = WO-EX-CLAIMS-02. Root causes in `docs/CLAIMS-02_failure_taxonomy.md`.
+- ~~**High:** Life map coverage gaps — 16 of 37 interview sections have no extraction fields.~~ **FIXED** by WO-SCHEMA-02.
 - **Medium:** Narrator repeats same content 2-3×, Lori keeps asking similar follow-ups. Fix = WO-REPETITION-01.
-- ~~**Medium:** Lori doesn't introduce herself on session open.~~ **FIXED** — WO-GREETING-01 live-tested, all 3 narrators show greeting.
-- **Low:** Accordion shows DOB year only when canonical has full date. Display renderer issue.
+- ~~**Medium:** Lori doesn't introduce herself on session open.~~ **FIXED** — WO-GREETING-01.
+- **Low:** Accordion shows DOB year only when canonical has full date.
 
-### Recommended activation sequence (next time you're ready to test)
+### Recommended next steps
 
-1. Commit any outstanding work (`git status` should be clean)
-2. Flip `HORNELORE_PHASE_AWARE_QUESTIONS=1` in `.env` if you haven't
-3. Restart API: `bash scripts/restart_api.sh`
-4. Run a fresh narrator session — confirm question IDs start with `qb:` in network tab
-5. Collect observations in `docs/observations/YYYY-MM-DD-*.md`
-6. Before building anything new, triage observations against the WO queue
+1. Push outstanding commits and re-run generational pack to verify 7/14 target (case_211/214 fix)
+2. Spec WO-INTENT-01 — the #1 felt bug
+3. Spec WO-EX-DENSE-01 — the #1 extraction frontier
+4. Wire 01B Part 2 — runtime generational question composer
+5. Begin KAWA-01 Phase 1
 
 ---
 
@@ -253,8 +414,10 @@ Edit `.env` and set:
 | `HUGGINGFACE_HUB_TOKEN` | your real HF token (Llama is gated) |
 | `MODEL_PATH` | usually `/mnt/c/Llama-3.1-8B/hf/Meta-Llama-3.1-8B-Instruct` |
 | `DATA_DIR` | `/mnt/c/hornelore_data` (or wherever you want runtime data) |
-| `MAX_NEW_TOKENS_CHAT_HARD` | `2048` (required for the Quality Harness; default 1024 will clip the 1000-word stress test) |
-| `REPETITION_PENALTY_DEFAULT` | `1.1` (production default; harness sweeps per-request) |
+| `MAX_NEW_TOKENS_CHAT_HARD` | `2048` (required for the Quality Harness) |
+| `REPETITION_PENALTY_DEFAULT` | `1.1` (production default) |
+
+**Critical:** Make sure `HORNELORE_TWOPASS_EXTRACT` is **0** (or absent). The two-pass pipeline regressed and must stay off. See "Mistakes and lessons" above.
 
 Leave the others at their defaults unless you know why you're changing them.
 
@@ -280,7 +443,7 @@ pip install -r requirements-tts.txt
 deactivate
 ```
 
-If `requirements-gpu.txt` or `requirements-tts.txt` aren't in the repo, see `scripts/requirements.txt` and the launchers for hints. (The Quality Harness also needs `httpx` and `websockets`, which `scripts/run_test_lab.sh` auto-installs.)
+If `requirements-gpu.txt` or `requirements-tts.txt` aren't in the repo, see `scripts/requirements.txt` and the launchers for hints.
 
 ---
 
@@ -302,7 +465,7 @@ This:
 
 Logs land in `logs/api.log`, `logs/tts.log`, `logs/ui.log`. To tail:
 ```bash
-bash scripts/logs_visible.sh        # opens all three log streams in separate terminal windows
+bash scripts/logs_visible.sh
 ```
 
 To stop everything:
@@ -310,7 +473,7 @@ To stop everything:
 bash scripts/stop_all.sh
 ```
 
-To restart just the API (e.g., after a `.env` or `chat_ws.py` change):
+To restart just the API (e.g., after a `.env` or code change):
 ```bash
 bash scripts/restart_api.sh
 ```
@@ -333,8 +496,6 @@ Synthetic test narrators for the Quality Harness seed via:
 python3 scripts/seed_test_narrators.py
 ```
 
-(or automatically when you click **Run Harness** in the Test Lab popover).
-
 ---
 
 ## 7. Running the Quality Harness on the laptop
@@ -344,14 +505,14 @@ After the stack is up:
 **From the UI** (operator-only):
 1. Open Chrome → Hornelore tab
 2. F12 → Console → paste: `document.getElementById("testLabPopover").showPopover()`
-3. Optionally tick **Dry run** (verifies plumbing in ~30s)
-4. Optionally pick a baseline from "No compare baseline" dropdown
+3. Optionally tick **Dry run**
+4. Optionally pick a baseline from the dropdown
 5. Click **Run Harness**
-6. Watch the Live Console pane (GPU/CPU/RAM + log + elapsed/ETA)
-7. Budget 45–90 minutes for a full matrix (depends on GPU speed)
+6. Watch the Live Console pane
+7. Budget 45–90 minutes for a full matrix
 8. When status flips to `finished`, pick the new run from "Select run to load"
 
-**From WSL** (same thing, no UI needed):
+**From WSL:**
 ```bash
 bash scripts/run_test_lab.sh                              # full matrix
 bash scripts/run_test_lab.sh --dry-run                    # plumbing check
@@ -360,11 +521,36 @@ bash scripts/test_lab_doctor.sh                           # one-shot health chec
 bash scripts/test_lab_watch.sh                            # terminal live monitor
 ```
 
-Run artifacts land in `/mnt/c/hornelore_data/test_lab/runs/<run_id>/`. See `docs/wo-qa/WO-QA-01.md` for the full artifact list.
+Run artifacts land in `/mnt/c/hornelore_data/test_lab/runs/<run_id>/`.
 
 ---
 
-## 8. Sharing changes back
+## 8. Running the extraction eval suite
+
+This is separate from the Quality Harness. The extraction eval tests the field-extraction pipeline against known narrator statements with expected field paths.
+
+```bash
+# Full 104-case suite
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000
+
+# Generational pack (14 cases, separate file)
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --cases data/qa/question_bank_generational_cases.json
+
+# Guard cases only
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --case-ids case_094,case_096,case_097,case_100
+
+# Kent only
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --narrator kent-james-horne
+
+# Failed cases from prior report
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --failed-only docs/reports/question_bank_extraction_eval_report.json
+```
+
+Always use the 3-terminal methodology described above when running evals.
+
+---
+
+## 9. Sharing changes back
 
 This repo is the only thing that needs to sync between machines. **Runtime data does not sync.**
 
@@ -393,55 +579,27 @@ cd /mnt/c/Users/chris/hornelore
 git pull origin main
 ```
 
-If the pull touched `chat_ws.py`, any router, or anything in `server/`, restart the API:
-```bash
-bash scripts/restart_api.sh
-```
-
-If it touched UI files, hard-reload Chrome (Ctrl+Shift+R).
-
-If it touched `.env.example`, manually merge any new keys into your local `.env`.
-
-### What if a harness run is in progress when you sync?
-Don't restart the API — let the run finish first. The runner reads `chat_ws.py` once at startup; in-flight requests use the loaded model. Status will flip to `finished` when done. Then pull, restart, and proceed.
-
-### Sharing harness results between machines
-If you want to compare a desktop baseline against a laptop run, copy the specific run directory across:
-
-```bash
-# On the desktop
-tar czf qa02_baseline.tgz -C /mnt/c/hornelore_data/test_lab/runs qa02_20260414_154500
-
-# Move qa02_baseline.tgz to the laptop (USB, syncthing, scp, your call)
-
-# On the laptop
-tar xzf qa02_baseline.tgz -C /mnt/c/hornelore_data/test_lab/runs/
-
-# Now you can compare
-bash scripts/run_test_lab.sh --compare-to qa02_20260414_154500
-```
-
-Hardware and timing numbers won't be apples-to-apples across machines (different GPUs, different VRAM contention), but **suppression** and **contamination** should be — those are config behaviors, not hardware.
+If the pull touched `chat_ws.py`, any router, or anything in `server/`, restart the API: `bash scripts/restart_api.sh`. If it touched UI files, hard-reload Chrome (Ctrl+Shift+R). If it touched `.env.example`, manually merge any new keys into your local `.env`.
 
 ---
 
-## 9. Common bring-up snags
+## 10. Common bring-up snags
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `nvidia-smi` works in PowerShell but not in WSL | WSL GPU passthrough not enabled | Update WSL: `wsl --update` (PowerShell as admin) |
-| API hangs on "Waiting for LLM model to become ready" | First-time model download from HF | Watch `tail -f logs/api.log` — should show progress; can take 10+ min |
-| 401/403 from HF | Token missing or doesn't accept Llama license | Get token from huggingface.co, accept Llama-3.1 license at `meta-llama/Llama-3.1-8B-Instruct` |
-| Test Lab button missing | Dev mode off | Console: `toggleDevMode()` (or `document.getElementById("testLabPopover").showPopover()` directly) |
+| API hangs on "Waiting for LLM model to become ready" | First-time model download from HF | Watch `tail -f logs/api.log` — should show progress |
+| 401/403 from HF | Token missing or doesn't accept Llama license | Get token from huggingface.co, accept Llama-3.1 license |
+| Test Lab button missing | Dev mode off | Console: `toggleDevMode()` |
 | `Status: failed` after Test Lab run | Stuck status from a previous run | `curl -X POST http://localhost:8000/api/test-lab/reset` |
-| 404 on `/api/test-lab/*` | API on 8000 wasn't restarted after pulling new code | `bash scripts/restart_api.sh` |
-| Browser hits the right URL but gets 404 on `/api/...` | Browser cached old `api.js`; UI routes calls to wrong port | Hard-reload (Ctrl+Shift+R) |
-| Harness preflight fails with "only N tokens streamed" | `MAX_NEW_TOKENS_CHAT_HARD` not raised | Edit `.env`, restart API, retry |
-| Seed script complains "no such column narrator_type" | DB predates WO-13 Phase 3 | Already fixed — script auto-ALTERs the column |
+| 404 on `/api/test-lab/*` | API wasn't restarted after pulling new code | `bash scripts/restart_api.sh` |
+| Browser gets 404 on `/api/...` | Cached old `api.js` | Hard-reload (Ctrl+Shift+R) |
+| Harness preflight fails with "only N tokens streamed" | `MAX_NEW_TOKENS_CHAT_HARD` not raised | Edit `.env`, restart API |
+| PowerShell chokes on multi-line scripts with backslashes | PowerShell doesn't support backslash line continuation | Run in WSL instead |
 
 ---
 
-## 10. Quick reference
+## 11. Quick reference
 
 ```bash
 # Start everything
@@ -470,38 +628,6 @@ bash scripts/test_lab_doctor.sh
 # → http://localhost:8082/ui/hornelore1.0.html
 ```
 
-## WO-QB-MASTER-EVAL-01 — Master Eval Suite (2026-04-17)
-**Status:** SHIPPED
-**Files changed:**
-- `scripts/run_question_bank_extraction_eval.py` — scorer + report generator
-- `data/qa/question_bank_extraction_cases.json` — 62 → 104 cases
-
-Expanded eval from 62 narrow benchmark cases to 104-case master suite.
-Original 62 contract/regression cases preserved and tagged. Added 42 new cases:
-19 mixed narrative, 8 dense truth, 8 follow-up, 7 null/clarify.
-
-Each case now carries: `caseType`, `style_bucket`, `chunk_size`, `noise_profile`,
-`case_mode`, `sequence_group`, `style_expectations`, and `truthZones` with four
-zones per field (`must_extract`, `may_extract`, `should_ignore`, `must_not_write`).
-
-Report now shows two scoring layers:
-- Layer 1 (contract/regression): must_extract recall, routing, hallucination, violations
-- Layer 2 (oral-history style): by case type, style bucket, chunk size, noise profile
-
-Contract subset section tracks the original 62 cases separately for regression comparison.
-
-Run: `python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:14501`
-
-## WO-EX-FIELDPATH-NORMALIZE-01A — Deterministic Routing Corrections (2026-04-17)
-**Status:** FAILED / REVERTED
-Attempted confusion-table-driven field-path normalization. Regressed from 32/62 to 14/62.
-All changes reverted. Lesson: rerouter fixes that change what text is checked (answer vs value)
-are not safe without understanding that LLM output values don't contain cue phrases.
-
-For the architecture context behind any of this, see:
-- `README.md` — current product surface, work order status, file inventory
-- `docs/wo-qa/WO-QA-01.md` — Quality Harness scaffolding
-- `docs/wo-qa/WO-QA-02.md` — Archive-truth methodology + suppression
-- `docs/WO-13X-SHADOW-REVIEW-REDESIGN.md` and others — earlier WO history
+For the architecture context behind any of this, see `README.md` for the product surface and file inventory, `docs/wo-qa/WO-QA-01.md` and `WO-QA-02.md` for Quality Harness specs, and the individual WO docs in `docs/` and `hornelore/` for specific work orders.
 
 Welcome to the laptop. Push your changes when you're done; the desktop will pick them up on the next pull.

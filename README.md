@@ -279,8 +279,10 @@ python3 scripts/preload_trainer.py --all
 | Server routers | 28 | family_truth.py, profiles.py, extract.py, narrator_state.py, chronology_accordion.py, test_lab.py |
 | Historical seed | 1 | `server/data/historical/historical_events_1900_2026.json` (152 world events, 1900–2026) |
 | Quality harness fixture | 1 | `data/test_lab/narrator_statements.json` (Channel A ceilings) |
-| Scripts | 25 | preload_trainer.py, import_kent_james_horne.py, start/stop/restart, run_test_lab.sh, seed_test_narrators.py, test_lab_runner.py, test_lab_doctor.sh, test_lab_watch.sh |
-| Tests | 4+ | test_api_smoke.py, test_db_smoke.py, e2e/ |
+| Scripts | 26 | preload_trainer.py, import_kent_james_horne.py, start/stop/restart, run_test_lab.sh, seed_test_narrators.py, test_lab_runner.py, test_lab_doctor.sh, test_lab_watch.sh, run_question_bank_extraction_eval.py |
+| Eval cases | 2 | `data/qa/question_bank_extraction_cases.json` (104 master), `data/qa/question_bank_generational_cases.json` (14 generational) |
+| Question bank | 1 | `data/prompts/question_bank.json` (36 sub-topics, generational overlays, present_life_realities) |
+| Tests | 6+ | test_extract_subject_filters, test_extract_claims_validators, test_life_spine_validator, test_phase_aware_composer, test_interview_opener, test_extract_api_subject_filters |
 | Config | 4 | .env, package.json, playwright.config.ts, tsconfig |
 | WO docs | n | `docs/WO-*.md` (per-WO reports), `docs/wo-qa/WO-QA-*.md` (Quality Harness specs) |
 
@@ -305,7 +307,28 @@ python3 scripts/preload_trainer.py --all
 | WO-QA-01 | Complete | Quality Harness — synthetic test narrators, scoring, hardware/timing capture |
 | WO-QA-02 | Complete | Archive-truth methodology — Channel A ceilings + suppression ranking. **`cfg_expressive` adopted as production default** (see `docs/wo-qa/WO-QA-02-RESULTS.md`) |
 | WO-QA-02B | Complete | Seed determinism — `chat_ws.py` honors `params.seed`. CUDA INT4 kernels remain non-deterministic; documented noise floor ±4 on suppression. |
-| WO-QA-03 | Planned | TTS Option A — `--with-tts` flag for end-to-end latency + GPU contention measurement |
+| WO-EX-01C | Complete | Narrator-identity subject guard + birth-context filter |
+| WO-EX-01D | Complete | Field-value sanity blacklists |
+| WO-EX-SCHEMA-01 | Complete | `family.*` + `residence.*` fields + repeatable entities |
+| WO-EX-SCHEMA-02 | Complete | 35 new fields (7 families), ~50 aliases, 7 prompt examples |
+| WO-EX-CLAIMS-01 | Complete | Dynamic token cap, position-aware grouping, 20 aliases |
+| WO-EX-CLAIMS-02 | Complete | Quick-win validators + refusal guard + community denial. 114 unit tests. |
+| WO-EX-REROUTE-01 | Complete | Semantic rerouter: 4 high-precision paths + touchstone dup + story-priority |
+| WO-EX-VALIDATE-01 | Shipped (flag OFF) | Age-math plausibility validator |
+| WO-EX-GUARD-REFUSAL-01 | Complete | Topic-refusal guard + community denial patterns |
+| WO-EX-TWOPASS-01 | **Regressed (flag OFF)** | Two-pass extraction — regressed 16/62 vs 32/62. Keep OFF. |
+| WO-LIFE-SPINE-05 | Shipped (flag OFF) | Phase-aware question composer |
+| WO-GREETING-01 | Complete | Backend endpoint + frontend. Memory echo triggers. |
+| WO-QB-MASTER-EVAL-01 | Complete | 62→104 cases, v2/v3 scoring, filters, atomic writer |
+| WO-QB-GENERATIONAL-01 | Complete (content) | 4 decade packs, present_life_realities, 5 new fields, 14 eval cases |
+| WO-QB-GENERATIONAL-01B | Complete (Part 1+3) | 6 extraction prompt examples, 2 rerouter rules, scorer collision fix |
+| WO-KAWA-UI-01A | Complete | River View UI |
+| WO-KAWA-01 | Specced | Parallel Kawa river layer — 10 phases |
+| WO-KAWA-02A | Complete | 3 interview modes, 3 memoir modes, plain-language toggle |
+| WO-PHENO-01 | Specced | Phenomenology layer: lived experience + wisdom extraction |
+| WO-INTENT-01 | Not specced | Narrator topic pivots ignored by composer — **#1 felt bug** |
+| WO-EX-DENSE-01 | Not specced | Dense-truth / large chunk extraction — **#1 extraction frontier** |
+| WO-QA-03 | Planned | TTS Option A — `--with-tts` flag for latency + GPU contention |
 | WO-14 | Deferred | TensorRT-LLM runtime swap (deferred pending Blackwell SM_120 maturity) |
 
 ### WO-13 Phase Status
