@@ -1,0 +1,15 @@
+On branch claude-loop/20260418-163535-shape-lock
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   server/code/api/routers/extract.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	docs/reports/loop_round0_diff.patch
+	docs/reports/loop_round0_generational.json
+	docs/reports/loop_round0_master.json
+	docs/reports/loop_round0_safety.json
+	docs/reports/loop_round0_status.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")
