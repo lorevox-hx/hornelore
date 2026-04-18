@@ -2320,6 +2320,22 @@ _TOUCHSTONE_EVENT_CUES = re.compile(
     re.IGNORECASE,
 )
 
+# WO-QB-GENERATIONAL-01B: witness-memory cues — narrator was THERE, not just
+# mentioning an event in passing. Required alongside event keywords to prevent
+# false touchstone duplicates on sentences like "my son was born during COVID".
+_WITNESS_MEMORY_CUES = re.compile(
+    r'\b(?:I remember|we were|we watched|we sat|we saw|we quit|we stopped'
+    r'|we had to|we couldn\'?t|we started|we used to|we\'?d (?:sit|watch|listen|go|drive)'
+    r'|when (?:it|they|that) happened|got used to'
+    r'|watching|heard about it|heard (?:the|about)|where were you|where I was'
+    r'|the whole family|in the living room|on (?:the |a )?(?:TV|television|radio|set)'
+    r'|sitting in|stood there|couldn\'?t believe|never forget'
+    r'|the day (?:it|they|that|we)|that (?:morning|evening|night|day)'
+    r'|made.{0,10}(?:smaller|different|harder|quieter|changed)'
+    r'|everything (?:changed|stopped|shut)|world (?:changed|stopped|felt))\b',
+    re.IGNORECASE,
+)
+
 # WO-QB-GENERATIONAL-01B: story-priority language for laterYears.desiredStory
 _STORY_PRIORITY_CUES = re.compile(
     r'(?:want.{0,15}family to hear|only had time for|stories? I\'?d'
@@ -2426,7 +2442,9 @@ def _apply_semantic_rerouter(
     # WO-QB-GENERATIONAL-01B: when the answer mentions a known historical event
     # and the LLM routed to laterYears.significantEvent, ADD a duplicate item
     # routed to cultural.touchstoneMemory. Don't remove the original — both valid.
-    if _TOUCHSTONE_EVENT_CUES.search(answer_lower):
+    # Requires THREE signals: event keyword + significantEvent route + witness-memory cue.
+    # The witness cue prevents false positives on "my son was born during COVID".
+    if _TOUCHSTONE_EVENT_CUES.search(answer_lower) and _WITNESS_MEMORY_CUES.search(answer_lower):
         touchstone_dupes = []
         existing_touchstones = {it.get("value", "") for it in rerouted if it.get("fieldPath") == "cultural.touchstoneMemory"}
         for it in rerouted:
