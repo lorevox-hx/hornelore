@@ -30,7 +30,7 @@ This section is a rolling summary of what's been shipped recently and what's sti
 | **WO-SCHEMA-02** | **Implementation complete** (2026-04-17). 35 new fields (7 families), ~50 aliases, 7 prompt examples, 14 eval cases (cases 031-044). | Fields: grandparents, military, faith, health, community, pets, travel. Eval suite expanded: 30 → 44 cases. Needs re-run. |
 | **WO-CLAIMS-02** | **Quick-win validators shipped** (2026-04-17). See `docs/CLAIMS-02_failure_taxonomy.md`. | 3 validators in extract.py: value-shape rejection (garbage words + short fragments), relation allowlist (enumerated valid values), confidence floor (<0.5 auto-reject). Flag `HORNELORE_CLAIMS_VALIDATORS` default ON. 32 new tests (114 total). Remaining: entity coherence, compound splitting, narrator style tuning. |
 | **WO-EX-REROUTE-01** | **Implementation complete** (2026-04-17). | Semantic rerouter: 4 high-precision rerouters (pets, siblings, birthplace, career) that fix valid-but-wrong fieldPaths using section+path+lexical triple-agreement. 4 prompt routing distinction exemplars. 8 micro-eval cases (4 reroute, 4 no-reroute). Eval suite: 44 → 52 cases. |
-| **WO-EX-TWOPASS-01** | **Implementation complete** (2026-04-17). | Two-pass extraction pipeline: Pass 1 (schema-blind span tagger) → Pass 2A (rule-based classifier) → Pass 2B (LLM classifier for unresolved spans). Flag `HORNELORE_TWOPASS_EXTRACT` default OFF. Falls back to single-pass on pass 1 failure. 10 new eval cases (053-062). Eval suite: 52 → 62 cases. Needs A/B eval. |
+| **WO-EX-TWOPASS-01** | **A/B eval complete — REGRESSED** (2026-04-17). | Two-pass extraction pipeline: Pass 1 (schema-blind span tagger) → Pass 2A (rule-based classifier) → Pass 2B (LLM classifier for unresolved spans). Flag `HORNELORE_TWOPASS_EXTRACT` remains **OFF**. A/B result: baseline 32/62 (51.6%, avg 0.590) → two-pass 16/62 (25.8%, avg 0.325). Both pairs stable across 2 runs. Major regression in `extract_multiple` (16/35 → 4/35). Root-cause hypothesis (unconfirmed): Pass 1 token starvation (128/256 cap too small for multi-entity spans), span abstraction losing semantic context before classification, Pass 2B seeing only stripped spans instead of original answer. Next step: stage-level log inspection before any v2 attempt. |
 | **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores and stays anchored. #1 felt bug from live sessions |
 | **WO-KAWA-UI-01A** | **Implementation complete** (2026-04-17). See `docs/reports/WO-KAWA-UI-01A_REPORT.md`. | River View UI as popover: segment list, detail pane, flow/rocks/driftwood/banks/spaces editing, river strip, 4 REST endpoints, local-first JSON storage. Needs live test. |
 | **WO-KAWA-01** | Fully specced (`hornelore/WO-KAWA-01_Spec.md`). 10 phases. | Parallel Kawa river layer: LLM-driven proposals, confirmation loop, instrumentation. Next: wire LLM into `kawa_projection.py`. |
@@ -45,17 +45,22 @@ This section is a rolling summary of what's been shipped recently and what's sti
 ### Priority sequence to Kawa readiness
 
 ```
-SCHEMA-02 (done) → CLAIMS-02 quick-wins (done) → eval run 1-4 (done, 24/44) → EX-REROUTE-01 (done) → temp sweep (done, not a lever) → EX-TWOPASS-01 (done, needs A/B eval) → INTENT-01 → KAWA-01 Phase 1
+SCHEMA-02 (done) → CLAIMS-02 quick-wins (done) → eval run 1-4 (done, 24/44) → EX-REROUTE-01 (done) → temp sweep (done, not a lever) → EX-TWOPASS-01 (done, regressed 16/62 vs 32/62 baseline, flag OFF) → stage-level debug or constrained Pass 2 WO → INTENT-01 → KAWA-01 Phase 1
 ```
 
 ### Extraction eval baseline (2026-04-17)
 
-**24/44 passing (54.5%, avg score 0.615)** via `scripts/run_question_bank_extraction_eval.py --mode live`
+**Single-pass baseline (locked):** 32/62 (51.6%, avg 0.590) — stable across 2 runs.
 
-Failure breakdown (20 failures): field_path_mismatch: 9, schema_gap: 11, llm_hallucination: 8.
-Key finding: field_path_mismatch cases are semantic misrouting (valid-but-wrong paths), not invalid path generation.
+Failure breakdown (30 failures): schema_gap: 16-17, field_path_mismatch: 9-11, llm_hallucination: 10-11.
 
-Eval suite now expanded to **52 cases** (8 new WO-EX-REROUTE-01 micro-eval cases). Needs re-run for new baseline.
+**Two-pass A/B (HORNELORE_TWOPASS_EXTRACT=1):** 16/62 (25.8%, avg 0.325) — stable across 2 runs. Major regression; flag remains OFF.
+
+Two-pass failure breakdown (46 failures): schema_gap: 26, field_path_mismatch: 21, llm_hallucination: 10, guard_false_positive: 1.
+
+Root-cause hypothesis (pending stage-log confirmation): Pass 1 token budget too small for multi-entity spans, span abstraction loses context needed for classification, Pass 2B receives only stripped spans without original answer text. The `extract_multiple` category collapsed from 16/35 to 4/35, consistent with token starvation on longer answers.
+
+Eval suite: **62 cases** (52 original + 10 two-pass-specific cases 053-062).
 
 ### Extraction pipeline order (updated 2026-04-17)
 
@@ -86,7 +91,7 @@ Falls back to single-pass on pass 1 failure.
 | `docs/CLAIMS-02_failure_taxonomy.md` | Failure root cause analysis + fix priorities |
 | `docs/reports/WO-KAWA-UI-01A_REPORT.md` | River View implementation report |
 | `docs/reports/WO-KAWA-02A_REPORT.md` | Kawa questioning + memoir integration report |
-| `docs/references/` | 4 Kawa/OT reference papers (Iwama, Newbury/Lape, Crepeau, Norell) |
+| `docs/references/` | 4 Kawa/OT reference papers (Iwama, Newbury/Lape, Crepeau, Norell) + 6 extraction papers (NegBERT, Temporal-Relation, HGAN-EODI) + 4 architecture papers (Structured-Data-LLMs, Small-Models-Decomposition, ML-Agent-RL, SLQ-Oral-History) |
 
 ### Env flag state
 
@@ -429,6 +434,34 @@ bash scripts/test_lab_doctor.sh
 # Open Hornelore
 # → http://localhost:8082/ui/hornelore1.0.html
 ```
+
+## WO-QB-MASTER-EVAL-01 — Master Eval Suite (2026-04-17)
+**Status:** SHIPPED
+**Files changed:**
+- `scripts/run_question_bank_extraction_eval.py` — scorer + report generator
+- `data/qa/question_bank_extraction_cases.json` — 62 → 104 cases
+
+Expanded eval from 62 narrow benchmark cases to 104-case master suite.
+Original 62 contract/regression cases preserved and tagged. Added 42 new cases:
+19 mixed narrative, 8 dense truth, 8 follow-up, 7 null/clarify.
+
+Each case now carries: `caseType`, `style_bucket`, `chunk_size`, `noise_profile`,
+`case_mode`, `sequence_group`, `style_expectations`, and `truthZones` with four
+zones per field (`must_extract`, `may_extract`, `should_ignore`, `must_not_write`).
+
+Report now shows two scoring layers:
+- Layer 1 (contract/regression): must_extract recall, routing, hallucination, violations
+- Layer 2 (oral-history style): by case type, style bucket, chunk size, noise profile
+
+Contract subset section tracks the original 62 cases separately for regression comparison.
+
+Run: `python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:14501`
+
+## WO-EX-FIELDPATH-NORMALIZE-01A — Deterministic Routing Corrections (2026-04-17)
+**Status:** FAILED / REVERTED
+Attempted confusion-table-driven field-path normalization. Regressed from 32/62 to 14/62.
+All changes reverted. Lesson: rerouter fixes that change what text is checked (answer vs value)
+are not safe without understanding that LLM output values don't contain cue phrases.
 
 For the architecture context behind any of this, see:
 - `README.md` — current product surface, work order status, file inventory

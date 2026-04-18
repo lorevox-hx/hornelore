@@ -1156,6 +1156,75 @@ def _merge_rule_and_llm_items(rule_items: List[dict], llm_items: List[dict]) -> 
 
 # ── Two-pass orchestrator ─────────────────────────────────────────────────────
 
+def _twopass_debug_enabled() -> bool:
+    """When True, _extract_via_twopass writes stage artifacts to a JSON file."""
+    return os.environ.get("HORNELORE_TWOPASS_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def _write_twopass_debug(answer: str, section: Optional[str],
+                          spans: List[dict], p1_raw: Optional[str],
+                          rule_items: List[dict], unresolved: List[dict],
+                          llm_items: List[dict], merged: List[dict],
+                          token_cap: int):
+    """Append one debug record to docs/reports/twopass_debug_artifacts.jsonl."""
+    import datetime
+    record = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "input": {
+            "answer": answer,
+            "answer_length_words": len(answer.split()),
+            "section": section,
+            "is_compound": _is_compound_answer(answer),
+        },
+        "pass1": {
+            "token_cap": token_cap,
+            "raw_output": p1_raw or "",
+            "raw_output_length": len(p1_raw) if p1_raw else 0,
+            "looks_truncated": (
+                p1_raw is not None and
+                not p1_raw.strip().endswith("}") and
+                not p1_raw.strip().endswith("]") and
+                len(p1_raw.strip()) > 10
+            ),
+            "span_count": len(spans),
+            "spans": spans,
+            "type_distribution": {},
+            "flag_distribution": {},
+        },
+        "pass2a_rules": {
+            "classified_count": len(rule_items),
+            "classified_items": rule_items,
+            "unresolved_count": len(unresolved),
+            "unresolved_spans": unresolved,
+        },
+        "pass2b_llm": {
+            "classified_count": len(llm_items),
+            "classified_items": llm_items,
+        },
+        "merge": {
+            "total_items": len(merged),
+            "items": merged,
+        },
+    }
+    # Type/flag distribution
+    for s in spans:
+        t = s.get("type", "unknown")
+        record["pass1"]["type_distribution"][t] = record["pass1"]["type_distribution"].get(t, 0) + 1
+        for f in s.get("flags", []):
+            record["pass1"]["flag_distribution"][f] = record["pass1"]["flag_distribution"].get(f, 0) + 1
+
+    try:
+        debug_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..",
+                                   "docs", "reports", "twopass_debug_artifacts.jsonl")
+        debug_path = os.path.normpath(debug_path)
+        os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+        with open(debug_path, "a") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        logger.info("[extract][twopass][debug] Wrote debug record to %s", debug_path)
+    except Exception as e:
+        logger.warning("[extract][twopass][debug] Failed to write debug record: %s", e)
+
+
 def _extract_via_twopass(answer: str, current_section: Optional[str],
                           current_target: Optional[str]) -> tuple[List[dict], Optional[str]]:
     """WO-EX-TWOPASS-01: Two-pass extraction pipeline.
@@ -1166,11 +1235,21 @@ def _extract_via_twopass(answer: str, current_section: Optional[str],
 
     Falls back to single-pass on any pass 1 failure.
     """
+    _debug = _twopass_debug_enabled()
+
     # ── Pass 1: Span tagging ─────────────────────────────────────────────
     spans, p1_raw = _extract_spans(answer, current_section)
 
+    # Compute token cap for debug logging (mirror _extract_spans logic)
+    _base_cap = 128
+    _compound_cap = 256
+    _token_cap = _compound_cap if _is_compound_answer(answer) else _base_cap
+
     if not spans:
         logger.warning("[extract][twopass] Pass 1 returned no spans — falling back to single-pass")
+        if _debug:
+            _write_twopass_debug(answer, current_section, [], p1_raw,
+                                  [], [], [], [], _token_cap)
         return _extract_via_singlepass(answer, current_section, current_target)
 
     logger.info("[extract][twopass] Pass 1 tagged %d spans", len(spans))
@@ -1185,6 +1264,12 @@ def _extract_via_twopass(answer: str, current_section: Optional[str],
 
     # ── Merge ────────────────────────────────────────────────────────────
     all_items = _merge_rule_and_llm_items(rule_items, llm_items)
+
+    # ── Debug dump ───────────────────────────────────────────────────────
+    if _debug:
+        _write_twopass_debug(answer, current_section, spans, p1_raw,
+                              rule_items, unresolved, llm_items, all_items,
+                              _token_cap)
 
     if not all_items:
         logger.warning("[extract][twopass] No items after both passes — falling back to single-pass")
