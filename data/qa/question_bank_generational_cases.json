@@ -1,0 +1,581 @@
+{
+  "_wo": "WO-QB-GENERATIONAL-01",
+  "_version": 1,
+  "_notes": [
+    "Seed eval pack for generational overlay questions and late-life present-life-reality prompts.",
+    "Uses the current master-eval wrapper shape: top-level object with a `cases` array.",
+    "IDs start at case_201 to avoid collision with the existing 104-case suite.",
+    "Cases 201-208 are overlay/story seed cases and are marked currentExtractorExpected=false.",
+    "Cases 209-214 are tighter late-life extraction/guard cases and are marked currentExtractorExpected=true."
+  ],
+  "cases": [
+    {
+      "id": "case_201",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "touchstone_moon_landing",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "Where were you when the moon landing happened?",
+      "answer": "We were in Bismarck then. Dad had the black-and-white TV on and all of us were squeezed into the living room watching it.",
+      "must_extract": [
+        {
+          "fieldPath": "residence.place",
+          "value": "Bismarck"
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "watched the moon landing with family on a black-and-white TV"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "parents.relation",
+          "value": "father"
+        }
+      ],
+      "should_ignore": [
+        {
+          "fieldPath": "hobbies.hobbies",
+          "value": "television"
+        }
+      ],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        },
+        {
+          "fieldPath": "health.majorCondition"
+        }
+      ]
+    },
+    {
+      "id": "case_202",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "touchstone_vietnam_family_shadow",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "small",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "Did Vietnam touch your family directly?",
+      "answer": "My cousin got drafted and it changed the whole mood in the family. I was still in high school in North Dakota, and people talked about it every night at supper.",
+      "must_extract": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "family mood changed when cousin was drafted during the Vietnam era"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "education.schooling",
+          "value": "high school"
+        },
+        {
+          "fieldPath": "residence.region",
+          "value": "North Dakota"
+        }
+      ],
+      "should_ignore": [
+        {
+          "fieldPath": "family.children.relation",
+          "value": "cousin"
+        }
+      ],
+      "must_not_write": [
+        {
+          "fieldPath": "military.branch"
+        },
+        {
+          "fieldPath": "military.yearsOfService"
+        },
+        {
+          "fieldPath": "health.majorCondition"
+        }
+      ]
+    },
+    {
+      "id": "case_203",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "touchstone_drive_in_movies",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "Did your family go to drive-in movies?",
+      "answer": "Sure did. In the summer we'd drive out to the drive-in near Williston, get popcorn, and half the time I'd fall asleep in the back seat before the second feature.",
+      "must_extract": [
+        {
+          "fieldPath": "hobbies.hobbies",
+          "value": "going to drive-in movies"
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Williston"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "earlyMemories.significantEvent",
+          "value": "falling asleep in the back seat at the drive-in"
+        }
+      ],
+      "should_ignore": [
+        {
+          "fieldPath": "hobbies.hobbies",
+          "value": "popcorn"
+        }
+      ],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "case_204",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "touchstone_gas_lines",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "What do you remember about the gas lines in the seventies?",
+      "answer": "In Bismarck we'd sit in line with the engine off and hope the gas held out to the pump. My wife packed sandwiches and the kids got restless in the back.",
+      "must_extract": [
+        {
+          "fieldPath": "residence.place",
+          "value": "Bismarck"
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "waited in gas lines during the 1970s energy crisis"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "family.spouse.relation",
+          "value": "wife"
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "children"
+        }
+      ],
+      "should_ignore": [
+        {
+          "fieldPath": "hobbies.hobbies",
+          "value": "sandwiches"
+        }
+      ],
+      "must_not_write": [
+        {
+          "fieldPath": "health.majorCondition"
+        }
+      ]
+    },
+    {
+      "id": "case_205",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "touchstone_first_computer",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "When did computers first come into your life?",
+      "answer": "At work first, not at home. Around 1985 they rolled terminals in and I learned just enough to stay useful, but I always felt half a step behind.",
+      "must_extract": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "first workplace computer terminals appeared around 1985"
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "felt behind learning computers"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "education.careerProgression",
+          "value": "computers became part of work"
+        }
+      ],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "case_206",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "touchstone_first_cell_phone",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "When did cell phones first come into your life?",
+      "answer": "Late nineties. Work more or less made me carry one, and I hated being reachable every minute of the day.",
+      "must_extract": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "first cell phone came through work in the late 1990s"
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "disliked always being reachable by cell phone"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "education.careerProgression",
+          "value": "work required carrying a cell phone"
+        }
+      ],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "case_207",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "touchstone_covid_changes",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "medium",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "How did COVID change your daily life?",
+      "answer": "COVID made the world smaller. We quit going out much, church went quiet, and I got used to talking to the grandkids on a screen instead of across the table.",
+      "must_extract": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "COVID reduced going out and changed daily life"
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "felt isolated from family during COVID"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "family.grandchildren.relation",
+          "value": "grandchildren"
+        }
+      ],
+      "should_ignore": [
+        {
+          "fieldPath": "faith.denomination",
+          "value": "church"
+        }
+      ],
+      "must_not_write": [
+        {
+          "fieldPath": "health.majorCondition"
+        }
+      ]
+    },
+    {
+      "id": "case_208",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "touchstone_artemis_reflection",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "question": "Now that people are going back with Artemis, what comes to mind for you after living through Apollo?",
+      "answer": "It mostly makes me think about how time folds in on itself. I remember the first moon walk, and now the kids coming behind us may see another one.",
+      "must_extract": [
+        {
+          "fieldPath": "laterYears.lifeLessons",
+          "value": "time folds in on itself across generations"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "remembered the first moon walk"
+        }
+      ],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "case_209",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_medications",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "question": "Do you take any medications every day now, or has your routine stayed fairly simple?",
+      "answer": "I take blood pressure medicine every morning, and something for arthritis when my hands flare up. Mostly it means I move slower in the mornings than I used to.",
+      "must_extract": [
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "high blood pressure"
+        },
+        {
+          "fieldPath": "health.lifestyleChange",
+          "value": "mornings are slower because of arthritis and aging"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "health.milestone",
+          "value": "takes daily medication"
+        }
+      ],
+      "should_ignore": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "morning routine"
+        }
+      ],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "case_210",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_medications_refusal",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "question": "Do you take any medications every day now, or has your routine stayed fairly simple?",
+      "answer": "No, nothing regular. I'd rather leave it at that.",
+      "must_extract": [],
+      "may_extract": [],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "health.majorCondition"
+        },
+        {
+          "fieldPath": "health.lifestyleChange"
+        },
+        {
+          "fieldPath": "health.milestone"
+        },
+        {
+          "fieldPath": "laterYears.significantEvent"
+        }
+      ]
+    },
+    {
+      "id": "case_211",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_memory",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "question": "How does your memory feel to you these days?",
+      "answer": "Names take longer than they used to, but the old stories are still there. It's the little daily things that slip first.",
+      "must_extract": [
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "names are slower and small daily details slip"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "laterYears.lifeLessons",
+          "value": "old stories remain even when small details slip"
+        }
+      ],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "health.majorCondition"
+        }
+      ]
+    },
+    {
+      "id": "case_212",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_memory_refusal",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "question": "How does your memory feel to you these days?",
+      "answer": "I'd rather not get into that.",
+      "must_extract": [],
+      "may_extract": [],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "health.majorCondition"
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges"
+        },
+        {
+          "fieldPath": "laterYears.lifeLessons"
+        }
+      ]
+    },
+    {
+      "id": "case_213",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_frustrations",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "question": "What tends to frustrate you most at this stage of life?",
+      "answer": "What frustrates me most is that everything takes longer now, and younger people assume older means helpless. That gets under my skin.",
+      "must_extract": [
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "frustration with slowing down and being treated as helpless"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "laterYears.lifeLessons",
+          "value": "older does not mean helpless"
+        }
+      ],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "case_214",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_story_priorities",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "question": "If you only had time to tell three stories, which ones would you want your family to hear?",
+      "answer": "If I only had time for three stories, I'd want my family to hear about my dad dying in '67, the years we built a life in Germany, and how their mother and I got started with almost nothing.",
+      "must_extract": [
+        {
+          "fieldPath": "additionalNotes.unfinishedDreams",
+          "value": "wants family to hear stories about father's death, Germany years, and early married life"
+        }
+      ],
+      "may_extract": [
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "father died in 1967"
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Germany"
+        },
+        {
+          "fieldPath": "family.marriageNotes",
+          "value": "started married life with almost nothing"
+        }
+      ],
+      "should_ignore": [],
+      "must_not_write": [
+        {
+          "fieldPath": "health.majorCondition"
+        }
+      ]
+    }
+  ]
+}

@@ -101,6 +101,11 @@ EXTRACTABLE_FIELDS = {
     "laterYears.retirement":               {"label": "Retirement experience", "writeMode": "suggest_only"},
     "laterYears.lifeLessons":              {"label": "Life lessons learned", "writeMode": "suggest_only"},
     "laterYears.significantEvent":         {"label": "Significant later-life event or turning point", "writeMode": "suggest_only"},
+    "laterYears.dailyRoutine":             {"label": "Current daily routine or lifestyle", "writeMode": "suggest_only"},
+    "laterYears.desiredStory":             {"label": "Story the narrator specifically wants told", "writeMode": "suggest_only", "repeatable": "laterYears"},
+
+    # Cultural / generational touchstones (suggest_only) — WO-QB-GENERATIONAL-01
+    "cultural.touchstoneMemory":    {"label": "Where-were-you memory tied to a historical event", "writeMode": "suggest_only", "repeatable": "cultural"},
 
     # Hobbies (suggest_only)
     "hobbies.hobbies":              {"label": "Hobbies and interests", "writeMode": "suggest_only"},
@@ -188,6 +193,8 @@ EXTRACTABLE_FIELDS = {
     "health.majorCondition":          {"label": "Major health condition or diagnosis", "writeMode": "suggest_only", "repeatable": "health"},
     "health.milestone":               {"label": "Health milestone (surgery, recovery, etc.)", "writeMode": "suggest_only"},
     "health.lifestyleChange":         {"label": "Significant lifestyle change for health", "writeMode": "suggest_only"},
+    "health.currentMedications":      {"label": "Current medications or treatments", "writeMode": "suggest_only"},
+    "health.cognitiveChange":         {"label": "Self-reported memory or cognitive change", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 5 — Community & Civic Life ────────────────────
     "community.organization":         {"label": "Community organization or group", "writeMode": "suggest_only", "repeatable": "community"},
@@ -2337,6 +2344,51 @@ def _apply_semantic_rerouter(
     return rerouted
 
 
+def _apply_refusal_guard(items: List[dict], answer: str) -> List[dict]:
+    """WO-EX-GUARD-REFUSAL-01: strip ALL fields when the narrator explicitly
+    refuses to discuss a topic or asks that something not be written down.
+
+    This catches topic refusals that the negation guard misses:
+      - "nothing I want to go into"
+      - "I'd rather not get into that"
+      - "I don't think that's something I want written down"
+      - "not for putting in a book"
+      - "I'd rather leave it at that"
+
+    Unlike the negation guard (which targets specific categories like
+    "I never served"), a topic refusal strips everything from the answer
+    because the narrator is refusing the entire line of questioning.
+    """
+    if not items or not answer:
+        return items
+
+    lower = answer.lower()
+
+    _REFUSAL_PATTERNS = [
+        # Direct privacy refusal — narrator says don't write / don't record
+        re.compile(r"(?:not |don\'?t )(?:think )?(?:that\'?s )?something I (?:want|need) (?:written|recorded|put (?:down|in))", re.IGNORECASE),
+        re.compile(r"not for (?:putting|writing) (?:in|down|into) (?:a book|the record|a record)", re.IGNORECASE),
+        # Topic avoidance — narrator deflects the question
+        re.compile(r"nothing I (?:want|need|care) to (?:go into|get into|talk about|discuss|share)", re.IGNORECASE),
+        re.compile(r"(?:I\'?d |I would |I\'?d just )rather (?:not|leave it|skip|move on)", re.IGNORECASE),
+        re.compile(r"(?:I\'?d |I would )prefer not to", re.IGNORECASE),
+        re.compile(r"(?:let\'?s |can we )(?:skip|move on|not go there|leave) (?:that|this|it)", re.IGNORECASE),
+        re.compile(r"I don\'?t (?:want|need|care) to (?:talk|go|get) (?:about |into )(?:that|this|it)", re.IGNORECASE),
+        re.compile(r"rather not (?:get into|talk about|discuss|say|share|go there)", re.IGNORECASE),
+    ]
+
+    for pat in _REFUSAL_PATTERNS:
+        if pat.search(lower):
+            logger.info(
+                "[extract][refusal-guard] topic refusal detected in answer, "
+                "stripping all %d items. Pattern: %s",
+                len(items), pat.pattern[:60]
+            )
+            return []
+
+    return items
+
+
 def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
     """WO-EX-CLAIMS-02 validator 4: strip fields from categories the narrator
     explicitly denied.
@@ -2358,10 +2410,13 @@ def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
          {"military.branch", "military.rank", "military.yearsOfService", "military.deploymentLocation"}),
         # Health negation — "been pretty healthy", "never had health problems"
         (re.compile(r'\b(?:(?:been |was |am )?(?:pretty |very |always )?healthy|never (?:had|been) (?:any |serious )?(?:health|medical)|no (?:health|medical) (?:issues|problems|conditions))\b', re.IGNORECASE),
-         {"health.majorCondition", "health.milestone", "health.lifestyleChange"}),
+         {"health.majorCondition", "health.milestone", "health.lifestyleChange", "health.currentMedications", "health.cognitiveChange"}),
         # Education negation
         (re.compile(r'\b(?:never went to college|didn\'?t go to college|did not go to college|didn\'?t attend college|no college|never attended college)\b', re.IGNORECASE),
          {"education.higherEducation"}),
+        # Community/organization denial — "not really", "wasn't a joiner", "not involved"
+        (re.compile(r'\b(?:wasn\'?t (?:a |really )?(?:a )?joiner|not (?:really )?(?:a |much of a )?joiner|wasn\'?t (?:really )?involved|not (?:really )?involved|didn\'?t (?:really )?(?:join|belong|participate)|not really,? no)\b', re.IGNORECASE),
+         {"community.organization", "community.role", "community.yearsActive"}),
     ]
 
     denied_fields = set()
@@ -2395,6 +2450,12 @@ def _apply_claims_validators(items: List[dict], answer: str = "") -> List[dict]:
         return items  # if flag module fails, skip gracefully
 
     before = len(items)
+    # WO-EX-GUARD-REFUSAL-01: refusal guard fires first — if narrator refuses
+    # the topic entirely, strip everything before wasting time on other checks.
+    items = _apply_refusal_guard(items, answer)
+    if not items and before > 0:
+        logger.info("[extract][WO-CLAIMS-02] refusal guard stripped all %d items", before)
+        return items
     items = _apply_claims_value_shape(items)
     items = _apply_claims_relation_allowlist(items)
     items = _apply_claims_confidence_floor(items)

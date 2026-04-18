@@ -141,6 +141,27 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     expected_behavior = case.get("expectedBehavior", "extract_single")
     truth_zones = case.get("truthZones", {})
 
+    # WO-QB-GENERATIONAL-01: build truthZones from array-style keys if not present.
+    # Generational cases use must_extract/may_extract/should_ignore/must_not_write
+    # arrays instead of a truthZones dict.
+    if not truth_zones:
+        for entry in case.get("must_extract", []):
+            fp = entry.get("fieldPath", "")
+            if fp:
+                truth_zones[fp] = {"zone": "must_extract", "expected": entry.get("value", "")}
+        for entry in case.get("may_extract", []):
+            fp = entry.get("fieldPath", "")
+            if fp:
+                truth_zones[fp] = {"zone": "may_extract", "expected": entry.get("value", "")}
+        for entry in case.get("should_ignore", []):
+            fp = entry.get("fieldPath", "")
+            if fp:
+                truth_zones[fp] = {"zone": "should_ignore"}
+        for entry in case.get("must_not_write", []):
+            fp = entry.get("fieldPath", "")
+            if fp:
+                truth_zones[fp] = {"zone": "must_not_write"}
+
     # Build a lookup from extracted items: fieldPath -> list of values
     extracted_map: Dict[str, List[str]] = {}
     for item in extracted_items:
@@ -371,12 +392,17 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
             print(f"  SKIP {case['id']}: no person_id for {case['narratorId']}")
             continue
 
+        # Support both master-eval keys (narratorReply, extractPriority)
+        # and generational-pack keys (answer, extract_priority)
+        narrator_reply = case.get("narratorReply") or case.get("answer", "")
+        extract_prio = case.get("extractPriority") or case.get("extract_priority")
+
         payload = {
             "person_id": person_id,
             "session_id": f"eval_{case['id']}",
-            "answer": case["narratorReply"],
+            "answer": narrator_reply,
             "current_section": case.get("subTopic"),
-            "current_target_path": case["extractPriority"][0] if case.get("extractPriority") else None,
+            "current_target_path": extract_prio[0] if extract_prio else None,
             "current_phase": _phase_to_spine_phase(case.get("phase", "")),
         }
 
