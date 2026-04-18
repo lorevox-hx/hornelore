@@ -496,6 +496,53 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "[{\"fieldPath\":\"hobbies.personalChallenges\",\"value\":\"frustration with slowing down and being treated as helpless\",\"confidence\":0.9}]\n"
         "Late-life frustrations → hobbies.personalChallenges. Do NOT invent paths like laterYears.frustrations.\n"
         "\n"
+        "Example — narrator says: \"An uncle of mine got drafted and the whole house went quiet for weeks. "
+        "I was still a senior in high school out in rural Montana, and the grown-ups talked about it at supper "
+        "every night.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"family atmosphere shifted when uncle was drafted during the Vietnam era\",\"confidence\":0.85},"
+        "{\"fieldPath\":\"education.schooling\",\"value\":\"high school\",\"confidence\":0.8},"
+        "{\"fieldPath\":\"residence.region\",\"value\":\"Montana\",\"confidence\":0.8}]\n"
+        "Family-shadow generational memory (war / draft / national crisis that touched a relative) → "
+        "laterYears.significantEvent for the narrator's witnessing of it. Do NOT route to military.* — "
+        "the narrator did not serve. Do NOT route the relative to family.children.* — an uncle, cousin, or "
+        "other extended relative is NOT extracted as a narrator child. The school-stage and the state the "
+        "narrator was in during that period ARE extractable as education.schooling and residence.region.\n"
+        "\n"
+        "Example — narrator says: \"First time was at the office in the early nineties. They wheeled a desktop "
+        "onto my desk and I spent weeks feeling like the new hire half my age was teaching me.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"first workplace desktop computer arrived in the early 1990s\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"hobbies.personalChallenges\",\"value\":\"felt behind learning computers at work\",\"confidence\":0.9}]\n"
+        "First-technology stories (first computer, first PC, first cell phone, first smartphone, first internet) "
+        "split into TWO facts: the generational event itself → laterYears.significantEvent, and the narrator's "
+        "frustration / sense of lagging behind → hobbies.personalChallenges. Do NOT route to education.earlyCareer "
+        "(this is not a first job) or health.cognitiveChange (this is not memory loss). Same pattern applies to "
+        "'work made me carry a pager/cell', 'I hated being reachable', 'I couldn't keep up with email'.\n"
+        "\n"
+        "Example — narrator says: \"Every Friday night in summer we'd pile into the station wagon and head "
+        "out to the drive-in outside Minot. Popcorn, mosquitoes, and all.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"hobbies.hobbies\",\"value\":\"going to the drive-in\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"residence.place\",\"value\":\"Minot\",\"confidence\":0.85}]\n"
+        "Recurring family-leisure outings (drive-ins, roller rinks, bowling alleys, diners, ballparks) that the "
+        "narrator attended as part of childhood or family routine → hobbies.hobbies. The city or town name "
+        "attached to the outing → residence.place (the narrator lived near it). Do NOT route a regular family "
+        "leisure outing to laterYears.significantEvent — that path is for witnessed national/historical events, "
+        "not personal pastimes. Snacks and incidental sensory details (popcorn, mosquitoes) are scene-setting, "
+        "not extractable hobby values.\n"
+        "\n"
+        "Example — narrator says: \"Watching these new crews head up reminds me that each generation gets its "
+        "own turn at the sky. The dreams of my time are becoming the work of my grandchildren.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"laterYears.lifeLessons\",\"value\":\"each generation inherits and carries forward the wonder of the last\",\"confidence\":0.9}]\n"
+        "Reflective / forward-looking / generational-continuity answers (\"time folds in on itself\", \"my "
+        "dreams become their work\", \"wonder passes down\", \"I see myself in the kids coming behind\") → "
+        "laterYears.lifeLessons. Do NOT route these to laterYears.significantEvent — the narrator is not "
+        "narrating a witnessed event, they are distilling a lesson across generations. If the narrator also "
+        "explicitly remembers a specific past event alongside the reflection, laterYears.significantEvent can "
+        "be added as a SECOND item, but the lifeLessons item must be present.\n"
+        "\n"
         "Example — narrator says: \"I'd want my family to hear about my dad dying in '67, the years we built "
         "a life in Germany, and how their mother and I got started with almost nothing.\"\n"
         "Output:\n"
@@ -2306,6 +2353,10 @@ _CAREER_DURATION_CUES = re.compile(
 )
 
 # WO-QB-GENERATIONAL-01B: touchstone event detection for cultural.touchstoneMemory
+# Extended (01B surgical pass): drive-in / first-computer / first-cell-phone cues added.
+# Drive-in stays here so that any fallback routing to laterYears.significantEvent still
+# earns a cultural.touchstoneMemory dup; the preferred route (hobbies.hobbies +
+# residence.place) is taught via a dedicated few-shot in _build_extraction_prompt().
 _TOUCHSTONE_EVENT_CUES = re.compile(
     r'\b(?:moon landing|apollo|landed on the moon|walked on the moon'
     r'|vietnam|draft(?:ed)?|gas lines|energy crisis|oil crisis'
@@ -2316,7 +2367,9 @@ _TOUCHSTONE_EVENT_CUES = re.compile(
     r'|kennedy|jfk|president.*shot|assassination'
     r'|watergate|nixon resign'
     r'|sputnik|space race'
-    r'|artemis|going back to the moon|return.{0,10}moon)\b',
+    r'|artemis|going back to the moon|return.{0,10}moon'
+    r'|drive[\- ]in|first computer|first pc|first personal computer'
+    r'|first cell ?phone)\b',
     re.IGNORECASE,
 )
 
