@@ -451,14 +451,18 @@
       "answer": "Names take longer than they used to, but the old stories are still there. It's the little daily things that slip first.",
       "must_extract": [
         {
-          "fieldPath": "hobbies.personalChallenges",
-          "value": "names are slower and small daily details slip"
+          "fieldPath": "health.cognitiveChange",
+          "value": "names are slower to recall, small daily details slip first, but long-term memories remain"
         }
       ],
       "may_extract": [
         {
           "fieldPath": "laterYears.lifeLessons",
           "value": "old stories remain even when small details slip"
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "names are slower and small daily details slip"
         }
       ],
       "should_ignore": [],
@@ -539,7 +543,7 @@
       "narratorId": "kent-james-horne",
       "phase": "legacy_reflection",
       "subTopic": "present_life_realities_story_priorities",
-      "expectedBehavior": "extract_single",
+      "expectedBehavior": "extract_multiple",
       "currentExtractorExpected": true,
       "caseType": "contract",
       "oralHistoryStyle": "life_history",
@@ -552,11 +556,23 @@
       "answer": "If I only had time for three stories, I'd want my family to hear about my dad dying in '67, the years we built a life in Germany, and how their mother and I got started with almost nothing.",
       "must_extract": [
         {
-          "fieldPath": "additionalNotes.unfinishedDreams",
-          "value": "wants family to hear stories about father's death, Germany years, and early married life"
+          "fieldPath": "laterYears.desiredStory",
+          "value": "father's death in 1967"
         }
       ],
       "may_extract": [
+        {
+          "fieldPath": "laterYears.desiredStory",
+          "value": "years building a life in Germany"
+        },
+        {
+          "fieldPath": "laterYears.desiredStory",
+          "value": "early married life starting with almost nothing"
+        },
+        {
+          "fieldPath": "additionalNotes.unfinishedDreams",
+          "value": "wants family to hear stories about father's death, Germany years, and early married life"
+        },
         {
           "fieldPath": "parents.notableLifeEvents",
           "value": "father died in 1967"
