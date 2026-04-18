@@ -1,21 +1,21 @@
 {
   "_wo": "WO-QB-MASTER-EVAL-01",
-  "_generated": "2026-04-18T13:46:45",
+  "_generated": "2026-04-18T14:43:23",
   "mode": "live",
   "summary": {
     "total_cases": 104,
-    "passed": 56,
-    "failed": 48,
-    "pass_rate": 0.538,
+    "passed": 57,
+    "failed": 47,
+    "pass_rate": 0.548,
     "avg_overall_score": 0.666
   },
   "contract_subset": {
     "total": 62,
-    "passed_v3": 35,
-    "passed_v2": 32,
-    "v2_avg_score": 0.574,
-    "pass_rate_v3": 0.565,
-    "pass_rate_v2": 0.516,
+    "passed_v3": 34,
+    "passed_v2": 31,
+    "v2_avg_score": 0.548,
+    "pass_rate_v3": 0.548,
+    "pass_rate_v2": 0.5,
     "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
   },
   "v2_baseline": {
@@ -26,13 +26,13 @@
   "by_behavior": {
     "extract_single": {
       "total": 32,
-      "passed": 23,
-      "failed": 9
+      "passed": 25,
+      "failed": 7
     },
     "extract_multiple": {
       "total": 52,
-      "passed": 21,
-      "failed": 31
+      "passed": 19,
+      "failed": 33
     },
     "clarify_before_write": {
       "total": 5,
@@ -41,8 +41,8 @@
     },
     "extract_compound": {
       "total": 13,
-      "passed": 5,
-      "failed": 8
+      "passed": 6,
+      "failed": 7
     },
     "null_case": {
       "total": 2,
@@ -54,43 +54,43 @@
     "christopher-todd-horne": {
       "total": 38,
       "passed": 21,
-      "avg_score": 0.654
+      "avg_score": 0.619
     },
     "kent-james-horne": {
       "total": 33,
       "passed": 20,
-      "avg_score": 0.723
+      "avg_score": 0.744
     },
     "janice-josephine-horne": {
       "total": 33,
-      "passed": 15,
-      "avg_score": 0.621
+      "passed": 16,
+      "avg_score": 0.641
     }
   },
   "by_case_type": {
     "contract": {
       "total": 62,
-      "passed": 35,
-      "failed": 27,
-      "avg_score": 0.664
+      "passed": 34,
+      "failed": 28,
+      "avg_score": 0.646
     },
     "mixed_narrative": {
       "total": 19,
-      "passed": 7,
-      "failed": 12,
-      "avg_score": 0.591
+      "passed": 9,
+      "failed": 10,
+      "avg_score": 0.676
     },
     "dense_truth": {
       "total": 8,
       "passed": 1,
       "failed": 7,
-      "avg_score": 0.475
+      "avg_score": 0.402
     },
     "follow_up": {
       "total": 8,
       "passed": 6,
       "failed": 2,
-      "avg_score": 0.771
+      "avg_score": 0.775
     },
     "null_clarify": {
       "total": 7,
@@ -104,7 +104,7 @@
       "total": 91,
       "passed": 44,
       "failed": 47,
-      "avg_score": 0.632
+      "avg_score": 0.623
     },
     "topical_history": {
       "total": 5,
@@ -114,9 +114,9 @@
     },
     "thematic_study": {
       "total": 6,
-      "passed": 5,
-      "failed": 1,
-      "avg_score": 0.817
+      "passed": 6,
+      "failed": 0,
+      "avg_score": 0.95
     },
     "site_artifact": {
       "total": 2,
@@ -128,95 +128,95 @@
   "by_chunk_size": {
     "tiny": {
       "total": 42,
-      "passed": 27,
-      "failed": 15,
-      "avg_score": 0.738
+      "passed": 28,
+      "failed": 14,
+      "avg_score": 0.762
     },
     "small": {
       "total": 34,
-      "passed": 19,
-      "failed": 15,
-      "avg_score": 0.637
+      "passed": 17,
+      "failed": 17,
+      "avg_score": 0.573
     },
     "medium": {
       "total": 24,
-      "passed": 10,
-      "failed": 14,
-      "avg_score": 0.629
+      "passed": 12,
+      "failed": 12,
+      "avg_score": 0.679
     },
     "large": {
       "total": 4,
       "passed": 0,
       "failed": 4,
-      "avg_score": 0.375
+      "avg_score": 0.367
     }
   },
   "by_noise_profile": {
     "clean": {
       "total": 77,
-      "passed": 48,
-      "failed": 29,
-      "avg_score": 0.704
+      "passed": 47,
+      "failed": 30,
+      "avg_score": 0.69
     },
     "good_garbage": {
       "total": 14,
-      "passed": 4,
-      "failed": 10,
-      "avg_score": 0.523
+      "passed": 6,
+      "failed": 8,
+      "avg_score": 0.648
     },
     "mixed": {
       "total": 5,
       "passed": 3,
       "failed": 2,
-      "avg_score": 0.78
+      "avg_score": 0.753
     },
     "dense_truth": {
       "total": 8,
       "passed": 1,
       "failed": 7,
-      "avg_score": 0.475
+      "avg_score": 0.402
     }
   },
   "by_case_mode": {
     "contract": {
       "total": 69,
-      "passed": 42,
-      "failed": 27,
-      "avg_score": 0.696
+      "passed": 41,
+      "failed": 28,
+      "avg_score": 0.681
     },
     "style": {
       "total": 27,
-      "passed": 8,
-      "failed": 19,
-      "avg_score": 0.556
+      "passed": 10,
+      "failed": 17,
+      "avg_score": 0.595
     },
     "hybrid": {
       "total": 8,
       "passed": 6,
       "failed": 2,
-      "avg_score": 0.771
+      "avg_score": 0.775
     }
   },
   "truth_zone_summary": {
-    "must_extract_recall": 0.61,
-    "may_extract_bonus_rate": 0.186,
-    "should_ignore_leak_rate": 0.235,
+    "must_extract_recall": 0.588,
+    "may_extract_bonus_rate": 0.214,
+    "should_ignore_leak_rate": 0.279,
     "must_not_write_violation_rate": 0.006,
     "raw_counts": {
       "must_extract": {
         "total": 177,
-        "hit": 108,
-        "miss": 69
+        "hit": 104,
+        "miss": 73
       },
       "may_extract": {
         "total": 70,
-        "hit": 13,
-        "miss": 57
+        "hit": 15,
+        "miss": 55
       },
       "should_ignore": {
         "total": 68,
-        "hit": 52,
-        "leaked": 16
+        "hit": 49,
+        "leaked": 19
       },
       "must_not_write": {
         "total": 163,
@@ -235,18 +235,18 @@
   "expected_extractor_results": {
     "should_pass": {
       "total": 50,
-      "actually_passed": 30
+      "actually_passed": 29
     },
     "known_gaps": {
       "total": 54,
-      "actually_passed": 26
+      "actually_passed": 28
     }
   },
   "failure_categories": {
-    "schema_gap": 24,
-    "llm_hallucination": 11,
+    "schema_gap": 21,
+    "llm_hallucination": 15,
     "field_path_mismatch": 19,
-    "noise_leakage": 13,
+    "noise_leakage": 14,
     "guard_false_positive": 1
   },
   "case_results": [
@@ -330,18 +330,18 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 9465,
+      "elapsed_ms": 9809,
       "extracted_count": 2,
       "raw_items": [
         {
-          "fieldPath": "personal.dateOfBirth",
-          "value": "1962-12-24",
-          "confidence": 0.99
-        },
-        {
           "fieldPath": "personal.placeOfBirth",
           "value": "Williston, North Dakota",
-          "confidence": 0.99
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "value": "1962-12-24",
+          "confidence": 0.9
         }
       ]
     },
@@ -458,7 +458,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13950,
+      "elapsed_ms": 15644,
       "extracted_count": 5,
       "raw_items": [
         {
@@ -558,12 +558,22 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10962,
-      "extracted_count": 1,
+      "elapsed_ms": 13319,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "education.schooling",
           "value": "Bismarck High School",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "graduated",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "1981",
           "confidence": 0.9
         }
       ]
@@ -658,7 +668,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11394,
+      "elapsed_ms": 15153,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -688,7 +698,7 @@
         },
         "family.children.dateOfBirth": {
           "expected": "1991-10-04",
-          "actual": "October 4th, 1991",
+          "actual": "1991-10-04",
           "score": 1.0,
           "status": "exact"
         },
@@ -768,12 +778,17 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 36643,
-      "extracted_count": 8,
+      "elapsed_ms": 30378,
+      "extracted_count": 11,
       "raw_items": [
         {
           "fieldPath": "family.children.firstName",
           "value": "Vincent Edward",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "oldest",
           "confidence": 0.9
         },
         {
@@ -783,7 +798,7 @@
         },
         {
           "fieldPath": "family.children.dateOfBirth",
-          "value": "October 4th, 1991",
+          "value": "1991-10-04",
           "confidence": 0.9
         },
         {
@@ -798,8 +813,13 @@
         },
         {
           "fieldPath": "family.children.dateOfBirth",
-          "value": "August 5th, 1994",
+          "value": "1994-08-05",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "second",
+          "confidence": 0.7
         },
         {
           "fieldPath": "family.children.firstName",
@@ -808,7 +828,12 @@
         },
         {
           "fieldPath": "family.children.dateOfBirth",
-          "value": "April 10th, 2002",
+          "value": "2002-04-10",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "youngest",
           "confidence": 0.9
         }
       ]
@@ -893,7 +918,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12152,
+      "elapsed_ms": 16773,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -917,22 +942,24 @@
       "field_scores": {
         "additionalNotes.unfinishedDreams": {
           "expected": "Building Lorevox",
-          "actual": "Building Lorevox. It's the thing I want to last — a system that captures family stories before they disappear.",
-          "score": 0.8,
-          "status": "partial"
+          "actual": "capturing family stories before they disappear",
+          "score": 0.0,
+          "status": "wrong"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 1.0,
-      "v2_score": 0.8,
-      "v2_pass": true,
-      "failure_categories": [],
-      "pass": true,
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "llm_hallucination"
+      ],
+      "pass": false,
       "truth_zone_scores": {
         "must_extract": {
           "total": 1,
-          "hit": 1,
-          "miss": 0
+          "hit": 0,
+          "miss": 1
         },
         "may_extract": {
           "total": 0,
@@ -982,14 +1009,14 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 2254,
+      "method": "llm",
+      "elapsed_ms": 5476,
       "extracted_count": 1,
       "raw_items": [
         {
           "fieldPath": "additionalNotes.unfinishedDreams",
-          "value": "Building Lorevox. It's the thing I want to last — a system that captures family stories before they …",
-          "confidence": 0.7
+          "value": "capturing family stories before they disappear",
+          "confidence": 0.99
         }
       ]
     },
@@ -997,9 +1024,9 @@
       "field_scores": {
         "parents.notableLifeEvents": {
           "expected": "born in a car",
-          "actual": null,
+          "actual": "James",
           "score": 0.0,
-          "status": "missing"
+          "status": "wrong"
         }
       },
       "forbidden_violations": [],
@@ -1007,7 +1034,7 @@
       "v2_score": 0.0,
       "v2_pass": false,
       "failure_categories": [
-        "field_path_mismatch"
+        "llm_hallucination"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -1037,7 +1064,7 @@
       "truth_zone_details": {
         "parents.notableLifeEvents": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write",
@@ -1064,14 +1091,29 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 16735,
-      "extracted_count": 1,
+      "method": "llm",
+      "elapsed_ms": 18792,
+      "extracted_count": 4,
       "raw_items": [
         {
-          "fieldPath": "earlyMemories.significantEvent",
-          "value": "Yeah, my mom's brother James was born in a car on the way to Richardton Hospital. Uncle Jim — James …",
-          "confidence": 0.7
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "James",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "uncle",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "Jim",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "Zarr",
+          "confidence": 0.9
         }
       ]
     },
@@ -1147,7 +1189,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 9639,
+      "elapsed_ms": 8716,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -1245,7 +1287,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 9663,
+      "elapsed_ms": 9274,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -1340,7 +1382,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 8893,
+      "elapsed_ms": 8409,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -1359,9 +1401,9 @@
       "field_scores": {
         "family.spouse.firstName": {
           "expected": "Janice",
-          "actual": "Janice",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "Janice Josephine",
+          "score": 0.8,
+          "status": "partial"
         },
         "family.marriageDate": {
           "expected": "1959-10-10",
@@ -1372,7 +1414,7 @@
       },
       "forbidden_violations": [],
       "overall_score": 1.0,
-      "v2_score": 1.0,
+      "v2_score": 0.9,
       "v2_pass": true,
       "failure_categories": [],
       "pass": true,
@@ -1435,12 +1477,12 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10849,
+      "elapsed_ms": 15881,
       "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "family.spouse.firstName",
-          "value": "Janice",
+          "value": "Janice Josephine",
           "confidence": 0.9
         },
         {
@@ -1465,9 +1507,9 @@
         },
         "family.children.placeOfBirth": {
           "expected": "Williston, North Dakota",
-          "actual": "Williston, North Dakota",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "Germany",
+          "score": 0.0,
+          "status": "wrong"
         },
         "family.children.dateOfBirth": {
           "expected": "1962-12-24",
@@ -1477,16 +1519,18 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 1.0,
-      "v2_score": 0.933,
-      "v2_pass": true,
-      "failure_categories": [],
-      "pass": true,
+      "overall_score": 0.667,
+      "v2_score": 0.6,
+      "v2_pass": false,
+      "failure_categories": [
+        "llm_hallucination"
+      ],
+      "pass": false,
       "truth_zone_scores": {
         "must_extract": {
           "total": 3,
-          "hit": 3,
-          "miss": 0
+          "hit": 2,
+          "miss": 1
         },
         "may_extract": {
           "total": 0,
@@ -1545,8 +1589,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 44500,
-      "extracted_count": 6,
+      "elapsed_ms": 33245,
+      "extracted_count": 5,
       "raw_items": [
         {
           "fieldPath": "family.children.firstName",
@@ -1571,11 +1615,6 @@
         {
           "fieldPath": "family.children.dateOfBirth",
           "value": "1962-12-24",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.placeOfBirth",
-          "value": "Williston, North Dakota",
           "confidence": 0.9
         }
       ]
@@ -1606,8 +1645,8 @@
       "v2_score": 0.333,
       "v2_pass": false,
       "failure_categories": [
-        "schema_gap",
-        "llm_hallucination"
+        "llm_hallucination",
+        "schema_gap"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -1673,7 +1712,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21191,
+      "elapsed_ms": 21406,
       "extracted_count": 4,
       "raw_items": [
         {
@@ -1768,7 +1807,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 15399,
+      "elapsed_ms": 15915,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -1858,7 +1897,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 8622,
+      "elapsed_ms": 10277,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -1953,14 +1992,9 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12904,
-      "extracted_count": 3,
+      "elapsed_ms": 9269,
+      "extracted_count": 2,
       "raw_items": [
-        {
-          "fieldPath": "pets.notes",
-          "value": "Golden Retriever",
-          "confidence": 0.9
-        },
         {
           "fieldPath": "pets.species",
           "value": "dog",
@@ -1987,7 +2021,7 @@
       "v2_score": 0.0,
       "v2_pass": false,
       "failure_categories": [
-        "schema_gap"
+        "field_path_mismatch"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -2045,8 +2079,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 9426,
-      "extracted_count": 2,
+      "elapsed_ms": 10751,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "family.children.relation",
@@ -2057,6 +2091,11 @@
           "fieldPath": "family.children.firstName",
           "value": "Vincent",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Germany",
+          "confidence": 0.9
         }
       ]
     },
@@ -2064,14 +2103,14 @@
       "field_scores": {
         "laterYears.lifeLessons": {
           "expected": "Time goes faster than you think",
-          "actual": "That time goes faster than you think. You blink and your kids are grown and your parents are gone.",
-          "score": 0.8,
-          "status": "partial"
+          "actual": "time goes faster than you think",
+          "score": 1.0,
+          "status": "exact"
         }
       },
       "forbidden_violations": [],
       "overall_score": 1.0,
-      "v2_score": 0.8,
+      "v2_score": 1.0,
       "v2_pass": true,
       "failure_categories": [],
       "pass": true,
@@ -2134,14 +2173,24 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 2193,
-      "extracted_count": 1,
+      "method": "llm",
+      "elapsed_ms": 14402,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "laterYears.lifeLessons",
-          "value": "That time goes faster than you think. You blink and your kids are grown and your parents are gone.",
-          "confidence": 0.7
+          "value": "time goes faster than you think",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.lifeLessons",
+          "value": "kids are grown",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.lifeLessons",
+          "value": "parents are gone",
+          "confidence": 0.9
         }
       ]
     },
@@ -2149,24 +2198,22 @@
       "field_scores": {
         "education.earlyCareer": {
           "expected": "Was already working construction by age eighteen",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
+          "actual": "working construction",
+          "score": 0.8,
+          "status": "partial"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
-      "v2_score": 0.0,
-      "v2_pass": false,
-      "failure_categories": [
-        "field_path_mismatch"
-      ],
-      "pass": false,
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
       "truth_zone_scores": {
         "must_extract": {
           "total": 1,
-          "hit": 0,
-          "miss": 1
+          "hit": 1,
+          "miss": 0
         },
         "may_extract": {
           "total": 0,
@@ -2189,7 +2236,7 @@
       "truth_zone_details": {
         "education.earlyCareer": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write",
@@ -2217,17 +2264,17 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10485,
+      "elapsed_ms": 8698,
       "extracted_count": 2,
       "raw_items": [
         {
           "fieldPath": "laterYears.significantEvent",
           "value": "turning eighteen",
-          "confidence": 0.9
+          "confidence": 0.7
         },
         {
-          "fieldPath": "laterYears.significantEvent",
-          "value": "already working construction",
+          "fieldPath": "education.earlyCareer",
+          "value": "working construction",
           "confidence": 0.9
         }
       ]
@@ -2334,7 +2381,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14234,
+      "elapsed_ms": 14012,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -2424,13 +2471,28 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11236,
-      "extracted_count": 1,
+      "elapsed_ms": 14441,
+      "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "education.schooling",
           "value": "started school in Dodge, North Dakota",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "first and second grade",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "read big books already",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "read out loud to the whole class",
+          "confidence": 0.8
         }
       ]
     },
@@ -2526,7 +2588,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 16718,
+      "elapsed_ms": 16365,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -2534,9 +2596,9 @@
       "field_scores": {
         "personal.birthOrder": {
           "expected": "2",
-          "actual": null,
+          "actual": "middle child",
           "score": 0.0,
-          "status": "missing"
+          "status": "wrong"
         },
         "siblings.firstName": {
           "expected": "James",
@@ -2546,9 +2608,9 @@
         },
         "siblings.birthOrder": {
           "expected": "younger",
-          "actual": null,
+          "actual": "youngest",
           "score": 0.0,
-          "status": "missing"
+          "status": "wrong"
         }
       },
       "forbidden_violations": [],
@@ -2556,7 +2618,7 @@
       "v2_score": 0.267,
       "v2_pass": false,
       "failure_categories": [
-        "schema_gap"
+        "llm_hallucination"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -2586,7 +2648,7 @@
       "truth_zone_details": {
         "personal.birthOrder": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "siblings.firstName": {
           "zone": "must_extract",
@@ -2594,7 +2656,7 @@
         },
         "siblings.birthOrder": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "family.spouse.firstName": {
           "zone": "must_not_write",
@@ -2622,18 +2684,33 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17158,
-      "extracted_count": 2,
+      "elapsed_ms": 17368,
+      "extracted_count": 5,
       "raw_items": [
+        {
+          "fieldPath": "personal.birthOrder",
+          "value": "middle child",
+          "confidence": 0.9
+        },
         {
           "fieldPath": "siblings.firstName",
           "value": "Verene Marie",
           "confidence": 0.9
         },
         {
+          "fieldPath": "siblings.relation",
+          "value": "sister",
+          "confidence": 0.9
+        },
+        {
           "fieldPath": "siblings.firstName",
           "value": "James Peter",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.birthOrder",
+          "value": "youngest",
+          "confidence": 0.7
         }
       ]
     },
@@ -2641,28 +2718,31 @@
       "field_scores": {
         "pets.name": {
           "expected": "Grey",
-          "actual": "Grey",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         },
         "pets.species": {
           "expected": "horse",
-          "actual": "horse",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 1.0,
-      "v2_score": 1.0,
-      "v2_pass": true,
-      "failure_categories": [],
-      "pass": true,
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap",
+        "field_path_mismatch"
+      ],
+      "pass": false,
       "truth_zone_scores": {
         "must_extract": {
           "total": 2,
-          "hit": 2,
-          "miss": 0
+          "hit": 0,
+          "miss": 2
         },
         "may_extract": {
           "total": 0,
@@ -2685,11 +2765,11 @@
       "truth_zone_details": {
         "pets.name": {
           "zone": "must_extract",
-          "extracted": true
+          "extracted": false
         },
         "pets.species": {
           "zone": "must_extract",
-          "extracted": true
+          "extracted": false
         },
         "family.marriageDate": {
           "zone": "must_not_write",
@@ -2717,8 +2797,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 26221,
-      "extracted_count": 7,
+      "elapsed_ms": 13521,
+      "extracted_count": 6,
       "raw_items": [
         {
           "fieldPath": "pets.notes",
@@ -2726,23 +2806,8 @@
           "confidence": 0.9
         },
         {
-          "fieldPath": "pets.name",
-          "value": "Grey",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "pets.species",
-          "value": "horse",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "pets.name",
-          "value": "Spot",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "pets.species",
-          "value": "dog",
+          "fieldPath": "pets.notes",
+          "value": "dog ownership",
           "confidence": 0.9
         },
         {
@@ -2753,6 +2818,16 @@
         {
           "fieldPath": "siblings.firstName",
           "value": "Verene",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.relation",
+          "value": "uncle",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Johnny",
           "confidence": 0.9
         }
       ]
@@ -2827,8 +2902,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 23762,
-      "extracted_count": 5,
+      "elapsed_ms": 19107,
+      "extracted_count": 6,
       "raw_items": [
         {
           "fieldPath": "education.schooling",
@@ -2853,6 +2928,11 @@
         {
           "fieldPath": "education.schooling",
           "value": "Lawrence Welk was from Strasburg",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "had a nun teacher who was a real nut",
           "confidence": 0.8
         }
       ]
@@ -2927,7 +3007,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 15190,
+      "elapsed_ms": 13794,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -2961,7 +3041,7 @@
       "v2_score": 0.0,
       "v2_pass": false,
       "failure_categories": [
-        "field_path_mismatch"
+        "schema_gap"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -3023,14 +3103,29 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "rules_fallback",
-      "elapsed_ms": 20563,
-      "extracted_count": 1,
+      "method": "llm",
+      "elapsed_ms": 15725,
+      "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "hobbies.hobbies",
-          "value": "We were Germans from Russia. Both sides — the Zarrs and the Schaafs. My grandmother Josie's family, …",
+          "value": "German culture and traditions",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Mathias",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.maidenName",
+          "value": "Josie's maiden name is implied to be Schaaf, but not explicitly stated",
           "confidence": 0.7
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "Ukraine",
+          "confidence": 0.9
         }
       ]
     },
@@ -3038,14 +3133,14 @@
       "field_scores": {
         "earlyMemories.significantEvent": {
           "expected": "uncle August was mean",
-          "actual": "uncle August was mean",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "uncle August was mean to me",
+          "score": 0.8,
+          "status": "partial"
         }
       },
       "forbidden_violations": [],
       "overall_score": 1.0,
-      "v2_score": 1.0,
+      "v2_score": 0.8,
       "v2_pass": true,
       "failure_categories": [],
       "pass": true,
@@ -3109,28 +3204,23 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11586,
-      "extracted_count": 4,
+      "elapsed_ms": 12222,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "earlyMemories.significantEvent",
-          "value": "uncle August was mean",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "earlyMemories.significantEvent",
-          "value": "afraid of uncle August",
+          "value": "uncle August was mean to me",
           "confidence": 0.9
         },
         {
           "fieldPath": "hobbies.hobbies",
           "value": "being outside",
-          "confidence": 0.8
+          "confidence": 0.9
         },
         {
           "fieldPath": "hobbies.hobbies",
           "value": "animals",
-          "confidence": 0.8
+          "confidence": 0.9
         }
       ]
     },
@@ -3224,7 +3314,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 41612,
+      "elapsed_ms": 35297,
       "extracted_count": 6,
       "raw_items": [
         {
@@ -3263,21 +3353,21 @@
       "field_scores": {
         "grandparents.side": {
           "expected": "maternal",
-          "actual": "maternal",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "My grandmother on my mother's side was Josie — Josephine Schaaf. She was fifty years old when she had my mother, which embarrassed her. And my grandfather Mathias Schaaf hated the Russians. His family came from Ukraine — we were Germans from Russia.",
+          "score": 0.0,
+          "status": "wrong"
         },
         "grandparents.firstName": {
           "expected": "Josephine",
-          "actual": "Josephine",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         },
         "grandparents.lastName": {
           "expected": "Schaaf",
-          "actual": "Schaaf",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         },
         "grandparents.ancestry": {
           "expected": "Germans from Russia",
@@ -3287,18 +3377,19 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.75,
-      "v2_score": 0.75,
-      "v2_pass": true,
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
       "failure_categories": [
-        "schema_gap"
+        "llm_hallucination",
+        "field_path_mismatch"
       ],
-      "pass": true,
+      "pass": false,
       "truth_zone_scores": {
         "must_extract": {
           "total": 4,
-          "hit": 3,
-          "miss": 1
+          "hit": 0,
+          "miss": 4
         },
         "may_extract": {
           "total": 0,
@@ -3325,11 +3416,11 @@
         },
         "grandparents.firstName": {
           "zone": "must_extract",
-          "extracted": true
+          "extracted": false
         },
         "grandparents.lastName": {
           "zone": "must_extract",
-          "extracted": true
+          "extracted": false
         },
         "grandparents.ancestry": {
           "zone": "must_extract",
@@ -3360,24 +3451,14 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 19206,
-      "extracted_count": 3,
+      "method": "rules_fallback",
+      "elapsed_ms": 29191,
+      "extracted_count": 1,
       "raw_items": [
         {
           "fieldPath": "grandparents.side",
-          "value": "maternal",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "grandparents.firstName",
-          "value": "Josephine",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "grandparents.lastName",
-          "value": "Schaaf",
-          "confidence": 0.9
+          "value": "My grandmother on my mother's side was Josie — Josephine Schaaf. She was fifty years old when she ha…",
+          "confidence": 0.7
         }
       ]
     },
@@ -3473,7 +3554,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 32232,
+      "elapsed_ms": 33066,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -3515,8 +3596,8 @@
       "v2_score": 0.0,
       "v2_pass": false,
       "failure_categories": [
-        "schema_gap",
         "llm_hallucination",
+        "schema_gap",
         "field_path_mismatch"
       ],
       "pass": false,
@@ -3587,7 +3668,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 18854,
+      "elapsed_ms": 26560,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -3669,7 +3750,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 10570,
+      "elapsed_ms": 28321,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -3755,12 +3836,27 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21087,
-      "extracted_count": 1,
+      "elapsed_ms": 21034,
+      "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "faith.denomination",
           "value": "Catholic",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "sister",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Verene",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Josie",
           "confidence": 0.9
         }
       ]
@@ -3845,7 +3941,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 9262,
+      "elapsed_ms": 10384,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -3864,7 +3960,7 @@
       "field_scores": {
         "health.majorCondition": {
           "expected": "Knee problems from construction work",
-          "actual": "knees giving out",
+          "actual": "When I got older my knees gave out from all those years of construction. Concrete and roofing — that's hard on the body. I had to slow down a lot in my seventies.",
           "score": 0.0,
           "status": "wrong"
         },
@@ -3942,24 +4038,14 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 16218,
-      "extracted_count": 3,
+      "method": "rules_fallback",
+      "elapsed_ms": 14643,
+      "extracted_count": 1,
       "raw_items": [
         {
           "fieldPath": "health.majorCondition",
-          "value": "knees giving out",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "health.majorCondition",
-          "value": "years of construction-related wear and tear on the body",
-          "confidence": 0.8
-        },
-        {
-          "fieldPath": "health.majorCondition",
-          "value": "having to slow down in the seventies",
-          "confidence": 0.9
+          "value": "When I got older my knees gave out from all those years of construction. Concrete and roofing — that…",
+          "confidence": 0.7
         }
       ]
     },
@@ -4027,7 +4113,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 9136,
+      "elapsed_ms": 6212,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -4114,8 +4200,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19838,
-      "extracted_count": 2,
+      "elapsed_ms": 21005,
+      "extracted_count": 5,
       "raw_items": [
         {
           "fieldPath": "parents.firstName",
@@ -4125,6 +4211,21 @@
         {
           "fieldPath": "parents.occupation",
           "value": "foreman of a finishing crew for cement forms",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "father",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "grandparents.firstName",
+          "value": "Arno",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Uncle Al",
           "confidence": 0.9
         }
       ]
@@ -4222,7 +4323,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11579,
+      "elapsed_ms": 10903,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -4247,24 +4348,22 @@
         },
         "pets.species": {
           "expected": "dog",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
+          "actual": "dog",
+          "score": 1.0,
+          "status": "exact"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.5,
-      "v2_score": 0.5,
-      "v2_pass": false,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
       "truth_zone_scores": {
         "must_extract": {
           "total": 2,
-          "hit": 1,
-          "miss": 1
+          "hit": 2,
+          "miss": 0
         },
         "may_extract": {
           "total": 0,
@@ -4291,7 +4390,7 @@
         },
         "pets.species": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "hobbies.hobbies": {
           "zone": "must_not_write",
@@ -4319,8 +4418,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11453,
-      "extracted_count": 2,
+      "elapsed_ms": 19078,
+      "extracted_count": 7,
       "raw_items": [
         {
           "fieldPath": "pets.name",
@@ -4330,6 +4429,31 @@
         {
           "fieldPath": "pets.name",
           "value": "Spot",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.species",
+          "value": "horse",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.species",
+          "value": "dog",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.notes",
+          "value": "loved more than anything, always outside with Grey",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.notes",
+          "value": "Uncle Johnny got Spot when he rented a farm",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.notes",
+          "value": "last dog I had as a kid",
           "confidence": 0.9
         }
       ]
@@ -4414,7 +4538,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19168,
+      "elapsed_ms": 15549,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -4438,30 +4562,30 @@
       "field_scores": {
         "travel.destination": {
           "expected": "France",
-          "actual": "France",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "Hawaii",
+          "score": 0.0,
+          "status": "wrong"
         },
         "travel.purpose": {
           "expected": "Ancestry connection",
-          "actual": null,
+          "actual": "family vacation",
           "score": 0.0,
-          "status": "missing"
+          "status": "wrong"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.5,
-      "v2_score": 0.5,
+      "overall_score": 0.0,
+      "v2_score": 0.0,
       "v2_pass": false,
       "failure_categories": [
-        "schema_gap"
+        "llm_hallucination"
       ],
       "pass": false,
       "truth_zone_scores": {
         "must_extract": {
           "total": 2,
-          "hit": 1,
-          "miss": 1
+          "hit": 0,
+          "miss": 2
         },
         "may_extract": {
           "total": 0,
@@ -4488,7 +4612,7 @@
         },
         "travel.purpose": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "residence.place": {
           "zone": "must_not_write",
@@ -4516,18 +4640,23 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 22691,
-      "extracted_count": 2,
+      "elapsed_ms": 18174,
+      "extracted_count": 3,
       "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "went to Hawaii as a family",
+          "confidence": 0.9
+        },
         {
           "fieldPath": "travel.destination",
           "value": "Hawaii",
           "confidence": 0.9
         },
         {
-          "fieldPath": "travel.destination",
-          "value": "France",
-          "confidence": 0.9
+          "fieldPath": "travel.purpose",
+          "value": "family vacation",
+          "confidence": 0.8
         }
       ]
     },
@@ -4624,7 +4753,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14704,
+      "elapsed_ms": 12601,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -4654,7 +4783,7 @@
         },
         "pets.species": {
           "expected": "dog",
-          "actual": "lab",
+          "actual": "labrador retriever",
           "score": 0.0,
           "status": "wrong"
         }
@@ -4721,7 +4850,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10577,
+      "elapsed_ms": 13167,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -4731,8 +4860,8 @@
         },
         {
           "fieldPath": "pets.species",
-          "value": "lab",
-          "confidence": 0.9
+          "value": "labrador retriever",
+          "confidence": 0.95
         }
       ]
     },
@@ -4823,7 +4952,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 6840,
+      "elapsed_ms": 9612,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -4833,13 +4962,13 @@
         },
         {
           "fieldPath": "pets.name",
-          "value": "Dusty",
+          "value": "barn cats",
           "confidence": 0.9
         },
         {
           "fieldPath": "pets.name",
-          "value": "(multiple barn cats)",
-          "confidence": 0.7
+          "value": "Dusty",
+          "confidence": 0.9
         }
       ]
     },
@@ -4933,7 +5062,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17287,
+      "elapsed_ms": 16082,
       "extracted_count": 6,
       "raw_items": [
         {
@@ -4972,9 +5101,9 @@
       "field_scores": {
         "family.children.firstName": {
           "expected": "Vincent",
-          "actual": "Vincent",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "Vincent, Jason, Christopher",
+          "score": 0.8,
+          "status": "partial"
         },
         "family.children.relation": {
           "expected": "son",
@@ -4985,7 +5114,7 @@
       },
       "forbidden_violations": [],
       "overall_score": 0.5,
-      "v2_score": 0.5,
+      "v2_score": 0.4,
       "v2_pass": false,
       "failure_categories": [
         "field_path_mismatch"
@@ -5050,22 +5179,12 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19096,
-      "extracted_count": 5,
+      "elapsed_ms": 11059,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "family.children.firstName",
-          "value": "Vincent",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.firstName",
-          "value": "Jason",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.firstName",
-          "value": "Christopher",
+          "value": "Vincent, Jason, Christopher",
           "confidence": 0.9
         },
         {
@@ -5155,7 +5274,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17774,
+      "elapsed_ms": 12103,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -5250,7 +5369,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11428,
+      "elapsed_ms": 9079,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -5275,14 +5394,14 @@
         },
         "laterYears.retirement": {
           "expected": "January 1st, 2026",
-          "actual": "January 1st, 2026",
-          "score": 1.0,
-          "status": "exact"
+          "actual": "retired on January 1st, 2026",
+          "score": 0.8,
+          "status": "partial"
         }
       },
       "forbidden_violations": [],
       "overall_score": 1.0,
-      "v2_score": 0.9,
+      "v2_score": 0.8,
       "v2_pass": true,
       "failure_categories": [],
       "pass": true,
@@ -5335,7 +5454,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14254,
+      "elapsed_ms": 13624,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -5350,7 +5469,7 @@
         },
         {
           "fieldPath": "laterYears.retirement",
-          "value": "January 1st, 2026",
+          "value": "retired on January 1st, 2026",
           "confidence": 0.9
         }
       ]
@@ -5420,7 +5539,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 7606,
+      "elapsed_ms": 10262,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -5537,13 +5656,18 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 30548,
-      "extracted_count": 10,
+      "elapsed_ms": 22390,
+      "extracted_count": 11,
       "raw_items": [
         {
           "fieldPath": "parents.firstName",
           "value": "Kent",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.lastName",
+          "value": "(not provided)",
+          "confidence": 0.5
         },
         {
           "fieldPath": "parents.occupation",
@@ -5657,7 +5781,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14139,
+      "elapsed_ms": 12817,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -5746,7 +5870,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 15071,
+      "elapsed_ms": 8693,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -5814,7 +5938,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 12698,
+      "elapsed_ms": 10189,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -5893,8 +6017,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 10019,
-      "extracted_count": 3,
+      "elapsed_ms": 10067,
+      "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "pets.name",
@@ -5910,6 +6034,11 @@
           "fieldPath": "pets.species",
           "value": "cat",
           "confidence": 0.7
+        },
+        {
+          "fieldPath": "pets.notes",
+          "value": "yellow lab, barn cats",
+          "confidence": 0.9
         }
       ]
     },
@@ -5985,7 +6114,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 8722,
+      "elapsed_ms": 8769,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -6072,7 +6201,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12993,
+      "elapsed_ms": 15757,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -6182,7 +6311,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 32957,
+      "elapsed_ms": 30311,
       "extracted_count": 8,
       "raw_items": [
         {
@@ -6231,24 +6360,22 @@
       "field_scores": {
         "family.marriagePlace": {
           "expected": "St. Mary's",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
+          "actual": "St. Mary's church",
+          "score": 0.8,
+          "status": "partial"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
-      "v2_score": 0.0,
-      "v2_pass": false,
-      "failure_categories": [
-        "schema_gap"
-      ],
-      "pass": false,
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
       "truth_zone_scores": {
         "must_extract": {
           "total": 1,
-          "hit": 0,
-          "miss": 1
+          "hit": 1,
+          "miss": 0
         },
         "may_extract": {
           "total": 0,
@@ -6271,7 +6398,7 @@
       "truth_zone_details": {
         "family.marriagePlace": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         }
       },
       "case_id": "case_061",
@@ -6289,9 +6416,14 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 7332,
-      "extracted_count": 2,
+      "elapsed_ms": 13038,
+      "extracted_count": 3,
       "raw_items": [
+        {
+          "fieldPath": "family.marriagePlace",
+          "value": "St. Mary's church",
+          "confidence": 0.9
+        },
         {
           "fieldPath": "family.marriageDate",
           "value": "1956",
@@ -6396,7 +6528,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 31148,
+      "elapsed_ms": 32782,
       "extracted_count": 6,
       "raw_items": [
         {
@@ -6521,7 +6653,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13708,
+      "elapsed_ms": 10098,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -6625,8 +6757,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 37348,
-      "extracted_count": 3,
+      "elapsed_ms": 25307,
+      "extracted_count": 2,
       "raw_items": [
         {
           "fieldPath": "family.marriageDate",
@@ -6637,11 +6769,6 @@
           "fieldPath": "family.spouse.firstName",
           "value": "Janice",
           "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.spouse.placeOfBirth",
-          "value": "out in Dodge",
-          "confidence": 0.7
         }
       ]
     },
@@ -6739,7 +6866,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 38708,
+      "elapsed_ms": 46128,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -6765,7 +6892,7 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.5,
+      "overall_score": 0.55,
       "v2_score": 0.5,
       "v2_pass": false,
       "failure_categories": [
@@ -6780,8 +6907,8 @@
         },
         "may_extract": {
           "total": 2,
-          "hit": 0,
-          "miss": 2
+          "hit": 1,
+          "miss": 1
         },
         "should_ignore": {
           "total": 1,
@@ -6811,7 +6938,7 @@
         },
         "siblings.firstName": {
           "zone": "may_extract",
-          "extracted": false
+          "extracted": true
         },
         "parents.firstName": {
           "zone": "should_ignore",
@@ -6839,8 +6966,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 8667,
-      "extracted_count": 2,
+      "elapsed_ms": 21433,
+      "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "pets.name",
@@ -6850,6 +6977,16 @@
         {
           "fieldPath": "pets.name",
           "value": "Spot",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.relation",
+          "value": "sister",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Verene",
           "confidence": 0.9
         }
       ]
@@ -6930,8 +7067,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21616,
-      "extracted_count": 4,
+      "elapsed_ms": 20881,
+      "extracted_count": 5,
       "raw_items": [
         {
           "fieldPath": "education.earlyCareer",
@@ -6942,6 +7079,11 @@
           "fieldPath": "parents.firstName",
           "value": "Kent",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.lastName",
+          "value": "not provided",
+          "confidence": 0.5
         },
         {
           "fieldPath": "parents.occupation",
@@ -7040,7 +7182,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 39583,
+      "elapsed_ms": 46652,
       "extracted_count": 4,
       "raw_items": [
         {
@@ -7151,7 +7293,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 42606,
+      "elapsed_ms": 47281,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -7260,7 +7402,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 38219,
+      "elapsed_ms": 37780,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -7353,22 +7495,22 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 25190,
-      "extracted_count": 6,
+      "elapsed_ms": 19138,
+      "extracted_count": 7,
       "raw_items": [
-        {
-          "fieldPath": "earlyMemories.significantEvent",
-          "value": "French",
-          "confidence": 0.9
-        },
         {
           "fieldPath": "education.earlyCareer",
           "value": "construction and trades",
           "confidence": 0.9
         },
         {
-          "fieldPath": "parents.birthPlace",
-          "value": "Lorraine",
+          "fieldPath": "parents.firstName",
+          "value": "John Michael",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.lastName",
+          "value": "Shong",
           "confidence": 0.9
         },
         {
@@ -7383,6 +7525,11 @@
         },
         {
           "fieldPath": "family.children.placeOfBirth",
+          "value": "Germany",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.place",
           "value": "Germany",
           "confidence": 0.9
         }
@@ -7407,7 +7554,9 @@
       "overall_score": 1.0,
       "v2_score": 1.0,
       "v2_pass": true,
-      "failure_categories": [],
+      "failure_categories": [
+        "noise_leakage"
+      ],
       "pass": true,
       "truth_zone_scores": {
         "must_extract": {
@@ -7422,9 +7571,9 @@
         },
         "should_ignore": {
           "total": 2,
-          "hit": 2,
+          "hit": 1,
           "miss": 0,
-          "leaked": 0
+          "leaked": 1
         },
         "must_not_write": {
           "total": 1,
@@ -7452,8 +7601,8 @@
         },
         "family.spouse.firstName": {
           "zone": "should_ignore",
-          "extracted": false,
-          "leaked": false
+          "extracted": true,
+          "leaked": true
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write",
@@ -7481,12 +7630,22 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 30651,
-      "extracted_count": 7,
+      "elapsed_ms": 35220,
+      "extracted_count": 11,
       "raw_items": [
         {
           "fieldPath": "family.marriageDate",
           "value": "October 10, 1959",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.firstName",
+          "value": "Kent",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
           "confidence": 0.9
         },
         {
@@ -7500,8 +7659,18 @@
           "confidence": 0.9
         },
         {
+          "fieldPath": "family.children.relation",
+          "value": "son",
+          "confidence": 0.9
+        },
+        {
           "fieldPath": "family.children.firstName",
           "value": "Jason",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
           "confidence": 0.9
         },
         {
@@ -7605,7 +7774,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 40218,
+      "elapsed_ms": 38252,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -7631,8 +7800,8 @@
         },
         "may_extract": {
           "total": 2,
-          "hit": 0,
-          "miss": 2
+          "hit": 1,
+          "miss": 1
         },
         "should_ignore": {
           "total": 2,
@@ -7650,7 +7819,7 @@
       "truth_zone_details": {
         "hobbies.hobbies": {
           "zone": "may_extract",
-          "extracted": false
+          "extracted": true
         },
         "personal.culture": {
           "zone": "may_extract",
@@ -7686,29 +7855,14 @@
       "case_mode": "style",
       "sequence_group": null,
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 42079,
-      "extracted_count": 4,
+      "method": "rules_fallback",
+      "elapsed_ms": 44623,
+      "extracted_count": 1,
       "raw_items": [
         {
-          "fieldPath": "parents.maidenName",
-          "value": "Shong",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "parents.maidenName",
-          "value": "Bolley",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "parents.birthPlace",
-          "value": "Lorraine",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "parents.birthPlace",
-          "value": "Hanover",
-          "confidence": 0.9
+          "fieldPath": "hobbies.hobbies",
+          "value": "The Shong side — my dad's mother's people — they were French, from Lorraine. And the Bolleys were Ge…",
+          "confidence": 0.7
         }
       ]
     },
@@ -7802,8 +7956,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 30687,
-      "extracted_count": 2,
+      "elapsed_ms": 38701,
+      "extracted_count": 5,
       "raw_items": [
         {
           "fieldPath": "parents.firstName",
@@ -7811,8 +7965,23 @@
           "confidence": 0.9
         },
         {
+          "fieldPath": "parents.lastName",
+          "value": "not provided",
+          "confidence": 0.5
+        },
+        {
           "fieldPath": "parents.occupation",
           "value": "musician",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "mother",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Anna",
           "confidence": 0.9
         }
       ]
@@ -7905,7 +8074,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 48162,
+      "elapsed_ms": 42571,
       "extracted_count": 3,
       "raw_items": [
         {
@@ -8020,7 +8189,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 36878,
+      "elapsed_ms": 46279,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -8034,25 +8203,24 @@
       "field_scores": {
         "education.higherEducation": {
           "expected": "Bismarck Junior College, Speech and History, credits transferred to UND",
-          "actual": "studied Speech and History at Bismarck Junior College",
-          "score": 0.0,
-          "status": "wrong"
+          "actual": "Speech",
+          "score": 0.8,
+          "status": "partial"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
-      "v2_score": 0.0,
-      "v2_pass": false,
+      "overall_score": 0.9,
+      "v2_score": 0.8,
+      "v2_pass": true,
       "failure_categories": [
-        "llm_hallucination",
         "noise_leakage"
       ],
-      "pass": false,
+      "pass": true,
       "truth_zone_scores": {
         "must_extract": {
           "total": 1,
-          "hit": 0,
-          "miss": 1
+          "hit": 1,
+          "miss": 0
         },
         "may_extract": {
           "total": 1,
@@ -8112,17 +8280,22 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17225,
-      "extracted_count": 5,
+      "elapsed_ms": 20567,
+      "extracted_count": 6,
       "raw_items": [
         {
           "fieldPath": "education.higherEducation",
-          "value": "studied Speech and History at Bismarck Junior College",
+          "value": "Bismarck Junior College studying Speech and History",
           "confidence": 0.9
         },
         {
           "fieldPath": "education.higherEducation",
-          "value": "credits transferred to UND (University of North Dakota)",
+          "value": "Speech",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "education.higherEducation",
+          "value": "UND — University of North Dakota",
           "confidence": 0.9
         },
         {
@@ -8146,13 +8319,13 @@
       "field_scores": {
         "siblings.firstName": {
           "expected": "Vincent",
-          "actual": "Vincent Edward",
+          "actual": "Vince",
           "score": 0.8,
           "status": "partial"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.433,
+      "overall_score": 0.3,
       "v2_score": 0.8,
       "v2_pass": true,
       "failure_categories": [
@@ -8167,14 +8340,14 @@
         },
         "may_extract": {
           "total": 3,
-          "hit": 1,
-          "miss": 2
+          "hit": 0,
+          "miss": 3
         },
         "should_ignore": {
           "total": 2,
-          "hit": 1,
+          "hit": 0,
           "miss": 0,
-          "leaked": 1
+          "leaked": 2
         },
         "must_not_write": {
           "total": 0,
@@ -8198,7 +8371,7 @@
         },
         "siblings.birthOrder": {
           "zone": "may_extract",
-          "extracted": true
+          "extracted": false
         },
         "siblings.uniqueCharacteristics": {
           "zone": "may_extract",
@@ -8211,8 +8384,8 @@
         },
         "parents.occupation": {
           "zone": "should_ignore",
-          "extracted": false,
-          "leaked": false
+          "extracted": true,
+          "leaked": true
         }
       },
       "case_id": "case_079",
@@ -8230,8 +8403,8 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 15123,
-      "extracted_count": 6,
+      "elapsed_ms": 15844,
+      "extracted_count": 5,
       "raw_items": [
         {
           "fieldPath": "personal.placeOfBirth",
@@ -8240,27 +8413,22 @@
         },
         {
           "fieldPath": "siblings.firstName",
-          "value": "Vincent Edward",
+          "value": "Vince",
           "confidence": 0.9
         },
         {
           "fieldPath": "siblings.firstName",
-          "value": "Jason Richard Horne",
+          "value": "Jason",
           "confidence": 0.9
         },
         {
-          "fieldPath": "siblings.birthOrder",
-          "value": "oldest",
+          "fieldPath": "siblings.firstName",
+          "value": "(self)",
           "confidence": 0.9
         },
         {
-          "fieldPath": "siblings.birthOrder",
-          "value": "middle",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "siblings.birthOrder",
-          "value": "youngest",
+          "fieldPath": "parents.occupation",
+          "value": "construction worker",
           "confidence": 0.9
         }
       ]
@@ -8365,7 +8533,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 34495,
+      "elapsed_ms": 50262,
       "extracted_count": 4,
       "raw_items": [
         {
@@ -8475,7 +8643,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 42205,
+      "elapsed_ms": 42478,
       "extracted_count": 5,
       "raw_items": [
         {
@@ -8509,23 +8677,24 @@
       "field_scores": {
         "residence.place": {
           "expected": "Spokane, Washington",
-          "actual": null,
-          "score": 0.0,
-          "status": "missing"
+          "actual": "All the time. I was born in Spokane, Washington because my dad Pete was working at an aluminum factory out there. Then we moved back to Dodge, North Dakota — that's where Dad's family was from. I went to first and second grade there. After that we moved to Glen Ulin where I went to Sacred Hearts for third, fourth, and fifth grade. My sister Verene was there too but she was always inside. Then we moved to Strasburg for sixth grade — Lawrence Welk was from there, his wife was a nurse at the hospital. After that there was Bismarck where I started college. And then after Kent and I got married we lived in Germany for a while where Vincent was born, then all over. My dad had worked on the Garrison Dam too — he was a foreman of a finishing crew for the cement forms. So moving was just what our family did.",
+          "score": 0.8,
+          "status": "partial"
         },
         "personal.placeOfBirth": {
           "expected": "Spokane, Washington",
-          "actual": "Spokane, Washington",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.5,
-      "v2_score": 0.5,
+      "overall_score": 0.467,
+      "v2_score": 0.4,
       "v2_pass": false,
       "failure_categories": [
-        "field_path_mismatch"
+        "field_path_mismatch",
+        "noise_leakage"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -8536,14 +8705,14 @@
         },
         "may_extract": {
           "total": 3,
-          "hit": 0,
-          "miss": 3
+          "hit": 2,
+          "miss": 1
         },
         "should_ignore": {
           "total": 3,
-          "hit": 3,
+          "hit": 2,
           "miss": 0,
-          "leaked": 0
+          "leaked": 1
         },
         "must_not_write": {
           "total": 0,
@@ -8555,11 +8724,11 @@
       "truth_zone_details": {
         "personal.placeOfBirth": {
           "zone": "must_extract",
-          "extracted": true
+          "extracted": false
         },
         "residence.place": {
           "zone": "must_extract",
-          "extracted": false
+          "extracted": true
         },
         "education.schooling": {
           "zone": "may_extract",
@@ -8567,16 +8736,16 @@
         },
         "parents.occupation": {
           "zone": "may_extract",
-          "extracted": false
+          "extracted": true
         },
         "parents.firstName": {
           "zone": "may_extract",
-          "extracted": false
+          "extracted": true
         },
         "siblings.firstName": {
           "zone": "should_ignore",
-          "extracted": false,
-          "leaked": false
+          "extracted": true,
+          "leaked": true
         },
         "family.children.firstName": {
           "zone": "should_ignore",
@@ -8603,39 +8772,39 @@
       "case_mode": "style",
       "sequence_group": null,
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 21775,
+      "method": "rules_fallback",
+      "elapsed_ms": 37251,
       "extracted_count": 6,
       "raw_items": [
         {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Spokane, Washington",
+          "fieldPath": "siblings.relation",
+          "value": "Sister",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Verene",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "Father",
           "confidence": 0.9
         },
         {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Dodge, North Dakota",
-          "confidence": 0.9
+          "fieldPath": "parents.firstName",
+          "value": "Pete",
+          "confidence": 0.85
         },
         {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Glen Ullin",
-          "confidence": 0.9
+          "fieldPath": "parents.occupation",
+          "value": "working at an aluminum factory out there",
+          "confidence": 0.8
         },
         {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Strasburg",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Bismarck",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "personal.placeOfBirth",
-          "value": "Germany",
-          "confidence": 0.9
+          "fieldPath": "residence.place",
+          "value": "All the time. I was born in Spokane, Washington because my dad Pete was working at an aluminum facto…",
+          "confidence": 0.7
         }
       ]
     },
@@ -8717,7 +8886,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 37715,
+      "elapsed_ms": 41924,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -8731,33 +8900,35 @@
       "field_scores": {
         "family.children.firstName": {
           "expected": "Gretchen",
-          "actual": "Gretchen Jo",
+          "actual": "Sure. Gretchen Jo was born October 4, 1991. She's been through a lot — went through some major life challenges in 2024, been going to ACA meetings. She lives in Austin, Texas now. Then Amelia Fay, born August 5, 1994. She's got her MSW, master's in social work. She's lived everywhere — New Mexico, Colorado, Hawaii — she works in social services. And Cole Harber Horne, born April 10, 2002, he's the baby. He's in medical billing right now but also studying computer science. Really into AI and cybersecurity and accounting. And then Vince of course, the oldest, born in Germany. All four of them are different but they're all good people. Melanie and I try to do family dinners whenever everyone's in the same state.",
           "score": 0.8,
           "status": "partial"
         },
         "family.children.dateOfBirth": {
           "expected": "1991-10-04",
-          "actual": "October 4, 1991",
-          "score": 1.0,
-          "status": "exact"
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.55,
-      "v2_score": 0.9,
-      "v2_pass": true,
-      "failure_categories": [],
+      "overall_score": 0.0,
+      "v2_score": 0.4,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
       "pass": false,
       "truth_zone_scores": {
         "must_extract": {
           "total": 2,
-          "hit": 1,
-          "miss": 1
+          "hit": 0,
+          "miss": 2
         },
         "may_extract": {
           "total": 2,
-          "hit": 1,
-          "miss": 1
+          "hit": 0,
+          "miss": 2
         },
         "should_ignore": {
           "total": 1,
@@ -8779,7 +8950,7 @@
         },
         "family.children.dateOfBirth": {
           "zone": "must_extract",
-          "extracted": true
+          "extracted": false
         },
         "family.children.lastName": {
           "zone": "may_extract",
@@ -8787,7 +8958,7 @@
         },
         "family.children.placeOfBirth": {
           "zone": "may_extract",
-          "extracted": true
+          "extracted": false
         },
         "family.spouse.firstName": {
           "zone": "should_ignore",
@@ -8819,49 +8990,14 @@
       "case_mode": "style",
       "sequence_group": null,
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 37166,
-      "extracted_count": 8,
+      "method": "rules_fallback",
+      "elapsed_ms": 46237,
+      "extracted_count": 1,
       "raw_items": [
         {
           "fieldPath": "family.children.firstName",
-          "value": "Gretchen Jo",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.dateOfBirth",
-          "value": "October 4, 1991",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.firstName",
-          "value": "Amelia Fay",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.dateOfBirth",
-          "value": "August 5, 1994",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.firstName",
-          "value": "Cole Harber Horne",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.dateOfBirth",
-          "value": "April 10, 2002",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.firstName",
-          "value": "Vince",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.placeOfBirth",
-          "value": "Germany",
-          "confidence": 0.9
+          "value": "Sure. Gretchen Jo was born October 4, 1991. She's been through a lot — went through some major life …",
+          "confidence": 0.7
         }
       ]
     },
@@ -8967,12 +9103,12 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 47055,
+      "elapsed_ms": 47484,
       "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "earlyMemories.significantEvent",
-          "value": "German from Russia",
+          "value": "Germans from Russia",
           "confidence": 0.9
         },
         {
@@ -9082,7 +9218,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 38034,
+      "elapsed_ms": 49793,
       "extracted_count": 1,
       "raw_items": [
         {
@@ -9176,7 +9312,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 38484,
+      "elapsed_ms": 34442,
       "extracted_count": 5,
       "raw_items": [
         {
@@ -9289,8 +9425,8 @@
       "sequence_group": "janice_pets",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11847,
-      "extracted_count": 2,
+      "elapsed_ms": 9896,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "pets.notes",
@@ -9301,18 +9437,21 @@
           "fieldPath": "residence.place",
           "value": "Dodge",
           "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.region",
+          "value": "state unspecified",
+          "confidence": 0.7
         }
       ]
     },
     {
       "field_scores": {},
       "forbidden_violations": [],
-      "overall_score": 0.967,
+      "overall_score": 1.0,
       "v2_score": 0.0,
       "v2_pass": false,
-      "failure_categories": [
-        "noise_leakage"
-      ],
+      "failure_categories": [],
       "pass": true,
       "truth_zone_scores": {
         "must_extract": {
@@ -9327,9 +9466,9 @@
         },
         "should_ignore": {
           "total": 3,
-          "hit": 2,
+          "hit": 3,
           "miss": 0,
-          "leaked": 1
+          "leaked": 0
         },
         "must_not_write": {
           "total": 0,
@@ -9358,8 +9497,8 @@
         },
         "residence.place": {
           "zone": "should_ignore",
-          "extracted": true,
-          "leaked": true
+          "extracted": false,
+          "leaked": false
         },
         "parents.occupation": {
           "zone": "should_ignore",
@@ -9382,22 +9521,37 @@
       "sequence_group": "chris_birthplace",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 15362,
-      "extracted_count": 5,
+      "elapsed_ms": 23977,
+      "extracted_count": 8,
       "raw_items": [
         {
-          "fieldPath": "residence.place",
+          "fieldPath": "hobbies.hobbies",
+          "value": "being outside",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.region",
           "value": "North Dakota",
           "confidence": 0.9
         },
         {
           "fieldPath": "residence.notes",
-          "value": "rural, wide open, family-centered",
+          "value": "rural, wide open, family-centered, had a dog (golden retriever)",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "Brother",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "Brother",
           "confidence": 0.9
         },
         {
           "fieldPath": "pets.species",
-          "value": "golden retriever",
+          "value": "dog",
           "confidence": 0.9
         },
         {
@@ -9406,8 +9560,8 @@
           "confidence": 0.9
         },
         {
-          "fieldPath": "siblings.relation",
-          "value": "Brother",
+          "fieldPath": "pets.species",
+          "value": "golden retriever",
           "confidence": 0.9
         }
       ]
@@ -9479,8 +9633,8 @@
       "sequence_group": "kent_father",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11064,
-      "extracted_count": 2,
+      "elapsed_ms": 14644,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "parents.notableLifeEvents",
@@ -9489,7 +9643,12 @@
         },
         {
           "fieldPath": "parents.notableLifeEvents",
-          "value": "died December 1st 1985",
+          "value": "had a complicated relationship",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "was a good man",
           "confidence": 0.9
         }
       ]
@@ -9564,7 +9723,7 @@
       "sequence_group": "janice_marriage",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13690,
+      "elapsed_ms": 11618,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -9649,24 +9808,14 @@
       "case_mode": "hybrid",
       "sequence_group": "chris_children",
       "mode": "live",
-      "method": "llm",
-      "elapsed_ms": 18744,
-      "extracted_count": 3,
+      "method": "rules_fallback",
+      "elapsed_ms": 34530,
+      "extracted_count": 1,
       "raw_items": [
         {
           "fieldPath": "family.children.firstName",
-          "value": "Gretchen",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "family.children.relation",
-          "value": "daughter",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "grandparents.firstName",
-          "value": "Janice",
-          "confidence": 0.9
+          "value": "Gretchen's had a tough road. In 2024 she went through some major life challenges. She's been going t…",
+          "confidence": 0.7
         }
       ]
     },
@@ -9749,7 +9898,7 @@
       "sequence_group": "kent_spouse",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 18133,
+      "elapsed_ms": 21107,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -9840,8 +9989,8 @@
       "sequence_group": "janice_siblings",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 20378,
-      "extracted_count": 5,
+      "elapsed_ms": 26866,
+      "extracted_count": 9,
       "raw_items": [
         {
           "fieldPath": "siblings.firstName",
@@ -9864,8 +10013,28 @@
           "confidence": 0.9
         },
         {
-          "fieldPath": "parents.maidenName",
+          "fieldPath": "parents.firstName",
           "value": "Leila",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.maidenName",
+          "value": "Zarr",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "Richardton Hospital",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "value": "not specified",
+          "confidence": 0.5
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "wedding anniversary",
           "confidence": 0.9
         }
       ]
@@ -9937,7 +10106,7 @@
       "sequence_group": "chris_birthplace",
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 7806,
+      "elapsed_ms": 6069,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -10010,7 +10179,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 2146,
+      "elapsed_ms": 2333,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -10078,7 +10247,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 2204,
+      "elapsed_ms": 2203,
       "extracted_count": 0,
       "raw_items": []
     },
@@ -10155,12 +10324,12 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 24994,
-      "extracted_count": 5,
+      "elapsed_ms": 13111,
+      "extracted_count": 4,
       "raw_items": [
         {
           "fieldPath": "family.children.relation",
-          "value": "brother",
+          "value": "son",
           "confidence": 0.9
         },
         {
@@ -10176,11 +10345,6 @@
         {
           "fieldPath": "parents.occupation",
           "value": "construction job",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "parents.relation",
-          "value": "father",
           "confidence": 0.9
         }
       ]
@@ -10252,7 +10416,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13247,
+      "elapsed_ms": 9516,
       "extracted_count": 2,
       "raw_items": [
         {
@@ -10335,10 +10499,16 @@
       "case_mode": "contract",
       "sequence_group": null,
       "mode": "live",
-      "method": "fallback",
-      "elapsed_ms": 11892,
-      "extracted_count": 0,
-      "raw_items": []
+      "method": "llm",
+      "elapsed_ms": 9475,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "community.significantEvent",
+          "value": "helping neighbors in need",
+          "confidence": 0.8
+        }
+      ]
     },
     {
       "field_scores": {},
@@ -10405,13 +10575,23 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 7863,
-      "extracted_count": 1,
+      "elapsed_ms": 9030,
+      "extracted_count": 3,
       "raw_items": [
         {
           "fieldPath": "residence.period",
           "value": "before 1962",
           "confidence": 0.7
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vince",
+          "confidence": 0.9
         }
       ]
     },
@@ -10488,7 +10668,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13008,
+      "elapsed_ms": 13288,
       "extracted_count": 4,
       "raw_items": [
         {
@@ -10504,7 +10684,7 @@
         {
           "fieldPath": "travel.significantTrip",
           "value": "Ross",
-          "confidence": 0.9
+          "confidence": 0.8
         },
         {
           "fieldPath": "travel.significantTrip",
@@ -10595,7 +10775,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 20046,
+      "elapsed_ms": 13973,
       "extracted_count": 4,
       "raw_items": [
         {
@@ -10624,25 +10804,24 @@
       "field_scores": {
         "laterYears.lifeLessons": {
           "expected": "Family is everything — show up and be there",
-          "actual": "Family is everything.",
-          "score": 0.0,
-          "status": "wrong"
+          "actual": "family is everything",
+          "score": 0.8,
+          "status": "partial"
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.0,
-      "v2_score": 0.0,
-      "v2_pass": false,
+      "overall_score": 0.8,
+      "v2_score": 0.8,
+      "v2_pass": true,
       "failure_categories": [
-        "llm_hallucination",
         "noise_leakage"
       ],
-      "pass": false,
+      "pass": true,
       "truth_zone_scores": {
         "must_extract": {
           "total": 1,
-          "hit": 0,
-          "miss": 1
+          "hit": 1,
+          "miss": 0
         },
         "may_extract": {
           "total": 0,
@@ -10651,9 +10830,9 @@
         },
         "should_ignore": {
           "total": 3,
-          "hit": 2,
+          "hit": 1,
           "miss": 0,
-          "leaked": 1
+          "leaked": 2
         },
         "must_not_write": {
           "total": 1,
@@ -10679,8 +10858,8 @@
         },
         "family.children.firstName": {
           "zone": "should_ignore",
-          "extracted": false,
-          "leaked": false
+          "extracted": true,
+          "leaked": true
         },
         "education.higherEducation": {
           "zone": "must_not_write",
@@ -10703,17 +10882,32 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 37186,
-      "extracted_count": 2,
+      "elapsed_ms": 27064,
+      "extracted_count": 5,
       "raw_items": [
         {
           "fieldPath": "laterYears.lifeLessons",
-          "value": "Family is everything.",
+          "value": "family is everything",
           "confidence": 0.9
         },
         {
           "fieldPath": "parents.occupation",
-          "value": "construction work",
+          "value": "construction worker",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Gretchen",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Amelia",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Cole",
           "confidence": 0.9
         }
       ]
