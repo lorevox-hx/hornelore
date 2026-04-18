@@ -1,0 +1,188 @@
+[
+  {
+    "case_id": "case_003",
+    "narrator": "christopher-todd-horne",
+    "behavior": "extract_single",
+    "answer": "I graduated from Bismarck High School in 1981.",
+    "section": "the_launch",
+    "expected_fields": {
+      "education.schooling": "Graduated from Bismarck High School, 1981"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "education.schooling",
+        "value": "Bismarck High School",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "llm",
+    "raw_output": "[\n  {\n    \"fieldPath\": \"education.schooling\",\n    \"value\": \"Bismarck High School\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"education.higherEducation\",\n    \"value\": null,\n    \"confidence\": 0.0\n  }\n]",
+    "elapsed_ms": 12083
+  },
+  {
+    "case_id": "case_006",
+    "narrator": "christopher-todd-horne",
+    "behavior": "extract_multiple",
+    "answer": "I retired on January 1st, 2026. I'd been the OT at West Las Vegas Schools since 1997, so that was almost 29 years.",
+    "section": "the_off_ramp",
+    "expected_fields": {
+      "laterYears.retirement": "January 1st, 2026",
+      "education.careerProgression": "West Las Vegas Schools since 1997"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "laterYears.retirement",
+        "value": "January 1st, 2026",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      },
+      {
+        "fieldPath": "education.careerProgression",
+        "value": "OT at West Las Vegas Schools",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      },
+      {
+        "fieldPath": "education.careerProgression",
+        "value": "almost 29 years",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "llm",
+    "raw_output": "[\n  {\n    \"fieldPath\": \"laterYears.retirement\",\n    \"value\": \"January 1st, 2026\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"education.careerProgression\",\n    \"value\": \"OT at West Las Vegas Schools\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"education.careerProgression\",\n    \"value\": \"almost 29 years\",\n    \"confidence\": 0.9\n  }\n]",
+    "elapsed_ms": 15085
+  },
+  {
+    "case_id": "case_010",
+    "narrator": "christopher-todd-horne",
+    "behavior": "extract_multiple",
+    "answer": "We had a Golden Retriever named Ivan. He was the family dog when I was growing up.",
+    "section": "childhood_pets",
+    "expected_fields": {
+      "pets.name": "Ivan",
+      "pets.species": "dog"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "pets.species",
+        "value": "dog",
+        "writeMode": "candidate_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": "pets_0",
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      },
+      {
+        "fieldPath": "pets.name",
+        "value": "Ivan",
+        "writeMode": "candidate_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": "pets_0",
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "llm",
+    "raw_output": "[\n  {\n    \"fieldPath\": \"pets.species\",\n    \"value\": \"dog\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"pets.name\",\n    \"value\": \"Ivan\",\n    \"confidence\": 0.9\n  }\n]",
+    "elapsed_ms": 6900
+  },
+  {
+    "case_id": "case_020",
+    "narrator": "kent-james-horne",
+    "behavior": "extract_single",
+    "answer": "I don't really remember anything special about turning eighteen. I was already working construction by then.",
+    "section": "civic_entry_age_18",
+    "expected_fields": {
+      "education.earlyCareer": "Was already working construction by age eighteen"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "education.earlyCareer",
+        "value": "working construction",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "llm",
+    "raw_output": "[\n  {\"fieldPath\":\"civic.entryAge\",\"value\":18,\"confidence\":0.9},\n  {\"fieldPath\":\"education.earlyCareer\",\"value\":\"working construction\",\"confidence\":0.9}\n]",
+    "elapsed_ms": 7505
+  },
+  {
+    "case_id": "case_038",
+    "narrator": "janice-josephine-horne",
+    "behavior": "clarify_before_write",
+    "answer": "I've been pretty healthy my whole life, honestly. I was tough. I was always outside, always working. I don't have any big health stories to tell.",
+    "section": "health_and_body",
+    "expected_fields": {},
+    "extracted_items": [],
+    "method": "fallback",
+    "raw_output": "[\n  {\n    \"fieldPath\": \"health.majorCondition\",\n    \"value\": \"pretty healthy\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"health.milestone\",\n    \"value\": \"no big health stories to tell\",\n    \"confidence\": 0.7\n  }\n]",
+    "elapsed_ms": 9416
+  },
+  {
+    "case_id": "case_059",
+    "narrator": "kent-james-horne",
+    "behavior": "extract_compound",
+    "answer": "I started out as a welder's helper right out of school. Then I got on at the plant and worked my way up to foreman. I was there for thirty-two years until I retired.",
+    "section": "career_progression_vs_early",
+    "expected_fields": {
+      "education.earlyCareer": "welder's helper",
+      "education.careerProgression": "foreman"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "education.careerProgression",
+        "value": "started out as a welder's helper right out of school",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "llm",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "llm",
+    "raw_output": "[{\"fieldPath\":\"education.earlyCareer\",\"value\":\"started out as a welder's helper right out of school\",\"confidence\":0.9}]",
+    "elapsed_ms": 5314
+  }
+]

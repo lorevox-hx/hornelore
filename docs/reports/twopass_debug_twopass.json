@@ -1,0 +1,188 @@
+[
+  {
+    "case_id": "case_003",
+    "narrator": "christopher-todd-horne",
+    "behavior": "extract_single",
+    "answer": "I graduated from Bismarck High School in 1981.",
+    "section": "the_launch",
+    "expected_fields": {
+      "education.schooling": "Graduated from Bismarck High School, 1981"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "education.schooling",
+        "value": "Bismarck High School",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "twopass",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "twopass",
+    "raw_output": "[TWOPASS] P1_SPANS=2 P2A_RULES=0 P2B_LLM=2\n--- P1 RAW ---\n{\"spans\":[{\"text\":\"Bismarck High School\",\"type\":\"organization\",\"flags\":[]},{\"text\":\"1981\",\"type\":\"time\",\"flags\":[]}]}",
+    "elapsed_ms": 12017
+  },
+  {
+    "case_id": "case_006",
+    "narrator": "christopher-todd-horne",
+    "behavior": "extract_multiple",
+    "answer": "I retired on January 1st, 2026. I'd been the OT at West Las Vegas Schools since 1997, so that was almost 29 years.",
+    "section": "the_off_ramp",
+    "expected_fields": {
+      "laterYears.retirement": "January 1st, 2026",
+      "education.careerProgression": "West Las Vegas Schools since 1997"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "laterYears.retirement",
+        "value": "I retired on January 1st, 2026. I'd been the OT at West Las Vegas Schools since 1997, so that was almost 29 years.",
+        "writeMode": "suggest_only",
+        "confidence": 0.7,
+        "source": "backend_extract",
+        "extractionMethod": "rules_fallback",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "rules_fallback",
+    "raw_output": "[TWOPASS] P1_SPANS=4 P2A_RULES=0 P2B_LLM=4\n--- P1 RAW ---\n{\n  \"spans\": [\n    {\n      \"text\": \"January 1st\",\n      \"type\": \"date\",\n      \"flags\": []\n    },\n    {\n      \"text\": \"2026\",\n      \"type\": \"year\",\n      \"flags\": []\n    },\n    {\n      \"text\": \"West Las Vegas Schools\",\n      \"type\": \"organization\",\n      \"flags\": []\n    },\n    {\n      \"text\": \"1997\",\n      \"type\": \"year\",\n      \"flags\": []\n    }\n  ]\n}",
+    "elapsed_ms": 25340
+  },
+  {
+    "case_id": "case_010",
+    "narrator": "christopher-todd-horne",
+    "behavior": "extract_multiple",
+    "answer": "We had a Golden Retriever named Ivan. He was the family dog when I was growing up.",
+    "section": "childhood_pets",
+    "expected_fields": {
+      "pets.name": "Ivan",
+      "pets.species": "dog"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "pets.species",
+        "value": "golden retriever",
+        "writeMode": "candidate_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "twopass_rules",
+        "repeatableGroup": "pets_0",
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      },
+      {
+        "fieldPath": "pets.notes",
+        "value": "Ivan",
+        "writeMode": "suggest_only",
+        "confidence": 0.7,
+        "source": "backend_extract",
+        "extractionMethod": "twopass_rules",
+        "repeatableGroup": "pets_0",
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "twopass_rules",
+    "raw_output": "[TWOPASS] P1_SPANS=2 P2A_RULES=2 P2B_LLM=0\n--- P1 RAW ---\n{\"spans\":[{\"text\":\"Golden Retriever\",\"type\":\"pet\",\"flags\":[]},{\"text\":\"Ivan\",\"type\":\"pet\",\"flags\":[]}]}",
+    "elapsed_ms": 4510
+  },
+  {
+    "case_id": "case_020",
+    "narrator": "kent-james-horne",
+    "behavior": "extract_single",
+    "answer": "I don't really remember anything special about turning eighteen. I was already working construction by then.",
+    "section": "civic_entry_age_18",
+    "expected_fields": {
+      "education.earlyCareer": "Was already working construction by age eighteen"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "laterYears.significantEvent",
+        "value": "I don't really remember anything special about turning eighteen. I was already working construction by then.",
+        "writeMode": "suggest_only",
+        "confidence": 0.7,
+        "source": "backend_extract",
+        "extractionMethod": "rules_fallback",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "rules_fallback",
+    "raw_output": "[TWOPASS] P1_SPANS=1 P2A_RULES=0 P2B_LLM=1\n--- P1 RAW ---\n{\"spans\":[{\"text\":\"eighteen\",\"type\":\"time\",\"flags\":[]}]}",
+    "elapsed_ms": 8354
+  },
+  {
+    "case_id": "case_038",
+    "narrator": "janice-josephine-horne",
+    "behavior": "clarify_before_write",
+    "answer": "I've been pretty healthy my whole life, honestly. I was tough. I was always outside, always working. I don't have any big health stories to tell.",
+    "section": "health_and_body",
+    "expected_fields": {},
+    "extracted_items": [],
+    "method": "fallback",
+    "raw_output": "[TWOPASS] P1_SPANS=1 P2A_RULES=1 P2B_LLM=0\n--- P1 RAW ---\n{\"spans\":[{\"text\":\"pretty healthy my whole life\",\"type\":\"health\",\"flags\":[]}]}",
+    "elapsed_ms": 5248
+  },
+  {
+    "case_id": "case_059",
+    "narrator": "kent-james-horne",
+    "behavior": "extract_compound",
+    "answer": "I started out as a welder's helper right out of school. Then I got on at the plant and worked my way up to foreman. I was there for thirty-two years until I retired.",
+    "section": "career_progression_vs_early",
+    "expected_fields": {
+      "education.earlyCareer": "welder's helper",
+      "education.careerProgression": "foreman"
+    },
+    "extracted_items": [
+      {
+        "fieldPath": "education.careerProgression",
+        "value": "welder's helper",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "twopass",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      },
+      {
+        "fieldPath": "education.careerProgression",
+        "value": "thirty-two years",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "twopass",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      },
+      {
+        "fieldPath": "education.schooling",
+        "value": "school",
+        "writeMode": "suggest_only",
+        "confidence": 0.9,
+        "source": "backend_extract",
+        "extractionMethod": "twopass",
+        "repeatableGroup": null,
+        "plausibility_flag": null,
+        "plausibility_reason": null,
+        "plausibility_age": null
+      }
+    ],
+    "method": "twopass",
+    "raw_output": "[TWOPASS] P1_SPANS=3 P2A_RULES=0 P2B_LLM=3\n--- P1 RAW ---\n{\"spans\":[{\"text\":\"welder's helper\",\"type\":\"job\",\"flags\":[]},{\"text\":\"thirty-two years\",\"type\":\"duration\",\"flags\":[]},{\"text\":\"school\",\"type\":\"education\",\"flags\":[]}]}",
+    "elapsed_ms": 15837
+  }
+]
