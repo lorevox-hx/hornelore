@@ -3,7 +3,7 @@
   "_version": 2,
   "_generated": "2026-04-17",
   "_notes": [
-    "52 evaluation cases grounded in real narrator templates and real question bank prompts.",
+    "62 evaluation cases grounded in real narrator templates and real question bank prompts.",
     "Cases 001-030: original 30 cases (10 per narrator).",
     "Cases 031-044: WO-SCHEMA-02 expansion — 14 new cases across 7 field families.",
     "  grandparents: cases 031, 032 (Janice, Christopher)",
@@ -18,9 +18,20 @@
     "  siblings rerouter: case 047 (should reroute children→siblings), case 048 (NO-REROUTE: children stay)",
     "  birthplace rerouter: case 049 (should reroute residence→placeOfBirth), case 050 (NO-REROUTE: residence stays)",
     "  career rerouter: case 051 (should reroute earlyCareer→careerProgression), case 052 (NO-REROUTE: earlyCareer stays)",
+    "Cases 053-062: WO-EX-TWOPASS-01 two-pass extraction eval — 10 cases.",
+    "  053: compound family (parents + siblings in one answer)",
+    "  054: mixed narrator/family origins (birthplace + parent origins)",
+    "  055: negated military (denial → no extraction)",
+    "  056: negated health (denial → no extraction)",
+    "  057: pet embedded in hobby context",
+    "  058: birthplace vs residence in same answer",
+    "  059: career progression vs early career with duration markers",
+    "  060: spouse + children ambiguous role routing",
+    "  061: uncertain date with hedging language",
+    "  062: spouse + multiple children same sentence",
     "Truth source: ui/templates/{narrator}.json. Prompt source: data/prompts/question_bank.json.",
     "Case distribution: 12 clean single-fact, 18 compound multi-fact, 5 ambiguity/clarify,",
-    "4 forbidden overreach, 4 correction overwrite, 1 null case, 8 rerouter micro-eval.",
+    "4 forbidden overreach, 4 correction overwrite, 2 null cases, 8 rerouter micro-eval, 10 two-pass eval.",
     "Topic coverage: childhood origins, school entry, autonomy milestone, civic entry,",
     "graduation/launch, first job, partnership/marriage, children, off-ramp/retirement, legacy/reflection,",
     "grandparents, military, faith, health, community, pets, travel."
@@ -1477,6 +1488,222 @@
         {"fieldPath": "education.earlyCareer", "value": "working construction", "confidence": 0.9}
       ],
       "scoringNotes": "WO-EX-REROUTE-01 career NO-REROUTE: first job with no duration markers. Rerouter must NOT misfire to education.careerProgression. Tests that 'first job' stays as earlyCareer."
+    },
+
+    {
+      "id": "case_053",
+      "narratorId": "christopher-todd-horne",
+      "phase": "childhood_origins",
+      "subTopic": "compound_family",
+      "questionBankAnchor": "Tell me about your family growing up.",
+      "questionType": "anchor",
+      "extractPriority": ["parents.firstName", "siblings.firstName"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Can you tell me about your parents and siblings?",
+      "narratorReply": "My dad's name was Kent, he was a welder. My mom Dorothy was a homemaker. I had two brothers, Vincent and Jason, and a sister named Christine.",
+      "expectedEntities": ["Kent (father, welder)", "Dorothy (mother, homemaker)", "Vincent (brother)", "Jason (brother)", "Christine (sister)"],
+      "expectedFields": {
+        "parents.firstName": "Kent",
+        "parents.relation": "father",
+        "parents.occupation": "welder",
+        "siblings.firstName": "Vincent"
+      },
+      "forbiddenFields": ["family.children.firstName", "family.spouse.firstName"],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: compound family description with parents AND siblings in one answer. Tests that two-pass correctly routes siblings vs children vs parents."
+    },
+
+    {
+      "id": "case_054",
+      "narratorId": "kent-james-horne",
+      "phase": "childhood_origins",
+      "subTopic": "mixed_narrator_family",
+      "questionBankAnchor": "Where were you born?",
+      "questionType": "anchor",
+      "extractPriority": ["personal.placeOfBirth", "parents.birthPlace"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Where were you born, and where were your parents from?",
+      "narratorReply": "I was born in Bismarck, North Dakota. My dad was from Stanley, and my mother grew up near Williston.",
+      "expectedEntities": ["Bismarck ND (narrator birthplace)", "Stanley (father origin)", "Williston (mother origin)"],
+      "expectedFields": {
+        "personal.placeOfBirth": "Bismarck"
+      },
+      "forbiddenFields": ["residence.place"],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: narrator birthplace vs family member origins in one answer. Tests that two-pass separates narrator personal fields from family-scoped fields and doesn't route birthplace to residence."
+    },
+
+    {
+      "id": "case_055",
+      "narratorId": "christopher-todd-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "negated_military",
+      "questionBankAnchor": "Did you serve in the military?",
+      "questionType": "anchor",
+      "extractPriority": [],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Did you ever serve in the military?",
+      "narratorReply": "No, I never served. I registered for the draft but my number never came up.",
+      "expectedEntities": [],
+      "expectedFields": {},
+      "forbiddenFields": ["military.branch", "military.rank", "military.yearsOfService", "military.deploymentLocation"],
+      "expectedBehavior": "null_case",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: negated military. Pass 1 should flag 'negated', pass 2 should skip entirely. Tests that denied experiences produce no extraction."
+    },
+
+    {
+      "id": "case_056",
+      "narratorId": "janice-josephine-horne",
+      "phase": "later_adulthood",
+      "subTopic": "negated_health",
+      "questionBankAnchor": "Have you had any major health events?",
+      "questionType": "anchor",
+      "extractPriority": [],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Have you had any significant health challenges?",
+      "narratorReply": "I've been pretty healthy my whole life, knock on wood. Never had any serious surgeries or anything like that.",
+      "expectedEntities": [],
+      "expectedFields": {},
+      "forbiddenFields": ["health.majorCondition", "health.milestone", "health.lifestyleChange"],
+      "expectedBehavior": "null_case",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: negated health. Pass 1 should flag 'negated' on both health references. Tests denial detection for hedged language."
+    },
+
+    {
+      "id": "case_057",
+      "narratorId": "christopher-todd-horne",
+      "phase": "childhood_origins",
+      "subTopic": "pet_in_hobby_language",
+      "questionBankAnchor": "What did you enjoy doing as a kid?",
+      "questionType": "anchor",
+      "extractPriority": ["pets.name", "pets.species"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What were some of your favorite activities or hobbies growing up?",
+      "narratorReply": "Well we always had animals around. We had a dog named Buster, a yellow lab, and there were barn cats everywhere. I liked playing with them more than anything.",
+      "expectedEntities": ["Buster (dog, yellow lab)", "barn cats"],
+      "expectedFields": {
+        "pets.name": "Buster",
+        "pets.species": "dog"
+      },
+      "forbiddenFields": ["hobbies.hobbies"],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: pets embedded in hobby/activity question context. Pass 1 should tag as 'pet' type, not 'event'. Tests that pet spans route to pets.* not hobbies.*."
+    },
+
+    {
+      "id": "case_058",
+      "narratorId": "janice-josephine-horne",
+      "phase": "childhood_origins",
+      "subTopic": "birthplace_vs_residence",
+      "questionBankAnchor": "Where did you grow up?",
+      "questionType": "anchor",
+      "extractPriority": ["personal.placeOfBirth", "residence.place"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Where were you born and where did you grow up?",
+      "narratorReply": "I was born in Fargo but we moved to West Fargo when I was about five. That's where I really grew up.",
+      "expectedEntities": ["Fargo (birthplace)", "West Fargo (residence)"],
+      "expectedFields": {
+        "personal.placeOfBirth": "Fargo",
+        "residence.place": "West Fargo"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: birthplace AND residence in same answer. Tests that two-pass correctly separates 'born in X' from 'moved to Y'. Both should extract, to different fields."
+    },
+
+    {
+      "id": "case_059",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "career_progression_vs_early",
+      "questionBankAnchor": "What kind of work have you done?",
+      "questionType": "anchor",
+      "extractPriority": ["education.earlyCareer", "education.careerProgression"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about the work you've done over your life.",
+      "narratorReply": "I started out as a welder's helper right out of school. Then I got on at the plant and worked my way up to foreman. I was there for thirty-two years until I retired.",
+      "expectedEntities": ["welder's helper (first job)", "foreman at the plant (career, 32 years)"],
+      "expectedFields": {
+        "education.earlyCareer": "welder's helper",
+        "education.careerProgression": "foreman"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: early career AND career progression in same answer with duration markers. Tests separation of first job from long-term career."
+    },
+
+    {
+      "id": "case_060",
+      "narratorId": "christopher-todd-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "ambiguous_family_role",
+      "questionBankAnchor": "Tell me about your family.",
+      "questionType": "anchor",
+      "extractPriority": ["family.spouse.firstName", "family.children.firstName"],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your wife and kids.",
+      "narratorReply": "I married my wife Sarah in 1985. We had three kids — our oldest son Michael, then our daughter Emily, and our youngest Jake.",
+      "expectedEntities": ["Sarah (wife)", "1985 (marriage year)", "Michael (son, oldest)", "Emily (daughter)", "Jake (son, youngest)"],
+      "expectedFields": {
+        "family.spouse.firstName": "Sarah",
+        "family.marriageDate": "1985",
+        "family.children.firstName": "Michael"
+      },
+      "forbiddenFields": ["siblings.firstName", "parents.firstName"],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: spouse + marriage + multiple children in one answer. Tests that two-pass correctly routes spouse vs children and doesn't confuse with siblings or parents."
+    },
+
+    {
+      "id": "case_061",
+      "narratorId": "janice-josephine-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "uncertain_date",
+      "questionBankAnchor": "When did you get married?",
+      "questionType": "anchor",
+      "extractPriority": ["family.marriageDate", "family.marriagePlace"],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "When and where did you get married?",
+      "narratorReply": "We got married at St. Mary's church. I think it was 1956, maybe 1957. I'm not sure of the exact year anymore.",
+      "expectedEntities": ["St. Mary's church (marriage place)", "1956 or 1957 (uncertain date)"],
+      "expectedFields": {
+        "family.marriagePlace": "St. Mary's"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: uncertain date with hedging language. Pass 1 should flag 'uncertain'. Tests that uncertain spans get lower confidence, not dropped."
+    },
+
+    {
+      "id": "case_062",
+      "narratorId": "kent-james-horne",
+      "phase": "later_adulthood",
+      "subTopic": "spouse_child_same_sentence",
+      "questionBankAnchor": "Tell me about your family.",
+      "questionType": "anchor",
+      "extractPriority": ["family.spouse.firstName", "family.children.firstName"],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Can you tell me about your wife and children?",
+      "narratorReply": "My wife Dorothy and I had four children. Our boy Chris was the oldest, then came Vince, Jason, and Christine.",
+      "expectedEntities": ["Dorothy (wife)", "Chris (son, oldest)", "Vince (son)", "Jason (son)", "Christine (daughter)"],
+      "expectedFields": {
+        "family.spouse.firstName": "Dorothy",
+        "family.children.firstName": "Chris",
+        "family.children.relation": "son"
+      },
+      "forbiddenFields": ["siblings.firstName", "parents.firstName"],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "scoringNotes": "WO-EX-TWOPASS-01: spouse and multiple children mentioned together. Tests role-based routing for spouse vs children when both appear. 'Our boy Chris' should route to family.children, not siblings."
     }
   ]
 }

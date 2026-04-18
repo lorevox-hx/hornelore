@@ -534,7 +534,25 @@ def _is_compound_answer(answer: str) -> bool:
 
 
 def _extract_via_llm(answer: str, current_section: Optional[str], current_target: Optional[str]) -> tuple[List[dict], Optional[str]]:
-    """Call the local LLM to extract fields. Returns (items, raw_output).
+    """Route to two-pass or single-pass extraction based on feature flag.
+
+    WO-EX-TWOPASS-01: When HORNELORE_TWOPASS_EXTRACT=1, uses span-tagger
+    (pass 1) + field-classifier (pass 2). Falls back to single-pass on
+    any pass 1 failure. When flag is OFF, behavior is identical to pre-WO.
+    """
+    try:
+        from .. import flags as _flags
+        if _flags.twopass_extract_enabled():
+            logger.info("[extract][twopass] flag ON — using two-pass pipeline")
+            return _extract_via_twopass(answer, current_section, current_target)
+    except Exception as _e:
+        logger.warning("[extract][twopass] flag check failed (%s), using single-pass", _e)
+
+    return _extract_via_singlepass(answer, current_section, current_target)
+
+
+def _extract_via_singlepass(answer: str, current_section: Optional[str], current_target: Optional[str]) -> tuple[List[dict], Optional[str]]:
+    """Original single-pass LLM extraction. Returns (items, raw_output).
 
     v8.0 FIX: Short-circuits immediately when the LLM is known to be
     unavailable, preventing the blocking model.generate() call from tying
@@ -580,6 +598,606 @@ def _extract_via_llm(answer: str, current_section: Optional[str], current_target
     # Parse JSON from LLM output
     items = _parse_llm_json(raw)
     return items, raw
+
+
+# ── WO-EX-TWOPASS-01 — Two-Pass Extraction Pipeline ──────────────────────────
+#
+# Pass 1: Schema-blind span tagger — identifies factual spans with type/role/flags
+# Pass 2: Field classifier — maps tagged spans to EXTRACTABLE_FIELDS
+#   2A: Rule-based deterministic mapping (cheap, no LLM)
+#   2B: LLM classifier for unresolved spans (only when needed)
+
+# ── Span types and flags ──────────────────────────────────────────────────────
+
+_VALID_SPAN_TYPES = frozenset({
+    "person", "place", "time", "event", "pet",
+    "organization", "military", "faith", "health", "trait",
+})
+
+_VALID_SPAN_FLAGS = frozenset({
+    "negated", "uncertain", "family_member_not_narrator",
+})
+
+
+def _build_span_tagger_prompt(answer: str, current_section: Optional[str]) -> tuple[str, str]:
+    """Build system + user prompts for Pass 1: span tagging.
+
+    This prompt is deliberately schema-blind. It does NOT see EXTRACTABLE_FIELDS
+    or fieldPaths. Its only job is: what factual spans are present?
+    """
+    system = (
+        "You are a span tagger for oral history transcripts. Read the narrator's "
+        "answer and identify every factual span.\n"
+        "\n"
+        "Output a JSON object: {\"spans\": [...]}\n"
+        "Each span has:\n"
+        "- \"text\": exact words from the narrator (keep brief)\n"
+        "- \"type\": one of: person, place, time, event, pet, organization, "
+        "military, faith, health, trait\n"
+        "- \"role\": (person type only) relationship: father, mother, brother, "
+        "sister, son, daughter, wife, husband, grandmother, grandfather, etc.\n"
+        "- \"flags\": array of zero or more: negated, uncertain, "
+        "family_member_not_narrator\n"
+        "\n"
+        "Rules:\n"
+        "- Tag only facts EXPLICITLY stated. Do not infer or guess.\n"
+        "- \"I never served\" → type=event, flags=[\"negated\"]\n"
+        "- \"My dad John\" → type=person, role=\"father\", "
+        "flags=[\"family_member_not_narrator\"]\n"
+        "- \"I was born in Spokane\" → one place span (Spokane) + one event span (born)\n"
+        "- If uncertain, include with flags=[\"uncertain\"]\n"
+        "- A person's name and role go in ONE span, not separate spans\n"
+        "- Separate facts get separate spans\n"
+        "\n"
+        "Example — narrator says: \"My older brother Vincent was stationed in "
+        "Germany in 1960. We had a Golden Retriever named Ivan.\"\n"
+        "Output:\n"
+        "{\"spans\":["
+        "{\"text\":\"older brother Vincent\",\"type\":\"person\",\"role\":\"brother\","
+        "\"flags\":[\"family_member_not_narrator\"]},"
+        "{\"text\":\"Germany\",\"type\":\"place\",\"flags\":[]},"
+        "{\"text\":\"1960\",\"type\":\"time\",\"flags\":[]},"
+        "{\"text\":\"stationed\",\"type\":\"military\","
+        "\"flags\":[\"family_member_not_narrator\"]},"
+        "{\"text\":\"Golden Retriever named Ivan\",\"type\":\"pet\",\"flags\":[]}"
+        "]}\n"
+        "\n"
+        "Example — narrator says: \"I never served in the military. "
+        "I've been pretty healthy my whole life.\"\n"
+        "Output:\n"
+        "{\"spans\":["
+        "{\"text\":\"never served in the military\",\"type\":\"event\","
+        "\"flags\":[\"negated\"]},"
+        "{\"text\":\"pretty healthy my whole life\",\"type\":\"health\","
+        "\"flags\":[\"negated\"]}"
+        "]}\n"
+        "\n"
+        "Output ONLY the JSON object. No extra text."
+    )
+
+    context_note = ""
+    if current_section:
+        context_note = f"\nInterview section: {current_section}"
+
+    user = (
+        f"Narrator's answer:{context_note}\n\n"
+        f"\"{answer}\"\n\n"
+        "Tag all factual spans as JSON:"
+    )
+
+    return system, user
+
+
+def _parse_span_json(raw: str) -> List[dict]:
+    """Parse and validate span tagger output. Returns list of valid spans."""
+    raw = raw.strip()
+    logger.info("[extract][twopass][p1-parse] Raw span output (%d chars): %.500s",
+                len(raw), raw)
+
+    parsed = None
+
+    # Try direct JSON parse
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting from markdown code block
+    if parsed is None:
+        m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if m:
+            try:
+                parsed = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                pass
+
+    # Try finding first { ... } in the output
+    if parsed is None:
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if m:
+            try:
+                parsed = json.loads(m.group(0))
+            except json.JSONDecodeError:
+                pass
+
+    if parsed is None:
+        logger.warning("[extract][twopass][p1-parse] Could not parse span JSON")
+        return []
+
+    # Extract spans array
+    spans_raw = []
+    if isinstance(parsed, dict):
+        spans_raw = parsed.get("spans", [])
+    elif isinstance(parsed, list):
+        spans_raw = parsed
+    else:
+        logger.warning("[extract][twopass][p1-parse] Unexpected type: %s", type(parsed).__name__)
+        return []
+
+    # Validate each span
+    valid = []
+    for i, s in enumerate(spans_raw):
+        if not isinstance(s, dict):
+            continue
+        text = (s.get("text") or "").strip()
+        span_type = (s.get("type") or "").strip().lower()
+        if not text or not span_type:
+            logger.info("[extract][twopass][p1-parse] Span %d skipped: empty text/type", i)
+            continue
+        if span_type not in _VALID_SPAN_TYPES:
+            logger.info("[extract][twopass][p1-parse] Span %d unknown type '%s', keeping as 'event'",
+                        i, span_type)
+            span_type = "event"
+
+        flags = s.get("flags", [])
+        if not isinstance(flags, list):
+            flags = []
+        flags = [f for f in flags if isinstance(f, str) and f in _VALID_SPAN_FLAGS]
+
+        role = (s.get("role") or "").strip().lower() if span_type == "person" else ""
+
+        valid.append({
+            "text": text,
+            "type": span_type,
+            "role": role,
+            "flags": flags,
+        })
+
+    logger.info("[extract][twopass][p1-parse] %d/%d spans valid", len(valid), len(spans_raw))
+    return valid
+
+
+def _extract_spans(answer: str, current_section: Optional[str]) -> tuple[List[dict], Optional[str]]:
+    """Pass 1: Call LLM to tag factual spans. Returns (spans, raw_output)."""
+    if not _is_llm_available():
+        logger.info("[extract][twopass][p1] LLM unavailable — cannot tag spans")
+        return [], None
+
+    try:
+        from ..llm_interview import _try_call_llm
+    except ImportError:
+        return [], None
+
+    system, user = _build_span_tagger_prompt(answer, current_section)
+    ephemeral_conv_id = f"_span_{_uuid.uuid4().hex[:12]}"
+
+    # Token budget: spans are more compact than full extraction output
+    _base_cap = 128
+    _compound_cap = 256
+    _span_cap = _compound_cap if _is_compound_answer(answer) else _base_cap
+    _extract_temp = float(os.getenv("EXTRACTION_TEMP", "0.15"))
+    _extract_top_p = float(os.getenv("EXTRACTION_TOP_P", "0.9"))
+
+    logger.info("[extract][twopass][p1] calling LLM max_new=%d temp=%.2f conv=%s",
+                _span_cap, _extract_temp, ephemeral_conv_id)
+    raw = _try_call_llm(system, user, max_new=_span_cap, temp=_extract_temp,
+                        top_p=_extract_top_p, conv_id=ephemeral_conv_id)
+    if not raw:
+        _mark_llm_unavailable("twopass-p1-empty")
+        return [], None
+
+    _mark_llm_available()
+    spans = _parse_span_json(raw)
+    return spans, raw
+
+
+# ── Pass 2A: Rule-based span classifier ──────────────────────────────────────
+
+# Person role → repeatable group + relation field mapping
+_ROLE_TO_GROUP = {
+    "father": ("parents", "father"),
+    "mother": ("parents", "mother"),
+    "dad": ("parents", "father"),
+    "mom": ("parents", "mother"),
+    "stepfather": ("parents", "stepfather"),
+    "stepmother": ("parents", "stepmother"),
+    "step-father": ("parents", "stepfather"),
+    "step-mother": ("parents", "stepmother"),
+    "brother": ("siblings", "brother"),
+    "sister": ("siblings", "sister"),
+    "older brother": ("siblings", "brother"),
+    "younger brother": ("siblings", "brother"),
+    "older sister": ("siblings", "sister"),
+    "younger sister": ("siblings", "sister"),
+    "big brother": ("siblings", "brother"),
+    "big sister": ("siblings", "sister"),
+    "little brother": ("siblings", "brother"),
+    "little sister": ("siblings", "sister"),
+    "twin brother": ("siblings", "brother"),
+    "twin sister": ("siblings", "sister"),
+    "half brother": ("siblings", "brother"),
+    "half sister": ("siblings", "sister"),
+    "half-brother": ("siblings", "brother"),
+    "half-sister": ("siblings", "sister"),
+    "son": ("children", "son"),
+    "daughter": ("children", "daughter"),
+    "stepson": ("children", "stepson"),
+    "stepdaughter": ("children", "stepdaughter"),
+    "wife": ("spouse", None),
+    "husband": ("spouse", None),
+    "spouse": ("spouse", None),
+    "partner": ("spouse", None),
+    "grandmother": ("grandparents", None),
+    "grandfather": ("grandparents", None),
+    "grandma": ("grandparents", None),
+    "grandpa": ("grandparents", None),
+    "maternal grandmother": ("grandparents", None),
+    "paternal grandmother": ("grandparents", None),
+    "maternal grandfather": ("grandparents", None),
+    "paternal grandfather": ("grandparents", None),
+    "grandson": ("grandchildren", None),
+    "granddaughter": ("grandchildren", None),
+}
+
+# Regex to extract a proper name from span text like "older brother Vincent"
+_NAME_FROM_PERSON = re.compile(
+    r'(?:my\s+)?(?:older|younger|big|little|twin|half[- ]?)?'
+    r'(?:brother|sister|dad|mom|father|mother|son|daughter|wife|husband|'
+    r'grandmother|grandfather|grandma|grandpa|grandson|granddaughter|'
+    r'stepfather|stepmother|stepson|stepdaughter|partner|spouse)\s+'
+    r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+    re.IGNORECASE,
+)
+
+# Military branch patterns
+_MILITARY_BRANCH = re.compile(
+    r'\b(Army|Navy|Air Force|Marines|Marine Corps|Coast Guard|National Guard)\b',
+    re.IGNORECASE,
+)
+_MILITARY_RANK = re.compile(
+    r'\b(Private|Corporal|Sergeant|Lieutenant|Captain|Major|Colonel|General|'
+    r'Admiral|Commander|Ensign|Petty Officer|Chief|Specialist|PFC|SPC|SGT|'
+    r'CPL|SSG|SFC|MSG|SGM|CSM|1SG|2LT|1LT|CPT|MAJ|LTC|COL|BG|MG|LTG|GEN)\b',
+    re.IGNORECASE,
+)
+
+# Faith patterns
+_FAITH_DENOM = re.compile(
+    r'\b(Catholic|Lutheran|Baptist|Methodist|Presbyterian|Episcopal|'
+    r'Pentecostal|Mormon|LDS|Jewish|Muslim|Buddhist|Hindu|Quaker|'
+    r'Mennonite|Amish|Congregational|Orthodox|Evangelical|Adventist|'
+    r'Unitarian|Jehovah|Assembly of God|Church of Christ|Non-denominational)\b',
+    re.IGNORECASE,
+)
+
+# Pet species patterns
+_PET_SPECIES = re.compile(
+    r'\b(dog|cat|horse|pony|bird|fish|rabbit|hamster|turtle|parrot|'
+    r'kitten|puppy|golden retriever|labrador|poodle|collie|shepherd|'
+    r'beagle|terrier|spaniel|tabby|siamese|persian|canary|parakeet|'
+    r'guinea pig|ferret|gecko|iguana|snake|chicken|duck|goat|pig|cow)\b',
+    re.IGNORECASE,
+)
+
+# Pet name extraction: "named X", "called X", "X the dog", species + name
+_PET_NAME = re.compile(
+    r'(?:named|called)\s+([A-Z][a-z]+)',
+    re.IGNORECASE,
+)
+
+
+def _classify_spans_rules(spans: List[dict], answer: str,
+                          current_section: Optional[str]) -> tuple[List[dict], List[dict]]:
+    """Pass 2A: Classify spans using deterministic rules.
+
+    Returns (classified_items, unresolved_spans).
+    classified_items: [{fieldPath, value, confidence}] ready for downstream.
+    unresolved_spans: spans that rules couldn't handle → go to LLM classifier.
+    """
+    classified = []
+    unresolved = []
+
+    # Pre-scan: is there a "born" event span nearby place spans?
+    has_birth_event = any(
+        s["type"] == "event" and re.search(r'\b(?:born|birth)\b', s["text"], re.IGNORECASE)
+        for s in spans
+    )
+
+    for span in spans:
+        # Skip negated spans — extract nothing for denied experiences
+        if "negated" in span.get("flags", []):
+            logger.info("[extract][twopass][p2a] Skipping negated span: %s", span["text"][:60])
+            continue
+
+        conf = 0.7 if "uncertain" in span.get("flags", []) else 0.9
+        is_family = "family_member_not_narrator" in span.get("flags", [])
+        matched = False
+
+        # ── Person spans → family group routing ──────────────────────────
+        if span["type"] == "person" and span.get("role"):
+            role_key = span["role"].lower().strip()
+            group_info = _ROLE_TO_GROUP.get(role_key)
+            if group_info:
+                group, relation_val = group_info
+                # Extract name from text
+                name_match = _NAME_FROM_PERSON.search(span["text"])
+                name = name_match.group(1) if name_match else ""
+
+                if group == "parents":
+                    if relation_val:
+                        classified.append({"fieldPath": "parents.relation", "value": relation_val, "confidence": conf})
+                    if name:
+                        classified.append({"fieldPath": "parents.firstName", "value": name, "confidence": conf})
+                    matched = True
+
+                elif group == "siblings":
+                    if relation_val:
+                        classified.append({"fieldPath": "siblings.relation", "value": relation_val, "confidence": conf})
+                    if name:
+                        classified.append({"fieldPath": "siblings.firstName", "value": name, "confidence": conf})
+                    # Birth order from role text
+                    if any(w in role_key for w in ("older", "big", "elder")):
+                        classified.append({"fieldPath": "siblings.birthOrder", "value": "older", "confidence": 0.7})
+                    elif any(w in role_key for w in ("younger", "little")):
+                        classified.append({"fieldPath": "siblings.birthOrder", "value": "younger", "confidence": 0.7})
+                    elif "twin" in role_key:
+                        classified.append({"fieldPath": "siblings.birthOrder", "value": "twin", "confidence": 0.7})
+                    matched = True
+
+                elif group == "children":
+                    if relation_val:
+                        classified.append({"fieldPath": "family.children.relation", "value": relation_val, "confidence": conf})
+                    if name:
+                        classified.append({"fieldPath": "family.children.firstName", "value": name, "confidence": conf})
+                    matched = True
+
+                elif group == "spouse":
+                    if name:
+                        classified.append({"fieldPath": "family.spouse.firstName", "value": name, "confidence": conf})
+                    matched = True
+
+                elif group == "grandparents":
+                    # Detect side from role text
+                    side = None
+                    if "maternal" in role_key or "mother" in role_key:
+                        side = "maternal"
+                    elif "paternal" in role_key or "father" in role_key:
+                        side = "paternal"
+                    if side:
+                        classified.append({"fieldPath": "grandparents.side", "value": side, "confidence": conf})
+                    if name:
+                        classified.append({"fieldPath": "grandparents.firstName", "value": name, "confidence": conf})
+                    matched = True
+
+                elif group == "grandchildren":
+                    if name:
+                        classified.append({"fieldPath": "family.grandchildren.firstName", "value": name, "confidence": conf})
+                    matched = True
+
+        # ── Pet spans ────────────────────────────────────────────────────
+        elif span["type"] == "pet":
+            species_m = _PET_SPECIES.search(span["text"])
+            name_m = _PET_NAME.search(span["text"])
+            if species_m:
+                classified.append({"fieldPath": "pets.species", "value": species_m.group(1).lower(), "confidence": conf})
+            if name_m:
+                classified.append({"fieldPath": "pets.name", "value": name_m.group(1), "confidence": conf})
+            if not species_m and not name_m:
+                # Still a pet reference, put whole text as notes
+                classified.append({"fieldPath": "pets.notes", "value": span["text"], "confidence": 0.7})
+            matched = True
+
+        # ── Place spans ──────────────────────────────────────────────────
+        elif span["type"] == "place" and not is_family:
+            if has_birth_event:
+                classified.append({"fieldPath": "personal.placeOfBirth", "value": span["text"], "confidence": conf})
+                matched = True
+            # else: could be residence or travel — leave for LLM
+
+        # ── Military spans (narrator only) ───────────────────────────────
+        elif span["type"] == "military" and not is_family:
+            branch_m = _MILITARY_BRANCH.search(span["text"])
+            rank_m = _MILITARY_RANK.search(span["text"])
+            if branch_m:
+                classified.append({"fieldPath": "military.branch", "value": branch_m.group(1), "confidence": conf})
+                matched = True
+            if rank_m:
+                classified.append({"fieldPath": "military.rank", "value": rank_m.group(1), "confidence": conf})
+                matched = True
+            if not branch_m and not rank_m:
+                # Generic military reference
+                classified.append({"fieldPath": "military.significantEvent", "value": span["text"], "confidence": 0.7})
+                matched = True
+
+        # ── Faith spans ──────────────────────────────────────────────────
+        elif span["type"] == "faith":
+            denom_m = _FAITH_DENOM.search(span["text"])
+            if denom_m:
+                classified.append({"fieldPath": "faith.denomination", "value": denom_m.group(1), "confidence": conf})
+                matched = True
+            else:
+                classified.append({"fieldPath": "faith.role", "value": span["text"], "confidence": 0.7})
+                matched = True
+
+        # ── Health spans ─────────────────────────────────────────────────
+        elif span["type"] == "health" and not is_family:
+            classified.append({"fieldPath": "health.majorCondition", "value": span["text"], "confidence": conf})
+            matched = True
+
+        if not matched:
+            unresolved.append(span)
+
+    logger.info("[extract][twopass][p2a] Rules classified %d items, %d unresolved",
+                len(classified), len(unresolved))
+    return classified, unresolved
+
+
+# ── Pass 2B: LLM classifier for unresolved spans ─────────────────────────────
+
+def _build_field_classifier_prompt(unresolved_spans: List[dict],
+                                    current_section: Optional[str]) -> tuple[str, str]:
+    """Build system + user prompts for Pass 2B: field classification.
+
+    Shorter than single-pass prompt — no need for extraction examples.
+    Only sees unresolved spans + compact field catalog.
+    """
+    # Build compact catalog
+    catalog_lines = []
+    for path, meta in EXTRACTABLE_FIELDS.items():
+        catalog_lines.append(f'  "{path}": "{meta["label"]}"')
+    catalog = "\n".join(catalog_lines)
+
+    system = (
+        "Map each span to the best fieldPath from the catalog below.\n"
+        "Output a JSON array: [{\"fieldPath\":\"...\",\"value\":\"...\",\"confidence\":0.0-1.0}]\n"
+        "\n"
+        "Rules:\n"
+        "- Use ONLY fieldPaths from this catalog. Do not invent paths.\n"
+        "- Skip spans with flags=[\"negated\"] — extract nothing.\n"
+        "- For family_member_not_narrator spans, use family-scoped fields "
+        "(parents.*, siblings.*, grandparents.*, family.children.*, family.spouse.*)\n"
+        "- For person spans, use \"role\" to pick the right group:\n"
+        "  role=brother/sister → siblings.*\n"
+        "  role=father/mother → parents.*\n"
+        "  role=son/daughter → family.children.*\n"
+        "  role=wife/husband → family.spouse.*\n"
+        "- Confidence: 0.9=clear, 0.7=uncertain flag present\n"
+        "- If no fieldPath fits, skip the span entirely\n"
+        "- Do NOT extract fields for denied/negated experiences\n"
+        "\n"
+        f"Available fieldPaths:\n{catalog}\n"
+        "\n"
+        "Output ONLY the JSON array. No extra text."
+    )
+
+    # Format spans for user prompt
+    spans_json = json.dumps(unresolved_spans, ensure_ascii=False)
+
+    context_note = ""
+    if current_section:
+        context_note = f"\nInterview section: {current_section}"
+
+    user = (
+        f"Unresolved spans to classify:{context_note}\n\n"
+        f"{spans_json}\n\n"
+        "Map to fieldPaths as JSON array:"
+    )
+
+    return system, user
+
+
+def _classify_spans_llm(unresolved_spans: List[dict],
+                         current_section: Optional[str]) -> List[dict]:
+    """Pass 2B: Use LLM to classify spans that rules couldn't handle."""
+    if not unresolved_spans:
+        return []
+
+    if not _is_llm_available():
+        logger.info("[extract][twopass][p2b] LLM unavailable — skipping LLM classification")
+        return []
+
+    try:
+        from ..llm_interview import _try_call_llm
+    except ImportError:
+        return []
+
+    system, user = _build_field_classifier_prompt(unresolved_spans, current_section)
+    ephemeral_conv_id = f"_classify_{_uuid.uuid4().hex[:12]}"
+
+    _extract_temp = float(os.getenv("EXTRACTION_TEMP", "0.15"))
+    _extract_top_p = float(os.getenv("EXTRACTION_TOP_P", "0.9"))
+    # Token cap: smaller than single-pass because we're only classifying, not extracting
+    _classify_cap = 256
+
+    logger.info("[extract][twopass][p2b] calling LLM for %d unresolved spans, max_new=%d conv=%s",
+                len(unresolved_spans), _classify_cap, ephemeral_conv_id)
+    raw = _try_call_llm(system, user, max_new=_classify_cap, temp=_extract_temp,
+                        top_p=_extract_top_p, conv_id=ephemeral_conv_id)
+    if not raw:
+        logger.warning("[extract][twopass][p2b] LLM returned empty — no classification")
+        return []
+
+    _mark_llm_available()
+    # Reuse the existing JSON parser — same [{fieldPath, value, confidence}] format
+    items = _parse_llm_json(raw)
+    logger.info("[extract][twopass][p2b] LLM classified %d items from %d unresolved spans",
+                len(items), len(unresolved_spans))
+    return items
+
+
+def _merge_rule_and_llm_items(rule_items: List[dict], llm_items: List[dict]) -> List[dict]:
+    """Merge rule-classified and LLM-classified items, deduplicating by fieldPath+value."""
+    seen = set()
+    merged = []
+    # Rules first — they're higher confidence
+    for item in rule_items:
+        key = (item["fieldPath"], item["value"].lower().strip())
+        if key not in seen:
+            seen.add(key)
+            merged.append(item)
+    # Then LLM items
+    for item in llm_items:
+        key = (item["fieldPath"], item["value"].lower().strip())
+        if key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+# ── Two-pass orchestrator ─────────────────────────────────────────────────────
+
+def _extract_via_twopass(answer: str, current_section: Optional[str],
+                          current_target: Optional[str]) -> tuple[List[dict], Optional[str]]:
+    """WO-EX-TWOPASS-01: Two-pass extraction pipeline.
+
+    Pass 1: Tag factual spans (schema-blind)
+    Pass 2A: Rule-based classification (deterministic)
+    Pass 2B: LLM classification (unresolved spans only)
+
+    Falls back to single-pass on any pass 1 failure.
+    """
+    # ── Pass 1: Span tagging ─────────────────────────────────────────────
+    spans, p1_raw = _extract_spans(answer, current_section)
+
+    if not spans:
+        logger.warning("[extract][twopass] Pass 1 returned no spans — falling back to single-pass")
+        return _extract_via_singlepass(answer, current_section, current_target)
+
+    logger.info("[extract][twopass] Pass 1 tagged %d spans", len(spans))
+
+    # ── Pass 2A: Rule-based classification ───────────────────────────────
+    rule_items, unresolved = _classify_spans_rules(spans, answer, current_section)
+
+    # ── Pass 2B: LLM classification for unresolved spans ─────────────────
+    llm_items = []
+    if unresolved:
+        llm_items = _classify_spans_llm(unresolved, current_section)
+
+    # ── Merge ────────────────────────────────────────────────────────────
+    all_items = _merge_rule_and_llm_items(rule_items, llm_items)
+
+    if not all_items:
+        logger.warning("[extract][twopass] No items after both passes — falling back to single-pass")
+        return _extract_via_singlepass(answer, current_section, current_target)
+
+    # Build raw output string for debug/logging (combine both passes)
+    raw_combined = f"[TWOPASS] P1_SPANS={len(spans)} P2A_RULES={len(rule_items)} P2B_LLM={len(llm_items)}"
+    if p1_raw:
+        raw_combined += f"\n--- P1 RAW ---\n{p1_raw}"
+
+    logger.info("[extract][twopass] Final: %d items (rules=%d, llm=%d)",
+                len(all_items), len(rule_items), len(llm_items))
+    return all_items, raw_combined
 
 
 def _parse_llm_json(raw: str) -> List[dict]:
@@ -2108,9 +2726,16 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         llm_items = _apply_field_value_sanity(llm_items)
         llm_items = _apply_claims_validators(llm_items, answer=answer)  # WO-EX-CLAIMS-02
 
+    # WO-EX-TWOPASS-01: detect extraction method from raw_output marker
+    _is_twopass = raw_output and raw_output.startswith("[TWOPASS]")
+    _is_twopass_rules_only = _is_twopass and "P2B_LLM=0" in (raw_output[:100] if raw_output else "")
+
     # WO: Summary line — log outcome at endpoint level
     _accepted = len(llm_items) if llm_items else 0
-    _method = "llm" if llm_items else ("rules-fallback" if raw_output else "no-llm")
+    if _is_twopass:
+        _method = "twopass_rules" if _is_twopass_rules_only else "twopass"
+    else:
+        _method = "llm" if llm_items else ("rules-fallback" if raw_output else "no-llm")
     logger.info("[extract][summary] llm_raw=%s accepted=%d method=%s",
                 "present" if raw_output else "none", _accepted, _method)
 
@@ -2142,13 +2767,18 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                         item["fieldPath"], canonical_val, item["value"],
                     )
 
+            # WO-EX-TWOPASS-01: tag extraction method based on pipeline used
+            _item_method = "twopass" if _is_twopass else "llm"
+            if _is_twopass_rules_only:
+                _item_method = "twopass_rules"
+
             result_items.append(ExtractedItem(
                 fieldPath=item["fieldPath"],
                 value=item["value"],
                 writeMode=write_mode,
                 confidence=item["confidence"],
                 source="backend_extract",
-                extractionMethod="llm",
+                extractionMethod=_item_method,
             ))
 
         # Group repeatable fields — FIX-4: preserve _repeatableGroup as repeatableGroup
@@ -2172,10 +2802,10 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         except Exception as _e:
             logger.warning("[extract][validator] filter skipped (llm path): %s", _e)
 
-        _record_metric("llm", parsed=len(llm_items), accepted=len(final_items), rejected=0)
+        _record_metric(_method, parsed=len(llm_items), accepted=len(final_items), rejected=0)
         return ExtractFieldsResponse(
             items=final_items,
-            method="llm",
+            method=_method,
             raw_llm_output=raw_output,
         )
 

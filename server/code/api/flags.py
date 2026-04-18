@@ -71,3 +71,11 @@ def claims_validators_enabled() -> bool:
     and confidence floor. Default ON — these are safe guardrails that only
     drop clearly-bad items."""
     return _truthy(os.environ.get("HORNELORE_CLAIMS_VALIDATORS", "1"))
+
+
+def twopass_extract_enabled() -> bool:
+    """WO-EX-TWOPASS-01. When True, /api/extract-fields uses the two-pass
+    extraction pipeline (pass 1: span tagger, pass 2: field classifier)
+    instead of single-pass LLM extraction. Falls back to single-pass on
+    pass 1 failure. Default OFF."""
+    return _truthy(os.environ.get("HORNELORE_TWOPASS_EXTRACT"))
