@@ -1,0 +1,355 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-18T07:27:34",
+  "mode": "live",
+  "summary": {
+    "total_cases": 2,
+    "passed": 0,
+    "failed": 2,
+    "pass_rate": 0.0,
+    "avg_overall_score": 0.567
+  },
+  "contract_subset": {
+    "total": 1,
+    "passed_v3": 0,
+    "passed_v2": 0,
+    "v2_avg_score": 0.333,
+    "pass_rate_v3": 0.0,
+    "pass_rate_v2": 0.0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_multiple": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    },
+    "clarify_before_write": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    }
+  },
+  "by_narrator": {
+    "kent-james-horne": {
+      "total": 2,
+      "passed": 0,
+      "avg_score": 0.567
+    }
+  },
+  "by_case_type": {
+    "contract": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.333
+    },
+    "null_clarify": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.8
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.333
+    },
+    "topical_history": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.8
+    }
+  },
+  "by_chunk_size": {
+    "tiny": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2,
+      "avg_score": 0.567
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2,
+      "avg_score": 0.567
+    }
+  },
+  "by_case_mode": {
+    "contract": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2,
+      "avg_score": 0.567
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.333,
+    "may_extract_bonus_rate": 0,
+    "should_ignore_leak_rate": 0,
+    "must_not_write_violation_rate": 0.167,
+    "raw_counts": {
+      "must_extract": {
+        "total": 3,
+        "hit": 1,
+        "miss": 2
+      },
+      "may_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 0,
+        "hit": 0,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 6,
+        "hit": 5,
+        "violated": 1
+      }
+    }
+  },
+  "must_not_write_violations": [
+    {
+      "case_id": "case_096",
+      "fieldPath": "health.majorCondition",
+      "narratorId": "kent-james-horne"
+    }
+  ],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 1,
+      "actually_passed": 0
+    },
+    "known_gaps": {
+      "total": 1,
+      "actually_passed": 0
+    }
+  },
+  "failure_categories": {
+    "schema_gap": 1,
+    "llm_hallucination": 1,
+    "guard_false_positive": 1
+  },
+  "case_results": [
+    {
+      "field_scores": {
+        "personal.birthOrder": {
+          "expected": "2",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "siblings.firstName": {
+          "expected": "Linda",
+          "actual": "Linda",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "siblings.birthOrder": {
+          "expected": "younger",
+          "actual": "middle",
+          "score": 0.0,
+          "status": "wrong"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.333,
+      "v2_score": 0.333,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap",
+        "llm_hallucination"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 3,
+          "hit": 1,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "personal.birthOrder": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "siblings.birthOrder": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_014",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 19772,
+      "extracted_count": 5,
+      "raw_items": [
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Sharon",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.birthOrder",
+          "value": "middle",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.birthOrder",
+          "value": "older",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Linda",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.birthOrder",
+          "value": "youngest",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [
+        "health.majorCondition"
+      ],
+      "overall_score": 0.8,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "guard_false_positive"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 4,
+          "hit": 3,
+          "miss": 0,
+          "violated": 1
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": true,
+          "violated": true
+        },
+        "health.milestone": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.lifestyleChange": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.significantEvent": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_096",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "health",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "topical",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 2017,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "Oh you know, the usual stuff that comes with getting old. But nothing I want to go into. We're all s…",
+          "confidence": 0.7
+        }
+      ]
+    }
+  ]
+}

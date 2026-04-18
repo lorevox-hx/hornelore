@@ -12,7 +12,7 @@ One command, one master report.  Backward compatible with v2 cases.
 
 Usage:
   python scripts/run_question_bank_extraction_eval.py --mode offline
-  python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:14501
+  python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000
 
 Output:
   Writes a JSON report to docs/reports/question_bank_extraction_eval_report.json
@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -255,14 +256,19 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
         mnw_penalty = 0.2 * mnw_violated
 
         overall_score = max(0.0, min(1.0, must_recall + may_bonus - ignore_penalty - mnw_penalty))
+
+    # Always compute v2-compatible score for baseline comparison
+    if field_scores:
+        v2_avg = sum(fs["score"] for fs in field_scores.values()) / len(field_scores)
     else:
-        # v2 fallback
-        if field_scores:
-            avg_field_score = sum(fs["score"] for fs in field_scores.values()) / len(field_scores)
-        else:
-            avg_field_score = 0.0
-        forbidden_penalty = 0.2 * len(forbidden_violations)
-        overall_score = max(0.0, avg_field_score - forbidden_penalty)
+        v2_avg = 0.0
+    v2_penalty = 0.2 * len(forbidden_violations)
+    v2_score = max(0.0, v2_avg - v2_penalty)
+    v2_pass = v2_score >= 0.7 and len(forbidden_violations) == 0
+
+    if not truth_zones:
+        # v2 fallback (no truth zones)
+        overall_score = v2_score
 
     # Classify failures
     failure_categories = []
@@ -299,6 +305,8 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
         "field_scores": field_scores,
         "forbidden_violations": forbidden_violations,
         "overall_score": round(overall_score, 3),
+        "v2_score": round(v2_score, 3),
+        "v2_pass": v2_pass,
         "failure_categories": list(set(failure_categories)),
         "pass": passed,
         "truth_zone_scores": tz_scores,
@@ -411,18 +419,20 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
         result["method"] = method
         result["elapsed_ms"] = round(elapsed * 1000)
         result["extracted_count"] = len(extracted_items)
-        # Sanitize raw items for JSON safety — strip control chars from values
-        safe_items = []
+        # Compact raw items for report — only fieldPath, value (capped), confidence
+        compact_items = []
         for item in extracted_items:
-            safe_item = {}
-            for k, v in item.items():
-                if isinstance(v, str):
-                    # Replace control chars except newline/tab
-                    safe_item[k] = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', v)
-                else:
-                    safe_item[k] = v
-            safe_items.append(safe_item)
-        result["raw_items"] = safe_items
+            val = item.get("value", "")
+            if isinstance(val, str):
+                val = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', val)
+                if len(val) > 100:
+                    val = val[:100] + "…"
+            compact_items.append({
+                "fieldPath": item.get("fieldPath", ""),
+                "value": val,
+                "confidence": item.get("confidence"),
+            })
+        result["raw_items"] = compact_items
         results.append(result)
 
     return results
@@ -550,6 +560,13 @@ def generate_report(results: List[dict], mode: str) -> dict:
     contract_passed = sum(1 for r in contract_subset if r["pass"])
     contract_total = len(contract_subset)
 
+    # ── v2-compatible baseline (for comparison with old 32/62) ────────────
+    v2_passed_all = sum(1 for r in results if r.get("v2_pass", False))
+    v2_passed_contract = sum(1 for r in contract_subset if r.get("v2_pass", False))
+    v2_avg_contract = round(
+        sum(r.get("v2_score", 0) for r in contract_subset) / contract_total, 3
+    ) if contract_total else 0
+
     report = {
         "_wo": "WO-QB-MASTER-EVAL-01",
         "_generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -565,9 +582,17 @@ def generate_report(results: List[dict], mode: str) -> dict:
         },
         "contract_subset": {
             "total": contract_total,
-            "passed": contract_passed,
-            "pass_rate": round(contract_passed / contract_total, 3) if contract_total else 0,
-            "note": "Original 62-case regression coverage. Compare against prior baselines.",
+            "passed_v3": contract_passed,
+            "passed_v2": v2_passed_contract,
+            "v2_avg_score": v2_avg_contract,
+            "pass_rate_v3": round(contract_passed / contract_total, 3) if contract_total else 0,
+            "pass_rate_v2": round(v2_passed_contract / contract_total, 3) if contract_total else 0,
+            "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2.",
+        },
+        "v2_baseline": {
+            "total_v2_passed": v2_passed_all,
+            "total_v2_rate": round(v2_passed_all / total, 3) if total else 0,
+            "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62.",
         },
         "by_behavior": by_behavior,
         "by_narrator": by_narrator,
@@ -620,7 +645,18 @@ def print_summary(report: dict):
     cs = report.get("contract_subset", {})
     if cs:
         print(f"  CONTRACT SUBSET (regression guard):")
-        print(f"    {cs['passed']}/{cs['total']} passed  ({cs['pass_rate']:.1%})")
+        v3p = cs.get('passed_v3', cs.get('passed', 0))
+        v2p = cs.get('passed_v2', '?')
+        t = cs['total']
+        print(f"    v3 (truth zones): {v3p}/{t} passed  ({v3p/t:.1%})" if t else "")
+        print(f"    v2 (field avg):   {v2p}/{t} passed  ({v2p/t:.1%})" if isinstance(v2p, int) and t else "")
+        print(f"    Prior baseline:   32/62 (v2)")
+        print()
+
+    # ── v2 baseline ───────────────────────────────────────────────────────
+    v2b = report.get("v2_baseline", {})
+    if v2b:
+        print(f"  V2-COMPAT (all cases): {v2b['total_v2_passed']}/{s['total_cases']} passed ({v2b['total_v2_rate']:.1%})")
         print()
 
     # ── Layer 1: Contract score ────────────────────────────────────────────
@@ -722,6 +758,26 @@ def main():
         "--cases", default=None,
         help="Path to cases JSON (default: data/qa/question_bank_extraction_cases.json)"
     )
+    parser.add_argument(
+        "--case-ids", default=None,
+        help="Comma-separated case IDs to run (e.g. case_014,case_096)"
+    )
+    parser.add_argument(
+        "--narrator", default=None,
+        help="Run only cases for this narrator (e.g. kent-james-horne)"
+    )
+    parser.add_argument(
+        "--case-type", default=None,
+        help="Run only cases of this type (contract, mixed_narrative, dense_truth, follow_up, null_clarify)"
+    )
+    parser.add_argument(
+        "--failed-only", default=None, metavar="REPORT_PATH",
+        help="Re-run only cases that failed in a prior report JSON"
+    )
+    parser.add_argument(
+        "--max-cases", type=int, default=None,
+        help="Cap the number of cases to run (for quick debug loops)"
+    )
     args = parser.parse_args()
 
     # Load cases
@@ -733,7 +789,35 @@ def main():
     with open(cases_path) as f:
         data = json.load(f)
     cases = data.get("cases", [])
-    print(f"Loaded {len(cases)} evaluation cases from {cases_path.name}")
+
+    # ── Apply filters ─────────────────────────────────────────────────────
+    if args.case_ids:
+        ids = set(args.case_ids.split(","))
+        cases = [c for c in cases if c["id"] in ids]
+
+    if args.narrator:
+        cases = [c for c in cases if c["narratorId"] == args.narrator]
+
+    if args.case_type:
+        cases = [c for c in cases if c.get("caseType") == args.case_type]
+
+    if args.failed_only:
+        prior_path = Path(args.failed_only)
+        if not prior_path.exists():
+            print(f"ERROR: Prior report not found: {prior_path}")
+            sys.exit(1)
+        with open(prior_path) as f:
+            prior = json.load(f)
+        failed_ids = set(
+            r["case_id"] for r in prior.get("case_results", []) if not r["pass"]
+        )
+        cases = [c for c in cases if c["id"] in failed_ids]
+        print(f"Filtered to {len(failed_ids)} failed cases from prior report")
+
+    if args.max_cases and len(cases) > args.max_cases:
+        cases = cases[:args.max_cases]
+
+    print(f"Running {len(cases)} evaluation cases from {cases_path.name}")
 
     # Run
     if args.mode == "offline":
@@ -744,17 +828,37 @@ def main():
     # Generate report
     report = generate_report(results, args.mode)
 
-    # Write report
+    # Print summary FIRST — stdout survives even if file write crashes
+    print_summary(report)
+
+    # Write report — atomic temp-file-then-rename to prevent truncation
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = Path(args.output) if args.output else (
         REPORT_DIR / "question_bank_extraction_eval_report.json"
     )
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False, default=str)
-    print(f"Report written to {output_path}")
-
-    # Print summary
-    print_summary(report)
+    try:
+        report_json = json.dumps(report, indent=2, ensure_ascii=False, default=str)
+        fd, tmp_path = tempfile.mkstemp(
+            suffix=".json.tmp", dir=str(output_path.parent)
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(report_json)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(output_path))
+            print(f"Report written to {output_path} ({len(report_json):,} bytes)")
+        except Exception:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        print(f"WARNING: Failed to write report to {output_path}: {e}",
+              file=sys.stderr)
+        print("  (Console summary above is still valid.)", file=sys.stderr)
 
     # Exit code: 0 if all expected-to-pass cases pass, 1 otherwise
     exp = report["expected_extractor_results"]["should_pass"]
