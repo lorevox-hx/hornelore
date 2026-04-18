@@ -1,0 +1,3502 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-18T10:44:10",
+  "mode": "live",
+  "summary": {
+    "total_cases": 33,
+    "passed": 20,
+    "failed": 13,
+    "pass_rate": 0.606,
+    "avg_overall_score": 0.723
+  },
+  "contract_subset": {
+    "total": 19,
+    "passed_v3": 10,
+    "passed_v2": 10,
+    "v2_avg_score": 0.598,
+    "pass_rate_v3": 0.526,
+    "pass_rate_v2": 0.526,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 15,
+    "total_v2_rate": 0.455,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_single": {
+      "total": 12,
+      "passed": 11,
+      "failed": 1
+    },
+    "extract_multiple": {
+      "total": 16,
+      "passed": 7,
+      "failed": 9
+    },
+    "extract_compound": {
+      "total": 4,
+      "passed": 1,
+      "failed": 3
+    },
+    "clarify_before_write": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0
+    }
+  },
+  "by_narrator": {
+    "kent-james-horne": {
+      "total": 33,
+      "passed": 20,
+      "avg_score": 0.723
+    }
+  },
+  "by_case_type": {
+    "contract": {
+      "total": 19,
+      "passed": 10,
+      "failed": 9,
+      "avg_score": 0.649
+    },
+    "mixed_narrative": {
+      "total": 6,
+      "passed": 4,
+      "failed": 2,
+      "avg_score": 0.832
+    },
+    "dense_truth": {
+      "total": 3,
+      "passed": 1,
+      "failed": 2,
+      "avg_score": 0.55
+    },
+    "follow_up": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 0.95
+    },
+    "null_clarify": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 25,
+      "passed": 12,
+      "failed": 13,
+      "avg_score": 0.64
+    },
+    "topical_history": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 0.984
+    },
+    "thematic_study": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "avg_score": 0.975
+    },
+    "site_artifact": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_chunk_size": {
+    "tiny": {
+      "total": 16,
+      "passed": 10,
+      "failed": 6,
+      "avg_score": 0.74
+    },
+    "small": {
+      "total": 6,
+      "passed": 3,
+      "failed": 3,
+      "avg_score": 0.567
+    },
+    "medium": {
+      "total": 11,
+      "passed": 7,
+      "failed": 4,
+      "avg_score": 0.786
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 24,
+      "passed": 15,
+      "failed": 9,
+      "avg_score": 0.718
+    },
+    "good_garbage": {
+      "total": 3,
+      "passed": 2,
+      "failed": 1,
+      "avg_score": 0.842
+    },
+    "mixed": {
+      "total": 3,
+      "passed": 2,
+      "failed": 1,
+      "avg_score": 0.822
+    },
+    "dense_truth": {
+      "total": 3,
+      "passed": 1,
+      "failed": 2,
+      "avg_score": 0.55
+    }
+  },
+  "by_case_mode": {
+    "contract": {
+      "total": 22,
+      "passed": 13,
+      "failed": 9,
+      "avg_score": 0.697
+    },
+    "style": {
+      "total": 9,
+      "passed": 5,
+      "failed": 4,
+      "avg_score": 0.738
+    },
+    "hybrid": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 0.95
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.596,
+    "may_extract_bonus_rate": 0.286,
+    "should_ignore_leak_rate": 0.125,
+    "must_not_write_violation_rate": 0.0,
+    "raw_counts": {
+      "must_extract": {
+        "total": 52,
+        "hit": 31,
+        "miss": 21
+      },
+      "may_extract": {
+        "total": 28,
+        "hit": 8,
+        "miss": 20
+      },
+      "should_ignore": {
+        "total": 24,
+        "hit": 21,
+        "leaked": 3
+      },
+      "must_not_write": {
+        "total": 49,
+        "hit": 49,
+        "violated": 0
+      }
+    }
+  },
+  "must_not_write_violations": [],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 15,
+      "actually_passed": 9
+    },
+    "known_gaps": {
+      "total": 18,
+      "actually_passed": 11
+    }
+  },
+  "failure_categories": {
+    "llm_hallucination": 3,
+    "schema_gap": 5,
+    "field_path_mismatch": 8,
+    "noise_leakage": 3
+  },
+  "case_results": [
+    {
+      "field_scores": {
+        "personal.placeOfBirth": {
+          "expected": "Stanley, North Dakota",
+          "actual": "Stanley, North Dakota",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "personal.dateOfBirth": {
+          "expected": "1939-12-24",
+          "actual": "1939-12-24",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_011",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 11521,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "personal.placeOfBirth",
+          "value": "Stanley, North Dakota",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "value": "1939-12-24",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "family.spouse.firstName": {
+          "expected": "Janice",
+          "actual": "Janice",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "family.marriageDate": {
+          "expected": "1959-10-10",
+          "actual": "October 10th, 1959",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.spouse.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.marriageDate": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.earlyCareer": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_012",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 16048,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "family.spouse.firstName",
+          "value": "Janice",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.lastName",
+          "value": "Zarr",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.marriageDate",
+          "value": "October 10th, 1959",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "family.children.firstName": {
+          "expected": "Christopher",
+          "actual": "Christopher Todd",
+          "score": 0.8,
+          "status": "partial"
+        },
+        "family.children.placeOfBirth": {
+          "expected": "Williston, North Dakota",
+          "actual": "Williston, North Dakota",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "family.children.dateOfBirth": {
+          "expected": "1962-12-24",
+          "actual": "1962-12-24",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.933,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.children.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.placeOfBirth": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.dateOfBirth": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_013",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 45743,
+      "extracted_count": 6,
+      "raw_items": [
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent Edward",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Germany",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Jason Richard",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Christopher Todd",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.dateOfBirth",
+          "value": "1962-12-24",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Williston, North Dakota",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "personal.birthOrder": {
+          "expected": "2",
+          "actual": "middle child",
+          "score": 0.0,
+          "status": "wrong"
+        },
+        "siblings.firstName": {
+          "expected": "Linda",
+          "actual": "Linda",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "siblings.birthOrder": {
+          "expected": "younger",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.333,
+      "v2_score": 0.333,
+      "v2_pass": false,
+      "failure_categories": [
+        "llm_hallucination",
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 3,
+          "hit": 1,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "personal.birthOrder": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "siblings.birthOrder": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_014",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 24458,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "personal.birthOrder",
+          "value": "middle child",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "value": "1939",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Sharon",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Linda",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "parents.notableLifeEvents": {
+          "expected": "died December 23rd, 1967",
+          "actual": "dad died December 23rd, 1967",
+          "score": 0.8,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.retirement": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_015",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "parental_care",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 22323,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "dad died December 23rd, 1967",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "day before Christmas Eve",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "day before birthday",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "Construction and trades",
+          "actual": "construction and trades",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_016",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 12214,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "construction and trades",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "built things with my hands",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "pets.name": {
+          "expected": "Ivan",
+          "actual": "Ivan",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "pets.species": {
+          "expected": "dog",
+          "actual": "dog",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "pets.name": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "pets.species": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_017",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 15603,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "pets.notes",
+          "value": "Golden Retriever",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.species",
+          "value": "dog",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.name",
+          "value": "Ivan",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Germany",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_018",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "middle_moves",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 15982,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "laterYears.lifeLessons": {
+          "expected": "Time goes faster than you think",
+          "actual": "That time goes faster than you think. You blink and your kids are grown and your parents are gone.",
+          "score": 0.8,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.lifeLessons": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.earlyCareer": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_019",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "reflection",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 2132,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.lifeLessons",
+          "value": "That time goes faster than you think. You blink and your kids are grown and your parents are gone.",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "Was already working construction by age eighteen",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.retirement": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_020",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "civic_entry_age_18",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 9962,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "turning eighteen",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "already working construction",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "military.branch": {
+          "expected": "Army",
+          "actual": "My great-grandfather John Michael Shong served in the Civil War. Company G of the 28th Infantry, from February 1865 to January 1866. He was stationed in Kansas and Missouri.",
+          "score": 0.0,
+          "status": "wrong"
+        },
+        "military.yearsOfService": {
+          "expected": "1865-1866",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "military.deploymentLocation": {
+          "expected": "Kansas and Missouri",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "military.significantEvent": {
+          "expected": "Civil War service, Company G, 28th Infantry",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch",
+        "llm_hallucination",
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 4,
+          "hit": 0,
+          "miss": 4
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "military.branch": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "military.yearsOfService": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "military.deploymentLocation": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "military.significantEvent": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.earlyCareer": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_033",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 23111,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "military.branch",
+          "value": "My great-grandfather John Michael Shong served in the Civil War. Company G of the 28th Infantry, fro…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "health.majorCondition": {
+          "expected": "Knee problems from construction work",
+          "actual": "knees giving out",
+          "score": 0.0,
+          "status": "wrong"
+        },
+        "health.lifestyleChange": {
+          "expected": "Had to slow down in seventies",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch",
+        "llm_hallucination"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "health.lifestyleChange": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.earlyCareer": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_037",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "health_and_body",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 17480,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "knees giving out",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "years of construction-related wear and tear on the body",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "having to slow down in the seventies",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Germany",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "travel.destination": {
+          "expected": "Germany",
+          "actual": "Germany",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "travel.purpose": {
+          "expected": "Work — construction",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.333,
+      "v2_score": 0.333,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch",
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 3,
+          "hit": 1,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "travel.destination": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "travel.purpose": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_044",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "first_home",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 13538,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "travel.destination",
+          "value": "Germany",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Germany",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "family.children.firstName": {
+          "expected": "Vincent",
+          "actual": "Vincent",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "family.children.relation": {
+          "expected": "son",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.5,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.children.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.relation": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "siblings.relation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_048",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 23436,
+      "extracted_count": 5,
+      "raw_items": [
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Jason",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Christopher",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "oldest",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "North Dakota",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Bismarck",
+          "actual": "Bismarck",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "residence.period": {
+          "expected": "about three years",
+          "actual": "about three years",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "residence.period": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "personal.placeOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_050",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "first_home",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 12558,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "residence.place",
+          "value": "Bismarck",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.period",
+          "value": "about three years",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "working construction",
+          "actual": "construction",
+          "score": 0.8,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.careerProgression": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_052",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "first_job",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 8284,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "construction",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "right out of school",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "personal.placeOfBirth": {
+          "expected": "Bismarck",
+          "actual": "Bismarck, North Dakota",
+          "score": 0.8,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "residence.place": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_054",
+      "narratorId": "kent-james-horne",
+      "phase": "childhood_origins",
+      "subTopic": "mixed_narrator_family",
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 12399,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "personal.placeOfBirth",
+          "value": "Bismarck, North Dakota",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "Stanley",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "near Williston",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "welder's helper",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "education.careerProgression": {
+          "expected": "foreman",
+          "actual": "worked my way up to foreman at the plant",
+          "score": 0.8,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.4,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "education.careerProgression": {
+          "zone": "must_extract",
+          "extracted": true
+        }
+      },
+      "case_id": "case_059",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "career_progression_vs_early",
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 18445,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "education.careerProgression",
+          "value": "started out as a welder's helper right out of school",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.careerProgression",
+          "value": "worked my way up to foreman at the plant",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.careerProgression",
+          "value": "thirty-two years",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "family.spouse.firstName": {
+          "expected": "Dorothy",
+          "actual": "Dorothy",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "family.children.firstName": {
+          "expected": "Chris",
+          "actual": "Chris",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "family.children.relation": {
+          "expected": "son",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.667,
+      "v2_score": 0.667,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 3,
+          "hit": 2,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.spouse.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.relation": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_062",
+      "narratorId": "kent-james-horne",
+      "phase": "later_adulthood",
+      "subTopic": "spouse_child_same_sentence",
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 47390,
+      "extracted_count": 6,
+      "raw_items": [
+        {
+          "fieldPath": "family.spouse.firstName",
+          "value": "Dorothy",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Chris",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.birthOrder",
+          "value": "oldest",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vince",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Jason",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Christine",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "family.marriageDate": {
+          "expected": "1959-10-10",
+          "actual": "October 10, 1959",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "family.spouse.firstName": {
+          "expected": "Janice",
+          "actual": "Janice",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.marriageDate": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.spouse.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.spouse.maidenName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "pets.name": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "residence.place": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_064",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "marriage_story",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 42156,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "family.marriageDate",
+          "value": "October 10, 1959",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.firstName",
+          "value": "Janice",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.placeOfBirth",
+          "value": "out in Dodge",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "parents.notableLifeEvents": {
+          "expected": "Father Ervin died December 23, 1967",
+          "actual": "My dad Ervin — he lost his own father George when he was only four years old. That was 1914. And then my grandmother Elizabeth, she remarried a man named William Mc Raith in 1916, but he died too, just two years later in 1918. So she was widowed twice by the time she was forty-one. She had a daughter Alice from that second marriage. Alice never married. My dad grew up in the Ross, North Dakota area. He married my mom Leila Myrtle Carkuff and they had us three kids — Sharon first in '37, me in '39, and Linda in '42. Then Dad died December 23, 1967. I was twenty-eight. The day before Christmas Eve, which is my birthday. That was hard.",
+          "score": 0.75,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.525,
+      "v2_score": 0.75,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 4,
+          "hit": 1,
+          "miss": 3
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.lastName": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "grandparents.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "grandparents.memorableStory": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_068",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_loss",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 54531,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "parents.relation",
+          "value": "Mother",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Leila",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.lastName",
+          "value": "Myrtle Carkuff",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "My dad Ervin — he lost his own father George when he was only four years old. That was 1914. And the…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.967,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "noise_leakage"
+      ],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 3,
+          "hit": 2,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 1
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "military.branch": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "military.yearsOfService": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "military.deploymentLocation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "grandparents.memorableStory": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.firstName": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "family.children.placeOfBirth": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "education.earlyCareer": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        }
+      },
+      "case_id": "case_071",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "military_family",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical",
+      "style_bucket": "topical_history",
+      "chunk_size": "medium",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 38601,
+      "extracted_count": 6,
+      "raw_items": [
+        {
+          "fieldPath": "earlyMemories.significantEvent",
+          "value": "French",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "construction and trades",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "Lorraine",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Germany",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "hobbies.hobbies": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "personal.culture": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "parents.notableLifeEvents": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_074",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "family_traditions",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "thematic",
+      "style_bucket": "thematic_study",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 50019,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "parents.maidenName",
+          "value": "Shong",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.maidenName",
+          "value": "Bolley",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "Lorraine",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.birthPlace",
+          "value": "Hanover",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "siblings.firstName": {
+          "expected": "Sharon",
+          "actual": "I had two sisters. Sharon was the oldest, born April 8, 1937. She married Ed Woodmansee. And then Linda was the youngest, born July 27, 1942. I was in the middle — the only boy. We grew up in North Dakota, kids of Ervin and Leila Horne. After Dad died in '67 we all kind of had to pull together. Mom Leila lived until 1985, she passed December 1st that year. We stayed close considering how much everybody moved around.",
+          "score": 0.8,
+          "status": "partial"
+        },
+        "siblings.relation": {
+          "expected": "Sister",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.4,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "siblings.relation": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "siblings.birthOrder": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.lastName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "parents.notableLifeEvents": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "personal.birthOrder": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_077",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "siblings_childhood",
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 44658,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "I had two sisters. Sharon was the oldest, born April 8, 1937. She married Ed Woodmansee. And then Li…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "grandparents.firstName": {
+          "expected": "George",
+          "actual": "Well my dad Ervin's parents were George Horne and Elizabeth Shong. George arrived in Ross, North Dakota in 1902. He walked north from Ross looking for good land, filed on a claim, and got the title June 16, 1904. He'd married Elizabeth — everybody called her Lizzie — on December 29, 1903 in Fall Creek, Wisconsin. They had six children: Margaret in 1904, then Phyllis in 1907 but she died as a baby, Ervin — my dad — in 1909, Isabel in 1910 who also died young, James in 1911, and Arthur in 1912. George died April 12, 1914. My dad was only four. Elizabeth married again — William Mc Raith — on May 1, 1916. But he died too, May 2, 1918. She had one daughter from that marriage, Alice, born September 23, 1917. Alice never married. Elizabeth lived until April 26, 1952.",
+          "score": 0.8,
+          "status": "partial"
+        },
+        "grandparents.memorableStory": {
+          "expected": "arrived in Ross ND 1902, walked north to find land, died 1914",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.15,
+      "v2_score": 0.4,
+      "v2_pass": false,
+      "failure_categories": [
+        "noise_leakage",
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 4,
+          "hit": 1,
+          "miss": 3
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 1
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "grandparents.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "grandparents.lastName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.maidenName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.birthPlace": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "grandparents.memorableStory": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "parents.firstName": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "parents.birthPlace": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_080",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 45515,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "parents.relation",
+          "value": "Father",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "only",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.lastName",
+          "value": "four",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "grandparents.firstName",
+          "value": "Well my dad Ervin's parents were George Horne and Elizabeth Shong. George arrived in Ross, North Dak…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "grandparents.memorableStory": {
+          "expected": "youngest of eight children of John Michael Shong and Christine Bolley",
+          "actual": "Lizzie Shong was the youngest of eight children. Her dad John Michael and mom Christine had: Charlie, born 1864, married Tillie Welke, ran a hotel in Penn, North Dakota. Sarah, 1866, married Gustav Glenz. Little Maggie, 1868, died in infancy. Christie, 1869, married Henry Graichen, worked as a cook across the Midwest. Nicholas, 1871, married Adone Voechting. Henry — they called him Hank — 1873, married Lola Archer. Cora, 1875, also died in infancy. And then Lizzie, the youngest, 1877. Around the turn of the century she went to Penn to visit her brother Charlie and find work as a seamstress. That's where she met my grandfather George. The Shong name was originally Schong — they dropped the C when they came to America. Might have even been Le Shong once.",
+          "score": 0.74,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.74,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "grandparents.memorableStory": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "grandparents.maidenName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.ancestry": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_083",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "grandmother_story",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 45297,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "grandparents.memorableStory",
+          "value": "Lizzie Shong was the youngest of eight children. Her dad John Michael and mom Christine had: Charlie…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "Construction and trades",
+          "actual": "I went into construction and trades pretty much right away. That meant we moved a lot — wherever the work was. We lived in Germany for a while, that's where our oldest boy Vincent was born. Then back to North Dakota and other places. Janice was a trooper through all of it, kept the boys on track even when we'd be packing up and moving to a new town every year or two. She'd been through it herself growing up — her dad Pete moved the family from Dodge to Glen Ulin to Strasburg for work. Three boys we raised — Vincent, Jason, and Christopher. Chris was born December 24, 1962 in Williston, same day as my birthday. By the time I was done working I'd built things all over. It was a good career, hard but good.",
+          "score": 0.8,
+          "status": "partial"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.8,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 5,
+          "hit": 0,
+          "miss": 5
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.careerProgression": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "residence.place": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.dateOfBirth": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.placeOfBirth": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_086",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "career_family",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 41670,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "education.earlyCareer",
+          "value": "I went into construction and trades pretty much right away. That meant we moved a lot — wherever the…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.notableLifeEvents": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "earlyMemories.significantEvent": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "parents.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_090",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_detail",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "follow_up",
+      "oralHistoryStyle": "thematic",
+      "style_bucket": "thematic_study",
+      "chunk_size": "medium",
+      "noise_profile": "clean",
+      "case_mode": "hybrid",
+      "sequence_group": "kent_father",
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 13504,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "lost his own father at four, then his stepfather died too",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "died December 1st 1985",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.9,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "noise_leakage"
+      ],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 1
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "family.spouse.maidenName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.marriageNotes": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "parents.occupation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.higherEducation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_093",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "spouse_detail",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "follow_up",
+      "oralHistoryStyle": "thematic",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "hybrid",
+      "sequence_group": "kent_spouse",
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 25340,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "family.spouse.firstName",
+          "value": "Janice",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.placeOfBirth",
+          "value": "North Dakota",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 4,
+          "hit": 4,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.milestone": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.lifestyleChange": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.significantEvent": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_096",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "health",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "topical",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 2142,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "faith.denomination": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "faith.values": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "faith.role": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "grandparents.ancestry": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_099",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "faith",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "thematic",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 11545,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "faith.denomination",
+          "value": "Catholic",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "faith.values",
+          "value": "doing right by people",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 4,
+          "hit": 4,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "travel.significantTrip": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "travel.destination": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "residence.place": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "personal.placeOfBirth": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "grandparents.birthPlace": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_102",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "travel",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "site_artifact",
+      "style_bucket": "site_artifact",
+      "chunk_size": "medium",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 19465,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "travel.significantTrip",
+          "value": "Germany",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "travel.significantTrip",
+          "value": "Stanley",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "travel.significantTrip",
+          "value": "Ross",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "travel.significantTrip",
+          "value": "Fall Creek, Wisconsin",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Germany",
+          "actual": "Germany",
+          "score": 1.0,
+          "status": "exact"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 1.0,
+      "v2_pass": true,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.firstName": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "family.children.placeOfBirth": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.earlyCareer": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.children.placeOfBirth_2": {
+          "zone": "may_extract",
+          "extracted": false
+        }
+      },
+      "case_id": "case_103",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "germany_years",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "site_artifact",
+      "style_bucket": "site_artifact",
+      "chunk_size": "medium",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 19210,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "residence.place",
+          "value": "Germany",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent Edward",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.placeOfBirth",
+          "value": "Germany",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

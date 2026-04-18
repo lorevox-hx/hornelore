@@ -1,0 +1,491 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-18T10:30:43",
+  "mode": "live",
+  "summary": {
+    "total_cases": 4,
+    "passed": 3,
+    "failed": 1,
+    "pass_rate": 0.75,
+    "avg_overall_score": 0.9
+  },
+  "contract_subset": {
+    "total": 0,
+    "passed_v3": 0,
+    "passed_v2": 0,
+    "v2_avg_score": 0,
+    "pass_rate_v3": 0,
+    "pass_rate_v2": 0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_single": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    },
+    "clarify_before_write": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0
+    }
+  },
+  "by_narrator": {
+    "janice-josephine-horne": {
+      "total": 3,
+      "passed": 2,
+      "avg_score": 0.867
+    },
+    "kent-james-horne": {
+      "total": 1,
+      "passed": 1,
+      "avg_score": 1.0
+    }
+  },
+  "by_case_type": {
+    "follow_up": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.6
+    },
+    "null_clarify": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.6
+    },
+    "topical_history": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 1.0
+    },
+    "thematic_study": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_chunk_size": {
+    "small": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1,
+      "avg_score": 0.8
+    },
+    "tiny": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 4,
+      "passed": 3,
+      "failed": 1,
+      "avg_score": 0.9
+    }
+  },
+  "by_case_mode": {
+    "hybrid": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.6
+    },
+    "contract": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0,
+    "may_extract_bonus_rate": 0.0,
+    "should_ignore_leak_rate": 0.5,
+    "must_not_write_violation_rate": 0.091,
+    "raw_counts": {
+      "must_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "may_extract": {
+        "total": 1,
+        "hit": 0,
+        "miss": 1
+      },
+      "should_ignore": {
+        "total": 4,
+        "hit": 2,
+        "leaked": 2
+      },
+      "must_not_write": {
+        "total": 11,
+        "hit": 10,
+        "violated": 1
+      }
+    }
+  },
+  "must_not_write_violations": [
+    {
+      "case_id": "case_094",
+      "fieldPath": "parents.firstName",
+      "narratorId": "janice-josephine-horne"
+    }
+  ],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 3,
+      "actually_passed": 3
+    },
+    "known_gaps": {
+      "total": 1,
+      "actually_passed": 0
+    }
+  },
+  "failure_categories": {
+    "noise_leakage": 1,
+    "guard_false_positive": 1
+  },
+  "case_results": [
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.6,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "noise_leakage",
+        "guard_false_positive"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 2
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 1,
+          "miss": 0,
+          "violated": 1
+        }
+      },
+      "truth_zone_details": {
+        "siblings.uniqueCharacteristics": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "siblings.birthOrder": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "extracted": true,
+          "violated": true
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_094",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "sibling_detail",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "follow_up",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "hybrid",
+      "sequence_group": "janice_siblings",
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 22473,
+      "extracted_count": 5,
+      "raw_items": [
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "James Peter Zarr",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "siblings.birthOrder",
+          "value": "youngest",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Ervin",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.lastName",
+          "value": "Horne",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.maidenName",
+          "value": "Leila",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 4,
+          "hit": 4,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.milestone": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.lifestyleChange": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.significantEvent": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_096",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "health",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "topical",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 2235,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "additionalNotes.unfinishedDreams": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.lifeLessons": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_097",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "regrets",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "thematic",
+      "style_bucket": "thematic_study",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 2084,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "community.organization": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "community.role": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "faith.denomination": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "hobbies.hobbies": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_100",
+      "narratorId": "janice-josephine-horne",
+      "phase": "midlife",
+      "subTopic": "community",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "topical",
+      "style_bucket": "topical_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 10036,
+      "extracted_count": 0,
+      "raw_items": []
+    }
+  ]
+}

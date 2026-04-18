@@ -1,0 +1,70 @@
+Running 4 evaluation cases from question_bank_extraction_cases.json
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     4
+  Passed:          3
+  Failed:          1
+  Pass rate:       75.0%
+  Avg score:       0.900
+
+  CONTRACT SUBSET (regression guard):
+
+
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/4 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        0.0%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    50.0%
+    must_not_write violations:  9.1%
+
+  must_not_write violations:
+    case_094      parents.firstName                    (janice-josephine-horne)
+
+  By behavior:
+    extract_single                  0/1 passed
+    clarify_before_write            3/3 passed
+
+  By narrator:
+    janice-josephine-horne          2/3 passed  (avg 0.867)
+    kent-james-horne                1/1 passed  (avg 1.000)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  3/3
+    Known gaps (currentExtractorExpected=false):  0/1
+
+  Failure categories:
+    noise_leakage                   1
+    guard_false_positive            1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    follow_up                  0/1 passed  (avg 0.600)
+    null_clarify               3/3 passed  (avg 1.000)
+
+  By style bucket:
+    life_history               0/1 passed  (avg 0.600)
+    topical_history            2/2 passed  (avg 1.000)
+    thematic_study             1/1 passed  (avg 1.000)
+
+  By chunk size:
+    small                      1/2 passed  (avg 0.800)
+    tiny                       2/2 passed  (avg 1.000)
+
+  By noise profile:
+    clean                      3/4 passed  (avg 0.900)
+
+  ─── FAILED CASES ───
+
+    case_094    follow_up        small   clean         score=0.60  janice-josephine-horne [GAP]
+      Failures:  ['noise_leakage', 'guard_false_positive']
+
+==============================================================================
+Report written to docs/reports/20260418_103006_guard_refusal_report.json (11,393 bytes)
