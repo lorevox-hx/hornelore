@@ -458,6 +458,54 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "[{\"fieldPath\":\"travel.destination\",\"value\":\"Europe\",\"confidence\":0.9},"
         "{\"fieldPath\":\"travel.purpose\",\"value\":\"anniversary trip\",\"confidence\":0.8}]\n"
         "\n"
+        "GENERATIONAL & LATE-LIFE EXAMPLES — touchstones, medications, memory, frustrations, desired stories:\n"
+        "\n"
+        "Example — narrator says: \"We were watching on a little black-and-white set when they landed on the moon. "
+        "The whole family was in the living room.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"watched the moon landing on TV with the whole family\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"cultural.touchstoneMemory\",\"value\":\"moon landing — watched on a black-and-white TV with the whole family in the living room\",\"confidence\":0.9}]\n"
+        "Touchstone 'where-were-you' memories get BOTH laterYears.significantEvent (the fact) AND "
+        "cultural.touchstoneMemory (the vivid memory with sensory detail). If the narrator only gives a bare "
+        "fact ('yeah, I saw it on TV'), use only laterYears.significantEvent.\n"
+        "\n"
+        "Example — narrator says: \"In Bismarck we sat in line with the engine off hoping the gas held out. "
+        "My wife packed sandwiches.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"waited in gas lines during the 1970s energy crisis\",\"confidence\":0.8}]\n"
+        "Scene-setting family mentions (wife, kids in the car) are NOT extractable spouse/children facts.\n"
+        "\n"
+        "Example — narrator says: \"I take blood pressure medicine every morning, and something for arthritis "
+        "when my hands flare up.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"health.currentMedications\",\"value\":\"blood pressure medicine daily, arthritis medication as needed\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"health.majorCondition\",\"value\":\"high blood pressure\",\"confidence\":0.8},"
+        "{\"fieldPath\":\"health.majorCondition\",\"value\":\"arthritis\",\"confidence\":0.8}]\n"
+        "Medications → health.currentMedications. The conditions those medications treat → health.majorCondition. Both valid.\n"
+        "\n"
+        "Example — narrator says: \"Names take longer than they used to, but the old stories are still there. "
+        "It's the little daily things that slip first.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"health.cognitiveChange\",\"value\":\"names are slower to recall, small daily details slip first, but long-term memories remain\",\"confidence\":0.8}]\n"
+        "Self-reported memory change → health.cognitiveChange. Do NOT write health.majorCondition — this is normal aging, not a diagnosis.\n"
+        "\n"
+        "Example — narrator says: \"Everything takes longer now, and younger people assume older means helpless. "
+        "That gets under my skin.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"hobbies.personalChallenges\",\"value\":\"frustration with slowing down and being treated as helpless\",\"confidence\":0.9}]\n"
+        "Late-life frustrations → hobbies.personalChallenges. Do NOT invent paths like laterYears.frustrations.\n"
+        "\n"
+        "Example — narrator says: \"I'd want my family to hear about my dad dying in '67, the years we built "
+        "a life in Germany, and how their mother and I got started with almost nothing.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"laterYears.desiredStory\",\"value\":\"father's death in 1967\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"laterYears.desiredStory\",\"value\":\"years building a life in Germany\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"laterYears.desiredStory\",\"value\":\"early married life starting with almost nothing\",\"confidence\":0.9}]\n"
+        "When narrator lists stories they want told, each is a separate laterYears.desiredStory (repeatable). "
+        "Do NOT collapse into one value. Do NOT extract mentioned places/dates as residence.* or parents.* — "
+        "the narrator is listing priorities, not narrating those events.\n"
+        "\n"
         "NEGATION RULE: If the narrator explicitly says they did NOT have an experience "
         "(e.g., 'I never served', 'I've been pretty healthy', 'I didn't go to college'), "
         "extract NOTHING for that category. Do not guess or infer fields from denied experiences.\n"
@@ -2257,6 +2305,30 @@ _CAREER_DURATION_CUES = re.compile(
     re.IGNORECASE,
 )
 
+# WO-QB-GENERATIONAL-01B: touchstone event detection for cultural.touchstoneMemory
+_TOUCHSTONE_EVENT_CUES = re.compile(
+    r'\b(?:moon landing|apollo|landed on the moon|walked on the moon'
+    r'|vietnam|draft(?:ed)?|gas lines|energy crisis|oil crisis'
+    r'|challenger|shuttle'
+    r'|9[\-/]11|september 11|twin towers|world trade'
+    r'|covid|pandemic|lockdown|quarantine'
+    r'|berlin wall|wall came down|wall fell'
+    r'|kennedy|jfk|president.*shot|assassination'
+    r'|watergate|nixon resign'
+    r'|sputnik|space race'
+    r'|artemis|going back to the moon|return.{0,10}moon)\b',
+    re.IGNORECASE,
+)
+
+# WO-QB-GENERATIONAL-01B: story-priority language for laterYears.desiredStory
+_STORY_PRIORITY_CUES = re.compile(
+    r'(?:want.{0,15}family to hear|only had time for|stories? I\'?d'
+    r'|want.{0,10}on the record|want.{0,10}written down|want.{0,10}told'
+    r'|if I (?:could|only)|three stories|important.{0,10}to tell'
+    r'|before.{0,15}(?:too late|gone|I\'?m gone|I go))',
+    re.IGNORECASE,
+)
+
 # Path mapping: (source_prefix, target_prefix) for each rerouter
 _PETS_REMAP = {
     "hobbies.hobbies": "pets.notes",  # generic hobby → pet notes
@@ -2332,6 +2404,15 @@ def _apply_semantic_rerouter(
                 logger.info("[extract][rerouter] career: education.earlyCareer → education.careerProgression (val=%r)", val[:60])
                 it["fieldPath"] = "education.careerProgression"
 
+        # ── 5. Story-priority rerouter: unfinishedDreams/lifeLessons → desiredStory ─
+        # WO-QB-GENERATIONAL-01B: when the narrator lists stories they want told,
+        # the LLM sometimes routes to additionalNotes.unfinishedDreams or
+        # laterYears.lifeLessons. Reroute to laterYears.desiredStory.
+        elif fp in ("additionalNotes.unfinishedDreams", "laterYears.lifeLessons"):
+            if _STORY_PRIORITY_CUES.search(answer_lower):
+                logger.info("[extract][rerouter] story-priority: %s → laterYears.desiredStory (val=%r)", fp, val[:60])
+                it["fieldPath"] = "laterYears.desiredStory"
+
         if it["fieldPath"] != original_fp:
             # Verify the rerouted path is valid
             if it["fieldPath"] not in EXTRACTABLE_FIELDS:
@@ -2340,6 +2421,25 @@ def _apply_semantic_rerouter(
                 it["fieldPath"] = original_fp
 
         rerouted.append(it)
+
+    # ── 6. Touchstone duplicate: laterYears.significantEvent → ADD cultural.touchstoneMemory ─
+    # WO-QB-GENERATIONAL-01B: when the answer mentions a known historical event
+    # and the LLM routed to laterYears.significantEvent, ADD a duplicate item
+    # routed to cultural.touchstoneMemory. Don't remove the original — both valid.
+    if _TOUCHSTONE_EVENT_CUES.search(answer_lower):
+        touchstone_dupes = []
+        existing_touchstones = {it.get("value", "") for it in rerouted if it.get("fieldPath") == "cultural.touchstoneMemory"}
+        for it in rerouted:
+            if it.get("fieldPath") == "laterYears.significantEvent":
+                val = it.get("value", "")
+                if val and val not in existing_touchstones:
+                    touchstone_dupes.append({
+                        "fieldPath": "cultural.touchstoneMemory",
+                        "value": val,
+                        "confidence": it.get("confidence", 0.8),
+                    })
+                    logger.info("[extract][rerouter] touchstone-dup: laterYears.significantEvent → +cultural.touchstoneMemory (val=%r)", val[:60])
+        rerouted.extend(touchstone_dupes)
 
     return rerouted
 

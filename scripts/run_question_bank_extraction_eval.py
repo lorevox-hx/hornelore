@@ -144,23 +144,36 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     # WO-QB-GENERATIONAL-01: build truthZones from array-style keys if not present.
     # Generational cases use must_extract/may_extract/should_ignore/must_not_write
     # arrays instead of a truthZones dict.
+    #
+    # WO-QB-GENERATIONAL-01B fix: the same fieldPath can appear in multiple zones
+    # (e.g. case_203 has hobbies.hobbies in both must_extract and should_ignore
+    # with different values). Use a list of zone entries per fieldPath so later
+    # zones don't overwrite earlier ones.
     if not truth_zones:
+        _tz_list: Dict[str, list] = {}  # fieldPath -> [zone_entry, ...]
         for entry in case.get("must_extract", []):
             fp = entry.get("fieldPath", "")
             if fp:
-                truth_zones[fp] = {"zone": "must_extract", "expected": entry.get("value", "")}
+                _tz_list.setdefault(fp, []).append({"zone": "must_extract", "expected": entry.get("value", "")})
         for entry in case.get("may_extract", []):
             fp = entry.get("fieldPath", "")
             if fp:
-                truth_zones[fp] = {"zone": "may_extract", "expected": entry.get("value", "")}
+                _tz_list.setdefault(fp, []).append({"zone": "may_extract", "expected": entry.get("value", "")})
         for entry in case.get("should_ignore", []):
             fp = entry.get("fieldPath", "")
             if fp:
-                truth_zones[fp] = {"zone": "should_ignore"}
+                _tz_list.setdefault(fp, []).append({"zone": "should_ignore"})
         for entry in case.get("must_not_write", []):
             fp = entry.get("fieldPath", "")
             if fp:
-                truth_zones[fp] = {"zone": "must_not_write"}
+                _tz_list.setdefault(fp, []).append({"zone": "must_not_write"})
+        # Flatten: if a fieldPath has only one entry, store it directly (backward compat).
+        # If it has multiple entries, store as a list under a "_multi" wrapper.
+        for fp, entries in _tz_list.items():
+            if len(entries) == 1:
+                truth_zones[fp] = entries[0]
+            else:
+                truth_zones[fp] = {"_multi": entries}
 
     # Build a lookup from extracted items: fieldPath -> list of values
     extracted_map: Dict[str, List[str]] = {}
@@ -213,10 +226,13 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     }
     tz_details: Dict[str, dict] = {}
 
-    for fp, tz in truth_zones.items():
-        zone = tz.get("zone", "must_extract")
-        expected_val = tz.get("expected", "")
+    # WO-QB-GENERATIONAL-01B: score each zone entry, handling _multi wrappers
+    # where the same fieldPath appears in multiple zones.
+    def _score_one_tz_entry(fp: str, tz_entry: dict, idx_suffix: str = ""):
+        zone = tz_entry.get("zone", "must_extract")
+        expected_val = tz_entry.get("expected", "")
         was_extracted = fp in extracted_map
+        detail_key = f"{fp}{idx_suffix}"
 
         if zone == "must_extract":
             tz_scores["must_extract"]["total"] += 1
@@ -230,7 +246,7 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                 tz_scores["must_extract"]["hit"] += 1
             else:
                 tz_scores["must_extract"]["miss"] += 1
-            tz_details[fp] = {"zone": zone, "extracted": was_extracted}
+            tz_details[detail_key] = {"zone": zone, "extracted": was_extracted}
 
         elif zone == "may_extract":
             tz_scores["may_extract"]["total"] += 1
@@ -238,7 +254,7 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                 tz_scores["may_extract"]["hit"] += 1
             else:
                 tz_scores["may_extract"]["miss"] += 1
-            tz_details[fp] = {"zone": zone, "extracted": was_extracted}
+            tz_details[detail_key] = {"zone": zone, "extracted": was_extracted}
 
         elif zone == "should_ignore":
             tz_scores["should_ignore"]["total"] += 1
@@ -246,7 +262,7 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                 tz_scores["should_ignore"]["leaked"] += 1
             else:
                 tz_scores["should_ignore"]["hit"] += 1
-            tz_details[fp] = {"zone": zone, "extracted": was_extracted, "leaked": was_extracted}
+            tz_details[detail_key] = {"zone": zone, "extracted": was_extracted, "leaked": was_extracted}
 
         elif zone == "must_not_write":
             tz_scores["must_not_write"]["total"] += 1
@@ -254,7 +270,15 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                 tz_scores["must_not_write"]["violated"] += 1
             else:
                 tz_scores["must_not_write"]["hit"] += 1
-            tz_details[fp] = {"zone": zone, "extracted": was_extracted, "violated": was_extracted}
+            tz_details[detail_key] = {"zone": zone, "extracted": was_extracted, "violated": was_extracted}
+
+    for fp, tz in truth_zones.items():
+        if "_multi" in tz:
+            # Same fieldPath in multiple zones — score each independently
+            for i, entry in enumerate(tz["_multi"]):
+                _score_one_tz_entry(fp, entry, f"[{i}]")
+        else:
+            _score_one_tz_entry(fp, tz)
 
     # ── Overall score (uses truth zones when available, falls back to v2) ──
     if truth_zones:
