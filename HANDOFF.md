@@ -6,7 +6,7 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-17)
+## Current state (as of 2026-04-18)
 
 This section is a rolling summary of what's been shipped recently and what's still in-flight. If you're coming back after time away, read this first.
 
@@ -22,54 +22,69 @@ This section is a rolling summary of what's been shipped recently and what's sti
 | **WO-EX-SCHEMA-01** | Added `family.*` and `residence.*` field families + repeatable entity support (siblings, children, spouse, grandchildren, residence, priorPartners) | Live-proven; unblocked CLAIMS-01 |
 | **WO-EX-CLAIMS-01** | Dynamic token cap (128 simple / 384 compound), position-aware entity grouping, 20 field aliases (batch 1 + 2), narrator identity signals in subject guard | Live eval baseline: **22/30 (73.3%)**. Stable. |
 | **WO-GREETING-01** | Backend endpoint + frontend wired. Opener fetched on narrator open in `lv80SwitchPerson()`. Memory echo triggers expanded (5 → 14 phrases). | **Live-tested 2026-04-16** — all 3 narrators show greeting. |
+| **WO-QB-MASTER-EVAL-01** | Master eval suite expanded 62 → 104 cases. v2/v3 dual scoring, case filters (--case-ids, --narrator, --failed-only, --max-cases), atomic JSON writer, compact raw_items. | **Live-tested 2026-04-18.** Single-pass baseline confirmed: 33/62 v2 (above 32/62 prior). |
+| **WO-EX-GUARD-REFUSAL-01** | Topic-refusal guard + community denial patterns. Catches "nothing I want to go into", "I'd rather not", "not something I want written down", "wasn't a joiner". | **Live-tested 2026-04-18.** 0 must_not_write violations on full 104-case suite. Fixes cases 094, 096, 097, 100. null_clarify 7/7. |
+| **WO-QB-GENERATIONAL-01** (content) | 4 decade packs (1930s–1960s, 12 questions each), present_life_realities subtopic (8 questions + follow-ups + sensory), 5 new extractable fields, 14-case generational eval pack. | **Content shipped 2026-04-18.** Extraction baseline: 2/14 (refusal cases pass, story extraction is a known gap). Runtime JS integration not yet wired. |
 
 ### Unshipped / in-flight
 
 | Work order | State | Notes |
 |---|---|---|
-| **WO-SCHEMA-02** | **Implementation complete** (2026-04-17). 35 new fields (7 families), ~50 aliases, 7 prompt examples, 14 eval cases (cases 031-044). | Fields: grandparents, military, faith, health, community, pets, travel. Eval suite expanded: 30 → 44 cases. Needs re-run. |
-| **WO-CLAIMS-02** | **Quick-win validators shipped** (2026-04-17). See `docs/CLAIMS-02_failure_taxonomy.md`. | 3 validators in extract.py: value-shape rejection (garbage words + short fragments), relation allowlist (enumerated valid values), confidence floor (<0.5 auto-reject). Flag `HORNELORE_CLAIMS_VALIDATORS` default ON. 32 new tests (114 total). Remaining: entity coherence, compound splitting, narrator style tuning. |
-| **WO-EX-REROUTE-01** | **Implementation complete** (2026-04-17). | Semantic rerouter: 4 high-precision rerouters (pets, siblings, birthplace, career) that fix valid-but-wrong fieldPaths using section+path+lexical triple-agreement. 4 prompt routing distinction exemplars. 8 micro-eval cases (4 reroute, 4 no-reroute). Eval suite: 44 → 52 cases. |
-| **WO-EX-TWOPASS-01** | **A/B eval complete — REGRESSED** (2026-04-17). | Two-pass extraction pipeline: Pass 1 (schema-blind span tagger) → Pass 2A (rule-based classifier) → Pass 2B (LLM classifier for unresolved spans). Flag `HORNELORE_TWOPASS_EXTRACT` remains **OFF**. A/B result: baseline 32/62 (51.6%, avg 0.590) → two-pass 16/62 (25.8%, avg 0.325). Both pairs stable across 2 runs. Major regression in `extract_multiple` (16/35 → 4/35). Root-cause hypothesis (unconfirmed): Pass 1 token starvation (128/256 cap too small for multi-entity spans), span abstraction losing semantic context before classification, Pass 2B seeing only stripped spans instead of original answer. Next step: stage-level log inspection before any v2 attempt. |
-| **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores and stays anchored. #1 felt bug from live sessions |
-| **WO-KAWA-UI-01A** | **Implementation complete** (2026-04-17). See `docs/reports/WO-KAWA-UI-01A_REPORT.md`. | River View UI as popover: segment list, detail pane, flow/rocks/driftwood/banks/spaces editing, river strip, 4 REST endpoints, local-first JSON storage. Needs live test. |
-| **WO-KAWA-01** | Fully specced (`hornelore/WO-KAWA-01_Spec.md`). 10 phases. | Parallel Kawa river layer: LLM-driven proposals, confirmation loop, instrumentation. Next: wire LLM into `kawa_projection.py`. |
-| **WO-KAWA-02A** | **Implementation complete** (2026-04-17). See `docs/reports/WO-KAWA-02A_REPORT.md`. | 3 interview modes (chronological/hybrid/kawa_reflection), 3 memoir modes (chronology/chronology_river/river_organized), plain-language toggle, Kawa weight metadata, prompt_composer directives. Needs live test. |
-| **WO-KAWA-02** (remaining) | Phases 4-9 not yet implemented. | Storage promotion, chapter weighting UI, deeper memoir panel integration, eval hooks. |
-| **WO-PHENO-01** | Fully specced (`hornelore/WO-PHENO-01_Spec.md`). 3-4 sessions. | Phenomenology layer: lived experience + wisdom extraction. Question bank (5 phases), experience schema, bio-builder staging. |
-| **WO-REPETITION-01** | Not yet specced | Narrator pastes same content 2-3x, Lori keeps responding |
-| **WO-MODE-01/02** | Not yet specced | Session Intent Profiles (Questionnaire First / Clear & Direct / Warm Storytelling) after narrator Open |
-| **WO-UI-SHADOWREVIEW-01** | Not yet specced | Show Phase G suppression reason ("we already have this") instead of silent drop |
-| **WO-EX-DIAG-01** | Not yet specced | Surface extraction failure reason in response envelope |
+| **WO-SCHEMA-02** | **Implementation complete** (2026-04-17). | 35 new fields (7 families), ~50 aliases, 7 prompt examples. Live-proven via 104-case eval. |
+| **WO-CLAIMS-02** | **Quick-win validators shipped** (2026-04-17). | 3 validators + refusal guard + community denial. Flag `HORNELORE_CLAIMS_VALIDATORS` default ON. 114 unit tests. Remaining: entity coherence, compound splitting. |
+| **WO-EX-REROUTE-01** | **Implementation complete** (2026-04-17). | Semantic rerouter: 4 high-precision paths. Live-proven. |
+| **WO-EX-TWOPASS-01** | **REGRESSED — flag OFF** (2026-04-17). | 16/62 vs 32/62 baseline. Root cause: token starvation + context loss. Flag accidentally left ON in .env caused regression in 04-17 eval; removed 04-18. |
+| **WO-QB-GENERATIONAL-01** (runtime) | **Content done, runtime not yet wired** | JS ranking logic, world-event hookup, session suppression still needed. Spec: `docs/WO-QB-GENERATIONAL.md`. Full WO: WO-QB-GENERATIONAL-01. |
+| **WO-INTENT-01** | Not yet specced | Narrator says "let's talk about X" → composer ignores. **#1 felt bug from live sessions.** |
+| **WO-EX-DENSE-01** | Not yet specced | Dense-truth (1/8), large chunk (0/4), good-garbage (5/14) extraction. **#1 extraction frontier.** |
+| **WO-KAWA-UI-01A** | **Implementation complete** (2026-04-17). | River View UI. Needs live test. |
+| **WO-KAWA-01** | Fully specced. 10 phases. | Parallel Kawa river layer. Next: wire LLM into `kawa_projection.py`. |
+| **WO-KAWA-02A** | **Implementation complete** (2026-04-17). | 3 interview modes, 3 memoir modes, plain-language toggle. Needs live test. |
+| **WO-KAWA-02** (remaining) | Phases 4-9 not yet implemented. | Storage promotion, chapter weighting, deeper memoir integration. |
+| **WO-PHENO-01** | Fully specced. 3-4 sessions. | Phenomenology layer: lived experience + wisdom extraction. |
+| **WO-REPETITION-01** | Not yet specced | Narrator pastes same content 2-3×, Lori keeps responding. |
+| **WO-MODE-01/02** | Not yet specced | Session Intent Profiles after narrator Open. |
+| **WO-UI-SHADOWREVIEW-01** | Not yet specced | Show Phase G suppression reason instead of silent drop. |
+| **WO-EX-DIAG-01** | Not yet specced | Surface extraction failure reason in response envelope. |
 
-### Priority sequence to Kawa readiness
+### Priority sequence (updated 2026-04-18)
 
 ```
-SCHEMA-02 (done) → CLAIMS-02 quick-wins (done) → eval run 1-4 (done, 24/44) → EX-REROUTE-01 (done) → temp sweep (done, not a lever) → EX-TWOPASS-01 (done, regressed 16/62 vs 32/62 baseline, flag OFF) → stage-level debug or constrained Pass 2 WO → INTENT-01 → KAWA-01 Phase 1
+EX-GUARD-REFUSAL-01 (done, 0 violations) → QB-GENERATIONAL-01 content (done) → INTENT-01 (next) → EX-DENSE-01 (extraction frontier) → QB-GENERATIONAL-01 runtime (JS hookup) → KAWA-01 Phase 1
 ```
 
-### Extraction eval baseline (2026-04-17)
+### Extraction eval baseline (2026-04-18)
 
-**Single-pass baseline (locked):** 32/62 (51.6%, avg 0.590) — stable across 2 runs.
+**Full suite (104 cases):** 55/104 (52.9%, avg 0.666).
 
-Failure breakdown (30 failures): schema_gap: 16-17, field_path_mismatch: 9-11, llm_hallucination: 10-11.
+**Contract subset:** v3 33/62 (53.2%), v2 30-33/62 (48-53%, ±3 LLM variance). Prior v2 baseline: 32/62.
 
-**Two-pass A/B (HORNELORE_TWOPASS_EXTRACT=1):** 16/62 (25.8%, avg 0.325) — stable across 2 runs. Major regression; flag remains OFF.
+**Safety:** 0 must_not_write violations. null_clarify 7/7. Refusal guard active.
 
-Two-pass failure breakdown (46 failures): schema_gap: 26, field_path_mismatch: 21, llm_hallucination: 10, guard_false_positive: 1.
+Failure breakdown (49 failures): schema_gap: 27, field_path_mismatch: 19, llm_hallucination: 13, noise_leakage: 13.
 
-Root-cause hypothesis (pending stage-log confirmation): Pass 1 token budget too small for multi-entity spans, span abstraction loses context needed for classification, Pass 2B receives only stripped spans without original answer text. The `extract_multiple` category collapsed from 16/35 to 4/35, consistent with token starvation on longer answers.
+**By case type:** contract 33/62, mixed_narrative 7/19, dense_truth 1/8, follow_up 7/8, null_clarify 7/7.
 
-Eval suite: **62 cases** (52 original + 10 two-pass-specific cases 053-062).
+**By chunk size:** tiny 26/42, small 19/34, medium 10/24, large 0/4.
 
-### Extraction pipeline order (updated 2026-04-17)
+**Two-pass (flag OFF):** Regressed to 16/62. Was accidentally enabled in .env during 04-17 eval; removed 04-18.
 
-**Single-pass (flag OFF):**
+**Generational pack (14 cases):** 2/14 baseline (refusal cases pass, extraction is a known gap).
+
+Eval suite: **104 master cases** + **14 generational cases** (separate file).
+
+### New extractable fields (2026-04-18)
+
+5 fields added by WO-QB-GENERATIONAL-01: `cultural.touchstoneMemory` (repeatable), `health.currentMedications`, `health.cognitiveChange`, `laterYears.dailyRoutine`, `laterYears.desiredStory` (repeatable).
+
+### Extraction pipeline order (updated 2026-04-18)
+
+**Single-pass (active):**
 ```
-LLM generate → JSON parse → semantic rerouter → birth-context filter → month-name sanity → field-value sanity → claims validators (shape + relation + confidence + negation guard)
+LLM generate → JSON parse → semantic rerouter → birth-context filter → month-name sanity → field-value sanity → claims validators (refusal guard → shape → relation → confidence → negation guard)
 ```
 
-**Two-pass (HORNELORE_TWOPASS_EXTRACT=1):**
+**Two-pass (HORNELORE_TWOPASS_EXTRACT=1, OFF — regressed):**
 ```
 Pass 1: span tagger (LLM, schema-blind) → span JSON parse
 → Pass 2A: rule-based classifier (deterministic)
@@ -82,6 +97,7 @@ Falls back to single-pass on pass 1 failure.
 
 | File | What it is |
 |---|---|
+| `docs/WO-QB-GENERATIONAL.md` | Generational era-overlay spec (touchstones + late-life + new fields) |
 | `hornelore/WO-KAWA-01_Spec.md` | Full 10-phase Kawa data/engine work order |
 | `hornelore/WO-KAWA-UI-01_Spec.md` | Full River View UI work order |
 | `hornelore/WO-PHENO-01_Spec.md` | Full phenomenology layer work order |
@@ -91,7 +107,26 @@ Falls back to single-pass on pass 1 failure.
 | `docs/CLAIMS-02_failure_taxonomy.md` | Failure root cause analysis + fix priorities |
 | `docs/reports/WO-KAWA-UI-01A_REPORT.md` | River View implementation report |
 | `docs/reports/WO-KAWA-02A_REPORT.md` | Kawa questioning + memoir integration report |
-| `docs/references/` | 4 Kawa/OT reference papers (Iwama, Newbury/Lape, Crepeau, Norell) + 6 extraction papers (NegBERT, Temporal-Relation, HGAN-EODI) + 4 architecture papers (Structured-Data-LLMs, Small-Models-Decomposition, ML-Agent-RL, SLQ-Oral-History) |
+| `docs/references/` | 4 Kawa/OT reference papers + 6 extraction papers + 5 architecture papers |
+
+### Eval commands quick reference
+
+```bash
+# Full 104-case suite
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000
+
+# Guard cases only
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --case-ids case_094,case_096,case_097,case_100
+
+# Generational pack (14 cases, separate file)
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --cases data/qa/question_bank_generational_cases.json
+
+# Kent only
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --narrator kent-james-horne
+
+# Failed cases from prior report
+python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --failed-only docs/reports/question_bank_extraction_eval_report.json
+```
 
 ### Env flag state
 
