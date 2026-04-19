@@ -2833,6 +2833,106 @@ def _apply_relation_scope_guard(items: List[dict], answer: str) -> List[dict]:
     return out
 
 
+# ── WO-EX-TURNSCOPE-01 — follow-up turn-scope filter (task #72) ─────────────
+# Problem: on a follow-up turn whose target resolves to one family-relations
+# branch root (e.g. siblings.*), the extractor sometimes writes to adjacent
+# entity-role branches (parents.*, family.children.*, etc.) purely because
+# relational names from those branches appeared as references in the reply.
+# See master_loop01_r4f.json case_094 (janice-josephine-horne sibling_detail
+# → wrote parents.firstName = "Ervin" off "Kent's parents' wedding
+# anniversary. Ervin and Leila Horne's anniversary.")
+#
+# Fix: when current_target_path resolves to a member of the family-relations
+# cluster below, drop any extracted item whose fieldPath lives in a DIFFERENT
+# member of that cluster. Items outside the cluster (personal.*, residence.*,
+# earlyMemories.*, pets.*, education.*, community.*, military.*, travel.*,
+# health.*, laterYears.*, family.marriage*, etc.) pass through unchanged so
+# that cross-cluster may_extracts in passing follow-up cases (089 pets/
+# earlyMemories, 091 family.marriageNotes) remain intact.
+#
+# Runtime: no-op when current_target_path is None or resolves outside the
+# cluster. No regex; cost is one prefix walk per item.
+#
+# Research tie: Order-to-Space Bias / entity-role binding — cf. loop01
+# research_synthesis.md §2.7 (OINL) and R6 "Upstream field-scope filter"
+# candidate. This is the scoped-down runtime variant.
+
+# Ordered longest-first so that `family.children` and `family.spouse` win
+# the prefix match over the bare `family` segment (which is intentionally
+# NOT a cluster member — family.marriage* and family.marriageNotes are
+# out-of-cluster by design).
+_FAMILY_RELATIONS_ROOTS = (
+    "family.children",
+    "family.spouse",
+    "greatGrandparents",
+    "grandparents",
+    "siblings",
+    "parents",
+)
+
+
+def _resolve_turn_scope_branch(current_target_path: Optional[str]) -> Optional[str]:
+    """Return the family-relations branch root of current_target_path, or
+    None if the target is outside the family-relations cluster.
+
+    Longest-prefix match: 'family.children.firstName' → 'family.children',
+    'siblings.uniqueCharacteristics' → 'siblings'.
+    """
+    if not current_target_path:
+        return None
+    for root in _FAMILY_RELATIONS_ROOTS:
+        if current_target_path == root or current_target_path.startswith(root + "."):
+            return root
+    return None
+
+
+def _fieldpath_branch_root(field_path: str) -> Optional[str]:
+    """Return the family-relations branch root of a field_path, or None
+    if the path is outside the family-relations cluster."""
+    if not field_path:
+        return None
+    for root in _FAMILY_RELATIONS_ROOTS:
+        if field_path == root or field_path.startswith(root + "."):
+            return root
+    return None
+
+
+def _apply_turn_scope_filter(
+    items: List[dict],
+    current_target_path: Optional[str],
+) -> List[dict]:
+    """WO-EX-TURNSCOPE-01 — entity-role binding enforcement on follow-up turns.
+
+    When ``current_target_path`` resolves to a family-relations branch root,
+    drop any item whose fieldPath resolves to a DIFFERENT family-relations
+    branch root. Items outside the cluster pass through unchanged.
+
+    No-op when ``current_target_path`` is None or outside the cluster.
+    """
+    if not items:
+        return items
+    target_root = _resolve_turn_scope_branch(current_target_path)
+    if target_root is None:
+        return items
+
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        item_root = _fieldpath_branch_root(fp)
+        if item_root is not None and item_root != target_root:
+            try:
+                logger.info(
+                    "[extract][turnscope] DROP fieldPath=%s value=%r "
+                    "target_branch=%s item_branch=%s reason=cross_branch_bleed",
+                    fp, str(it.get("value", ""))[:80], target_root, item_root,
+                )
+            except Exception:
+                pass
+            continue
+        out.append(it)
+    return out
+
+
 # ── LOOP-01 R4 Patch F — contrast-affirmation exception for negation-guard ──
 # R3b + log evidence: when the narrator says "I'm not X, (more of a) Y"
 # the guard strips BOTH X and Y. Patch 4's ancestor-scope check doesn't
@@ -4239,6 +4339,18 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     if llm_items:
         llm_items = _apply_semantic_rerouter(llm_items, answer, req.current_section)
 
+    # WO-EX-TURNSCOPE-01 (task #72): Follow-up turn-scope filter.
+    # Enforce entity-role binding — on a follow-up turn whose target resolves
+    # to one family-relations branch root (siblings/parents/grandparents/
+    # greatGrandparents/family.children/family.spouse), drop items that leak
+    # into adjacent branches of the same cluster. No-op on non-follow-up
+    # turns and on follow-ups targeting fields outside the cluster.
+    # Runs AFTER rerouter (so valid-but-wrong paths get a chance to be fixed
+    # first) and BEFORE birth-context / negation guard so downstream guards
+    # see a turn-scope-clean item list.
+    if llm_items:
+        llm_items = _apply_turn_scope_filter(llm_items, req.current_target_path)
+
     # WO-EX-01C + WO-EX-01D: four-layer LLM output guard.
     #   1. birth-context filter    — section-gated + layered subject guard
     #                                (Bug A West-Fargo residence; Bug B
@@ -4356,6 +4468,11 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     # gating; field-value sanity catches state-abbr and stopword fragments
     # regardless of whether they came from rules or LLM).
     if rules_items:
+        # WO-EX-TURNSCOPE-01 (task #72): apply turn-scope filter on the rules
+        # path too for symmetry. Rules extractions are narrower than LLM but
+        # this is an idempotent no-op when the target is outside the family-
+        # relations cluster, and cheap when inside.
+        rules_items = _apply_turn_scope_filter(rules_items, req.current_target_path)
         rules_items = _apply_birth_context_filter(
             rules_items,
             req.current_section,
