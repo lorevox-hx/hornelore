@@ -474,6 +474,28 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Organization names, military branches, research settings, and travel context belong inside the value text when relevant; do not invent separate field paths for them. "
         "Do NOT invent paths like education.career, employment.organization, education.travelDestination, career.fieldOfStudy, career.location, career.business, career.politics.*, or personal.profession.\n"
         "\n"
+        "Example — narrator says: \"Our first son Christopher was born December 24, 1962 in Williston, North Dakota. "
+        "That was the best Christmas Eve of our lives.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"family.children.relation\",\"value\":\"son\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.firstName\",\"value\":\"Christopher\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.dateOfBirth\",\"value\":\"December 24, 1962\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.placeOfBirth\",\"value\":\"Williston, North Dakota\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.birthOrder\",\"value\":\"first\",\"confidence\":0.85}]\n"
+        "When the narrator calls a child \"our first\" / \"our oldest\" / \"the baby\", also write family.children.birthOrder.\n"
+        "\n"
+        "Example — narrator says: \"Gretchen was a surprise — I was almost 40 when she came along.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"family.children.firstName\",\"value\":\"Gretchen\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.children.notes\",\"value\":\"surprise child; narrator was almost 40\",\"confidence\":0.8}]\n"
+        "\n"
+        "Example — narrator says: \"My closest friend all through school was Harold Schmitt. "
+        "He was the one who got me interested in carpentry — he and my Uncle Pete were the two people who shaped me most.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"earlyMemories.significantEvent\",\"value\":\"closest friend: Harold Schmitt, through school; Uncle Pete; both shaped narrator; Harold got narrator interested in carpentry\",\"confidence\":0.85},"
+        "{\"fieldPath\":\"relationships.closeFriends\",\"value\":\"Harold Schmitt\",\"confidence\":0.9}]\n"
+        "(Use relationships.closeFriends if in schema; otherwise earlyMemories.significantEvent is the catch-all for formative relationships.)\n"
+        "\n"
         "Example — narrator says: \"My oldest son Vince was born in Germany in 1960, and my daughter Sarah was born in Bismarck in 1962.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"family.children.relation\",\"value\":\"son\",\"confidence\":0.9},"
@@ -491,6 +513,15 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "{\"fieldPath\":\"family.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
         "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"
         "\n"
+        "Example — narrator says: \"We were married at St. Mary's Catholic Church in Williston on June 4th, 1960.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"family.marriageDate\",\"value\":\"June 4, 1960\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"St. Mary's Catholic Church, Williston\",\"confidence\":0.9}]\n"
+        "\n"
+        "Example — narrator says: \"Our wedding was a small one at the courthouse in Minot.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"family.marriagePlace\",\"value\":\"courthouse, Minot\",\"confidence\":0.85}]\n"
+        "\n"
         "Example — narrator says: \"We lived in West Fargo from 1962 to 1964, then moved to Bismarck.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"residence.place\",\"value\":\"West Fargo\",\"confidence\":0.9},"
@@ -503,6 +534,15 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "{\"fieldPath\":\"grandparents.firstName\",\"value\":\"Anna\",\"confidence\":0.9},"
         "{\"fieldPath\":\"grandparents.lastName\",\"value\":\"Petrova\",\"confidence\":0.9},"
         "{\"fieldPath\":\"grandparents.birthPlace\",\"value\":\"Russia\",\"confidence\":0.7}]\n"
+        "\n"
+        "Example — narrator says: \"My grandparents on my father's side were French (Alsace-Lorraine) and German. "
+        "On my mother's side, Norwegian and a little Irish.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"grandparents.side\",\"value\":\"paternal\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"grandparents.ancestry\",\"value\":\"French (Alsace-Lorraine), German\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"grandparents.side\",\"value\":\"maternal\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"grandparents.ancestry\",\"value\":\"Norwegian, Irish\",\"confidence\":0.9}]\n"
+        "\"Ancestry\" / \"ethnic background\" / \"came from [country]\" → grandparents.ancestry (NOT grandparents.birthPlace unless a specific person's birth-city was named).\n"
         "\n"
         "Example — narrator says: \"My great-grandfather John Michael Shong was born in Lorraine, France in 1829, "
         "served in the Civil War, and settled at Fall Creek, Wisconsin. The family name was originally Schong and "
@@ -547,6 +587,18 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "[{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9},"
         "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9},"
         "{\"fieldPath\":\"pets.notes\",\"value\":\"collie, first family dog\",\"confidence\":0.8}]\n"
+        "\n"
+        "Example — narrator says: \"I had a dog named Ivan when I was little.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"pets.name\",\"value\":\"Ivan\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9}]\n"
+        "(Do NOT write `pets.notes=\"dog named Ivan\"` — name and species go on their own fields.)\n"
+        "\n"
+        "Example — narrator says: \"Our cat Whiskers lived to be sixteen.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"pets.name\",\"value\":\"Whiskers\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"pets.species\",\"value\":\"cat\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"pets.notes\",\"value\":\"lived to be sixteen\",\"confidence\":0.8}]\n"
         "\n"
         "Example — narrator says: \"We took a trip to Europe in 1985. It was our anniversary.\"\n"
         "Output:\n"
@@ -2614,6 +2666,242 @@ _SHORT_VALUE_EXEMPT_SUFFIXES = frozenset({
 })
 
 
+# ── LOOP-01 R4 Patch A — answer-dump length cap ─────────────────────────────
+# R3b master-eval root cause: 13 of 54 failing cases had the LLM dump the entire
+# narrator answer into a scalar field's value (e.g. grandparents.side=224-char
+# monologue, family.marriageDate=622-char paragraph, residence.place=510-char
+# anecdote). The LLM falls back to "here is the relevant passage" when it
+# can't cleanly extract the fact. These hallucinated long values pollute the
+# graph. Cap scalar suffixes hard at 120 chars / 2 sentences; cap narrative
+# suffixes at 500 chars (big enough for legit memorableStory entries).
+_SCALAR_VALUE_SUFFIXES = frozenset({
+    # Names
+    "firstName", "middleName", "lastName", "maidenName",
+    "preferredName", "nickname", "fullName", "name", "nameStory",
+    # Dates / years
+    "dateOfBirth", "dateOfDeath", "birthDate", "deathDate",
+    "birthYear", "deathYear", "startYear", "endYear",
+    "marriageDate", "yearEnlisted", "yearDischarged",
+    "yearStarted", "yearEnded", "age", "ageAtMarriage",
+    # Places
+    "placeOfBirth", "placeOfDeath", "birthPlace",
+    "marriagePlace", "destination",
+    # Enumerated / short identifiers
+    "birthOrder", "gender", "relation", "relationship",
+    "branch", "denomination", "rank", "status", "species", "type",
+    "side", "role", "organization", "ancestry",
+    "yearsActive", "yearsOfService", "yearsOfMarriage",
+    "memberCount",
+})
+_NARRATIVE_VALUE_SUFFIXES = frozenset({
+    "notes", "significantEvent", "memorableStory", "memorableStories",
+    "notableLifeEvents", "lifeLessons", "desiredStory",
+    "touchstoneMemory", "significantTrip", "lifestyleChange",
+    "milestone", "majorCondition", "currentMedications",
+    "cognitiveChange", "firstMemory", "uniqueCharacteristics",
+    "values", "story", "background", "personality",
+    "characteristic", "deploymentLocation", "significantMoment",
+    "hobbies", "personalChallenges", "unfinishedDreams",
+    "careerProgression", "earlyCareer", "higherEducation",
+    "schooling", "training", "purpose", "militaryEvent",
+    "militaryUnit", "militaryBranch",
+})
+_SCALAR_VALUE_MAX_CHARS = 120
+_NARRATIVE_VALUE_MAX_CHARS = 500
+_SENTENCE_BOUNDARY = re.compile(r'[.!?]\s+[A-Z]')
+
+
+def _apply_value_length_cap(items: List[dict]) -> List[dict]:
+    """LOOP-01 R4 Patch A — reject items whose value is an answer-dump.
+
+    Scalar suffixes (name/date/place/role/side/etc.) are capped at
+    ``_SCALAR_VALUE_MAX_CHARS`` and must not contain a sentence boundary
+    (period + space + capital). Narrative suffixes (notes, memorableStory,
+    etc.) are capped at ``_NARRATIVE_VALUE_MAX_CHARS``. Unknown suffixes
+    are passed through unchanged.
+    """
+    if not items:
+        return items
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        val = it.get("value", "")
+        if not isinstance(val, str) or not val:
+            out.append(it)
+            continue
+        suffix = fp.rsplit(".", 1)[-1] if "." in fp else fp
+        n = len(val)
+        if suffix in _SCALAR_VALUE_SUFFIXES:
+            has_sentence_boundary = bool(_SENTENCE_BOUNDARY.search(val))
+            if n > _SCALAR_VALUE_MAX_CHARS or has_sentence_boundary:
+                logger.info(
+                    "[extract][R4-A answer-dump] dropping %s (scalar, %d chars, "
+                    "sentence_boundary=%s): %r…",
+                    fp, n, has_sentence_boundary, val[:80],
+                )
+                continue
+        elif suffix in _NARRATIVE_VALUE_SUFFIXES:
+            if n > _NARRATIVE_VALUE_MAX_CHARS:
+                logger.info(
+                    "[extract][R4-A answer-dump] dropping %s (narrative, "
+                    "%d chars > %d): %r…",
+                    fp, n, _NARRATIVE_VALUE_MAX_CHARS, val[:80],
+                )
+                continue
+        out.append(it)
+    return out
+
+
+# ── LOOP-01 R4 Patch E — relation-scope safety guard ────────────────────────
+# R3b master-eval had 2 must_not_write violations, both this shape:
+#   - case_008: narrator describes uncle → extractor wrote family.children.*
+#   - case_094: narrator describes sibling → extractor wrote parents.*
+# Fix: if the answer mentions uncle/aunt/nephew/niece/cousin WITHOUT a
+# "my son/daughter/child/kid" anchor, reject family.children.*. Symmetric
+# rule for parents.* vs sibling cues. Graph-contamination safety.
+_CHILD_ANCHORS = re.compile(
+    r"\bmy\s+(?:son|daughter|child|children|kid|kids|boy|girl|baby|"
+    r"firstborn|little one|oldest|youngest)\b",
+    re.IGNORECASE,
+)
+_PARENT_ANCHORS = re.compile(
+    r"\bmy\s+(?:mother|father|mom|dad|mama|papa|ma|pa|mum|parents?)\b",
+    re.IGNORECASE,
+)
+_CHILD_CONFLICT_CUES = re.compile(
+    r"\b(?:uncle|aunt|nephew|niece|cousin|"
+    r"great[- ]?uncle|great[- ]?aunt|step[- ]?uncle|step[- ]?aunt)\b",
+    re.IGNORECASE,
+)
+_SIBLING_CONFLICT_CUES = re.compile(
+    r"\bmy\s+(?:brother|sister|siblings?|twin|"
+    r"older brother|younger brother|older sister|younger sister|"
+    r"big brother|big sister|little brother|little sister|"
+    r"half[- ]?brother|half[- ]?sister|step[- ]?brother|step[- ]?sister)\b",
+    re.IGNORECASE,
+)
+
+
+def _apply_relation_scope_guard(items: List[dict], answer: str) -> List[dict]:
+    """LOOP-01 R4 Patch E — reject family.children.* / parents.* extractions
+    when the answer's dominant relational cue doesn't match the written path.
+
+    Fires only when the conflict cue is present AND the legitimating anchor
+    is absent — a conservative rule designed to eliminate must_not_write
+    violations without touching healthy extractions.
+    """
+    if not items or not answer:
+        return items
+    has_child_anchor = bool(_CHILD_ANCHORS.search(answer))
+    has_parent_anchor = bool(_PARENT_ANCHORS.search(answer))
+    has_child_conflict = bool(_CHILD_CONFLICT_CUES.search(answer))
+    has_sibling_conflict = bool(_SIBLING_CONFLICT_CUES.search(answer))
+
+    if not (has_child_conflict or has_sibling_conflict):
+        return items
+    if has_child_anchor and has_parent_anchor:
+        # Dense family answer — narrator is describing both kids and parents,
+        # don't interfere; the router's section-aware logic is better equipped.
+        return items
+
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        if (
+            fp.startswith("family.children.")
+            and has_child_conflict
+            and not has_child_anchor
+        ):
+            logger.info(
+                "[extract][R4-E relation-scope] dropping %s=%r "
+                "(answer has uncle/aunt/nephew cue without my-son/daughter anchor)",
+                fp, it.get("value"),
+            )
+            continue
+        if (
+            fp.startswith("parents.")
+            and has_sibling_conflict
+            and not has_parent_anchor
+        ):
+            logger.info(
+                "[extract][R4-E relation-scope] dropping %s=%r "
+                "(answer has my-brother/sister cue without my-mother/father anchor)",
+                fp, it.get("value"),
+            )
+            continue
+        out.append(it)
+    return out
+
+
+# ── LOOP-01 R4 Patch F — contrast-affirmation exception for negation-guard ──
+# R3b + log evidence: when the narrator says "I'm not X, (more of a) Y"
+# the guard strips BOTH X and Y. Patch 4's ancestor-scope check doesn't
+# apply because the speaker is the narrator themselves. Preserve the
+# affirmative half Y by collecting sentence-scoped affirmative clauses;
+# any extraction whose value lives inside one of those clauses is kept.
+_DENIAL_WORDS = re.compile(
+    r"\b(?:not|never|don'?t|didn'?t|doesn'?t|wasn'?t|isn'?t|haven'?t|no(?=\s))\b",
+    re.IGNORECASE,
+)
+_CONTRAST_MARKER = re.compile(
+    r"\b(?:but|more of a|more like|just (?:a )?|"
+    r"I'?m (?:more|just )?|I am (?:more|just )?|I'?ve been|I was)\s+",
+    re.IGNORECASE,
+)
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _collect_contrast_affirmations(answer: str) -> list:
+    """Return sentence-scoped affirmative clauses from the answer
+    (lowercased). A sentence is an "affirmative clause" when:
+
+    * it contains no denial marker (``not/never/don't/...``), OR
+    * it contains a denial AND a contrast marker, in which case only the
+      text after the last contrast marker is kept.
+
+    This catches three shapes the negation-guard previously over-stripped:
+
+    1. ``not X, (but|more of a) Y``        — contrast split within one sentence
+    2. ``not X. I'm Y``                    — contrast across a sentence boundary
+    3. ``Y, Y, Y. don't X.``               — affirmatives precede the denial
+    """
+    if not answer:
+        return []
+    affirmatives: list = []
+    for raw in _SENTENCE_SPLIT.split(answer.strip()):
+        s = raw.strip()
+        if not s:
+            continue
+        if _DENIAL_WORDS.search(s):
+            # Drop denied portion; keep any text after a contrast marker.
+            m = None
+            for hit in _CONTRAST_MARKER.finditer(s):
+                m = hit  # keep the last hit — "not X, but Y" -> Y
+            if m is not None:
+                affirm = s[m.end():].strip().strip('.,;:"\'').lower()
+                if len(affirm) >= 3:
+                    affirmatives.append(affirm)
+            continue
+        # No denial in this sentence — whole sentence is affirmative.
+        affirm = s.strip('.,;:"\'').lower()
+        if len(affirm) >= 3:
+            affirmatives.append(affirm)
+    return affirmatives
+
+
+def _value_in_affirmative_clause(value, affirmatives: list) -> bool:
+    """True if ``value`` appears as a substring of any affirmative clause."""
+    if not value or not affirmatives:
+        return False
+    val_lower = str(value).lower().strip().strip('.,;:"\'')
+    if not val_lower:
+        return False
+    for aff in affirmatives:
+        if val_lower in aff:
+            return True
+    return False
+
+
 def _apply_claims_value_shape(items: List[dict]) -> List[dict]:
     """WO-EX-CLAIMS-02 validator 1: reject garbage connector words and
     bare fragments that leak from compound-sentence mis-parsing.
@@ -2703,6 +2991,155 @@ def _apply_claims_relation_allowlist(items: List[dict]) -> List[dict]:
     return out
 
 
+# ── LOOP-01 R4 Patch H — write-time value normalisation ─────────────────
+# Normalises certain scalar field values to their canonical surface form so
+# downstream scorers and graph consumers see consistent strings regardless
+# of how the narrator phrased it. Runs BEFORE negation-guard so normalised
+# values are still matched against ancestor-context / affirmative-clause
+# detectors on the original answer text.
+#
+# Covers:
+#   - *.birthOrder: map "1st/first/oldest/eldest" → "first" etc.
+#   - dates on *.birthDate / *.deathDate / family.marriageDate:
+#       strip surrounding prose like "born in 1929, January 15th" → "1929-01-15"
+#       when the raw value is already parseable; otherwise leave as-is.
+#   - *.firstName / *.lastName: strip surrounding punctuation + quoting,
+#       collapse whitespace, Title-case if all-lowercase.
+
+_BIRTHORDER_CANON = {
+    # narrator-side ordinals → canonical lowercase ordinal label
+    "1st": "first", "first": "first", "firstborn": "first",
+    "oldest": "oldest", "eldest": "oldest",
+    "2nd": "second", "second": "second",
+    "3rd": "third", "third": "third",
+    "4th": "fourth", "fourth": "fourth",
+    "5th": "fifth", "fifth": "fifth",
+    "6th": "sixth", "sixth": "sixth",
+    "7th": "seventh", "seventh": "seventh",
+    "8th": "eighth", "eighth": "eighth",
+    "9th": "ninth", "ninth": "ninth",
+    "10th": "tenth", "tenth": "tenth",
+    "middle": "middle",
+    "youngest": "youngest", "baby": "youngest",
+    "last": "youngest", "last-born": "youngest", "lastborn": "youngest",
+    "only child": "only",
+    "older": "older", "younger": "younger",
+    "twin": "twin",
+}
+
+_MONTH_MAP = {
+    "january": "01", "jan": "01",
+    "february": "02", "feb": "02",
+    "march": "03", "mar": "03",
+    "april": "04", "apr": "04",
+    "may": "05",
+    "june": "06", "jun": "06",
+    "july": "07", "jul": "07",
+    "august": "08", "aug": "08",
+    "september": "09", "sep": "09", "sept": "09",
+    "october": "10", "oct": "10",
+    "november": "11", "nov": "11",
+    "december": "12", "dec": "12",
+}
+
+_DATE_ISO_RX   = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_DATE_YEAR_RX  = re.compile(r"\b(1[89]\d{2}|20[0-4]\d)\b")
+_DATE_MDY_RX   = re.compile(
+    r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
+    r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b",
+    re.IGNORECASE,
+)
+
+_DATE_FIELD_SUFFIXES = frozenset({"birthDate", "deathDate", "marriageDate"})
+
+
+def _normalize_birthorder_value(raw: str) -> str:
+    """Return canonical birthOrder surface form, or the raw value unchanged
+    if no mapping applies."""
+    if not raw:
+        return raw
+    norm = raw.strip().lower().strip(".,;:\"'")
+    norm = re.sub(r"^(?:the |an? )", "", norm)
+    return _BIRTHORDER_CANON.get(norm, raw)
+
+
+def _normalize_date_value(raw: str) -> str:
+    """Best-effort ISO-ish date normalisation.
+
+    Conservative: if the raw value already looks ISO (YYYY-MM-DD), keep it.
+    If it matches "Month D, YYYY" or "Month Dth YYYY", convert to YYYY-MM-DD.
+    If it's just a year, return the year as-is. Otherwise return unchanged
+    (so unstructured prose still survives)."""
+    if not raw:
+        return raw
+    s = raw.strip().strip(".,;:\"'")
+    # Already ISO — done
+    m = _DATE_ISO_RX.search(s)
+    if m:
+        return m.group(0)
+    # Month Day, Year
+    m = _DATE_MDY_RX.search(s)
+    if m:
+        month = _MONTH_MAP.get(m.group(1).lower().rstrip("."))
+        if month:
+            day = m.group(2).zfill(2)
+            year = m.group(3)
+            return f"{year}-{month}-{day}"
+    # Year only
+    m = _DATE_YEAR_RX.search(s)
+    if m and len(s) <= 10:
+        return m.group(0)
+    return raw
+
+
+def _normalize_name_value(raw: str) -> str:
+    """Collapse whitespace, strip surrounding punctuation/quotes, Title-case
+    if all lowercase. Leaves mixed-case names alone (preserves McArthur, D'Amico)."""
+    if not raw:
+        return raw
+    s = raw.strip().strip(".,;:\"'").strip()
+    s = re.sub(r"\s+", " ", s)
+    if s and s == s.lower():
+        s = s.title()
+    return s
+
+
+def _apply_write_time_normalisation(items: List[dict]) -> List[dict]:
+    """R4 Patch H: normalise selected scalar surface forms in place.
+
+    Mutates a copy of each item (original dict is untouched). Only applied
+    to fields where normalisation is safe; other items pass through.
+    """
+    if not items:
+        return items
+    out = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        raw = it.get("value", "")
+        if not isinstance(raw, str):
+            out.append(it)
+            continue
+        suffix = fp.rsplit(".", 1)[-1] if "." in fp else fp
+        new_val = raw
+        if suffix == "birthOrder":
+            new_val = _normalize_birthorder_value(raw)
+        elif suffix in _DATE_FIELD_SUFFIXES:
+            new_val = _normalize_date_value(raw)
+        elif suffix in ("firstName", "lastName", "preferredName"):
+            new_val = _normalize_name_value(raw)
+        if new_val != raw:
+            logger.info(
+                "[extract][R4-H] normalise %s: %r → %r",
+                fp, raw, new_val,
+            )
+            nd = dict(it)
+            nd["value"] = new_val
+            out.append(nd)
+        else:
+            out.append(it)
+    return out
+
+
 def _apply_claims_confidence_floor(items: List[dict]) -> List[dict]:
     """WO-EX-CLAIMS-02 validator 3: reject items below the confidence floor.
 
@@ -2776,6 +3213,48 @@ _CAREER_DURATION_CUES = re.compile(
     re.IGNORECASE,
 )
 
+# LOOP-01 R4 Patch I — higher-education value cues.
+# When an item lands on education.schooling but the value references a
+# college/university/degree, reroute to education.higherEducation.
+_HIGHERED_VALUE_CUES = re.compile(
+    r"\b(?:college|university|bachelor|master|phd|doctorate|associate\'?s?|"
+    r"graduate school|grad school|community college|state college|"
+    r"business college|nursing school|medical school|law school|"
+    r"technical college|vocational school|trade school|"
+    r"BA|BS|BSc|MA|MS|MBA|JD|MD|EdD|DDS)\b",
+    re.IGNORECASE,
+)
+
+# LOOP-01 R4 Patch I — ancestry-phrase value cues.
+# When an item lands on personal.notes or personal.heritage but the value
+# obviously describes ethnic ancestry, reroute to grandparents.ancestry.
+_ANCESTRY_VALUE_CUES = re.compile(
+    r"\b(?:germans? from russia|volga german|black sea german|"
+    r"alsace[- ]lorraine|french[- ]canadian|pennsylvania dutch|"
+    r"scotch[- ]irish|irish[- ]american|italian[- ]american|"
+    r"ashkenazi|sephardic|bohemian|moravian|slovak|polish|"
+    r"norwegian|swedish|finnish|danish|german|irish|french|italian|"
+    r"czech|ukrainian|russian|mennonite|amish)\b",
+    re.IGNORECASE,
+)
+
+
+# LOOP-01 R4 Patch D — narrator first-person birthOrder rerouter cues.
+# Matches "I was the youngest", "I'm the second", "I was the middle one", etc.
+# When one of these phrases is present, an item with fieldPath=siblings.birthOrder
+# whose value matches the captured position word should be rerouted to
+# personal.birthOrder (the narrator's own order among siblings), not written
+# as a sibling's birth order.
+_NARRATOR_BIRTHORDER_CUES = re.compile(
+    r"\bI(?:'?m| was| am)\s+the\s+"
+    r"(youngest|oldest|eldest|middle|baby|firstborn|only child|"
+    r"second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
+    r"1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th|"
+    r"last|last[- ]born)\b",
+    re.IGNORECASE,
+)
+
+
 # WO-QB-GENERATIONAL-01B: touchstone event detection for cultural.touchstoneMemory
 # Extended (01B surgical pass): drive-in / first-computer / first-cell-phone cues added.
 # Drive-in stays here so that any fallback routing to laterYears.significantEvent still
@@ -2823,6 +3302,22 @@ _STORY_PRIORITY_CUES = re.compile(
 )
 
 # Path mapping: (source_prefix, target_prefix) for each rerouter
+# LOOP-01 R4 Patch C — pets.notes splitter.
+# Matches compact descriptors like "collie named Laddie", "Ivan, our family dog",
+# "a cat named Whiskers", "dog called Rex". Captures name + species so the
+# rerouter can split one pets.notes item into pets.name + pets.species.
+_PETS_NOTES_SPLIT = re.compile(
+    r"^\s*(?:a |an |our |my |the )?"
+    r"(?:(?P<species1>dog|cat|horse|bird|parrot|rabbit|hamster|guinea pig|gerbil|"
+    r"fish|turtle|tortoise|snake|lizard|ferret|chicken|duck|goat|pig|cow|pony)"
+    r"\s+(?:named|called|we called)\s+(?P<name1>[A-Z][a-zA-Z'\-]+)"
+    r"|(?P<name2>[A-Z][a-zA-Z'\-]+),?\s+(?:our |my |the )?"
+    r"(?P<species2>dog|cat|horse|bird|parrot|rabbit|hamster|guinea pig|gerbil|"
+    r"fish|turtle|tortoise|snake|lizard|ferret|chicken|duck|goat|pig|cow|pony)"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
 _PETS_REMAP = {
     "hobbies.hobbies": "pets.notes",  # generic hobby → pet notes
     "hobbies.personalChallenges": "pets.notes",
@@ -2861,6 +3356,13 @@ def _apply_semantic_rerouter(
 
     answer_lower = answer.lower()
     rerouted = []
+    pets_splits = []  # LOOP-01 R4 Patch C — items emitted from pets.notes splits
+
+    # LOOP-01 R4 Patch D — collect narrator-first-person birth-order values
+    # once per answer so per-item reroute decisions are cheap.
+    narrator_birthorders = {
+        m.group(1).lower() for m in _NARRATOR_BIRTHORDER_CUES.finditer(answer)
+    }
 
     for it in items:
         fp = it.get("fieldPath", "")
@@ -2875,6 +3377,35 @@ def _apply_semantic_rerouter(
                 new_fp = _PETS_REMAP[fp]
                 logger.info("[extract][rerouter] pets: %s → %s (val=%r)", fp, new_fp, val[:60])
                 it["fieldPath"] = new_fp
+
+        # ── 1b. LOOP-01 R4 Patch C — pets.notes splitter ────────────────
+        # If pets.notes looks like "dog named Ivan" / "Ivan, our family dog",
+        # split into pets.name + pets.species. Keep the original pets.notes
+        # only if it also carries extra colour beyond the name+species match.
+        elif fp == "pets.notes":
+            m = _PETS_NOTES_SPLIT.match(val.strip())
+            if m:
+                name = m.group("name1") or m.group("name2")
+                species = (m.group("species1") or m.group("species2") or "").lower()
+                if name and species:
+                    conf = it.get("confidence", 0.8)
+                    pets_splits.append({
+                        "fieldPath": "pets.name",
+                        "value": name,
+                        "confidence": conf,
+                    })
+                    pets_splits.append({
+                        "fieldPath": "pets.species",
+                        "value": species,
+                        "confidence": conf,
+                    })
+                    logger.info(
+                        "[extract][rerouter] R4-C pets.notes split → pets.name=%r, pets.species=%r",
+                        name, species,
+                    )
+                    # Drop the original pets.notes since the content is now
+                    # fully captured by name+species (it was just the descriptor).
+                    continue
 
         # ── 2. Siblings rerouter: family.children.* → siblings.* ────────
         elif fp in _SIBLINGS_REMAP:
@@ -2897,6 +3428,57 @@ def _apply_semantic_rerouter(
                 logger.info("[extract][rerouter] career: education.earlyCareer → education.careerProgression (val=%r)", val[:60])
                 it["fieldPath"] = "education.careerProgression"
 
+        # ── 4b. LOOP-01 R4 Patch D — narrator birthOrder rerouter ────────
+        # When narrator said "I was the youngest/middle/oldest" and the LLM
+        # wrote it as siblings.birthOrder, reroute to personal.birthOrder.
+        elif fp == "siblings.birthOrder":
+            val_norm = val.strip().lower().rstrip(".,;:")
+            # Strip leading articles / descriptors
+            val_norm = re.sub(r"^(?:the |an? )", "", val_norm)
+            if val_norm in narrator_birthorders:
+                logger.info(
+                    "[extract][rerouter] R4-D birthOrder: siblings.birthOrder → "
+                    "personal.birthOrder (val=%r, narrator-first-person cue detected)",
+                    val[:60],
+                )
+                it["fieldPath"] = "personal.birthOrder"
+
+        # ── 4c. LOOP-01 R4 Patch I — higher-education vs schooling ───────
+        # If LLM wrote education.schooling but the value clearly references a
+        # college/university/degree, reroute to education.higherEducation.
+        elif fp == "education.schooling":
+            if _HIGHERED_VALUE_CUES.search(val):
+                logger.info(
+                    "[extract][rerouter] R4-I: education.schooling → education.higherEducation (val=%r)",
+                    val[:60],
+                )
+                it["fieldPath"] = "education.higherEducation"
+
+        # ── 4d. LOOP-01 R4 Patch I — careerProgression inverse ───────────
+        # If LLM wrote education.careerProgression but there is NO duration
+        # cue in the answer (and it's probably the first job they named),
+        # reroute to education.earlyCareer.
+        elif fp == "education.careerProgression":
+            if not _CAREER_DURATION_CUES.search(combined_text):
+                logger.info(
+                    "[extract][rerouter] R4-I: education.careerProgression → education.earlyCareer (no duration cue, val=%r)",
+                    val[:60],
+                )
+                it["fieldPath"] = "education.earlyCareer"
+
+        # ── 4e. LOOP-01 R4 Patch I — personal.notes → grandparents.ancestry ─
+        # When value reads as an ethnic/ancestry phrase, reroute. Conservative:
+        # requires the phrase to match _ANCESTRY_VALUE_CUES without additional
+        # identifying content (preserves "personal.notes" when it's a full story).
+        elif fp in ("personal.notes", "personal.heritage", "personal.ethnicity"):
+            val_stripped = val.strip().rstrip(".,;:")
+            if _ANCESTRY_VALUE_CUES.search(val_stripped) and len(val_stripped) < 80:
+                logger.info(
+                    "[extract][rerouter] R4-I: %s → grandparents.ancestry (val=%r)",
+                    fp, val_stripped[:60],
+                )
+                it["fieldPath"] = "grandparents.ancestry"
+
         # ── 5. Story-priority rerouter: unfinishedDreams/lifeLessons → desiredStory ─
         # WO-QB-GENERATIONAL-01B: when the narrator lists stories they want told,
         # the LLM sometimes routes to additionalNotes.unfinishedDreams or
@@ -2914,6 +3496,94 @@ def _apply_semantic_rerouter(
                 it["fieldPath"] = original_fp
 
         rerouted.append(it)
+
+    # ── 6c. LOOP-01 R4 Patch C — merge pets.notes splits ────────────────
+    # Only add pets.name/pets.species rows we don't already have (don't
+    # double-up with what the LLM emitted directly).
+    if pets_splits:
+        existing_pets = {
+            (it.get("fieldPath", ""), str(it.get("value", "")).strip().lower())
+            for it in rerouted
+            if it.get("fieldPath", "").startswith("pets.")
+        }
+        for sp in pets_splits:
+            key = (sp["fieldPath"], str(sp["value"]).strip().lower())
+            if key in existing_pets:
+                continue
+            rerouted.append(sp)
+            existing_pets.add(key)
+
+    # ── 6b. LOOP-01 R4 Patch I — parents.deathDate dup-emit ─────────────
+    # parents.deathDate is narrow; truth sometimes expects the death fact in
+    # parents.notableLifeEvents as prose. Dup-emit the year/date into
+    # notableLifeEvents so either target matches.
+    deathdate_dupes = []
+    existing_nle = {
+        (it.get("fieldPath", ""), it.get("value", ""))
+        for it in rerouted
+        if it.get("fieldPath") == "parents.notableLifeEvents"
+    }
+    for it in rerouted:
+        if it.get("fieldPath") == "parents.deathDate":
+            v = it.get("value", "")
+            if not v:
+                continue
+            dup_val = f"died {v}"
+            if ("parents.notableLifeEvents", dup_val) in existing_nle:
+                continue
+            deathdate_dupes.append({
+                "fieldPath": "parents.notableLifeEvents",
+                "value": dup_val,
+                "confidence": max(0.1, min(1.0, float(it.get("confidence", 0.8)) - 0.1)),
+            })
+            existing_nle.add(("parents.notableLifeEvents", dup_val))
+            logger.info(
+                "[extract][rerouter] R4-I parents.deathDate dup → parents.notableLifeEvents=%r",
+                dup_val,
+            )
+    rerouted.extend(deathdate_dupes)
+
+    # ── 6a. LOOP-01 R4 Patch J — ancestor-military dup-emit ──────────────
+    # When greatGrandparents.militaryBranch/Unit/Event lands (via direct LLM
+    # emission or via alias) AND the value is in ancestor context, ALSO emit
+    # the root military.* field so scorer/consumer code that indexes military
+    # service at the root can match. Patch 4's ancestor-context check on
+    # _apply_negation_guard preserves root military.* values when the narrator
+    # denied their own service; the ancestor's facts survive the guard.
+    # Dup-emit (don't remove) so the ancestor-scoped record remains intact.
+    _ANCESTOR_MIL_DUP_MAP = {
+        "greatGrandparents.militaryBranch": "military.branch",
+        "greatGrandparents.militaryUnit":   "military.significantEvent",
+        "greatGrandparents.militaryEvent":  "military.significantEvent",
+    }
+    ancestor_mil_dupes = []
+    existing_root_mil = {
+        (it.get("fieldPath", ""), it.get("value", ""))
+        for it in rerouted
+        if it.get("fieldPath", "").startswith("military.")
+    }
+    for it in rerouted:
+        fp = it.get("fieldPath", "")
+        if fp in _ANCESTOR_MIL_DUP_MAP:
+            val = it.get("value", "")
+            if not val:
+                continue
+            if not _is_ancestor_context_near(answer, val):
+                continue
+            new_fp = _ANCESTOR_MIL_DUP_MAP[fp]
+            if (new_fp, val) in existing_root_mil:
+                continue
+            ancestor_mil_dupes.append({
+                "fieldPath": new_fp,
+                "value": val,
+                "confidence": it.get("confidence", 0.8),
+            })
+            existing_root_mil.add((new_fp, val))
+            logger.info(
+                "[extract][rerouter] R4-J ancestor-mil-dup: %s → +%s (val=%r)",
+                fp, new_fp, val[:60],
+            )
+    rerouted.extend(ancestor_mil_dupes)
 
     # ── 6. Touchstone duplicate: laterYears.significantEvent → ADD cultural.touchstoneMemory ─
     # WO-QB-GENERATIONAL-01B: when the answer mentions a known historical event
@@ -3089,6 +3759,11 @@ def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
     if not denied_fields:
         return items
 
+    # LOOP-01 R4 Patch F: collect contrast-affirmation clauses once per answer.
+    # When the narrator says "I'm not X, more of a Y" we want to keep the Y
+    # even though its category matched a denial pattern.
+    affirmatives = _collect_contrast_affirmations(answer)
+
     out = []
     for it in items:
         fp = str(it.get("fieldPath", ""))
@@ -3097,6 +3772,15 @@ def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
             if _is_ancestor_context_near(answer, it.get("value", "")):
                 logger.info(
                     "[extract][negation-guard] keeping %s=%r (ancestor context detected — narrator denial does not apply)",
+                    fp, it.get("value"),
+                )
+                out.append(it)
+                continue
+            # LOOP-01 R4 Patch F: preserve if value is inside an affirmative
+            # clause following a contrast marker ("not X, but Y" → Y kept).
+            if _value_in_affirmative_clause(it.get("value", ""), affirmatives):
+                logger.info(
+                    "[extract][negation-guard] keeping %s=%r (contrast-affirmation: value in affirmative clause)",
                     fp, it.get("value"),
                 )
                 out.append(it)
@@ -3126,7 +3810,21 @@ def _apply_claims_validators(items: List[dict], answer: str = "") -> List[dict]:
         logger.info("[extract][WO-CLAIMS-02] refusal guard stripped all %d items", before)
         return items
     items = _apply_claims_value_shape(items)
+    # LOOP-01 R4 Patch A — cap scalar/narrative field values before the
+    # other validators run. Catches LLM answer-dumps early so downstream
+    # stages don't waste cycles on 500+ char scalar values.
+    items = _apply_value_length_cap(items)
     items = _apply_claims_relation_allowlist(items)
+    # LOOP-01 R4 Patch E — relation-scope safety; eliminates must_not_write
+    # violations where family.children.* was written from an uncle/aunt
+    # anecdote or parents.* was written from a sibling anecdote.
+    items = _apply_relation_scope_guard(items, answer)
+    # LOOP-01 R4 Patch H — normalise scalar surface forms (birthOrder, dates,
+    # names) AFTER the shape/allowlist/scope checks have filtered the bad
+    # items but BEFORE confidence-floor and negation-guard. Keeps values
+    # consistent for downstream consumers and scorers without affecting
+    # guard decisions (both check against the raw answer text).
+    items = _apply_write_time_normalisation(items)
     items = _apply_claims_confidence_floor(items)
     items = _apply_negation_guard(items, answer)
     dropped = before - len(items)
