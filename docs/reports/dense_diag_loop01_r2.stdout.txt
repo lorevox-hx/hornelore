@@ -1,0 +1,149 @@
+Running 23 evaluation cases from question_bank_dense_diagnostic_cases.json
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     23
+  Passed:          4
+  Failed:          19
+  Pass rate:       17.4%
+  Avg score:       0.280
+
+  CONTRACT SUBSET (regression guard):
+
+
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/23 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        38.2%
+    may_extract bonus rate:     30.3%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  2.1%
+
+  must_not_write violations:
+    diag_021      health.majorCondition                (janice-josephine-horne)
+
+  By behavior:
+    extract_multiple                4/12 passed
+    extract_single_note             0/11 passed
+
+  By narrator:
+    janice-josephine-horne          1/10 passed  (avg 0.226)
+    kent-james-horne                3/13 passed  (avg 0.322)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/0
+    Known gaps (currentExtractorExpected=false):  4/23
+
+  Failure categories:
+    guard_false_positive            1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    dense_truth                4/23 passed  (avg 0.280)
+
+  By style bucket:
+    life_history               4/23 passed  (avg 0.280)
+
+  By chunk size:
+    medium                     3/18 passed  (avg 0.270)
+    small                      1/1 passed  (avg 0.750)
+    large                      0/4 passed  (avg 0.208)
+
+  By noise profile:
+    dense_truth                4/23 passed  (avg 0.280)
+
+  ─── LAYER 3: DENSE-TRUTH DIAGNOSTIC METRICS ───
+
+  Diagnostic cases evaluated: 23
+
+  Extractor method distribution:
+    parse_success:                 17
+    parse_failure:                 0
+    rules_fallback:                6
+    other/unknown:                 0
+
+  Diagnostic signal counts:
+    invalid_fieldpath_rejection:   0
+    single_cardinality_conflict:   1
+    duplicate_narrator_identity:   0
+    v2_vs_v3_divergence:           4  (v2✓/v3✗: 0, v3✓/v2✗: 4)
+
+  Per-generation must_extract recall:
+    parent                  16/23  (recall 69.6%)
+    greatGrandparent         3/12  (recall 25.0%)
+    other                    5/ 6  (recall 83.3%)
+    sibling                  1/ 4  (recall 25.0%)
+    grandparent              2/ 3  (recall 66.7%)
+    education                2/ 3  (recall 66.7%)
+    narrator                 2/ 2  (recall 100.0%)
+    hobbies                  1/ 1  (recall 100.0%)
+    health                   1/ 1  (recall 100.0%)
+
+  By diagnostic family:
+    Family A: 2/4 passed  (50.0%, avg 0.736)
+      name_variant_dedup_parent_father                    0/1  avg 0.692
+      name_variant_dedup_parent_father_gravestone         1/1  avg 1.000
+      name_variant_dedup_parent_mother                    1/1  avg 1.000
+      generation_hop_sibling_vs_children                  0/1  avg 0.250
+    Family B: 2/3 passed  (66.7%, avg 0.639)
+      single_cardinality_surname_evolution                0/1  avg 0.383
+      single_cardinality_multi_middle_name                1/1  avg 0.783
+      single_cardinality_multiple_nicknames               1/1  avg 0.750
+    Family C: 0/3 passed  (0.0%, avg 0.250)
+      canonical_ancestry_medium                           0/1  avg 0.250
+      canonical_ancestry_large                            0/1  avg 0.250
+      canonical_ancestry_xl                               0/1  avg 0.250
+    Family D: 0/2 passed  (0.0%, avg 0.167)
+      coverage_multi_hop_life_arc                         0/1  avg 0.333
+      coverage_multi_location_progression                 0/1  avg 0.000
+    Family E: 0/11 passed  (0.0%, avg 0.045)
+      narrative_catch_personal_nameStory                  0/1  avg 0.000
+      narrative_catch_personal_notes                      0/1  avg 0.000
+      narrative_catch_children_notes                      0/1  avg 0.000
+      narrative_catch_spouse_notes                        0/1  avg 0.000
+      narrative_catch_education_notes                     0/1  avg 0.100
+      narrative_catch_faith_notes                         0/1  avg 0.100
+      narrative_catch_hobbies_notes                       0/1  avg 0.100
+      narrative_catch_military_notes                      0/1  avg 0.000
+      narrative_catch_health_notes                        0/1  avg 0.000
+      narrative_catch_travel_notes                        0/1  avg 0.100
+      narrative_catch_community_notes                     0/1  avg 0.100
+
+  Failure-class dominance (worst first):
+    Family C: 0/3  (0.0%)
+    Family D: 0/2  (0.0%)
+    Family E: 0/11  (0.0%)
+    Family A: 2/4  (50.0%)
+    Family B: 2/3  (66.7%)
+
+  ─── FAILED CASES ───
+
+    diag_001    dense_truth      medium  dense_truth   score=0.69  janice-josephine-horne [GAP]
+    diag_004    dense_truth      medium  dense_truth   score=0.25  janice-josephine-horne [GAP]
+    diag_005    dense_truth      medium  dense_truth   score=0.38  kent-james-horne [GAP]
+    diag_008    dense_truth      medium  dense_truth   score=0.25  kent-james-horne [GAP]
+    diag_009    dense_truth      large   dense_truth   score=0.25  kent-james-horne [GAP]
+    diag_010    dense_truth      large   dense_truth   score=0.25  kent-james-horne [GAP]
+    diag_011    dense_truth      large   dense_truth   score=0.33  janice-josephine-horne [GAP]
+    diag_012    dense_truth      large   dense_truth   score=0.00  janice-josephine-horne [GAP]
+    diag_013    dense_truth      medium  dense_truth   score=0.00  janice-josephine-horne [GAP]
+    diag_014    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+    diag_015    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+    diag_016    dense_truth      medium  dense_truth   score=0.00  janice-josephine-horne [GAP]
+    diag_017    dense_truth      medium  dense_truth   score=0.10  janice-josephine-horne [GAP]
+    diag_018    dense_truth      medium  dense_truth   score=0.10  kent-james-horne [GAP]
+    diag_019    dense_truth      medium  dense_truth   score=0.10  kent-james-horne [GAP]
+    diag_020    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+    diag_021    dense_truth      medium  dense_truth   score=0.00  janice-josephine-horne [GAP]
+      Failures:  ['guard_false_positive']
+    diag_022    dense_truth      medium  dense_truth   score=0.10  janice-josephine-horne [GAP]
+    diag_023    dense_truth      medium  dense_truth   score=0.10  kent-james-horne [GAP]
+
+==============================================================================
+Report written to docs/reports/dense_diag_loop01_r2.json (71,111 bytes)

@@ -33,6 +33,12 @@ env/
 *.log.[0-9]*
 *.pid
 
+# ── API log snapshots (created by scripts/stop_all.sh) ──
+# Each Stop Hornelore.bat copies .runtime/logs/api.log into
+# docs/reports/ for post-run review. Snapshots can be 10+ MB;
+# never commit them.
+docs/reports/api_log_*.txt
+
 # ── Local IDE / editor ──
 .vscode/
 .idea/
