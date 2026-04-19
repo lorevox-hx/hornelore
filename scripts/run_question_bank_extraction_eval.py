@@ -386,6 +386,14 @@ def run_offline(cases: List[dict]) -> List[dict]:
         result["sequence_group"] = case.get("sequence_group")
         result["mode"] = "offline"
         result["extracted_count"] = len(mock_items)
+        # WO-EX-DENSE-DIAG-01 — pipe diagnostic metadata through for dense_metrics
+        if "_diagFamily" in case:
+            result["_diagFamily"] = case["_diagFamily"]
+            result["_diagSubclass"] = case.get("_diagSubclass", "")
+        if "_cardinality_assertion" in case:
+            result["_cardinality_assertion"] = case["_cardinality_assertion"]
+        if "_length_assertion" in case:
+            result["_length_assertion"] = case["_length_assertion"]
         results.append(result)
     return results
 
@@ -483,6 +491,14 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
                 "confidence": item.get("confidence"),
             })
         result["raw_items"] = compact_items
+        # WO-EX-DENSE-DIAG-01 — pipe diagnostic metadata through for dense_metrics
+        if "_diagFamily" in case:
+            result["_diagFamily"] = case["_diagFamily"]
+            result["_diagSubclass"] = case.get("_diagSubclass", "")
+        if "_cardinality_assertion" in case:
+            result["_cardinality_assertion"] = case["_cardinality_assertion"]
+        if "_length_assertion" in case:
+            result["_length_assertion"] = case["_length_assertion"]
         results.append(result)
 
     return results
@@ -498,6 +514,267 @@ def _phase_to_spine_phase(phase_key: str) -> Optional[str]:
         "legacy_reflection": "post_school",
     }
     return mapping.get(phase_key)
+
+
+# ── Dense-truth diagnostic metrics (WO-EX-DENSE-DIAG-01) ────────────────────
+
+# Narrator-identity fields protected by the extractor; any emission here
+# against a non-narrator subject is a narrator-identity corruption.
+PROTECTED_IDENTITY_FIELDS = {
+    "personal.fullName",
+    "personal.preferredName",
+    "personal.dateOfBirth",
+    "personal.placeOfBirth",
+    "personal.birthOrder",
+}
+
+# Field-path prefix → generation bucket, for per_generation_hits.
+_GEN_PREFIX_MAP = [
+    ("personal.", "narrator"),
+    ("spouse.", "spouse"),
+    ("children.", "child"),
+    ("siblings.", "sibling"),
+    ("parents.", "parent"),
+    ("grandparents.", "grandparent"),
+    ("greatGrandparents.", "greatGrandparent"),
+    ("education.", "education"),
+    ("pets.", "pet"),
+    ("marriage.", "marriage"),
+    ("familyTraditions.", "family_traditions"),
+    ("earlyMemories.", "early_memories"),
+    ("laterYears.", "later_years"),
+    ("hobbies.", "hobbies"),
+    ("health.", "health"),
+    ("technology.", "technology"),
+    ("additionalNotes.", "notes"),
+]
+
+
+def _generation_bucket(field_path: str) -> str:
+    for prefix, bucket in _GEN_PREFIX_MAP:
+        if field_path.startswith(prefix):
+            return bucket
+    return "other"
+
+
+def _classify_method(method: str) -> str:
+    """Classify an extractor method tag into parse_success / parse_failure / rules_fallback / other."""
+    if not method:
+        return "other"
+    m = method.lower()
+    if m.startswith("llm_") or m in ("llm", "json", "llm_json", "llm_json_repair", "llm_direct"):
+        return "parse_success"
+    if m.startswith("rules") or m == "rules_fallback" or m == "fallback":
+        return "rules_fallback"
+    if m.startswith("error_") or m.startswith("http_") or "parse_fail" in m or "parse_error" in m or m in ("empty", "timeout"):
+        return "parse_failure"
+    # Conservative default: unknown methods are other (not counted as success or failure)
+    return "other"
+
+
+def _check_cardinality_conflict(result: dict) -> bool:
+    """Return True if this result violates its case's _cardinality_assertion.
+
+    A cardinality conflict = at least one forbidden_duplicate_keys pattern matches
+    the raw_items emitted for this case.
+    """
+    ca = result.get("_cardinality_assertion")
+    if not ca:
+        return False
+    forbidden = ca.get("forbidden_duplicate_keys", [])
+    if not forbidden:
+        return False
+    raw = result.get("raw_items", [])
+    # forbidden patterns look like "parents[firstName=Pete]" — match against
+    # any item where item.fieldPath starts with the array name and item.value
+    # normalize-matches the =value side.
+    for pattern in forbidden:
+        try:
+            # Parse "array[key=value]" pattern
+            if "[" not in pattern or "]" not in pattern:
+                continue
+            arr_name = pattern.split("[", 1)[0]
+            inner = pattern.split("[", 1)[1].rstrip("]")
+            if "=" not in inner:
+                continue
+            key_name, forbidden_val = inner.split("=", 1)
+            # Match items with fieldPath "{arr_name}.{key_name}" and value == forbidden_val
+            target_fp = f"{arr_name}.{key_name}"
+            for item in raw:
+                fp = item.get("fieldPath", "")
+                val = item.get("value", "")
+                if fp == target_fp and normalize_value(val) == normalize_value(forbidden_val):
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _check_narrator_identity_leak(result: dict) -> bool:
+    """Return True if this result emitted to a PROTECTED_IDENTITY_FIELD.
+
+    For dense_truth diagnostic cases, none target the narrator's identity
+    fields as must_extract. Any emission to those fields is a narrator-
+    identity leak (potential grandparent/parent/sibling subject bleeding
+    into the narrator's own identity slot).
+    """
+    # If the case DOES have a must_extract on any protected field, skip —
+    # that's a legitimate target. (None of DIAG-01's 12 cases do this, but
+    # future diag packs might.)
+    tz_details = result.get("truth_zone_details", {})
+    for fp, td in tz_details.items():
+        base_fp = fp.split("[", 1)[0]  # strip multi-index suffix
+        if base_fp in PROTECTED_IDENTITY_FIELDS and td.get("zone") == "must_extract":
+            return False
+    raw = result.get("raw_items", [])
+    for item in raw:
+        if item.get("fieldPath", "") in PROTECTED_IDENTITY_FIELDS:
+            return True
+    return False
+
+
+def _compute_dense_metrics(results: List[dict]) -> dict:
+    """Compute dense-truth diagnostic metrics for WO-EX-DENSE-DIAG-01.
+
+    Only considers results that have the _diagFamily tag. Returns a dict
+    with the 8 dense-specific metrics plus a per-family breakdown.
+    """
+    diag_results = [r for r in results if "_diagFamily" in r]
+    if not diag_results:
+        return {}
+
+    # ── Parse / fallback counts ────────────────────────────────────────────
+    parse_success = 0
+    parse_failure = 0
+    rules_fallback = 0
+    method_other = 0
+    method_tally: Dict[str, int] = {}
+    for r in diag_results:
+        m = r.get("method", "")
+        method_tally[m] = method_tally.get(m, 0) + 1
+        cls = _classify_method(m)
+        if cls == "parse_success":
+            parse_success += 1
+        elif cls == "parse_failure":
+            parse_failure += 1
+        elif cls == "rules_fallback":
+            rules_fallback += 1
+        else:
+            method_other += 1
+
+    # ── invalid_fieldpath_rejection_count (approximation) ─────────────────
+    # Count cases where failure_categories includes 'field_path_mismatch' or
+    # 'schema_gap' — these correspond to the extractor emitting paths that
+    # were either rejected or mismatched against the schema.
+    invalid_fieldpath = 0
+    for r in diag_results:
+        fcs = r.get("failure_categories", [])
+        if "field_path_mismatch" in fcs or "schema_gap" in fcs:
+            invalid_fieldpath += 1
+
+    # ── single_cardinality_conflict_count (Family B) ──────────────────────
+    cardinality_conflicts = sum(1 for r in diag_results if _check_cardinality_conflict(r))
+
+    # ── duplicate_narrator_identity_count ─────────────────────────────────
+    narrator_identity_leaks = sum(1 for r in diag_results if _check_narrator_identity_leak(r))
+
+    # ── per_generation_hits ───────────────────────────────────────────────
+    # Walk every truth_zone_details entry across all diag results. For each
+    # must_extract target, bucket by generation and record hit/miss.
+    per_gen: Dict[str, Dict[str, int]] = {}
+    for r in diag_results:
+        for fp, td in r.get("truth_zone_details", {}).items():
+            if td.get("zone") != "must_extract":
+                continue
+            # Strip array-index suffix like [0], [1] from the key
+            base_fp = fp.split("[", 1)[0]
+            bucket = _generation_bucket(base_fp)
+            if bucket not in per_gen:
+                per_gen[bucket] = {"total": 0, "hit": 0, "miss": 0}
+            per_gen[bucket]["total"] += 1
+            if td.get("extracted"):
+                per_gen[bucket]["hit"] += 1
+            else:
+                per_gen[bucket]["miss"] += 1
+    # Add recall per bucket
+    for bucket, stats in per_gen.items():
+        t = stats["total"]
+        stats["recall"] = round(stats["hit"] / t, 3) if t else 0.0
+
+    # ── v2_vs_v3_divergence_count ─────────────────────────────────────────
+    v2_v3_divergence = sum(1 for r in diag_results if r.get("v2_pass") != r.get("pass"))
+    v2_pass_v3_fail = sum(1 for r in diag_results if r.get("v2_pass") and not r.get("pass"))
+    v3_pass_v2_fail = sum(1 for r in diag_results if r.get("pass") and not r.get("v2_pass"))
+
+    # ── Per-family breakdown ──────────────────────────────────────────────
+    by_family: Dict[str, Dict[str, Any]] = {}
+    for r in diag_results:
+        fam = r["_diagFamily"]
+        if fam not in by_family:
+            by_family[fam] = {
+                "total": 0,
+                "passed": 0,
+                "failed": 0,
+                "avg_score": 0.0,
+                "subclasses": {},
+            }
+        by_family[fam]["total"] += 1
+        if r.get("pass"):
+            by_family[fam]["passed"] += 1
+        else:
+            by_family[fam]["failed"] += 1
+        by_family[fam]["avg_score"] += r.get("overall_score", 0.0)
+        sub = r.get("_diagSubclass", "unlabeled")
+        sub_entry = by_family[fam]["subclasses"].setdefault(
+            sub, {"total": 0, "passed": 0, "avg_score": 0.0, "case_ids": []}
+        )
+        sub_entry["total"] += 1
+        if r.get("pass"):
+            sub_entry["passed"] += 1
+        sub_entry["avg_score"] += r.get("overall_score", 0.0)
+        sub_entry["case_ids"].append(r["case_id"])
+    for fam, stats in by_family.items():
+        t = stats["total"]
+        stats["avg_score"] = round(stats["avg_score"] / t, 3) if t else 0
+        stats["pass_rate"] = round(stats["passed"] / t, 3) if t else 0
+        for sub, sub_entry in stats["subclasses"].items():
+            st = sub_entry["total"]
+            sub_entry["avg_score"] = round(sub_entry["avg_score"] / st, 3) if st else 0
+
+    # ── Failure-class dominance (which of the 4 families is worst) ────────
+    failure_class_dominance = sorted(
+        [(fam, stats["passed"], stats["total"], stats["pass_rate"])
+         for fam, stats in by_family.items()],
+        key=lambda x: x[3],
+    )
+
+    total = len(diag_results)
+    return {
+        "_wo_gate": "WO-EX-DENSE-DIAG-01 Phase 2 metrics",
+        "total_diag_cases": total,
+        "parse_success_count": parse_success,
+        "parse_failure_count": parse_failure,
+        "rules_fallback_count": rules_fallback,
+        "method_other_count": method_other,
+        "method_tally": method_tally,
+        "invalid_fieldpath_rejection_count": invalid_fieldpath,
+        "single_cardinality_conflict_count": cardinality_conflicts,
+        "duplicate_narrator_identity_count": narrator_identity_leaks,
+        "per_generation_hits": per_gen,
+        "v2_vs_v3_divergence_count": v2_v3_divergence,
+        "v2_pass_v3_fail": v2_pass_v3_fail,
+        "v3_pass_v2_fail": v3_pass_v2_fail,
+        "by_diag_family": by_family,
+        "failure_class_dominance": [
+            {
+                "family": fam,
+                "passed": p,
+                "total": t,
+                "pass_rate": pr,
+            }
+            for fam, p, t, pr in failure_class_dominance
+        ],
+    }
 
 
 # ── Report generation ───────────────────────────────────────────────────────
@@ -666,6 +943,13 @@ def generate_report(results: List[dict], mode: str) -> dict:
         "failure_categories": all_failures,
         "case_results": results,
     }
+
+    # WO-EX-DENSE-DIAG-01 Phase 2 — auto-emit dense_metrics block when
+    # any diagnostic-tagged cases are in the batch. Zero-touch for master.
+    dense_metrics = _compute_dense_metrics(results)
+    if dense_metrics:
+        report["dense_metrics"] = dense_metrics
+
     return report
 
 
@@ -764,6 +1048,53 @@ def print_summary(report: dict):
     _print_breakdown("By style bucket", report.get("by_style_bucket", {}))
     _print_breakdown("By chunk size", report.get("by_chunk_size", {}))
     _print_breakdown("By noise profile", report.get("by_noise_profile", {}))
+
+    # ── Layer 3: Dense-truth diagnostic metrics (WO-EX-DENSE-DIAG-01) ──────
+    dm = report.get("dense_metrics")
+    if dm:
+        print("  ─── LAYER 3: DENSE-TRUTH DIAGNOSTIC METRICS ───")
+        print()
+        print(f"  Diagnostic cases evaluated: {dm['total_diag_cases']}")
+        print()
+        print("  Extractor method distribution:")
+        print(f"    parse_success:                 {dm['parse_success_count']}")
+        print(f"    parse_failure:                 {dm['parse_failure_count']}")
+        print(f"    rules_fallback:                {dm['rules_fallback_count']}")
+        print(f"    other/unknown:                 {dm['method_other_count']}")
+        print()
+        print("  Diagnostic signal counts:")
+        print(f"    invalid_fieldpath_rejection:   {dm['invalid_fieldpath_rejection_count']}")
+        print(f"    single_cardinality_conflict:   {dm['single_cardinality_conflict_count']}")
+        print(f"    duplicate_narrator_identity:   {dm['duplicate_narrator_identity_count']}")
+        print(f"    v2_vs_v3_divergence:           {dm['v2_vs_v3_divergence_count']}  "
+              f"(v2✓/v3✗: {dm['v2_pass_v3_fail']}, v3✓/v2✗: {dm['v3_pass_v2_fail']})")
+        print()
+        pg = dm.get("per_generation_hits", {})
+        if pg:
+            print("  Per-generation must_extract recall:")
+            for bucket, stats in sorted(pg.items(), key=lambda x: -x[1]["total"]):
+                print(f"    {bucket:22s}  {stats['hit']:2d}/{stats['total']:2d}  "
+                      f"(recall {stats['recall']:.1%})")
+            print()
+        bf = dm.get("by_diag_family", {})
+        if bf:
+            print("  By diagnostic family:")
+            for fam in sorted(bf.keys()):
+                st = bf[fam]
+                print(f"    Family {fam}: {st['passed']}/{st['total']} passed  "
+                      f"({st['pass_rate']:.1%}, avg {st['avg_score']:.3f})")
+                for sub, ss in st["subclasses"].items():
+                    print(f"      {sub:50s}  {ss['passed']}/{ss['total']}  "
+                          f"avg {ss['avg_score']:.3f}")
+            print()
+        fcd = dm.get("failure_class_dominance", [])
+        if fcd:
+            print("  Failure-class dominance (worst first):")
+            for entry in fcd:
+                print(f"    Family {entry['family']}: "
+                      f"{entry['passed']}/{entry['total']}  "
+                      f"({entry['pass_rate']:.1%})")
+            print()
 
     # ── Failed cases ───────────────────────────────────────────────────────
     failed = [r for r in report["case_results"] if not r["pass"]]

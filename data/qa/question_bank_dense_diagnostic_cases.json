@@ -1,0 +1,930 @@
+{
+  "_wo": "WO-EX-DENSE-DIAG-01 — Dense-Truth Diagnostic Pack",
+  "_version": 1,
+  "_generated": "2026-04-18",
+  "_notes": [
+    "12 targeted diagnostic cases to localize dense_truth failure modes.",
+    "Run SEPARATELY from question_bank_extraction_cases.json — do NOT fold into master suite.",
+    "Each case tagged with _diagFamily for Phase 2 harness routing.",
+    "",
+    "Family A — generation-attribution (4 cases):",
+    "  A01, A02, A03: name-variant dedup (Pete/Peter, Ervin/Erwin, Leila/Leilo).",
+    "  A04: sibling-vs-narrator attribution hop.",
+    "  Scoring: two-tier.",
+    "    core (strict) = must_extract template-canonical form in identity slot + fail on duplicate firstName record or variant leaking into identity.",
+    "    bonus (soft)  = may_extract the variant fact routed to narrative field (notes / memorableStory / notableLifeEvents). Bonus does not gate pass.",
+    "",
+    "Family B — single-cardinality (3 cases):",
+    "  B01: Lizzie / Elizabeth / Shong / Schong / Le Shong surname evolution for Kent's paternal grandmother.",
+    "  B02: Josie / Josephine multi-middle-name for Janice's mother.",
+    "  B03: Leila / Lee / Myrt for Kent's mother.",
+    "  Scoring: pass iff exactly one person-record is emitted with canonical fields; must_not_write asserts absence of duplicate records keyed on variant names.",
+    "",
+    "Family C — one canonical ancestry narrative × three lengths (3 cases):",
+    "  C01 medium (~150 words), C02 large (~400 words), C03 xl (~800 words).",
+    "  All three carry an IDENTICAL must_extract skeleton (John Michael Shong identity + ancestry + Civil War + Fall Creek + Lorraine origin).",
+    "  Delta across C01/C02/C03 measures shape-loss under length pressure on a fixed truth target.",
+    "",
+    "Family D — coverage-vs-shape (2 cases):",
+    "  D01: Pete Zarr's multi-hop life arc (Dodge birth → Washington aluminum factory → Garrison Dam → burned birth certificate) with narrator's-uncles trap (Pete's siblings = Janice's uncles, must not land in siblings[]).",
+    "  D02: Janice's schooling progression across four locations with tangent material (Lawrence Welk, dunce-hat classmate, the nun-she-called-a-nut) — must cover all four stops without flattening or fabricating missing grades.",
+    "",
+    "Truth source: /sessions/ecstatic-determined-pasteur/mnt/uploads/{narrator}.json templates + Outline of the Shong Family PDF (Charlotte Graichen).",
+    "All narrator voice authored to read like live oral history, not template recitation."
+  ],
+  "_caseSchema": {
+    "id": "diag_NNN",
+    "_diagFamily": "A | B | C | D",
+    "_diagSubclass": "short label for the specific stressor inside the family",
+    "narratorId": "slug matching template filename without .json",
+    "templateSource": "template filename",
+    "loriPrompt": "the question Lori asks",
+    "narratorReply": "synthetic narrator answer grounded in template truth",
+    "truthZones": {
+      "fieldPath": {
+        "zone": "must_extract | may_extract | should_ignore | must_not_write",
+        "expected": "expected value (for must_extract and may_extract)",
+        "tier": "core | bonus (optional — used by two-tier A-family cases)",
+        "note": "explanation (for should_ignore and must_not_write)"
+      }
+    },
+    "caseType": "dense_truth",
+    "oralHistoryStyle": "life_history",
+    "chunk_size": "tiny | small | medium | large",
+    "noise_profile": "dense_truth",
+    "case_mode": "style",
+    "scoringNotes": "human-readable explanation of what this case tests"
+  },
+  "cases": [
+    {
+      "id": "diag_001",
+      "_diagFamily": "A",
+      "_diagSubclass": "name_variant_dedup_parent_father",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName",
+        "parents.birthPlace"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "My dad was Pete Zarr. Legal name was Peter, on the birth certificate and everything, but nobody called him Peter. Everybody called him Pete — his whole life, every single day, Pete. Pete Zarr. He was born at home in Dodge, North Dakota on September 19, 1909. Delivered by Mrs. Steve Dodenheffer. He had a steam boiler operator license and he was a carpenter. When I was born he was working at an aluminum factory out in Washington state — that's why I was born in Spokane. He lost his birth certificate, actually, when the state capitol of North Dakota burned down and all the records went with it. But anyway. Pete. That's what we called him.",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Peter",
+          "tier": "core",
+          "note": "Template canonical form is Peter. Pete is the colloquial variant and must NOT appear as a duplicate parents[] record."
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Zarr",
+          "tier": "core"
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Dodge, ND",
+          "tier": "core"
+        },
+        "parents.birthDate": {
+          "zone": "may_extract",
+          "expected": "1909-09-19",
+          "tier": "bonus"
+        },
+        "parents.occupation": {
+          "zone": "may_extract",
+          "expected": "Steam Boiler operator license, carpenter",
+          "tier": "bonus"
+        },
+        "parents.notes": {
+          "zone": "may_extract",
+          "expected": "went by Pete, legal name Peter",
+          "tier": "bonus",
+          "note": "Bonus hit: variant fact routed to a narrative slot."
+        },
+        "parents.notableLifeEvents": {
+          "zone": "may_extract",
+          "expected": "aluminum factory Washington state, birth certificate burned with ND state capitol, delivered by Mrs. Steve Dodenheffer",
+          "tier": "bonus"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Pete is the narrator's FATHER, not a sibling. Must not be routed to siblings[]."
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "note": "Pete is the narrator's father, not a grandparent."
+        },
+        "personal.placeOfBirth": {
+          "zone": "should_ignore",
+          "note": "Spokane is mentioned as the narrator's birthplace in context but is not the subject of this question about her father."
+        }
+      },
+      "scoringNotes": "Family A core test: colloquial name Pete used ~6x in narrator's natural voice alongside the legal name Peter stated once. Core-pass requires (1) parents.firstName = 'Peter' (template form), (2) NO duplicate parents[] record with firstName 'Pete', (3) no routing of Pete to siblings or grandparents. Bonus-hit if the Pete-vs-Peter fact lands in parents.notes or parents.notableLifeEvents.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_002",
+      "_diagFamily": "A",
+      "_diagSubclass": "name_variant_dedup_parent_father_gravestone",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "My dad was Ervin Horne. E-R-V-I-N. That's how everyone knew him, that's how he signed things, that's how he went by. Here's the funny part — his gravestone actually reads Erwin. With a W. Because the real name was Erwin, Erwin with a W, and he never legally changed it. He just went by Ervin his whole adult life and that's what stuck. Born November 12, 1909. His father George Horne died when Dad was only four years old. Dad died December 23, 1967. I was twenty-eight. But Ervin is what you'd write down — that's what he answered to, that's what Mom called him, that's what's on every document I can think of except the headstone.",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Ervin",
+          "tier": "core",
+          "note": "Template canonical form is Ervin. Erwin is the legal/gravestone variant and must NOT produce a duplicate parents[] record."
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne",
+          "tier": "core"
+        },
+        "parents.birthDate": {
+          "zone": "may_extract",
+          "expected": "1909-11-12",
+          "tier": "bonus"
+        },
+        "parents.notes": {
+          "zone": "may_extract",
+          "expected": "went by Ervin, gravestone reads Erwin, never legally changed",
+          "tier": "bonus",
+          "note": "Bonus hit: variant fact correctly routed to narrative slot rather than identity slot."
+        },
+        "parents.notableLifeEvents": {
+          "zone": "may_extract",
+          "expected": "father George died when Ervin was 4, died Dec 23 1967",
+          "tier": "bonus"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Ervin is the narrator's father, not a sibling."
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "note": "George is mentioned as Ervin's father = narrator's paternal grandfather. If George lands in grandparents that is acceptable but out of scope for this question; routing Ervin to grandparents is wrong."
+        }
+      },
+      "scoringNotes": "Family A core test: gravestone-variant Erwin is stated as 'the real name' explicitly to stress the extractor — can it still pick the spoken/canonical Ervin for the identity slot? Core-pass requires parents.firstName = 'Ervin' and NO duplicate record with 'Erwin'. Bonus-hit for routing the gravestone fact into parents.notes.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_003",
+      "_diagFamily": "A",
+      "_diagSubclass": "name_variant_dedup_parent_mother",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your mother.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.middleName",
+        "parents.maidenName"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about your mother.",
+      "narratorReply": "Mom was Leila Myrtle Horne. Carkuff before she married Dad — that's her maiden name, C-A-R-K-U-F-F. Leila Myrtle Carkuff. Now — the name she was actually given at birth, apparently, was Leilo. L-E-I-L-O. That's what I was told, that her real given name was Leilo, but she went by Leila her whole life. Leila is what Dad called her, Leila is what we called her, Leila is what the church bulletin said. Born November 18, 1915. Died December 1, 1985. Three kids — my older sister Sharon, me, and my younger sister Linda.",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Leila",
+          "tier": "core",
+          "note": "Template canonical is Leila. Leilo is the alleged-given-name variant and must NOT produce a second parents[] record."
+        },
+        "parents.middleName": {
+          "zone": "must_extract",
+          "expected": "Myrtle",
+          "tier": "core"
+        },
+        "parents.maidenName": {
+          "zone": "must_extract",
+          "expected": "Carkuff",
+          "tier": "core"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne",
+          "tier": "core"
+        },
+        "parents.birthDate": {
+          "zone": "may_extract",
+          "expected": "1915-11-18",
+          "tier": "bonus"
+        },
+        "parents.notes": {
+          "zone": "may_extract",
+          "expected": "given name reportedly Leilo, went by Leila her whole life",
+          "tier": "bonus"
+        },
+        "siblings.firstName": {
+          "zone": "should_ignore",
+          "note": "Sharon and Linda mentioned only as context for identifying Leila as the mother of all three; they are not the subject of this question."
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "note": "Leila is the narrator's mother, not a grandparent."
+        }
+      },
+      "scoringNotes": "Family A core test: Leilo is stated as 'the name she was actually given at birth' — stronger variant signal than A02. Core-pass requires parents.firstName = 'Leila' and NO Leilo duplicate. Bonus-hit for preserving the Leilo story in parents.notes.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_004",
+      "_diagFamily": "A",
+      "_diagSubclass": "generation_hop_sibling_vs_children",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your siblings.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "siblings.firstName",
+        "siblings.relation"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your siblings.",
+      "narratorReply": "My younger brother was James Peter Zarr. Jim. He was born June 29 — which is actually the same day as Kent's parents' wedding anniversary, isn't that something — and he was born in a car on the way to the hospital in Richardton. Didn't even make it to the building. James went on to become a Benedictine monk at St. John's University up in Minnesota. Spent years there. Eventually he left the church, though. Met an Italian man named Renzo Pinn while he was in Tokyo of all places, they got married, and they lived in Rome. James passed away over there. My older sister was Verene Marie — married a Schnieder. She didn't like being outside, which is the opposite of me, I always wanted to be out with the horses. Verene was mad her whole life that her confirmation name was Gertrude.",
+      "truthZones": {
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "expected": "James, Verene",
+          "tier": "core"
+        },
+        "siblings.middleName": {
+          "zone": "must_extract",
+          "expected": "Peter, Marie",
+          "tier": "core"
+        },
+        "siblings.lastName": {
+          "zone": "must_extract",
+          "expected": "Zarr, Schnieder",
+          "tier": "core",
+          "note": "James kept Zarr. Verene married name is Schnieder."
+        },
+        "siblings.relation": {
+          "zone": "must_extract",
+          "expected": "Brother, Sister",
+          "tier": "core"
+        },
+        "siblings.memories": {
+          "zone": "may_extract",
+          "expected": "James: born in a car on way to Richardton hospital, Benedictine monk at St. John's MN, left church, married Renzo Pinn met in Tokyo, lived in Rome until his death. Verene: disliked outdoors, angry about confirmation name Gertrude.",
+          "tier": "bonus"
+        },
+        "children.firstName": {
+          "zone": "must_not_write",
+          "note": "James and Verene are narrator's SIBLINGS. Routing either to children[] is a generation-hop failure."
+        },
+        "spouse.firstName": {
+          "zone": "must_not_write",
+          "note": "Renzo Pinn is narrator's brother's husband, NOT narrator's spouse. Routing Renzo to narrator's spouse slot is a critical attribution failure."
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "note": "James and Verene are siblings, not parents."
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "note": "No grandparents are the subject here."
+        }
+      },
+      "scoringNotes": "Family A generation-hop test. Two siblings enumerated with rich tangential material. Hardest trap: Renzo Pinn (Italian, Rome) must land in siblings[].memories as James's spouse, NOT in narrator's spouse slot. Also tests that the Benedictine-to-Rome life arc doesn't fragment James into multiple sibling records.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_005",
+      "_diagFamily": "B",
+      "_diagSubclass": "single_cardinality_surname_evolution",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "What do you know about your grandparents?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "grandparents.firstName",
+        "grandparents.maidenName"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What do you know about your grandmother on your father's side?",
+      "narratorReply": "Grandma Lizzie. Everyone called her Lizzie. Her real name was Elizabeth — Elizabeth Shong was her maiden name. Here's the thing though: the family name was originally Schong with a C. S-C-H-O-N-G. The C got dropped when they came over to America, and it became Shong. And there's at least one old letter where it's written Le Shong, two words, L-E space S-H-O-N-G — some people think the original French form was Le Shong. But she was Lizzie Shong growing up, and Elizabeth Horne after she married my grandfather George. One grandmother. Just the one. Born June 1, 1877 in Fall Creek, Wisconsin. Died April 26, 1952. Youngest of eight kids in the Shong family.",
+      "truthZones": {
+        "grandparents.firstName": {
+          "zone": "must_extract",
+          "expected": "Elizabeth",
+          "tier": "core",
+          "note": "EXACTLY ONE grandparents[] record should be emitted for this person. Template canonical is Elizabeth."
+        },
+        "grandparents.maidenName": {
+          "zone": "must_extract",
+          "expected": "Shong",
+          "tier": "core",
+          "note": "Canonical form is Shong (post-Americanization). Schong and Le Shong are pre-American variants and must NOT produce additional records."
+        },
+        "grandparents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne",
+          "tier": "core"
+        },
+        "grandparents.birthPlace": {
+          "zone": "may_extract",
+          "expected": "Fall Creek, Wisconsin",
+          "tier": "bonus"
+        },
+        "grandparents.memorableStories": {
+          "zone": "may_extract",
+          "expected": "nickname Lizzie, surname originally Schong with C dropped upon arrival in America, possibly Le Shong in French form, youngest of eight",
+          "tier": "bonus"
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "note": "Elizabeth is narrator's grandmother, NOT a parent."
+        },
+        "children.firstName": {
+          "zone": "must_not_write",
+          "note": "Elizabeth is narrator's grandmother, NOT a child."
+        }
+      },
+      "_cardinality_assertion": {
+        "description": "Automated post-check for Family B. The harness should assert len(grandparents[]) where this person is the subject == 1. Duplicate emissions keyed on firstName in {Lizzie} or maidenName in {Schong, Le Shong, LeShong} constitute B-fail regardless of other zone outcomes.",
+        "forbidden_duplicate_keys": [
+          "grandparents[firstName=Lizzie]",
+          "grandparents[maidenName=Schong]",
+          "grandparents[maidenName=Le Shong]",
+          "grandparents[maidenName=LeShong]"
+        ]
+      },
+      "scoringNotes": "Family B single-cardinality test. Surname evolution (Schong → Shong, possibly Le Shong) is the stressor. Pass iff exactly one grandparents[] record exists for Elizabeth with canonical firstName='Elizabeth' and maidenName='Shong'. Any duplicate emission is a fail.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_006",
+      "_diagFamily": "B",
+      "_diagSubclass": "single_cardinality_multi_middle_name",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your mother.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.maidenName"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your mother.",
+      "narratorReply": "My mother was Josephine Zarr, maiden name Schaaf. Josie. Everyone called her Josie her whole life. The full name on her baptism record was Josephine Eugenia Susanna Schaaf — Eugenia and Susanna both, that's two middle names. Josie Schaaf before she married Dad, then Josie Zarr. Josephine in writing. Josie in person. Born October 22, 1914 in Glen Ulin, North Dakota. Her mother was Anna Schaaf, maiden name Gustin — Grandma Anna was fifty years old when she had my mom, and apparently she was embarrassed about it. One mom. That's the whole of it.",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Josephine",
+          "tier": "core",
+          "note": "EXACTLY ONE parents[] record for this person. Josie is the colloquial variant."
+        },
+        "parents.middleName": {
+          "zone": "must_extract",
+          "expected": "Eugenia, Susanna",
+          "tier": "core",
+          "note": "Template has the comma-delimited form 'Eugenia, Susanna'. Either exact match or a semantically equivalent two-name form is acceptable."
+        },
+        "parents.maidenName": {
+          "zone": "must_extract",
+          "expected": "Schaaf",
+          "tier": "core"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Zarr",
+          "tier": "core"
+        },
+        "parents.birthDate": {
+          "zone": "may_extract",
+          "expected": "1914-10-22",
+          "tier": "bonus"
+        },
+        "parents.birthPlace": {
+          "zone": "may_extract",
+          "expected": "Glen Ulin, ND",
+          "tier": "bonus"
+        },
+        "grandparents.firstName": {
+          "zone": "may_extract",
+          "expected": "Anna",
+          "tier": "bonus",
+          "note": "Anna Schaaf is narrator's maternal grandmother. Acceptable to capture but not required for this question."
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Josephine is narrator's mother, NOT a sibling."
+        },
+        "children.firstName": {
+          "zone": "must_not_write",
+          "note": "Josephine is narrator's mother, NOT a child."
+        }
+      },
+      "_cardinality_assertion": {
+        "description": "Automated post-check for Family B. len(parents[]) where this person is the subject == 1.",
+        "forbidden_duplicate_keys": [
+          "parents[firstName=Josie]",
+          "parents[firstName=Josephine Eugenia]",
+          "parents[firstName=Josephine Eugenia Susanna]"
+        ]
+      },
+      "scoringNotes": "Family B single-cardinality test with two-middle-name stressor. Pass iff exactly one parents[] record for Josephine with firstName='Josephine', middleName covering both 'Eugenia' and 'Susanna', maidenName='Schaaf'. Fail on duplicate parent records keyed on Josie or on name-concatenation variants.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_007",
+      "_diagFamily": "B",
+      "_diagSubclass": "single_cardinality_multiple_nicknames",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your mother.",
+      "questionType": "followup",
+      "priorContext": "Narrator has just been discussing his mother Leila in a prior turn.",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.maidenName"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Did your mother go by any nicknames?",
+      "narratorReply": "Oh sure. Mom had a few. Most of the family called her Leila — that was the default, that's what Dad called her, that's what we kids called her, that's what the neighbors called her. But some of her cousins on the Carkuff side called her Lee — just Lee. And a couple of them, her younger cousins, called her Myrt, because her middle name was Myrtle. Leila Myrtle Horne. Maiden name Carkuff. So Leila, Lee, Myrt — all the same woman. One person. Born 1915.",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Leila",
+          "tier": "core",
+          "note": "EXACTLY ONE parents[] record. Lee and Myrt are cousin-side nicknames, not additional people."
+        },
+        "parents.middleName": {
+          "zone": "must_extract",
+          "expected": "Myrtle",
+          "tier": "core"
+        },
+        "parents.maidenName": {
+          "zone": "must_extract",
+          "expected": "Carkuff",
+          "tier": "core"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne",
+          "tier": "core"
+        },
+        "parents.notes": {
+          "zone": "may_extract",
+          "expected": "went by Leila primarily, called Lee by some Carkuff cousins, called Myrt by some younger cousins (from middle name Myrtle)",
+          "tier": "bonus"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Leila is narrator's mother, NOT a sibling. Carkuff cousins mentioned in narrative are not narrator's siblings either."
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "note": "Leila is narrator's mother, NOT a grandparent."
+        }
+      },
+      "_cardinality_assertion": {
+        "description": "Automated post-check. len(parents[]) where this person is the subject == 1.",
+        "forbidden_duplicate_keys": [
+          "parents[firstName=Lee]",
+          "parents[firstName=Myrt]",
+          "parents[firstName=Myrtle]"
+        ]
+      },
+      "scoringNotes": "Family B single-cardinality test with THREE forms of the same name asserted in one turn. This is the hardest B case — the narrator explicitly enumerates Leila/Lee/Myrt as nicknames for the same person. Pass iff one parents[] record survives.",
+      "chunk_size": "small",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_008",
+      "_diagFamily": "C",
+      "_diagSubclass": "canonical_ancestry_medium",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "great_grandparents",
+      "questionBankAnchor": "Do you know anything about your great-grandparents?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "greatGrandparents.firstName",
+        "greatGrandparents.ancestry",
+        "greatGrandparents.memorableStories"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Do you know anything about your great-grandfather John Michael Shong?",
+      "narratorReply": "My great-grandfather was John Michael Shong. Born near Nancy, in Lorraine, France — October 11, 1829. Came to America around 1848, when he was about nineteen. The family name was originally Schong, with a C, but the C got dropped after they got here and it became Shong. He settled at Fall Creek, Wisconsin. Served in the Civil War — Company G of the 28th Infantry, February 1865 to January 1866, Kansas and Missouri. By 1871 he owned 200 acres east of Fall Creek. Married Christine Bolley on August 7, 1863. He was Catholic. After he died in 1891, letters kept coming from his family back in France.",
+      "truthZones": {
+        "greatGrandparents.firstName": {
+          "zone": "must_extract",
+          "expected": "John Michael",
+          "tier": "core"
+        },
+        "greatGrandparents.lastName": {
+          "zone": "must_extract",
+          "expected": "Shong",
+          "tier": "core"
+        },
+        "greatGrandparents.ancestry": {
+          "zone": "must_extract",
+          "expected": "French (Alsace-Lorraine)",
+          "tier": "core"
+        },
+        "greatGrandparents.memorableStories": {
+          "zone": "must_extract",
+          "expected": "Civil War service (Company G 28th Infantry 1865-1866), settled Fall Creek Wisconsin, name originally Schong with C dropped, Catholic, letters from France continued after his 1891 death",
+          "tier": "core",
+          "note": "Must cover Civil War AND Fall Creek AND Lorraine origin AND the Schong-to-Shong name change. Partial coverage of these four anchors fails at C-shape threshold."
+        },
+        "military.branch": {
+          "zone": "must_not_write",
+          "note": "John Michael's Civil War service is NOT the narrator's military service. Critical generation-hop guard."
+        },
+        "military.yearsOfService": {
+          "zone": "must_not_write"
+        },
+        "personal.culture": {
+          "zone": "may_extract",
+          "expected": "French (Alsace-Lorraine) heritage",
+          "tier": "bonus"
+        }
+      },
+      "_length_assertion": {
+        "length_bucket": "medium",
+        "word_count_actual": 108,
+        "must_cover_anchors": [
+          "Lorraine France origin",
+          "Civil War service",
+          "Fall Creek Wisconsin settlement",
+          "Schong to Shong name change"
+        ]
+      },
+      "scoringNotes": "Family C medium-length baseline. This is the shortest rendering of the canonical John Michael Shong biography; C09 and C10 preserve the same must_extract skeleton at longer lengths. Extractor should handle this cleanly — if it fails here, it's a base-case problem, not a length-pressure problem.",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_009",
+      "_diagFamily": "C",
+      "_diagSubclass": "canonical_ancestry_large",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "great_grandparents",
+      "questionBankAnchor": "Do you know anything about your great-grandparents?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "greatGrandparents.firstName",
+        "greatGrandparents.ancestry",
+        "greatGrandparents.memorableStories"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me everything you know about your great-grandfather John Michael Shong.",
+      "narratorReply": "John Michael Shong — my great-grandfather. Born October 11, 1829, near the city of Nancy, in Lorraine, France. His father's name was thought to be Nicholas, and Nicholas worked for the railroad. John Michael had two sisters, Mary and Margaret, and one brother, Peter. All three of those siblings stayed behind in France — only John Michael came over. He came to America around 1848, when he was about nineteen years old. The original family name was Schong, S-C-H-O-N-G, with a C. The C got dropped after they got to America and the name became Shong. Some of the family thought the name had originally been Le Shong before that, two words, from the French. He settled at Fall Creek, Wisconsin, around 1859 — this was before the railroad came through the area. He served in the Civil War: Company G of the 28th Infantry, from February of 1865 to January of 1866, down in Kansas and Missouri. After the war he came back to Fall Creek. By 1871 he owned 200 acres of land east of Fall Creek. He married Christine Bolley on August 7, 1863 — his wife was from Hanover, Germany. They had eight children together, raised on that farm. John Michael was a member of the Catholic Church and he definitely claimed to be French — not German, not Alsatian, French. He died October 16, 1891 at Fall Creek. And this is the part I always found striking: for years after he died, letters kept coming from his family back in France. He's buried at Augusta, Wisconsin.",
+      "truthZones": {
+        "greatGrandparents.firstName": {
+          "zone": "must_extract",
+          "expected": "John Michael",
+          "tier": "core"
+        },
+        "greatGrandparents.lastName": {
+          "zone": "must_extract",
+          "expected": "Shong",
+          "tier": "core"
+        },
+        "greatGrandparents.ancestry": {
+          "zone": "must_extract",
+          "expected": "French (Alsace-Lorraine)",
+          "tier": "core"
+        },
+        "greatGrandparents.memorableStories": {
+          "zone": "must_extract",
+          "expected": "Civil War service (Company G 28th Infantry 1865-1866 Kansas/Missouri), settled Fall Creek Wisconsin ~1859, name originally Schong (possibly Le Shong) with C dropped, Catholic, claimed French, father Nicholas a railroad worker, siblings Mary/Margaret/Peter stayed in France, 200 acres east of Fall Creek by 1871, letters from France continued after 1891 death, buried at Augusta Wisconsin",
+          "tier": "core",
+          "note": "Same four anchor must-cover set as C08 (Lorraine, Civil War, Fall Creek, name change). Additional detail is bonus."
+        },
+        "greatGrandparents.birthDate": {
+          "zone": "may_extract",
+          "expected": "1829-10-11",
+          "tier": "bonus"
+        },
+        "greatGrandparents.birthPlace": {
+          "zone": "may_extract",
+          "expected": "Near Nancy, Lorraine, France",
+          "tier": "bonus"
+        },
+        "military.branch": {
+          "zone": "must_not_write",
+          "note": "Civil War service is John Michael's, NOT narrator's."
+        },
+        "military.yearsOfService": {
+          "zone": "must_not_write"
+        },
+        "personal.placeOfBirth": {
+          "zone": "must_not_write",
+          "note": "Nancy/Lorraine is John Michael's birthplace, NOT narrator's."
+        }
+      },
+      "_length_assertion": {
+        "length_bucket": "large",
+        "word_count_actual": 261,
+        "must_cover_anchors": [
+          "Lorraine France origin",
+          "Civil War service",
+          "Fall Creek Wisconsin settlement",
+          "Schong to Shong name change"
+        ]
+      },
+      "scoringNotes": "Family C large-length test. SAME must_extract skeleton as C08 but ~2.5x the prose. Shape-loss measurement: if C08 passes and C09 fails on the same anchors, that isolates length-pressure failure. Also: critical must_not_write on military.* and personal.placeOfBirth — the Civil War service and Nancy/Lorraine birthplace belong to the ancestor, NOT the narrator.",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_010",
+      "_diagFamily": "C",
+      "_diagSubclass": "canonical_ancestry_xl",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "great_grandparents",
+      "questionBankAnchor": "Do you know anything about your great-grandparents?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "greatGrandparents.firstName",
+        "greatGrandparents.ancestry",
+        "greatGrandparents.memorableStories"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me everything you know about your great-grandfather John Michael Shong — take your time, include everything.",
+      "narratorReply": "John Michael Shong. My great-grandfather on my dad's side. He's the one I've done the most research on, because he's the origin point of the Shong family in America, and because the story of how he got here is really something. He was born October 11, 1829, near the city of Nancy, which is in Lorraine, in eastern France. Lorraine is right up against the German border — always has been contested territory — so there's some debate about whether the family was ethnically French or more German-influenced. John Michael himself, though, definitely claimed to be French. That's important. He was insistent about it. His father's name was thought to be Nicholas Shong, and Nicholas worked for the railroad — that was his occupation, railroad worker. John Michael had three siblings: two sisters named Mary and Margaret, and one brother named Peter. All three of those siblings stayed behind in France when John Michael left. Only he came across. He came to America around 1848. He would have been about nineteen years old. The original spelling of the family name was Schong, S-C-H-O-N-G, with a C in the middle. After they arrived in America, the C got dropped from the name — nobody's quite sure when exactly or why, but it became Shong, and it's stayed Shong since. Some of the older family members believed the name had actually originally been Le Shong, two words, written with the French definite article. John Michael settled at Fall Creek, Wisconsin — this would have been around 1859 — and he settled there before the railroad had come through the area. He was one of the earlier ones in. He served in the Civil War. Company G, 28th Infantry. He served from February 1865 through January 1866. His regiment saw duty in Kansas and Missouri during that year. He didn't talk much about the war afterward, from what I've heard, but he did serve. After the war he came back to Wisconsin and kept working the land. By 1871 — just a few years after he got back — he owned 200 acres east of Fall Creek. That's substantial holdings for a first-generation immigrant. He married Christine Bolley on August 7, 1863 — that was actually while he was still in the service years, although not yet enlisted. Christine was from Hanover, in Germany, so the household was French-and-German from the start. They had eight children together on that Fall Creek farm. The oldest was Charlie, born 1864. Then Sarah in 1866. Maggie in 1868 but she died as an infant. Christie in 1869. Nicholas in 1871 — named after John Michael's father. Henry, who went by Hank, in 1873. Cora in 1875 but she also died as an infant. And the youngest was my grandmother Elizabeth — Lizzie — in 1877. John Michael was a member of the Catholic Church. Practicing. Active. After he died — October 16, 1891, at Fall Creek — letters kept coming from his family in France. For years. Just kept arriving, in French, from the old country. I always found that striking. He's buried at Augusta, Wisconsin.",
+      "truthZones": {
+        "greatGrandparents.firstName": {
+          "zone": "must_extract",
+          "expected": "John Michael",
+          "tier": "core"
+        },
+        "greatGrandparents.lastName": {
+          "zone": "must_extract",
+          "expected": "Shong",
+          "tier": "core"
+        },
+        "greatGrandparents.ancestry": {
+          "zone": "must_extract",
+          "expected": "French (Alsace-Lorraine)",
+          "tier": "core",
+          "note": "Narrator explicitly states John Michael claimed French identity. Extractor must not split this into French AND German based on the Lorraine border discussion."
+        },
+        "greatGrandparents.memorableStories": {
+          "zone": "must_extract",
+          "expected": "Civil War service (Company G 28th Infantry 1865-1866 Kansas/Missouri), settled Fall Creek Wisconsin ~1859 before railroad, name originally Schong with C dropped (possibly Le Shong earlier), Catholic, claimed French, father Nicholas railroad worker, siblings Mary/Margaret/Peter stayed in France, 200 acres east of Fall Creek by 1871, eight children, letters from France continued after 1891 death, buried Augusta Wisconsin",
+          "tier": "core",
+          "note": "Same four anchor must-cover set as C08 and C09."
+        },
+        "greatGrandparents.birthDate": {
+          "zone": "may_extract",
+          "expected": "1829-10-11",
+          "tier": "bonus"
+        },
+        "greatGrandparents.birthPlace": {
+          "zone": "may_extract",
+          "expected": "Near Nancy, Lorraine, France",
+          "tier": "bonus"
+        },
+        "military.branch": {
+          "zone": "must_not_write",
+          "note": "Civil War service is John Michael's."
+        },
+        "military.yearsOfService": {
+          "zone": "must_not_write"
+        },
+        "personal.placeOfBirth": {
+          "zone": "must_not_write",
+          "note": "Nancy/Lorraine is John Michael's birthplace, NOT narrator's (Kent's is Stanley ND)."
+        },
+        "children.firstName": {
+          "zone": "must_not_write",
+          "note": "John Michael's eight children (Charlie, Sarah, Maggie, Christie, Nicholas, Henry, Cora, Elizabeth) are great-great-aunts/uncles of narrator, NOT narrator's children. Critical must_not_write."
+        }
+      },
+      "_length_assertion": {
+        "length_bucket": "xl",
+        "word_count_actual": 520,
+        "must_cover_anchors": [
+          "Lorraine France origin",
+          "Civil War service",
+          "Fall Creek Wisconsin settlement",
+          "Schong to Shong name change"
+        ]
+      },
+      "scoringNotes": "Family C XL-length shape-loss test. SAME must_extract skeleton as C08 and C09 but ~5-6x the prose of C08. If C08 and C09 pass but C10 fails on any of the four anchors, that's direct evidence of context-pressure shape loss. Additional critical trap: John Michael's eight children (enumerated in the narrator's voice) must NOT land in narrator's children[] slot — that would be a two-generation mis-attribution hop.",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_011",
+      "_diagFamily": "D",
+      "_diagSubclass": "coverage_multi_hop_life_arc",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.occupation",
+        "parents.notableLifeEvents"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "What kind of work did your father do?",
+      "narratorReply": "Dad had a lot of different jobs over the years. He had a steam boiler operator license, and he was also a carpenter — he did carpentry work on and off. When I was a baby he was working at an aluminum factory out in Washington state — that's actually why I was born in Spokane, because Mom and Dad were out there for his job. Later the family came back to North Dakota and Dad worked on the Garrison Dam. He was a foreman on the Garrison Dam, specifically a foreman of a finishing crew for cement forms. That was a big project. He was born at home in Dodge, North Dakota on September 19, 1909 — delivered by Mrs. Steve Dodenheffer. Pete lost his birth certificate, actually — when the state capitol of North Dakota burned down, all his records went up with it. He never got it replaced. He had five siblings. Tillie was the oldest — she was the oldest sister, she married a Dodenheffer. Then it was my dad Pete, then Steven, then Joe, then August — August was mean to me when I was little, I hated him — and the youngest was Johnny. Uncle Johnny later rented a farm and that's when he got Spot, who was actually our last dog when I was a kid.",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Peter",
+          "tier": "core"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Zarr",
+          "tier": "core"
+        },
+        "parents.birthDate": {
+          "zone": "must_extract",
+          "expected": "1909-09-19",
+          "tier": "core"
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Dodge, ND",
+          "tier": "core"
+        },
+        "parents.occupation": {
+          "zone": "must_extract",
+          "expected": "Steam Boiler operator license, carpenter",
+          "tier": "core",
+          "note": "Multiple occupations stated. Must capture at least steam boiler operator AND carpenter."
+        },
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "expected": "aluminum factory in Washington state (while narrator was a baby), foreman on Garrison Dam (finishing crew for cement forms), birth certificate burned when ND state capitol burned down, delivered at home by Mrs. Steve Dodenheffer",
+          "tier": "core",
+          "note": "Four distinct life events asserted in the turn. Coverage-vs-shape: extractor should land at least 3 of 4."
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "CRITICAL TRAP. Tillie, Steven, Joe, August, and Johnny are PETE'S siblings = narrator's UNCLES AND AUNTS, NOT narrator's siblings. Routing any of these to narrator.siblings[] is a generation-hop failure."
+        },
+        "personal.placeOfBirth": {
+          "zone": "should_ignore",
+          "note": "Spokane is mentioned only as context for Pete's Washington job — it is the narrator's birthplace but not the subject of this question."
+        },
+        "pets.name": {
+          "zone": "should_ignore",
+          "note": "Spot is mentioned tangentially; not the subject of this question about Pete's work."
+        }
+      },
+      "scoringNotes": "Family D coverage-vs-shape test. Long multi-hop turn covering (1) occupations, (2) birth details, (3) Washington-state job, (4) Garrison Dam job, (5) birth certificate burned, (6) Pete's siblings tangent, (7) Uncle Johnny/Spot sub-tangent. Key trap: Tillie/Steven/Joe/August/Johnny must NOT be routed to narrator.siblings[] — they are Pete's siblings = narrator's uncles/aunts. This is a single-generation-hop attribution test embedded in a multi-fact narrative.",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_012",
+      "_diagFamily": "D",
+      "_diagSubclass": "coverage_multi_location_progression",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "education",
+      "questionBankAnchor": "Tell me about your schooling.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "education.schooling",
+        "education.higherEducation"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Walk me through your schooling, from the beginning.",
+      "narratorReply": "My schooling moved around a lot, because Dad's work kept moving us. First and second grade I was in Dodge, North Dakota. I could already read the big books by then, and the teacher had me stand up and read out loud to the whole class. She also had me sit by myself at a separate desk — I thought at the time it was a punishment, but looking back I think she just didn't want me distracting the other kids who couldn't read yet. Third, fourth, and fifth grade I went to Sacred Hearts school in Glen Ulin, North Dakota — Sacred Hearts, it was a Catholic school. Sixth grade we'd moved to Strasburg, North Dakota. Strasburg is where Lawrence Welk was from, did you know that? His wife was actually a nurse at the hospital there in Strasburg. My teacher in sixth grade was a nun I called 'a nut' in my own head — she falsely accused me over a note one of the other kids had passed, and she made Johnny Baumgartner, who was the class clown, wear a dunce hat in front of everyone. I never forgot that. After all of that, I went on to high school and then started college at Bismarck Junior College. I studied Speech and History at Bismarck Junior College. Those credits later transferred to the University of North Dakota — UND — when I moved over there.",
+      "truthZones": {
+        "education.schooling": {
+          "zone": "must_extract",
+          "expected": "Elementary 1st-2nd grade: Dodge, ND. 3rd-5th grade: Sacred Hearts school, Glen Ulin, ND. 6th grade: Strasburg, ND.",
+          "tier": "core",
+          "note": "Must cover all three elementary locations with grade correspondences."
+        },
+        "education.higherEducation": {
+          "zone": "must_extract",
+          "expected": "Bismarck Junior College (Speech and History); credits transferred to University of North Dakota (UND)",
+          "tier": "core"
+        },
+        "parents.occupation": {
+          "zone": "should_ignore",
+          "note": "Dad's work is mentioned only as context for the moves, not the subject of this question."
+        },
+        "personal.fullName": {
+          "zone": "must_not_write",
+          "note": "Lawrence Welk is mentioned as a Strasburg-adjacent fact, NOT as the narrator's identity. Must not contaminate narrator personal fields."
+        },
+        "spouse.firstName": {
+          "zone": "must_not_write",
+          "note": "Lawrence Welk's wife (nurse at Strasburg hospital) is a geographic color detail, NOT narrator's spouse."
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Johnny Baumgartner is a CLASSMATE, NOT narrator's sibling (whose brother is James Peter Zarr). Must not land in siblings[]."
+        }
+      },
+      "scoringNotes": "Family D coverage-vs-shape test with embedded contamination traps. Narrator covers four school stops (Dodge/Sacred Hearts/Strasburg/Bismarck Junior College + UND transfer) with tangent material threaded through: (a) Lawrence Welk as Strasburg-adjacent celebrity + his wife as hospital nurse (must not land in narrator spouse slot), (b) Johnny Baumgartner the classmate with the dunce hat (must not land in siblings[]), (c) the nun-she-called-a-nut story (narrative detail, not a person field). Pass requires all four education stops covered AND all three contamination traps avoided.",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history"
+    }
+  ]
+}
