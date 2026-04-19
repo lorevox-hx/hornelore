@@ -240,6 +240,59 @@ EXTRACTABLE_FIELDS = {
     "travel.purpose":                 {"label": "Purpose of travel (vacation, work, family, military)", "writeMode": "suggest_only", "repeatable": "travel"},
     "travel.significantTrip":         {"label": "Most significant or memorable trip", "writeMode": "suggest_only"},
     "travel.notes":                   {"label": "Travel color (companions, memorable moments, return impressions)", "writeMode": "suggest_only", "repeatable": "travel"},
+
+    # ── LOOP-01 R3 — Schema gap fills from api.log audit ────────────────────
+    # Added after the R2 api.log audit revealed 325 REJECTs across 218 unique
+    # fieldPaths. These entries give homes to factual fields the LLM was
+    # emitting correctly but which had no schema target. Companion aliases
+    # live in _FIELD_ALIASES under the same R3 banner.
+
+    # parents.* extensions — preferred names, death facts, education, background
+    "parents.preferredName":     {"label": "Parent nickname / preferred name", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.deathDate":         {"label": "Parent death date", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.ageAtDeath":        {"label": "Parent age at death", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.placeOfDeath":      {"label": "Parent place of death", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.education":         {"label": "Parent education (schooling, college)", "writeMode": "suggest_only", "repeatable": "parents"},
+    "parents.ethnicBackground":  {"label": "Parent ethnic / cultural background", "writeMode": "suggest_only", "repeatable": "parents"},
+
+    # grandparents.* extensions — mirror greatGrandparents shape where missing
+    "grandparents.birthDate":    {"label": "Grandparent birth date", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.deathDate":    {"label": "Grandparent death date", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.occupation":   {"label": "Grandparent occupation", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.childCount":   {"label": "Number of children grandparent had", "writeMode": "candidate_only", "repeatable": "grandparents"},
+
+    # siblings.* extensions — birth facts + preferred name + occupation
+    "siblings.birthDate":        {"label": "Sibling birth date", "writeMode": "candidate_only", "repeatable": "siblings"},
+    "siblings.birthPlace":       {"label": "Sibling birthplace", "writeMode": "candidate_only", "repeatable": "siblings"},
+    "siblings.preferredName":    {"label": "Sibling nickname / preferred name", "writeMode": "candidate_only", "repeatable": "siblings"},
+    "siblings.occupation":       {"label": "Sibling occupation", "writeMode": "candidate_only", "repeatable": "siblings"},
+
+    # family.spouse.* extensions — relation, middle name, nickname, age at
+    # marriage, occupation, education (the dominant R2 spouse-cluster rejects)
+    "family.spouse.relation":       {"label": "Spouse relation type (wife, husband, partner)", "writeMode": "prefill_if_blank"},
+    "family.spouse.middleName":     {"label": "Spouse middle name(s)", "writeMode": "prefill_if_blank"},
+    "family.spouse.preferredName":  {"label": "Spouse nickname / preferred name", "writeMode": "prefill_if_blank"},
+    "family.spouse.ageAtMarriage":  {"label": "Spouse age at marriage", "writeMode": "prefill_if_blank"},
+    "family.spouse.occupation":     {"label": "Spouse occupation", "writeMode": "prefill_if_blank"},
+    "family.spouse.education":      {"label": "Spouse education (schooling, college)", "writeMode": "suggest_only"},
+
+    # greatGrandparents.military* — ancestor-scoped military so the narrator-
+    # scoped negation-guard (which strips military.* on "I never served")
+    # cannot eat legitimate Civil War / WWI ancestor facts. See R3 Patch 4.
+    "greatGrandparents.militaryBranch": {"label": "Great-grandparent military branch (ancestor-scoped)", "writeMode": "suggest_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.militaryUnit":   {"label": "Great-grandparent military unit / regiment", "writeMode": "suggest_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.militaryEvent":  {"label": "Great-grandparent military event / deployment / dates", "writeMode": "suggest_only", "repeatable": "greatGrandparents"},
+
+    # community.* dense-interview extensions
+    "community.meetingDay":       {"label": "Day/frequency community group meets", "writeMode": "suggest_only", "repeatable": "community"},
+    "community.meetingLocation":  {"label": "Where community group meets", "writeMode": "suggest_only", "repeatable": "community"},
+    "community.memberCount":      {"label": "Number of members in community group", "writeMode": "suggest_only", "repeatable": "community"},
+    "community.successor":        {"label": "Person who took over community role", "writeMode": "suggest_only", "repeatable": "community"},
+
+    # education.* dense-interview extensions
+    "education.gradeLevel":       {"label": "Grade level achieved (e.g., 8th grade, high school diploma)", "writeMode": "suggest_only"},
+    "education.readingAbility":   {"label": "Self-reported reading ability / literacy context", "writeMode": "suggest_only"},
+    "education.training":         {"label": "Trade or technical training (apart from schooling/college)", "writeMode": "suggest_only"},
 }
 
 # ── Phase G: Protected identity fields ─────────────────────────────────────
@@ -733,14 +786,17 @@ def _extract_via_singlepass(answer: str, current_section: Optional[str], current
     # FIX-3: Use a unique ephemeral conv_id for each extraction call to prevent
     # cross-narrator context contamination via shared session/RAG state.
     ephemeral_conv_id = f"_extract_{_uuid.uuid4().hex[:12]}"
-    # WO-10M / WO-EX-CLAIMS-01: Token cap is now dynamic.
+    # WO-10M / WO-EX-CLAIMS-01 / LOOP-01 R3: Token cap is now dynamic.
     # Simple single-fact answers: 128 tokens (original cap, ample for 1-3 items).
-    # Compound answers (multiple names, years, list patterns): 384 tokens so the
-    # LLM can emit a complete JSON array for 5-10+ items without truncation.
-    # The old static 128 cap caused compound answers to truncate mid-JSON,
-    # falling to regex fallback which loses entity grouping entirely.
+    # Compound answers (multiple names, years, list patterns): 768 tokens so the
+    # LLM can emit a complete JSON array for 10-20+ items without truncation.
+    # LOOP-01 R3 raised the compound ceiling from 384→768 after the R2 api.log
+    # audit showed dense genealogy answers (greatGrandparents, parents+spouse+
+    # children combined) hitting 1400-1550 char outputs that truncated mid-JSON
+    # at the 384 cap, falling to salvage or zero-item rules fallback.
+    # ~1 token ≈ 3 chars for JSON output, so 768 gives ~2300 chars of headroom.
     _base_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT", "128"))
-    _compound_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT_COMPOUND", "384"))
+    _compound_cap = int(os.getenv("MAX_NEW_TOKENS_EXTRACT_COMPOUND", "768"))
     _extract_cap = _compound_cap if _is_compound_answer(answer) else _base_cap
     _extract_temp = float(os.getenv("EXTRACTION_TEMP", "0.15"))
     _extract_top_p = float(os.getenv("EXTRACTION_TOP_P", "0.9"))
@@ -1930,6 +1986,100 @@ def _validate_item(item: Any) -> Optional[dict]:
             "trips.purpose": "travel.purpose",
             "places.visited": "travel.destination",
             "hobbies.travel": "travel.significantTrip",
+
+            # ── LOOP-01 R3 — Alias fills from api.log audit ────────────────
+            # Near-miss paths the LLM emits that map cleanly onto canonical
+            # fields (or new R3 fields above in EXTRACTABLE_FIELDS). These
+            # save ~60+ rejections per eval run.
+
+            # family.parents.* → parents.* (dominant family-prefix variant)
+            "family.parents.firstName":  "parents.firstName",
+            "family.parents.middleName": "parents.middleName",
+            "family.parents.lastName":   "parents.lastName",
+            "family.parents.maidenName": "parents.maidenName",
+            "family.parents.relation":   "parents.relation",
+            "family.parents.occupation": "parents.occupation",
+            "family.parents.birthDate":  "parents.birthDate",
+            "family.parents.birthPlace": "parents.birthPlace",
+
+            # parents.* date/place/misc variants (LLM alternates phrasings)
+            "parents.dateOfBirth":       "parents.birthDate",
+            "parents.placeOfBirth":      "parents.birthPlace",
+            "parents.dateOfDeath":       "parents.deathDate",
+            "parents.workplace":         "parents.occupation",
+            "parents.alternateName":     "parents.preferredName",
+            "parents.characteristic":    "parents.notes",
+            "parents.license":           "parents.notes",
+            "parents.deliverer":         "parents.notes",
+            "parents.born":              "parents.birthPlace",
+            "parents.childRelation":     "parents.relation",
+            "parents.mother.firstName":  "parents.firstName",
+            "parents.mother.maidenName": "parents.maidenName",
+            "parents.mother.lastName":   "parents.lastName",
+            "parents.father.firstName":  "parents.firstName",
+            "parents.father.lastName":   "parents.lastName",
+
+            # grandparents.* variants
+            "grandparents.dateOfBirth":       "grandparents.birthDate",
+            "grandparents.placeOfBirth":      "grandparents.birthPlace",
+            "grandparents.placeOfBirthFather":"grandparents.birthPlace",
+            "grandparents.countryOfOrigin":   "grandparents.ancestry",
+            "grandparents.siblingCount":      "grandparents.memorableStory",
+            "grandparents.birthAge":          "grandparents.birthDate",
+            "grandparents.sibling":           "grandparents.memorableStory",
+            "grandparents.parentFirstName":   "greatGrandparents.firstName",
+
+            # siblings.* variants
+            "siblings.dateOfBirth":                  "siblings.birthDate",
+            "siblings.placeOfBirth":                 "siblings.birthPlace",
+            "siblings.siblingRelationship":          "siblings.relation",
+            "siblings.reactionToOutdoorActivities":  "siblings.uniqueCharacteristics",
+
+            # greatGrandparents.* variants (schema has birthDate/birthPlace;
+            # LLM sometimes emits dateOfBirth/placeOfBirth)
+            "greatGrandparents.dateOfBirth":  "greatGrandparents.birthDate",
+            "greatGrandparents.placeOfBirth": "greatGrandparents.birthPlace",
+
+            # family.spouse.* variants and in-law spill-over
+            "family.spouse.familyHistory":           "family.spouse.notes",
+            "family.spouse.characteristic":          "family.spouse.notes",
+            "family.spouse.narratorAgeAtMarriage":   "family.spouse.ageAtMarriage",
+            "family.spouse.parent.firstName":        "family.spouse.notes",
+            "family.spouse.parent.name":             "family.spouse.notes",
+            "family.spouse.parent.placeOfWork":      "family.spouse.notes",
+            "family.spouse.child.placeOfBirth":      "family.children.placeOfBirth",
+            "family.spouse.child.hometown":          "family.children.placeOfBirth",
+            "family.spouse.child.activity":          "family.children.notes",
+            "family.spouse.child.pet":               "family.children.notes",
+            "spouse.placeOfBirth":                   "family.spouse.placeOfBirth",
+
+            # community.* variants → R3 additions or existing fields
+            "community.numberOfMembers":    "community.memberCount",
+            "community.leadershipDuration": "community.yearsActive",
+            "community.learnings":          "community.notes",
+            "community.influentialPerson":  "community.notes",
+            "community.values":             "faith.values",
+
+            # family.member.* — generic "relative" catch-alls
+            "family.member":              "parents.notableLifeEvents",
+            "family.member.name":         "parents.firstName",
+            "family.member.relationship": "parents.relation",
+            "family.member.dateOfBirth":  "parents.birthDate",
+            "family.relative":            "parents.notableLifeEvents",
+
+            # Ancestor-scoped military — route parents.parents.military.*
+            # (LLM's instinct for "my great-great-grandfather's service") onto
+            # the new greatGrandparents.military* fields so negation-guard
+            # (which is narrator-scoped on military.*) cannot strip them.
+            "parents.parents.military.branch":              "greatGrandparents.militaryBranch",
+            "parents.parents.military.yearsOfService":      "greatGrandparents.militaryEvent",
+            "parents.parents.military.unit":                "greatGrandparents.militaryUnit",
+            "parents.parents.military.deploymentLocation":  "greatGrandparents.militaryEvent",
+            "parents.parents.military.rank":                "greatGrandparents.militaryEvent",
+            "greatGrandparents.military.branch":            "greatGrandparents.militaryBranch",
+            "greatGrandparents.military.unit":              "greatGrandparents.militaryUnit",
+            "greatGrandparents.military.yearsOfService":    "greatGrandparents.militaryEvent",
+            "greatGrandparents.military.deploymentLocation":"greatGrandparents.militaryEvent",
         }
         alias = _FIELD_ALIASES.get(base_path) or _FIELD_ALIASES.get(fp)
         if alias and alias in EXTRACTABLE_FIELDS:
