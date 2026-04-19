@@ -2853,17 +2853,36 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 def _collect_contrast_affirmations(answer: str) -> list:
     """Return sentence-scoped affirmative clauses from the answer
-    (lowercased). A sentence is an "affirmative clause" when:
+    (lowercased).
 
-    * it contains no denial marker (``not/never/don't/...``), OR
-    * it contains a denial AND a contrast marker, in which case only the
-      text after the last contrast marker is kept.
+    LOOP-01 R4 Patch F — NARROWED after R4 readout.
 
-    This catches three shapes the negation-guard previously over-stripped:
+    A sentence contributes an affirmative ONLY when it contains BOTH a
+    denial marker AND a contrast marker; the preserved text is the
+    portion after the LAST contrast marker in that sentence. The
+    original Patch F also treated any non-denial sentence as fully
+    affirmative, which over-preserved narrator "nothing to report"
+    answers — each hedge-affirmation sentence ("I've been pretty
+    healthy", "I was tough", "I was more of a one-on-one person")
+    leaked into forbidden health/community writes despite the
+    negation-guard's denial patterns correctly firing on the whole
+    answer. See loop01_r4_eval_readout.md (cases 038, 056, 100).
 
-    1. ``not X, (but|more of a) Y``        — contrast split within one sentence
-    2. ``not X. I'm Y``                    — contrast across a sentence boundary
-    3. ``Y, Y, Y. don't X.``               — affirmatives precede the denial
+    Preserved pattern (same-sentence "not X, but Y"):
+
+    1. ``not X, (but|more of a) Y``        → Y kept
+    2. ``never X, just Y``                 → Y kept
+
+    NO LONGER preserved (ambiguous cross-sentence):
+
+    1. ``not X. I'm Y.``                   → narrator-denied category wins
+    2. ``Y. I don't X.``                   → narrator-denied category wins
+
+    If the cross-sentence contrast shape turns out to be common in
+    real oral histories, revisit by introducing a separate
+    "contrast-marker-in-sentence-without-denial-immediately-after-
+    a-denial-sentence" rule rather than by reintroducing the
+    blanket non-denial-sentence branch.
     """
     if not answer:
         return []
@@ -2872,20 +2891,19 @@ def _collect_contrast_affirmations(answer: str) -> list:
         s = raw.strip()
         if not s:
             continue
-        if _DENIAL_WORDS.search(s):
-            # Drop denied portion; keep any text after a contrast marker.
-            m = None
-            for hit in _CONTRAST_MARKER.finditer(s):
-                m = hit  # keep the last hit — "not X, but Y" -> Y
-            if m is not None:
-                affirm = s[m.end():].strip().strip('.,;:"\'').lower()
-                if len(affirm) >= 3:
-                    affirmatives.append(affirm)
+        if not _DENIAL_WORDS.search(s):
+            # Narrowed: non-denial sentences no longer contribute
+            # affirmatives. They are judged by the negation-guard's
+            # category-level denial patterns alone.
             continue
-        # No denial in this sentence — whole sentence is affirmative.
-        affirm = s.strip('.,;:"\'').lower()
-        if len(affirm) >= 3:
-            affirmatives.append(affirm)
+        # Sentence has a denial; keep text after the last contrast marker.
+        m = None
+        for hit in _CONTRAST_MARKER.finditer(s):
+            m = hit  # keep the last hit — "not X, but Y" -> Y
+        if m is not None:
+            affirm = s[m.end():].strip().strip('.,;:"\'').lower()
+            if len(affirm) >= 3:
+                affirmatives.append(affirm)
     return affirmatives
 
 
