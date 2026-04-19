@@ -2984,6 +2984,66 @@ def _apply_refusal_guard(items: List[dict], answer: str) -> List[dict]:
     return items
 
 
+# ── LOOP-01 R3 Patch 4 — narrator-scoped negation-guard helpers ─────────────
+# Ancestor attribution markers. If a denied-category value appears in the
+# answer within ~120 chars after one of these markers, the negation guard
+# must NOT strip it — the narrator's denial does not apply to ancestors.
+# Classic failure case (Kent, R2 api.log):
+#   "No, I never served. But my great-great-grandfather John Michael Shong
+#    fought in the Civil War with Company G of the 28th Infantry..."
+# Pre-R3 behavior: guard saw "never served", stripped all military.*, which
+# ate Civil War, 1865-1866, Kansas and Missouri, and Company G.
+# Post-R3 behavior: guard sees each stripped value in ancestor context and
+# keeps it; separately, Patch 2 aliases route parents.parents.military.* and
+# greatGrandparents.military.* onto the new greatGrandparents.military*
+# fields so the ancestor facts land in the right place.
+_ANCESTOR_MARKERS = re.compile(
+    r"\b("
+    r"great[- ]?great[- ]?grand(?:father|mother|pa|ma|parent|parents)|"
+    r"great[- ]?grand(?:father|mother|pa|ma|parent|parents)|"
+    r"grand(?:father|mother|pa|ma|parent|parents)|"
+    r"(?:my|his|her|their) (?:father|mother|dad|mom|pa|ma)|"
+    r"(?:his|her|their) grand(?:father|mother|pa|ma|parent|parents)|"
+    r"ancestor|ancestors|forebear|forebears|forefather|forefathers"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_ancestor_context_near(answer: str, value, window_chars: int = 120) -> bool:
+    """Return True if ``value`` appears in ``answer`` within ``window_chars``
+    after a third-person ancestor marker. Checks ALL occurrences of the value
+    (not just the first), so an early narrator mention does not mask a later
+    ancestor attribution."""
+    if not value or not answer:
+        return False
+    lower = answer.lower()
+    val_lower = str(value).lower().strip()
+    if not val_lower:
+        return False
+    # For long values, match the whole string; for very short ones (e.g.
+    # "Army", "1865"), fall back to the first token to avoid missing the
+    # position when the LLM paraphrases capitalization/punctuation.
+    tokens = val_lower.split()
+    search_term = val_lower if len(val_lower) >= 4 else (tokens[0] if tokens else val_lower)
+    # Collect every occurrence of the search term in the answer.
+    positions = []
+    start = 0
+    while True:
+        pos = lower.find(search_term, start)
+        if pos < 0:
+            break
+        positions.append(pos)
+        start = pos + 1
+    if not positions:
+        return False
+    for pos in positions:
+        window = lower[max(0, pos - window_chars):pos]
+        if _ANCESTOR_MARKERS.search(window):
+            return True
+    return False
+
+
 def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
     """WO-EX-CLAIMS-02 validator 4: strip fields from categories the narrator
     explicitly denied.
@@ -2992,6 +3052,12 @@ def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
     "I've been pretty healthy" etc., the LLM sometimes still emits fields
     for those categories. This validator detects denial patterns and removes
     any fields belonging to the denied category.
+
+    LOOP-01 R3 Patch 4: the guard is now narrator-scoped. Before stripping
+    a denied-category item, it checks whether the item's value appears in
+    an ancestor-attributed context (e.g., "my great-grandfather fought in
+    the Civil War..."). If yes, the item is preserved — the denial applied
+    to the narrator, not the ancestor being discussed.
     """
     if not items or not answer:
         return items
@@ -3027,6 +3093,14 @@ def _apply_negation_guard(items: List[dict], answer: str) -> List[dict]:
     for it in items:
         fp = str(it.get("fieldPath", ""))
         if fp in denied_fields:
+            # LOOP-01 R3 Patch 4: preserve if value lives in ancestor context.
+            if _is_ancestor_context_near(answer, it.get("value", "")):
+                logger.info(
+                    "[extract][negation-guard] keeping %s=%r (ancestor context detected — narrator denial does not apply)",
+                    fp, it.get("value"),
+                )
+                out.append(it)
+                continue
             logger.info("[extract][negation-guard] dropping %s=%r (narrator denied this category)", fp, it.get("value"))
             continue
         out.append(it)
