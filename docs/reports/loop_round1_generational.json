@@ -1,0 +1,1405 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-18T17:34:59",
+  "mode": "live",
+  "summary": {
+    "total_cases": 14,
+    "passed": 7,
+    "failed": 7,
+    "pass_rate": 0.5,
+    "avg_overall_score": 0.581
+  },
+  "contract_subset": {
+    "total": 4,
+    "passed_v3": 1,
+    "passed_v2": 0,
+    "v2_avg_score": 0.0,
+    "pass_rate_v3": 0.25,
+    "pass_rate_v2": 0.0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_multiple": {
+      "total": 9,
+      "passed": 4,
+      "failed": 5
+    },
+    "extract_single": {
+      "total": 3,
+      "passed": 1,
+      "failed": 2
+    },
+    "clarify_before_write": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "by_narrator": {
+    "christopher-todd-horne": {
+      "total": 3,
+      "passed": 2,
+      "avg_score": 0.8
+    },
+    "kent-james-horne": {
+      "total": 8,
+      "passed": 3,
+      "avg_score": 0.404
+    },
+    "janice-josephine-horne": {
+      "total": 3,
+      "passed": 2,
+      "avg_score": 0.833
+    }
+  },
+  "by_case_type": {
+    "mixed_narrative": {
+      "total": 8,
+      "passed": 4,
+      "failed": 4,
+      "avg_score": 0.575
+    },
+    "contract": {
+      "total": 4,
+      "passed": 1,
+      "failed": 3,
+      "avg_score": 0.383
+    },
+    "null_clarify": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_style_bucket": {
+    "topical_history": {
+      "total": 4,
+      "passed": 2,
+      "failed": 2,
+      "avg_score": 0.525
+    },
+    "life_history": {
+      "total": 6,
+      "passed": 3,
+      "failed": 3,
+      "avg_score": 0.655
+    },
+    "thematic_study": {
+      "total": 4,
+      "passed": 2,
+      "failed": 2,
+      "avg_score": 0.525
+    }
+  },
+  "by_chunk_size": {
+    "small": {
+      "total": 9,
+      "passed": 4,
+      "failed": 5,
+      "avg_score": 0.567
+    },
+    "medium": {
+      "total": 3,
+      "passed": 1,
+      "failed": 2,
+      "avg_score": 0.344
+    },
+    "tiny": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "avg_score": 1.0
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 10,
+      "passed": 6,
+      "failed": 4,
+      "avg_score": 0.7
+    },
+    "mixed": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2,
+      "avg_score": 0.05
+    },
+    "good_garbage": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1,
+      "avg_score": 0.516
+    }
+  },
+  "by_case_mode": {
+    "style": {
+      "total": 8,
+      "passed": 4,
+      "failed": 4,
+      "avg_score": 0.575
+    },
+    "contract": {
+      "total": 6,
+      "passed": 3,
+      "failed": 3,
+      "avg_score": 0.589
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.579,
+    "may_extract_bonus_rate": 0.25,
+    "should_ignore_leak_rate": 0.167,
+    "must_not_write_violation_rate": 0.0,
+    "raw_counts": {
+      "must_extract": {
+        "total": 19,
+        "hit": 11,
+        "miss": 8
+      },
+      "may_extract": {
+        "total": 20,
+        "hit": 5,
+        "miss": 15
+      },
+      "should_ignore": {
+        "total": 6,
+        "hit": 5,
+        "leaked": 1
+      },
+      "must_not_write": {
+        "total": 22,
+        "hit": 22,
+        "violated": 0
+      }
+    }
+  },
+  "must_not_write_violations": [],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 6,
+      "actually_passed": 3
+    },
+    "known_gaps": {
+      "total": 8,
+      "actually_passed": 4
+    }
+  },
+  "failure_categories": {
+    "noise_leakage": 1
+  },
+  "case_results": [
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "laterYears.significantEvent": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.relation": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "hobbies.hobbies": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_201",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "touchstone_moon_landing",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 16526,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "watched the moon landing on TV with the whole family",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Bismarck",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.1,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.significantEvent": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.schooling": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "residence.region": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "family.children.relation": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "military.branch": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "military.yearsOfService": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_202",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "touchstone_vietnam_family_shadow",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "small",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 14183,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "cousin got drafted",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "whole mood in the family changed",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.schooling",
+          "value": "high school",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.region",
+          "value": "North Dakota",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.9,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "noise_leakage"
+      ],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 1
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "hobbies.hobbies[0]": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "hobbies.hobbies[1]": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "earlyMemories.significantEvent": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_203",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "touchstone_drive_in_movies",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 7295,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "hobbies.hobbies",
+          "value": "drive-in movies",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Williston",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "laterYears.significantEvent": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.spouse.relation": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.relation": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "hobbies.hobbies": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_204",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "touchstone_gas_lines",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 11320,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "waiting in gas lines during the 1970s energy crisis",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Bismarck",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.significantEvent": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.careerProgression": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_205",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "touchstone_first_computer",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 10576,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "learning to use terminals at work around 1985",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "feeling half a step behind in learning technology",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.significantEvent": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.careerProgression": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_206",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "touchstone_first_cell_phone",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 12394,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "had to carry a cell phone due to work demands in the late nineties",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "being constantly reachable via cell phone",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.significantEvent": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "family.grandchildren.relation": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "faith.denomination": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_207",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "touchstone_covid_changes",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "topical_history",
+      "style_bucket": "topical_history",
+      "chunk_size": "medium",
+      "noise_profile": "mixed",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 12419,
+      "extracted_count": 6,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "COVID pandemic affected daily life",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "church attendance decreased due to COVID",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "switched to video calls with grandkids instead of in-person interactions",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "cultural.touchstoneMemory",
+          "value": "COVID pandemic affected daily life",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "cultural.touchstoneMemory",
+          "value": "church attendance decreased due to COVID",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "cultural.touchstoneMemory",
+          "value": "switched to video calls with grandkids instead of in-person interactions",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.1,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.lifeLessons": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "laterYears.significantEvent": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_208",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "touchstone_artemis_reflection",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 8134,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "first moon walk",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.significantEvent",
+          "value": "kids coming behind us may see another moon walk",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "health.lifestyleChange": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "health.milestone": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "laterYears.significantEvent": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_209",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_medications",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 14008,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "health.currentMedications",
+          "value": "blood pressure medicine every morning, and something for arthritis when my hands flare up",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "health.lifestyleChange",
+          "value": "move slower in the mornings than I used to",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "high blood pressure",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "health.majorCondition",
+          "value": "arthritis",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 4,
+          "hit": 4,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.lifestyleChange": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "health.milestone": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.significantEvent": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_210",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_medications_refusal",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 2224,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.cognitiveChange": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "laterYears.lifeLessons": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "hobbies.personalChallenges": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_211",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_memory",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 5928,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "health.cognitiveChange",
+          "value": "names are slower to recall, small daily details slip first, but long-term memories remain",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 1.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "laterYears.lifeLessons": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_212",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_memory_refusal",
+      "expectedBehavior": "clarify_before_write",
+      "currentExtractorExpected": true,
+      "caseType": "null_clarify",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 2280,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "hobbies.personalChallenges": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "laterYears.lifeLessons": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_213",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_frustrations",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "thematic_study",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 6177,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "hobbies.personalChallenges",
+          "value": "feeling frustrated because everything takes longer now and being assumed to be helpless",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.033,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 6,
+          "hit": 2,
+          "miss": 4
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "laterYears.desiredStory[0]": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "laterYears.desiredStory[1]": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "laterYears.desiredStory[2]": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "additionalNotes.unfinishedDreams": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.notableLifeEvents": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "residence.place": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.marriageNotes": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_214",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "present_life_realities_story_priorities",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "good_garbage",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 13295,
+      "extracted_count": 3,
+      "raw_items": [
+        {
+          "fieldPath": "laterYears.desiredStory",
+          "value": "dad dying in '67",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.desiredStory",
+          "value": "years we built a life in Germany",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "laterYears.desiredStory",
+          "value": "how their mother and I got started with almost nothing",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

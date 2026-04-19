@@ -503,45 +503,23 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"family atmosphere shifted when uncle was drafted during the Vietnam era\",\"confidence\":0.85},"
         "{\"fieldPath\":\"education.schooling\",\"value\":\"high school\",\"confidence\":0.8},"
         "{\"fieldPath\":\"residence.region\",\"value\":\"Montana\",\"confidence\":0.8}]\n"
-        "Family-shadow generational memory (war / draft / national crisis that touched a relative) → "
-        "laterYears.significantEvent for the narrator's witnessing of it. Do NOT route to military.* — "
-        "the narrator did not serve. Do NOT route the relative to family.children.* — an uncle, cousin, or "
-        "other extended relative is NOT extracted as a narrator child. The school-stage and the state the "
-        "narrator was in during that period ARE extractable as education.schooling and residence.region.\n"
         "\n"
         "Example — narrator says: \"First time was at the office in the early nineties. They wheeled a desktop "
         "onto my desk and I spent weeks feeling like the new hire half my age was teaching me.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"first workplace desktop computer arrived in the early 1990s\",\"confidence\":0.9},"
         "{\"fieldPath\":\"hobbies.personalChallenges\",\"value\":\"felt behind learning computers at work\",\"confidence\":0.9}]\n"
-        "First-technology stories (first computer, first PC, first cell phone, first smartphone, first internet) "
-        "split into TWO facts: the generational event itself → laterYears.significantEvent, and the narrator's "
-        "frustration / sense of lagging behind → hobbies.personalChallenges. Do NOT route to education.earlyCareer "
-        "(this is not a first job) or health.cognitiveChange (this is not memory loss). Same pattern applies to "
-        "'work made me carry a pager/cell', 'I hated being reachable', 'I couldn't keep up with email'.\n"
         "\n"
         "Example — narrator says: \"Every Friday night in summer we'd pile into the station wagon and head "
         "out to the drive-in outside Minot. Popcorn, mosquitoes, and all.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"hobbies.hobbies\",\"value\":\"going to the drive-in\",\"confidence\":0.9},"
         "{\"fieldPath\":\"residence.place\",\"value\":\"Minot\",\"confidence\":0.85}]\n"
-        "Recurring family-leisure outings (drive-ins, roller rinks, bowling alleys, diners, ballparks) that the "
-        "narrator attended as part of childhood or family routine → hobbies.hobbies. The city or town name "
-        "attached to the outing → residence.place (the narrator lived near it). Do NOT route a regular family "
-        "leisure outing to laterYears.significantEvent — that path is for witnessed national/historical events, "
-        "not personal pastimes. Snacks and incidental sensory details (popcorn, mosquitoes) are scene-setting, "
-        "not extractable hobby values.\n"
         "\n"
         "Example — narrator says: \"Watching these new crews head up reminds me that each generation gets its "
         "own turn at the sky. The dreams of my time are becoming the work of my grandchildren.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"laterYears.lifeLessons\",\"value\":\"each generation inherits and carries forward the wonder of the last\",\"confidence\":0.9}]\n"
-        "Reflective / forward-looking / generational-continuity answers (\"time folds in on itself\", \"my "
-        "dreams become their work\", \"wonder passes down\", \"I see myself in the kids coming behind\") → "
-        "laterYears.lifeLessons. Do NOT route these to laterYears.significantEvent — the narrator is not "
-        "narrating a witnessed event, they are distilling a lesson across generations. If the narrator also "
-        "explicitly remembers a specific past event alongside the reflection, laterYears.significantEvent can "
-        "be added as a SECOND item, but the lifeLessons item must be present.\n"
         "\n"
         "Example — narrator says: \"I'd want my family to hear about my dad dying in '67, the years we built "
         "a life in Germany, and how their mother and I got started with almost nothing.\"\n"
@@ -1387,6 +1365,60 @@ def _extract_via_twopass(answer: str, current_section: Optional[str],
     return all_items, raw_combined
 
 
+def _salvage_truncated_array(raw: str) -> List[dict]:
+    """Recover complete top-level {...} objects from a truncated JSON array.
+
+    Used as a last-resort parse strategy when the LLM output was cut off
+    mid-string (token budget hit) and the outer array/final string is never
+    closed. Scans the prefix of the array character by character, tracking
+    object-nesting depth and string-escape state, and returns each complete
+    top-level object that parses cleanly. Nothing is fabricated — items are
+    pure prefixes of what the LLM actually produced, and they still flow
+    through _validate_item / rerouters / guards downstream.
+    """
+    text = raw.lstrip()
+    if not text.startswith("["):
+        return []
+
+    items: List[dict] = []
+    depth = 0            # {} nesting depth
+    in_string = False
+    escaped = False
+    start = -1
+
+    # Scan contents after the opening '['
+    for i in range(1, len(text)):
+        ch = text[i]
+        if escaped:
+            escaped = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                candidate = text[start : i + 1]
+                try:
+                    obj = json.loads(candidate)
+                    if isinstance(obj, dict):
+                        items.append(obj)
+                except json.JSONDecodeError:
+                    pass
+                start = -1
+    return items
+
+
 def _parse_llm_json(raw: str) -> List[dict]:
     """Parse JSON array from LLM output, handling various formats."""
     raw = raw.strip()
@@ -1432,6 +1464,17 @@ def _parse_llm_json(raw: str) -> List[dict]:
                 parse_method = "bracket_search"
             except json.JSONDecodeError as e:
                 logger.info("[extract-parse] Bracket search parse failed: %s", e)
+
+    # Salvage: if every structured parse failed and we have a truncated
+    # array (LLM hit token budget mid-string), recover complete top-level
+    # {...} objects from the prefix. Pure prefix-recovery — nothing is
+    # fabricated; items still run through the full validator pipeline.
+    if arr is None:
+        salvaged = _salvage_truncated_array(raw)
+        if salvaged:
+            arr = salvaged
+            parse_method = "salvage_truncated"
+            logger.info("[extract-parse] Salvaged %d item(s) from truncated JSON array", len(salvaged))
 
     if arr is None:
         logger.warning("[extract-parse] Could not parse ANY JSON from LLM output")
