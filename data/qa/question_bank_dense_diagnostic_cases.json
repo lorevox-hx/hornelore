@@ -1,9 +1,9 @@
 {
   "_wo": "WO-EX-DENSE-DIAG-01 — Dense-Truth Diagnostic Pack",
-  "_version": 1,
+  "_version": 2,
   "_generated": "2026-04-18",
   "_notes": [
-    "12 targeted diagnostic cases to localize dense_truth failure modes.",
+    "23 targeted diagnostic cases to localize dense_truth failure modes.",
     "Run SEPARATELY from question_bank_extraction_cases.json — do NOT fold into master suite.",
     "Each case tagged with _diagFamily for Phase 2 harness routing.",
     "",
@@ -28,6 +28,22 @@
     "Family D — coverage-vs-shape (2 cases):",
     "  D01: Pete Zarr's multi-hop life arc (Dodge birth → Washington aluminum factory → Garrison Dam → burned birth certificate) with narrator's-uncles trap (Pete's siblings = Janice's uncles, must not land in siblings[]).",
     "  D02: Janice's schooling progression across four locations with tangent material (Lawrence Welk, dunce-hat classmate, the nun-she-called-a-nut) — must cover all four stops without flattening or fabricating missing grades.",
+    "",
+    "Family E — narrative-catch / SAME-ENTITY ELABORATION (11 cases): LOOP-01 R2 wide.",
+    "  Each case tests one newly-added narrative-catch field:",
+    "    E01 diag_013: personal.nameStory (Janice — name origin)",
+    "    E02 diag_014: personal.notes (Kent — self-description)",
+    "    E03 diag_015: family.children.notes (Kent — son Chris personality)",
+    "    E04 diag_016: family.spouse.notes (Janice — husband Kent personality)",
+    "    E05 diag_017: education.notes (Janice — Sacred Hearts color)",
+    "    E06 diag_018: faith.notes (Kent — family church growing up)",
+    "    E07 diag_019: hobbies.notes (Kent — fishing origin/meaning)",
+    "    E08 diag_020: military.notes (Kent — Army day-to-day)",
+    "    E09 diag_021: health.notes (Janice — family heart history shapes own behavior)",
+    "    E10 diag_022: travel.notes (Janice — Ireland revelation)",
+    "    E11 diag_023: community.notes (Kent — Lions Club / Gene Schauer mentorship)",
+    "  Scoring: each case has ONE core must_extract on its target .notes/nameStory field, plus must_not_write guards on entities the elaboration must NOT spawn.",
+    "  Pass gate: the narrative catch must land in the right slot without contaminating adjacent structured fields.",
     "",
     "Truth source: /sessions/ecstatic-determined-pasteur/mnt/uploads/{narrator}.json templates + Outline of the Shong Family PDF (Charlotte Graichen).",
     "All narrator voice authored to read like live oral history, not template recitation."
@@ -925,6 +941,498 @@
       "style_bucket": "life_history",
       "caseType": "dense_truth",
       "oralHistoryStyle": "life_history"
+    },
+    {
+      "id": "diag_013",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_personal_nameStory",
+      "narratorId": "janice-josephine-horne",
+      "templateSource": "janice-josephine-horne.json",
+      "questionBankAnchor": "How did you come to be named?",
+      "extractPriority": [
+        "personal.nameStory"
+      ],
+      "loriPrompt": "How did you come to be named Janice Josephine?",
+      "narratorReply": "Janice Josephine Zarr. Mom picked Janice — she liked it, plain and sensible, she said. Josephine was after her: Josephine Eugenia Susanna, my mom. She always told me she picked Josephine for me so the name wouldn't die out if anything happened to her. It stuck. I was Jan to most people, Janice on paper.",
+      "truthZones": {
+        "personal.nameStory": {
+          "zone": "must_extract",
+          "expected": "Mother chose Janice for its plainness; middle name Josephine is after her mother Josephine Eugenia Susanna, chosen so the name would not die out",
+          "tier": "core",
+          "note": "Core Family E target: the name-origin story must land in personal.nameStory."
+        },
+        "personal.preferredName": {
+          "zone": "may_extract",
+          "expected": "Jan",
+          "tier": "bonus"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Josephine is narrator's mother. Mentioning her in the name-origin story must not spawn a sibling record."
+        },
+        "parents.firstName": {
+          "zone": "may_extract",
+          "expected": "Josephine",
+          "tier": "bonus",
+          "note": "Acceptable as a secondary extraction; Josephine IS narrator's mother."
+        }
+      },
+      "scoringNotes": "Family E E01: narrator explains name origin during a name-origin question. Elaboration must land in personal.nameStory, not spawn a duplicate parent/sibling record for Josephine.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_014",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_personal_notes",
+      "narratorId": "kent-james-horne",
+      "templateSource": "kent-james-horne.json",
+      "questionBankAnchor": "Tell me a bit about yourself.",
+      "extractPriority": [
+        "personal.notes"
+      ],
+      "loriPrompt": "Tell me a bit about yourself — what kind of person are you?",
+      "narratorReply": "I'm steady. That's what I'd say about myself. I don't rattle easily. I've always been the one people called when something needed fixing — not because I was the best at it but because I'd show up and stick with it till it worked. I've been told I'm stubborn. I don't disagree. I'd rather be stubborn and right than flexible and wrong about the things that matter.",
+      "truthZones": {
+        "personal.notes": {
+          "zone": "must_extract",
+          "expected": "self-describes as steady and reliable; known for showing up and persisting; acknowledged stubbornness",
+          "tier": "core"
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_not_write",
+          "note": "This is self-description, not a hardship or challenge claim."
+        }
+      },
+      "scoringNotes": "Family E E02: narrator self-describes during a personality probe. Content must land in personal.notes, not in hobbies.personalChallenges.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_015",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_children_notes",
+      "narratorId": "kent-james-horne",
+      "templateSource": "kent-james-horne.json",
+      "questionBankAnchor": "Tell me about your children.",
+      "extractPriority": [
+        "family.children.notes"
+      ],
+      "loriPrompt": "What was your son Chris like as a kid?",
+      "narratorReply": "Chris was the careful one. Measured every word before he said it. He'd think through a problem three times before answering. Got that from his mother, I think. He was a good kid — just deliberate.",
+      "truthZones": {
+        "family.children.notes": {
+          "zone": "must_extract",
+          "expected": "careful and deliberate, measured his words, thought problems through multiple times; got it from his mother",
+          "tier": "core"
+        },
+        "family.children.firstName": {
+          "zone": "may_extract",
+          "expected": "Chris",
+          "tier": "bonus"
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_not_write",
+          "note": "Character description of child is not a challenge claim for the narrator."
+        },
+        "parents.occupation": {
+          "zone": "must_not_write",
+          "note": "'Got that from his mother' is not an occupation or life-event claim for the narrator's mother."
+        }
+      },
+      "scoringNotes": "Family E E03: child personality color during a children question. Must land in family.children.notes.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_016",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_spouse_notes",
+      "narratorId": "janice-josephine-horne",
+      "templateSource": "janice-josephine-horne.json",
+      "questionBankAnchor": "Tell me about your husband.",
+      "extractPriority": [
+        "family.spouse.notes"
+      ],
+      "loriPrompt": "Tell me about your husband Kent beyond the facts — what kind of man is he?",
+      "narratorReply": "Kent's quiet. That's the main thing. He listens more than he talks. He'll fix anything that's broken but won't say much about it. People mistake quiet for distant, but Kent's not distant — he's just not noisy about it. I've been married to him for forty-some years and that's still how he is.",
+      "truthZones": {
+        "family.spouse.notes": {
+          "zone": "must_extract",
+          "expected": "Kent is quiet, listens more than speaks, fixes things without comment, not distant despite being taken that way",
+          "tier": "core"
+        },
+        "family.spouse.firstName": {
+          "zone": "may_extract",
+          "expected": "Kent",
+          "tier": "bonus"
+        },
+        "hobbies.hobbies": {
+          "zone": "must_not_write",
+          "note": "'He'll fix anything' is spouse character, not a hobby claim for the narrator or spouse."
+        },
+        "hobbies.personalChallenges": {
+          "zone": "must_not_write",
+          "note": "Spouse personality description is not a narrator challenge."
+        }
+      },
+      "scoringNotes": "Family E E04: spouse personality color during a spouse question. Must land in family.spouse.notes, not in hobbies.* or other slots.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_017",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_education_notes",
+      "narratorId": "janice-josephine-horne",
+      "templateSource": "janice-josephine-horne.json",
+      "questionBankAnchor": "Tell me about your schooling.",
+      "extractPriority": [
+        "education.notes"
+      ],
+      "loriPrompt": "Tell me about Sacred Hearts — the school in Glen Ulin.",
+      "narratorReply": "Sacred Hearts was a Catholic school. Small building, nuns from the order teaching us. Glen Ulin was a little town — maybe six hundred people then — and the school served the whole Catholic part of town. We walked there. Sister Constance was the principal. Latin in the morning, math before lunch, recitation in the afternoon.",
+      "truthZones": {
+        "education.notes": {
+          "zone": "must_extract",
+          "expected": "Sacred Hearts was a Catholic school in Glen Ulin ND, small, staffed by nuns, town of roughly 600; Sister Constance was principal; Latin/math/recitation daily rhythm",
+          "tier": "core"
+        },
+        "education.schooling": {
+          "zone": "may_extract",
+          "expected": "Sacred Hearts, Glen Ulin ND",
+          "tier": "bonus"
+        },
+        "community.organization": {
+          "zone": "must_not_write",
+          "note": "'The order' (nuns' religious order) is not a community organization claim for the narrator."
+        },
+        "parents.occupation": {
+          "zone": "must_not_write",
+          "note": "Sister Constance as principal is not a parent occupation."
+        }
+      },
+      "scoringNotes": "Family E E05: school color detail during a schooling question. Must land in education.notes.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_018",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_faith_notes",
+      "narratorId": "kent-james-horne",
+      "templateSource": "kent-james-horne.json",
+      "questionBankAnchor": "Tell me about your family's faith.",
+      "extractPriority": [
+        "faith.notes"
+      ],
+      "loriPrompt": "What was church like growing up in the Horne family?",
+      "narratorReply": "We were Catholic but not showy about it. Dad would go when Mom insisted, Mom went most Sundays, and us kids were expected to show up. The priest at St. Peter's was Father Bauer — he'd been there forever. Confirmation was a big deal; Lent was a bigger deal in our house than Christmas, in its own way. We gave something up every year. Usually candy. Once I tried giving up complaining and lasted four days.",
+      "truthZones": {
+        "faith.notes": {
+          "zone": "must_extract",
+          "expected": "family Catholic but not showy; mother went most Sundays, father went when insisted; Father Bauer long-tenured at St. Peter's; Confirmation and Lent emphasized; annual tradition of giving something up",
+          "tier": "core"
+        },
+        "faith.denomination": {
+          "zone": "may_extract",
+          "expected": "Catholic",
+          "tier": "bonus"
+        },
+        "parents.occupation": {
+          "zone": "must_not_write",
+          "note": "'Dad would go when Mom insisted' is a faith-attendance anecdote, not an occupation claim."
+        },
+        "community.organization": {
+          "zone": "must_not_write",
+          "note": "St. Peter's parish is faith context, not a community organization for the narrator."
+        }
+      },
+      "scoringNotes": "Family E E06: faith color during a faith question. Must land in faith.notes.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_019",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_hobbies_notes",
+      "narratorId": "kent-james-horne",
+      "templateSource": "kent-james-horne.json",
+      "questionBankAnchor": "Tell me about your hobbies.",
+      "extractPriority": [
+        "hobbies.notes"
+      ],
+      "loriPrompt": "Tell me about your fishing.",
+      "narratorReply": "I've been fishing since I was maybe six. Dad took me out on Lake Sakakawea the first time, with a bamboo pole and some worms we dug up by the creek. Didn't catch anything that day. Came back the next weekend and landed a northern pike almost as long as I was. I've been hooked ever since. It's not about the fish for me — it's the quiet. Being on the water. The world goes away.",
+      "truthZones": {
+        "hobbies.notes": {
+          "zone": "must_extract",
+          "expected": "started fishing around age 6 with father on Lake Sakakawea; first catch was a northern pike nearly as long as he was; values the quiet and solitude over the catch itself",
+          "tier": "core"
+        },
+        "hobbies.hobbies": {
+          "zone": "may_extract",
+          "expected": "fishing",
+          "tier": "bonus"
+        },
+        "parents.occupation": {
+          "zone": "must_not_write",
+          "note": "Father taking narrator fishing is a relational memory, not a parent occupation."
+        },
+        "travel.destination": {
+          "zone": "must_not_write",
+          "note": "Lake Sakakawea is a local fishing spot, not a travel destination."
+        }
+      },
+      "scoringNotes": "Family E E07: hobby color during a hobbies question. Must land in hobbies.notes.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_020",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_military_notes",
+      "narratorId": "kent-james-horne",
+      "templateSource": "kent-james-horne.json",
+      "questionBankAnchor": "Tell me about your military service.",
+      "extractPriority": [
+        "military.notes"
+      ],
+      "loriPrompt": "What was Army life actually like for you day to day?",
+      "narratorReply": "Routine, mostly. You'd think Army means constant action but it's not — it's early mornings, long stretches of boredom, a few hours of real work, and then waiting. The camaraderie was the thing I remember most. Guys from Mississippi and Ohio and Idaho all thrown in a barracks together, you learn things. I still hear from two of them at Christmas. When I mustered out, I thought I'd miss it — I didn't, really, but I was glad to have done it.",
+      "truthZones": {
+        "military.notes": {
+          "zone": "must_extract",
+          "expected": "day-to-day mostly routine and boredom between short bursts of real work; camaraderie was the main takeaway; kept contact with two barracks-mates post-service; glad to have served but did not miss it after mustering out",
+          "tier": "core"
+        },
+        "military.branch": {
+          "zone": "may_extract",
+          "expected": "Army",
+          "tier": "bonus"
+        },
+        "community.organization": {
+          "zone": "must_not_write",
+          "note": "Barracks-mates from various states are not a civic/community organization for the narrator."
+        },
+        "travel.destination": {
+          "zone": "must_not_write",
+          "note": "Mississippi, Ohio, Idaho are states of origin of barracks-mates, not narrator travel destinations."
+        }
+      },
+      "scoringNotes": "Family E E08: service color during a military question. Must land in military.notes.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_021",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_health_notes",
+      "narratorId": "janice-josephine-horne",
+      "templateSource": "janice-josephine-horne.json",
+      "questionBankAnchor": "Tell me about your health.",
+      "extractPriority": [
+        "health.notes"
+      ],
+      "loriPrompt": "Has your family's health shaped how you think about your own?",
+      "narratorReply": "Both my parents had heart trouble in their sixties — Dad had the first heart attack, then Mom a few years later. I've been watchful about it my whole adult life. I eat salt in moderation, I walk every morning, and when my doctor wanted to put me on a statin at fifty-five I said yes right away, no argument. I'd rather take a pill than end up in the ICU like my mother did.",
+      "truthZones": {
+        "health.notes": {
+          "zone": "must_extract",
+          "expected": "watchful about heart disease due to both parents' history; preventive lifestyle (moderate salt, daily walks); accepted statin at 55 without argument; motivated by mother's ICU experience",
+          "tier": "core"
+        },
+        "health.lifestyleChange": {
+          "zone": "may_extract",
+          "expected": "daily walking, salt moderation, accepted statin at 55",
+          "tier": "bonus"
+        },
+        "health.majorCondition": {
+          "zone": "must_not_write",
+          "note": "Heart trouble is narrator's PARENTS' condition, not narrator's. Narrator is asymptomatic and preventive."
+        },
+        "parents.notableLifeEvents": {
+          "zone": "may_extract",
+          "expected": "both parents had heart trouble in their sixties; father had first heart attack, mother followed; mother had ICU experience",
+          "tier": "bonus",
+          "note": "Acceptable secondary extraction — the parent health history can also land here."
+        }
+      },
+      "scoringNotes": "Family E E09: health narrative color during a health question. Must land in health.notes. Must_not_write on health.majorCondition guards against the common failure of misattributing parental conditions to the narrator.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_022",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_travel_notes",
+      "narratorId": "janice-josephine-horne",
+      "templateSource": "janice-josephine-horne.json",
+      "questionBankAnchor": "Tell me about your travels.",
+      "extractPriority": [
+        "travel.notes"
+      ],
+      "loriPrompt": "Tell me about the trip to Ireland.",
+      "narratorReply": "Ireland was a revelation. I'd expected the green, I'd expected the stone walls, I hadn't expected the people. Strangers inviting us in for tea. A farmer in Galway who spent half an hour telling us about sheep when we'd stopped to ask for directions. I came home quieter than I'd left. Something about the pace there — nobody rushed — stayed with me. Kent and I talked about going back for a year after that.",
+      "truthZones": {
+        "travel.notes": {
+          "zone": "must_extract",
+          "expected": "Ireland trip was a revelation about Irish hospitality; Galway farmer gave long impromptu tour about sheep; returned home quieter, changed by the unhurried pace; discussed returning with Kent",
+          "tier": "core"
+        },
+        "travel.destination": {
+          "zone": "may_extract",
+          "expected": "Ireland",
+          "tier": "bonus"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "note": "Kent is already narrator's spouse in the template. Mentioning him as travel companion must not spawn a new spouse record."
+        },
+        "community.organization": {
+          "zone": "must_not_write",
+          "note": "The Galway farmer is a trip encounter, not a community organization."
+        }
+      },
+      "scoringNotes": "Family E E10: travel color during a travel question. Must land in travel.notes. Key must_not_write guard on family.spouse.firstName to catch the case where a spouse-mention during a travel story incorrectly spawns a spouse record.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
+    },
+    {
+      "id": "diag_023",
+      "_diagFamily": "E",
+      "_diagSubclass": "narrative_catch_community_notes",
+      "narratorId": "kent-james-horne",
+      "templateSource": "kent-james-horne.json",
+      "questionBankAnchor": "Tell me about your community involvement.",
+      "extractPriority": [
+        "community.notes"
+      ],
+      "loriPrompt": "Tell me more about the Lions Club.",
+      "narratorReply": "The Lions Club in Bismarck met Tuesdays at the Elks hall — cross-organization lunch, basically. About thirty of us regularly. Gene Schauer ran it like a machine for fifteen years; after Gene stepped down nobody wanted the gavel and we floated for a while. What I got out of it wasn't the projects — though we raised money for the eye clinic — it was Gene. He was twenty years older than me and taught me more about leading without bossing than anyone I've worked with before or since.",
+      "truthZones": {
+        "community.notes": {
+          "zone": "must_extract",
+          "expected": "Lions Club Bismarck met Tuesdays at the Elks hall, ~30 regular members; Gene Schauer ran it for 15 years as a mentor figure; group floundered after Gene stepped down; mentorship from Gene mattered more than the projects, though they did raise money for the eye clinic",
+          "tier": "core"
+        },
+        "community.organization": {
+          "zone": "may_extract",
+          "expected": "Lions Club",
+          "tier": "bonus",
+          "note": "Lions Club is the canonical org. Elks hall is a meeting venue, NOT a membership — must not emit a second community.organization='Elks'."
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "note": "Gene Schauer is a mentor, twenty years older than narrator, NOT a parent. Common failure mode is family-bleed on older mentor figures."
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Gene Schauer is a mentor, not a sibling."
+        }
+      },
+      "scoringNotes": "Family E E11: civic color during a community question. Must land in community.notes. Guards against (a) Elks hall spawning a second community.organization record, (b) Gene Schauer bleeding into parents/siblings slots.",
+      "questionType": "anchor",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "expectedBehavior": "extract_single_note",
+      "currentExtractorExpected": false,
+      "style_bucket": "life_history",
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "phase": "developmental_foundations",
+      "subTopic": "narrative_catch"
     }
   ]
 }

@@ -1,0 +1,121 @@
+Running 12 evaluation cases from question_bank_dense_diagnostic_cases.json
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     12
+  Passed:          1
+  Failed:          11
+  Pass rate:       8.3%
+  Avg score:       0.351
+
+  CONTRACT SUBSET (regression guard):
+
+
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/12 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        34.1%
+    may_extract bonus rate:     9.5%
+    should_ignore leak rate:    40.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                1/12 passed
+
+  By narrator:
+    janice-josephine-horne          0/5 passed  (avg 0.365)
+    kent-james-horne                1/7 passed  (avg 0.340)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/0
+    Known gaps (currentExtractorExpected=false):  1/12
+
+  Failure categories:
+    noise_leakage                   2
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    dense_truth                1/12 passed  (avg 0.351)
+
+  By style bucket:
+    life_history               1/12 passed  (avg 0.351)
+
+  By chunk size:
+    medium                     1/7 passed  (avg 0.496)
+    small                      0/1 passed  (avg 0.500)
+    large                      0/4 passed  (avg 0.058)
+
+  By noise profile:
+    dense_truth                1/12 passed  (avg 0.351)
+
+  ─── LAYER 3: DENSE-TRUTH DIAGNOSTIC METRICS ───
+
+  Diagnostic cases evaluated: 12
+
+  Extractor method distribution:
+    parse_success:                 9
+    parse_failure:                 0
+    rules_fallback:                3
+    other/unknown:                 0
+
+  Diagnostic signal counts:
+    invalid_fieldpath_rejection:   0
+    single_cardinality_conflict:   2
+    duplicate_narrator_identity:   2
+    v2_vs_v3_divergence:           1  (v2✓/v3✗: 0, v3✓/v2✗: 1)
+
+  Per-generation must_extract recall:
+    parent                  12/23  (recall 52.2%)
+    greatGrandparent         0/12  (recall 0.0%)
+    sibling                  2/ 4  (recall 50.0%)
+    grandparent              3/ 3  (recall 100.0%)
+    education                1/ 2  (recall 50.0%)
+
+  By diagnostic family:
+    Family A: 1/4 passed  (25.0%, avg 0.648)
+      name_variant_dedup_parent_father                    0/1  avg 0.592
+      name_variant_dedup_parent_father_gravestone         1/1  avg 1.000
+      name_variant_dedup_parent_mother                    0/1  avg 0.500
+      generation_hop_sibling_vs_children                  0/1  avg 0.500
+    Family B: 0/3 passed  (0.0%, avg 0.461)
+      single_cardinality_surname_evolution                0/1  avg 0.383
+      single_cardinality_multi_middle_name                0/1  avg 0.500
+      single_cardinality_multiple_nicknames               0/1  avg 0.500
+    Family C: 0/3 passed  (0.0%, avg 0.000)
+      canonical_ancestry_medium                           0/1  avg 0.000
+      canonical_ancestry_large                            0/1  avg 0.000
+      canonical_ancestry_xl                               0/1  avg 0.000
+    Family D: 0/2 passed  (0.0%, avg 0.117)
+      coverage_multi_hop_life_arc                         0/1  avg 0.233
+      coverage_multi_location_progression                 0/1  avg 0.000
+
+  Failure-class dominance (worst first):
+    Family B: 0/3  (0.0%)
+    Family C: 0/3  (0.0%)
+    Family D: 0/2  (0.0%)
+    Family A: 1/4  (25.0%)
+
+  ─── FAILED CASES ───
+
+    diag_001    dense_truth      medium  dense_truth   score=0.59  janice-josephine-horne [GAP]
+      Failures:  ['noise_leakage']
+    diag_003    dense_truth      medium  dense_truth   score=0.50  kent-james-horne [GAP]
+    diag_004    dense_truth      medium  dense_truth   score=0.50  janice-josephine-horne [GAP]
+    diag_005    dense_truth      medium  dense_truth   score=0.38  kent-james-horne [GAP]
+    diag_006    dense_truth      medium  dense_truth   score=0.50  janice-josephine-horne [GAP]
+    diag_007    dense_truth      small   dense_truth   score=0.50  kent-james-horne [GAP]
+    diag_008    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+    diag_009    dense_truth      large   dense_truth   score=0.00  kent-james-horne [GAP]
+    diag_010    dense_truth      large   dense_truth   score=0.00  kent-james-horne [GAP]
+    diag_011    dense_truth      large   dense_truth   score=0.23  janice-josephine-horne [GAP]
+      Failures:  ['noise_leakage']
+    diag_012    dense_truth      large   dense_truth   score=0.00  janice-josephine-horne [GAP]
+
+==============================================================================
+Report written to docs/reports/dense_diag_phase2_baseline.json (45,705 bytes)

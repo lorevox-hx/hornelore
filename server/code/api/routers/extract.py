@@ -86,6 +86,9 @@ EXTRACTABLE_FIELDS = {
     "personal.dateOfBirth":    {"label": "Date of birth (YYYY-MM-DD if possible)", "writeMode": "prefill_if_blank"},
     "personal.placeOfBirth":   {"label": "Place of birth (city, state/country)", "writeMode": "prefill_if_blank"},
     "personal.birthOrder":     {"label": "Birth order (first child, second, etc.)", "writeMode": "prefill_if_blank"},
+    # ── LOOP-01 R2 wide — narrative-catch slots ──────────────────────────────
+    "personal.nameStory":      {"label": "Story behind the narrator's name (who picked it, religious/family origin, why)", "writeMode": "suggest_only"},
+    "personal.notes":          {"label": "General personal color (personality, identity context, miscellaneous)", "writeMode": "suggest_only"},
 
     # Early memories (suggest_only)
     "earlyMemories.firstMemory":       {"label": "Earliest childhood memory", "writeMode": "suggest_only"},
@@ -96,6 +99,7 @@ EXTRACTABLE_FIELDS = {
     "education.higherEducation":     {"label": "College or higher education", "writeMode": "suggest_only"},
     "education.earlyCareer":         {"label": "First job or early career", "writeMode": "suggest_only"},
     "education.careerProgression":   {"label": "Career progression and major changes", "writeMode": "suggest_only"},
+    "education.notes":               {"label": "Education / career color (school affiliation, geography, mentors, anecdotes)", "writeMode": "suggest_only", "repeatable": "education"},
 
     # Later years (suggest_only)
     "laterYears.retirement":               {"label": "Retirement experience", "writeMode": "suggest_only"},
@@ -110,6 +114,7 @@ EXTRACTABLE_FIELDS = {
     # Hobbies (suggest_only)
     "hobbies.hobbies":              {"label": "Hobbies and interests", "writeMode": "suggest_only"},
     "hobbies.personalChallenges":   {"label": "Personal challenges or hardships", "writeMode": "suggest_only"},
+    "hobbies.notes":                {"label": "Hobby color / leisure narrative (how it started, meaning, context)", "writeMode": "suggest_only", "repeatable": "hobbies"},
 
     # Additional notes (suggest_only)
     "additionalNotes.unfinishedDreams":           {"label": "Unfinished dreams or goals", "writeMode": "suggest_only"},
@@ -117,10 +122,13 @@ EXTRACTABLE_FIELDS = {
     # Repeatable: parents (candidate_only)
     "parents.relation":          {"label": "Parent relationship (father/mother/step)", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.firstName":         {"label": "Parent first name", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.middleName":        {"label": "Parent middle name(s) — comma-separated if multiple", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.lastName":          {"label": "Parent last name", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.maidenName":        {"label": "Parent maiden name", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.birthDate":         {"label": "Parent birth date", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.birthPlace":        {"label": "Parent birthplace", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.occupation":        {"label": "Parent occupation", "writeMode": "candidate_only", "repeatable": "parents"},
+    "parents.notes":             {"label": "Parent notes (nicknames, personality, color)", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.notableLifeEvents": {"label": "Notable life events of parent", "writeMode": "candidate_only", "repeatable": "parents"},
 
     # Repeatable: siblings (candidate_only)
@@ -138,6 +146,7 @@ EXTRACTABLE_FIELDS = {
     "family.children.placeOfBirth":   {"label": "Child place of birth", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.preferredName":  {"label": "Child nickname", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.birthOrder":     {"label": "Child birth order (oldest, youngest, etc.)", "writeMode": "candidate_only", "repeatable": "children"},
+    "family.children.notes":          {"label": "Child color (personality, nickname origin, anecdote)", "writeMode": "suggest_only", "repeatable": "children"},
 
     # ── WO-EX-SCHEMA-01 — Spouse / partner ────────────────────────────────────
     "family.spouse.firstName":        {"label": "Spouse / partner first name", "writeMode": "prefill_if_blank"},
@@ -145,6 +154,7 @@ EXTRACTABLE_FIELDS = {
     "family.spouse.maidenName":       {"label": "Spouse / partner maiden name", "writeMode": "prefill_if_blank"},
     "family.spouse.dateOfBirth":      {"label": "Spouse / partner DOB", "writeMode": "prefill_if_blank"},
     "family.spouse.placeOfBirth":     {"label": "Spouse / partner place of birth", "writeMode": "prefill_if_blank"},
+    "family.spouse.notes":            {"label": "Spouse / partner personality or color beyond marriage facts", "writeMode": "suggest_only"},
 
     # ── WO-EX-SCHEMA-01 — Marriage event ──────────────────────────────────────
     "family.marriageDate":            {"label": "Date of marriage", "writeMode": "prefill_if_blank"},
@@ -176,18 +186,34 @@ EXTRACTABLE_FIELDS = {
     "grandparents.ancestry":          {"label": "Grandparent ancestry or ethnic background", "writeMode": "candidate_only", "repeatable": "grandparents"},
     "grandparents.memorableStory":    {"label": "Memorable story about grandparent", "writeMode": "suggest_only", "repeatable": "grandparents"},
 
+    # ── LOOP-01 R2 — Great-grandparents (repeatable) ────────────────────────
+    # Added per WO-EX-DENSE-DIAG-01 Phase 2 finding: greatGrandparent recall
+    # was 0% across all length buckets because the schema had no destination
+    # field for great-grandfather/great-grandmother facts. Mirror the
+    # grandparents.* shape (one row per ancestor person).
+    "greatGrandparents.side":         {"label": "Great-grandparent side (maternal/paternal/mother's father, etc.)", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.firstName":    {"label": "Great-grandparent first name", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.lastName":     {"label": "Great-grandparent last name", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.maidenName":   {"label": "Great-grandparent maiden name", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.birthDate":    {"label": "Great-grandparent birth date", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.birthPlace":   {"label": "Great-grandparent birthplace", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.ancestry":     {"label": "Great-grandparent ancestry or ethnic background", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
+    "greatGrandparents.memorableStories": {"label": "Memorable stories about great-grandparent (Civil War, immigration, name origin, etc.)", "writeMode": "suggest_only", "repeatable": "greatGrandparents"},
+
     # ── WO-SCHEMA-02 Priority 2 — Military ──────────────────────────────────
     "military.branch":                {"label": "Military branch (Army, Navy, etc.)", "writeMode": "suggest_only"},
     "military.yearsOfService":        {"label": "Years of military service (e.g., 1965-1968)", "writeMode": "suggest_only"},
     "military.rank":                  {"label": "Highest military rank attained", "writeMode": "suggest_only"},
     "military.deploymentLocation":    {"label": "Military deployment location", "writeMode": "suggest_only", "repeatable": "military"},
     "military.significantEvent":      {"label": "Significant military event or experience", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.notes":                 {"label": "Service color (camaraderie, daily life, transition out, post-service)", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 3 — Faith & Values ────────────────────────────
     "faith.denomination":             {"label": "Faith denomination (Catholic, Lutheran, etc.)", "writeMode": "suggest_only"},
     "faith.role":                     {"label": "Role in faith community (choir, deacon, etc.)", "writeMode": "suggest_only"},
     "faith.significantMoment":        {"label": "Significant faith moment or turning point", "writeMode": "suggest_only"},
     "faith.values":                   {"label": "Core values or beliefs", "writeMode": "suggest_only"},
+    "faith.notes":                    {"label": "Faith / spiritual color (parish, traditions, family religion, lapses, returns)", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 4 — Health ────────────────────────────────────
     "health.majorCondition":          {"label": "Major health condition or diagnosis", "writeMode": "suggest_only", "repeatable": "health"},
@@ -195,12 +221,14 @@ EXTRACTABLE_FIELDS = {
     "health.lifestyleChange":         {"label": "Significant lifestyle change for health", "writeMode": "suggest_only"},
     "health.currentMedications":      {"label": "Current medications or treatments", "writeMode": "suggest_only"},
     "health.cognitiveChange":         {"label": "Self-reported memory or cognitive change", "writeMode": "suggest_only"},
+    "health.notes":                   {"label": "Health narrative color (caregiving, family history, attitudes, adaptations)", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 5 — Community & Civic Life ────────────────────
     "community.organization":         {"label": "Community organization or group", "writeMode": "suggest_only", "repeatable": "community"},
     "community.role":                 {"label": "Role in community organization", "writeMode": "suggest_only", "repeatable": "community"},
     "community.yearsActive":          {"label": "Years active in community role", "writeMode": "suggest_only", "repeatable": "community"},
     "community.significantEvent":     {"label": "Significant community event or contribution", "writeMode": "suggest_only"},
+    "community.notes":                {"label": "Community / civic color (people met, meaningful projects, context)", "writeMode": "suggest_only", "repeatable": "community"},
 
     # ── WO-SCHEMA-02 Priority 6 — Pets ──────────────────────────────────────
     "pets.name":                      {"label": "Pet name", "writeMode": "candidate_only", "repeatable": "pets"},
@@ -211,6 +239,7 @@ EXTRACTABLE_FIELDS = {
     "travel.destination":             {"label": "Travel destination", "writeMode": "suggest_only", "repeatable": "travel"},
     "travel.purpose":                 {"label": "Purpose of travel (vacation, work, family, military)", "writeMode": "suggest_only", "repeatable": "travel"},
     "travel.significantTrip":         {"label": "Most significant or memorable trip", "writeMode": "suggest_only"},
+    "travel.notes":                   {"label": "Travel color (companions, memorable moments, return impressions)", "writeMode": "suggest_only", "repeatable": "travel"},
 }
 
 # ── Phase G: Protected identity fields ─────────────────────────────────────
@@ -422,6 +451,19 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "{\"fieldPath\":\"grandparents.lastName\",\"value\":\"Petrova\",\"confidence\":0.9},"
         "{\"fieldPath\":\"grandparents.birthPlace\",\"value\":\"Russia\",\"confidence\":0.7}]\n"
         "\n"
+        "Example — narrator says: \"My great-grandfather John Michael Shong was born in Lorraine, France in 1829, "
+        "served in the Civil War, and settled at Fall Creek, Wisconsin. The family name was originally Schong and "
+        "the C got dropped after they came to America.\"\n"
+        "Output:\n"
+        "[{\"fieldPath\":\"greatGrandparents.firstName\",\"value\":\"John Michael\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"greatGrandparents.lastName\",\"value\":\"Shong\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"greatGrandparents.birthDate\",\"value\":\"1829\",\"confidence\":0.85},"
+        "{\"fieldPath\":\"greatGrandparents.birthPlace\",\"value\":\"Lorraine, France\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"greatGrandparents.ancestry\",\"value\":\"French (Alsace-Lorraine)\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"greatGrandparents.memorableStories\",\"value\":\"Civil War service, settled Fall Creek Wisconsin, family name originally Schong with C dropped after immigration\",\"confidence\":0.9}]\n"
+        "Great-grandparents (\"my great-grandfather\", \"my great-grandmother\", \"my dad's grandfather\") → greatGrandparents.* — "
+        "NOT grandparents.*, NOT parents.*, NOT personal.*. The narrator's own military, birthplace, and ancestry are SEPARATE from a great-grandparent's.\n"
+        "\n"
         "Example — narrator says: \"I served in the Army from 1965 to 1968. I was stationed in Germany and made Sergeant.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"military.branch\",\"value\":\"Army\",\"confidence\":0.9},"
@@ -537,9 +579,48 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "\n"
         "SUBJECT RULE: Only extract fields for the NARRATOR being interviewed. "
         "When the narrator describes a family member's experience (mother's school, father's work, "
-        "grandfather's military service), use family-scoped fields (grandparents.*, parents.*) — "
+        "grandfather's military service), use family-scoped fields (grandparents.*, parents.*, greatGrandparents.*) — "
         "NOT the narrator's personal fields. Example: narrator says 'My mother went to Mount Marty school' "
-        "→ this is faith/family history, NOT education.schooling for the narrator.\n"
+        "→ this is faith/family history, NOT education.schooling for the narrator. "
+        "A great-grandparent's Civil War service is greatGrandparents.memorableStories — NEVER military.* for the narrator. "
+        "A great-grandparent's birthplace is greatGrandparents.birthPlace — NEVER personal.placeOfBirth.\n"
+        "\n"
+        "SAME-ENTITY ELABORATION RULE (applies to all sections): When the narrator elaborates on an already-mentioned "
+        "person, place, name, school, organization, pet, trip, or event — explaining why the name was chosen, what it meant, "
+        "who named it, where exactly it was, what people called it, its religious/family background — these elaborations "
+        "enrich the EXISTING record. Do NOT emit a second record for the explanation. Fold the elaboration into the matching "
+        "notes/nameStory/story field for that entity, and/or enrich the canonical record's value.\n"
+        "Canonical narrative-catch slots by section:\n"
+        "  • personal.nameStory — naming origin: \"Mom wanted Todd because the priest said Christopher was a saint\"\n"
+        "  • personal.notes — general narrator color (identity, personality, misc)\n"
+        "  • parents.notes / parents.notableLifeEvents — parent color beyond structured fields\n"
+        "  • grandparents.memorableStory — grandparent color\n"
+        "  • greatGrandparents.memorableStories — great-grandparent color\n"
+        "  • siblings.uniqueCharacteristics — sibling color\n"
+        "  • family.children.notes — child personality, nickname origins, anecdotes\n"
+        "  • family.spouse.notes — spouse personality beyond marriage facts (family.marriageNotes is for the marriage event)\n"
+        "  • education.notes — school color: religious affiliation, geography, mentors\n"
+        "  • faith.notes — parish, traditions, family religion, lapses\n"
+        "  • hobbies.notes — hobby origins and meaning\n"
+        "  • military.notes — service color (camaraderie, transition, post-service)\n"
+        "  • health.notes — health narrative color (caregiving, family history, adaptations)\n"
+        "  • travel.notes — trip color (companions, memorable moments)\n"
+        "  • community.notes — civic color (people met, projects)\n"
+        "  • pets.notes — pet personality and story\n"
+        "  • residence.notes — residence color\n"
+        "Examples:\n"
+        "• \"My name is Christopher Todd Horne — Mom wanted the Todd name because the priest said Christopher was a saint.\" "
+        "→ ONE personal.fullName='Christopher Todd Horne' + ONE personal.middleName='Todd' + ONE "
+        "personal.nameStory='mother chose Todd because the priest said Christopher was a saint'. Do NOT emit a saint record, "
+        "a priest record, or duplicate name records.\n"
+        "• \"Grandma Lizzie. Her real name was Elizabeth\" → ONE grandparents.firstName='Elizabeth' (not also 'Lizzie').\n"
+        "• \"Josephine Eugenia Susanna Schaaf — everyone called her Josie\" → ONE parents.firstName='Josephine', "
+        "ONE parents.middleName='Eugenia, Susanna'. Josie folds into parents.notes or parents.preferredName.\n"
+        "• \"Mount Marty — a Catholic school in Yankton, run by the Benedictines\" → ONE education.schooling='Mount Marty' + "
+        "ONE education.notes='Catholic school in Yankton run by the Benedictines'. Do NOT emit a second schooling record.\n"
+        "• \"The family name was originally Schong, possibly Le Shong, became Shong in America\" → ONE "
+        "grandparents.maidenName='Shong' (post-immigration canonical form) + grandparents.memorableStory capturing the spelling history. "
+        "Do NOT emit additional grandparent records for Schong or Le Shong.\n"
         "\n"
         "FIELD ROUTING RULES:\n"
         "- Narrator's volunteer, civic, or professional community involvement → community.* (NOT education.earlyCareer)\n"
@@ -927,12 +1008,25 @@ _ROLE_TO_GROUP = {
     "paternal grandfather": ("grandparents", None),
     "grandson": ("grandchildren", None),
     "granddaughter": ("grandchildren", None),
+    # ── LOOP-01 R2 — Great-grandparents ──────────────────────────────────
+    "great-grandmother": ("greatGrandparents", None),
+    "great-grandfather": ("greatGrandparents", None),
+    "great grandmother": ("greatGrandparents", None),
+    "great grandfather": ("greatGrandparents", None),
+    "great-grandma": ("greatGrandparents", None),
+    "great-grandpa": ("greatGrandparents", None),
+    "maternal great-grandmother": ("greatGrandparents", None),
+    "paternal great-grandmother": ("greatGrandparents", None),
+    "maternal great-grandfather": ("greatGrandparents", None),
+    "paternal great-grandfather": ("greatGrandparents", None),
 }
 
 # Regex to extract a proper name from span text like "older brother Vincent"
+# LOOP-01 R2: added great-grandmother/great-grandfather to cover the deep-ancestry tier.
 _NAME_FROM_PERSON = re.compile(
     r'(?:my\s+)?(?:older|younger|big|little|twin|half[- ]?)?'
-    r'(?:brother|sister|dad|mom|father|mother|son|daughter|wife|husband|'
+    r'(?:great[- ]?grand(?:mother|father|ma|pa)|'
+    r'brother|sister|dad|mom|father|mother|son|daughter|wife|husband|'
     r'grandmother|grandfather|grandma|grandpa|grandson|granddaughter|'
     r'stepfather|stepmother|stepson|stepdaughter|partner|spouse)\s+'
     r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
@@ -1057,6 +1151,19 @@ def _classify_spans_rules(spans: List[dict], answer: str,
                         classified.append({"fieldPath": "grandparents.side", "value": side, "confidence": conf})
                     if name:
                         classified.append({"fieldPath": "grandparents.firstName", "value": name, "confidence": conf})
+                    matched = True
+
+                elif group == "greatGrandparents":
+                    # LOOP-01 R2: mirror grandparents branch one generation up
+                    side = None
+                    if "maternal" in role_key:
+                        side = "maternal"
+                    elif "paternal" in role_key:
+                        side = "paternal"
+                    if side:
+                        classified.append({"fieldPath": "greatGrandparents.side", "value": side, "confidence": conf})
+                    if name:
+                        classified.append({"fieldPath": "greatGrandparents.firstName", "value": name, "confidence": conf})
                     matched = True
 
                 elif group == "grandchildren":
@@ -1656,6 +1763,130 @@ def _validate_item(item: Any) -> Optional[dict]:
             "grandfather.lastName": "grandparents.lastName",
             "origins.grandparentName": "grandparents.firstName",
             "origins.ancestry": "grandparents.ancestry",
+            # LOOP-01 R2: grandparents plural↔singular for memorableStory
+            "grandparents.memorableStories": "grandparents.memorableStory",
+            "family.grandparents.memorableStories": "grandparents.memorableStory",
+            # ── LOOP-01 R2 wide — narrative-catch aliases (all sections) ──────
+            # personal.nameStory / personal.notes
+            "personal.nameOrigin": "personal.nameStory",
+            "personal.namingStory": "personal.nameStory",
+            "personal.nameMeaning": "personal.nameStory",
+            "personal.story": "personal.notes",
+            "personal.color": "personal.notes",
+            "personal.background": "personal.notes",
+            "personal.miscellany": "personal.notes",
+            "identity.notes": "personal.notes",
+            "identity.nameStory": "personal.nameStory",
+            # education.notes
+            "education.color": "education.notes",
+            "education.background": "education.notes",
+            "education.story": "education.notes",
+            "education.affiliation": "education.notes",
+            "education.schoolNotes": "education.notes",
+            "education.schoolColor": "education.notes",
+            "school.notes": "education.notes",
+            "school.color": "education.notes",
+            "school.story": "education.notes",
+            # family.children.notes / family.spouse.notes
+            "family.children.color": "family.children.notes",
+            "family.children.story": "family.children.notes",
+            "family.children.personality": "family.children.notes",
+            "family.children.memorableStory": "family.children.notes",
+            "family.children.memorableStories": "family.children.notes",
+            "family.spouse.color": "family.spouse.notes",
+            "family.spouse.story": "family.spouse.notes",
+            "family.spouse.personality": "family.spouse.notes",
+            "family.spouse.memorableStory": "family.spouse.notes",
+            "spouse.notes": "family.spouse.notes",
+            "spouse.color": "family.spouse.notes",
+            "wife.notes": "family.spouse.notes",
+            "husband.notes": "family.spouse.notes",
+            # faith.notes
+            "faith.color": "faith.notes",
+            "faith.story": "faith.notes",
+            "faith.background": "faith.notes",
+            "faith.tradition": "faith.notes",
+            "faith.parish": "faith.notes",
+            "religion.notes": "faith.notes",
+            "religion.color": "faith.notes",
+            "church.notes": "faith.notes",
+            # hobbies.notes
+            "hobbies.color": "hobbies.notes",
+            "hobbies.story": "hobbies.notes",
+            "hobbies.background": "hobbies.notes",
+            "hobbies.memorableStory": "hobbies.notes",
+            "leisure.notes": "hobbies.notes",
+            # military.notes
+            "military.color": "military.notes",
+            "military.story": "military.notes",
+            "military.memorableStory": "military.notes",
+            "military.serviceNotes": "military.notes",
+            "service.notes": "military.notes",
+            "veteran.notes": "military.notes",
+            # health.notes
+            "health.color": "health.notes",
+            "health.story": "health.notes",
+            "health.background": "health.notes",
+            "health.memorableStory": "health.notes",
+            "medical.notes": "health.notes",
+            "wellness.notes": "health.notes",
+            # travel.notes
+            "travel.color": "travel.notes",
+            "travel.story": "travel.notes",
+            "travel.memorableStory": "travel.notes",
+            "trips.notes": "travel.notes",
+            "trips.color": "travel.notes",
+            "places.notes": "travel.notes",
+            # community.notes
+            "community.color": "community.notes",
+            "community.story": "community.notes",
+            "community.memorableStory": "community.notes",
+            "civic.notes": "community.notes",
+            "civic.color": "community.notes",
+            "volunteer.notes": "community.notes",
+            "volunteer.color": "community.notes",
+            # ── LOOP-01 R2 — Great-grandparents ───────────────────────────
+            # Catch the common LLM-emitted variants and normalize to canonical
+            # greatGrandparents.* paths. Singular .memorableStory → plural .memorableStories.
+            "greatGrandparents.memorableStory": "greatGrandparents.memorableStories",
+            "family.greatGrandparents.firstName": "greatGrandparents.firstName",
+            "family.greatGrandparents.lastName": "greatGrandparents.lastName",
+            "family.greatGrandparents.maidenName": "greatGrandparents.maidenName",
+            "family.greatGrandparents.birthDate": "greatGrandparents.birthDate",
+            "family.greatGrandparents.birthPlace": "greatGrandparents.birthPlace",
+            "family.greatGrandparents.side": "greatGrandparents.side",
+            "family.greatGrandparents.ancestry": "greatGrandparents.ancestry",
+            "family.greatGrandparents.memorableStory": "greatGrandparents.memorableStories",
+            "family.greatGrandparents.memorableStories": "greatGrandparents.memorableStories",
+            "great-grandfather.firstName": "greatGrandparents.firstName",
+            "great-grandfather.lastName": "greatGrandparents.lastName",
+            "great-grandfather.birthDate": "greatGrandparents.birthDate",
+            "great-grandfather.birthPlace": "greatGrandparents.birthPlace",
+            "great-grandfather.ancestry": "greatGrandparents.ancestry",
+            "great-grandmother.firstName": "greatGrandparents.firstName",
+            "great-grandmother.lastName": "greatGrandparents.lastName",
+            "great-grandmother.maidenName": "greatGrandparents.maidenName",
+            "great-grandmother.birthDate": "greatGrandparents.birthDate",
+            "great-grandmother.birthPlace": "greatGrandparents.birthPlace",
+            "great-grandmother.ancestry": "greatGrandparents.ancestry",
+            "greatGrandfather.firstName": "greatGrandparents.firstName",
+            "greatGrandfather.lastName": "greatGrandparents.lastName",
+            "greatGrandfather.birthDate": "greatGrandparents.birthDate",
+            "greatGrandfather.birthPlace": "greatGrandparents.birthPlace",
+            "greatGrandfather.ancestry": "greatGrandparents.ancestry",
+            "greatGrandmother.firstName": "greatGrandparents.firstName",
+            "greatGrandmother.lastName": "greatGrandparents.lastName",
+            "greatGrandmother.maidenName": "greatGrandparents.maidenName",
+            "greatGrandmother.birthDate": "greatGrandparents.birthDate",
+            "greatGrandmother.birthPlace": "greatGrandparents.birthPlace",
+            "greatGrandmother.ancestry": "greatGrandparents.ancestry",
+            "ancestors.firstName": "greatGrandparents.firstName",
+            "ancestors.lastName": "greatGrandparents.lastName",
+            "ancestors.birthDate": "greatGrandparents.birthDate",
+            "ancestors.birthPlace": "greatGrandparents.birthPlace",
+            "ancestors.ancestry": "greatGrandparents.ancestry",
+            "ancestors.memorableStory": "greatGrandparents.memorableStories",
+            "ancestors.memorableStories": "greatGrandparents.memorableStories",
             # Military — LLM may use service.* or veteran.*
             "service.branch": "military.branch",
             "service.years": "military.yearsOfService",
