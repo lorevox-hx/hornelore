@@ -435,6 +435,11 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
             "answer": narrator_reply,
             "current_section": case.get("subTopic"),
             "current_target_path": extract_prio[0] if extract_prio else None,
+            # WO-EX-TURNSCOPE-01 r4h follow-up: pass the FULL extractPriority
+            # list so the turn-scope filter unions branch roots across all
+            # declared targets. Without this, compound-extract cases like
+            # case_060 (spouse + children) lose the non-[0] branches.
+            "current_target_paths": list(extract_prio) if extract_prio else None,
             "current_phase": _phase_to_spine_phase(case.get("phase", "")),
         }
 

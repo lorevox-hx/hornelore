@@ -39,6 +39,12 @@ class ExtractFieldsRequest(BaseModel):
     answer: str
     current_section: Optional[str] = None
     current_target_path: Optional[str] = None
+    # WO-EX-TURNSCOPE-01 follow-up (r4h): full extractPriority list, when the
+    # turn legitimately targets multiple branches (e.g. spouse + children in one
+    # compound-extract turn). When present, the turn-scope filter unions branch
+    # roots from every entry so compound targets aren't collapsed to just [0].
+    # Falls back to [current_target_path] when unset.
+    current_target_paths: Optional[List[str]] = None
     profile_context: Optional[Dict[str, Any]] = None
     # WO-LIFE-SPINE-04: optional phase hint from the life spine. When
     # provided, the birth-context era guard uses this for decisions
@@ -2900,31 +2906,64 @@ def _fieldpath_branch_root(field_path: str) -> Optional[str]:
 def _apply_turn_scope_filter(
     items: List[dict],
     current_target_path: Optional[str],
+    current_target_paths: Optional[List[str]] = None,
 ) -> List[dict]:
     """WO-EX-TURNSCOPE-01 — entity-role binding enforcement on follow-up turns.
 
-    When ``current_target_path`` resolves to a family-relations branch root,
-    drop any item whose fieldPath resolves to a DIFFERENT family-relations
-    branch root. Items outside the cluster pass through unchanged.
+    Builds an allowed-branch set from ALL paths the caller declares as turn
+    targets (``current_target_paths`` if provided, else the single
+    ``current_target_path``). Drops any item whose fieldPath resolves to a
+    family-relations branch root that is NOT in the allowed set. Items
+    outside the family-relations cluster pass through unchanged.
 
-    No-op when ``current_target_path`` is None or outside the cluster.
+    r4h fix: r4g regressed case_060/062 (compound-extract spouse+children) by
+    seeing only extractPriority[0]=family.spouse.firstName and dropping every
+    family.children.* write. The union-of-roots design keeps those legitimate
+    co-target branches intact while still dropping cross-branch bleed on
+    single-target follow-up turns like case_094.
+
+    No-op when no declared target resolves into the family-relations cluster.
     """
     if not items:
         return items
-    target_root = _resolve_turn_scope_branch(current_target_path)
-    if target_root is None:
+
+    # Build the candidate-path set: explicit list wins, else fall back to the
+    # legacy single path. Deduplicate while preserving order.
+    seen: set = set()
+    candidates: List[str] = []
+    if current_target_paths:
+        for p in current_target_paths:
+            if p and p not in seen:
+                candidates.append(p)
+                seen.add(p)
+    if current_target_path and current_target_path not in seen:
+        candidates.append(current_target_path)
+        seen.add(current_target_path)
+
+    if not candidates:
         return items
 
+    allowed_roots: set = set()
+    for p in candidates:
+        root = _resolve_turn_scope_branch(p)
+        if root is not None:
+            allowed_roots.add(root)
+
+    if not allowed_roots:
+        # No declared target lives in the family-relations cluster → no-op.
+        return items
+
+    allowed_roots_log = ",".join(sorted(allowed_roots))
     out = []
     for it in items:
         fp = str(it.get("fieldPath", ""))
         item_root = _fieldpath_branch_root(fp)
-        if item_root is not None and item_root != target_root:
+        if item_root is not None and item_root not in allowed_roots:
             try:
                 logger.info(
                     "[extract][turnscope] DROP fieldPath=%s value=%r "
-                    "target_branch=%s item_branch=%s reason=cross_branch_bleed",
-                    fp, str(it.get("value", ""))[:80], target_root, item_root,
+                    "allowed_branches=%s item_branch=%s reason=cross_branch_bleed",
+                    fp, str(it.get("value", ""))[:80], allowed_roots_log, item_root,
                 )
             except Exception:
                 pass
@@ -4349,7 +4388,11 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     # first) and BEFORE birth-context / negation guard so downstream guards
     # see a turn-scope-clean item list.
     if llm_items:
-        llm_items = _apply_turn_scope_filter(llm_items, req.current_target_path)
+        llm_items = _apply_turn_scope_filter(
+            llm_items,
+            req.current_target_path,
+            req.current_target_paths,
+        )
 
     # WO-EX-01C + WO-EX-01D: four-layer LLM output guard.
     #   1. birth-context filter    — section-gated + layered subject guard
@@ -4472,7 +4515,11 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         # path too for symmetry. Rules extractions are narrower than LLM but
         # this is an idempotent no-op when the target is outside the family-
         # relations cluster, and cheap when inside.
-        rules_items = _apply_turn_scope_filter(rules_items, req.current_target_path)
+        rules_items = _apply_turn_scope_filter(
+            rules_items,
+            req.current_target_path,
+            req.current_target_paths,
+        )
         rules_items = _apply_birth_context_filter(
             rules_items,
             req.current_section,

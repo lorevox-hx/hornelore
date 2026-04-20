@@ -235,3 +235,100 @@ When this WO ships, `guard_false_positive` drops to 0 because case_094 was its o
 - Spec: `WO-EX-TURNSCOPE-01_Spec.md` (repo root)
 - Code: `server/code/api/routers/extract.py` (lines 2836–2935, 4342–4352, 4470–4475)
 - This report: `docs/reports/WO-EX-TURNSCOPE-01_REPORT.md`
+
+---
+
+## r4g Confirmation Eval — Results (2026-04-19)
+
+| Metric | r4f | r4g | Δ |
+|---|---|---|---|
+| Pass | 54/104 | 53/104 | −1 |
+| v3 subset | 34/62 | 32/62 | −2 |
+| follow_up | 6/8 | 7/8 | +1 |
+| must_not_write violations | 0.6% (1) | 0.0% (0) | ✓ |
+| guard_false_positive | 1 | 0 | ✓ |
+| case_094 | fail 0.60 | **pass 0.80** | ✓ target |
+
+**Primary target hit. Two false-positive regressions discovered.**
+
+### case_094 — target win
+
+raw_items 7 → 3. All four `parents.*` writes dropped exactly as designed
+(Ervin / Leila / Horne / Richardton Hospital). `siblings.*` items survive
+(same-branch; filter doesn't touch them by design). `must_not_write` violation
+cleared, `guard_false_positive` bucket tag gone.
+
+### case_060 / case_062 — filter over-narrowing
+
+| Case | r4f raw | r4g raw | Outcome |
+|---|---|---|---|
+| case_060 (Sarah + Michael/Emily/Jake) | 11 | 2 | pass 1.00 → fail 0.67 |
+| case_062 (Dorothy + Chris/Vince/Jason/Christine) | 10 | 1 | pass 1.00 → fail 0.33 |
+
+Both are compound-extract turns whose
+`extractPriority = [family.spouse.firstName, family.children.firstName]`.
+The eval harness passed `extractPriority[0]` as `current_target_path`, so the
+filter resolved the single allowed branch as `family.spouse` and dropped every
+legitimate `family.children.*` write as cross-branch bleed.
+
+The bug is in the single-path precondition: a compound turn can have multiple
+legitimate target branches and the v1 filter had no signal for that.
+
+## r4h Follow-Up Fix (2026-04-19)
+
+**Change set:**
+
+| File | Change |
+|---|---|
+| `server/code/api/routers/extract.py` | `ExtractFieldsRequest`: added `current_target_paths: Optional[List[str]] = None`. `_apply_turn_scope_filter`: new third arg; unions branch roots across all declared targets into an `allowed_roots` set; drops items whose branch root is in the family-relations cluster but NOT in the allowed set. Falls back to `[current_target_path]` when the list is unset. Log tag changed from `target_branch=X` to `allowed_branches=X,Y` for multi-branch turns. |
+| `scripts/run_question_bank_extraction_eval.py` | Payload now also sends `current_target_paths: list(extract_prio)` (full priority list). Backwards compat preserved via existing `current_target_path: extract_prio[0]`. |
+
+**Unit tests (11/11 passed):**
+
+- case_094: single `siblings.firstName` target → 4 `parents.*` writes dropped, 3 siblings kept. (target behavior preserved)
+- case_060: compound target → all 9 items kept (regression fixed).
+- case_062: compound target → all 6 items kept (regression fixed).
+- Compound target + hallucinated `parents.firstName` bleed → bleed still dropped, legitimate writes kept.
+- Outside-cluster target (`personal.placeOfBirth`) → no-op.
+- Both targets None → no-op.
+- Legacy single-path-only call (paths=None) → still filters correctly.
+- case_088 (`pets.notes` target) → no-op.
+- Dedup across candidates → safe.
+- Longest-prefix match: `greatGrandparents.*` target correctly drops `grandparents.*` bleed.
+
+**Syntax check:** both files pass `ast.parse`.
+
+## r4h Confirmation Eval (pending)
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+./scripts/run_question_bank_extraction_eval.py --mode live \
+  --api http://localhost:8000 \
+  --output docs/reports/master_loop01_r4h.json \
+  2>&1 | tee docs/reports/master_loop01_r4h.console.txt
+grep "\[extract\]\[turnscope\]" .runtime/logs/api.log | tail -40
+```
+
+**Expected r4h outcome:**
+
+| Metric | r4g | r4h target |
+|---|---|---|
+| Pass | 53/104 | ≥ 55/104 |
+| v3 subset | 32/62 | ≥ 34/62 |
+| follow_up | 7/8 | 7/8 |
+| must_not_write | 0.0% | 0.0% |
+| case_060 | fail 0.67 | **pass 1.00** |
+| case_062 | fail 0.33 | **pass 1.00** |
+| case_094 | pass 0.80 | pass ≥ 0.80 |
+
+**Log pattern to expect:**
+
+- case_094: `allowed_branches=siblings` → 4 `parents.*` DROP lines.
+- case_060/062: `allowed_branches=family.children,family.spouse` → no DROPs.
+- case_093 (spouse_detail, single-branch priority): `allowed_branches=family.spouse` → any stray `family.children.*` still drops.
+
+**Branch plan after r4h:**
+
+- Clean pass (≥55/104, case_094+060+062 all green) → mark #72 done, run wobble r4h2 (#78), then #67.
+- Partial (one of 060/062 still fails) → grep turnscope log for that case_id; if filter misfire, restrict to `len(allowed_roots) == 1` (single-branch follow-ups only) as the conservative fallback.
+- Regression (anything new below r4f-pass set besides known open cases) → revert both filter call sites; keep the filter function in place for future R6.
