@@ -75,17 +75,21 @@ After every eval that follows a code change, report this exact block before decl
 | Extract router | `/mnt/c/Users/chris/hornelore/server/code/api/routers/extract.py` |
 | WO specs | `/mnt/c/Users/chris/hornelore/WO-*_Spec.md` (repo root) |
 | WO reports | `/mnt/c/Users/chris/hornelore/docs/reports/WO-*_REPORT.md` |
+| SECTION-EFFECT Phase 1 output | `/mnt/c/Users/chris/hornelore/docs/reports/WO-EX-SECTION-EFFECT-01_ADJUDICATION.md` (pending) |
+| SECTION-EFFECT Phase 3 output | `/mnt/c/Users/chris/hornelore/docs/reports/WO-EX-SECTION-EFFECT-01_CAUSAL.md` (pending) |
 
 All of these are readable from the agent workspace mount via the session prefix. After an eval runs, read the console + JSON directly — do not ask Chris to paste them.
 
 ## Current phase
 
-**LOOP-01 R5.5 Phase 1 — SPANTAG two-pass extraction.** R4 is closed. r4i is locked as the active post-R4 baseline (see `docs/reports/POST-R4-BASELINE-LOCK.md`). Next eval tag is **r5a**, not r4k.
+**LOOP-01 R5.5 Phase 1 — SPANTAG spec sharpened, implementation paused behind SECTION-EFFECT-01.** R4 is closed. r4i is locked as the active post-R4 baseline (see `docs/reports/POST-R4-BASELINE-LOCK.md`). Next eval tag is **r5a**, not r4k.
+
+Three-agent convergence on 2026-04-20 (Chris / Claude / ChatGPT) identified **section-conditioned schema coercion** as a distinct failure mode on the stubborn frontier (case_008, 009, 082). Today's single-pass extractor is forced to interpret + bind + commit-to-schema simultaneously while under pressure from `current_section` / `current_target_path`. The section context leaks into the projection because there's no way to tag evidence without committing to a field. SPANTAG's Pass 2 needs adjudicated truth labels and a payload extension (era/pass/mode) before its eval can be read cleanly. Hence #63 was promoted from cleanup to prerequisite.
 
 Active sequence:
 
-1. **#89 / WO-EX-SPANTAG-01** — two-pass extraction: Pass 1 evidence-only NL tag inventory, Pass 2 bind/project. First target pack = the 15 stubborn cases. Truncation is a first-class metric. Flag `HORNELORE_SPANTAG=1`, off by default. See `WO-EX-SPANTAG-01_Spec.md`.
-2. **#63** — eval-harness should_pass drift audit, retag `guard_false_positive` → `scope_escape` now that #72 is closed. Not a blocker for SPANTAG start, but a prerequisite for calling SPANTAG results "clean".
+1. **#63 / WO-EX-SECTION-EFFECT-01** (prerequisite, BLOCKS SPANTAG). Phase 1: adjudicate stubborn-15 expected-truth labels into subject_only / section_only / dual_answer. Phase 2: thread `currentEra` / `currentPass` / `currentMode` from interview runtime into extraction payload + logs (today only `current_section` + `current_target_path` reach the backend). Phase 3: 2-3-case causal matrix varying stage context. Scorer policy gains `alt_defensible_paths`. #72-leftover retag `guard_false_positive` → `scope_escape` bundled. See `WO-EX-SECTION-EFFECT-01_Spec.md`.
+2. **#90 / WO-EX-SPANTAG-01** — two-pass extraction: Pass 1 evidence-only NL tag inventory, Pass 2 bind/project with **section / target_path / era / pass / mode as explicit controlled priors** (not implicit forces). Subject-beats-section rule when Pass 1 binds a non-narrator relation_cue. Dual-path emission as first-class Pass 2 output. First target pack = the 15 stubborn cases, scored against SECTION-EFFECT-01-adjudicated labels. Flag `HORNELORE_SPANTAG=1`, off by default. **Implementation unblocks after SECTION-EFFECT-01 Phase 1 signoff.** See `WO-EX-SPANTAG-01_Spec.md`.
 3. **Post-SPANTAG gate** — if SPANTAG ships default-on, R5.5 Pillar 2 (entity-role binding) opens. If it doesn't, iterate SPANTAG or revisit.
 
 Each WO above must report the standard audit block (extended with `truncation_rate`) before being called done.
@@ -115,3 +119,4 @@ Each WO above must report the standard audit block (extended with `truncation_ra
 - 2026-04-19: Created. Captures WSL path correction and eval-command template.
 - 2026-04-19 (late): r4h confirms WO-EX-TURNSCOPE-01 closes. Eval script now auto-writes `.console.txt` (shell `| tee` dropped after r4h produced an empty file). Standard post-eval audit block codified. #67 staged but not yet landed.
 - 2026-04-19 (later): #67 landed (r4i: 55/104, case_011 + case_012 flipped green). #68 disposition memo written and deferred to R5 Pillar 2. #81 PROMPTSHRINK patch landed behind `HORNELORE_PROMPTSHRINK=1` flag — topic-scoped dynamic few-shot selection (3–8 per call vs 33 static), legacy path byte-stable when flag off. Stubborn-pack diagnostic wrapper added (`scripts/run_stubborn_pack_eval.py`) — 15-case pack, 3 runs, VRAM-GUARD truncation attribution, stable_pass/stable_fail/unstable buckets. Next eval = `r4j` = master + stubborn-pack with PROMPTSHRINK on.
+- 2026-04-20: r4j measured (54/104, one regression `case_012`, 15/15 stubborn truncation). **PROMPTSHRINK closed as "measured, not adopted"**; flag stays off by default, in-tree for possible SPANTAG Pass 2 pairing. **r4i locked** as active baseline (`POST-R4-BASELINE-LOCK.md`). **#82 post-R4 memo** written. **WO-EX-SPANTAG-01 rewritten** from single-pass stub to two-pass (evidence + bind). Then three-agent convergence (Chris / Claude / ChatGPT) flagged **section-conditioned schema coercion** as a distinct failure mechanism on case_008 / 009 / 082 — SPANTAG spec sharpened with explicit controlled-prior inputs + subject-beats-section rule + first-class dual-path emission. **#63 promoted** from cleanup to prerequisite WO (WO-EX-SECTION-EFFECT-01): adjudicate stubborn-15 labels, extend extraction payload with `currentEra`/`currentPass`/`currentMode`, run causal matrix. **SPANTAG implementation paused** pending SECTION-EFFECT-01 Phase 1 signoff.

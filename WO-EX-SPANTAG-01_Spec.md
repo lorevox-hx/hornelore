@@ -2,8 +2,8 @@
 
 **Author:** Claude (LOOP-01 R5.5 Phase 1 setup, post-r4i baseline lock)
 **Date:** 2026-04-20
-**Status:** ACTIVE — next execution spec. Pre-reqs satisfied: r4i locked, r4j disposition written, #82 memo written. Starts as soon as CLAUDE.md changelog entry lands.
-**Depends on:** r4i baseline (locked). `HORNELORE_PROMPTSHRINK=1` available in-tree (flag off by default; may be re-enabled if Pass 1 input budget needs relief).
+**Status:** SPEC ACTIVE, IMPLEMENTATION PAUSED — pending WO-EX-SECTION-EFFECT-01 (#63) first-pass signoff. Three-agent convergence (Chris / Claude / ChatGPT, 2026-04-20) escalated #63 from cleanup to prerequisite: without an adjudicated answer on whether the stubborn-15 expected labels treat section-driven paths as valid alternatives to subject-driven paths, SPANTAG Pass 2 success can't be read cleanly.
+**Depends on:** (1) r4i baseline (locked). (2) **WO-EX-SECTION-EFFECT-01 first pass** — adjudicated truth labels for 008 / 009 / 082 at minimum, plus causal-chain instrumentation (`currentEra`, `currentPass`, `currentMode` propagated into extraction payload + log) so subsequent SPANTAG evals can be read against stage context. (3) `HORNELORE_PROMPTSHRINK=1` available in-tree (flag off by default; may be re-enabled if Pass 1 input budget needs relief).
 **Blocks:** Pillar 2 (entity-role binding) and R5.5 citation grounding UI — both consume the `sourceSpan` primitive this WO produces.
 
 This spec supersedes the original single-pass fieldPath-as-class stub. Rationale for the rewrite: the single-pass design conflated *evidence spotting* with *schema binding* and made the LLM's job harder, not easier. The two-pass split below lets Pass 1 be something a zero-shot 8B can actually do, and pushes schema knowledge into Pass 2 where it belongs.
@@ -12,11 +12,12 @@ This spec supersedes the original single-pass fieldPath-as-class stub. Rationale
 
 ## Problem framing
 
-Three compounding problems on the stubborn frontier:
+Four compounding problems on the stubborn frontier:
 
 1. **No provenance.** Every extracted item today is `{fieldPath, value, confidence}` with no structural link to source text. We cannot cheaply answer "which sentence did `family.spouse.dateOfBirth=1939` come from?" and therefore cannot cheaply distinguish "hallucinated from nothing" from "real evidence, wrong routing". The `case_012` r4j regression is exactly this failure mode.
 2. **Shape, not value, is the dominant error.** On the stubborn-15, rails cannot repair field_path_mismatch and schema_gap after the fact because the LLM emitted the wrong shape (wrong field path, or missing field entirely). Rails edit values; they do not restructure emissions.
 3. **Truncation-dominated frontier.** r4j stability: 15 / 15 stubborn cases truncated in at least one run. Any single-pass contract that re-emits the narrator reply inline (Kiwi-LLaMA style full-echo) would *worsen* truncation. We need a contract whose output budget stays small even on long inputs.
+4. **Section-conditioned schema coercion.** Today's single-pass contract forces the model to interpret the narrator reply, bind entities to roles, and commit to a schema path *simultaneously*, while under pressure from `current_section` and `current_target_path`. The section context leaks into the projection because the model has no way to tag evidence without committing to a field. Diagnostic evidence: case_008 (narrator in `earlyMemories` section, extractor writes `earlyMemories.significantEvent`, expected `parents.notableLifeEvents`); case_009 (narrator in `education` section, extractor writes `education.careerProgression` / `education.training`, expected `education.earlyCareer`); case_082 (same wrong path family across 3 stable runs — not random drift, stable coercion). SPANTAG breaks the coercion by splitting schema-blind evidence capture (Pass 1) from schema-aware projection (Pass 2) with the section context as an *explicit controlled prior* rather than an implicit force.
 
 ## Design in one paragraph
 
@@ -61,13 +62,35 @@ Pass 1 output shape (illustrative):
 
 ## Pass 2 — bind and project
 
-Inputs to Pass 2:
+Inputs to Pass 2 — ordered and tagged by role (evidence / controlled prior / output space / identity):
 
-- Pass 1 tag array.
-- The narrator reply text (for Pass 2 to quote/verify; not required for the model to re-emit).
-- `extract_priority` list from the active sub_topic (e.g. `["family.spouse", "family.marriageDate"]`).
-- The relevant slice of the canonical catalog (not the whole 108-field list — scoped per sub_topic via existing projection map).
-- Narrator identity (for subject filtering).
+1. **Evidence (primary):** the narrator reply text (for Pass 2 to quote/verify; not required for the model to re-emit).
+2. **Evidence (primary):** Pass 1 tag array.
+3. **Controlled prior:** `current_section` and `current_target_path` from the life-spine composer. **These are passed explicitly as priors used for *ranking* candidate paths, not for *forcing* them.** This framing is the direct response to case_008 / 009 / 082's section-conditioned coercion: today the section context leaks in silently; SPANTAG makes it an explicit input Pass 2 can weight.
+4. **Controlled prior (extended, post-SECTION-EFFECT-01):** `currentEra`, `currentPass`, `currentMode` from the interview runtime. Today's extractor payload does not carry these — they shape question selection upstream but the backend only sees the downstream `current_section` + `current_target_path`. Once WO-EX-SECTION-EFFECT-01 lands the payload extension, Pass 2 consumes the full life-map stage.
+5. **Output space:** the relevant slice of the canonical catalog scoped per sub_topic via the existing projection map (not the whole 108-field list).
+6. **Identity:** narrator identity (for subject filtering).
+7. **`extract_priority`** list from the active sub_topic (e.g. `["family.spouse", "family.marriageDate"]`) — treated as a soft prior, not a hard restriction.
+
+### Pass 2 path-binding rule (subject beats section)
+
+When Pass 1's tags bind a **non-narrator subject** via a clean `relation_cue` (e.g. `"my mom's brother James"` → `person`=James, `relation_cue`=brother-of-mother, narrator ≠ James), Pass 2's default decision rule is:
+
+> Subject-driven paths beat section-driven paths. The section-driven path is emitted as a *secondary candidate* with lower confidence, not suppressed.
+
+Concretely, for case_008:
+- Pass 1 tags `{person: "James", relation_cue: "my mom's brother"}` and `{event_phrase: "born in a car"}`.
+- Pass 2 resolves `James = parents.uncle` via subject binding.
+- Pass 2 primary write: `parents.notableLifeEvents` with full confidence and `sourceTagIds` set.
+- Pass 2 secondary write: `earlyMemories.significantEvent` with lowered confidence, tagged `alt_path_section_driven: true`.
+
+When Pass 1 finds no clean non-narrator subject (e.g. narrator answering about themselves inside the `earlyMemories` section), section-driven is correct and is the single primary write.
+
+v1 is an ordered preference rule, not a learned weight. A learned weight is v2 if v1 moves the stubborn pack.
+
+### Dual-path emission as first-class output
+
+When subject-prior and section-prior disagree and both are defensible, Pass 2 emits **both** candidates in the `writes` array, with an explicit `priority` field (`primary` / `secondary`) and a `disagreement_reason` field. The rails downstream can treat secondary writes as shadow-archive proposals rather than promoted writes. The eval scorer respects primary writes for pass/fail and surfaces secondary writes for human-review audit.
 
 Pass 2 output shape:
 
@@ -76,12 +99,29 @@ Pass 2 output shape:
   "writes": [
     {
       "fieldPath": "family.spouse.firstName", "value": "Janice", "confidence": 0.95,
+      "priority": "primary",
       "sourceSpan": {"start": 10, "end": 16}, "sourceTagIds": ["t0"]
     },
     {
       "fieldPath": "family.marriageDate", "value": "1959-10-10", "confidence": 0.9,
+      "priority": "primary",
       "sourceSpan": {"start": 36, "end": 54}, "sourceTagIds": ["t1", "t2"],
       "normalization": {"raw": "October 10th, 1959", "normalized": "1959-10-10"}
+    }
+  ],
+  "dual_path_example_case_008": [
+    {
+      "fieldPath": "parents.notableLifeEvents", "value": "James was born in a car during a blizzard",
+      "confidence": 0.85, "priority": "primary",
+      "sourceTagIds": ["t_person_james", "t_relation_moms_brother", "t_event_born_in_car"],
+      "disagreement_reason": "subject_beats_section"
+    },
+    {
+      "fieldPath": "earlyMemories.significantEvent", "value": "James was born in a car during a blizzard",
+      "confidence": 0.55, "priority": "secondary",
+      "sourceTagIds": ["t_event_born_in_car"],
+      "alt_path_section_driven": true,
+      "disagreement_reason": "section_current_target_path_match"
     }
   ],
   "no_write": [
@@ -93,7 +133,10 @@ Pass 2 output shape:
 }
 ```
 
-`no_write` with explicit `reason` is the Pass 2 answer to the `case_012` r4j regression — the model has to *explicitly refuse* to turn "she was twenty" into `spouse.dateOfBirth=1939`, and that refusal is recorded.
+Two refusal cases demonstrated:
+
+- `no_write` with explicit `reason` is the Pass 2 answer to the `case_012` r4j regression — the model has to *explicitly refuse* to turn "she was twenty" into `spouse.dateOfBirth=1939`, and that refusal is recorded.
+- Dual-path entries are the Pass 2 answer to the case_008 coercion — the model commits to subject-driven primary, records section-driven as secondary, and leaves the ranking visible. The rails and scorer can treat secondary as a shadow-archive proposal without blocking the primary write.
 
 ## Scope (in / out)
 
@@ -121,8 +164,9 @@ Pass 2 output shape:
 1. **Pass 1 parse success ≥ 95%** on the 15-case stubborn frontier and ≥ 95% on the 20-case control slice. Measured over 3 runs per case.
 2. **Pass 2 source-offset coverage ≥ 80%** — fraction of emitted writes whose `sourceSpan` is non-empty and whose substring at `[start, end]` appears in the narrator reply literally (or under a normalization known to Pass 2, tracked via the `normalization.raw` field).
 3. **No regression vs r4i baseline on contract subsets.** v3 ≥ 34/62, v2 ≥ 31/62, must_not_write = 0.0%. Flag ships on default only if this holds.
-4. **Stubborn-15 movement, truncation-aware.** First-pack success criterion: **either** ≥ 3 of the 15 stubborn cases flip stable_pass across 3 runs, **or** stubborn-pack truncation rate drops from 15/15 to ≤ 8/15 (i.e. Pass 1+Pass 2 output budget is materially smaller than legacy single-pass on the same inputs).
+4. **Stubborn-15 movement, truncation-aware and adjudication-aware.** First-pack success criterion: **either** ≥ 3 of the 15 stubborn cases flip stable_pass across 3 runs (measured against **adjudicated** truth labels from SECTION-EFFECT-01, not pre-adjudication labels), **or** stubborn-pack truncation rate drops from 15/15 to ≤ 8/15 (i.e. Pass 1+Pass 2 output budget is materially smaller than legacy single-pass on the same inputs).
 5. **Truncation as a required metric.** Every eval run under SPANTAG must report `truncation_rate` (fraction of cases where VRAM-GUARD fired on at least one pass) alongside pass rate. Truncation is first-class now.
+6. **Dual-path primary-pick rate.** For cases flagged by SECTION-EFFECT-01 as "dual-answer defensible", measure whether SPANTAG's Pass 2 picks the subject-driven path as primary when Pass 1 has a clean non-narrator relation_cue. Target ≥ 80% on such cases — this is the mechanism-level check that the subject-beats-section rule is actually firing.
 
 ## Target pack (first eval)
 
@@ -152,6 +196,8 @@ Captured in `docs/reports/WO-EX-SPANTAG-01_REPORT.md` after the first eval run (
 6. Per-bucket deltas: `contract`, `extract_multiple`, `extract_compound`, `dense_truth`, `large chunk`.
 7. Stubborn-pack stability: stable_pass / stable_fail / unstable counts; **truncation rate as first-class metric**.
 8. Latency: mean + p95 per turn, before/after. Separately Pass 1 and Pass 2.
+9. **Dual-path primary-pick rate** on SECTION-EFFECT-01-flagged dual-answer cases.
+10. **Section-effect causal chain** (requires SECTION-EFFECT-01's payload extension): for each stubborn case, record (`currentEra`, `currentPass`, `currentMode`, `current_section`, `current_target_path`) alongside the emitted writes. Lets us answer "did varying stage change the outcome, or only varying target path?" when we later vary inputs.
 
 ## Implementation plan (commits)
 
@@ -201,3 +247,4 @@ KORIE-style staged pipelines (detection → OCR → IE) are a real option for Ho
 
 - 2026-04-19: Initial single-pass stub (`<span class='fieldPath'>value</span>`). Deferred behind r4i + #81.
 - 2026-04-20: **Full rewrite to two-pass (evidence + bind).** Single-pass design superseded. Written against r4i baseline lock and r4j truncation-dominated finding. First target pack = stubborn 15. Truncation promoted to first-class metric. Appendices A (Hermes sequencing) and B (KORIE conditional lane) added.
+- 2026-04-20 (later): Three-agent convergence (Chris / Claude / ChatGPT) on **section-conditioned schema coercion** as the explicit failure mechanism on case_008 / 009 / 082. Four edits folded in: (1) problem framing gains a fourth problem (schema coercion); (2) Pass 2 inputs reordered and role-tagged — section/target-path are now explicit *controlled priors*, not implicit forces, and post-SECTION-EFFECT-01 the payload extends to include `currentEra`/`currentPass`/`currentMode`; (3) new Pass 2 design rule — subject beats section when Pass 1 binds a non-narrator relation_cue; (4) dual-path emission promoted to first-class Pass 2 output with primary/secondary ordering and `disagreement_reason`. Implementation paused pending **WO-EX-SECTION-EFFECT-01** first-pass signoff (#63 promoted from cleanup to prerequisite). Sixth goal (dual-path primary-pick rate) and tenth measurement (section-effect causal chain) added.
