@@ -1,0 +1,101 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     15
+  Passed:          0
+  Failed:          15
+  Pass rate:       0.0%
+  Avg score:       0.078
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 0/5 passed  (0.0%)
+    v2 (field avg):   0/5 passed  (0.0%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/15 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        9.7%
+    may_extract bonus rate:     10.5%
+    should_ignore leak rate:    30.8%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_single                  0/3 passed
+    extract_multiple                0/10 passed
+    extract_compound                0/2 passed
+
+  By narrator:
+    christopher-todd-horne          0/6 passed  (avg 0.000)
+    kent-james-horne                0/5 passed  (avg 0.000)
+    janice-josephine-horne          0/4 passed  (avg 0.292)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/4
+    Known gaps (currentExtractorExpected=false):  0/11
+
+  Failure categories:
+    schema_gap                      9
+    field_path_mismatch             4
+    llm_hallucination               3
+    noise_leakage                   2
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   0/5 passed  (avg 0.000)
+    mixed_narrative            0/1 passed  (avg 0.500)
+    dense_truth                0/8 passed  (avg 0.083)
+    follow_up                  0/1 passed  (avg 0.000)
+
+  By style bucket:
+    life_history               0/15 passed  (avg 0.078)
+
+  By chunk size:
+    small                      0/3 passed  (avg 0.000)
+    tiny                       0/3 passed  (avg 0.000)
+    large                      0/4 passed  (avg 0.242)
+    medium                     0/5 passed  (avg 0.040)
+
+  By noise profile:
+    clean                      0/6 passed  (avg 0.000)
+    good_garbage               0/1 passed  (avg 0.500)
+    dense_truth                0/8 passed  (avg 0.083)
+
+  ─── FAILED CASES ───
+
+    case_008    contract         small   clean         score=0.00  christopher-todd-horne
+      Failures:  ['field_path_mismatch']
+    case_009    contract         tiny    clean         score=0.00  christopher-todd-horne
+      Failures:  ['field_path_mismatch']
+    case_017    contract         tiny    clean         score=0.00  kent-james-horne
+      Failures:  ['field_path_mismatch', 'schema_gap']
+    case_018    contract         small   clean         score=0.00  kent-james-horne
+      Failures:  ['schema_gap']
+    case_053    contract         tiny    clean         score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['llm_hallucination']
+    case_075    mixed_narrative  large   good_garbage  score=0.50  janice-josephine-horne [GAP]
+      Failures:  ['llm_hallucination']
+    case_080    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+      Failures:  ['schema_gap']
+    case_081    dense_truth      large   dense_truth   score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+    case_082    dense_truth      large   dense_truth   score=0.47  janice-josephine-horne [GAP]
+      Failures:  ['field_path_mismatch', 'noise_leakage']
+    case_083    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+      Failures:  ['schema_gap']
+    case_084    dense_truth      medium  dense_truth   score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+    case_085    dense_truth      medium  dense_truth   score=0.20  janice-josephine-horne [GAP]
+      Failures:  ['schema_gap']
+    case_086    dense_truth      medium  dense_truth   score=0.00  kent-james-horne [GAP]
+      Failures:  ['schema_gap']
+    case_087    dense_truth      large   dense_truth   score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+    case_088    follow_up        small   clean         score=0.00  janice-josephine-horne [GAP]
+      Failures:  ['llm_hallucination', 'noise_leakage']
+
+==============================================================================

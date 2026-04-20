@@ -1,0 +1,48 @@
+==============================================================================
+  WO-EX-STUBBORN-PACK-EVAL-01 — tag=r4j  runs=3  cases=15
+==============================================================================
+
+  MASTER (decision gate): master_loop01_r4j.json
+    Total:              54/104   avg 0.6
+    v3 contract subset: 33/62
+    v2 contract subset: 30/62
+    v2-compat (all):    36/104   rate=0.346
+    must_not_write violations:  0.0
+    Should-pass:  28/50
+    Known-gap:    26/54
+    Failure cats: schema_gap=29, llm_hallucination=13, field_path_mismatch=14, noise_leakage=10
+
+  STUBBORN-PACK STABILITY:
+    stable_pass :  0 / 15
+    stable_fail : 15 / 15
+    unstable    :  0 / 15
+
+    truncated (any run)          : 15
+    failure-category changed     : 1
+    field-path shape changed     : 0
+    score improved across runs   : 0
+
+  BUCKETS:
+    stable_pass  : (none)
+    stable_fail  : case_008, case_009, case_017, case_018, case_053, case_075, case_080, case_081, case_082, case_083, case_084, case_085, case_086, case_087, case_088
+    unstable     : (none)
+
+  PER-CASE:
+    case        bucket        p/t   scores                primary_failure(s)            method            trunc shape 
+    case_075    stable_fail   0/3   0.5/0.5/0.5           llm_hallucination             llm               Y     ·     
+    case_080    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    fallback          Y     ·     
+    case_081    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    fallback          Y     ·     
+    case_082    stable_fail   0/3   0.467/0.467/0.467     field_path_mismatch,noise_le  rules_fallback    Y     ·     
+    case_083    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    fallback          Y     ·     
+    case_084    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    fallback          Y     ·     
+    case_085    stable_fail   0/3   0.2/0.2/0.2           schema_gap                    rules_fallback    Y     ·     
+    case_086    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    fallback          Y     ·     
+    case_087    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    fallback          Y     ·     
+    case_008    stable_fail   0/3   0.0/0.0/0.0           field_path_mismatch           rules_fallback    Y     ·     
+    case_009    stable_fail   0/3   0.0/0.0/0.0           field_path_mismatch           llm               Y     ·     
+    case_017    stable_fail   0/3   0.0/0.0/0.0           field_path_mismatch           llm               Y     ·     
+    case_018    stable_fail   0/3   0.0/0.0/0.0           schema_gap                    llm               Y     ·     
+    case_053    stable_fail   0/3   0.0/0.0/0.0           llm_hallucination             rules_fallback    Y     ·     
+    case_088    stable_fail   0/3   0.0/0.0/0.0           llm_hallucination             llm               Y     ·     
+
+==============================================================================

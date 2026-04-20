@@ -1,0 +1,1734 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-19T23:05:44",
+  "mode": "live",
+  "summary": {
+    "total_cases": 15,
+    "passed": 0,
+    "failed": 15,
+    "pass_rate": 0.0,
+    "avg_overall_score": 0.078
+  },
+  "contract_subset": {
+    "total": 5,
+    "passed_v3": 0,
+    "passed_v2": 0,
+    "v2_avg_score": 0.0,
+    "pass_rate_v3": 0.0,
+    "pass_rate_v2": 0.0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_single": {
+      "total": 3,
+      "passed": 0,
+      "failed": 3
+    },
+    "extract_multiple": {
+      "total": 10,
+      "passed": 0,
+      "failed": 10
+    },
+    "extract_compound": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2
+    }
+  },
+  "by_narrator": {
+    "christopher-todd-horne": {
+      "total": 6,
+      "passed": 0,
+      "avg_score": 0.0
+    },
+    "kent-james-horne": {
+      "total": 5,
+      "passed": 0,
+      "avg_score": 0.0
+    },
+    "janice-josephine-horne": {
+      "total": 4,
+      "passed": 0,
+      "avg_score": 0.292
+    }
+  },
+  "by_case_type": {
+    "contract": {
+      "total": 5,
+      "passed": 0,
+      "failed": 5,
+      "avg_score": 0.0
+    },
+    "mixed_narrative": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "dense_truth": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8,
+      "avg_score": 0.083
+    },
+    "follow_up": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 15,
+      "passed": 0,
+      "failed": 15,
+      "avg_score": 0.078
+    }
+  },
+  "by_chunk_size": {
+    "small": {
+      "total": 3,
+      "passed": 0,
+      "failed": 3,
+      "avg_score": 0.0
+    },
+    "tiny": {
+      "total": 3,
+      "passed": 0,
+      "failed": 3,
+      "avg_score": 0.0
+    },
+    "large": {
+      "total": 4,
+      "passed": 0,
+      "failed": 4,
+      "avg_score": 0.242
+    },
+    "medium": {
+      "total": 5,
+      "passed": 0,
+      "failed": 5,
+      "avg_score": 0.04
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 6,
+      "passed": 0,
+      "failed": 6,
+      "avg_score": 0.0
+    },
+    "good_garbage": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "dense_truth": {
+      "total": 8,
+      "passed": 0,
+      "failed": 8,
+      "avg_score": 0.083
+    }
+  },
+  "by_case_mode": {
+    "contract": {
+      "total": 5,
+      "passed": 0,
+      "failed": 5,
+      "avg_score": 0.0
+    },
+    "style": {
+      "total": 9,
+      "passed": 0,
+      "failed": 9,
+      "avg_score": 0.13
+    },
+    "hybrid": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.097,
+    "may_extract_bonus_rate": 0.105,
+    "should_ignore_leak_rate": 0.308,
+    "must_not_write_violation_rate": 0.0,
+    "raw_counts": {
+      "must_extract": {
+        "total": 31,
+        "hit": 3,
+        "miss": 28
+      },
+      "may_extract": {
+        "total": 19,
+        "hit": 2,
+        "miss": 17
+      },
+      "should_ignore": {
+        "total": 13,
+        "hit": 9,
+        "leaked": 4
+      },
+      "must_not_write": {
+        "total": 23,
+        "hit": 23,
+        "violated": 0
+      }
+    }
+  },
+  "must_not_write_violations": [],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 4,
+      "actually_passed": 0
+    },
+    "known_gaps": {
+      "total": 11,
+      "actually_passed": 0
+    }
+  },
+  "failure_categories": {
+    "field_path_mismatch": 4,
+    "schema_gap": 9,
+    "llm_hallucination": 3,
+    "noise_leakage": 2
+  },
+  "case_results": [
+    {
+      "field_scores": {
+        "parents.notableLifeEvents": {
+          "expected": "born in a car",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_008",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 18278,
+      "extracted_count": 1,
+      "raw_items": [
+        {
+          "fieldPath": "earlyMemories.significantEvent",
+          "value": "Yeah, my mom's brother James was born in a car on the way to Richardton Hospital. Uncle Jim — James …",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "occupational therapist",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "laterYears.retirement": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_009",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 14389,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "education.careerProgression",
+          "value": "occupational therapist",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "education.training",
+          "value": "trained in OT",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "pets.name": {
+          "expected": "Ivan",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "pets.species": {
+          "expected": "dog",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch",
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "pets.name": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "pets.species": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_017",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 20318,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "pets.notes",
+          "value": "Golden Retriever",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.notes",
+          "value": "Ivan",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Germany",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.marriageDate": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_018",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "middle_moves",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 16650,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "family.children.relation",
+          "value": "son",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Vincent",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "parents.firstName": {
+          "expected": "Kent",
+          "actual": "Dorothy",
+          "score": 0.0,
+          "status": "wrong"
+        },
+        "parents.relation": {
+          "expected": "father",
+          "actual": "Mother",
+          "score": 0.0,
+          "status": "wrong"
+        },
+        "parents.occupation": {
+          "expected": "welder",
+          "actual": "homemaker",
+          "score": 0.0,
+          "status": "wrong"
+        },
+        "siblings.firstName": {
+          "expected": "Vincent",
+          "actual": "Christine",
+          "score": 0.0,
+          "status": "wrong"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "llm_hallucination"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 4,
+          "hit": 0,
+          "miss": 4
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.relation": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.occupation": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_053",
+      "narratorId": "christopher-todd-horne",
+      "phase": "childhood_origins",
+      "subTopic": "compound_family",
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 48771,
+      "extracted_count": 5,
+      "raw_items": [
+        {
+          "fieldPath": "siblings.relation",
+          "value": "Sister",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Christine",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "Mother",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Dorothy",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "value": "homemaker",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "parents.firstName": {
+          "expected": "Josephine",
+          "actual": "Josephine",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "parents.occupation": {
+          "expected": "Housewife",
+          "actual": "musician",
+          "score": 0.0,
+          "status": "wrong"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.5,
+      "v2_pass": false,
+      "failure_categories": [
+        "llm_hallucination"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "parents.maidenName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "grandparents.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.higherEducation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_075",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "mother_stories",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "large",
+      "noise_profile": "good_garbage",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 43474,
+      "extracted_count": 5,
+      "raw_items": [
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Josephine",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.preferredName",
+          "value": "Josie",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "value": "musician",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.education",
+          "value": "two years of college at Capitol Business College in Bismarck",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Anna",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "grandparents.firstName": {
+          "expected": "George",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "grandparents.memorableStory": {
+          "expected": "arrived in Ross ND 1902, walked north to find land, died 1914",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 4,
+          "hit": 0,
+          "miss": 4
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "grandparents.firstName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.lastName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.maidenName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.birthPlace": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "grandparents.memorableStory": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "parents.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "parents.birthPlace": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_080",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 39540,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {
+        "grandparents.ancestry": {
+          "expected": "French (Alsace-Lorraine), German",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "grandparents.ancestry": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.memorableStory": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "personal.culture": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "military.branch": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "military.yearsOfService": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_081",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "great_grandparents",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 47536,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Spokane, Washington",
+          "actual": "All the time. I was born in Spokane, Washington because my dad Pete was working at an aluminum factory out there. Then we moved back to Dodge, North Dakota — that's where Dad's family was from. I went to first and second grade there. After that we moved to Glen Ulin where I went to Sacred Hearts for third, fourth, and fifth grade. My sister Verene was there too but she was always inside. Then we moved to Strasburg for sixth grade — Lawrence Welk was from there, his wife was a nurse at the hospital. After that there was Bismarck where I started college. And then after Kent and I got married we lived in Germany for a while where Vincent was born, then all over. My dad had worked on the Garrison Dam too — he was a foreman of a finishing crew for the cement forms. So moving was just what our family did.",
+          "score": 0.8,
+          "status": "partial"
+        },
+        "personal.placeOfBirth": {
+          "expected": "Spokane, Washington",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.467,
+      "v2_score": 0.4,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch",
+        "noise_leakage"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 3,
+          "hit": 2,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 3,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 1
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "education.schooling": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.occupation": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "parents.firstName": {
+          "zone": "may_extract",
+          "extracted": true
+        },
+        "siblings.firstName": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "family.children.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_082",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_moves",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 45050,
+      "extracted_count": 6,
+      "raw_items": [
+        {
+          "fieldPath": "siblings.relation",
+          "value": "Sister",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "siblings.firstName",
+          "value": "Verene",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "Father",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Pete",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "value": "working at an aluminum factory out there",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "All the time. I was born in Spokane, Washington because my dad Pete was working at an aluminum facto…",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "grandparents.memorableStory": {
+          "expected": "youngest of eight children of John Michael Shong and Christine Bolley",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "grandparents.memorableStory": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.maidenName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.ancestry": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "family.children.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_083",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "grandmother_story",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 46820,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {
+        "family.children.firstName": {
+          "expected": "Gretchen",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "family.children.dateOfBirth": {
+          "expected": "1991-10-04",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.children.firstName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "family.children.dateOfBirth": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "family.children.lastName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.placeOfBirth": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "residence.place": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.higherEducation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_084",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "children_detailed",
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 48365,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {
+        "parents.firstName": {
+          "expected": "Peter",
+          "actual": "Peter",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "parents.lastName": {
+          "expected": "Zarr",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "parents.occupation": {
+          "expected": "Steam boiler operator, carpenter",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.2,
+      "v2_score": 0.333,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 5,
+          "hit": 1,
+          "miss": 4
+        },
+        "may_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "parents.occupation": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "personal.placeOfBirth": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_085",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_story",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "rules_fallback",
+      "elapsed_ms": 44883,
+      "extracted_count": 2,
+      "raw_items": [
+        {
+          "fieldPath": "parents.relation",
+          "value": "Father",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Peter",
+          "confidence": 0.85
+        }
+      ]
+    },
+    {
+      "field_scores": {
+        "education.earlyCareer": {
+          "expected": "Construction and trades",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 5,
+          "hit": 0,
+          "miss": 5
+        },
+        "should_ignore": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "education.careerProgression": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "residence.place": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.dateOfBirth": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.children.placeOfBirth": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "personal.dateOfBirth": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_086",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "career_family",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "medium",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 53389,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {
+        "grandparents.ancestry": {
+          "expected": "French (Alsace-Lorraine)",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 1,
+          "hit": 1,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "grandparents.ancestry": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.memorableStory": {
+          "zone": "must_extract",
+          "extracted": false
+        },
+        "grandparents.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "grandparents.maidenName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "military.branch": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "personal.culture": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_087",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "shong_family",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "fallback",
+      "elapsed_ms": 45234,
+      "extracted_count": 0,
+      "raw_items": []
+    },
+    {
+      "field_scores": {
+        "pets.notes": {
+          "expected": "childhood horse, rode every morning before chores",
+          "actual": "narrator's favorite horse, rode every morning, loved being outdoors",
+          "score": 0.0,
+          "status": "wrong"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "llm_hallucination",
+        "noise_leakage"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 1,
+          "hit": 0,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 4,
+          "hit": 1,
+          "miss": 0,
+          "leaked": 3
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "pets.notes": {
+          "zone": "must_extract",
+          "extracted": true
+        },
+        "pets.name": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "pets.species": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "siblings.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "residence.place": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        }
+      },
+      "case_id": "case_088",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "follow_up",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "hybrid",
+      "sequence_group": "janice_pets",
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 25253,
+      "extracted_count": 4,
+      "raw_items": [
+        {
+          "fieldPath": "pets.name",
+          "value": "Grey",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "pets.species",
+          "value": "horse",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "pets.notes",
+          "value": "narrator's favorite horse, rode every morning, loved being outdoors",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "residence.place",
+          "value": "Dodge",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,892 @@
+{
+  "tag": "r4j",
+  "runs": 3,
+  "stubborn_cases": [
+    "case_075",
+    "case_080",
+    "case_081",
+    "case_082",
+    "case_083",
+    "case_084",
+    "case_085",
+    "case_086",
+    "case_087",
+    "case_008",
+    "case_009",
+    "case_017",
+    "case_018",
+    "case_053",
+    "case_088"
+  ],
+  "per_run_reports": [
+    "stubborn_pack_r4j_run1.json",
+    "stubborn_pack_r4j_run2.json",
+    "stubborn_pack_r4j_run3.json"
+  ],
+  "stability": {
+    "n_runs": 3,
+    "per_case": {
+      "case_075": {
+        "case_id": "case_075",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "llm_hallucination"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 5,
+            "field_paths": [
+              "parents.education",
+              "parents.firstName",
+              "parents.occupation",
+              "parents.preferredName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 5,
+            "field_paths": [
+              "parents.education",
+              "parents.firstName",
+              "parents.occupation",
+              "parents.preferredName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 5,
+            "field_paths": [
+              "parents.education",
+              "parents.firstName",
+              "parents.occupation",
+              "parents.preferredName"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_080": {
+        "case_id": "case_080",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          }
+        ]
+      },
+      "case_081": {
+        "case_id": "case_081",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          }
+        ]
+      },
+      "case_082": {
+        "case_id": "case_082",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": true,
+        "unique_primary_failures": [
+          "field_path_mismatch",
+          "noise_leakage"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.467,
+            "primary_failure": "field_path_mismatch",
+            "method": "rules_fallback",
+            "extracted_count": 6,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "parents.relation",
+              "residence.place",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.467,
+            "primary_failure": "field_path_mismatch",
+            "method": "rules_fallback",
+            "extracted_count": 6,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "parents.relation",
+              "residence.place",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.467,
+            "primary_failure": "noise_leakage",
+            "method": "rules_fallback",
+            "extracted_count": 6,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "parents.relation",
+              "residence.place",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_083": {
+        "case_id": "case_083",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          }
+        ]
+      },
+      "case_084": {
+        "case_id": "case_084",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          }
+        ]
+      },
+      "case_085": {
+        "case_id": "case_085",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.2,
+            "primary_failure": "schema_gap",
+            "method": "rules_fallback",
+            "extracted_count": 2,
+            "field_paths": [
+              "parents.firstName",
+              "parents.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.2,
+            "primary_failure": "schema_gap",
+            "method": "rules_fallback",
+            "extracted_count": 2,
+            "field_paths": [
+              "parents.firstName",
+              "parents.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.2,
+            "primary_failure": "schema_gap",
+            "method": "rules_fallback",
+            "extracted_count": 2,
+            "field_paths": [
+              "parents.firstName",
+              "parents.relation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_086": {
+        "case_id": "case_086",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          }
+        ]
+      },
+      "case_087": {
+        "case_id": "case_087",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "fallback",
+            "extracted_count": 0,
+            "field_paths": [],
+            "truncated": true
+          }
+        ]
+      },
+      "case_008": {
+        "case_id": "case_008",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "field_path_mismatch"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "rules_fallback",
+            "extracted_count": 1,
+            "field_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "rules_fallback",
+            "extracted_count": 1,
+            "field_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "rules_fallback",
+            "extracted_count": 1,
+            "field_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_009": {
+        "case_id": "case_009",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "field_path_mismatch"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "education.careerProgression",
+              "education.training"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "education.careerProgression",
+              "education.training"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "education.careerProgression",
+              "education.training"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_017": {
+        "case_id": "case_017",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "field_path_mismatch"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "pets.notes"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "pets.notes"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "field_path_mismatch",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "pets.notes"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_018": {
+        "case_id": "case_018",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "family.children.firstName",
+              "family.children.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "family.children.firstName",
+              "family.children.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "family.children.firstName",
+              "family.children.relation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_053": {
+        "case_id": "case_053",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "llm_hallucination"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "llm_hallucination",
+            "method": "rules_fallback",
+            "extracted_count": 5,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "parents.relation",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "llm_hallucination",
+            "method": "rules_fallback",
+            "extracted_count": 5,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "parents.relation",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "llm_hallucination",
+            "method": "rules_fallback",
+            "extracted_count": 5,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "parents.relation",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_088": {
+        "case_id": "case_088",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "llm_hallucination"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species",
+              "residence.place"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species",
+              "residence.place"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.0,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species",
+              "residence.place"
+            ],
+            "truncated": true
+          }
+        ]
+      }
+    },
+    "buckets": {
+      "stable_pass": [],
+      "stable_fail": [
+        "case_075",
+        "case_080",
+        "case_081",
+        "case_082",
+        "case_083",
+        "case_084",
+        "case_085",
+        "case_086",
+        "case_087",
+        "case_008",
+        "case_009",
+        "case_017",
+        "case_018",
+        "case_053",
+        "case_088"
+      ],
+      "unstable": [],
+      "missing": []
+    },
+    "counts": {
+      "stable_pass": 0,
+      "stable_fail": 15,
+      "unstable": 0,
+      "missing": 0,
+      "truncated_any": 15,
+      "fail_category_changed": 1,
+      "score_improved_across_runs": 0,
+      "field_shape_changed_across_runs": 0
+    }
+  }
+}

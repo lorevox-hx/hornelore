@@ -32,6 +32,25 @@ Suffix convention: `r4f` = Patch F narrowing, `r4g` = WO-EX-TURNSCOPE-01 v1 (tar
 
 The grep at the end rotates — change the tag to whatever filter is being tested (`turnscope`, `negation-guard`, `R4-E`, etc.) or drop it when not needed.
 
+## Stubborn-pack diagnostic eval (copy-paste ready)
+
+When the master eval moves but we need to know why stubborn cases (the frozen fail set) did or didn't shift, run this alongside. The master above stays the decision gate; this layer is diagnostic only.
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+HORNELORE_PROMPTSHRINK=1 ./scripts/run_stubborn_pack_eval.py \
+  --tag <SUFFIX> \
+  --runs 3 \
+  --api http://localhost:8000 \
+  --master docs/reports/master_loop01_<SUFFIX>.json
+```
+
+Writes `docs/reports/stubborn_pack_<SUFFIX>_run{1,2,3}.json` plus a cross-run `stubborn_pack_<SUFFIX>_stability.json` + `.console.txt`. The stability console includes the master topline (when `--master` supplied) and buckets the 15 stubborn cases into stable_pass / stable_fail / unstable with per-case VRAM-GUARD truncation flag, failure-category change count, and field-path shape-change flag across the 3 runs.
+
+Stubborn pack (15 cases, fixed): `case_008, case_009, case_017, case_018, case_053, case_075, case_080, case_081, case_082, case_083, case_084, case_085, case_086, case_087, case_088`.
+
+Drop the `HORNELORE_PROMPTSHRINK=1` prefix when running the legacy prompt path — the wrapper itself is env-flag-agnostic.
+
 ## Standard post-eval audit block
 
 After every eval that follows a code change, report this exact block before declaring any movement real:
@@ -51,6 +70,7 @@ After every eval that follows a code change, report this exact block before decl
 | API log | `/mnt/c/Users/chris/hornelore/.runtime/logs/api.log` |
 | Eval JSON reports | `/mnt/c/Users/chris/hornelore/docs/reports/master_loop01_*.json` |
 | Eval console readouts | `/mnt/c/Users/chris/hornelore/docs/reports/master_loop01_*.console.txt` |
+| Stubborn-pack reports | `/mnt/c/Users/chris/hornelore/docs/reports/stubborn_pack_*.json` (+ `_stability.console.txt`) |
 | Eval case source | `/mnt/c/Users/chris/hornelore/data/qa/question_bank_extraction_cases.json` |
 | Extract router | `/mnt/c/Users/chris/hornelore/server/code/api/routers/extract.py` |
 | WO specs | `/mnt/c/Users/chris/hornelore/WO-*_Spec.md` (repo root) |
@@ -87,3 +107,4 @@ Each WO above must report the standard audit block before being called done.
 
 - 2026-04-19: Created. Captures WSL path correction and eval-command template.
 - 2026-04-19 (late): r4h confirms WO-EX-TURNSCOPE-01 closes. Eval script now auto-writes `.console.txt` (shell `| tee` dropped after r4h produced an empty file). Standard post-eval audit block codified. #67 staged but not yet landed.
+- 2026-04-19 (later): #67 landed (r4i: 55/104, case_011 + case_012 flipped green). #68 disposition memo written and deferred to R5 Pillar 2. #81 PROMPTSHRINK patch landed behind `HORNELORE_PROMPTSHRINK=1` flag — topic-scoped dynamic few-shot selection (3–8 per call vs 33 static), legacy path byte-stable when flag off. Stubborn-pack diagnostic wrapper added (`scripts/run_stubborn_pack_eval.py`) — 15-case pack, 3 runs, VRAM-GUARD truncation attribution, stable_pass/stable_fail/unstable buckets. Next eval = `r4j` = master + stubborn-pack with PROMPTSHRINK on.
