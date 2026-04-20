@@ -757,6 +757,563 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
     return system, user
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# WO-EX-PROMPTSHRINK-01 — topic-scoped extraction prompt (opt-in via env flag)
+#
+# The legacy _build_extraction_prompt ships the full 33-example few-shot bank
+# on every request (~300 lines of system prompt). For any given extraction the
+# vast majority of those examples are off-topic, consuming context window and
+# diluting the model's attention toward the relevant routing rules.
+#
+# This builder assembles the prompt dynamically:
+#   - Always-on: preamble, compact field catalog, ROUTING DISTINCTIONS,
+#     NEGATION / SUBJECT / SAME-ENTITY / FIELD ROUTING rules.
+#   - Topic-scoped: 0–N few-shots selected by intersecting detected topics
+#     (from current_target path + current_section substring match) against
+#     each example's topic tags.
+#   - Universal anchors: 3 cross-cutting examples (family compound baseline,
+#     children+dates baseline, pets anti-pattern) are always included so the
+#     model never loses the minimal routing scaffold even when no topic is
+#     detected.
+#
+# Gate: HORNELORE_PROMPTSHRINK=1 flips the dispatcher in
+# _extract_via_singlepass over to this builder. Default is OFF (legacy path).
+# Rollback is a single env var.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROMPTSHRINK_PREAMBLE = (
+    "Extract biographical facts from the narrator's answer as JSON.\n"
+    "Rules: only explicit facts, no guessing. Return JSON array only.\n"
+    "Each item: {\"fieldPath\":\"...\",\"value\":\"...\",\"confidence\":0.0-1.0}\n"
+    "Confidence: 0.9=clearly stated, 0.7=implied.\n"
+    "Dates: YYYY-MM-DD if full date given. Places: City, State format.\n"
+    "IMPORTANT: Use ONLY these exact fieldPath values:\n"
+)
+
+_PROMPTSHRINK_ROUTING_DISTINCTIONS = (
+    "\nROUTING DISTINCTIONS — common mistakes to avoid:\n"
+    "• Pets vs hobbies: Animals the narrator owned (dogs, cats, horses) → pets.name / pets.species / pets.notes. "
+    "NOT hobbies.hobbies. \"We had a Golden Retriever named Ivan\" → pets.*, not hobbies.*\n"
+    "• Siblings vs children: Brothers and sisters the narrator grew up with → siblings.*. "
+    "NOT family.children.* (which is for the narrator's own kids). "
+    "\"My older brother Vincent\" → siblings.firstName, siblings.birthOrder\n"
+    "• Birthplace vs residence: \"I was born in Spokane\" → personal.placeOfBirth. "
+    "NOT residence.place (which is for places the narrator lived later).\n"
+    "• Early career vs career progression: First job or entry-level work → education.earlyCareer. "
+    "Long-duration work or later-career roles (\"since 1997\", \"for 29 years\", \"until retirement\") "
+    "→ education.careerProgression.\n"
+)
+
+_PROMPTSHRINK_NEGATION_RULE = (
+    "\nNEGATION RULE: If the narrator explicitly says they did NOT have an experience "
+    "(e.g., 'I never served', 'I've been pretty healthy', 'I didn't go to college'), "
+    "extract NOTHING for that category. Do not guess or infer fields from denied experiences.\n"
+)
+
+_PROMPTSHRINK_SUBJECT_RULE = (
+    "\nSUBJECT RULE: Only extract fields for the NARRATOR being interviewed. "
+    "When the narrator describes a family member's experience (mother's school, father's work, "
+    "grandfather's military service), use family-scoped fields (grandparents.*, parents.*, greatGrandparents.*) — "
+    "NOT the narrator's personal fields. Example: narrator says 'My mother went to Mount Marty school' "
+    "→ this is faith/family history, NOT education.schooling for the narrator. "
+    "A great-grandparent's Civil War service is greatGrandparents.memorableStories — NEVER military.* for the narrator. "
+    "A great-grandparent's birthplace is greatGrandparents.birthPlace — NEVER personal.placeOfBirth.\n"
+)
+
+_PROMPTSHRINK_SAME_ENTITY_RULE = (
+    "\nSAME-ENTITY ELABORATION RULE (applies to all sections): When the narrator elaborates on an already-mentioned "
+    "person, place, name, school, organization, pet, trip, or event — explaining why the name was chosen, what it meant, "
+    "who named it, where exactly it was, what people called it, its religious/family background — these elaborations "
+    "enrich the EXISTING record. Do NOT emit a second record for the explanation. Fold the elaboration into the matching "
+    "notes/nameStory/story field for that entity, and/or enrich the canonical record's value.\n"
+    "Canonical narrative-catch slots by section:\n"
+    "  • personal.nameStory — naming origin: \"Mom wanted Todd because the priest said Christopher was a saint\"\n"
+    "  • personal.notes — general narrator color (identity, personality, misc)\n"
+    "  • parents.notes / parents.notableLifeEvents — parent color beyond structured fields\n"
+    "  • grandparents.memorableStory — grandparent color\n"
+    "  • greatGrandparents.memorableStories — great-grandparent color\n"
+    "  • siblings.uniqueCharacteristics — sibling color\n"
+    "  • family.children.notes — child personality, nickname origins, anecdotes\n"
+    "  • family.spouse.notes — spouse personality beyond marriage facts (family.marriageNotes is for the marriage event)\n"
+    "  • education.notes — school color: religious affiliation, geography, mentors\n"
+    "  • faith.notes — parish, traditions, family religion, lapses\n"
+    "  • hobbies.notes — hobby origins and meaning\n"
+    "  • military.notes — service color (camaraderie, transition, post-service)\n"
+    "  • health.notes — health narrative color (caregiving, family history, adaptations)\n"
+    "  • travel.notes — trip color (companions, memorable moments)\n"
+    "  • community.notes — civic color (people met, projects)\n"
+    "  • pets.notes — pet personality and story\n"
+    "  • residence.notes — residence color\n"
+    "Examples:\n"
+    "• \"My name is Christopher Todd Horne — Mom wanted the Todd name because the priest said Christopher was a saint.\" "
+    "→ ONE personal.fullName='Christopher Todd Horne' + ONE personal.middleName='Todd' + ONE "
+    "personal.nameStory='mother chose Todd because the priest said Christopher was a saint'. Do NOT emit a saint record, "
+    "a priest record, or duplicate name records.\n"
+    "• \"Grandma Lizzie. Her real name was Elizabeth\" → ONE grandparents.firstName='Elizabeth' (not also 'Lizzie').\n"
+    "• \"Josephine Eugenia Susanna Schaaf — everyone called her Josie\" → ONE parents.firstName='Josephine', "
+    "ONE parents.middleName='Eugenia, Susanna'. Josie folds into parents.notes or parents.preferredName.\n"
+    "• \"Mount Marty — a Catholic school in Yankton, run by the Benedictines\" → ONE education.schooling='Mount Marty' + "
+    "ONE education.notes='Catholic school in Yankton run by the Benedictines'. Do NOT emit a second schooling record.\n"
+    "• \"The family name was originally Schong, possibly Le Shong, became Shong in America\" → ONE "
+    "grandparents.maidenName='Shong' (post-immigration canonical form) + grandparents.memorableStory capturing the spelling history. "
+    "Do NOT emit additional grandparent records for Schong or Le Shong.\n"
+)
+
+_PROMPTSHRINK_FIELD_ROUTING_RULES = (
+    "\nFIELD ROUTING RULES:\n"
+    "- Narrator's volunteer, civic, or professional community involvement → community.* (NOT education.earlyCareer)\n"
+    "- Animals the narrator owned or cared for → pets.* (NOT hobbies.hobbies)\n"
+    "- Places narrator traveled to and returned from → travel.* (NOT residence.*)\n"
+    "- Places narrator lived for an extended period → residence.* (can ALSO be travel.* if it was a relocation)\n"
+    "- Family member's military service → military.* fields with a note that this is family history, "
+    "but do NOT extract military.branch or military.rank for the NARRATOR unless they personally served"
+)
+
+# Each entry: (topic_tags, example_block). Tag "universal" = always included.
+# Verbatim copies of the examples used in the legacy monolith — identical wording,
+# just broken out and tagged. This keeps the fallback path byte-identical if the
+# flag is off, and makes the shrunk path teach the same conventions.
+_PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
+    # Family compound (universal anchor — teaches the parents/siblings split)
+    (("parents", "siblings", "family", "universal"),
+     "Example — narrator says: \"My dad John Smith was a teacher and my sister Amy was older.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"parents.relation\",\"value\":\"father\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"parents.firstName\",\"value\":\"John\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"parents.lastName\",\"value\":\"Smith\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"parents.occupation\",\"value\":\"teacher\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"siblings.relation\",\"value\":\"sister\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"siblings.firstName\",\"value\":\"Amy\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"siblings.birthOrder\",\"value\":\"older\",\"confidence\":0.7}]\n"),
+
+    # Career examples
+    (("career",),
+     "Example — narrator says: \"I worked as a welder and later became a supervisor at a shipyard.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"education.earlyCareer\",\"value\":\"welder\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"education.careerProgression\",\"value\":\"supervisor at a shipyard\",\"confidence\":0.9}]\n"
+     "Career rules: use education.earlyCareer for first job, education.careerProgression for later roles. "
+     "Do NOT invent career.* or personal.profession paths.\n"),
+    (("career",),
+     "Example — narrator says: \"She served in the Navy as a programmer and later became a professor of computer science.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"education.earlyCareer\",\"value\":\"served in the Navy as a programmer\",\"confidence\":0.89},"
+     "{\"fieldPath\":\"education.careerProgression\",\"value\":\"later became a professor of computer science\",\"confidence\":0.91}]\n"),
+    (("career",),
+     "Example — narrator says: \"She began by studying chimpanzees in the field and later became a leading primatologist, author, and international advocate for animals.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"education.earlyCareer\",\"value\":\"began by studying chimpanzees in the field\",\"confidence\":0.84},"
+     "{\"fieldPath\":\"education.careerProgression\",\"value\":\"later became a leading primatologist, author, and international advocate for animals\",\"confidence\":0.92}]\n"
+     "Career rules: use education.earlyCareer for first work, early service, early fieldwork, apprenticeship, or initial occupation. "
+     "Use education.careerProgression for later roles, promotions, research leadership, public recognition, authorship, teaching, advocacy, public office, or major career transitions. "
+     "Organization names, military branches, research settings, and travel context belong inside the value text when relevant; do not invent separate field paths for them. "
+     "Do NOT invent paths like education.career, employment.organization, education.travelDestination, career.fieldOfStudy, career.location, career.business, career.politics.*, or personal.profession.\n"),
+
+    # Children (universal anchor — teaches date format + birth-order)
+    (("children", "family", "universal"),
+     "Example — narrator says: \"Our first son Christopher was born December 24, 1962 in Williston, North Dakota. "
+     "That was the best Christmas Eve of our lives.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"family.children.relation\",\"value\":\"son\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.firstName\",\"value\":\"Christopher\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.dateOfBirth\",\"value\":\"December 24, 1962\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.placeOfBirth\",\"value\":\"Williston, North Dakota\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.birthOrder\",\"value\":\"first\",\"confidence\":0.85}]\n"
+     "When the narrator calls a child \"our first\" / \"our oldest\" / \"the baby\", also write family.children.birthOrder.\n"),
+    (("children", "family"),
+     "Example — narrator says: \"Gretchen was a surprise — I was almost 40 when she came along.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"family.children.firstName\",\"value\":\"Gretchen\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.notes\",\"value\":\"surprise child; narrator was almost 40\",\"confidence\":0.8}]\n"),
+    (("children", "family"),
+     "Example — narrator says: \"My oldest son Vince was born in Germany in 1960, and my daughter Sarah was born in Bismarck in 1962.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"family.children.relation\",\"value\":\"son\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.firstName\",\"value\":\"Vince\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.placeOfBirth\",\"value\":\"Germany\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.dateOfBirth\",\"value\":\"1960\",\"confidence\":0.7},"
+     "{\"fieldPath\":\"family.children.relation\",\"value\":\"daughter\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.firstName\",\"value\":\"Sarah\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.placeOfBirth\",\"value\":\"Bismarck\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.children.dateOfBirth\",\"value\":\"1962\",\"confidence\":0.7}]\n"),
+
+    # Formative (friend + uncle shaping)
+    (("formative",),
+     "Example — narrator says: \"My closest friend all through school was Harold Schmitt. "
+     "He was the one who got me interested in carpentry — he and my Uncle Pete were the two people who shaped me most.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"earlyMemories.significantEvent\",\"value\":\"closest friend: Harold Schmitt, through school; Uncle Pete; both shaped narrator; Harold got narrator interested in carpentry\",\"confidence\":0.85},"
+     "{\"fieldPath\":\"relationships.closeFriends\",\"value\":\"Harold Schmitt\",\"confidence\":0.9}]\n"
+     "(Use relationships.closeFriends if in schema; otherwise earlyMemories.significantEvent is the catch-all for formative relationships.)\n"),
+
+    # Marriage
+    (("marriage", "family"),
+     "Example — narrator says: \"I married my wife Dorothy in 1958 in Fargo.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"family.spouse.firstName\",\"value\":\"Dorothy\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"),
+    (("marriage", "family"),
+     "Example — narrator says: \"We were married at St. Mary's Catholic Church in Williston on June 4th, 1960.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"family.marriageDate\",\"value\":\"June 4, 1960\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"St. Mary's Catholic Church, Williston\",\"confidence\":0.9}]\n"),
+    (("marriage", "family"),
+     "Example — narrator says: \"Our wedding was a small one at the courthouse in Minot.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"family.marriagePlace\",\"value\":\"courthouse, Minot\",\"confidence\":0.85}]\n"),
+
+    # Residence
+    (("residence",),
+     "Example — narrator says: \"We lived in West Fargo from 1962 to 1964, then moved to Bismarck.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"residence.place\",\"value\":\"West Fargo\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"residence.period\",\"value\":\"1962-1964\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9}]\n"),
+
+    # Grandparents
+    (("grandparents",),
+     "Example — narrator says: \"My grandmother on my mother's side came from Russia. Her name was Anna Petrova.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"grandparents.side\",\"value\":\"maternal\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"grandparents.firstName\",\"value\":\"Anna\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"grandparents.lastName\",\"value\":\"Petrova\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"grandparents.birthPlace\",\"value\":\"Russia\",\"confidence\":0.7}]\n"),
+    (("grandparents",),
+     "Example — narrator says: \"My grandparents on my father's side were French (Alsace-Lorraine) and German. "
+     "On my mother's side, Norwegian and a little Irish.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"grandparents.side\",\"value\":\"paternal\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"grandparents.ancestry\",\"value\":\"French (Alsace-Lorraine), German\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"grandparents.side\",\"value\":\"maternal\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"grandparents.ancestry\",\"value\":\"Norwegian, Irish\",\"confidence\":0.9}]\n"
+     "\"Ancestry\" / \"ethnic background\" / \"came from [country]\" → grandparents.ancestry (NOT grandparents.birthPlace unless a specific person's birth-city was named).\n"),
+
+    # Great-grandparents
+    (("greatGrandparents",),
+     "Example — narrator says: \"My great-grandfather John Michael Shong was born in Lorraine, France in 1829, "
+     "served in the Civil War, and settled at Fall Creek, Wisconsin. The family name was originally Schong and "
+     "the C got dropped after they came to America.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"greatGrandparents.firstName\",\"value\":\"John Michael\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"greatGrandparents.lastName\",\"value\":\"Shong\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"greatGrandparents.birthDate\",\"value\":\"1829\",\"confidence\":0.85},"
+     "{\"fieldPath\":\"greatGrandparents.birthPlace\",\"value\":\"Lorraine, France\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"greatGrandparents.ancestry\",\"value\":\"French (Alsace-Lorraine)\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"greatGrandparents.memorableStories\",\"value\":\"Civil War service, settled Fall Creek Wisconsin, family name originally Schong with C dropped after immigration\",\"confidence\":0.9}]\n"
+     "Great-grandparents (\"my great-grandfather\", \"my great-grandmother\", \"my dad's grandfather\") → greatGrandparents.* — "
+     "NOT grandparents.*, NOT parents.*, NOT personal.*. The narrator's own military, birthplace, and ancestry are SEPARATE from a great-grandparent's.\n"),
+
+    # Military
+    (("military",),
+     "Example — narrator says: \"I served in the Army from 1965 to 1968. I was stationed in Germany and made Sergeant.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"military.branch\",\"value\":\"Army\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"military.yearsOfService\",\"value\":\"1965-1968\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"military.deploymentLocation\",\"value\":\"Germany\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"military.rank\",\"value\":\"Sergeant\",\"confidence\":0.9}]\n"),
+
+    # Faith
+    (("faith",),
+     "Example — narrator says: \"We were Catholic, and I sang in the church choir for thirty years. My faith got me through the hard times.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"faith.denomination\",\"value\":\"Catholic\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"faith.role\",\"value\":\"church choir for thirty years\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"faith.values\",\"value\":\"faith got me through the hard times\",\"confidence\":0.7}]\n"),
+
+    # Health
+    (("health",),
+     "Example — narrator says: \"I had a heart attack in 2005 and had to change everything about how I ate.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"health.majorCondition\",\"value\":\"heart attack\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"health.milestone\",\"value\":\"heart attack in 2005\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"health.lifestyleChange\",\"value\":\"changed everything about how I ate\",\"confidence\":0.8}]\n"),
+
+    # Community
+    (("community",),
+     "Example — narrator says: \"I volunteered with the Lions Club for twenty years and was president twice.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"community.organization\",\"value\":\"Lions Club\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"community.role\",\"value\":\"president\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"community.yearsActive\",\"value\":\"twenty years\",\"confidence\":0.9}]\n"),
+
+    # Pets — Laddie
+    (("pets",),
+     "Example — narrator says: \"We always had dogs. Our first was a collie named Laddie.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"pets.notes\",\"value\":\"collie, first family dog\",\"confidence\":0.8}]\n"),
+    # Pets Ivan — universal anti-pattern anchor
+    (("pets", "universal"),
+     "Example — narrator says: \"I had a dog named Ivan when I was little.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"pets.name\",\"value\":\"Ivan\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9}]\n"
+     "(Do NOT write `pets.notes=\"dog named Ivan\"` — name and species go on their own fields.)\n"),
+    (("pets",),
+     "Example — narrator says: \"Our cat Whiskers lived to be sixteen.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"pets.name\",\"value\":\"Whiskers\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"pets.species\",\"value\":\"cat\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"pets.notes\",\"value\":\"lived to be sixteen\",\"confidence\":0.8}]\n"),
+
+    # Travel
+    (("travel",),
+     "Example — narrator says: \"We took a trip to Europe in 1985. It was our anniversary.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"travel.destination\",\"value\":\"Europe\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"travel.purpose\",\"value\":\"anniversary trip\",\"confidence\":0.8}]\n"),
+
+    # Generational touchstones
+    (("generational",),
+     "Example — narrator says: \"We were watching on a little black-and-white set when they landed on the moon. "
+     "The whole family was in the living room.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"watched the moon landing on TV with the whole family\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"cultural.touchstoneMemory\",\"value\":\"moon landing — watched on a black-and-white TV with the whole family in the living room\",\"confidence\":0.9}]\n"
+     "Touchstone 'where-were-you' memories get BOTH laterYears.significantEvent (the fact) AND "
+     "cultural.touchstoneMemory (the vivid memory with sensory detail). If the narrator only gives a bare "
+     "fact ('yeah, I saw it on TV'), use only laterYears.significantEvent.\n"),
+    (("generational", "residence"),
+     "Example — narrator says: \"In Bismarck we sat in line with the engine off hoping the gas held out. "
+     "My wife packed sandwiches.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"waited in gas lines during the 1970s energy crisis\",\"confidence\":0.8}]\n"
+     "Scene-setting family mentions (wife, kids in the car) are NOT extractable spouse/children facts.\n"),
+    (("health",),
+     "Example — narrator says: \"I take blood pressure medicine every morning, and something for arthritis "
+     "when my hands flare up.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"health.currentMedications\",\"value\":\"blood pressure medicine daily, arthritis medication as needed\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"health.majorCondition\",\"value\":\"high blood pressure\",\"confidence\":0.8},"
+     "{\"fieldPath\":\"health.majorCondition\",\"value\":\"arthritis\",\"confidence\":0.8}]\n"
+     "Medications → health.currentMedications. The conditions those medications treat → health.majorCondition. Both valid.\n"),
+    (("health",),
+     "Example — narrator says: \"Names take longer than they used to, but the old stories are still there. "
+     "It's the little daily things that slip first.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"health.cognitiveChange\",\"value\":\"names are slower to recall, small daily details slip first, but long-term memories remain\",\"confidence\":0.8}]\n"
+     "Self-reported memory change → health.cognitiveChange. Do NOT write health.majorCondition — this is normal aging, not a diagnosis.\n"),
+    (("hobbies", "health"),
+     "Example — narrator says: \"Everything takes longer now, and younger people assume older means helpless. "
+     "That gets under my skin.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"hobbies.personalChallenges\",\"value\":\"frustration with slowing down and being treated as helpless\",\"confidence\":0.9}]\n"
+     "Late-life frustrations → hobbies.personalChallenges. Do NOT invent paths like laterYears.frustrations.\n"),
+    (("generational",),
+     "Example — narrator says: \"An uncle of mine got drafted and the whole house went quiet for weeks. "
+     "I was still a senior in high school out in rural Montana, and the grown-ups talked about it at supper "
+     "every night.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"family atmosphere shifted when uncle was drafted during the Vietnam era\",\"confidence\":0.85},"
+     "{\"fieldPath\":\"education.schooling\",\"value\":\"high school\",\"confidence\":0.8},"
+     "{\"fieldPath\":\"residence.region\",\"value\":\"Montana\",\"confidence\":0.8}]\n"),
+    (("generational", "hobbies"),
+     "Example — narrator says: \"First time was at the office in the early nineties. They wheeled a desktop "
+     "onto my desk and I spent weeks feeling like the new hire half my age was teaching me.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"first workplace desktop computer arrived in the early 1990s\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"hobbies.personalChallenges\",\"value\":\"felt behind learning computers at work\",\"confidence\":0.9}]\n"),
+    (("hobbies",),
+     "Example — narrator says: \"Every Friday night in summer we'd pile into the station wagon and head "
+     "out to the drive-in outside Minot. Popcorn, mosquitoes, and all.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"hobbies.hobbies\",\"value\":\"going to the drive-in\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"residence.place\",\"value\":\"Minot\",\"confidence\":0.85}]\n"),
+    (("generational", "legacy"),
+     "Example — narrator says: \"Watching these new crews head up reminds me that each generation gets its "
+     "own turn at the sky. The dreams of my time are becoming the work of my grandchildren.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"laterYears.lifeLessons\",\"value\":\"each generation inherits and carries forward the wonder of the last\",\"confidence\":0.9}]\n"),
+    (("generational", "legacy"),
+     "Example — narrator says: \"I'd want my family to hear about my dad dying in '67, the years we built "
+     "a life in Germany, and how their mother and I got started with almost nothing.\"\n"
+     "Output:\n"
+     "[{\"fieldPath\":\"laterYears.desiredStory\",\"value\":\"father's death in 1967\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"laterYears.desiredStory\",\"value\":\"years building a life in Germany\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"laterYears.desiredStory\",\"value\":\"early married life starting with almost nothing\",\"confidence\":0.9}]\n"
+     "When narrator lists stories they want told, each is a separate laterYears.desiredStory (repeatable). "
+     "Do NOT collapse into one value. Do NOT extract mentioned places/dates as residence.* or parents.* — "
+     "the narrator is listing priorities, not narrating those events.\n"),
+]
+
+
+def _promptshrink_topics_for_target(path: Optional[str]) -> set[str]:
+    """Map a target field path to a set of topic tags."""
+    if not path:
+        return set()
+    p = path.lower()
+    tags: set[str] = set()
+    if p.startswith("parents."):
+        tags.update(("parents", "family"))
+    if p.startswith("siblings."):
+        tags.update(("siblings", "family"))
+    if p.startswith("family.children."):
+        tags.update(("children", "family"))
+    if p.startswith("family.spouse.") or p.startswith("family.marriage"):
+        tags.update(("marriage", "family"))
+    if p.startswith("grandparents."):
+        tags.add("grandparents")
+    if p.startswith("greatgrandparents.") or p.startswith("greatgrand"):
+        tags.add("greatGrandparents")
+    if p.startswith("military."):
+        tags.add("military")
+    if p.startswith("faith."):
+        tags.add("faith")
+    if p.startswith("health."):
+        tags.add("health")
+    if p.startswith("hobbies."):
+        tags.add("hobbies")
+    if p.startswith("community."):
+        tags.add("community")
+    if p.startswith("pets."):
+        tags.add("pets")
+    if p.startswith("travel."):
+        tags.add("travel")
+    if p.startswith("residence."):
+        tags.add("residence")
+    if p.startswith("education."):
+        tags.add("career")
+    if p.startswith("lateryears.") or p.startswith("cultural."):
+        tags.add("generational")
+    if p.startswith("personal.") or p.startswith("earlymemories.") or p.startswith("relationships."):
+        tags.add("formative")
+    return tags
+
+
+def _promptshrink_topics_for_section(section: Optional[str]) -> set[str]:
+    """Coarse substring match on the subTopic / current_section string."""
+    if not section:
+        return set()
+    s = section.lower()
+    tags: set[str] = set()
+    if any(k in s for k in ("family", "parent", "sibling", "compound_family")):
+        tags.update(("parents", "siblings", "family"))
+    if any(k in s for k in ("marriage", "spouse", "wedding", "partnership")):
+        tags.update(("marriage", "family"))
+    if "child" in s:
+        tags.update(("children", "family"))
+    if any(k in s for k in ("school", "education", "career", "work", "job", "occupation")):
+        tags.add("career")
+    if any(k in s for k in ("military", "service", "army", "navy", "marine")):
+        tags.add("military")
+    if any(k in s for k in ("faith", "religion", "church", "spiritual")):
+        tags.add("faith")
+    if any(k in s for k in ("health", "medic", "illness", "aging", "cognitive", "memory")):
+        tags.add("health")
+    if any(k in s for k in ("hobby", "hobbies", "leisure", "pastime")):
+        tags.add("hobbies")
+    if any(k in s for k in ("community", "civic", "volunteer")):
+        tags.add("community")
+    if any(k in s for k in ("pet", "animal")):
+        tags.add("pets")
+    if any(k in s for k in ("travel", "trip", "vacation", "journey")):
+        tags.add("travel")
+    if any(k in s for k in ("residence", "place", "home", "address", "where_lived")):
+        tags.add("residence")
+    if "grandparent" in s or "ancestry" in s or "heritage" in s:
+        tags.update(("grandparents", "greatGrandparents"))
+    if any(k in s for k in ("legacy", "desired", "touchstone", "generational", "cultural", "later")):
+        tags.update(("generational", "legacy"))
+    return tags
+
+
+def _promptshrink_select_fewshots(topics: set[str], max_examples: int = 8) -> list[str]:
+    """Pick few-shots whose tags intersect topics; always include 'universal' anchors.
+
+    max_examples caps the total to keep the prompt bounded even for broad topic
+    matches (e.g. a family topic currently hits ~7 examples).
+    """
+    universal = [text for tags, text in _PROMPTSHRINK_FEW_SHOTS if "universal" in tags]
+    if topics:
+        # Topic-matched examples, deduped, preserve first-occurrence order
+        seen_ids: set[int] = set()
+        matched: list[str] = []
+        for tags, text in _PROMPTSHRINK_FEW_SHOTS:
+            if "universal" in tags:
+                continue  # handled separately so they always appear once
+            if set(tags) & topics:
+                if id(text) not in seen_ids:
+                    matched.append(text)
+                    seen_ids.add(id(text))
+        # Universal anchors first (they teach core routing); then topic matches
+        out = universal + matched
+    else:
+        # No topic signal — send universal anchors only. The legacy monolith would
+        # have shipped all 33 examples here; we deliberately go minimal and trust
+        # the rule blocks to carry routing for unknown-topic calls.
+        out = universal
+    return out[:max_examples]
+
+
+def _build_extraction_prompt_shrunk(
+    answer: str,
+    current_section: Optional[str],
+    current_target: Optional[str],
+) -> tuple[str, str]:
+    """Topic-scoped extraction prompt (WO-EX-PROMPTSHRINK-01).
+
+    Assembles: preamble + compact catalog + ROUTING DISTINCTIONS +
+    topic-matched few-shots + NEGATION + SUBJECT + SAME-ENTITY +
+    FIELD ROUTING rules. Output interface identical to
+    _build_extraction_prompt — callers are otherwise unaffected.
+    """
+    # Build compact field catalog (same surface as legacy builder)
+    relevant_fields = {path: meta["label"] for path, meta in EXTRACTABLE_FIELDS.items()}
+    compact_catalog = ", ".join(f'"{p}"={m}' for p, m in relevant_fields.items())
+
+    # Detect topics from target path + section string
+    topics = _promptshrink_topics_for_target(current_target)
+    topics |= _promptshrink_topics_for_section(current_section)
+
+    # Cap: broad family topics can collect ~7-10 matches; cap at 8 examples
+    # after universal anchors are counted.
+    max_n = int(os.getenv("HORNELORE_PROMPTSHRINK_MAX_EXAMPLES", "8"))
+    fewshots = _promptshrink_select_fewshots(topics, max_examples=max_n)
+
+    logger.info(
+        "[extract][PROMPTSHRINK] topics=%s fewshots_count=%d target=%s section=%s",
+        sorted(topics) or "<none>",
+        len(fewshots),
+        current_target,
+        current_section,
+    )
+
+    system = (
+        _PROMPTSHRINK_PREAMBLE
+        + compact_catalog
+        + "\n"
+        + _PROMPTSHRINK_ROUTING_DISTINCTIONS
+        + "\n"
+        + "".join(fewshots)
+        + _PROMPTSHRINK_NEGATION_RULE
+        + _PROMPTSHRINK_SUBJECT_RULE
+        + _PROMPTSHRINK_SAME_ENTITY_RULE
+        + _PROMPTSHRINK_FIELD_ROUTING_RULES
+    )
+
+    context_note = ""
+    if current_section:
+        context_note += f"\nCurrent interview section: {current_section}"
+    if current_target:
+        context_note += f"\nPrimary question target: {current_target}"
+
+    user = (
+        f"Narrator's answer:{context_note}\n\n"
+        f"\"{answer}\"\n\n"
+        "Extract all facts as a JSON array:"
+    )
+
+    return system, user
+
+
+def _promptshrink_enabled() -> bool:
+    """Env-gated. Default OFF so rollback is a single var flip."""
+    return os.getenv("HORNELORE_PROMPTSHRINK", "0").lower() in ("1", "true", "yes", "on")
+
+
 def _is_compound_answer(answer: str) -> bool:
     """Detect whether a narrator answer contains multiple entities/facts.
 
@@ -840,7 +1397,12 @@ def _extract_via_singlepass(answer: str, current_section: Optional[str], current
     except ImportError:
         return [], None
 
-    system, user = _build_extraction_prompt(answer, current_section, current_target)
+    # WO-EX-PROMPTSHRINK-01: dispatch on env flag. Default OFF → legacy monolith.
+    # HORNELORE_PROMPTSHRINK=1 → topic-scoped prompt via _build_extraction_prompt_shrunk.
+    if _promptshrink_enabled():
+        system, user = _build_extraction_prompt_shrunk(answer, current_section, current_target)
+    else:
+        system, user = _build_extraction_prompt(answer, current_section, current_target)
     # FIX-3: Use a unique ephemeral conv_id for each extraction call to prevent
     # cross-narrator context contamination via shared session/RAG state.
     ephemeral_conv_id = f"_extract_{_uuid.uuid4().hex[:12]}"
