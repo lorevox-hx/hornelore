@@ -3207,7 +3207,64 @@ _DATE_MDY_RX   = re.compile(
     re.IGNORECASE,
 )
 
-_DATE_FIELD_SUFFIXES = frozenset({"birthDate", "deathDate", "marriageDate"})
+# LOOP-01 R4 Patch H follow-up (r4i / task #67): colloquial holiday-phrase
+# dates. Observed regression: case_011 extracted personal.dateOfBirth =
+# "Christmas Eve, 1939" which the MDY regex couldn't touch. Fixed-date
+# holidays only; variable feasts (Easter, Thanksgiving, Memorial Day,
+# Labor Day, Mother's/Father's Day) are intentionally excluded because
+# their date depends on the year and narrators rarely anchor birthdates
+# on them. Keys are lowercase, apostrophe-stripped — matching logic
+# normalises both inputs and keys the same way before lookup.
+_HOLIDAY_DATE_MAP = {
+    "new years eve":         ("12", "31"),
+    "new year s eve":        ("12", "31"),  # unicode right-quote → space
+    "new years day":         ("01", "01"),
+    "new years":             ("01", "01"),
+    "new year s day":        ("01", "01"),
+    "valentines day":        ("02", "14"),
+    "valentine s day":       ("02", "14"),
+    "st patricks day":       ("03", "17"),
+    "saint patricks day":    ("03", "17"),
+    "st patrick s day":      ("03", "17"),
+    "april fools day":       ("04", "01"),
+    "april fool s day":      ("04", "01"),
+    "april fools":           ("04", "01"),
+    "may day":               ("05", "01"),
+    "independence day":      ("07", "04"),
+    "fourth of july":        ("07", "04"),
+    "4th of july":           ("07", "04"),
+    "july fourth":           ("07", "04"),
+    "july 4th":              ("07", "04"),
+    "halloween":             ("10", "31"),
+    "all hallows eve":       ("10", "31"),
+    "veterans day":          ("11", "11"),
+    "armistice day":         ("11", "11"),
+    "christmas eve":         ("12", "24"),
+    "xmas eve":              ("12", "24"),
+    "christmas day":         ("12", "25"),
+    "christmas":             ("12", "25"),
+    "xmas":                  ("12", "25"),
+    "boxing day":            ("12", "26"),
+}
+
+# Match "<holiday-phrase>[, ]YYYY" — phrase captured liberally (letters,
+# digits, spaces, apostrophes, periods) so numeric-prefix variants like
+# "4th of July" and abbreviated variants like "St. Patrick's Day" both
+# match. Phrase is normalised in the handler before the map lookup, which
+# strips periods/punctuation, so surface variants collapse.
+_DATE_HOLIDAY_RX = re.compile(
+    r"\b([A-Za-z0-9][A-Za-z0-9'\u2019\s.]+?)[\s,]+(1[89]\d{2}|20[0-4]\d)\b",
+)
+
+# LOOP-01 R4 Patch H follow-up (r4i / task #67): schema-actual date field
+# suffixes. Previously only {birthDate, deathDate, marriageDate} — which
+# meant personal.dateOfBirth, personal.dateOfDeath, and family.dateOfMarriage
+# never hit the normaliser (suffix 'dateOfBirth' didn't match 'birthDate').
+# This was case_011's root cause.
+_DATE_FIELD_SUFFIXES = frozenset({
+    "birthDate", "deathDate", "marriageDate",
+    "dateOfBirth", "dateOfDeath", "dateOfMarriage",
+})
 
 
 def _normalize_birthorder_value(raw: str) -> str:
@@ -3220,13 +3277,29 @@ def _normalize_birthorder_value(raw: str) -> str:
     return _BIRTHORDER_CANON.get(norm, raw)
 
 
+def _normalize_holiday_phrase(phrase: str) -> str:
+    """Lowercase, strip punctuation / apostrophes, collapse whitespace.
+    Used to key into _HOLIDAY_DATE_MAP so surface variants like
+    "New Year's Eve", "New Years Eve", "NEW YEAR'S EVE." all collapse.
+    """
+    s = phrase.lower().strip()
+    # Replace apostrophes (straight + curly) and punctuation with spaces
+    s = re.sub(r"[\u2019'`.,;:\"!?()]", " ", s)
+    # Collapse whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 def _normalize_date_value(raw: str) -> str:
     """Best-effort ISO-ish date normalisation.
 
     Conservative: if the raw value already looks ISO (YYYY-MM-DD), keep it.
     If it matches "Month D, YYYY" or "Month Dth YYYY", convert to YYYY-MM-DD.
+    If it matches a known fixed-date holiday phrase followed by a year
+    (e.g. "Christmas Eve, 1939", "Fourth of July 1952"), convert to ISO.
     If it's just a year, return the year as-is. Otherwise return unchanged
-    (so unstructured prose still survives)."""
+    (so unstructured prose still survives).
+    """
     if not raw:
         return raw
     s = raw.strip().strip(".,;:\"'")
@@ -3241,6 +3314,28 @@ def _normalize_date_value(raw: str) -> str:
         if month:
             day = m.group(2).zfill(2)
             year = m.group(3)
+            return f"{year}-{month}-{day}"
+    # Holiday Phrase, Year — try after MDY (which is the precise format)
+    # and before year-only (which is the fallback). Use the longest-valid
+    # holiday key found within the phrase-match, so "Christmas Eve" wins
+    # over "Christmas" inside a string like "Christmas Eve, 1939".
+    m = _DATE_HOLIDAY_RX.search(s)
+    if m:
+        phrase_norm = _normalize_holiday_phrase(m.group(1))
+        year = m.group(2)
+        # Longest-prefix match: prefer "christmas eve" over "christmas",
+        # "new years eve" over "new years", etc.
+        best_key = None
+        for key in _HOLIDAY_DATE_MAP:
+            if key == phrase_norm or phrase_norm.endswith(" " + key) or phrase_norm.startswith(key + " ") or key in phrase_norm.split():
+                # Exact or substring-with-word-boundary; prefer longer keys
+                if best_key is None or len(key) > len(best_key):
+                    best_key = key
+        # Also permit exact-equality hit even if word-boundary heuristic misses
+        if best_key is None and phrase_norm in _HOLIDAY_DATE_MAP:
+            best_key = phrase_norm
+        if best_key is not None:
+            month, day = _HOLIDAY_DATE_MAP[best_key]
             return f"{year}-{month}-{day}"
     # Year only
     m = _DATE_YEAR_RX.search(s)

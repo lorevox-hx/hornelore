@@ -22,6 +22,8 @@ Output:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -1214,8 +1216,26 @@ def main():
     # Generate report
     report = generate_report(results, args.mode)
 
-    # Print summary FIRST — stdout survives even if file write crashes
-    print_summary(report)
+    # Print summary FIRST — stdout survives even if file write crashes.
+    # Also tee into an in-memory buffer so we can write a .console.txt
+    # companion file that doesn't depend on shell `2>&1 | tee` (which has
+    # silently failed under WSL pipe-buffering conditions — r4h's 0-byte
+    # console was the trigger for adding this).
+    _console_buffer = io.StringIO()
+    class _Tee(io.TextIOBase):
+        def __init__(self, *streams): self._streams = streams
+        def write(self, s):
+            for st in self._streams:
+                try: st.write(s)
+                except Exception: pass
+            return len(s)
+        def flush(self):
+            for st in self._streams:
+                try: st.flush()
+                except Exception: pass
+    _tee = _Tee(sys.stdout, _console_buffer)
+    with contextlib.redirect_stdout(_tee):
+        print_summary(report)
 
     # Write report — atomic temp-file-then-rename to prevent truncation
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1245,6 +1265,23 @@ def main():
         print(f"WARNING: Failed to write report to {output_path}: {e}",
               file=sys.stderr)
         print("  (Console summary above is still valid.)", file=sys.stderr)
+
+    # Write console companion (<output>.console.txt). This guarantees the
+    # human-readable summary survives even if `| tee` is dropped or stdout
+    # pipe-buffers silently. Always-on, no flag needed.
+    try:
+        console_path = output_path.with_suffix("")  # strip .json
+        console_path = console_path.with_suffix(".console.txt")
+        # If --output didn't end with .json, just append .console.txt
+        if console_path == output_path:
+            console_path = Path(str(output_path) + ".console.txt")
+        console_path.write_text(
+            _console_buffer.getvalue(), encoding="utf-8"
+        )
+        print(f"Console summary written to {console_path}", file=sys.stderr)
+    except Exception as e:
+        print(f"WARNING: Failed to write console summary: {e}",
+              file=sys.stderr)
 
     # Exit code: 0 if all expected-to-pass cases pass, 1 otherwise
     exp = report["expected_extractor_results"]["should_pass"]

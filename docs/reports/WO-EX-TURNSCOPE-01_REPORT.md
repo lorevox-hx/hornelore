@@ -332,3 +332,45 @@ grep "\[extract\]\[turnscope\]" .runtime/logs/api.log | tail -40
 - Clean pass (≥55/104, case_094+060+062 all green) → mark #72 done, run wobble r4h2 (#78), then #67.
 - Partial (one of 060/062 still fails) → grep turnscope log for that case_id; if filter misfire, restrict to `len(allowed_roots) == 1` (single-branch follow-ups only) as the conservative fallback.
 - Regression (anything new below r4f-pass set besides known open cases) → revert both filter call sites; keep the filter function in place for future R6.
+
+---
+
+## r4h result (2026-04-19) — WO closed
+
+**Headline:** target hit, gate passed, WO closed. Topline did NOT lift; net-master movement now has to come from #67 / #68 / #81, not further turn-scope iteration.
+
+| Metric | r4f | r4g | r4h | Gate |
+|---|---|---|---|---|
+| Pass | 54/104 | 53/104 | 53/104 | flat (tolerated) |
+| v3 subset | 34/62 | 32/62 | 32/62 | flat (tolerated) |
+| v2 subset | 31/62 | 30/62 | 29/62 | flat (tolerated) |
+| follow_up | n/a | 7/8 | 7/8 | preserved ✓ |
+| must_not_write | 0.6% | 0.0% | **0.0%** | preserved ✓ |
+| case_094 | fail | pass 0.80 | **pass 0.80** | preserved ✓ |
+| case_060 | pass 1.00 | fail 0.67 | **pass 1.00** | restored ✓ |
+| case_062 | pass 1.00 | fail 0.33 | **pass 1.00** | restored ✓ |
+
+### Two newly-failing cases (case_012, case_020) — rejected as turnscope side-effects
+
+| Case | r4g | r4h | Field delta |
+|---|---|---|---|
+| case_012 | pass 1.00 | fail 0.50 | `family.marriageDate`: `'1959-10-10'` → `None` |
+| case_020 | pass 1.00 | fail 0.00 | `education.earlyCareer`: `'working construction'` → `None` |
+
+Both cases have `extractPriority=None`. Per the eval harness, `current_target_path` and `current_target_paths` therefore both arrive at the API as `None`. Per `_apply_turn_scope_filter` (extract.py:2906–2972), when both inputs are None the `candidates` list is empty and the filter returns `items` unchanged at line 2944. **The filter is verifiably no-op for these two cases**, so the regressions cannot be turnscope-caused.
+
+The remaining causal hypothesis is local-LLM stochasticity: small-sample noise on scalar field emission. Recommend flagging both for the scorer-drift audit (#63) and for the r4i comparison; do not iterate the filter for these.
+
+### case_053 sidebar (relevant to #68)
+
+r4h picked up `siblings.firstName='Christine'` where r4g had `None`. Score still 0.00 (expected `parents.firstName=Kent`), but the LLM now emits the correct character — confirming the failure mode is wrong-entity routing (OTS/entity-binding bias), which is R5 architectural work, not an R4 tactical patch. #68 disposition: defer.
+
+### Closeout disposition
+
+- #72 / WO-EX-TURNSCOPE-01: **CLOSED**. Local fix that solved the intended regression pair (case_094 must_not_write + 060/062 children-branch drops) and preserved follow-up safety. Did not improve the master-suite topline. Use r4h as the post-#72 baseline.
+- #78 (r4h wobble check r4h2): **OPTIONAL**. Causal analysis already excludes the filter for case_012/020. Skip unless the scorer-drift audit needs an empirical control.
+- Next: land #67 (holiday-date normaliser, already staged; eval as r4i).
+
+### Eval-script fix landed alongside r4h closeout
+
+r4h's `master_loop01_r4h.console.txt` was 0 bytes — the shell `2>&1 | tee ...` redirect silently dropped output (suspected WSL pipe-buffer race). Eval script (`scripts/run_question_bank_extraction_eval.py`) now auto-writes the console summary to `<output>.console.txt` next to the JSON, regardless of shell redirect. CLAUDE.md eval block updated to drop the `| tee`.
