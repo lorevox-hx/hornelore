@@ -79,3 +79,25 @@ def twopass_extract_enabled() -> bool:
     instead of single-pass LLM extraction. Falls back to single-pass on
     pass 1 failure. Default OFF."""
     return _truthy(os.environ.get("HORNELORE_TWOPASS_EXTRACT"))
+
+
+def spantag_enabled() -> bool:
+    """WO-EX-SPANTAG-01. When True, /api/extract-fields uses the two-pass
+    SPANTAG extraction pipeline: Pass 1 emits a schema-blind NL tag
+    inventory of evidence spans; Pass 2 binds those tags to canonical
+    fieldPaths using section / target_path / era / pass / mode as explicit
+    controlled priors (not implicit forces). Falls back to single-pass on
+    any parse failure. Default OFF.
+
+    SPANTAG supersedes the earlier single-pass stub (#87) and runs in
+    parallel with TWOPASS during the migration — once SPANTAG ships
+    default-on, TWOPASS is retired.
+
+    Ship gate (per WO-EX-SPANTAG-01 §Acceptance):
+      - v3 contract ≥ 34/62, v2 contract ≥ 31/62, must_not_write = 0.0%
+      - ≥ 3 of 4 dual-answer-defensible cases (008/009/018/082) stable_pass
+      - Fallback rate ≤ 5% on the 104-case master
+      - p95 latency ≤ 1.8× r4i
+      - sourceSpan coverage ≥ 80% of emitted writes
+    """
+    return _truthy(os.environ.get("HORNELORE_SPANTAG"))

@@ -2329,6 +2329,430 @@ def _extract_via_twopass(answer: str, current_section: Optional[str],
     return all_items, raw_combined
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# WO-EX-SPANTAG-01 — Two-pass span-tag extraction (evidence + bind)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Commit 1 — Pass 1 scaffold ONLY. Not wired to any call site. Flag off.
+#
+# Pass 1: schema-blind NL-tag inventory of evidence spans. The LLM sees the
+#   narrator reply plus a 10-tag natural-language inventory; it emits a JSON
+#   array of {id, type, text, start, end, polarity}. No schema leakage,
+#   no dotted fieldPaths.
+#
+# Pass 2 (Commit 2): bind Pass 1 tags → canonical fieldPaths using
+#   section/target_path/era/pass/mode as explicit controlled priors. Not
+#   included in this commit.
+#
+# Pipeline wiring (Commit 3): _extract_via_spantag = Pass 1 → Pass 2 →
+#   down-project to legacy shape. Falls back to single-pass on parse failure.
+#
+# See WO-EX-SPANTAG-01_Spec.md for the full design.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+# Ten NL-named tag types — deliberately schema-blind. Stable order in the
+# prompt: the LLM sees them in this sequence and emits tags tagged with
+# these exact strings (no synonyms, no dotted paths).
+_SPANTAG_TAG_TYPES: tuple[str, ...] = (
+    "person",
+    "relation_cue",
+    "date_text",
+    "place",
+    "organization",
+    "role_or_job",
+    "event_phrase",
+    "object",
+    "uncertainty_cue",
+    "quantity_or_ordinal",
+)
+
+# Three polarity values. Absence defaults to 'asserted' in the parser.
+_SPANTAG_POLARITY_VALUES: frozenset[str] = frozenset({
+    "asserted", "negated", "hypothetical",
+})
+
+
+def _build_spantag_pass1_prompt(
+    answer: str,
+    current_section: Optional[str] = None,
+    current_target_path: Optional[str] = None,
+) -> tuple[str, str]:
+    """WO-EX-SPANTAG-01 Pass 1 prompt builder.
+
+    Returns (system, user) strings for the schema-blind span-tagger. The
+    prompt deliberately does NOT mention fieldPaths, schema names, or
+    the canonical catalog. Its only job is evidence inventory.
+
+    current_section and current_target_path are passed for future-proofing
+    (Pass 2 will consume them as controlled priors) but are intentionally
+    NOT referenced in the Pass 1 prompt — Pass 1 must stay schema-blind to
+    avoid the section-conditioned coercion the WO is designed to prevent.
+
+    Output contract: the LLM must emit a single JSON object of the form
+        {"tags": [ {"id":"t0","type":"person","text":"...","start":10,"end":25,"polarity":"asserted"}, ... ]}
+
+    Offsets are character offsets into the narrator reply. The parser
+    (_parse_spantag_pass1 + _relocate_spans) tolerates drift — if the LLM
+    returns wrong offsets, the parser re-locates by substring search.
+    """
+    # Parameters carried through the signature are reserved for the Pass 2
+    # controlled-prior path in Commit 2. Reference them here so static
+    # linters don't strip the kwargs from the signature.
+    _ = current_section
+    _ = current_target_path
+
+    tag_list = "\n".join(
+        f"  - {t}: {desc}"
+        for t, desc in (
+            ("person", "any named or role-referenced human, including the narrator"),
+            ("relation_cue", "verbs or nouns binding two persons (e.g. married, son of, my sister, adopted)"),
+            ("date_text", "anything reading as a date, date range, holiday, year, age, or imprecise time phrase"),
+            ("place", "towns, addresses, regions, named buildings/farms"),
+            ("organization", "churches, companies, schools, military units, clubs"),
+            ("role_or_job", "occupations, titles, duties (e.g. pastor, homemaker, sergeant)"),
+            ("event_phrase", "bounded real-world events (e.g. the wedding, the fire, when we moved)"),
+            ("object", "physically specific objects that anchor a claim (e.g. the red tractor)"),
+            ("uncertainty_cue", "narrator hedges (e.g. I think, maybe, around, I'm not sure but)"),
+            ("quantity_or_ordinal", "numerals or ordinals carrying meaning (e.g. three kids, the second wife, nineteen)"),
+        )
+    )
+
+    system = (
+        "You are an evidence tagger for oral-history transcripts. Read the "
+        "narrator's answer and emit every factual span that could become "
+        "evidence for a downstream schema-binding step.\n"
+        "\n"
+        "Do NOT try to guess field names, dotted paths, or any database schema. "
+        "Your job is evidence inventory only.\n"
+        "\n"
+        "Output a single JSON object of the form:\n"
+        "  {\"tags\": [\n"
+        "    {\"id\":\"t0\", \"type\":\"<one of the 10 types>\", "
+        "\"text\":\"<exact substring>\", \"start\":<int>, \"end\":<int>, "
+        "\"polarity\":\"asserted|negated|hypothetical\"}\n"
+        "  ]}\n"
+        "\n"
+        "Rules:\n"
+        "  - \"start\" and \"end\" are character offsets into the narrator's "
+        "answer. Keep them faithful; if uncertain, quote the exact substring "
+        "in \"text\" and a downstream parser will re-locate it.\n"
+        "  - Default polarity is \"asserted\". Use \"negated\" when the narrator "
+        "explicitly denies the claim (\"we never went to church\"). Use "
+        "\"hypothetical\" when the narrator speculates (\"if I had gone\").\n"
+        "  - IDs are sequential strings: t0, t1, t2, ... Keep them unique.\n"
+        "  - Emit only spans that a human would agree are present in the text. "
+        "Do not invent. Do not expand abbreviations. Do not resolve references.\n"
+        "  - If nothing is taggable, emit {\"tags\": []}.\n"
+        "\n"
+        "Tag types (use these exact names, nothing else):\n"
+        f"{tag_list}\n"
+    )
+
+    user = (
+        "Narrator answer:\n"
+        f"{answer}\n"
+        "\n"
+        "Emit the JSON object now."
+    )
+
+    return system, user
+
+
+def _parse_spantag_pass1(raw: str, answer_text: str) -> List[Dict[str, Any]]:
+    """WO-EX-SPANTAG-01 Pass 1 parser.
+
+    Tolerant parser for the Pass 1 JSON output. Handles:
+      - well-formed JSON with a top-level {"tags": [...]} object
+      - JSON with trailing prose / commentary after the object
+      - malformed JSON where we can recover a "tags": [...] array by regex
+      - missing polarity field (defaults to 'asserted')
+      - unknown polarity value (defaults to 'asserted', logged)
+      - unknown tag type (dropped, logged)
+      - duplicate IDs (second occurrence dropped, logged)
+      - offset drift (delegated to _relocate_spans for substring correction)
+
+    Returns a list of tag dicts with keys:
+      id (str), type (str), text (str), start (int), end (int), polarity (str)
+
+    Returns [] on catastrophic parse failure (logged as [extract][spantag]
+    [pass1][parse_fail]).
+    """
+    if not raw or not raw.strip():
+        logger.warning("[extract][spantag][pass1][parse_fail] empty raw output")
+        return []
+
+    parsed: Optional[Dict[str, Any]] = None
+
+    # Strategy 1: the LLM emitted clean JSON (possibly with leading/trailing
+    # whitespace or a ```json fence). Strip fences and try json.loads.
+    candidate = raw.strip()
+    # Strip ```json ... ``` fences if present.
+    if candidate.startswith("```"):
+        # Drop the opening fence line.
+        lines = candidate.split("\n", 1)
+        candidate = lines[1] if len(lines) > 1 else ""
+        # Drop a trailing ``` if present.
+        if "```" in candidate:
+            candidate = candidate.rsplit("```", 1)[0]
+        candidate = candidate.strip()
+
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        parsed = None
+
+    # Strategy 2: the JSON was embedded in prose. Find the first balanced
+    # top-level object that contains a "tags" key.
+    if parsed is None:
+        parsed = _spantag_extract_balanced_object(candidate)
+
+    # Strategy 3: permissive regex — pull the tags array out by pattern.
+    # Used when both JSON parsers failed but there's clearly an intended
+    # array in the output (Llama sometimes drops trailing braces).
+    if parsed is None:
+        recovered = _spantag_regex_recover_tags(raw)
+        if recovered is not None:
+            parsed = {"tags": recovered}
+
+    if parsed is None:
+        logger.warning(
+            "[extract][spantag][pass1][parse_fail] could not recover JSON (%d chars): %.200s",
+            len(raw), raw,
+        )
+        return []
+
+    if not isinstance(parsed, dict):
+        logger.warning(
+            "[extract][spantag][pass1][parse_fail] parsed output is %s, expected dict",
+            type(parsed).__name__,
+        )
+        return []
+
+    tags_raw = parsed.get("tags")
+    if tags_raw is None:
+        logger.warning("[extract][spantag][pass1][parse_fail] no 'tags' key in output")
+        return []
+    if not isinstance(tags_raw, list):
+        logger.warning(
+            "[extract][spantag][pass1][parse_fail] 'tags' is %s, expected list",
+            type(tags_raw).__name__,
+        )
+        return []
+
+    # Normalize each tag: enforce shape, default polarity, drop orphans.
+    seen_ids: set[str] = set()
+    normalized: List[Dict[str, Any]] = []
+
+    for idx, raw_tag in enumerate(tags_raw):
+        if not isinstance(raw_tag, dict):
+            logger.info(
+                "[extract][spantag][pass1] tag %d not a dict (%s), dropped",
+                idx, type(raw_tag).__name__,
+            )
+            continue
+
+        tag_id = str(raw_tag.get("id") or f"t{idx}")
+        tag_type = raw_tag.get("type")
+        tag_text = raw_tag.get("text")
+
+        if tag_type not in _SPANTAG_TAG_TYPES:
+            logger.info(
+                "[extract][spantag][pass1] tag %s unknown type %r, dropped",
+                tag_id, tag_type,
+            )
+            continue
+
+        if not isinstance(tag_text, str) or not tag_text.strip():
+            logger.info(
+                "[extract][spantag][pass1] tag %s empty or non-string text, dropped",
+                tag_id,
+            )
+            continue
+
+        if tag_id in seen_ids:
+            logger.info(
+                "[extract][spantag][pass1] tag %s duplicate id, dropped",
+                tag_id,
+            )
+            continue
+        seen_ids.add(tag_id)
+
+        # Polarity: default 'asserted' when absent or unrecognized.
+        polarity = raw_tag.get("polarity", "asserted")
+        if polarity not in _SPANTAG_POLARITY_VALUES:
+            logger.info(
+                "[extract][spantag][pass1] tag %s unknown polarity %r, defaulting to 'asserted'",
+                tag_id, polarity,
+            )
+            polarity = "asserted"
+
+        # Offsets: coerce to int; if non-coercible, leave as None and let
+        # _relocate_spans fill them in from the substring.
+        def _coerce_int(val: Any) -> Optional[int]:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return None
+
+        start = _coerce_int(raw_tag.get("start"))
+        end = _coerce_int(raw_tag.get("end"))
+
+        normalized.append({
+            "id": tag_id,
+            "type": tag_type,
+            "text": tag_text,
+            "start": start,
+            "end": end,
+            "polarity": polarity,
+        })
+
+    # Re-locate offsets via substring search; drops orphans whose text is
+    # not present in answer_text.
+    relocated = _relocate_spans(normalized, answer_text)
+
+    logger.info(
+        "[extract][spantag][pass1] parsed %d tags (from %d raw, answer_len=%d)",
+        len(relocated), len(tags_raw), len(answer_text),
+    )
+    return relocated
+
+
+def _spantag_extract_balanced_object(text: str) -> Optional[Dict[str, Any]]:
+    """Scan text for the first balanced {...} object that parses as JSON
+    and contains a 'tags' key. Used when the LLM wraps the JSON in prose.
+
+    Returns the parsed dict on success, None on failure.
+    """
+    # Find every '{' as a candidate start, then brace-match to the end.
+    for start_idx in range(len(text)):
+        if text[start_idx] != "{":
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start_idx, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start_idx:i + 1]
+                    try:
+                        obj = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break  # try next start position
+                    if isinstance(obj, dict) and "tags" in obj:
+                        return obj
+                    break
+        # fall through — try the next '{' position
+    return None
+
+
+_SPANTAG_TAGS_ARRAY_RE = re.compile(
+    r'"tags"\s*:\s*(\[.*?\])',
+    re.DOTALL,
+)
+
+
+def _spantag_regex_recover_tags(text: str) -> Optional[List[Dict[str, Any]]]:
+    """Last-resort recovery: regex-grab the tags array when the containing
+    object is malformed. Returns None if nothing recoverable.
+
+    This is tolerant of missing trailing braces but will still fail if the
+    array itself is truncated mid-element.
+    """
+    match = _SPANTAG_TAGS_ARRAY_RE.search(text)
+    if not match:
+        return None
+    array_text = match.group(1)
+    try:
+        arr = json.loads(array_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(arr, list):
+        return None
+    return arr
+
+
+def _relocate_spans(
+    spans: List[Dict[str, Any]],
+    answer_text: str,
+) -> List[Dict[str, Any]]:
+    """WO-EX-SPANTAG-01: substring-invariant parser discipline.
+
+    For each span, verify that answer_text[start:end] == text. If not,
+    relocate by case-sensitive substring search (first occurrence) and
+    correct the offsets. If the text is not in answer_text at all, the
+    span is an orphan — drop it and log.
+
+    This is the defense against Llama offset drift documented in the
+    WO risk section. The LLM often emits approximately-correct text with
+    incorrect offsets; relocation salvages those.
+    """
+    if not answer_text:
+        # No answer text to locate against — everything is orphan.
+        for span in spans:
+            logger.info(
+                "[extract][spantag][pass1][drop_orphan_tag] id=%s text=%.60r reason=empty_answer",
+                span.get("id"), span.get("text"),
+            )
+        return []
+
+    relocated: List[Dict[str, Any]] = []
+    for span in spans:
+        text = span["text"]
+        start = span.get("start")
+        end = span.get("end")
+
+        # Fast path: the offsets claim a range and the substring matches.
+        if (
+            isinstance(start, int) and isinstance(end, int)
+            and 0 <= start < end <= len(answer_text)
+            and answer_text[start:end] == text
+        ):
+            relocated.append(span)
+            continue
+
+        # Slow path: substring-search the text.
+        idx = answer_text.find(text)
+        if idx == -1:
+            logger.info(
+                "[extract][spantag][pass1][drop_orphan_tag] id=%s text=%.60r reason=not_in_answer",
+                span["id"], text,
+            )
+            continue
+
+        corrected = dict(span)
+        corrected["start"] = idx
+        corrected["end"] = idx + len(text)
+        if start != idx or end != idx + len(text):
+            logger.info(
+                "[extract][spantag][pass1] id=%s offset drift corrected: claimed=(%s,%s) actual=(%d,%d)",
+                span["id"], start, end, corrected["start"], corrected["end"],
+            )
+        relocated.append(corrected)
+
+    return relocated
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# End WO-EX-SPANTAG-01 Commit 1 block
+# ══════════════════════════════════════════════════════════════════════════════
+
+
 def _salvage_truncated_array(raw: str) -> List[dict]:
     """Recover complete top-level {...} objects from a truncated JSON array.
 
