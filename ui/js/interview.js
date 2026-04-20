@@ -1218,12 +1218,20 @@ function _extractAndProjectMultiField(answerText, turnId) {
   var allItems = [];
   var extractMethod = "";
   var chunkPromises = chunks.map(function (chunk, ci) {
+    // WO-EX-SECTION-EFFECT-01 Phase 2 (#93): thread life-map stage
+    // (era/pass/mode) from session state into the extraction payload.
+    // Pure plumbing — backend only logs these at INFO. Reads from the
+    // same state.session fields the runtime71 composer uses.
+    var _sess = (state && state.session) || {};
     var payload = {
       person_id: state.person_id,
       session_id: state.interview.session_id || null,
       answer: chunk,
       current_section: targetSection || null,
-      current_target_path: targetPath || null
+      current_target_path: targetPath || null,
+      current_era:  _sess.currentEra  || null,
+      current_pass: _sess.currentPass || null,
+      current_mode: _sess.currentMode || null
     };
     return fetch((window.LOREVOX_API || "http://localhost:8000") + "/api/extract-fields", {
       method: "POST",

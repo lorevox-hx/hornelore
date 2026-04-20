@@ -510,6 +510,16 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
         narrator_reply = case.get("narratorReply") or case.get("answer", "")
         extract_prio = case.get("extractPriority") or case.get("extract_priority")
 
+        # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): synthesize life-map stage
+        # context so the payload round-trips era/pass/mode. Era is derived
+        # from the case's phase via _phase_to_era. Pass/mode default to
+        # pass1/open (state.js defaults) unless the case file overrides.
+        # Cases may opt in by setting top-level "currentPass" / "currentMode"
+        # — no current case does, but the pass-through is ready for Phase 3.
+        _case_era  = case.get("currentEra")  or _phase_to_era(case.get("phase", ""))
+        _case_pass = case.get("currentPass") or "pass1"
+        _case_mode = case.get("currentMode") or "open"
+
         payload = {
             "person_id": person_id,
             "session_id": f"eval_{case['id']}",
@@ -522,6 +532,10 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
             # case_060 (spouse + children) lose the non-[0] branches.
             "current_target_paths": list(extract_prio) if extract_prio else None,
             "current_phase": _phase_to_spine_phase(case.get("phase", "")),
+            # WO-EX-SECTION-EFFECT-01 Phase 2 (#93).
+            "current_era":  _case_era,
+            "current_pass": _case_pass,
+            "current_mode": _case_mode,
         }
 
         try:
@@ -598,6 +612,29 @@ def _phase_to_spine_phase(phase_key: str) -> Optional[str]:
         "early_adulthood": "post_school",
         "midlife": "post_school",
         "legacy_reflection": "post_school",
+    }
+    return mapping.get(phase_key)
+
+
+def _phase_to_era(phase_key: str) -> Optional[str]:
+    """Map question_bank phase key to a life-map currentEra label.
+
+    WO-EX-SECTION-EFFECT-01 Phase 2 (#93). Synthesized stage context so
+    the eval round-trips era/pass/mode into the extraction payload and
+    logs — the causal matrix in Phase 3 consumes these lines.
+
+    Life-map era taxonomy (ui/js/life-map.js): early_childhood /
+    school_years / adolescence / early_adulthood / midlife / later_life.
+    """
+    mapping = {
+        "childhood_origins":        "early_childhood",
+        "developmental_foundations": "school_years",
+        "transitional_adolescence": "adolescence",
+        "early_adulthood":          "early_adulthood",
+        "middle_adulthood":         "midlife",
+        "midlife":                  "midlife",
+        "later_adulthood":          "later_life",
+        "legacy_reflection":        "later_life",
     }
     return mapping.get(phase_key)
 

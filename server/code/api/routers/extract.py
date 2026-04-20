@@ -53,6 +53,18 @@ class ExtractFieldsRequest(BaseModel):
     # "pre_school" | "elementary" | "middle" | "high_school" | "post_school"
     current_phase: Optional[str] = None
 
+    # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): life-map stage context
+    # threaded from interview runtime into the extraction payload.
+    # Pure plumbing — logged at INFO via the existing [extract] lines
+    # so Phase 3 causal-matrix work can attribute outcome to stage.
+    # No extractor-behavior change. Valid value spaces per ui/js/state.js:
+    #   current_pass : "pass1" | "pass2a" | "pass2b"
+    #   current_era  : "early_childhood" | "school_years" | ... | None
+    #   current_mode : "open" | "recognition" | "grounding" | "light" | "alongside"
+    current_era: Optional[str] = None
+    current_pass: Optional[str] = None
+    current_mode: Optional[str] = None
+
 
 class ExtractedItem(BaseModel):
     fieldPath: str
@@ -5021,9 +5033,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         return ExtractFieldsResponse(items=[], method="fallback")
 
     # Try LLM extraction first
-    logger.info("[extract] Attempting LLM extraction for person=%s, section=%s, target=%s",
+    # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): log life-map stage fields
+    # (era/pass/mode) alongside section/target so the causal-matrix
+    # analysis can attribute outcomes to stage context.
+    logger.info("[extract] Attempting LLM extraction for person=%s, section=%s, target=%s, era=%s, pass=%s, mode=%s",
                 req.person_id[:8] if req.person_id else "?",
-                req.current_section, req.current_target_path)
+                req.current_section, req.current_target_path,
+                req.current_era or "?", req.current_pass or "?", req.current_mode or "?")
     llm_items, raw_output = _extract_via_llm(
         answer=answer,
         current_section=req.current_section,
@@ -5079,8 +5095,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         _method = "twopass_rules" if _is_twopass_rules_only else "twopass"
     else:
         _method = "llm" if llm_items else ("rules-fallback" if raw_output else "no-llm")
-    logger.info("[extract][summary] llm_raw=%s accepted=%d method=%s",
-                "present" if raw_output else "none", _accepted, _method)
+    # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): summary also carries
+    # era/pass/mode so a single grep over [extract][summary] yields
+    # every stage variable for post-hoc causal attribution.
+    logger.info("[extract][summary] llm_raw=%s accepted=%d method=%s section=%s target=%s era=%s pass=%s mode=%s",
+                "present" if raw_output else "none", _accepted, _method,
+                req.current_section or "?", req.current_target_path or "?",
+                req.current_era or "?", req.current_pass or "?", req.current_mode or "?")
 
     # Phase G: Load protected identity snapshot for conflict detection
     _protected_snapshot = {}
