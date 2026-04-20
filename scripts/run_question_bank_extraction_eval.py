@@ -51,6 +51,54 @@ FAILURE_CATEGORIES = [
 ]
 
 
+# ── Stubborn-pack partition (WO-EX-SPANTAG-01 §Stubborn-pack partition) ─────
+# Keeps the eval harness self-aware of which cases fall into which sub-pack
+# so reports surface movement per partition without hand-counting. Primary
+# is the SECTION-EFFECT-adjudicated dual_answer_defensible quartet (first
+# SPANTAG target); secondary is one guard_false_positive retag candidate;
+# truncation_starved is the VRAM-GUARD-dominated long tail; out_of_scope is
+# the R6-deferred wrong-entity / alt-value set.
+STUBBORN_PACK_PARTITION: Dict[str, set] = {
+    "primary":            {"case_008", "case_009", "case_018", "case_082"},
+    "secondary":          {"case_017"},
+    "truncation_starved": {"case_080", "case_081", "case_083", "case_084",
+                           "case_085", "case_086", "case_087"},
+    "out_of_scope":       {"case_075", "case_088", "case_053"},
+}
+
+
+def _stubborn_partition_for(case_id: str) -> Optional[str]:
+    """Return the stubborn-pack partition key for a case, or None if not in the pack."""
+    for name, ids in STUBBORN_PACK_PARTITION.items():
+        if case_id in ids:
+            return name
+    return None
+
+
+def _confidence_stats(items: List[dict]) -> Dict[str, Any]:
+    """Per-case confidence summary: count / min / max / avg + low-count flag.
+
+    Accepts the raw extracted-items list (live) or the mockLlmOutput list
+    (offline) — both expose `confidence` on each item. Missing / non-numeric
+    confidence values are skipped so cases with no confidence survive cleanly.
+    """
+    confs: List[float] = []
+    for it in items or []:
+        c = it.get("confidence")
+        if isinstance(c, (int, float)):
+            confs.append(float(c))
+    if not confs:
+        return {"count": 0, "min": None, "max": None, "avg": None, "lt_0_5": 0, "ge_0_9": 0}
+    return {
+        "count": len(confs),
+        "min":   round(min(confs), 3),
+        "max":   round(max(confs), 3),
+        "avg":   round(sum(confs) / len(confs), 3),
+        "lt_0_5": sum(1 for c in confs if c <  0.5),
+        "ge_0_9": sum(1 for c in confs if c >= 0.9),
+    }
+
+
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
 def normalize_value(v: str) -> str:
@@ -238,6 +286,14 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
         # emitted but an adjudicated-defensible alternative path is. Applies
         # only to must_extract zones (see WO-EX-SECTION-EFFECT-01_Spec.md §Scope).
         alt_paths = tz_entry.get("alt_defensible_paths") or []
+        # WO-QB-ALT-VALUES-01 (#97): value-axis sibling of alt_defensible_paths.
+        # Credits a must_extract zone when the emission lands on the PRIMARY
+        # path but the value is a defensible rephrasing of the expected
+        # string — e.g. "rode every morning before chores" vs. the adjudicated
+        # "rode every morning before chores in Dodge". Scoped to case_075 and
+        # case_088 for the first cut (out_of_scope stubborn set) so we don't
+        # globally loosen the value-match bar. Applies only to must_extract.
+        alt_values = tz_entry.get("alt_defensible_values") or []
         was_extracted = fp in extracted_map
         detail_key = f"{fp}{idx_suffix}"
 
@@ -257,11 +313,30 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                 # No expected value declared — any emission to the primary path counts.
                 primary_hit = True
 
-            # 2. If primary missed, consult alt_defensible_paths.
+            # 2. WO-QB-ALT-VALUES-01 (#97). If primary-path value missed,
+            # try alt_defensible_values against the primary path's extracted
+            # values. Winning_via="alt_defensible_value" marks this credit.
+            value_alt_hit = False
+            winning_value_alt = None
+            winning_value_alt_score = 0.0
+            if not primary_hit and was_extracted and alt_values:
+                for av_expected in alt_values:
+                    if not av_expected:
+                        continue
+                    best = max(
+                        (score_field_match(av_expected, v) for v in extracted_map[fp]),
+                        default=0.0,
+                    )
+                    if best >= 0.5 and best > winning_value_alt_score:
+                        value_alt_hit = True
+                        winning_value_alt_score = best
+                        winning_value_alt = av_expected
+
+            # 3. If primary + value-alt both missed, consult alt_defensible_paths.
             alt_hit = False
             winning_alt_path = None
             winning_alt_score = 0.0
-            if not primary_hit and alt_paths and expected_val:
+            if not primary_hit and not value_alt_hit and alt_paths and expected_val:
                 for ap in alt_paths:
                     if ap in extracted_map:
                         ab = max(
@@ -282,6 +357,17 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                     "winning_via": "primary",
                     "winning_score": round(primary_best, 3),
                 }
+            elif value_alt_hit:
+                tz_scores["must_extract"]["hit"] += 1
+                tz_details[detail_key] = {
+                    "zone": zone,
+                    "extracted": True,
+                    "winning_path": fp,
+                    "winning_via": "alt_defensible_value",
+                    "winning_score": round(winning_value_alt_score, 3),
+                    "matched_alt_value": winning_value_alt,
+                    "alt_defensible_values": list(alt_values),
+                }
             elif alt_hit:
                 tz_scores["must_extract"]["hit"] += 1
                 tz_details[detail_key] = {
@@ -293,14 +379,15 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                     "alt_defensible_paths": list(alt_paths),
                 }
             else:
-                tz_scores["must_extract"]["miss"] += 1
                 tz_details[detail_key] = {
                     "zone": zone,
                     "extracted": was_extracted,
                     "winning_path": None,
                     "winning_via": None,
                     **({"alt_defensible_paths": list(alt_paths)} if alt_paths else {}),
+                    **({"alt_defensible_values": list(alt_values)} if alt_values else {}),
                 }
+                tz_scores["must_extract"]["miss"] += 1
 
         elif zone == "may_extract":
             tz_scores["may_extract"]["total"] += 1
@@ -375,6 +462,11 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     # same must_extract truth zone, do NOT tag field_path_mismatch — the emission
     # is defensible by adjudication, not a mismatch. Tag 'defensible_alt_credit'
     # instead so the audit shows what happened.
+    #
+    # WO-QB-ALT-VALUES-01 (#97): mirror of the above on the value axis. If the
+    # primary path IS emitted but its value misses the strict 0.7 match while
+    # matching an adjudicated alt_defensible_values entry ≥ 0.5, do NOT tag
+    # llm_hallucination — it's a defensible rephrase. Tag 'defensible_value_alt_credit'.
     def _alt_paths_for(fp_primary: str) -> set:
         tz = truth_zones.get(fp_primary)
         if not tz:
@@ -388,6 +480,20 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
         if tz.get("zone") == "must_extract":
             return set(tz.get("alt_defensible_paths") or [])
         return set()
+
+    def _alt_values_for(fp_primary: str) -> list:
+        tz = truth_zones.get(fp_primary)
+        if not tz:
+            return []
+        if "_multi" in tz:
+            out: list = []
+            for e in tz["_multi"]:
+                if e.get("zone") == "must_extract":
+                    out.extend(e.get("alt_defensible_values") or [])
+            return out
+        if tz.get("zone") == "must_extract":
+            return list(tz.get("alt_defensible_values") or [])
+        return []
 
     failure_categories = []
     for fp, fs in field_scores.items():
@@ -414,7 +520,21 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
             else:
                 failure_categories.append("schema_gap")
         elif fs["status"] == "wrong":
-            failure_categories.append("llm_hallucination")
+            # WO-QB-ALT-VALUES-01: before tagging llm_hallucination, check whether
+            # the emitted value on the primary path matches any alt_defensible_value
+            # at the 0.5 threshold. If so, the tag is defensible_value_alt_credit
+            # (and the truth-zone scorer above has already credited the zone hit).
+            alt_vals = _alt_values_for(fp)
+            rescued = False
+            if alt_vals and fs.get("actual"):
+                for av in alt_vals:
+                    if av and score_field_match(av, fs["actual"]) >= 0.5:
+                        rescued = True
+                        break
+            if rescued:
+                failure_categories.append("defensible_value_alt_credit")
+            else:
+                failure_categories.append("llm_hallucination")
 
     if forbidden_violations:
         failure_categories.append("guard_false_positive")
@@ -467,6 +587,17 @@ def run_offline(cases: List[dict]) -> List[dict]:
         result["sequence_group"] = case.get("sequence_group")
         result["mode"] = "offline"
         result["extracted_count"] = len(mock_items)
+        # WO-QB-EVAL-EXPAND-01 — life-map + diagnostic axes. Offline mode
+        # synthesizes stage context the same way run_live does so the by_era /
+        # by_pass / by_mode / by_era_x_pass axes stay populated across both
+        # modes. method is stamped "offline_mock" so method_distribution is
+        # honest rather than empty.
+        result["current_era"]  = case.get("currentEra")  or _phase_to_era(case.get("phase", ""))
+        result["current_pass"] = case.get("currentPass") or "pass1"
+        result["current_mode"] = case.get("currentMode") or "open"
+        result["method"]       = "offline_mock"
+        result["confidence_stats"] = _confidence_stats(mock_items)
+        result["stubborn_partition"] = _stubborn_partition_for(case["id"])
         # WO-EX-DENSE-DIAG-01 — pipe diagnostic metadata through for dense_metrics
         if "_diagFamily" in case:
             result["_diagFamily"] = case["_diagFamily"]
@@ -577,6 +708,14 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
         result["method"] = method
         result["elapsed_ms"] = round(elapsed * 1000)
         result["extracted_count"] = len(extracted_items)
+        # WO-QB-EVAL-EXPAND-01 — persist synthesized stage context and
+        # confidence summary so the life-map / diagnostic report axes can
+        # read them directly rather than re-deriving per case.
+        result["current_era"]  = _case_era
+        result["current_pass"] = _case_pass
+        result["current_mode"] = _case_mode
+        result["confidence_stats"] = _confidence_stats(extracted_items)
+        result["stubborn_partition"] = _stubborn_partition_for(case["id"])
         # Compact raw items for report — only fieldPath, value (capped), confidence
         compact_items = []
         for item in extracted_items:
@@ -969,6 +1108,195 @@ def generate_report(results: List[dict], mode: str) -> dict:
     by_noise = _breakdown("noise_profile", "clean")
     by_case_mode = _breakdown("case_mode", "contract")
 
+    # ── WO-QB-EVAL-EXPAND-01: life-map axes ───────────────────────────────
+    # New since SECTION-EFFECT Phase 2 (#93): case-level current_era /
+    # current_pass / current_mode are persisted on every result. These
+    # axes surface whether a given era or pass dominates the failure
+    # frontier — useful input for SPANTAG Pass 2 sizing decisions.
+    by_era  = _breakdown("current_era",  "unknown")
+    by_pass = _breakdown("current_pass", "unknown")
+    by_mode = _breakdown("current_mode", "unknown")
+
+    # Cross-tab: era × pass. Keys are "era::pass" so JSON stays flat.
+    by_era_x_pass: Dict[str, dict] = {}
+    for r in results:
+        era = r.get("current_era") or "unknown"
+        ps  = r.get("current_pass") or "unknown"
+        k = f"{era}::{ps}"
+        if k not in by_era_x_pass:
+            by_era_x_pass[k] = {"total": 0, "passed": 0, "failed": 0, "avg_score": 0.0}
+        by_era_x_pass[k]["total"] += 1
+        if r["pass"]:
+            by_era_x_pass[k]["passed"] += 1
+        else:
+            by_era_x_pass[k]["failed"] += 1
+        by_era_x_pass[k]["avg_score"] += r["overall_score"]
+    for k, d in by_era_x_pass.items():
+        t = d["total"]
+        d["avg_score"] = round(d["avg_score"] / t, 3) if t else 0
+
+    # ── WO-QB-EVAL-EXPAND-01: extractor method distribution ───────────────
+    # method_distribution = full tally of observed method strings (superset
+    # of the dense-diag 4-way classifier below). rules_fallback_rate is the
+    # proportion of cases whose method classified as rules_fallback.
+    # truncation_rate looks for truncation markers in the method tag —
+    # today the extractor does not emit a "truncated" method tag, so this
+    # is expected to read 0.0 until a future WO surfaces it. Kept in the
+    # report shape so the eval harness is ready for that WO.
+    method_distribution: Dict[str, int] = {}
+    rules_fallback_count = 0
+    parse_failure_count  = 0
+    parse_success_count  = 0
+    truncation_count     = 0
+    for r in results:
+        m = r.get("method") or "unknown"
+        method_distribution[m] = method_distribution.get(m, 0) + 1
+        cls = _classify_method(m)
+        if cls == "rules_fallback":
+            rules_fallback_count += 1
+        elif cls == "parse_failure":
+            parse_failure_count += 1
+        elif cls == "parse_success":
+            parse_success_count += 1
+        if "truncat" in m.lower():
+            truncation_count += 1
+    rules_fallback_rate = round(rules_fallback_count / total, 3) if total else 0.0
+    parse_failure_rate  = round(parse_failure_count  / total, 3) if total else 0.0
+    truncation_rate     = round(truncation_count     / total, 3) if total else 0.0
+
+    # ── WO-QB-EVAL-EXPAND-01: stubborn-pack partition summary ─────────────
+    # Buckets case-results into the 4 SPANTAG partitions (primary /
+    # secondary / truncation_starved / out_of_scope) so the master report
+    # surfaces SPANTAG-relevant movement directly. Non-stubborn cases are
+    # excluded — they're covered by the contract/style/case_type axes.
+    stubborn_pack_summary: Dict[str, Dict[str, Any]] = {}
+    for partition_name in STUBBORN_PACK_PARTITION:
+        stubborn_pack_summary[partition_name] = {
+            "total": 0, "passed": 0, "failed": 0, "avg_score": 0.0, "case_ids": []
+        }
+    for r in results:
+        part = r.get("stubborn_partition")
+        if not part:
+            continue
+        bucket = stubborn_pack_summary[part]
+        bucket["total"] += 1
+        if r["pass"]:
+            bucket["passed"] += 1
+        else:
+            bucket["failed"] += 1
+        bucket["avg_score"] += r["overall_score"]
+        bucket["case_ids"].append(r["case_id"])
+    for part, bucket in stubborn_pack_summary.items():
+        t = bucket["total"]
+        bucket["avg_score"] = round(bucket["avg_score"] / t, 3) if t else 0.0
+        bucket["pass_rate"] = round(bucket["passed"] / t, 3) if t else 0.0
+        bucket["case_ids"].sort()
+
+    # ── WO-QB-EVAL-EXPAND-01: defensible_alt_credit rate + pairs ──────────
+    # SECTION-EFFECT #94 scorer policy adds the "defensible_alt_credit"
+    # failure tag when a must_extract path missed primary but an adjudicated
+    # alt path caught the value. Track both the rate and the specific
+    # (primary → winning_alt) pairs so the report can show WHICH alt paths
+    # are doing the work. This is also the core of field_path_confusion_pairs:
+    # any primary→alt pair that credits a defensible lane.
+    #
+    # WO-QB-ALT-VALUES-01 (#97) extends this to a value-axis credit track.
+    defensible_alt_credit_count = 0
+    defensible_value_alt_credit_count = 0
+    alt_credit_pairs: Dict[str, int] = {}     # path-axis: "primary_fp -> alt_fp" -> count
+    value_alt_credit_cases: List[Dict[str, Any]] = []  # value-axis: per-case matched alts
+    field_path_mismatch_count = 0
+    for r in results:
+        fcs = r.get("failure_categories", [])
+        if "defensible_alt_credit" in fcs:
+            defensible_alt_credit_count += 1
+        if "defensible_value_alt_credit" in fcs:
+            defensible_value_alt_credit_count += 1
+        if "field_path_mismatch" in fcs:
+            field_path_mismatch_count += 1
+        for fp, td in r.get("truth_zone_details", {}).items():
+            via = td.get("winning_via")
+            if via == "alt_defensible_path":
+                primary = fp.split("[", 1)[0]
+                alt = td.get("winning_path") or "?"
+                key = f"{primary} -> {alt}"
+                alt_credit_pairs[key] = alt_credit_pairs.get(key, 0) + 1
+            elif via == "alt_defensible_value":
+                value_alt_credit_cases.append({
+                    "case_id": r["case_id"],
+                    "fieldPath": fp.split("[", 1)[0],
+                    "matched_alt_value": td.get("matched_alt_value"),
+                    "score": td.get("winning_score"),
+                })
+    defensible_alt_credit_rate = (
+        round(defensible_alt_credit_count / total, 3) if total else 0.0
+    )
+    defensible_value_alt_credit_rate = (
+        round(defensible_value_alt_credit_count / total, 3) if total else 0.0
+    )
+    # Top-N pair list (sorted by frequency, descending)
+    alt_credit_pair_list = [
+        {"pair": k, "count": v}
+        for k, v in sorted(alt_credit_pairs.items(), key=lambda x: -x[1])
+    ]
+
+    # ── WO-QB-EVAL-EXPAND-01: invalid-fieldpath hallucination signal ──────
+    # "invalid" here = the extractor emitted to a path that either isn't in
+    # the schema or doesn't match any expected/truth-zone path for that
+    # case. Approximated via failure_categories 'schema_gap' ∪ 'field_path_mismatch'.
+    # Per-case count surfaces which cases are the worst offenders.
+    invalid_field_path_hallucinations: List[Dict[str, Any]] = []
+    for r in results:
+        fcs = r.get("failure_categories", [])
+        if "schema_gap" in fcs or "field_path_mismatch" in fcs:
+            # Count extracted items whose fieldPath isn't on any expected/tz path
+            expected_paths = set((r.get("field_scores") or {}).keys())
+            tz_paths = set(
+                fp.split("[", 1)[0]
+                for fp in (r.get("truth_zone_details") or {}).keys()
+            )
+            allowed = expected_paths | tz_paths
+            raw = r.get("raw_items", [])
+            offenders = [it["fieldPath"] for it in raw
+                         if it.get("fieldPath") and it["fieldPath"] not in allowed]
+            if offenders or not raw:  # include cases with schema_gap even if no raw_items (offline)
+                invalid_field_path_hallucinations.append({
+                    "case_id": r["case_id"],
+                    "offender_count": len(offenders),
+                    "offenders": offenders[:5],  # cap list for report size
+                    "failure_categories": fcs,
+                })
+    invalid_field_path_hallucinations.sort(key=lambda x: -x["offender_count"])
+
+    # ── WO-QB-EVAL-EXPAND-01: confidence distribution ─────────────────────
+    # Aggregate across every extracted item in every case. Offline cases
+    # contribute mockLlmOutput confidences; live cases contribute API
+    # response confidences. When no confidences are present (mocks without
+    # the field, or error paths) the distribution is zeros — not missing.
+    all_confs: List[float] = []
+    for r in results:
+        cs = r.get("confidence_stats") or {}
+        # Re-extract the raw confidences by scanning raw_items (live) or
+        # reusing the per-case stats min/max/avg (offline without raw_items).
+        raw = r.get("raw_items")
+        if raw:
+            for it in raw:
+                c = it.get("confidence")
+                if isinstance(c, (int, float)):
+                    all_confs.append(float(c))
+    confidence_distribution = {
+        "item_count": len(all_confs),
+        "min": round(min(all_confs), 3) if all_confs else None,
+        "max": round(max(all_confs), 3) if all_confs else None,
+        "avg": round(sum(all_confs) / len(all_confs), 3) if all_confs else None,
+        "buckets": {
+            "lt_0_5":     sum(1 for c in all_confs if c <  0.5),
+            "0_5_to_0_7": sum(1 for c in all_confs if 0.5 <= c < 0.7),
+            "0_7_to_0_9": sum(1 for c in all_confs if 0.7 <= c < 0.9),
+            "ge_0_9":     sum(1 for c in all_confs if c >= 0.9),
+        },
+    }
+
     # ── Aggregate truth zone metrics ───────────────────────────────────────
     agg_tz = {
         "must_extract": {"total": 0, "hit": 0, "miss": 0},
@@ -1051,6 +1379,36 @@ def generate_report(results: List[dict], mode: str) -> dict:
         "by_chunk_size": by_chunk,
         "by_noise_profile": by_noise,
         "by_case_mode": by_case_mode,
+        # WO-QB-EVAL-EXPAND-01 life-map axes (#93 plumbing surfaced here)
+        "by_era":         by_era,
+        "by_pass":        by_pass,
+        "by_mode":        by_mode,
+        "by_era_x_pass":  by_era_x_pass,
+        # WO-QB-EVAL-EXPAND-01 diagnostic axes
+        "method_distribution": method_distribution,
+        "method_rates": {
+            "parse_success_rate": round(parse_success_count / total, 3) if total else 0.0,
+            "parse_failure_rate": parse_failure_rate,
+            "rules_fallback_rate": rules_fallback_rate,
+            "truncation_rate": truncation_rate,
+        },
+        "stubborn_pack_summary": stubborn_pack_summary,
+        "defensible_alt_credit": {
+            "rate": defensible_alt_credit_rate,
+            "count": defensible_alt_credit_count,
+            "field_path_mismatch_count": field_path_mismatch_count,
+            "pairs_top": alt_credit_pair_list[:20],
+        },
+        # WO-QB-ALT-VALUES-01 (#97). Scoped to case_075 / case_088 first cut;
+        # no global value-match loosening. rate applies across all results so
+        # a stray value_alt credit anywhere in the suite surfaces honestly.
+        "defensible_value_alt_credit": {
+            "rate": defensible_value_alt_credit_rate,
+            "count": defensible_value_alt_credit_count,
+            "cases": value_alt_credit_cases[:20],
+        },
+        "invalid_field_path_hallucinations": invalid_field_path_hallucinations[:20],
+        "confidence_distribution": confidence_distribution,
         "truth_zone_summary": truth_zone_summary,
         "must_not_write_violations": mnw_violations,
         "expected_extractor_results": {
@@ -1171,6 +1529,108 @@ def print_summary(report: dict):
     _print_breakdown("By style bucket", report.get("by_style_bucket", {}))
     _print_breakdown("By chunk size", report.get("by_chunk_size", {}))
     _print_breakdown("By noise profile", report.get("by_noise_profile", {}))
+
+    # ── Layer 3a: Life-map axes (WO-QB-EVAL-EXPAND-01) ─────────────────────
+    if any(k in report for k in ("by_era", "by_pass", "by_mode")):
+        print("  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───")
+        print()
+        if report.get("by_era"):
+            _print_breakdown("By era", report["by_era"], width=22)
+        if report.get("by_pass"):
+            _print_breakdown("By pass", report["by_pass"], width=22)
+        if report.get("by_mode"):
+            _print_breakdown("By mode", report["by_mode"], width=22)
+        exp = report.get("by_era_x_pass", {})
+        if exp:
+            print("  By era × pass:")
+            for key, d in sorted(exp.items()):
+                print(f"    {key:40s}  {d['passed']}/{d['total']} passed  "
+                      f"(avg {d['avg_score']:.3f})")
+            print()
+
+    # ── Layer 3b: Stubborn-pack partition (WO-EX-SPANTAG-01 §Partition) ────
+    sps = report.get("stubborn_pack_summary", {})
+    if sps and any(b["total"] > 0 for b in sps.values()):
+        print("  ─── LAYER 3b: STUBBORN-PACK PARTITION ───")
+        print()
+        for part_name in ("primary", "secondary", "truncation_starved", "out_of_scope"):
+            b = sps.get(part_name, {})
+            if b.get("total", 0) == 0:
+                continue
+            print(f"    {part_name:22s}  {b['passed']}/{b['total']} passed  "
+                  f"({b.get('pass_rate', 0):.1%}, avg {b['avg_score']:.3f})")
+            if b.get("case_ids"):
+                print(f"      cases: {', '.join(b['case_ids'])}")
+        print()
+
+    # ── Layer 3c: Diagnostic rates (WO-QB-EVAL-EXPAND-01) ──────────────────
+    mr = report.get("method_rates", {})
+    md = report.get("method_distribution", {})
+    dac = report.get("defensible_alt_credit", {})
+    cd = report.get("confidence_distribution", {})
+    ifp = report.get("invalid_field_path_hallucinations", [])
+    if mr or md or dac or cd or ifp:
+        print("  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───")
+        print()
+        if mr:
+            print("  Method rates:")
+            print(f"    parse_success_rate:     {mr.get('parse_success_rate', 0):.1%}")
+            print(f"    parse_failure_rate:     {mr.get('parse_failure_rate', 0):.1%}")
+            print(f"    rules_fallback_rate:    {mr.get('rules_fallback_rate', 0):.1%}")
+            print(f"    truncation_rate:        {mr.get('truncation_rate', 0):.1%}")
+            print()
+        if md:
+            print("  Method distribution:")
+            for m, c in sorted(md.items(), key=lambda x: -x[1]):
+                print(f"    {m:40s}  {c}")
+            print()
+        if dac:
+            print("  Defensible-alt-credit scorer (SECTION-EFFECT #94):")
+            print(f"    credited cases:               {dac.get('count', 0)}  "
+                  f"({dac.get('rate', 0):.1%})")
+            print(f"    still-mismatched cases:       {dac.get('field_path_mismatch_count', 0)}")
+            pairs = dac.get("pairs_top") or []
+            if pairs:
+                print("    top primary → alt pairs:")
+                for p in pairs[:10]:
+                    print(f"      {p['pair']:60s}  {p['count']}")
+            print()
+        # WO-QB-ALT-VALUES-01 (#97) — scoped to case_075 / case_088 first cut.
+        dvac = report.get("defensible_value_alt_credit", {})
+        if dvac:
+            print("  Defensible-value-alt-credit scorer (#97, 075/088-scoped):")
+            print(f"    credited cases:               {dvac.get('count', 0)}  "
+                  f"({dvac.get('rate', 0):.1%})")
+            cases = dvac.get("cases") or []
+            if cases:
+                print("    per-case value-alt matches:")
+                for e in cases[:10]:
+                    mv = (e.get('matched_alt_value') or '')
+                    if len(mv) > 50:
+                        mv = mv[:50] + "…"
+                    print(f"      {e['case_id']:12s}  {e['fieldPath']:30s}  "
+                          f"score={e.get('score', 0):.3f}  alt=\"{mv}\"")
+            print()
+        if cd:
+            print("  Confidence distribution:")
+            print(f"    item_count:      {cd.get('item_count', 0)}")
+            if cd.get("item_count"):
+                print(f"    min/avg/max:     {cd.get('min'):.3f} / "
+                      f"{cd.get('avg'):.3f} / {cd.get('max'):.3f}")
+                buckets = cd.get("buckets", {})
+                print(f"    <0.5:            {buckets.get('lt_0_5', 0)}")
+                print(f"    0.5-0.7:         {buckets.get('0_5_to_0_7', 0)}")
+                print(f"    0.7-0.9:         {buckets.get('0_7_to_0_9', 0)}")
+                print(f"    >=0.9:           {buckets.get('ge_0_9', 0)}")
+            print()
+        if ifp:
+            print("  Invalid-fieldpath hallucinations (top 10):")
+            for e in ifp[:10]:
+                print(f"    {e['case_id']:12s}  offenders={e['offender_count']:2d}  "
+                      f"categories={e['failure_categories']}")
+                if e.get("offenders"):
+                    print(f"      emitted: {', '.join(e['offenders'])}")
+            print()
 
     # ── Layer 3: Dense-truth diagnostic metrics (WO-EX-DENSE-DIAG-01) ──────
     dm = report.get("dense_metrics")

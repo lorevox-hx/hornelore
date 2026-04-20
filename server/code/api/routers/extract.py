@@ -2753,6 +2753,551 @@ def _relocate_spans(
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# WO-EX-SPANTAG-01 Commit 2 — Pass 2 scaffold (bind + project)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Pass 2 consumes:
+#   1. The narrator reply (evidence, for Pass 2 to quote/verify).
+#   2. The Pass 1 tag array (evidence, primary).
+#   3. current_section + current_target_path (controlled prior — ranking input,
+#      NOT a hard force).
+#   4. current_era + current_pass + current_mode (controlled prior, post
+#      WO-EX-SECTION-EFFECT-01 Phase 2).
+#   5. allowed_field_paths: the sub_topic-scoped catalog slice.
+#   6. extract_priority: soft preference list from the question bank.
+#   7. narrator_identity: for subject-filter discipline.
+#
+# Pass 2 emits:
+#   {
+#     "writes": [
+#       {"fieldPath": "...", "value": "...", "confidence": 0.0-1.0,
+#        "priority": "primary"|"secondary",
+#        "sourceSpan": {"start": int, "end": int},
+#        "sourceTagIds": ["t0", ...],
+#        "disagreement_reason": "subject_beats_section"|"section_current_target_path_match"|...,
+#        "alt_path_section_driven": true (optional),
+#        "normalization": {"raw": "...", "normalized": "..."} (optional)
+#       }, ...
+#     ],
+#     "no_write": [
+#       {"reason": "...", "sourceTagIds": ["t3", ...]}, ...
+#     ]
+#   }
+#
+# Parser discipline (substring-invariant): every write whose sourceSpan is
+# present must satisfy answer_text[start:end] == the quoted span text (if the
+# model echoes text). sourceTagIds that do not appear in the Pass 1 tag-ID set
+# are dropped (logged). Writes whose fieldPath is not in allowed_field_paths
+# are downgraded to priority=secondary with a shape-flag — NOT silently
+# dropped, because the eval scorer must still see path mismatches for
+# must_not_write accounting. Pipeline wiring (Commit 3) makes the final
+# accept/reject call against the guardrail stack.
+#
+# Commit 2 is scaffold-only. No call site in the live extractor touches
+# these functions. HORNELORE_SPANTAG stays off by default.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+_SPANTAG_PASS2_PRIORITIES: frozenset[str] = frozenset({"primary", "secondary"})
+
+
+def _build_spantag_pass2_prompt(
+    answer: str,
+    pass1_tags: List[Dict[str, Any]],
+    current_section: Optional[str] = None,
+    current_target_path: Optional[str] = None,
+    current_era: Optional[str] = None,
+    current_pass: Optional[str] = None,
+    current_mode: Optional[str] = None,
+    allowed_field_paths: Optional[List[str]] = None,
+    extract_priority: Optional[List[str]] = None,
+    narrator_identity: Optional[Dict[str, Any]] = None,
+) -> tuple[str, str]:
+    """WO-EX-SPANTAG-01 Pass 2 prompt builder.
+
+    Returns (system, user) strings for the bind-and-project stage. Unlike
+    Pass 1, Pass 2 IS schema-aware: it receives the catalog slice as an
+    explicit output space, plus section/target_path/era/pass/mode as
+    controlled priors used for *ranking* candidate paths, NOT for forcing
+    them. Subject-driven paths beat section-driven paths when Pass 1 has
+    bound a clean non-narrator relation_cue (see spec §"Pass 2 path-binding
+    rule").
+
+    Output contract (see block header above and spec §"Pass 2 output shape").
+    The parser (_parse_spantag_pass2) tolerates missing optional fields,
+    malformed JSON with trailing prose, and orphan sourceTagIds.
+    """
+    # --- Controlled priors block ----------------------------------------
+    prior_lines: List[str] = []
+    if current_section:
+        prior_lines.append(f"  - current_section: {current_section}")
+    if current_target_path:
+        prior_lines.append(f"  - current_target_path: {current_target_path}")
+    if current_era:
+        prior_lines.append(f"  - current_era: {current_era}")
+    if current_pass:
+        prior_lines.append(f"  - current_pass: {current_pass}")
+    if current_mode:
+        prior_lines.append(f"  - current_mode: {current_mode}")
+    priors_block = "\n".join(prior_lines) if prior_lines else "  (none supplied)"
+
+    # --- Allowed output space block -------------------------------------
+    if allowed_field_paths:
+        paths_block = "\n".join(f"  - {p}" for p in allowed_field_paths)
+    else:
+        paths_block = "  (unrestricted — emit any canonical fieldPath)"
+
+    # --- Soft preference block ------------------------------------------
+    if extract_priority:
+        priority_block = ", ".join(extract_priority)
+    else:
+        priority_block = "(none supplied)"
+
+    # --- Identity block -------------------------------------------------
+    if narrator_identity:
+        identity_bits = []
+        for k in ("firstName", "lastName", "id", "narrator_id"):
+            v = narrator_identity.get(k) if isinstance(narrator_identity, dict) else None
+            if v:
+                identity_bits.append(f"{k}={v}")
+        identity_block = "; ".join(identity_bits) if identity_bits else "(supplied but empty)"
+    else:
+        identity_block = "(narrator identity not supplied — treat first-person references as the narrator)"
+
+    # --- Pass 1 tag inventory JSON --------------------------------------
+    # Keep compact; downstream LLM consumes this as the primary evidence surface.
+    try:
+        tags_json = json.dumps(pass1_tags, ensure_ascii=False)
+    except (TypeError, ValueError):
+        # Defensive: if caller passed something non-serializable, coerce to repr.
+        tags_json = repr(pass1_tags)
+
+    system = (
+        "You are a schema-binding agent for oral-history extraction. An upstream "
+        "tagger has already identified evidence spans in the narrator's answer. "
+        "Your job is to bind those spans to canonical field paths and emit "
+        "structured writes.\n"
+        "\n"
+        "You will receive:\n"
+        "  1. The narrator's answer (primary evidence).\n"
+        "  2. A JSON array of evidence tags (Pass 1 output), each with id, type, "
+        "text, start/end character offsets, and polarity.\n"
+        "  3. Controlled priors (current_section, current_target_path, "
+        "current_era, current_pass, current_mode). These are RANKING INPUTS, "
+        "not forces — they tell you what the interviewer was asking about, "
+        "but a clean non-narrator subject in Pass 1 BEATS the section prior.\n"
+        "  4. The allowed output space (a list of canonical field paths "
+        "scoped to the current sub-topic).\n"
+        "  5. extract_priority: a soft preference list for which paths the "
+        "interviewer most wants filled on this turn.\n"
+        "  6. The narrator identity (for subject-filter discipline).\n"
+        "\n"
+        "Binding rules:\n"
+        "  - Subject beats section. When Pass 1 binds a non-narrator person "
+        "via a clear relation_cue (e.g. \"my mom's brother James\"), the "
+        "subject-driven path is PRIMARY and the section-driven path is "
+        "SECONDARY with lower confidence.\n"
+        "  - Negated tags (polarity=\"negated\") must not produce asserted "
+        "writes. Emit no_write with reason=\"negated_in_source\" if the "
+        "evidence is negated.\n"
+        "  - Hypothetical tags (polarity=\"hypothetical\") must not produce "
+        "asserted writes. Emit no_write with reason=\"hypothetical_in_source\".\n"
+        "  - Every write MUST cite sourceTagIds from the Pass 1 array. "
+        "Inventing tag IDs is forbidden.\n"
+        "  - Every write SHOULD cite a sourceSpan {start, end} pointing into "
+        "the narrator's answer. If you normalize a value (e.g. "
+        "\"October 10th, 1959\" → \"1959-10-10\"), record both under "
+        "\"normalization\": {\"raw\": ..., \"normalized\": ...}.\n"
+        "  - If you cannot bind a tag to any allowed field path, do NOT "
+        "invent a path. Emit no_write with a reason describing why.\n"
+        "  - If subject-prior and section-prior disagree and BOTH are "
+        "defensible, emit two writes: one PRIMARY with the subject-driven "
+        "path, one SECONDARY with alt_path_section_driven=true and a "
+        "disagreement_reason. Do not silently drop the alternative.\n"
+        "\n"
+        "Output a single JSON object:\n"
+        "  {\n"
+        "    \"writes\": [\n"
+        "      {\n"
+        "        \"fieldPath\": \"family.spouse.firstName\",\n"
+        "        \"value\": \"Janice\",\n"
+        "        \"confidence\": 0.95,\n"
+        "        \"priority\": \"primary\",\n"
+        "        \"sourceSpan\": {\"start\": 10, \"end\": 16},\n"
+        "        \"sourceTagIds\": [\"t0\"]\n"
+        "      }\n"
+        "    ],\n"
+        "    \"no_write\": [\n"
+        "      {\"reason\": \"age_not_a_dob\", \"sourceTagIds\": [\"t3\"]}\n"
+        "    ]\n"
+        "  }\n"
+        "\n"
+        "If nothing is bindable, emit {\"writes\": [], \"no_write\": []}."
+    )
+
+    user = (
+        "Narrator answer:\n"
+        f"{answer}\n"
+        "\n"
+        "Pass 1 tags (JSON):\n"
+        f"{tags_json}\n"
+        "\n"
+        "Controlled priors:\n"
+        f"{priors_block}\n"
+        "\n"
+        "Allowed field paths (canonical output space):\n"
+        f"{paths_block}\n"
+        "\n"
+        f"extract_priority (soft preference order): {priority_block}\n"
+        "\n"
+        f"Narrator identity: {identity_block}\n"
+        "\n"
+        "Emit the JSON object now."
+    )
+
+    return system, user
+
+
+def _parse_spantag_pass2(
+    raw: str,
+    pass1_tags: List[Dict[str, Any]],
+    answer_text: str,
+) -> Dict[str, Any]:
+    """WO-EX-SPANTAG-01 Pass 2 parser.
+
+    Tolerant parser for the Pass 2 JSON output. Returns a dict of shape:
+        {"writes": [...], "no_write": [...]}
+
+    Parser discipline:
+      - Well-formed JSON, ```json fences, and embedded-object recovery are
+        all handled (same strategies as Pass 1).
+      - writes missing fieldPath or value are dropped (logged).
+      - confidence is coerced to float in [0.0, 1.0]; invalid → 0.0.
+      - priority is normalized to "primary" or "secondary"; unknown → "primary".
+      - sourceTagIds that do not appear in the supplied pass1_tags ID set
+        are filtered out (logged per-write); writes whose entire
+        sourceTagIds list becomes empty after filtering are KEPT (the
+        extractor may still emit a rules-based write without a tag anchor)
+        but logged with a [spantag][pass2][no_tag_anchor] marker.
+      - sourceSpan is kept only if it is a 2-int dict with 0 <= start < end
+        <= len(answer_text); otherwise stripped (logged, write preserved).
+      - no_write entries are preserved as-is (reason + optional sourceTagIds,
+        same tag-anchor filtering).
+
+    Returns {"writes": [], "no_write": []} on catastrophic parse failure.
+    Caller (Commit 3 wiring) is responsible for deciding whether to fall
+    back to single-pass on an empty-writes result.
+    """
+    empty = {"writes": [], "no_write": []}
+
+    if not raw or not raw.strip():
+        logger.warning("[extract][spantag][pass2][parse_fail] empty raw output")
+        return empty
+
+    parsed: Optional[Dict[str, Any]] = None
+
+    # Strategy 1: direct json.loads after fence stripping.
+    candidate = raw.strip()
+    if candidate.startswith("```"):
+        lines = candidate.split("\n", 1)
+        candidate = lines[1] if len(lines) > 1 else ""
+        if "```" in candidate:
+            candidate = candidate.rsplit("```", 1)[0]
+        candidate = candidate.strip()
+
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        parsed = None
+
+    # Strategy 2: extract the first balanced object that contains a 'writes'
+    # key (mirrors the Pass 1 _spantag_extract_balanced_object approach but
+    # scoped to the Pass 2 contract).
+    if parsed is None:
+        parsed = _spantag_extract_balanced_object_for(candidate, key="writes")
+
+    # Strategy 3: accept a balanced object that only has 'no_write' (the
+    # model may have refused everything). This is a legitimate outcome, not
+    # a parse failure.
+    if parsed is None:
+        parsed = _spantag_extract_balanced_object_for(candidate, key="no_write")
+
+    if parsed is None:
+        logger.warning(
+            "[extract][spantag][pass2][parse_fail] could not recover JSON (%d chars): %.200s",
+            len(raw), raw,
+        )
+        return empty
+
+    if not isinstance(parsed, dict):
+        logger.warning(
+            "[extract][spantag][pass2][parse_fail] parsed output is %s, expected dict",
+            type(parsed).__name__,
+        )
+        return empty
+
+    # Collect legal Pass 1 tag IDs for anchor validation.
+    legal_tag_ids: set[str] = set()
+    for t in pass1_tags or []:
+        if isinstance(t, dict):
+            tid = t.get("id")
+            if isinstance(tid, str) and tid:
+                legal_tag_ids.add(tid)
+
+    # --- writes --------------------------------------------------------
+    writes_out: List[Dict[str, Any]] = []
+    writes_raw = parsed.get("writes") or []
+    if not isinstance(writes_raw, list):
+        logger.warning(
+            "[extract][spantag][pass2][parse_fail] 'writes' is %s, expected list",
+            type(writes_raw).__name__,
+        )
+        writes_raw = []
+
+    for idx, raw_w in enumerate(writes_raw):
+        norm = _spantag_pass2_normalize_write(
+            raw_w, idx, legal_tag_ids, answer_text,
+        )
+        if norm is not None:
+            writes_out.append(norm)
+
+    # --- no_write ------------------------------------------------------
+    no_writes_out: List[Dict[str, Any]] = []
+    no_writes_raw = parsed.get("no_write") or []
+    if not isinstance(no_writes_raw, list):
+        logger.info(
+            "[extract][spantag][pass2] 'no_write' is %s, treating as empty",
+            type(no_writes_raw).__name__,
+        )
+        no_writes_raw = []
+
+    for idx, raw_nw in enumerate(no_writes_raw):
+        norm_nw = _spantag_pass2_normalize_no_write(raw_nw, idx, legal_tag_ids)
+        if norm_nw is not None:
+            no_writes_out.append(norm_nw)
+
+    logger.info(
+        "[extract][spantag][pass2] parsed %d writes, %d no_write entries "
+        "(from %d raw writes, %d raw no_write, %d legal tag ids)",
+        len(writes_out), len(no_writes_out),
+        len(writes_raw), len(no_writes_raw), len(legal_tag_ids),
+    )
+    return {"writes": writes_out, "no_write": no_writes_out}
+
+
+def _spantag_pass2_normalize_write(
+    raw_w: Any,
+    idx: int,
+    legal_tag_ids: set[str],
+    answer_text: str,
+) -> Optional[Dict[str, Any]]:
+    """Normalize one write entry per Pass 2 parser discipline.
+
+    Returns the normalized dict or None if the write is so malformed it
+    must be dropped. All drops are logged.
+    """
+    if not isinstance(raw_w, dict):
+        logger.info(
+            "[extract][spantag][pass2] write %d not a dict (%s), dropped",
+            idx, type(raw_w).__name__,
+        )
+        return None
+
+    field_path = raw_w.get("fieldPath")
+    if not isinstance(field_path, str) or not field_path.strip():
+        logger.info(
+            "[extract][spantag][pass2] write %d missing/empty fieldPath, dropped",
+            idx,
+        )
+        return None
+
+    if "value" not in raw_w:
+        logger.info(
+            "[extract][spantag][pass2] write %d missing 'value' key, dropped",
+            idx,
+        )
+        return None
+    value = raw_w["value"]
+
+    # Confidence: coerce to float in [0.0, 1.0].
+    conf_raw = raw_w.get("confidence", 0.5)
+    try:
+        conf = float(conf_raw)
+    except (TypeError, ValueError):
+        logger.info(
+            "[extract][spantag][pass2] write %d unparseable confidence %r, defaulting to 0.0",
+            idx, conf_raw,
+        )
+        conf = 0.0
+    if conf < 0.0:
+        conf = 0.0
+    elif conf > 1.0:
+        conf = 1.0
+
+    # Priority: primary|secondary; unknown → primary.
+    pri_raw = raw_w.get("priority", "primary")
+    if not isinstance(pri_raw, str) or pri_raw not in _SPANTAG_PASS2_PRIORITIES:
+        logger.info(
+            "[extract][spantag][pass2] write %d unknown priority %r, defaulting to 'primary'",
+            idx, pri_raw,
+        )
+        pri = "primary"
+    else:
+        pri = pri_raw
+
+    # sourceTagIds: filter to legal IDs only.
+    src_ids_raw = raw_w.get("sourceTagIds") or []
+    if not isinstance(src_ids_raw, list):
+        logger.info(
+            "[extract][spantag][pass2] write %d sourceTagIds is %s, treating as empty",
+            idx, type(src_ids_raw).__name__,
+        )
+        src_ids_raw = []
+    src_ids_kept: List[str] = []
+    for tid in src_ids_raw:
+        if isinstance(tid, str) and tid in legal_tag_ids:
+            src_ids_kept.append(tid)
+        else:
+            logger.info(
+                "[extract][spantag][pass2] write %d dropping illegal sourceTagId %r",
+                idx, tid,
+            )
+    if not src_ids_kept and src_ids_raw:
+        # All IDs filtered out.
+        logger.info(
+            "[extract][spantag][pass2][no_tag_anchor] write %d lost all tag anchors during filter",
+            idx,
+        )
+
+    # sourceSpan: keep only if it's shaped right and maps into the answer.
+    src_span_raw = raw_w.get("sourceSpan")
+    src_span_out: Optional[Dict[str, int]] = None
+    if isinstance(src_span_raw, dict):
+        s = src_span_raw.get("start")
+        e = src_span_raw.get("end")
+        if isinstance(s, int) and isinstance(e, int):
+            if 0 <= s < e <= len(answer_text or ""):
+                src_span_out = {"start": s, "end": e}
+            else:
+                logger.info(
+                    "[extract][spantag][pass2] write %d sourceSpan out of range "
+                    "(start=%s end=%s answer_len=%d), stripped",
+                    idx, s, e, len(answer_text or ""),
+                )
+        else:
+            logger.info(
+                "[extract][spantag][pass2] write %d sourceSpan non-int offsets, stripped",
+                idx,
+            )
+    elif src_span_raw is not None:
+        logger.info(
+            "[extract][spantag][pass2] write %d sourceSpan is %s, stripped",
+            idx, type(src_span_raw).__name__,
+        )
+
+    norm: Dict[str, Any] = {
+        "fieldPath": field_path.strip(),
+        "value": value,
+        "confidence": conf,
+        "priority": pri,
+        "sourceTagIds": src_ids_kept,
+    }
+    if src_span_out is not None:
+        norm["sourceSpan"] = src_span_out
+
+    # Optional passthroughs.
+    if "normalization" in raw_w and isinstance(raw_w["normalization"], dict):
+        norm["normalization"] = raw_w["normalization"]
+    if "disagreement_reason" in raw_w and isinstance(raw_w["disagreement_reason"], str):
+        norm["disagreement_reason"] = raw_w["disagreement_reason"]
+    if raw_w.get("alt_path_section_driven") is True:
+        norm["alt_path_section_driven"] = True
+
+    return norm
+
+
+def _spantag_pass2_normalize_no_write(
+    raw_nw: Any,
+    idx: int,
+    legal_tag_ids: set[str],
+) -> Optional[Dict[str, Any]]:
+    """Normalize one no_write entry. Drops non-dict or reasonless entries."""
+    if not isinstance(raw_nw, dict):
+        logger.info(
+            "[extract][spantag][pass2] no_write %d not a dict (%s), dropped",
+            idx, type(raw_nw).__name__,
+        )
+        return None
+    reason = raw_nw.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        logger.info(
+            "[extract][spantag][pass2] no_write %d missing/empty reason, dropped",
+            idx,
+        )
+        return None
+
+    src_ids_raw = raw_nw.get("sourceTagIds") or []
+    if not isinstance(src_ids_raw, list):
+        src_ids_raw = []
+    src_ids_kept = [
+        tid for tid in src_ids_raw
+        if isinstance(tid, str) and tid in legal_tag_ids
+    ]
+
+    return {"reason": reason.strip(), "sourceTagIds": src_ids_kept}
+
+
+def _spantag_extract_balanced_object_for(
+    text: str,
+    key: str,
+) -> Optional[Dict[str, Any]]:
+    """Generalized form of _spantag_extract_balanced_object that matches on
+    a caller-supplied key name. Used by Pass 2 which looks for 'writes' or
+    'no_write' instead of 'tags'.
+
+    Returns the parsed dict on success, None on failure.
+    """
+    for start_idx in range(len(text)):
+        if text[start_idx] != "{":
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start_idx, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start_idx:i + 1]
+                    try:
+                        obj = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+                    if isinstance(obj, dict) and key in obj:
+                        return obj
+                    break
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# End WO-EX-SPANTAG-01 Commit 2 block
+# ══════════════════════════════════════════════════════════════════════════════
+
+
 def _salvage_truncated_array(raw: str) -> List[dict]:
     """Recover complete top-level {...} objects from a truncated JSON array.
 

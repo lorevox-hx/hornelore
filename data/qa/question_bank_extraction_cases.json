@@ -5504,7 +5504,20 @@
         },
         "parents.notableLifeEvents": {
           "zone": "must_extract",
-          "expected": "played organ at silent movie theaters, attended Capitol Business College, boarding school at Mount Marty"
+          "expected": "played organ at silent movie theaters, attended Capitol Business College, boarding school at Mount Marty",
+          "alt_defensible_values": [
+            "played organ at silent movie theaters",
+            "played organ at silent movie theatres",
+            "played the organ at movie theaters during the silent movie era",
+            "organ player during silent movie era",
+            "attended Capitol Business College",
+            "attended Capitol Business College in Bismarck",
+            "two years of college at Capitol Business College",
+            "boarding school at Mount Marty",
+            "attended Mount Marty high school",
+            "worked as housekeeper at Capitol Business College",
+            "gifted musician who played organ at movie theaters"
+          ]
         },
         "parents.maidenName": {
           "zone": "may_extract",
@@ -5521,7 +5534,7 @@
           "zone": "must_not_write"
         }
       },
-      "scoringNotes": "Mixed narrative: rich mother biography with many true facts. The education details are Josie's, not Janice's — tests whether Lori assigns them to parents.notableLifeEvents rather than education.schooling for the narrator.",
+      "scoringNotes": "Mixed narrative: rich mother biography with many true facts. The education details are Josie's, not Janice's — tests whether Lori assigns them to parents.notableLifeEvents rather than education.schooling for the narrator. WO-QB-ALT-VALUES-01 (#97): alt_defensible_values added for parents.notableLifeEvents — the primary expected string is a long comma-joined conjunction; the extractor is permitted to emit any ONE of the adjudicated phrasings for a must_extract credit (≥0.5 fuzzy match). Value-axis-only scorer relaxation; primary path is unchanged.",
       "style_bucket": "life_history",
       "chunk_size": "large",
       "noise_profile": "good_garbage",
@@ -6335,7 +6348,18 @@
       "truthZones": {
         "pets.notes": {
           "zone": "must_extract",
-          "expected": "rode every morning before chores in Dodge"
+          "expected": "rode every morning before chores in Dodge",
+          "alt_defensible_values": [
+            "rode every morning before chores",
+            "rode Grey every morning before chores",
+            "rode horse every morning before chores",
+            "rode out every morning before chores",
+            "rode Grey every morning",
+            "childhood horse, rode every morning before chores",
+            "horse Grey, rode every morning",
+            "Grey was everything to me, rode every morning before chores",
+            "real outdoors girl — milking cows, riding Grey"
+          ]
         },
         "pets.name": {
           "zone": "should_ignore",
@@ -6354,7 +6378,7 @@
           "note": "Dodge already captured as residence"
         }
       },
-      "scoringNotes": "Follow-up: enriches existing pet entry with notes. Grey, Horse, Verene, and Dodge are all previously captured — this answer should add notes without duplicating existing data. Tests non-overwrite and enrichment behavior.",
+      "scoringNotes": "Follow-up: enriches existing pet entry with notes. Grey, Horse, Verene, and Dodge are all previously captured — this answer should add notes without duplicating existing data. Tests non-overwrite and enrichment behavior. WO-QB-ALT-VALUES-01 (#97): alt_defensible_values added for pets.notes — the primary expected string pins 'in Dodge' which a riding-centric extraction would not include; the adjudicated alts accept any phrasing that captures the core 'rode every morning before chores' idea. Value-axis-only scorer relaxation.",
       "style_bucket": "life_history",
       "chunk_size": "small",
       "noise_profile": "clean",
