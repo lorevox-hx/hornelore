@@ -1,82 +1,203 @@
-# WO-EX-SPANTAG-01 — Span-tag output format for citation grounding
+# WO-EX-SPANTAG-01 — Two-pass span-tag extraction (evidence + bind)
 
-**Author:** Claude (LOOP-01 R4 cleanup, research-synthesis pass)
-**Status:** STUB / DEFERRED — do NOT execute before r4i lands AND #81 (WO-EX-PROMPTSHRINK-01) is signed off AND merged. Queued against R5.5, not R4.
-**Depends on:** #81 landed (prompt real estate freed up, catalog shrink in place so the span-tag instructions have room to breathe).
-**Blocks:** R5.5 citation-grounding WO (this is the primitive it consumes).
-**Not this WO's job:** fixing entity-role binding (#68 / R6 Pillar 2), shrinking the catalog (#81), touching the span-tagger or field-classifier layers.
+**Author:** Claude (LOOP-01 R5.5 Phase 1 setup, post-r4i baseline lock)
+**Date:** 2026-04-20
+**Status:** ACTIVE — next execution spec. Pre-reqs satisfied: r4i locked, r4j disposition written, #82 memo written. Starts as soon as CLAUDE.md changelog entry lands.
+**Depends on:** r4i baseline (locked). `HORNELORE_PROMPTSHRINK=1` available in-tree (flag off by default; may be re-enabled if Pass 1 input budget needs relief).
+**Blocks:** Pillar 2 (entity-role binding) and R5.5 citation grounding UI — both consume the `sourceSpan` primitive this WO produces.
+
+This spec supersedes the original single-pass fieldPath-as-class stub. Rationale for the rewrite: the single-pass design conflated *evidence spotting* with *schema binding* and made the LLM's job harder, not easier. The two-pass split below lets Pass 1 be something a zero-shot 8B can actually do, and pushes schema knowledge into Pass 2 where it belongs.
+
+---
 
 ## Problem framing
 
-R5.5 citation grounding needs a way to link every emitted extraction back to a source-text span in the narrator's reply. The current extractor emits `{fieldPath, value, confidence}` triples with no structural link to the source — the value is a standalone string that may or may not appear verbatim in the reply. Two downstream consequences:
+Three compounding problems on the stubborn frontier:
 
-1. **No provenance for the write.** We can't cheaply show the user which sentence a fact came from, and we can't cheaply verify that a fact is sourced from the reply at all (which is the R5.5 primitive).
-2. **Boundary drift.** The LLM will frequently paraphrase or normalize values in-flight ("Christmas Eve, 1939" → "Christmas Eve of 1939"), which our Patch H write-time normalisation chases via regex + holiday map. Every paraphrase mode is a new normalizer entry.
+1. **No provenance.** Every extracted item today is `{fieldPath, value, confidence}` with no structural link to source text. We cannot cheaply answer "which sentence did `family.spouse.dateOfBirth=1939` come from?" and therefore cannot cheaply distinguish "hallucinated from nothing" from "real evidence, wrong routing". The `case_012` r4j regression is exactly this failure mode.
+2. **Shape, not value, is the dominant error.** On the stubborn-15, rails cannot repair field_path_mismatch and schema_gap after the fact because the LLM emitted the wrong shape (wrong field path, or missing field entirely). Rails edit values; they do not restructure emissions.
+3. **Truncation-dominated frontier.** r4j stability: 15 / 15 stubborn cases truncated in at least one run. Any single-pass contract that re-emits the narrator reply inline (Kiwi-LLaMA style full-echo) would *worsen* truncation. We need a contract whose output budget stays small even on long inputs.
 
-Kiwi-LLaMA (Hu et al., JAMIA 2026) evaluates an alternative output contract: the model emits the *input text itself* with `<span class='entity_type'>value</span>` wrappers around extracted values. Their pilot-test claim: *"this structure improves extraction consistency and boundary recognition,"* and it *"mitigates LLaMA's known sensitivity to instruction design."* They use it as a fair-comparison artifact against BERT sequence-labeling, not as a grounding primitive — but for our purposes, it *is* a grounding primitive for free: the span's position in the emitted text gives source offsets, and a value that isn't in the reply literally cannot be wrapped.
+## Design in one paragraph
 
-## Scope
+Two passes, one model, same session.
 
-Single, well-contained change: the extractor's output contract and its downstream parser. Nothing else moves.
+**Pass 1 — evidence-only tagging.** LLM is given the narrator reply and a tiny natural-language tag inventory (see below). It emits a JSON array of tagged spans: `{type, text, start, end, polarity}`. No schema mentioned. No dotted field paths. Output is a small array even on long replies.
+
+**Pass 2 — bind and project.** LLM is given Pass 1's tag array, the question-bank `extract_priority` list for the current sub_topic, the relevant slice of the schema catalog, and a short binding instruction. It emits `{fieldPath, value, confidence, sourceSpan: {start, end}, sourceTagIds: [...]}` for each write. Normalization and write-gating happen here.
+
+## Pass 1 — tag inventory
+
+Ten tags. Natural-language names. No schema leakage. Stable ordering in the prompt.
+
+| Tag | Covers |
+|---|---|
+| `person` | Any named or role-referenced human (including the narrator self-reference) |
+| `relation_cue` | Relational verbs/nouns binding two persons (`married`, `son of`, `my sister`, `adopted`) |
+| `date_text` | Anything that reads as a date or date range, including holidays, years, ages, and imprecise phrasings (`the fall of '42`, `Christmas Eve`, `when I was nineteen`) |
+| `place` | Towns, addresses, geographic regions, named buildings/farms |
+| `organization` | Churches, companies, schools, military units, clubs |
+| `role_or_job` | Occupations, titles, duties (`pastor`, `homemaker`, `sergeant`) |
+| `event_phrase` | Bounded real-world events (`the wedding`, `the fire`, `when we moved`) |
+| `object` | Physically specific objects when they anchor a claim (`the red tractor`, `Mom's ring`) |
+| `uncertainty_cue` | Narrator hedges (`I think`, `maybe`, `around`, `I'm not sure but`) |
+| `quantity_or_ordinal` | Numerals and ordinals carrying meaning (`three kids`, `the second wife`, `nineteen`) |
+
+Each Pass 1 span carries a `polarity` field: `asserted` (default), `negated` (`we never went to church`), `hypothetical` (`if I had gone`). Polarity is cheap for the LLM to tag and critical for Pass 2 to avoid writing negated claims.
+
+Pass 1 output shape (illustrative):
+
+```json
+{
+  "tags": [
+    {"id": "t0", "type": "person", "text": "Janice Josephine Zarr", "start": 10, "end": 32, "polarity": "asserted"},
+    {"id": "t1", "type": "relation_cue", "text": "married", "start": 2, "end": 9, "polarity": "asserted"},
+    {"id": "t2", "type": "date_text", "text": "October 10th, 1959", "start": 36, "end": 54, "polarity": "asserted"},
+    {"id": "t3", "type": "quantity_or_ordinal", "text": "nineteen", "start": 62, "end": 70, "polarity": "asserted"},
+    {"id": "t4", "type": "quantity_or_ordinal", "text": "twenty", "start": 82, "end": 88, "polarity": "asserted"}
+  ]
+}
+```
+
+## Pass 2 — bind and project
+
+Inputs to Pass 2:
+
+- Pass 1 tag array.
+- The narrator reply text (for Pass 2 to quote/verify; not required for the model to re-emit).
+- `extract_priority` list from the active sub_topic (e.g. `["family.spouse", "family.marriageDate"]`).
+- The relevant slice of the canonical catalog (not the whole 108-field list — scoped per sub_topic via existing projection map).
+- Narrator identity (for subject filtering).
+
+Pass 2 output shape:
+
+```json
+{
+  "writes": [
+    {
+      "fieldPath": "family.spouse.firstName", "value": "Janice", "confidence": 0.95,
+      "sourceSpan": {"start": 10, "end": 16}, "sourceTagIds": ["t0"]
+    },
+    {
+      "fieldPath": "family.marriageDate", "value": "1959-10-10", "confidence": 0.9,
+      "sourceSpan": {"start": 36, "end": 54}, "sourceTagIds": ["t1", "t2"],
+      "normalization": {"raw": "October 10th, 1959", "normalized": "1959-10-10"}
+    }
+  ],
+  "no_write": [
+    {
+      "reason": "age_at_event_not_a_dob",
+      "sourceTagIds": ["t3", "t4"]
+    }
+  ]
+}
+```
+
+`no_write` with explicit `reason` is the Pass 2 answer to the `case_012` r4j regression — the model has to *explicitly refuse* to turn "she was twenty" into `spouse.dateOfBirth=1939`, and that refusal is recorded.
+
+## Scope (in / out)
 
 **In scope:**
-- New output contract: LLM emits the narrator reply text with span-tag wrappers. Tag syntax follows Kiwi-LLaMA's shape: `<span class='fieldPath'>value</span>`.
-- Parser that converts span-tagged output back into our existing `{fieldPath, value, confidence}` triples, preserving the original span offsets alongside for R5.5 to consume.
-- Fallback: if parse fails, fall back to the current JSON contract (so this WO cannot regress failure modes — only add a new path).
-- New log tag `[extract][spantag]` for parse success/fail and span-coverage stats.
+
+- New Pass 1 prompt builder in `extract.py`: `_build_spantag_pass1_prompt`.
+- New Pass 2 prompt builder: `_build_spantag_pass2_prompt`.
+- Pass 1 parser: tolerant JSON parser that extracts the `tags` array, with a permissive regex fallback for malformed Llama output (missing commas, trailing text, duplicated keys).
+- Pass 2 parser: produces the current `{fieldPath, value, confidence}` shape plus `sourceSpan` and `sourceTagIds`.
+- Projection: Pass 2 output is down-projected to the legacy shape *before* the guardrail stack sees it. Rails remain unchanged. `sourceSpan` rides alongside the write but is stripped at the eval-scorer boundary by default (gated by `--with-source-spans`).
+- Feature flag: `HORNELORE_SPANTAG=1` — off by default. Off = legacy single-pass. On = two-pass with fallback to legacy on any parse failure.
+- New log tags: `[extract][spantag][pass1]`, `[extract][spantag][pass2]`, `[extract][spantag][fallback]`.
+- Targeted first-pack eval: the **15 stubborn cases** plus a control slice of 20 random contract cases.
 
 **Out of scope:**
-- Changing which fields get extracted. The scope of extraction is set by #81.
-- Teaching the model to bind entities to roles. That's #68 / R6.
-- Actually wiring the span offsets into the R5.5 citation-grounding pipeline. That's the R5.5 WO; this WO only *produces* the offsets.
-- Removing the JSON contract. Keep both paths; span-tag is additive, JSON is the fallback.
 
-## Goals (concrete)
+- Model swap (Hermes / Qwen). Deferred; see appendix.
+- Changing the catalog, schema, or `extract_priority` lists. #81 stays measured-not-adopted.
+- Wiring `sourceSpan` into the review UI. That's R5.5 Phase 2.
+- Repairing entity-role binding (#68 / Pillar 2). SPANTAG produces the *substrate* for that work, not the fix.
+- Rewriting the guardrail stack. Pass 2 plus the existing rails is the v1.
 
-1. **Produce source-offset provenance on ≥ 80% of emitted extractions** by r5j-spantag eval, measured as the fraction of written items whose value appears literally at the span offset in the narrator reply.
-2. **No regression on r4j/#81 eval pass rate.** Span-tag path must match or beat the JSON path; if not, ship the fallback.
-3. **Bound parse-failure rate.** When the model emits malformed span-tags, the parser must degrade to JSON-contract fallback in 100% of cases. No silent empty writes.
+## Goals (concrete, measurable)
 
-**Explicit non-goal:** We are NOT claiming span-tags will reduce hallucinations. The model can still tag the wrong span, tag the wrong type, or wrap a close paraphrase. The win is provenance + boundary consistency, not safety.
+1. **Pass 1 parse success ≥ 95%** on the 15-case stubborn frontier and ≥ 95% on the 20-case control slice. Measured over 3 runs per case.
+2. **Pass 2 source-offset coverage ≥ 80%** — fraction of emitted writes whose `sourceSpan` is non-empty and whose substring at `[start, end]` appears in the narrator reply literally (or under a normalization known to Pass 2, tracked via the `normalization.raw` field).
+3. **No regression vs r4i baseline on contract subsets.** v3 ≥ 34/62, v2 ≥ 31/62, must_not_write = 0.0%. Flag ships on default only if this holds.
+4. **Stubborn-15 movement, truncation-aware.** First-pack success criterion: **either** ≥ 3 of the 15 stubborn cases flip stable_pass across 3 runs, **or** stubborn-pack truncation rate drops from 15/15 to ≤ 8/15 (i.e. Pass 1+Pass 2 output budget is materially smaller than legacy single-pass on the same inputs).
+5. **Truncation as a required metric.** Every eval run under SPANTAG must report `truncation_rate` (fraction of cases where VRAM-GUARD fired on at least one pass) alongside pass rate. Truncation is first-class now.
 
-## Risks (with mitigations)
+## Target pack (first eval)
 
-- **Llama may not reliably emit well-formed span tags.** Kiwi-LLaMA reports pilot-test improvement after fine-tuning, not zero-shot. Our prompt-only use may drift (extra whitespace, unclosed tags, nested tags, Unicode attribute quotes). Mitigation: strict regex parser with a relaxed fallback that accepts `<span class=…` (curly or straight quotes, any internal whitespace) before falling back entirely to JSON.
-- **Sentence-level vs turn-level scope mismatch.** Kiwi-LLaMA operates sentence-by-sentence with each sentence an independent instance, and explicitly excludes cross-sentence relations. Hornelore's hard cases (`dense_truth`, `large chunks`) are multi-clause same-turn bindings that this setup does not address. Implication: span-tags are evidence-neutral for those cases — they neither help nor hurt. Don't count them as a win for the dense cluster in success metrics.
-- **Throughput cost.** Span-tag output is strictly longer than JSON (it wraps the entire input text plus emits tags). On a single RTX 50-series at local inference, this may push us past the extraction turn budget for long narrator replies. Measure: token count p95 per reply, before/after. Gate: if p95 grows > 1.5×, ship with a length cutoff that falls back to JSON for long replies.
-- **Scoring layer assumes JSON shape.** The master eval scorer and the `_apply_claims_validators` pipeline both consume the current `{fieldPath, value, confidence}` shape. Span-tag output must be converted to that shape *before* any validator or scorer sees it, so this WO has zero validator/scorer surface impact.
+Fixed 15 stubborn cases, same as the existing stubborn-pack wrapper:
+
+`case_008, case_009, case_017, case_018, case_053, case_075, case_080, case_081, case_082, case_083, case_084, case_085, case_086, case_087, case_088`
+
+Plus a 20-case control slice drawn from `contract tiny clean` + `contract small clean` (to confirm Pass 2 produces legacy-shape writes byte-identical to r4i on cases that are already passing — this is the no-regression guard).
+
+## Risks and mitigations
+
+- **Llama 3.1 8B Pass 1 tag recall.** The ten-tag inventory is designed to be broad and NL-named to reduce instruction sensitivity, but recall on `uncertainty_cue` and `polarity` is likely the weakest surface. Mitigation: Pass 2 is robust to missing polarity (treats absence as `asserted`), and missing `uncertainty_cue` downgrades confidence but does not change the write/no-write decision alone.
+- **Pass 1 span offset drift.** Llama may emit `start`/`end` values that don't match the substring. Mitigation: Pass 1 parser re-locates each span by substring-search against the narrator reply and corrects offsets; if substring is absent, the tag is dropped and logged `[extract][spantag][pass1][drop_orphan_tag]`. This is the substring-invariant-parser discipline.
+- **Pass 2 schema flooding.** Sending the full 108-field catalog to Pass 2 is wasteful. Mitigation: the existing projection map already produces sub_topic-scoped field lists; Pass 2 receives only those. If PROMPTSHRINK-style topic-scoping of few-shots is needed for Pass 2, we re-enable `HORNELORE_PROMPTSHRINK=1` in combination (the flag stays in-tree for this reason).
+- **Two calls = two latency budgets.** RTX 50-series is fast locally but two sequential LLM calls per turn will measurably lift latency. Mitigation: Pass 1 output is cacheable per (narrator_id, turn_id, reply_hash). Pass 2 reruns are free on the same narrator turn if `extract_priority` changes. Measure p95 end-to-end; gate default-on behind p95 ≤ 1.8× r4i.
+- **Fallback coverage.** Any Pass 1 or Pass 2 parse failure falls back to the legacy `_extract_via_singlepass` path. Measured at log-tag `[extract][spantag][fallback]`. Target fallback rate ≤ 5% on the 104-case master.
 
 ## Measurement plan
 
-Captured in `docs/reports/WO-EX-SPANTAG-01_REPORT.md`:
+Captured in `docs/reports/WO-EX-SPANTAG-01_REPORT.md` after the first eval run (provisional tag `r5a-spantag`):
 
-1. **Output contract toggle per eval run** — run eval twice, once JSON (baseline), once span-tag (experimental). A/B.
-2. **Parse success rate**: fraction of LLM outputs that produce a valid span-tag parse. Target ≥ 90% on r5j master.
-3. **Source-offset coverage**: fraction of written items with a valid source offset. Target ≥ 80%.
-4. **Topline delta**: pass rate, v2/v3 subsets, must_not_write, follow_up, dense_truth. All must be ≥ baseline for ship.
-5. **Latency**: mean + p95 extraction inference time, before/after.
+1. Pass 1 parse success per case (count, % of runs).
+2. Pass 2 parse success per case.
+3. Fallback activation rate (% of all calls).
+4. `sourceSpan` coverage of written items.
+5. Topline pass rate, v3, v2, must_not_write, failure-category breakdown.
+6. Per-bucket deltas: `contract`, `extract_multiple`, `extract_compound`, `dense_truth`, `large chunk`.
+7. Stubborn-pack stability: stable_pass / stable_fail / unstable counts; **truncation rate as first-class metric**.
+8. Latency: mean + p95 per turn, before/after. Separately Pass 1 and Pass 2.
 
-## Implementation plan
+## Implementation plan (commits)
 
-1. **Commit 1 — Additive prompt variant.** Add a second code path in `_build_extraction_prompt` behind a feature flag. New path returns a span-tag-style instruction. Existing JSON path untouched.
-2. **Commit 2 — Parser.** Add `_parse_spantag_output()` that converts span-tagged reply text to `{fieldPath, value, confidence, sourceSpan: {start, end}}` triples. On any parse failure, return `None` so the caller falls back to JSON parsing.
-3. **Commit 3 — Wire the toggle into the extraction pipeline.** Feature flag off by default. Off = JSON (current behavior). On = try span-tag, fall back to JSON if parse fails.
-4. **Commit 4 — Eval run + WO report** with the A/B deltas. Decide ship / no-ship based on the measurement plan.
+1. **Commit 1 — Pass 1 scaffold.** `_build_spantag_pass1_prompt`, `_parse_spantag_pass1`, `_relocate_spans`. Unit tests for parser on hand-written Pass 1 outputs (well-formed, malformed, orphan spans, polarity absent). Flag off; no behavior change live.
+2. **Commit 2 — Pass 2 scaffold.** `_build_spantag_pass2_prompt`, `_parse_spantag_pass2`. Unit tests.
+3. **Commit 3 — Pipeline wiring.** `_extract_via_spantag(...)` function that runs Pass 1 → Pass 2 → down-projects to legacy shape. `_extract_via_singlepass` unchanged; flag decides which to call.
+4. **Commit 4 — Eval harness additions.** Extend `run_stubborn_pack_eval.py` to report `truncation_rate` in the master block; add `--spantag` pass-through flag that sets `HORNELORE_SPANTAG=1` for the child eval.
+5. **Commit 5 — First eval run + WO report.** `r5a-spantag` master + stubborn pack. Decide: ship-default / keep-flag / revert. Report in the standard post-eval audit block (extended with truncation_rate).
+6. **(Conditional) Commit 6 — Re-enable PROMPTSHRINK pairing.** Only if Pass 2 input budget is the constraint; not on the critical path for commit 5.
 
 Each commit independently reversible. Feature flag lets Chris A/B at runtime without code changes.
 
-## Related work (source citations)
+## Acceptance gate for default-on
 
-- Hu et al., *Information extraction from clinical notes: are we ready to switch to large language models?*, JAMIA 2026 (doi:10.1093/jamia/ocaf213). Section 3 "Methods / Instruction Format" describes the `<span class='entity_type'>…</span>` contract and its rationale.
-- `docs/reports/loop01_research_synthesis.md` — Hornelore research synthesis. Kiwi-LLaMA is the citation-grounding-primitive source; *Order Is Not Layout* and *Architectural Determinism* are the separately-tracked inspirations for R5.5 / R6.
+Default-on requires **all** of:
 
-## Open questions for Chris review
+- Contract guards held: v3 ≥ 34/62, v2 ≥ 31/62, must_not_write = 0.0%.
+- Stubborn-pack: ≥ 3 stable_pass flips **or** truncation rate drops to ≤ 8/15.
+- Fallback rate ≤ 5% on the full master.
+- p95 end-to-end latency ≤ 1.8× r4i.
+- `sourceSpan` coverage ≥ 80% of emitted writes.
 
-1. **Span class naming:** Kiwi-LLaMA uses flat type names (`problem`, `drug`). We have dotted paths (`family.children.firstName`). Do we (a) use the dotted path as the class name verbatim, (b) use a short alias system, or (c) use a compact enum (f0, f1, f2, …) with a per-prompt legend? (a) is simplest but eats tokens; (c) is densest but loses the self-describing property.
-2. **Catalog-scoping interaction with #81.** If #81 lands first and we're sending only 15–40 field paths to the model, span-tag class name verbosity matters less. Confirms dependency ordering: #81 first, then this.
-3. **Reply-as-template vs inline emission.** Kiwi-LLaMA has the model re-emit the entire input with tags. For long narrator replies this is expensive. Alternative: emit only the tagged spans + a character-offset attribute. Question: do we have enough tokens in our reply budget to re-emit the whole reply, or do we need the offset-only variant?
-4. **Scoring path preservation.** Should the eval scorer see the `sourceSpan` field (new), or strip it so the existing pass/fail logic is byte-identical to the JSON path? Recommend strip-by-default with a `--with-source-spans` flag for the R5.5 readout.
+If any fails, flag stays off-by-default and we iterate. If all hold, SPANTAG becomes default-on, the flag flips, and #82 / R5.5 Pillar 2 begin.
+
+## Related work
+
+- Hu et al., *Information extraction from clinical notes...*, JAMIA 2026 (doi:10.1093/jamia/ocaf213) — Kiwi-LLaMA `<span class=...>` contract. We borrow the substring-invariant-parser discipline, not the full-echo output shape.
+- `docs/reports/loop01_research_synthesis.md` — SPANTAG provenance rationale, UniversalNER / GoLLIE / pointer-network lineage, KORIE staged-pipeline context.
+- `WO-EX-PROMPTSHRINK-01_Spec.md` Disposition — why PROMPTSHRINK is measured-not-adopted and why it may re-enter via SPANTAG Pass 2.
+
+## Appendix A — Why Hermes is sequenced after SPANTAG
+
+Hermes 3 (and any Qwen-family A/B) requires ChatML chat-template porting from our current Llama-3 template. That's a one-time tax with low technical risk but meaningful harness churn. Running that A/B before SPANTAG means measuring two variables at once (model + contract) and we lose the ability to attribute any movement cleanly.
+
+After SPANTAG lands with a stable ship/no-ship decision on Llama 3.1 8B:
+
+- If SPANTAG shipped and is default-on: Hermes A/B becomes "does the same two-pass contract do better on Hermes?" — one variable at a time.
+- If SPANTAG did not ship: Hermes A/B becomes "does any single-pass model do better on legacy contract?" — also one variable.
+
+Either way, sequencing Hermes behind SPANTAG cleans up the attribution. Prerequisite: chat-template parity test harness (small, separate WO, pre-requisite for the Hermes A/B but not for SPANTAG).
+
+## Appendix B — Conditional KORIE staged-pipeline note
+
+KORIE-style staged pipelines (detection → OCR → IE) are a real option for Hornelore if we end up operating on document photos (letters, journals, census scans) rather than narrator transcripts. **Gate:** only consider this lane if SPANTAG Phase 1 delivers ≥ 20% topline lift **or** closes ≥ 3 of the stubborn 15. Below those thresholds, staged-pipeline infrastructure cost is not justified at our current scale. Document photos are a product-roadmap question, not an extraction-pipeline question, and should be revisited at R6 or later.
 
 ## Revision history
 
-- 2026-04-19: Initial stub. Deferred pending r4i + #81 signoff. ChatGPT pass corrected two overclaims from the initial Kiwi-LLaMA synthesis (span-tags are provenance, not hallucination cure; paper's sentence-level scope ≠ evidence for full Pillar 1).
+- 2026-04-19: Initial single-pass stub (`<span class='fieldPath'>value</span>`). Deferred behind r4i + #81.
+- 2026-04-20: **Full rewrite to two-pass (evidence + bind).** Single-pass design superseded. Written against r4i baseline lock and r4j truncation-dominated finding. First target pack = stubborn 15. Truncation promoted to first-class metric. Appendices A (Hermes sequencing) and B (KORIE conditional lane) added.

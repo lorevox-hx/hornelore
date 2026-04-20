@@ -80,19 +80,26 @@ All of these are readable from the agent workspace mount via the session prefix.
 
 ## Current phase
 
-**LOOP-01 R4 cleanup — post-r4h baseline.** Sequence:
+**LOOP-01 R5.5 Phase 1 — SPANTAG two-pass extraction.** R4 is closed. r4i is locked as the active post-R4 baseline (see `docs/reports/POST-R4-BASELINE-LOCK.md`). Next eval tag is **r5a**, not r4k.
 
-1. **#67** — case_011 Patch H date un-normalisation. Patch staged (holiday-phrase normaliser + suffix expansion + `St. Patrick's Day` period regex). 27/27 unit tests green. Pending: pytest regression test + `WO-EX-PATCH-H-DATEFIELD-01_REPORT.md` + r4i live eval.
-2. **#68** — case_053 wrong-entity. Disposition: defer to R5 Pillar 2 (OTS/entity-binding bias is architectural, not a tactical patch). Re-check after #67 lands to see if it indirectly shifted; if not, write disposition memo.
-3. **#81** — WO-EX-PROMPTSHRINK-01 spec.
-4. **#63** — eval-harness should_pass drift audit, in parallel to #81; retag `guard_false_positive` → `scope_escape` now that #72 is closed.
-5. **Freeze post-R4 baseline.**
-6. **#82** — post-R4 memo + R5.5 citation-grounding spec.
-7. Pivot to **R5.5** (the real attack on `dense_truth 0/8` and `large chunks 0/4` cliffs). See `docs/reports/loop01_research_synthesis.md`.
+Active sequence:
 
-Each WO above must report the standard audit block before being called done.
+1. **#89 / WO-EX-SPANTAG-01** — two-pass extraction: Pass 1 evidence-only NL tag inventory, Pass 2 bind/project. First target pack = the 15 stubborn cases. Truncation is a first-class metric. Flag `HORNELORE_SPANTAG=1`, off by default. See `WO-EX-SPANTAG-01_Spec.md`.
+2. **#63** — eval-harness should_pass drift audit, retag `guard_false_positive` → `scope_escape` now that #72 is closed. Not a blocker for SPANTAG start, but a prerequisite for calling SPANTAG results "clean".
+3. **Post-SPANTAG gate** — if SPANTAG ships default-on, R5.5 Pillar 2 (entity-role binding) opens. If it doesn't, iterate SPANTAG or revisit.
 
-**Closed:** #72 / WO-EX-TURNSCOPE-01 (r4h hit gate: case_094 pass, 060/062 restored, must_not_write=0, no follow-up regressions). Note: r4h did NOT lift the topline (53/104 vs r4f 54/104 — within stochastic noise). Net-master movement now has to come from #67 / #68 / #81, not further turn-scope iteration.
+Each WO above must report the standard audit block (extended with `truncation_rate`) before being called done.
+
+**Closed:**
+- **#72 / WO-EX-TURNSCOPE-01** (r4h: case_094 pass, 060/062 restored, must_not_write=0).
+- **#67 / WO-EX-PATCH-H-DATEFIELD-01** (r4i: case_011 + case_012 green).
+- **#68 / case_053 wrong-entity** — disposition memo, deferred to R6 Pillar 2.
+- **#81 / WO-EX-PROMPTSHRINK-01** — measured at r4j, **not adopted**. r4j produced one regression (`case_012` green→red via schema_gap/spouse-DOB fabrication) and zero gains. 15/15 stubborn-pack truncation across 3 runs showed the frontier is truncation-dominated, not prompt-verbosity-dominated. Flag stays in-tree (`HORNELORE_PROMPTSHRINK=1`) for possible SPANTAG Pass 2 pairing. See `WO-EX-PROMPTSHRINK-01_Spec.md` Disposition section.
+
+**Deferred (long tail):**
+- Hermes 3 / Qwen A/B — sequenced *after* SPANTAG signoff to keep attribution clean (see SPANTAG spec Appendix A).
+- KORIE staged-pipeline (detection/OCR/IE) — conditional on SPANTAG delivering ≥20% topline lift or ≥3 stubborn flips (Appendix B).
+- #35 V4 scope axes, R6 Pillars 2 & 3.
 
 ## Chris's working preferences
 

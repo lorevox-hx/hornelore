@@ -187,7 +187,77 @@ Regardless of direction, `extract_multiple` and `extract_compound` per-bucket de
 - **WO-EX-PROMPTSHRINK-03**: Workstream C (branch-grouped catalog rendering). Independent from 02.
 - **WO-EX-FEWSHOT-REGEN-01**: regenerate the few-shot set from scratch based on post-R5 case clusters. Today's few-shots are artifacts of R2/R3/R4 incremental debugging. Defer to R6.
 
+## Disposition — measured, not adopted (r4j closeout)
+
+**Status:** CLOSED — "no-move" track. Flag stays **off** by default. r4i remains the active post-R4 baseline.
+
+### r4j results vs r4i
+
+| Metric | r4i (flag off) | r4j (flag on) | Δ |
+|---|---|---|---|
+| Topline pass | 55/104 (52.9%) | 54/104 (51.9%) | **−1** |
+| v3 contract subset | 34/62 | 33/62 | −1 |
+| v2 contract subset | 31/62 | 30/62 | −1 |
+| v2-compat (all) | 37/104 | 36/104 | −1 |
+| must_not_write violations | 0.0% | 0.0% | 0 |
+| must_extract recall | 52.0% | 51.4% | −0.6pp |
+| schema_gap | 28 | 29 | +1 |
+| llm_hallucination | 13 | 13 | 0 |
+| field_path_mismatch | 14 | 14 | 0 |
+| noise_leakage | 9 | 10 | +1 |
+
+### Pass↔fail flips
+
+- **Newly failed:** `case_012` (kent-james-horne, relationship_anchors, tiny, clean). Score 1.0 → 0.5, primary failure `schema_gap`.
+- **Newly passed:** none.
+- **Score drift ≥0.05 (non-flip):** none.
+
+### Scorer-drift audit on the single flip
+
+Real routing regression, not scorer drift.
+
+- **Narrator text:** *"I married Janice Josephine Zarr on October 10th, 1959. I was nineteen and she was twenty."*
+- **extractPriority:** `[family.spouse, family.marriageDate]`
+- **r4i items (pass, 1.0):** `family.spouse.firstName=Janice`, `family.spouse.middleName=Josephine`, `family.spouse.lastName=Zarr`, **`family.marriageDate=1959-10-10`**.
+- **r4j items (fail, 0.5, schema_gap):** `family.spouse.firstName/middleName/lastName` correct, but `family.marriageDate` **missing** and replaced by **`family.spouse.dateOfBirth=1939`** — the LLM back-computed a spouse DOB from "she was twenty" instead of routing the in-sentence date to `marriageDate`.
+
+Root cause: the shrunk prompt dropped the few-shot demonstrating "date-in-marriage-context → marriageDate" routing. Under the legacy 33-shot monolith the model had the routing pattern in-context; under the 3-8 topic-scoped selection it did not. The hypothesis that attention dilution hurts compound routing is **not supported** — it is the opposite pattern (few-shot starvation on a specific routing template).
+
+### Hypothesis check — extract_multiple / extract_compound
+
+| Behavior | r4i passed | r4j passed | Δ |
+|---|---|---|---|
+| extract_multiple | 18/52 | 18/52 | 0 |
+| extract_compound | 5/13 | 5/13 | 0 |
+
+Target buckets did not move. The stated hypothesis (dilution-hurts-compound) did not hold up in measurement.
+
+### Stubborn-pack r4j stability (3 runs, HORNELORE_PROMPTSHRINK=1)
+
+- stable_pass: **0 / 15**
+- stable_fail: **15 / 15**
+- unstable: 0 / 15
+- truncated (any run): **15 / 15** — VRAM-GUARD 8192-token ceiling fired on every stubborn case in at least one run
+- score improved across runs: 0
+- failure-category changed: 1
+- field-path shape changed: 0
+
+The stubborn frontier is **truncation-dominated**, not prompt-verbosity-dominated. Shrinking the prompt did not convert a single stubborn case and did not shift stability anywhere. This is the cleanest signal from r4j and it reframes the next WO (SPANTAG) — any contract change that *grows* the output budget must be paired with input-side savings or it will worsen the truncation floor.
+
+### Decision
+
+- **Flag left off.** `HORNELORE_PROMPTSHRINK=1` is not default. Legacy 33-shot path is the live path.
+- **r4i is frozen as the active post-R4 baseline** (see `docs/reports/POST-R4-BASELINE-LOCK.md`).
+- **No rollback of the code.** The shrunk path stays in-tree behind the flag — it cost nothing to keep and we may want it back when SPANTAG lands (if SPANTAG consumes output budget, freeing input budget via PROMPTSHRINK becomes valuable again).
+- **Closed as "no-move / regressed-by-one".** A full rollback is not warranted — one flip, no must_not_write, hypothesis cleanly measured and falsified, truncation signal isolated.
+
+### Follow-on
+
+- 02 (catalog scoping) and 03 (branch-grouped catalog rendering) stay deferred.
+- FEWSHOT-REGEN-01 is still valid but now gated behind SPANTAG signoff — the post-SPANTAG cluster may make today's few-shots obsolete anyway.
+
 ## Revision history
 
 - 2026-04-19 (draft): Initial three-workstream spec (A / B / C).
 - 2026-04-19 (revised): Simplified to single-lever dynamic topic-scoped few-shot selection. Shipped as v1. Rationale for divergence documented above.
+- 2026-04-20: r4j measured. CLOSED as "no-move / regressed-by-one". Flag stays off; r4i is active baseline. See Disposition section.
