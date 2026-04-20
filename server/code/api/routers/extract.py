@@ -65,6 +65,37 @@ class ExtractFieldsRequest(BaseModel):
     current_pass: Optional[str] = None
     current_mode: Optional[str] = None
 
+    # WO-STT-LIVE-02 (#99): STT-agnostic transcript safety layer.
+    # All fields optional — when the frontend omits them the endpoint
+    # behaves byte-stable with pre-WO-STT-LIVE-02 callers. The audit
+    # (WO-STT-LIVE-01A) confirmed today's live STT authority is the
+    # browser Web Speech API; backend /api/stt/transcribe is unused.
+    # These fields let the extractor reason about *which* authority
+    # produced the text so fragile facts (DOB, names, places of birth,
+    # parent/spouse/sibling/child identity) can be routed to
+    # suggest_only + confirmation UX instead of prefill_if_blank.
+    #
+    # transcript_source       : "web_speech" | "backend_whisper" | "typed" | None
+    # transcript_confidence   : float 0..1 (best available from source) | None
+    # raw_transcript          : str — exactly what the recognizer emitted (pre-normalisation)
+    # normalized_transcript   : str — punctuation/case normalised text (matches `answer`)
+    # fragile_fact_flags      : List[str] — frontend-side heuristic flags
+    #                           ("mentions_dob", "mentions_name", "mentions_birthplace",
+    #                            "mentions_parent", "mentions_spouse", "mentions_sibling",
+    #                            "mentions_child"). Informational; backend re-checks.
+    # confirmation_required   : bool — frontend signals "I judged this turn fragile
+    #                           (low confidence OR fragile-fact flag AND source != typed)
+    #                           — please gate fragile writes to suggest_only."
+    #                           When True, any fragile-field extraction is force-downgraded
+    #                           to writeMode=suggest_only and surfaced in
+    #                           ExtractFieldsResponse.clarification_required.
+    transcript_source: Optional[str] = None
+    transcript_confidence: Optional[float] = None
+    raw_transcript: Optional[str] = None
+    normalized_transcript: Optional[str] = None
+    fragile_fact_flags: Optional[List[str]] = None
+    confirmation_required: Optional[bool] = None
+
 
 class ExtractedItem(BaseModel):
     fieldPath: str
@@ -87,12 +118,35 @@ class ExtractedItem(BaseModel):
     plausibility_reason: Optional[str] = None   # human-readable explanation
     plausibility_age: Optional[int] = None      # computed age at event
 
+    # WO-STT-LIVE-02 (#99): audio provenance — distinct from `source` above,
+    # which tags the extractor pipeline ("backend_extract"). audio_source
+    # echoes the request's transcript_source so downstream projection-sync
+    # layers can decide whether to auto-apply (typed / high-conf) or route
+    # to confirmation UX (low-confidence spoken + fragile field).
+    # Values: "web_speech" | "backend_whisper" | "typed" | None.
+    audio_source: Optional[str] = None
+    needs_confirmation: Optional[bool] = None   # True when fragile-field + confirmation_required
+    confirmation_reason: Optional[str] = None   # short tag: "low_confidence" | "fragile_field" | ...
+
 
 class ExtractFieldsResponse(BaseModel):
     items: List[ExtractedItem]
     # WO-13 Phase 4 — mirror the four-tag taxonomy on the response envelope.
     method: str = "llm"   # "llm" | "rules" | "hybrid" | "rules_fallback" | "fallback"
     raw_llm_output: Optional[str] = None  # debug: raw model output (only in dev)
+
+    # WO-STT-LIVE-02 (#99): clarification envelope. When confirmation_required
+    # is True on the request AND at least one fragile-field item was extracted,
+    # this list enumerates the items the frontend should surface via
+    # confirmation UX instead of silently prefilling. Each entry carries the
+    # fieldPath + extracted value + short reason tag so the UI can render
+    # "We heard <value> for <human label> — is that right?" without needing
+    # to re-derive the fragile-field decision.
+    # Shape per entry:
+    #   { "fieldPath": str, "value": str, "reason": str,
+    #     "audio_source": str|None, "confidence": float|None }
+    # When empty (default) the frontend behaves exactly as today.
+    clarification_required: List[Dict[str, Any]] = []
 
 
 # ── Field schema for the LLM prompt ─────────────────────────────────────────
@@ -324,6 +378,121 @@ PROTECTED_IDENTITY_FIELDS = frozenset([
     "personal.placeOfBirth",
     "personal.birthOrder",
 ])
+
+# ── WO-STT-LIVE-02 (#99): fragile-field classifier ────────────────────────
+# Fragile = canonical identity / relationship fields where an STT
+# mishearing can silently corrupt downstream bio-builder state.
+# The protected-identity set above is a strict superset of the narrator's
+# own identity; FRAGILE_FIELD_EXACT expands to spouse identity + close
+# family names/DOBs/places. Prefix sets catch indexed relationship
+# fields like "parents[0].firstName", "siblings[1].lastName",
+# "family.children[2].firstName".
+#
+# When ExtractFieldsRequest.confirmation_required is True AND an extracted
+# item's fieldPath matches this classifier, the endpoint downgrades its
+# writeMode to "suggest_only" and adds a clarification_required entry to
+# the response envelope. The item is still returned (projection-sync can
+# still render it as a candidate); the downgrade only blocks silent
+# prefill of fragile identity facts when the source transcript is
+# low-confidence or flagged risky by the frontend.
+FRAGILE_FIELD_EXACT = frozenset([
+    # Narrator identity (already in PROTECTED_IDENTITY_FIELDS, repeated
+    # here for self-contained readability — kept in sync manually)
+    "personal.fullName",
+    "personal.preferredName",
+    "personal.dateOfBirth",
+    "personal.placeOfBirth",
+    "personal.birthOrder",
+    # Spouse identity (non-indexed — current-spouse canonical path)
+    "family.spouse.firstName",
+    "family.spouse.lastName",
+    "family.spouse.dateOfBirth",
+    "family.spouse.placeOfBirth",
+    "family.marriageDate",
+    "family.marriagePlace",
+])
+
+# Any fieldPath that *starts with* one of these prefixes is fragile.
+# Covers indexed repeaters (parents[0].firstName, siblings[2].dateOfBirth,
+# family.children[1].placeOfBirth, greatGrandparents[0].lastName).
+FRAGILE_FIELD_PREFIXES = (
+    "parents[",          # e.g. "parents[0].firstName"
+    "parents.",          # e.g. "parents.firstName" (non-indexed)
+    "siblings[",
+    "siblings.",
+    "family.children[",
+    "family.children.",
+    "grandparents[",
+    "grandparents.",
+    "greatGrandparents[",
+    "greatGrandparents.",
+)
+
+# Which sub-fields within the indexed repeaters are actually fragile.
+# Everything else under parents[0].* / siblings[1].* (relation, notes,
+# anecdote, etc.) is NOT fragile — narrative color can be retried.
+FRAGILE_FIELD_LEAF_NAMES = frozenset([
+    "firstName",
+    "lastName",
+    "middleName",
+    "maidenName",
+    "preferredName",
+    "dateOfBirth",
+    "dateOfDeath",
+    "placeOfBirth",
+    "placeOfDeath",
+])
+
+
+def _is_fragile_field(fieldPath: str) -> bool:
+    """Return True when fieldPath is a fragile identity/relationship field.
+
+    Rules:
+      1. Exact match against FRAGILE_FIELD_EXACT → fragile.
+      2. Starts with any FRAGILE_FIELD_PREFIXES AND the trailing segment
+         (after the last '.') is in FRAGILE_FIELD_LEAF_NAMES → fragile.
+         (This lets "siblings[0].anecdote" be non-fragile while
+         "siblings[0].firstName" is fragile.)
+      3. Otherwise not fragile.
+
+    Pure function — no I/O. Safe to call per-item inside the endpoint hot path.
+    """
+    if not fieldPath:
+        return False
+    if fieldPath in FRAGILE_FIELD_EXACT:
+        return True
+    if any(fieldPath.startswith(p) for p in FRAGILE_FIELD_PREFIXES):
+        # grab the leaf after the last dot
+        leaf = fieldPath.rsplit(".", 1)[-1]
+        if leaf in FRAGILE_FIELD_LEAF_NAMES:
+            return True
+    return False
+
+
+# Human-readable labels for the clarification_required envelope.
+# Falls back to EXTRACTABLE_FIELDS[path].label when missing here.
+FRAGILE_FIELD_LABEL_OVERRIDES = {
+    "personal.fullName":       "your full name",
+    "personal.preferredName":  "your preferred name",
+    "personal.dateOfBirth":    "your date of birth",
+    "personal.placeOfBirth":   "your place of birth",
+    "family.spouse.firstName": "your spouse's first name",
+    "family.spouse.lastName":  "your spouse's last name",
+    "family.marriageDate":     "your marriage date",
+    "family.marriagePlace":    "where you were married",
+}
+
+
+def _fragile_field_label(fieldPath: str) -> str:
+    """Best-effort human label for clarification UI. Never raises."""
+    if fieldPath in FRAGILE_FIELD_LABEL_OVERRIDES:
+        return FRAGILE_FIELD_LABEL_OVERRIDES[fieldPath]
+    meta = EXTRACTABLE_FIELDS.get(fieldPath, {})
+    if meta.get("label"):
+        return meta["label"]
+    # Fallback: turn "siblings[0].firstName" into "siblings first name"
+    cleaned = re.sub(r"\[\d+\]", "", fieldPath).replace(".", " ")
+    return cleaned
 
 
 # ── LLM availability cache ──────────────────────────────────────────────────
@@ -5023,6 +5192,100 @@ def _apply_age_math_filter(
     return surviving
 
 
+# ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
+
+def _apply_transcript_safety_layer(
+    items: List["ExtractedItem"],
+    req: "ExtractFieldsRequest",
+) -> tuple[List["ExtractedItem"], List[Dict[str, Any]]]:
+    """Stamp audio provenance + downgrade fragile writes when confirmation_required.
+
+    Two independent passes, both byte-stable with pre-WO-STT-LIVE-02 callers
+    (i.e. callers that leave the new Request fields as None/False):
+
+    Pass 1: audio_source stamp.
+        Every item receives `audio_source = req.transcript_source` (may be None).
+        This is pure annotation — no behavior change for any downstream code
+        that doesn't inspect the new field.
+
+    Pass 2: fragile-field downgrade.
+        Only active when `req.confirmation_required is True`. For each item
+        whose fieldPath passes _is_fragile_field():
+            - force writeMode := "suggest_only" (idempotent if already suggest_only)
+            - set needs_confirmation := True
+            - set confirmation_reason := "low_confidence" (if caller gave a
+              sub-threshold transcript_confidence) OR "fragile_field"
+            - append a clarification_required entry for the response envelope.
+
+    The reason tag priority is:
+        transcript_confidence is not None AND transcript_confidence < 0.6
+            → "low_confidence"
+        otherwise
+            → "fragile_field"
+
+    Returns: (items_mutated_in_place, clarification_required_list).
+    When confirmation_required is False/None OR no fragile items exist,
+    clarification_required is [] and items are only stamped with audio_source.
+    """
+    clarifications: List[Dict[str, Any]] = []
+    if not items:
+        return items, clarifications
+
+    src = req.transcript_source  # may be None
+    conf = req.transcript_confidence  # may be None
+    must_confirm = bool(req.confirmation_required)
+
+    # Gate threshold: below this we tag the reason as low_confidence; above
+    # we tag as fragile_field. Keep conservative — Web Speech rarely reports
+    # confidence <0.6 on clean audio.
+    LOW_CONF_THRESHOLD = 0.6
+
+    downgraded = 0
+    for it in items:
+        # Pass 1 — always stamp audio provenance (informational, no harm).
+        it.audio_source = src
+
+        # Pass 2 — downgrade only when caller asked us to.
+        if not must_confirm:
+            continue
+        try:
+            if not _is_fragile_field(it.fieldPath):
+                continue
+            reason = (
+                "low_confidence"
+                if (conf is not None and conf < LOW_CONF_THRESHOLD)
+                else "fragile_field"
+            )
+            # Force writeMode to suggest_only (idempotent).
+            if it.writeMode != "suggest_only":
+                it.writeMode = "suggest_only"
+            it.needs_confirmation = True
+            it.confirmation_reason = reason
+            clarifications.append({
+                "fieldPath": it.fieldPath,
+                "label": _fragile_field_label(it.fieldPath),
+                "value": it.value,
+                "reason": reason,
+                "audio_source": src,
+                "confidence": conf,
+            })
+            downgraded += 1
+        except Exception as e:  # never crash the endpoint over a safety pass
+            logger.warning("[extract][stt-safety] downgrade skipped for %s: %s",
+                           getattr(it, "fieldPath", "?"), e)
+
+    if downgraded:
+        logger.info(
+            "[extract][stt-safety] source=%s conf=%s downgraded=%d clarifications=%d",
+            src or "?",
+            ("%.2f" % conf) if isinstance(conf, (int, float)) else "?",
+            downgraded,
+            len(clarifications),
+        )
+
+    return items, clarifications
+
+
 # ── Main endpoint ────────────────────────────────────────────────────────────
 
 @router.post("/extract-fields", response_model=ExtractFieldsResponse)
@@ -5036,10 +5299,16 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): log life-map stage fields
     # (era/pass/mode) alongside section/target so the causal-matrix
     # analysis can attribute outcomes to stage context.
-    logger.info("[extract] Attempting LLM extraction for person=%s, section=%s, target=%s, era=%s, pass=%s, mode=%s",
+    # WO-STT-LIVE-02 (#99): also log transcript provenance so one grep can
+    # slice outcomes by audio source / confidence / confirmation gate.
+    _stt_src = req.transcript_source or "?"
+    _stt_conf = ("%.2f" % req.transcript_confidence) if isinstance(req.transcript_confidence, (int, float)) else "?"
+    _stt_conf_req = "1" if req.confirmation_required else "0"
+    logger.info("[extract] Attempting LLM extraction for person=%s, section=%s, target=%s, era=%s, pass=%s, mode=%s, stt_src=%s, stt_conf=%s, confirm_req=%s",
                 req.person_id[:8] if req.person_id else "?",
                 req.current_section, req.current_target_path,
-                req.current_era or "?", req.current_pass or "?", req.current_mode or "?")
+                req.current_era or "?", req.current_pass or "?", req.current_mode or "?",
+                _stt_src, _stt_conf, _stt_conf_req)
     llm_items, raw_output = _extract_via_llm(
         answer=answer,
         current_section=req.current_section,
@@ -5098,10 +5367,14 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): summary also carries
     # era/pass/mode so a single grep over [extract][summary] yields
     # every stage variable for post-hoc causal attribution.
-    logger.info("[extract][summary] llm_raw=%s accepted=%d method=%s section=%s target=%s era=%s pass=%s mode=%s",
+    # WO-STT-LIVE-02 (#99): summary also carries stt_src / stt_conf /
+    # confirm_req so post-hoc truth-quality analysis can correlate
+    # extraction outcomes with audio provenance in one grep.
+    logger.info("[extract][summary] llm_raw=%s accepted=%d method=%s section=%s target=%s era=%s pass=%s mode=%s stt_src=%s stt_conf=%s confirm_req=%s",
                 "present" if raw_output else "none", _accepted, _method,
                 req.current_section or "?", req.current_target_path or "?",
-                req.current_era or "?", req.current_pass or "?", req.current_mode or "?")
+                req.current_era or "?", req.current_pass or "?", req.current_mode or "?",
+                _stt_src, _stt_conf, _stt_conf_req)
 
     # Phase G: Load protected identity snapshot for conflict detection
     _protected_snapshot = {}
@@ -5166,11 +5439,19 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         except Exception as _e:
             logger.warning("[extract][validator] filter skipped (llm path): %s", _e)
 
+        # WO-STT-LIVE-02 (#99): final safety pass — stamp audio_source and,
+        # when the frontend signaled confirmation_required, downgrade any
+        # fragile-field writes to suggest_only + build the clarification
+        # envelope. Byte-stable when the frontend leaves the new Request
+        # fields as None/False (today's callers).
+        final_items, _clarifications = _apply_transcript_safety_layer(final_items, req)
+
         _record_metric(_method, parsed=len(llm_items), accepted=len(final_items), rejected=0)
         return ExtractFieldsResponse(
             items=final_items,
             method=_method,
             raw_llm_output=raw_output,
+            clarification_required=_clarifications,
         )
 
     # Fallback: rules-based extraction (still include raw_llm_output for debugging)
@@ -5247,11 +5528,16 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         except Exception as _e:
             logger.warning("[extract][validator] filter skipped (rules path): %s", _e)
 
+        # WO-STT-LIVE-02 (#99): same safety pass on the rules-fallback path
+        # so both routes behave consistently under confirmation_required.
+        result_items, _clarifications = _apply_transcript_safety_layer(result_items, req)
+
         _record_metric("rules", parsed=0, accepted=len(result_items), rejected=0)
         return ExtractFieldsResponse(
             items=result_items,
             method="rules_fallback",
             raw_llm_output=raw_output,  # include for debugging even on rules fallback
+            clarification_required=_clarifications,
         )
 
     # Nothing extracted — return empty

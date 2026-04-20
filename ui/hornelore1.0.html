@@ -3999,6 +3999,10 @@
      runs AFTER it completes — identical pattern to lori7.5.html.
 ──────────────────────────────────────────────────────────────-->
 <script src="js/state.js"></script>
+<!-- WO-STT-LIVE-02 (#99) — STT-agnostic transcript safety layer.
+     Must load AFTER state.js (uses state.lastTranscript) and BEFORE
+     interview.js / app.js (both consume window.TranscriptGuard). -->
+<script src="js/transcript-guard.js"></script>
 <script src="js/trainer-narrators.js"></script>
 <script src="js/data.js"></script>
 <script src="js/api.js"></script>

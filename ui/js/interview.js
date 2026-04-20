@@ -1216,6 +1216,7 @@ function _extractAndProjectMultiField(answerText, turnId) {
   }
 
   var allItems = [];
+  var allClarifications = [];
   var extractMethod = "";
   var chunkPromises = chunks.map(function (chunk, ci) {
     // WO-EX-SECTION-EFFECT-01 Phase 2 (#93): thread life-map stage
@@ -1233,6 +1234,19 @@ function _extractAndProjectMultiField(answerText, turnId) {
       current_pass: _sess.currentPass || null,
       current_mode: _sess.currentMode || null
     };
+    // WO-STT-LIVE-02 (#99): attach transcript provenance when available.
+    // buildExtractionPayloadFields() returns {} when nothing is staged,
+    // so the payload is byte-stable with pre-WO-STT-LIVE-02 callers.
+    // Note: we reconcile against the chunk so a long answer split into
+    // multiple chunks still carries the right source tag on each.
+    try {
+      if (window.TranscriptGuard && typeof window.TranscriptGuard.buildExtractionPayloadFields === "function") {
+        var _tFields = window.TranscriptGuard.buildExtractionPayloadFields(chunk);
+        Object.keys(_tFields).forEach(function (k) { payload[k] = _tFields[k]; });
+      }
+    } catch (_tErr) {
+      console.warn("[extract][stt-guard] payload merge failed:", _tErr && _tErr.message);
+    }
     return fetch((window.LOREVOX_API || "http://localhost:8000") + "/api/extract-fields", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1247,6 +1261,11 @@ function _extractAndProjectMultiField(answerText, turnId) {
         allItems = allItems.concat(data.items);
         if (!extractMethod) extractMethod = data.method || "";
         console.log("[extract] Chunk " + (ci + 1) + "/" + chunks.length + ": " + data.items.length + " items");
+      }
+      // WO-STT-LIVE-02 (#99): collect clarification entries across chunks.
+      // Defaults to [] on pre-WO-STT-LIVE-02 backends.
+      if (Array.isArray(data.clarification_required) && data.clarification_required.length > 0) {
+        allClarifications = allClarifications.concat(data.clarification_required);
       }
     });
   });
@@ -1381,6 +1400,51 @@ function _extractAndProjectMultiField(answerText, turnId) {
         console.warn("[extract] Inline claims panel error:", e);
       }
     }
+
+    // WO-STT-LIVE-02 (#99): surface clarification_required entries so the
+    // UI can ask the narrator to confirm fragile facts instead of silently
+    // prefilling from a low-confidence / fragile-flagged transcript.
+    // Default dispatch order:
+    //   1. custom handler window.HorneloreClarifyFragile (if installed)
+    //   2. shadow-review inline panel (when available) — reuses the same
+    //      surface as other review prompts
+    //   3. console log (diagnostic only) when no handler is installed
+    if (allClarifications && allClarifications.length > 0) {
+      console.log("[extract][stt-safety] " + allClarifications.length + " fragile-field clarification(s) requested:", allClarifications);
+      var handled = false;
+      if (typeof window.HorneloreClarifyFragile === "function") {
+        try {
+          window.HorneloreClarifyFragile(allClarifications, answerText);
+          handled = true;
+        } catch (e) {
+          console.warn("[extract][stt-safety] custom handler failed:", e && e.message);
+        }
+      }
+      if (!handled && window.HorneloreShadowReview && typeof window.HorneloreShadowReview.showFragileClarifications === "function") {
+        try {
+          window.HorneloreShadowReview.showFragileClarifications(allClarifications, answerText);
+          handled = true;
+        } catch (e) {
+          console.warn("[extract][stt-safety] shadow-review handler failed:", e && e.message);
+        }
+      }
+      if (!handled && window.TranscriptGuard && typeof window.TranscriptGuard.buildConfirmationPrompt === "function") {
+        // Minimum viable surface — log each prompt line so it is visible
+        // in the DevTools console during testing even without UI wiring.
+        for (var ci2 = 0; ci2 < allClarifications.length; ci2++) {
+          console.log("[extract][stt-safety][prompt] " +
+                      window.TranscriptGuard.buildConfirmationPrompt(allClarifications[ci2]));
+        }
+      }
+    }
+
+    // Clear the staged transcript after a successful extraction round-trip
+    // so a stale capture never double-attributes to the next turn.
+    try {
+      if (window.TranscriptGuard && typeof window.TranscriptGuard.clearStagedTranscript === "function") {
+        window.TranscriptGuard.clearStagedTranscript();
+      }
+    } catch (_) {}
   })
   .catch(function (err) {
     // Non-fatal: backend extraction is supplementary

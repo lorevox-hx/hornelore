@@ -2704,6 +2704,24 @@ async function sendUserMessage(){
   const text=getv("chatInput").trim(); if(!text) return;
   // WO-MIC-UI-02A: Confirm send source and content
   console.log("[WO-MIC-UI-02A] sendUserMessage() — source: #chatInput, length:", text.length, "preview:", text.slice(0, 80));
+  // WO-STT-LIVE-02 (#99) — when no speech capture is staged (or it's
+  // stale / doesn't match the current input), mark the send as typed
+  // so the extraction payload carries transcript_source="typed" and
+  // the backend stamps audio_source on the resulting items. Purely
+  // annotative — typed sends are never forced into confirmation UX.
+  try {
+    if (window.TranscriptGuard) {
+      var _staged = state && state.lastTranscript;
+      var _needle = (_staged && _staged.normalized_text) ? _staged.normalized_text.trim().toLowerCase() : "";
+      var _hay    = text.trim().toLowerCase();
+      var _age    = _staged && _staged.ts ? (Date.now() - _staged.ts) : Infinity;
+      var _stale  = _age > (window.TranscriptGuard.STALE_MS || 30000);
+      var _matches= _needle && _hay.indexOf(_needle) !== -1;
+      if (!_staged || !_staged.source || _stale || !_matches) {
+        window.TranscriptGuard.markTypedInput(text, { turnId: null });
+      }
+    }
+  } catch (_e) { console.warn("[STT-guard] typed mark failed:", _e && _e.message); }
   // Phase Q.4: Block user sends while model is still warming up
   if (!_llmReady) {
     appendBubble("ai", "Hornelore is still warming up — please wait a moment for the model to finish loading.");
@@ -3812,6 +3830,19 @@ function _ensureRecognition(){
     setv("chatInput",getv("chatInput")+_normalized02a);
     // WO-MIC-UI-02A: Confirm text reaches main surface
     console.log("[WO-MIC-UI-02A] Final text → #chatInput:", _normalized02a.slice(0, 60));
+    // WO-STT-LIVE-02 (#99) — stage the final transcript so the extraction
+    // payload builder can attach source="web_speech" + confidence +
+    // fragile-fact flags. No-op if transcript-guard didn't load.
+    try {
+      if (window.TranscriptGuard && typeof window.TranscriptGuard.populateFromRecognition === "function") {
+        window.TranscriptGuard.populateFromRecognition(e, {
+          normalize: _normalisePunctuation,
+          turnId:    (state.interview && state.interview.session_id) ? ("turn-" + Date.now()) : null,
+        });
+      }
+    } catch (_guardErr) {
+      console.warn("[STT-guard] stage failed:", _guardErr && _guardErr.message);
+    }
   };
   // v7.4D — only auto-restart if user explicitly left mic on AND Lori is not speaking.
   // This prevents the engine from restarting mid-TTS and catching Lori's audio.

@@ -50,6 +50,51 @@ let state = {
     pairedSpeaker: null,    // name or label for the second participant
   },
 
+  /* ── WO-STT-LIVE-02 (#99) — transcript provenance ─────────────────
+     The single source of truth for "what produced the text we're about
+     to send to /api/extract-fields". Populated by:
+       - app.js recognition.onresult  (source = "web_speech")
+       - future backend-STT adapter   (source = "backend_whisper")
+       - sendUserMessage() fallback   (source = "typed" when no recent
+                                       recognition event matches the
+                                       current #chatInput content)
+     Consumed by:
+       - ui/js/interview.js _extractAndProjectMultiField payload builder.
+       - ui/js/transcript-guard.js reconciliation + confirmation
+         decision ("is this turn fragile enough to require UX gating?")
+     Schema:
+       raw_text          : string — verbatim recognizer output (pre-normalise)
+       normalized_text   : string — punctuation/case normalised (matches what
+                                    lands in #chatInput and is sent as `answer`)
+       source            : "web_speech" | "backend_whisper" | "typed" | null
+       is_final          : bool    — true when recognition.onresult fires with
+                                    isFinal; typed inputs are always final
+       confidence        : number|null  — 0..1; null when source provides none
+       fragile_fact_flags: string[] — output of transcript-guard's frontend
+                                     heuristic ("mentions_dob", "mentions_name",
+                                     "mentions_birthplace", "mentions_parent",
+                                     "mentions_spouse", "mentions_sibling",
+                                     "mentions_child")
+       confirmation_required : bool — true when (source != "typed") AND
+                                     ((confidence != null && confidence < 0.6)
+                                      OR fragile_fact_flags.length > 0)
+       confirmation_prompt   : string|null — optional pre-composed UI prompt
+       turn_id               : string|null — interview turn id when available
+       ts                    : number — ms epoch of last update
+  ─────────────────────────────────────────────────────────────── */
+  lastTranscript: {
+    raw_text:              "",
+    normalized_text:       "",
+    source:                null,
+    is_final:              false,
+    confidence:            null,
+    fragile_fact_flags:    [],
+    confirmation_required: false,
+    confirmation_prompt:   null,
+    turn_id:               null,
+    ts:                    0,
+  },
+
   /* ── v7.1 Timeline Spine ──────────────────────────────────────
      Initialized when DOB + birthplace are saved.
      periods: { label, start_year, end_year, places[], notes[] }[]
