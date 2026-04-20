@@ -19,6 +19,8 @@ Four compounding problems on the stubborn frontier:
 3. **Truncation-dominated frontier.** r4j stability: 15 / 15 stubborn cases truncated in at least one run. Any single-pass contract that re-emits the narrator reply inline (Kiwi-LLaMA style full-echo) would *worsen* truncation. We need a contract whose output budget stays small even on long inputs.
 4. **Section-conditioned schema coercion.** Today's single-pass contract forces the model to interpret the narrator reply, bind entities to roles, and commit to a schema path *simultaneously*, while under pressure from `current_section` and `current_target_path`. The section context leaks into the projection because the model has no way to tag evidence without committing to a field. Diagnostic evidence: case_008 (narrator in `earlyMemories` section, extractor writes `earlyMemories.significantEvent`, expected `parents.notableLifeEvents`); case_009 (narrator in `education` section, extractor writes `education.careerProgression` / `education.training`, expected `education.earlyCareer`); case_082 (same wrong path family across 3 stable runs — not random drift, stable coercion). SPANTAG breaks the coercion by splitting schema-blind evidence capture (Pass 1) from schema-aware projection (Pass 2) with the section context as an *explicit controlled prior* rather than an implicit force.
 
+**Scope caveat added post-adjudication (2026-04-20).** `WO-EX-SECTION-EFFECT-01_ADJUDICATION.md` classified the 15 stubborn cases. Only **4 of 15** (008, 009, 018, 082) are dual-answer-defensible — the mechanism SPANTAG Pass 2 is designed to fix. **7 of 15** (080, 081, 083, 084, 085, 086, 087) are truncation-starved: r4h/r4i/r4j all produced ≤2 items with `fallback` or `rules_fallback` method, behaviorally identical across the three evals, i.e. they were already dead at baseline. SPANTAG Pass 2's path-binding logic cannot rescue them on its own. **2 of 15** (075, 088) are scorer-drift suspects that need an `alt_defensible_values` scorer update, not a model change. **1** (017) is an intra-catalog bind error; SPANTAG may or may not help. **1** (053) is the #68 compound-entity case, explicitly deferred to R6 Pillar 2. Honest realistic ceiling for SPANTAG on the stubborn pack, absent a separate truncation-lane effort, is therefore +4 flips from dual-answer adjudication + up to +2 from scorer policy, not "rescue the frontier".
+
 ## Design in one paragraph
 
 Two passes, one model, same session.
@@ -164,17 +166,30 @@ Two refusal cases demonstrated:
 1. **Pass 1 parse success ≥ 95%** on the 15-case stubborn frontier and ≥ 95% on the 20-case control slice. Measured over 3 runs per case.
 2. **Pass 2 source-offset coverage ≥ 80%** — fraction of emitted writes whose `sourceSpan` is non-empty and whose substring at `[start, end]` appears in the narrator reply literally (or under a normalization known to Pass 2, tracked via the `normalization.raw` field).
 3. **No regression vs r4i baseline on contract subsets.** v3 ≥ 34/62, v2 ≥ 31/62, must_not_write = 0.0%. Flag ships on default only if this holds.
-4. **Stubborn-15 movement, truncation-aware and adjudication-aware.** First-pack success criterion: **either** ≥ 3 of the 15 stubborn cases flip stable_pass across 3 runs (measured against **adjudicated** truth labels from SECTION-EFFECT-01, not pre-adjudication labels), **or** stubborn-pack truncation rate drops from 15/15 to ≤ 8/15 (i.e. Pass 1+Pass 2 output budget is materially smaller than legacy single-pass on the same inputs).
+4. **Stubborn-15 movement, scoped to the right sub-pack.** First-pack success criterion is now read against the adjudicated sub-pack, not the full 15:
+   - **Primary target sub-pack** (4 dual-answer-defensible cases): `case_008, case_009, case_018, case_082`. Pass 2's first-class dual-path output + `alt_defensible_paths` in the scorer should flip **≥ 3 of these 4** to stable_pass across 3 runs. This is the designed mechanism test.
+   - **Secondary target** (1 intra-catalog bind): `case_017`. May flip if Pass 2's scope slice contains both `pets.name` and `pets.species`. Informative, not required.
+   - **Not SPANTAG targets** (7 truncation-starved): `case_080, case_081, case_083, case_084, case_085, case_086, case_087`. The success metric on these is not a pass flip; it is **truncation rate**: stubborn-pack truncation rate should drop from 15/15 to ≤ 8/15 if Pass 1+Pass 2 output budget is materially smaller than legacy single-pass. Pass flips on these cases, if they occur, are a bonus, not a target.
+   - **Out of scope** (2 scorer-drift + 1 architectural): `case_075, case_088` need `alt_defensible_values` in the scorer (a follow-up to `alt_defensible_paths`, not landed in this WO); `case_053` is #68 / R6 Pillar 2.
+
+   Combined: SPANTAG Phase 1 ships default-on if the primary sub-pack hits ≥ 3/4 **and** no regressions on the contract guards. Truncation-rate drop is a nice-to-have, not a ship gate.
 5. **Truncation as a required metric.** Every eval run under SPANTAG must report `truncation_rate` (fraction of cases where VRAM-GUARD fired on at least one pass) alongside pass rate. Truncation is first-class now.
 6. **Dual-path primary-pick rate.** For cases flagged by SECTION-EFFECT-01 as "dual-answer defensible", measure whether SPANTAG's Pass 2 picks the subject-driven path as primary when Pass 1 has a clean non-narrator relation_cue. Target ≥ 80% on such cases — this is the mechanism-level check that the subject-beats-section rule is actually firing.
 
 ## Target pack (first eval)
 
-Fixed 15 stubborn cases, same as the existing stubborn-pack wrapper:
+Fixed 15 stubborn cases, same as the existing stubborn-pack wrapper — but now partitioned per Phase 1 adjudication (`WO-EX-SECTION-EFFECT-01_ADJUDICATION.md`):
 
-`case_008, case_009, case_017, case_018, case_053, case_075, case_080, case_081, case_082, case_083, case_084, case_085, case_086, case_087, case_088`
+| Sub-pack | Cases | SPANTAG role |
+|---|---|---|
+| **Primary** (dual-answer-defensible) | 008, 009, 018, 082 | Designed mechanism test — ≥ 3/4 must flip stable_pass to ship default-on. |
+| **Secondary** (intra-catalog bind) | 017 | Informative; may flip if Pass 2 scope slice exposes both `pets.name` and `pets.species`. |
+| **Truncation-starved — not a SPANTAG target** | 080, 081, 083, 084, 085, 086, 087 | Measured for truncation-rate drop only. Pass flips here are bonus, not success criteria. r4h/r4i/r4j behavior identical ⇒ baseline-stable dead; path-binding logic alone will not rescue. |
+| **Out of scope** | 075, 088 (scorer-drift), 053 (#68 / R6 Pillar 2) | No SPANTAG movement expected. 075/088 need `alt_defensible_values`. |
 
 Plus a 20-case control slice drawn from `contract tiny clean` + `contract small clean` (to confirm Pass 2 produces legacy-shape writes byte-identical to r4i on cases that are already passing — this is the no-regression guard).
+
+**r4i load-bearing check (2026-04-20):** the 7 truncation-starved cases were verified identical across r4h, r4i, r4j — 6 of them `fallback method=fallback extracted_count=0`, case_085 stably emits 2 parent items and nothing else. PROMPTSHRINK did not regress them; they were already dead at baseline. This closes the "are they worse under r4j?" question and confirms SPANTAG Pass 2 alone cannot rescue this sub-pack.
 
 ## Risks and mitigations
 
@@ -215,9 +230,13 @@ Each commit independently reversible. Feature flag lets Chris A/B at runtime wit
 Default-on requires **all** of:
 
 - Contract guards held: v3 ≥ 34/62, v2 ≥ 31/62, must_not_write = 0.0%.
-- Stubborn-pack: ≥ 3 stable_pass flips **or** truncation rate drops to ≤ 8/15.
+- **Primary sub-pack**: ≥ 3 of 4 dual-answer-defensible cases (008/009/018/082) flip stable_pass across 3 runs, scored with `alt_defensible_paths` in effect.
 - Fallback rate ≤ 5% on the full master.
 - p95 end-to-end latency ≤ 1.8× r4i.
+
+Truncation-rate drop on the remaining 11 cases is a nice-to-have and reported, but not a ship gate — that lane has its own plan (see Appendix B / KORIE).
+
+**Scorer dependency:** default-on is blocked until `alt_defensible_paths` is honored by the scorer (SECTION-EFFECT-01 Phase 2 / task #94). Without it, a Pass 2 that correctly emits the alt path gets a 0.0 score and looks like failure. #94 must land before this WO's first eval.
 - `sourceSpan` coverage ≥ 80% of emitted writes.
 
 If any fails, flag stays off-by-default and we iterate. If all hold, SPANTAG becomes default-on, the flag flips, and #82 / R5.5 Pillar 2 begin.
@@ -248,3 +267,4 @@ KORIE-style staged pipelines (detection → OCR → IE) are a real option for Ho
 - 2026-04-19: Initial single-pass stub (`<span class='fieldPath'>value</span>`). Deferred behind r4i + #81.
 - 2026-04-20: **Full rewrite to two-pass (evidence + bind).** Single-pass design superseded. Written against r4i baseline lock and r4j truncation-dominated finding. First target pack = stubborn 15. Truncation promoted to first-class metric. Appendices A (Hermes sequencing) and B (KORIE conditional lane) added.
 - 2026-04-20 (later): Three-agent convergence (Chris / Claude / ChatGPT) on **section-conditioned schema coercion** as the explicit failure mechanism on case_008 / 009 / 082. Four edits folded in: (1) problem framing gains a fourth problem (schema coercion); (2) Pass 2 inputs reordered and role-tagged — section/target-path are now explicit *controlled priors*, not implicit forces, and post-SECTION-EFFECT-01 the payload extends to include `currentEra`/`currentPass`/`currentMode`; (3) new Pass 2 design rule — subject beats section when Pass 1 binds a non-narrator relation_cue; (4) dual-path emission promoted to first-class Pass 2 output with primary/secondary ordering and `disagreement_reason`. Implementation paused pending **WO-EX-SECTION-EFFECT-01** first-pass signoff (#63 promoted from cleanup to prerequisite). Sixth goal (dual-path primary-pick rate) and tenth measurement (section-effect causal chain) added.
+- 2026-04-20 (latest): **Scope narrowed post-Phase-1 adjudication.** `WO-EX-SECTION-EFFECT-01_ADJUDICATION.md` classified the stubborn-15 into 4 dual-answer-defensible, 7 truncation-starved, 2 scorer-drift, 1 intra-catalog bind, 1 architectural. SPANTAG is now explicitly a narrower weapon: primary sub-pack = 4 dual-answer cases (008/009/018/082); success = ≥ 3/4 stable_pass with `alt_defensible_paths` in the scorer. 7 truncation-starved cases are not SPANTAG targets — they were verified identical across r4h/r4i/r4j, i.e. baseline-stable dead, and belong to a separate truncation / staged-pipeline lane. Goal #4 and acceptance gate updated accordingly. **Ship-blocker added:** default-on requires `alt_defensible_paths` honored by scorer first (task #94). Without it, a Pass 2 emission on the alt path scores 0.0 and looks like failure.

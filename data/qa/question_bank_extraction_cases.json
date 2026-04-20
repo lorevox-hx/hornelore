@@ -722,7 +722,9 @@
       "truthZones": {
         "parents.notableLifeEvents": {
           "zone": "must_extract",
-          "expected": "born in a car"
+          "expected": "born in a car",
+          "alt_defensible_paths": ["earlyMemories.significantEvent"],
+          "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write"
@@ -783,7 +785,9 @@
       "truthZones": {
         "education.earlyCareer": {
           "zone": "must_extract",
-          "expected": "occupational therapist"
+          "expected": "occupational therapist",
+          "alt_defensible_paths": ["education.careerProgression"],
+          "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "laterYears.retirement": {
           "zone": "must_not_write"
@@ -1475,7 +1479,9 @@
       "truthZones": {
         "residence.place": {
           "zone": "must_extract",
-          "expected": "Germany"
+          "expected": "Germany",
+          "alt_defensible_paths": ["family.children.firstName", "family.children.placeOfBirth"],
+          "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write"
@@ -5938,7 +5944,9 @@
         },
         "residence.place": {
           "zone": "must_extract",
-          "expected": "Dodge ND, Glen Ulin ND, Strasburg ND, Bismarck ND, Germany"
+          "expected": "Dodge ND, Glen Ulin ND, Strasburg ND, Bismarck ND, Germany",
+          "alt_defensible_paths": ["personal.placeOfBirth"],
+          "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "education.schooling": {
           "zone": "may_extract",

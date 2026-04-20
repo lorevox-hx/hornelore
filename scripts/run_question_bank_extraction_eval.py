@@ -233,22 +233,74 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     def _score_one_tz_entry(fp: str, tz_entry: dict, idx_suffix: str = ""):
         zone = tz_entry.get("zone", "must_extract")
         expected_val = tz_entry.get("expected", "")
+        # WO-EX-SECTION-EFFECT-01 Phase 2 scorer policy: alt_defensible_paths
+        # lets a must_extract zone be credited when the primary path isn't
+        # emitted but an adjudicated-defensible alternative path is. Applies
+        # only to must_extract zones (see WO-EX-SECTION-EFFECT-01_Spec.md §Scope).
+        alt_paths = tz_entry.get("alt_defensible_paths") or []
         was_extracted = fp in extracted_map
         detail_key = f"{fp}{idx_suffix}"
 
         if zone == "must_extract":
             tz_scores["must_extract"]["total"] += 1
+
+            # 1. Try the primary path (existing behavior).
+            primary_hit = False
+            primary_best = 0.0
             if was_extracted and expected_val:
-                best = max((score_field_match(expected_val, v) for v in extracted_map[fp]), default=0.0)
-                if best >= 0.5:
-                    tz_scores["must_extract"]["hit"] += 1
-                else:
-                    tz_scores["must_extract"]["miss"] += 1
+                primary_best = max(
+                    (score_field_match(expected_val, v) for v in extracted_map[fp]),
+                    default=0.0,
+                )
+                primary_hit = primary_best >= 0.5
             elif was_extracted:
+                # No expected value declared — any emission to the primary path counts.
+                primary_hit = True
+
+            # 2. If primary missed, consult alt_defensible_paths.
+            alt_hit = False
+            winning_alt_path = None
+            winning_alt_score = 0.0
+            if not primary_hit and alt_paths and expected_val:
+                for ap in alt_paths:
+                    if ap in extracted_map:
+                        ab = max(
+                            (score_field_match(expected_val, v) for v in extracted_map[ap]),
+                            default=0.0,
+                        )
+                        if ab >= 0.5 and ab > winning_alt_score:
+                            alt_hit = True
+                            winning_alt_score = ab
+                            winning_alt_path = ap
+
+            if primary_hit:
                 tz_scores["must_extract"]["hit"] += 1
+                tz_details[detail_key] = {
+                    "zone": zone,
+                    "extracted": True,
+                    "winning_path": fp,
+                    "winning_via": "primary",
+                    "winning_score": round(primary_best, 3),
+                }
+            elif alt_hit:
+                tz_scores["must_extract"]["hit"] += 1
+                tz_details[detail_key] = {
+                    "zone": zone,
+                    "extracted": True,
+                    "winning_path": winning_alt_path,
+                    "winning_via": "alt_defensible_path",
+                    "winning_score": round(winning_alt_score, 3),
+                    "alt_defensible_paths": list(alt_paths),
+                }
             else:
                 tz_scores["must_extract"]["miss"] += 1
-            tz_details[detail_key] = {"zone": zone, "extracted": was_extracted}
+                tz_details[detail_key] = {
+                    "zone": zone,
+                    "extracted": was_extracted,
+                    "winning_path": None,
+                    "winning_via": None,
+                    **({"alt_defensible_paths": list(alt_paths)} if alt_paths else {}),
+                }
 
         elif zone == "may_extract":
             tz_scores["may_extract"]["total"] += 1
@@ -318,21 +370,48 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
         overall_score = v2_score
 
     # Classify failures
+    # WO-EX-SECTION-EFFECT-01 Phase 2: if a primary path is "missing" in v2
+    # field_scores but the emission landed on an alt_defensible_path for that
+    # same must_extract truth zone, do NOT tag field_path_mismatch — the emission
+    # is defensible by adjudication, not a mismatch. Tag 'defensible_alt_credit'
+    # instead so the audit shows what happened.
+    def _alt_paths_for(fp_primary: str) -> set:
+        tz = truth_zones.get(fp_primary)
+        if not tz:
+            return set()
+        if "_multi" in tz:
+            out: set = set()
+            for e in tz["_multi"]:
+                if e.get("zone") == "must_extract":
+                    out.update(e.get("alt_defensible_paths") or [])
+            return out
+        if tz.get("zone") == "must_extract":
+            return set(tz.get("alt_defensible_paths") or [])
+        return set()
+
     failure_categories = []
     for fp, fs in field_scores.items():
         if fs["status"] == "missing":
+            alt_set = _alt_paths_for(fp)
             # Was it extracted under a different path?
+            found_alt_defensible = False
             found_elsewhere = False
             for efp, vals in extracted_map.items():
                 if efp != fp:
                     for v in vals:
                         if score_field_match(fs["expected"], v) >= 0.7:
-                            failure_categories.append("field_path_mismatch")
-                            found_elsewhere = True
+                            if efp in alt_set:
+                                found_alt_defensible = True
+                            else:
+                                found_elsewhere = True
                             break
-                    if found_elsewhere:
+                    if found_alt_defensible or found_elsewhere:
                         break
-            if not found_elsewhere:
+            if found_alt_defensible:
+                failure_categories.append("defensible_alt_credit")
+            elif found_elsewhere:
+                failure_categories.append("field_path_mismatch")
+            else:
                 failure_categories.append("schema_gap")
         elif fs["status"] == "wrong":
             failure_categories.append("llm_hallucination")
