@@ -4559,6 +4559,32 @@ _NARRATIVE_VALUE_SUFFIXES = frozenset({
 })
 _SCALAR_VALUE_MAX_CHARS = 120
 _NARRATIVE_VALUE_MAX_CHARS = 500
+
+# WO-EX-NARRATIVE-FIELD-01 Phase 2.5 — narrative-catchment length cap raise
+# R4-A's 500-char cap silently drops legitimate multi-paragraph oral-history
+# prose on the exact fields WO-EX-NARRATIVE-FIELD-01 targets. r5c observed
+# four drops in a single master run: parents.notableLifeEvents at 640 chars
+# (family_loss), grandparents.memorableStory at 762 chars (grandmother_story),
+# 700 and 1022 chars (shong_family). The LLM correctly routed the prose to
+# these catchment slots (flag-ON alias fires visible in the log tail), but
+# R4-A's suffix-blind cap culled them before schema write. That turned the
+# full WO routing gain into a near-zero topline movement.
+#
+# Fix: when HORNELORE_NARRATIVE=1, raise the cap to 2000 chars for the
+# specific suffixes this WO targets. ~2000 chars is roughly 380 words,
+# roughly 2× the largest observed legitimate narrative in today's corpus,
+# and still well below the full raw answer-dump sizes (3000+ chars) that
+# R4-A was originally designed to catch. Other narrative suffixes
+# (deploymentLocation, militaryBranch, etc.) keep the 500-char cap.
+_NARRATIVE_CATCHMENT_SUFFIXES = frozenset({
+    "notableLifeEvents",
+    "memorableStory",
+    "memorableStories",
+    "uniqueCharacteristics",
+    "notes",
+})
+_NARRATIVE_CATCHMENT_MAX_CHARS = 2000
+
 _SENTENCE_BOUNDARY = re.compile(r'[.!?]\s+[A-Z]')
 
 
@@ -4592,11 +4618,21 @@ def _apply_value_length_cap(items: List[dict]) -> List[dict]:
                 )
                 continue
         elif suffix in _NARRATIVE_VALUE_SUFFIXES:
-            if n > _NARRATIVE_VALUE_MAX_CHARS:
+            # WO-EX-NARRATIVE-FIELD-01 Phase 2.5: catchment suffixes get a
+            # higher ceiling when the flag is on, to prevent R4-A from eating
+            # legitimate multi-paragraph oral-history prose that the flag's
+            # few-shots successfully routed. Flag-off path is byte-stable.
+            if _narrative_field_enabled() and suffix in _NARRATIVE_CATCHMENT_SUFFIXES:
+                cap = _NARRATIVE_CATCHMENT_MAX_CHARS
+                cap_reason = "narrative_catchment"
+            else:
+                cap = _NARRATIVE_VALUE_MAX_CHARS
+                cap_reason = "narrative"
+            if n > cap:
                 logger.info(
-                    "[extract][R4-A answer-dump] dropping %s (narrative, "
+                    "[extract][R4-A answer-dump] dropping %s (%s, "
                     "%d chars > %d): %r…",
-                    fp, n, _NARRATIVE_VALUE_MAX_CHARS, val[:80],
+                    fp, cap_reason, n, cap, val[:80],
                 )
                 continue
         out.append(it)
