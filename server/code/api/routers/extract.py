@@ -923,6 +923,11 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "but do NOT extract military.branch or military.rank for the NARRATOR unless they personally served"
     )
 
+    # WO-EX-NARRATIVE-FIELD-01 Phase 2: append narrative-catchment few-shots
+    # when HORNELORE_NARRATIVE=1. Off by default → byte-stable legacy prompt.
+    if _narrative_field_enabled():
+        system += _NARRATIVE_FIELD_FEWSHOTS
+
     context_note = ""
     if current_section:
         context_note += f"\nCurrent interview section: {current_section}"
@@ -1475,6 +1480,12 @@ def _build_extraction_prompt_shrunk(
         + _PROMPTSHRINK_FIELD_ROUTING_RULES
     )
 
+    # WO-EX-NARRATIVE-FIELD-01 Phase 2: mirror legacy builder behavior.
+    # When HORNELORE_NARRATIVE=1, append narrative-catchment few-shots to
+    # the shrunk prompt too. Off by default → byte-stable shrunk path.
+    if _narrative_field_enabled():
+        system += _NARRATIVE_FIELD_FEWSHOTS
+
     context_note = ""
     if current_section:
         context_note += f"\nCurrent interview section: {current_section}"
@@ -1493,6 +1504,75 @@ def _build_extraction_prompt_shrunk(
 def _promptshrink_enabled() -> bool:
     """Env-gated. Default OFF so rollback is a single var flip."""
     return os.getenv("HORNELORE_PROMPTSHRINK", "0").lower() in ("1", "true", "yes", "on")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WO-EX-NARRATIVE-FIELD-01 — narrative-target catchment few-shots (env-gated)
+#
+# Phase 1 diagnostic (cg01) showed the LLM emits narrative-field content but
+# routes to fabricated child-shaped paths: parents.preferredName,
+# parents.education, parents.child.boardingSchoolExperience, parents.parent.*,
+# etc. — all schema-guard-rejected. This is a few-shot gap, not a content-
+# absence problem: the LLM doesn't know the canonical slots for parent/
+# grandparent/spouse/sibling prose.
+#
+# This block adds 8 targeted catchment few-shots directing prose to
+# canonical slots:
+#   • parents.notableLifeEvents — parent life events (schooling, work, events)
+#   • parents.notes — parent personality, nicknames, color
+#   • grandparents.memorableStory (singular) — grandparent prose
+#   • greatGrandparents.memorableStories (plural) — great-grandparent prose
+#   • siblings.uniqueCharacteristics — sibling personality/character
+#   • family.spouse.notes — spouse personality beyond marriage facts
+#   • family.marriageNotes — wedding-event context
+#
+# Each few-shot includes an explicit "Do NOT emit" anti-pattern naming the
+# fabricated paths we observed in the cg01 LLM output, to teach the model
+# which fabrications to avoid.
+#
+# Flag: HORNELORE_NARRATIVE=1 (default OFF). When off, the string is never
+# appended to the system prompt — byte-stable with the pre-WO path.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_NARRATIVE_FIELD_FEWSHOTS = (
+    "\n"
+    "NARRATIVE CATCHMENT FEW-SHOTS — canonical slots for prose about parents, grandparents, spouse, siblings:\n"
+    "• \"My mother Josie hated boarding school but worked in the kitchen and learned to cook.\" → "
+    "parents.firstName='Josie' + parents.notableLifeEvents='hated boarding school, worked in the kitchen and learned to cook'. "
+    "Do NOT emit parents.boardingSchoolExperience, parents.workExperience, parents.child.*, or parents.education.\n"
+    "• \"Mom went to Capitol Business College for two years in Bismarck.\" → "
+    "parents.notableLifeEvents='attended Capitol Business College for two years in Bismarck'. "
+    "Do NOT emit parents.education or parents.schooling — neither exists in the schema.\n"
+    "• \"Everyone called her Josie.\" → parents.notes='called Josie'. "
+    "Do NOT emit parents.preferredName or parents.nickname — fold nicknames into parents.notes.\n"
+    "• \"Grandma was fifty years old when she had my mother.\" → "
+    "grandparents.memorableStory='was fifty years old when she had the narrator's mother'. "
+    "Do NOT emit parents.parent.ageAtNarratorBirth, parents.parent.firstName, or grandparents.age.\n"
+    "• \"My great-grandfather came over from Alsace-Lorraine in 1880 and farmed in Iowa.\" → "
+    "greatGrandparents.memorableStories='came over from Alsace-Lorraine in 1880 and farmed in Iowa'. "
+    "Use the plural .memorableStories (not .memorableStory) for great-grandparents.\n"
+    "• \"My brother Vincent was the quiet one who always had his nose in a book.\" → "
+    "siblings.firstName='Vincent' + siblings.uniqueCharacteristics='quiet; always reading books'. "
+    "Do NOT emit siblings.memories or siblings.notes — uniqueCharacteristics is the prose slot for sibling color.\n"
+    "• \"My wife Melanie loves teaching; she taught me that you can find joy anywhere.\" → "
+    "family.spouse.firstName='Melanie' + family.spouse.notes='loves teaching; taught the narrator to find joy anywhere'. "
+    "Do NOT emit spouse.narrative, family.spouse.narrative, or family.spouse.personality.\n"
+    "• \"We got married at the courthouse in Bismarck with just my brother as witness.\" → "
+    "family.marriagePlace='Bismarck' + family.marriageNotes='at the courthouse with the narrator's brother as only witness'. "
+    "Wedding-event prose → family.marriageNotes. Spouse-personality prose → family.spouse.notes.\n"
+)
+
+
+def _narrative_field_enabled() -> bool:
+    """Env-gated. Default OFF so the legacy prompt path is byte-stable.
+
+    WO-EX-NARRATIVE-FIELD-01 Phase 2. When ON, the narrative-catchment
+    few-shots above are appended to both the legacy and shrunk extraction
+    prompts, teaching the LLM to route parent/grandparent/spouse/sibling
+    prose to its canonical schema slot instead of fabricated child-shaped
+    paths (parents.child.*, parents.parent.*, spouse.narrative, etc.).
+    """
+    return os.getenv("HORNELORE_NARRATIVE", "0").lower() in ("1", "true", "yes", "on")
 
 
 def _is_compound_answer(answer: str) -> bool:
@@ -3572,6 +3652,31 @@ def _validate_item(item: Any) -> Optional[dict]:
             "parents.parentAttitude": "parents.notableLifeEvents",
             # family.siblings.dateOfBirth has no schema target — route to significantEvent
             "family.siblings.dateOfBirth": "earlyMemories.significantEvent",
+            # WO-EX-NARRATIVE-FIELD-01: parent-fabrication paths seen in cg01
+            # Phase 1 diagnostics (schema-guard rejected). Route to canonical
+            # parent prose slots so the content is preserved.
+            "parents.preferredName":              "parents.notes",
+            "parents.nickname":                   "parents.notes",
+            "parents.story":                      "parents.notes",
+            "parents.color":                      "parents.notes",
+            "parents.personality":                "parents.notes",
+            "parents.memorableStory":             "parents.notableLifeEvents",
+            "parents.education":                  "parents.notableLifeEvents",
+            "parents.schooling":                  "parents.notableLifeEvents",
+            "parents.boardingSchoolExperience":   "parents.notableLifeEvents",
+            "parents.workExperience":             "parents.notableLifeEvents",
+            "parents.careerHistory":              "parents.notableLifeEvents",
+            "parents.lifeEvent":                  "parents.notableLifeEvents",
+            "parents.narrative":                  "parents.notableLifeEvents",
+            # parents.parent.* — narrator's grandparent seen through the
+            # parent's lens. Route identity to grandparents.*; prose to
+            # grandparents.memorableStory.
+            "parents.parent.firstName":           "grandparents.firstName",
+            "parents.parent.lastName":            "grandparents.lastName",
+            "parents.parent.maidenName":          "grandparents.maidenName",
+            "parents.parent.ageAtNarratorBirth":  "grandparents.memorableStory",
+            "parents.parent.story":               "grandparents.memorableStory",
+            "parents.parent.notes":               "grandparents.memorableStory",
 
             # ── WO-SCHEMA-02: Aliases for new field families ──────────────────
             # Grandparents — LLM may use family.grandparents.* or grandmother/grandfather
@@ -3627,6 +3732,14 @@ def _validate_item(item: Any) -> Optional[dict]:
             "spouse.color": "family.spouse.notes",
             "wife.notes": "family.spouse.notes",
             "husband.notes": "family.spouse.notes",
+            # WO-EX-NARRATIVE-FIELD-01: template-variant narrative paths for
+            # the spouse. Spouse-personality prose → family.spouse.notes.
+            "spouse.narrative":          "family.spouse.notes",
+            "family.spouse.narrative":   "family.spouse.notes",
+            "spouse.story":              "family.spouse.notes",
+            "spouse.personality":        "family.spouse.notes",
+            "wife.narrative":            "family.spouse.notes",
+            "husband.narrative":         "family.spouse.notes",
             # faith.notes
             "faith.color": "faith.notes",
             "faith.story": "faith.notes",
@@ -3804,11 +3917,31 @@ def _validate_item(item: Any) -> Optional[dict]:
             "siblings.placeOfBirth":                 "siblings.birthPlace",
             "siblings.siblingRelationship":          "siblings.relation",
             "siblings.reactionToOutdoorActivities":  "siblings.uniqueCharacteristics",
+            # WO-EX-NARRATIVE-FIELD-01: template-variant narrative paths for
+            # siblings. Schema has no siblings.memories / siblings.notes —
+            # route template-facing prose into uniqueCharacteristics (the
+            # canonical prose slot for a sibling per SAME-ENTITY rule).
+            "siblings.memories":                     "siblings.uniqueCharacteristics",
+            "siblings.notes":                        "siblings.uniqueCharacteristics",
+            "siblings.personality":                  "siblings.uniqueCharacteristics",
+            "siblings.story":                        "siblings.uniqueCharacteristics",
+            "siblings.color":                        "siblings.uniqueCharacteristics",
+            "siblings.memorableStory":               "siblings.uniqueCharacteristics",
+            "siblings.characterDescription":         "siblings.uniqueCharacteristics",
 
             # greatGrandparents.* variants (schema has birthDate/birthPlace;
             # LLM sometimes emits dateOfBirth/placeOfBirth)
             "greatGrandparents.dateOfBirth":  "greatGrandparents.birthDate",
             "greatGrandparents.placeOfBirth": "greatGrandparents.birthPlace",
+            # WO-EX-NARRATIVE-FIELD-01: template-variant narrative paths for
+            # great-grandparents. Template emits .notableLifeEvents / .notes /
+            # .narrative — route into the canonical .memorableStories slot.
+            "greatGrandparents.notableLifeEvents":   "greatGrandparents.memorableStories",
+            "greatGrandparents.notes":               "greatGrandparents.memorableStories",
+            "greatGrandparents.narrative":           "greatGrandparents.memorableStories",
+            "greatGrandparents.story":               "greatGrandparents.memorableStories",
+            "greatGrandparents.color":               "greatGrandparents.memorableStories",
+            "greatGrandparents.personality":         "greatGrandparents.memorableStories",
 
             # family.spouse.* variants and in-law spill-over
             "family.spouse.familyHistory":           "family.spouse.notes",

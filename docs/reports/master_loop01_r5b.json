@@ -1,26 +1,26 @@
 {
   "_wo": "WO-QB-MASTER-EVAL-01",
-  "_generated": "2026-04-20T10:02:26",
+  "_generated": "2026-04-21T00:42:31",
   "mode": "live",
   "summary": {
     "total_cases": 104,
-    "passed": 58,
-    "failed": 46,
-    "pass_rate": 0.558,
-    "avg_overall_score": 0.631
+    "passed": 59,
+    "failed": 45,
+    "pass_rate": 0.567,
+    "avg_overall_score": 0.635
   },
   "contract_subset": {
     "total": 62,
     "passed_v3": 36,
     "passed_v2": 31,
-    "v2_avg_score": 0.546,
+    "v2_avg_score": 0.549,
     "pass_rate_v3": 0.581,
     "pass_rate_v2": 0.5,
     "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
   },
   "v2_baseline": {
-    "total_v2_passed": 38,
-    "total_v2_rate": 0.365,
+    "total_v2_passed": 37,
+    "total_v2_rate": 0.356,
     "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
   },
   "by_behavior": {
@@ -31,8 +31,8 @@
     },
     "extract_multiple": {
       "total": 52,
-      "passed": 19,
-      "failed": 33
+      "passed": 20,
+      "failed": 32
     },
     "clarify_before_write": {
       "total": 5,
@@ -63,8 +63,8 @@
     },
     "janice-josephine-horne": {
       "total": 33,
-      "passed": 17,
-      "avg_score": 0.623
+      "passed": 18,
+      "avg_score": 0.638
     }
   },
   "by_case_type": {
@@ -76,9 +76,9 @@
     },
     "mixed_narrative": {
       "total": 19,
-      "passed": 7,
-      "failed": 12,
-      "avg_score": 0.46
+      "passed": 8,
+      "failed": 11,
+      "avg_score": 0.486
     },
     "dense_truth": {
       "total": 8,
@@ -102,9 +102,9 @@
   "by_style_bucket": {
     "life_history": {
       "total": 91,
-      "passed": 46,
-      "failed": 45,
-      "avg_score": 0.594
+      "passed": 47,
+      "failed": 44,
+      "avg_score": 0.6
     },
     "topical_history": {
       "total": 5,
@@ -146,9 +146,9 @@
     },
     "large": {
       "total": 4,
-      "passed": 0,
-      "failed": 4,
-      "avg_score": 0.242
+      "passed": 1,
+      "failed": 3,
+      "avg_score": 0.367
     }
   },
   "by_noise_profile": {
@@ -160,9 +160,9 @@
     },
     "good_garbage": {
       "total": 14,
-      "passed": 5,
-      "failed": 9,
-      "avg_score": 0.441
+      "passed": 6,
+      "failed": 8,
+      "avg_score": 0.477
     },
     "mixed": {
       "total": 5,
@@ -186,9 +186,9 @@
     },
     "style": {
       "total": 27,
-      "passed": 7,
-      "failed": 20,
-      "avg_score": 0.348
+      "passed": 8,
+      "failed": 19,
+      "avg_score": 0.367
     },
     "hybrid": {
       "total": 8,
@@ -200,9 +200,9 @@
   "by_era": {
     "school_years": {
       "total": 44,
-      "passed": 17,
-      "failed": 27,
-      "avg_score": 0.505
+      "passed": 18,
+      "failed": 26,
+      "avg_score": 0.516
     },
     "adolescence": {
       "total": 5,
@@ -238,25 +238,25 @@
   "by_pass": {
     "pass1": {
       "total": 104,
-      "passed": 58,
-      "failed": 46,
-      "avg_score": 0.631
+      "passed": 59,
+      "failed": 45,
+      "avg_score": 0.635
     }
   },
   "by_mode": {
     "open": {
       "total": 104,
-      "passed": 58,
-      "failed": 46,
-      "avg_score": 0.631
+      "passed": 59,
+      "failed": 45,
+      "avg_score": 0.635
     }
   },
   "by_era_x_pass": {
     "school_years::pass1": {
       "total": 44,
-      "passed": 17,
-      "failed": 27,
-      "avg_score": 0.505
+      "passed": 18,
+      "failed": 26,
+      "avg_score": 0.516
     },
     "adolescence::pass1": {
       "total": 5,
@@ -290,14 +290,14 @@
     }
   },
   "method_distribution": {
-    "llm": 73,
+    "llm": 74,
     "rules_fallback": 8,
-    "fallback": 23
+    "fallback": 22
   },
   "method_rates": {
-    "parse_success_rate": 0.702,
+    "parse_success_rate": 0.712,
     "parse_failure_rate": 0.0,
-    "rules_fallback_rate": 0.298,
+    "rules_fallback_rate": 0.288,
     "truncation_rate": 0.0
   },
   "stubborn_pack_summary": {
@@ -342,15 +342,15 @@
     },
     "out_of_scope": {
       "total": 3,
-      "passed": 1,
-      "failed": 2,
-      "avg_score": 0.4,
+      "passed": 2,
+      "failed": 1,
+      "avg_score": 0.567,
       "case_ids": [
         "case_053",
         "case_075",
         "case_088"
       ],
-      "pass_rate": 0.333
+      "pass_rate": 0.667
     }
   },
   "defensible_alt_credit": {
@@ -369,9 +369,16 @@
     ]
   },
   "defensible_value_alt_credit": {
-    "rate": 0.0,
-    "count": 0,
-    "cases": []
+    "rate": 0.01,
+    "count": 1,
+    "cases": [
+      {
+        "case_id": "case_088",
+        "fieldPath": "pets.notes",
+        "matched_alt_value": "rode Grey every morning",
+        "score": 0.65
+      }
+    ]
   },
   "invalid_field_path_hallucinations": [
     {
@@ -605,37 +612,37 @@
     }
   ],
   "confidence_distribution": {
-    "item_count": 335,
+    "item_count": 339,
     "min": 0.5,
     "max": 0.95,
-    "avg": 0.875,
+    "avg": 0.873,
     "buckets": {
       "lt_0_5": 0,
       "0_5_to_0_7": 2,
-      "0_7_to_0_9": 69,
+      "0_7_to_0_9": 73,
       "ge_0_9": 264
     }
   },
   "truth_zone_summary": {
-    "must_extract_recall": 0.537,
-    "may_extract_bonus_rate": 0.2,
-    "should_ignore_leak_rate": 0.221,
+    "must_extract_recall": 0.542,
+    "may_extract_bonus_rate": 0.214,
+    "should_ignore_leak_rate": 0.235,
     "must_not_write_violation_rate": 0.0,
     "raw_counts": {
       "must_extract": {
         "total": 177,
-        "hit": 95,
-        "miss": 82
+        "hit": 96,
+        "miss": 81
       },
       "may_extract": {
         "total": 70,
-        "hit": 14,
-        "miss": 56
+        "hit": 15,
+        "miss": 55
       },
       "should_ignore": {
         "total": 68,
-        "hit": 53,
-        "leaked": 15
+        "hit": 52,
+        "leaked": 16
       },
       "must_not_write": {
         "total": 163,
@@ -652,7 +659,7 @@
     },
     "known_gaps": {
       "total": 54,
-      "actually_passed": 27
+      "actually_passed": 28
     }
   },
   "failure_categories": {
@@ -660,7 +667,8 @@
     "schema_gap": 28,
     "defensible_alt_credit": 2,
     "field_path_mismatch": 12,
-    "noise_leakage": 9
+    "noise_leakage": 10,
+    "defensible_value_alt_credit": 1
   },
   "case_results": [
     {
@@ -749,7 +757,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 11295,
+      "elapsed_ms": 14685,
       "extracted_count": 2,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -901,7 +909,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19666,
+      "elapsed_ms": 20000,
       "extracted_count": 5,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -1016,7 +1024,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 18514,
+      "elapsed_ms": 23234,
       "extracted_count": 3,
       "current_era": "adolescence",
       "current_pass": "pass1",
@@ -1147,7 +1155,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 15142,
+      "elapsed_ms": 16405,
       "extracted_count": 3,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -1278,7 +1286,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 42616,
+      "elapsed_ms": 43569,
       "extracted_count": 9,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -1426,7 +1434,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 22706,
+      "elapsed_ms": 19803,
       "extracted_count": 2,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -1526,7 +1534,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13647,
+      "elapsed_ms": 18205,
       "extracted_count": 2,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -1631,7 +1639,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 17046,
+      "elapsed_ms": 17635,
       "extracted_count": 1,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -1731,7 +1739,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14895,
+      "elapsed_ms": 14755,
       "extracted_count": 2,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -1844,7 +1852,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14795,
+      "elapsed_ms": 16481,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -1967,7 +1975,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21606,
+      "elapsed_ms": 20933,
       "extracted_count": 2,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -2080,7 +2088,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 25321,
+      "elapsed_ms": 20230,
       "extracted_count": 4,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -2216,7 +2224,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 42437,
+      "elapsed_ms": 42787,
       "extracted_count": 8,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -2373,7 +2381,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 38166,
+      "elapsed_ms": 40977,
       "extracted_count": 10,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -2513,7 +2521,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12954,
+      "elapsed_ms": 10476,
       "extracted_count": 2,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -2613,7 +2621,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14479,
+      "elapsed_ms": 11689,
       "extracted_count": 2,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -2727,7 +2735,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21998,
+      "elapsed_ms": 21358,
       "extracted_count": 2,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -2832,7 +2840,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 16591,
+      "elapsed_ms": 24198,
       "extracted_count": 2,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -2937,7 +2945,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13976,
+      "elapsed_ms": 11161,
       "extracted_count": 1,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -3033,7 +3041,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17266,
+      "elapsed_ms": 14676,
       "extracted_count": 2,
       "current_era": "adolescence",
       "current_pass": "pass1",
@@ -3172,18 +3180,18 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 14561,
+      "elapsed_ms": 17221,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
       "current_mode": "open",
       "confidence_stats": {
         "count": 4,
-        "min": 0.9,
+        "min": 0.8,
         "max": 0.9,
-        "avg": 0.9,
+        "avg": 0.875,
         "lt_0_5": 0,
-        "ge_0_9": 4
+        "ge_0_9": 3
       },
       "stubborn_partition": null,
       "raw_items": [
@@ -3205,7 +3213,7 @@
         {
           "fieldPath": "parents.occupation",
           "value": "working at an aluminum factory",
-          "confidence": 0.9
+          "confidence": 0.8
         }
       ]
     },
@@ -3282,7 +3290,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21099,
+      "elapsed_ms": 19507,
       "extracted_count": 3,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -3412,7 +3420,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 12892,
+      "elapsed_ms": 16508,
       "extracted_count": 0,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -3527,7 +3535,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 37632,
+      "elapsed_ms": 32217,
       "extracted_count": 8,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -3671,7 +3679,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 33721,
+      "elapsed_ms": 29968,
       "extracted_count": 2,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -3702,14 +3710,14 @@
       "field_scores": {
         "education.schooling": {
           "expected": "Dodge",
-          "actual": "Dodge for first and second grade, Sacred Hearts in Glen Ulin for third, fourth, and fifth, Strasburg for sixth grade",
-          "score": 0.8,
-          "status": "partial"
+          "actual": "Dodge",
+          "score": 1.0,
+          "status": "exact"
         }
       },
       "forbidden_violations": [],
       "overall_score": 1.0,
-      "v2_score": 0.8,
+      "v2_score": 1.0,
       "v2_pass": true,
       "failure_categories": [],
       "pass": true,
@@ -3743,7 +3751,7 @@
           "extracted": true,
           "winning_path": "education.schooling",
           "winning_via": "primary",
-          "winning_score": 0.8
+          "winning_score": 1.0
         },
         "family.marriageDate": {
           "zone": "must_not_write",
@@ -3771,18 +3779,18 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 23901,
+      "elapsed_ms": 25413,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
       "current_mode": "open",
       "confidence_stats": {
         "count": 4,
-        "min": 0.8,
+        "min": 0.7,
         "max": 0.9,
-        "avg": 0.875,
+        "avg": 0.75,
         "lt_0_5": 0,
-        "ge_0_9": 3
+        "ge_0_9": 1
       },
       "stubborn_partition": null,
       "raw_items": [
@@ -3793,18 +3801,18 @@
         },
         {
           "fieldPath": "education.schooling",
+          "value": "Dodge",
+          "confidence": 0.7
+        },
+        {
+          "fieldPath": "education.schooling",
           "value": "Sacred Hearts in Glen Ulin",
-          "confidence": 0.9
+          "confidence": 0.7
         },
         {
           "fieldPath": "education.schooling",
           "value": "Strasburg",
-          "confidence": 0.9
-        },
-        {
-          "fieldPath": "education.notes",
-          "value": "moved a lot due to frequent moves",
-          "confidence": 0.8
+          "confidence": 0.7
         }
       ]
     },
@@ -3881,7 +3889,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19713,
+      "elapsed_ms": 19725,
       "extracted_count": 2,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -3987,7 +3995,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 28757,
+      "elapsed_ms": 31277,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -4102,7 +4110,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 17663,
+      "elapsed_ms": 16884,
       "extracted_count": 1,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -4223,7 +4231,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 41190,
+      "elapsed_ms": 36420,
       "extracted_count": 9,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -4397,7 +4405,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 45928,
+      "elapsed_ms": 36175,
       "extracted_count": 6,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -4544,7 +4552,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 45275,
+      "elapsed_ms": 42990,
       "extracted_count": 3,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -4687,7 +4695,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 33200,
+      "elapsed_ms": 28724,
       "extracted_count": 6,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -4808,7 +4816,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 39842,
+      "elapsed_ms": 35447,
       "extracted_count": 6,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -4942,7 +4950,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 45306,
+      "elapsed_ms": 35965,
       "extracted_count": 6,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -5075,7 +5083,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19629,
+      "elapsed_ms": 19905,
       "extracted_count": 3,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -5193,7 +5201,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12917,
+      "elapsed_ms": 15011,
       "extracted_count": 2,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -5284,7 +5292,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 13793,
+      "elapsed_ms": 20738,
       "extracted_count": 0,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -5386,7 +5394,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 38622,
+      "elapsed_ms": 44455,
       "extracted_count": 2,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -5513,7 +5521,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 15712,
+      "elapsed_ms": 15244,
       "extracted_count": 3,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -5631,7 +5639,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19671,
+      "elapsed_ms": 20838,
       "extracted_count": 5,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -5759,7 +5767,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 23467,
+      "elapsed_ms": 26751,
       "extracted_count": 3,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -5878,7 +5886,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 28296,
+      "elapsed_ms": 24631,
       "extracted_count": 6,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -6025,7 +6033,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 27466,
+      "elapsed_ms": 28568,
       "extracted_count": 5,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -6148,7 +6156,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 18088,
+      "elapsed_ms": 12913,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -6257,7 +6265,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 14246,
+      "elapsed_ms": 17372,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -6373,7 +6381,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 24104,
+      "elapsed_ms": 23145,
       "extracted_count": 3,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -6492,7 +6500,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21520,
+      "elapsed_ms": 19919,
       "extracted_count": 3,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -6605,7 +6613,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 18970,
+      "elapsed_ms": 17690,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -6723,7 +6731,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 16318,
+      "elapsed_ms": 17070,
       "extracted_count": 2,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -6826,7 +6834,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 16062,
+      "elapsed_ms": 17417,
       "extracted_count": 3,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -6926,7 +6934,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 21099,
+      "elapsed_ms": 16193,
       "extracted_count": 3,
       "current_era": "adolescence",
       "current_pass": "pass1",
@@ -7068,7 +7076,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 40795,
+      "elapsed_ms": 39139,
       "extracted_count": 5,
       "current_era": "early_childhood",
       "current_pass": "pass1",
@@ -7178,7 +7186,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 19585,
+      "elapsed_ms": 18861,
       "extracted_count": 3,
       "current_era": "early_childhood",
       "current_pass": "pass1",
@@ -7279,7 +7287,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 21831,
+      "elapsed_ms": 15943,
       "extracted_count": 0,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -7359,7 +7367,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 13244,
+      "elapsed_ms": 12766,
       "extracted_count": 0,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -7456,7 +7464,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 12882,
+      "elapsed_ms": 15322,
       "extracted_count": 3,
       "current_era": "early_childhood",
       "current_pass": "pass1",
@@ -7565,7 +7573,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17899,
+      "elapsed_ms": 18259,
       "extracted_count": 2,
       "current_era": "early_childhood",
       "current_pass": "pass1",
@@ -7669,7 +7677,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 14573,
+      "elapsed_ms": 15939,
       "extracted_count": 1,
       "current_era": "adolescence",
       "current_pass": "pass1",
@@ -7790,7 +7798,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 50895,
+      "elapsed_ms": 36461,
       "extracted_count": 11,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -7926,7 +7934,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 16121,
+      "elapsed_ms": 15232,
       "extracted_count": 2,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -8052,7 +8060,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 35452,
+      "elapsed_ms": 36698,
       "extracted_count": 10,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -8213,7 +8221,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 25082,
+      "elapsed_ms": 24938,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -8345,7 +8353,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 29306,
+      "elapsed_ms": 32010,
       "extracted_count": 3,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -8475,7 +8483,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 50354,
+      "elapsed_ms": 39767,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -8586,7 +8594,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 34447,
+      "elapsed_ms": 39639,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -8702,7 +8710,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 29277,
+      "elapsed_ms": 30770,
       "extracted_count": 6,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -8840,7 +8848,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 44202,
+      "elapsed_ms": 36945,
       "extracted_count": 3,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -8963,7 +8971,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 37033,
+      "elapsed_ms": 44116,
       "extracted_count": 8,
       "current_era": "adolescence",
       "current_pass": "pass1",
@@ -9118,7 +9126,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 35792,
+      "elapsed_ms": 41432,
       "extracted_count": 0,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -9215,7 +9223,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 42500,
+      "elapsed_ms": 42955,
       "extracted_count": 0,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -9333,7 +9341,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 40237,
+      "elapsed_ms": 50085,
       "extracted_count": 10,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -9488,7 +9496,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 40969,
+      "elapsed_ms": 36719,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -9578,7 +9586,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 39501,
+      "elapsed_ms": 50893,
       "extracted_count": 3,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -9626,18 +9634,18 @@
         }
       },
       "forbidden_violations": [],
-      "overall_score": 0.5,
+      "overall_score": 1.0,
       "v2_score": 0.5,
       "v2_pass": false,
       "failure_categories": [
         "llm_hallucination"
       ],
-      "pass": false,
+      "pass": true,
       "truth_zone_scores": {
         "must_extract": {
           "total": 2,
-          "hit": 1,
-          "miss": 1
+          "hit": 2,
+          "miss": 0
         },
         "may_extract": {
           "total": 2,
@@ -9667,22 +9675,10 @@
         },
         "parents.notableLifeEvents": {
           "zone": "must_extract",
-          "extracted": false,
-          "winning_path": null,
-          "winning_via": null,
-          "alt_defensible_values": [
-            "played organ at silent movie theaters",
-            "played organ at silent movie theatres",
-            "played the organ at movie theaters during the silent movie era",
-            "organ player during silent movie era",
-            "attended Capitol Business College",
-            "attended Capitol Business College in Bismarck",
-            "two years of college at Capitol Business College",
-            "boarding school at Mount Marty",
-            "attended Mount Marty high school",
-            "worked as housekeeper at Capitol Business College",
-            "gifted musician who played organ at movie theaters"
-          ]
+          "extracted": true,
+          "winning_path": "parents.notableLifeEvents",
+          "winning_via": "primary",
+          "winning_score": 0.67
         },
         "parents.maidenName": {
           "zone": "may_extract",
@@ -9718,18 +9714,18 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 38837,
-      "extracted_count": 5,
+      "elapsed_ms": 32408,
+      "extracted_count": 6,
       "current_era": "school_years",
       "current_pass": "pass1",
       "current_mode": "open",
       "confidence_stats": {
-        "count": 5,
+        "count": 6,
         "min": 0.9,
         "max": 0.9,
         "avg": 0.9,
         "lt_0_5": 0,
-        "ge_0_9": 5
+        "ge_0_9": 6
       },
       "stubborn_partition": "out_of_scope",
       "raw_items": [
@@ -9756,6 +9752,11 @@
         {
           "fieldPath": "parents.firstName",
           "value": "Anna",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "housekeeper for the owners of Capitol Business College, kitchen worker at Mount Marty boarding schoo…",
           "confidence": 0.9
         }
       ]
@@ -9854,7 +9855,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 36821,
+      "elapsed_ms": 33285,
       "extracted_count": 0,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -9969,7 +9970,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 36720,
+      "elapsed_ms": 39322,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -9999,8 +10000,8 @@
       "v2_score": 0.0,
       "v2_pass": false,
       "failure_categories": [
-        "noise_leakage",
-        "llm_hallucination"
+        "llm_hallucination",
+        "noise_leakage"
       ],
       "pass": false,
       "truth_zone_scores": {
@@ -10069,7 +10070,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 49032,
+      "elapsed_ms": 36299,
       "extracted_count": 8,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -10217,7 +10218,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 35854,
+      "elapsed_ms": 48134,
       "extracted_count": 7,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -10376,7 +10377,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 37662,
+      "elapsed_ms": 34860,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -10479,7 +10480,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 50828,
+      "elapsed_ms": 41799,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -10600,7 +10601,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 41376,
+      "elapsed_ms": 50328,
       "extracted_count": 6,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -10731,7 +10732,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 34506,
+      "elapsed_ms": 60590,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -10846,7 +10847,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 42804,
+      "elapsed_ms": 52266,
       "extracted_count": 0,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -10977,7 +10978,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "rules_fallback",
-      "elapsed_ms": 37518,
+      "elapsed_ms": 59378,
       "extracted_count": 2,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -11098,7 +11099,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 41784,
+      "elapsed_ms": 35180,
       "extracted_count": 0,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -11202,7 +11203,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 42367,
+      "elapsed_ms": 34262,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -11222,16 +11223,17 @@
       "field_scores": {
         "pets.notes": {
           "expected": "childhood horse, rode every morning before chores",
-          "actual": "narrator's favorite horse, rode every morning before chores, loved being outdoors",
-          "score": 0.71,
-          "status": "partial"
+          "actual": "narrator's favorite horse, rode every morning, loved being outdoors",
+          "score": 0.0,
+          "status": "wrong"
         }
       },
       "forbidden_violations": [],
       "overall_score": 0.7,
-      "v2_score": 0.71,
-      "v2_pass": true,
+      "v2_score": 0.0,
+      "v2_pass": false,
       "failure_categories": [
+        "defensible_value_alt_credit",
         "noise_leakage"
       ],
       "pass": true,
@@ -11264,8 +11266,20 @@
           "zone": "must_extract",
           "extracted": true,
           "winning_path": "pets.notes",
-          "winning_via": "primary",
-          "winning_score": 0.67
+          "winning_via": "alt_defensible_value",
+          "winning_score": 0.65,
+          "matched_alt_value": "rode Grey every morning",
+          "alt_defensible_values": [
+            "rode every morning before chores",
+            "rode Grey every morning before chores",
+            "rode horse every morning before chores",
+            "rode out every morning before chores",
+            "rode Grey every morning",
+            "childhood horse, rode every morning before chores",
+            "horse Grey, rode every morning",
+            "Grey was everything to me, rode every morning before chores",
+            "real outdoors girl — milking cows, riding Grey"
+          ]
         },
         "pets.name": {
           "zone": "should_ignore",
@@ -11303,7 +11317,7 @@
       "sequence_group": "janice_pets",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 28057,
+      "elapsed_ms": 25832,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -11330,7 +11344,7 @@
         },
         {
           "fieldPath": "pets.notes",
-          "value": "narrator's favorite horse, rode every morning before chores, loved being outdoors",
+          "value": "narrator's favorite horse, rode every morning, loved being outdoors",
           "confidence": 0.9
         },
         {
@@ -11416,7 +11430,7 @@
       "sequence_group": "chris_birthplace",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 25151,
+      "elapsed_ms": 22153,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -11438,7 +11452,7 @@
         },
         {
           "fieldPath": "residence.notes",
-          "value": "rural, wide open, family-centered, good, simple childhood",
+          "value": "rural, wide open; family-centered; good, simple childhood; outdoorsy",
           "confidence": 0.9
         },
         {
@@ -11520,7 +11534,7 @@
       "sequence_group": "kent_father",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 39148,
+      "elapsed_ms": 39858,
       "extracted_count": 4,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -11563,7 +11577,9 @@
       "overall_score": 1.0,
       "v2_score": 0.0,
       "v2_pass": false,
-      "failure_categories": [],
+      "failure_categories": [
+        "noise_leakage"
+      ],
       "pass": true,
       "truth_zone_scores": {
         "must_extract": {
@@ -11573,14 +11589,14 @@
         },
         "may_extract": {
           "total": 1,
-          "hit": 0,
-          "miss": 1
+          "hit": 1,
+          "miss": 0
         },
         "should_ignore": {
           "total": 2,
-          "hit": 2,
+          "hit": 1,
           "miss": 0,
-          "leaked": 0
+          "leaked": 1
         },
         "must_not_write": {
           "total": 1,
@@ -11592,12 +11608,12 @@
       "truth_zone_details": {
         "family.marriageNotes": {
           "zone": "may_extract",
-          "extracted": false
+          "extracted": true
         },
         "family.marriageDate": {
           "zone": "should_ignore",
-          "extracted": false,
-          "leaked": false
+          "extracted": true,
+          "leaked": true
         },
         "family.spouse.firstName": {
           "zone": "should_ignore",
@@ -11624,22 +11640,38 @@
       "case_mode": "hybrid",
       "sequence_group": "janice_marriage",
       "mode": "live",
-      "method": "fallback",
-      "elapsed_ms": 12390,
-      "extracted_count": 0,
+      "method": "llm",
+      "elapsed_ms": 12216,
+      "extracted_count": 3,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
       "current_mode": "open",
       "confidence_stats": {
-        "count": 0,
-        "min": null,
-        "max": null,
-        "avg": null,
+        "count": 3,
+        "min": 0.8,
+        "max": 0.9,
+        "avg": 0.867,
         "lt_0_5": 0,
-        "ge_0_9": 0
+        "ge_0_9": 2
       },
       "stubborn_partition": null,
-      "raw_items": []
+      "raw_items": [
+        {
+          "fieldPath": "family.marriageDate",
+          "value": "October 10th",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.marriagePlace",
+          "value": "beautiful fall day",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "family.marriageNotes",
+          "value": "small affair, didn't have a lot of money, beautiful fall day",
+          "confidence": 0.9
+        }
+      ]
     },
     {
       "field_scores": {},
@@ -11712,7 +11744,7 @@
       "sequence_group": "chris_children",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 22319,
+      "elapsed_ms": 31886,
       "extracted_count": 4,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -11828,7 +11860,7 @@
       "sequence_group": "kent_spouse",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 37247,
+      "elapsed_ms": 37540,
       "extracted_count": 4,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -11940,7 +11972,7 @@
       "sequence_group": "janice_siblings",
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 33557,
+      "elapsed_ms": 28006,
       "extracted_count": 3,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -12039,7 +12071,7 @@
       "sequence_group": "chris_birthplace",
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 17547,
+      "elapsed_ms": 24487,
       "extracted_count": 0,
       "current_era": "school_years",
       "current_pass": "pass1",
@@ -12124,7 +12156,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 21743,
+      "elapsed_ms": 12526,
       "extracted_count": 0,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -12204,7 +12236,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 5378,
+      "elapsed_ms": 5433,
       "extracted_count": 0,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -12293,7 +12325,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 32199,
+      "elapsed_ms": 38394,
       "extracted_count": 6,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -12407,7 +12439,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 24903,
+      "elapsed_ms": 18299,
       "extracted_count": 2,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -12503,7 +12535,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 17593,
+      "elapsed_ms": 23387,
       "extracted_count": 1,
       "current_era": "midlife",
       "current_pass": "pass1",
@@ -12590,7 +12622,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 13164,
+      "elapsed_ms": 23308,
       "extracted_count": 3,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -12695,7 +12727,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 37710,
+      "elapsed_ms": 40427,
       "extracted_count": 6,
       "current_era": "later_life",
       "current_pass": "pass1",
@@ -12830,7 +12862,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "llm",
-      "elapsed_ms": 38161,
+      "elapsed_ms": 38038,
       "extracted_count": 9,
       "current_era": "early_adulthood",
       "current_pass": "pass1",
@@ -12976,7 +13008,7 @@
       "sequence_group": null,
       "mode": "live",
       "method": "fallback",
-      "elapsed_ms": 49667,
+      "elapsed_ms": 49631,
       "extracted_count": 0,
       "current_era": "later_life",
       "current_pass": "pass1",

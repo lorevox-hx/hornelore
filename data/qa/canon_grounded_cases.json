@@ -1,0 +1,890 @@
+{
+  "_wo": "WO-EVAL-CANON-REBUILD-01 — canon-grounded seed corpus",
+  "_version": 1,
+  "_generated": "2026-04-20",
+  "_notes": [
+    "12 seed cases (4 per narrator: kent/janice/christopher) authored strictly from",
+    "ui/templates/{narrator}.json PLUS Chris's 2026-04-20 canon corrections:",
+    "  - Kent: army at 18 → photographer Williston → Minot → TV camera operator Bismarck;",
+    "    met Janice at dentist office; married Bismarck ND Oct 10 1959, blizzard next day;",
+    "    Leila (mother) raised near Ross ND (birthplace unknown).",
+    "  - Janice: Anna Schaaf née Gustin = maternal grandmother (50 when Josie born);",
+    "    Josephine 'Josie' Zarr née Schaaf = mother; horse Grey only she & her dad could ride.",
+    "  - Christopher: Ivan = Golden Retriever family dog in early childhood.",
+    "    LSD + Speed = cats from Grand Forks ND. Jinx = black cat Bismarck. No Buster.",
+    "    Vincent is Chris's BROTHER, not a child (template bug known).",
+    "",
+    "Schema shape matches question_bank_extraction_cases.json so the same score_case()",
+    "logic from scripts/run_question_bank_extraction_eval.py applies. truthZones drive scoring."
+  ],
+  "cases": [
+    {
+      "id": "cg_001",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "questionBankAnchor": "Where and when were you born?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "personal.placeOfBirth",
+        "personal.dateOfBirth"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Where and when were you born?",
+      "narratorReply": "I was born in Stanley, North Dakota, on Christmas Eve — December 24th, 1939.",
+      "expectedFields": {
+        "personal.placeOfBirth": "Stanley, North Dakota",
+        "personal.dateOfBirth": "1939-12-24"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "expected": "Stanley, North Dakota"
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_extract",
+          "expected": "1939-12-24"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Kent born Stanley ND, Dec 24 1939 — shares birthday with son Chris.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_002",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "parental_context",
+      "questionBankAnchor": "Tell me about your parents.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about your parents.",
+      "narratorReply": "My dad was Ervin Horne. My mom was Leila — she was raised near Ross, North Dakota.",
+      "expectedFields": {
+        "parents.firstName": "Ervin",
+        "parents.lastName": "Horne"
+      },
+      "forbiddenFields": [
+        "personal.dateOfBirth",
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Ervin"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne"
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Kent's parents Ervin Horne (d. 1967) + Leila Myrtle Carkuff (d. 1985). Leila raised near Ross ND.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_003",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "career_progression_vs_early",
+      "questionBankAnchor": "What kind of work have you done?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "education.earlyCareer",
+        "education.careerProgression"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about the work you've done over your life.",
+      "narratorReply": "I shot photographs for the Williston newspaper — that's what I was doing when our youngest was born. Then we moved up to Minot and I did the same work at their paper. Later I went back to school, got my master's, and then a PhD in economics at UND.",
+      "expectedFields": {
+        "education.earlyCareer": "Newspaper photographer in Williston and Minot",
+        "education.careerProgression": "Master's and PhD in economics at UND"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "education.earlyCareer": {
+          "zone": "must_extract",
+          "expected": "Newspaper photographer in Williston and Minot"
+        },
+        "education.careerProgression": {
+          "zone": "must_extract",
+          "expected": "Master's and PhD in economics at UND"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon (2026-04-20 Chris): Kent photographed for Williston paper when Chris was born, moved to Minot at Chris age 1 for the paper there, later masters + PhD in economics at UND. Tests compound-extract splitting journalism → academia into earlyCareer / careerProgression. Replaces welder/plant/foreman fiction in case_059.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_004",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "marriage_origin",
+      "questionBankAnchor": "How did you meet your wife?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "family.spouse.firstName",
+        "marriage.weddingDetails"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "How did you meet Janice?",
+      "narratorReply": "I met Janice at the dentist's office in Bismarck — she worked there. We married October 10th, 1959 in Bismarck. Blizzard rolled in the next day.",
+      "expectedFields": {
+        "family.spouse.firstName": "Janice",
+        "marriage.weddingDetails": "Married October 10, 1959 in Bismarck, North Dakota"
+      },
+      "forbiddenFields": [
+        "parents.firstName",
+        "siblings.firstName"
+      ],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "family.spouse.firstName": {
+          "zone": "must_extract",
+          "expected": "Janice"
+        },
+        "marriage.weddingDetails": {
+          "zone": "must_extract",
+          "expected": "Married October 10, 1959 in Bismarck, North Dakota",
+          "alt_defensible_paths": ["family.marriageDate", "family.marriagePlace"]
+        },
+        "parents.firstName": {
+          "zone": "must_not_write"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Kent met Janice at dentist office (she worked there); married Bismarck ND Oct 10 1959, blizzard next day. Kent 19, Janice 20. Accepts family.marriageDate + family.marriagePlace as defensible alts for marriage.weddingDetails (r5a extractor routes to those structured fields).",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_005",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "questionBankAnchor": "Where and when were you born?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "personal.placeOfBirth",
+        "personal.dateOfBirth",
+        "parents.occupation"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Where and when were you born?",
+      "narratorReply": "I was born in Spokane, Washington on August 30th, 1939. My dad Pete was working at an aluminum factory out there — that's why we were in Washington.",
+      "expectedFields": {
+        "personal.placeOfBirth": "Spokane, Washington",
+        "personal.dateOfBirth": "1939-08-30",
+        "parents.occupation": "Aluminum factory worker"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "expected": "Spokane, Washington"
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_extract",
+          "expected": "1939-08-30"
+        },
+        "parents.occupation": {
+          "zone": "must_extract",
+          "expected": "Aluminum factory worker"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Janice born Spokane WA 1939-08-30; father Pete Zarr worked aluminum factory in WA at the time. Also covers case_058 rewrite target.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_006",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "parental_context",
+      "questionBankAnchor": "Tell me about your mother.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.notableLifeEvents"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your mother.",
+      "narratorReply": "My mother was Josephine — everyone called her Josie. She was a gifted musician. During the silent movie era she played the organ at the movie theaters to make money.",
+      "expectedFields": {
+        "parents.firstName": "Josephine",
+        "parents.notableLifeEvents": "Played organ at movie theaters during the silent movie era"
+      },
+      "forbiddenFields": [
+        "grandparents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Josephine"
+        },
+        "parents.notableLifeEvents": {
+          "zone": "must_extract",
+          "expected": "Played organ at movie theaters during the silent movie era",
+          "alt_defensible_paths": ["parents.occupation", "parents.notes"]
+        },
+        "grandparents.firstName": {
+          "zone": "must_not_write",
+          "note": "Josie is Janice's MOTHER, not grandmother — generation-conflation trap (case_028 fix)."
+        }
+      },
+      "scoringNotes": "Canon: Josephine 'Josie' Zarr née Schaaf = Janice's MOTHER. Silent-movie organist fact is from template. Tests that Josie doesn't slide into grandparents.*. Accepts parents.occupation / parents.notes as defensible alts — 'played organ to make money' is arguably an occupation fact.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_007",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "ancestral_roots",
+      "questionBankAnchor": "Tell me about your grandmother.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "grandparents.firstName",
+        "grandparents.memorableStories"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your grandmother on your mother's side.",
+      "narratorReply": "My grandmother was Anna — Anna Schaaf, born Gustin. She was fifty years old when she had my mother Josie, and she was a bit embarrassed about it.",
+      "expectedFields": {
+        "grandparents.firstName": "Anna",
+        "grandparents.memorableStories": "Was 50 years old when she had Josie (Janice's mother)"
+      },
+      "forbiddenFields": [
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "grandparents.firstName": {
+          "zone": "must_extract",
+          "expected": "Anna"
+        },
+        "grandparents.memorableStories": {
+          "zone": "may_extract",
+          "expected": "Was 50 years old when she had Josie (Janice's mother)",
+          "alt_defensible_paths": ["grandparents.notes", "grandparents.memorableStory"],
+          "note": "Downgraded from must_extract to may_extract pending WO-EX-NARRATIVE-FIELD-01 — narrative-story fields are under-extracted by current pipeline even when the story is unambiguous in the reply."
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "note": "Josie is mentioned in reply but as context for Anna — she's Janice's mother, not the subject of this question."
+        }
+      },
+      "scoringNotes": "Canon: Anna Schaaf née Gustin = maternal grandmother. The '50 years old' fact belongs to Anna (not Josie — case_031 fix). Tests subject-beats-section rule. memorableStories downgraded to may_extract (real extractor gap).",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_008",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pet",
+      "questionBankAnchor": "Did you have pets growing up?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "pets.name",
+        "pets.species"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Did you have pets or animals growing up?",
+      "narratorReply": "I had a horse named Grey. Only me and my dad could ride him.",
+      "expectedFields": {
+        "pets.name": "Grey",
+        "pets.species": "Horse"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "pets.name": {
+          "zone": "must_extract",
+          "expected": "Grey"
+        },
+        "pets.species": {
+          "zone": "must_extract",
+          "expected": "Horse"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Grey was Janice's childhood horse (only she and her dad could ride). Replaces case_046 cat/Dusty fiction.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_009",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "questionBankAnchor": "Where and when were you born?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "personal.placeOfBirth",
+        "personal.dateOfBirth"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Where and when were you born?",
+      "narratorReply": "I was born in Williston, North Dakota on Christmas Eve, 1962. I share my birthday with my dad Kent.",
+      "expectedFields": {
+        "personal.placeOfBirth": "Williston, North Dakota",
+        "personal.dateOfBirth": "1962-12-24"
+      },
+      "forbiddenFields": [
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "expected": "Williston, North Dakota"
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_extract",
+          "expected": "1962-12-24"
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "note": "Kent is mentioned as father in reply but this question scopes to narrator's own birth facts."
+        }
+      },
+      "scoringNotes": "Canon: Christopher born Williston ND 1962-12-24, shares Dec 24 birthday with dad Kent.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_010",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "parental_context",
+      "questionBankAnchor": "Tell me about your parents.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your parents.",
+      "narratorReply": "My dad is Kent Horne and my mom is Janice. Dad was a newspaper photographer when I was born — he shot for the Williston paper, then the Minot paper after we moved up there.",
+      "expectedFields": {
+        "parents.firstName": "Kent",
+        "parents.lastName": "Horne",
+        "parents.occupation": "Newspaper photographer"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName",
+        "siblings.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Kent"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne"
+        },
+        "parents.occupation": {
+          "zone": "must_extract",
+          "expected": "Newspaper photographer"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write",
+          "note": "Janice is Chris's mother here, not a spouse. Generation-scope trap."
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon (2026-04-20 Chris): Kent was a newspaper photographer at time of Chris's birth — Williston paper, then Minot paper after family moved. 'Construction and trades' in the template is wrong. Tests that 'Janice' doesn't slide into spouse slot when narrator is Chris.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_011",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "marriage_origin",
+      "questionBankAnchor": "Tell me about your wife.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "family.spouse.firstName",
+        "family.spouse.lastName",
+        "family.spouse.occupation"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your wife.",
+      "narratorReply": "My wife is Melanie — Melanie Zollner. She's a college professor. We got married December 22nd, 2010.",
+      "expectedFields": {
+        "family.spouse.firstName": "Melanie",
+        "family.spouse.lastName": "Zollner",
+        "family.spouse.occupation": "College professor"
+      },
+      "forbiddenFields": [
+        "parents.firstName",
+        "siblings.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "family.spouse.firstName": {
+          "zone": "must_extract",
+          "expected": "Melanie"
+        },
+        "family.spouse.lastName": {
+          "zone": "must_extract",
+          "expected": "Zollner"
+        },
+        "family.spouse.occupation": {
+          "zone": "must_extract",
+          "expected": "College professor"
+        },
+        "parents.firstName": {
+          "zone": "must_not_write"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Melanie C. Zollner, college professor, m. 2010-12-22. Replaces case_060 Sarah/1985/Michael-Emily-Jake fiction.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_012",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pet",
+      "questionBankAnchor": "Did you have pets growing up?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "pets.name",
+        "pets.species",
+        "pets.breed"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Did you have pets growing up?",
+      "narratorReply": "We had a Golden Retriever named Ivan when I was young.",
+      "expectedFields": {
+        "pets.name": "Ivan",
+        "pets.species": "Dog",
+        "pets.breed": "Golden Retriever"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "pets.name": {
+          "zone": "must_extract",
+          "expected": "Ivan"
+        },
+        "pets.species": {
+          "zone": "must_extract",
+          "expected": "Dog"
+        },
+        "pets.breed": {
+          "zone": "must_extract",
+          "expected": "Golden Retriever"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Ivan (Golden Retriever) was the family dog when Chris was young. Replaces case_045 Buster/yellow-lab fiction.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_013",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "sibling_roster",
+      "questionBankAnchor": "Tell me about your siblings.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "siblings.firstName",
+        "siblings.birthOrder"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about your brothers and sisters.",
+      "narratorReply": "I had two sisters. Sharon was older — born in 1937. Linda was younger, born in 1942.",
+      "expectedFields": {
+        "siblings.firstName": "Sharon",
+        "siblings.birthOrder": "1"
+      },
+      "forbiddenFields": [
+        "children.firstName",
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "expected": "Sharon"
+        },
+        "children.firstName": {
+          "zone": "must_not_write",
+          "note": "Sharon/Linda are sisters, not children. Generation-scope trap."
+        },
+        "parents.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Kent's siblings Sharon (b. 1937, older) + Linda (b. 1942, younger). Tests multi-sibling extraction + that sisters don't slide into children slot.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_014",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "sibling_roster",
+      "questionBankAnchor": "Tell me about your siblings.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "siblings.firstName",
+        "siblings.memories"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your brothers and sisters.",
+      "narratorReply": "I had an older sister Verene and a younger brother James. James was actually born in a car on the way to the Richardton hospital.",
+      "expectedFields": {
+        "siblings.firstName": "Verene",
+        "siblings.memories": "Born in a car on the way to Richardton hospital"
+      },
+      "forbiddenFields": [
+        "children.firstName",
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "siblings.firstName": {
+          "zone": "must_extract",
+          "expected": "Verene"
+        },
+        "siblings.memories": {
+          "zone": "may_extract",
+          "expected": "Born in a car on the way to Richardton hospital",
+          "alt_defensible_paths": ["siblings.notes"],
+          "note": "Narrative-story field — gated by WO-EX-NARRATIVE-FIELD-01."
+        },
+        "children.firstName": {
+          "zone": "must_not_write"
+        },
+        "parents.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Verene (older sister) + James (younger brother, born in car to Richardton hospital). Tests sibling routing AND narrative-story on sibling-level field.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_015",
+      "narratorId": "christopher-todd-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "children_roster",
+      "questionBankAnchor": "Tell me about your children.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "children.firstName",
+        "children.birthDate"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your kids.",
+      "narratorReply": "We have three kids. Gretchen is the oldest — born in 1991. Then Amelia, born in 1994. And our youngest is Cole, born in 2002.",
+      "expectedFields": {
+        "children.firstName": "Gretchen",
+        "children.birthDate": "1991-10-04"
+      },
+      "forbiddenFields": [
+        "siblings.firstName",
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "children.firstName": {
+          "zone": "must_extract",
+          "expected": "Gretchen"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write",
+          "note": "Vincent (Chris's brother) must NOT appear in children — old template had this bug. Also traps if extractor flips generation."
+        },
+        "parents.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon (2026-04-20): Chris has THREE children — Gretchen (1991-10-04), Amelia (1994-08-05), Cole (2002-04-10). Vincent is his BROTHER. Tests that the Vincent-as-child template bug (now fixed) is not reproduced from prompt memory.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_016",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "ancestral_roots",
+      "questionBankAnchor": "Tell me about your grandparents.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "grandparents.firstName",
+        "grandparents.lastName",
+        "grandparents.memorableStories"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "Tell me about your grandparents on your father's side.",
+      "narratorReply": "My dad's father was George Horne. He died when my dad was only four years old. My dad's mother was Elizabeth — Elizabeth Shong.",
+      "expectedFields": {
+        "grandparents.firstName": "George",
+        "grandparents.lastName": "Horne",
+        "grandparents.memorableStories": "George died when Ervin was only four years old"
+      },
+      "forbiddenFields": [
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "grandparents.firstName": {
+          "zone": "must_extract",
+          "expected": "George"
+        },
+        "grandparents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne"
+        },
+        "grandparents.memorableStories": {
+          "zone": "may_extract",
+          "expected": "George died when Ervin was only four years old",
+          "alt_defensible_paths": ["grandparents.notes", "grandparents.memorableStory"],
+          "note": "Narrative-story field — gated by WO-EX-NARRATIVE-FIELD-01."
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "note": "Kent's dad Ervin is referenced (as 'my dad') but the question scopes to grandparents. Subject-beats-section trap."
+        }
+      },
+      "scoringNotes": "Canon: Kent's paternal grandparents George Horne (d. 1914) + Elizabeth Shong (b. 1877). George died when Ervin (Kent's dad) was only 4. Tests paternal grandparent extraction + subject-beats-section (Ervin is context, not target).",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_017",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "cultural_heritage",
+      "questionBankAnchor": "Tell me about your cultural background.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "personal.culture",
+        "grandparents.ancestry",
+        "grandparents.culturalBackground"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about your family's cultural background.",
+      "narratorReply": "My mother's family were Germans from Russia. They came over from Ukraine. My grandfather Mathias Schaaf hated the Russians.",
+      "expectedFields": {
+        "personal.culture": "Germans from Russia",
+        "grandparents.ancestry": "Ukraine",
+        "grandparents.culturalBackground": "Germans from Russia"
+      },
+      "forbiddenFields": [
+        "parents.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "mixed_narrative",
+      "oralHistoryStyle": "thematic",
+      "truthZones": {
+        "personal.culture": {
+          "zone": "must_extract",
+          "expected": "Germans from Russia"
+        },
+        "grandparents.ancestry": {
+          "zone": "may_extract",
+          "expected": "Ukraine",
+          "alt_defensible_paths": ["grandparents.culturalBackground"]
+        },
+        "grandparents.firstName": {
+          "zone": "may_extract",
+          "expected": "Mathias"
+        },
+        "parents.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Janice's maternal line (Schaaf) are Germans from Russia who emigrated from Ukraine. Grandfather Mathias Schaaf hated the Russians. Tests personal.culture + grandparent ancestry routing.",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_018",
+      "narratorId": "christopher-todd-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "pet_roster_extended",
+      "questionBankAnchor": "Did you have any other pets growing up?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "pets.name",
+        "pets.species"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Any other pets besides Ivan when you were growing up?",
+      "priorContext": "Narrator previously described Ivan the Golden Retriever as their early-childhood dog.",
+      "narratorReply": "When we lived in Grand Forks we had two cats named LSD and Speed. Later in Bismarck we had a black cat named Jinx.",
+      "expectedFields": {
+        "pets.name": "LSD",
+        "pets.species": "Cat"
+      },
+      "forbiddenFields": [
+        "siblings.firstName",
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "follow_up",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "pets.name": {
+          "zone": "must_extract",
+          "expected": "LSD"
+        },
+        "pets.species": {
+          "zone": "must_extract",
+          "expected": "Cat"
+        },
+        "siblings.firstName": {
+          "zone": "must_not_write"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon (2026-04-20 Chris): cats LSD + Speed in Grand Forks, Jinx the black cat in Bismarck. Tests multi-pet array extraction across species (companion to cg_012 which tests breed-vs-species routing). Family moved Grand Forks → Bismarck → Rapid City (after Chris's HS).",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    }
+  ]
+}

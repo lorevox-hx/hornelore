@@ -1,0 +1,87 @@
+CANON-GROUNDED EVAL — tag=cg01
+Generated: 2026-04-21T05:17:26.753511Z
+
+Total cases: 12
+Pass:        0 (0.0%)
+Fail:        12
+
+By narrator:
+  christopher-todd-horne        0/4 
+  janice-josephine-horne        0/4 
+  kent-james-horne              0/4 
+
+must_not_write violations: 0
+
+Failure categories:
+  field_path_mismatch          3
+  llm_hallucination            2
+  schema_gap                   2
+
+Named misses:
+  cg_001 (kent-james-horne) score=1.0 sub=origin_point  [—]
+  cg_002 (kent-james-horne) score=1.0 sub=parental_context  [—]
+  cg_003 (kent-james-horne) score=0.0 sub=career_progression_vs_early  [field_path_mismatch,llm_hallucination]
+  cg_004 (kent-james-horne) score=0.5 sub=marriage_origin  [field_path_mismatch]
+  cg_005 (janice-josephine-horne) score=1.0 sub=origin_point  [—]
+  cg_006 (janice-josephine-horne) score=0.5 sub=parental_context  [schema_gap]
+  cg_007 (janice-josephine-horne) score=0.5 sub=ancestral_roots  [schema_gap]
+  cg_008 (janice-josephine-horne) score=1.0 sub=childhood_pet  [—]
+  cg_009 (christopher-todd-horne) score=1.0 sub=origin_point  [—]
+  cg_010 (christopher-todd-horne) score=1.0 sub=parental_context  [—]
+  cg_011 (christopher-todd-horne) score=1.0 sub=marriage_origin  [—]
+  cg_012 (christopher-todd-horne) score=0.33 sub=childhood_pet  [field_path_mismatch,llm_hallucination]
+
+PER-CASE:
+  [FAIL] cg_001 (kent) score=1.00 items=2 [14303ms]
+      → personal.placeOfBirth                    = 'Stanley, North Dakota'  (c=0.9)
+      → personal.dateOfBirth                     = '1939-12-24'  (c=0.9)
+  [FAIL] cg_002 (kent) score=1.00 items=4 [17795ms]
+      → parents.firstName                        = 'Ervin'  (c=0.9)
+      → parents.firstName                        = 'Leila'  (c=0.9)
+      → parents.lastName                         = 'Horne'  (c=0.9)
+      → parents.birthPlace                       = 'near Ross, North Dakota'  (c=0.7)
+  [FAIL] cg_003 (kent) score=0.00 items=5 [28578ms]
+      → education.earlyCareer                    = 'joined the army at eighteen'  (c=0.9)
+      → education.earlyCareer                    = 'got into photography'  (c=0.9)
+      → education.earlyCareer                    = 'shot pictures in Williston for a while'  (c=0.8)
+      → education.earlyCareer                    = 'moved up to Minot'  (c=0.8)
+      → education.earlyCareer                    = 'ended up running camera for a TV station in Bismarck'  (c=0.9)
+  [FAIL] cg_004 (kent) score=0.50 items=3 [21537ms]
+      → family.spouse.firstName                  = 'Janice'  (c=0.9)
+      → family.marriageDate                      = '1959-10-10'  (c=0.9)
+      → family.marriagePlace                     = 'Bismarck'  (c=0.9)
+  [FAIL] cg_005 (janice) score=1.00 items=4 [16702ms]
+      → personal.dateOfBirth                     = '1939-08-30'  (c=0.9)
+      → personal.placeOfBirth                    = 'Spokane, Washington'  (c=0.9)
+      → parents.firstName                        = 'Pete'  (c=0.9)
+      → parents.occupation                       = 'working at an aluminum factory'  (c=0.8)
+  [FAIL] cg_006 (janice) score=0.50 items=4 [21533ms]
+      → parents.firstName                        = 'Josephine'  (c=0.9)
+      → parents.preferredName                    = 'Josie'  (c=0.9)
+      → parents.notes                            = 'gifted musician'  (c=0.9)
+      → parents.occupation                       = 'organ player at movie theaters'  (c=0.8)
+  [FAIL] cg_007 (janice) score=0.50 items=3 [19095ms]
+      → grandparents.firstName                   = 'Anna'  (c=0.9)
+      → grandparents.lastName                    = 'Schaaf'  (c=0.9)
+      → grandparents.maidenName                  = 'Gustin'  (c=0.9)
+  [FAIL] cg_008 (janice) score=1.00 items=3 [11996ms]
+      → pets.name                                = 'Grey'  (c=0.9)
+      → pets.species                             = 'horse'  (c=0.9)
+      → pets.notes                               = 'only narrator and dad could ride'  (c=0.8)
+  [FAIL] cg_009 (christopher) score=1.00 items=3 [12851ms]
+      → personal.placeOfBirth                    = 'Williston, North Dakota'  (c=0.9)
+      → personal.dateOfBirth                     = '1962-12-24'  (c=0.9)
+      → personal.birthOrder                      = 'shared birthday with dad Kent'  (c=0.7)
+  [FAIL] cg_010 (christopher) score=1.00 items=4 [16506ms]
+      → parents.firstName                        = 'Kent'  (c=0.9)
+      → parents.firstName                        = 'Janice'  (c=0.9)
+      → parents.lastName                         = 'Horne'  (c=0.9)
+      → parents.occupation                       = 'construction and trades'  (c=0.9)
+  [FAIL] cg_011 (christopher) score=1.00 items=4 [21189ms]
+      → family.spouse.firstName                  = 'Melanie'  (c=0.9)
+      → family.spouse.lastName                   = 'Zollner'  (c=0.9)
+      → family.spouse.occupation                 = 'college professor'  (c=0.9)
+      → family.marriageDate                      = '2010-12-22'  (c=0.9)
+  [FAIL] cg_012 (christopher) score=0.33 items=2 [9786ms]
+      → pets.name                                = 'Ivan'  (c=0.9)
+      → pets.species                             = 'Golden Retriever'  (c=0.9)
