@@ -1,0 +1,108 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     5
+  Passed:          4
+  Failed:          1
+  Pass rate:       80.0%
+  Avg score:       0.867
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 4/5 passed  (80.0%)
+    v2 (field avg):   4/5 passed  (80.0%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 4/5 passed (80.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        80.0%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                3/4 passed
+    extract_single                  1/1 passed
+
+  By narrator:
+    christopher-todd-horne          1/2 passed  (avg 0.666)
+    kent-james-horne                2/2 passed  (avg 1.000)
+    janice-josephine-horne          1/1 passed  (avg 1.000)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  4/5
+    Known gaps (currentExtractorExpected=false):  0/0
+
+  Failure categories:
+    llm_hallucination               1
+    schema_gap                      1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   4/5 passed  (avg 0.867)
+
+  By style bucket:
+    life_history               4/5 passed  (avg 0.867)
+
+  By chunk size:
+    tiny                       4/5 passed  (avg 0.867)
+
+  By noise profile:
+    clean                      4/5 passed  (avg 0.867)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    school_years            2/2 passed  (avg 1.000)
+    early_adulthood         1/1 passed  (avg 1.000)
+    adolescence             1/1 passed  (avg 1.000)
+    midlife                 0/1 passed  (avg 0.333)
+
+  By pass:
+    pass1                   4/5 passed  (avg 0.867)
+
+  By mode:
+    open                    4/5 passed  (avg 0.867)
+
+  By era × pass:
+    adolescence::pass1                        1/1 passed  (avg 1.000)
+    early_adulthood::pass1                    1/1 passed  (avg 1.000)
+    midlife::pass1                            0/1 passed  (avg 0.333)
+    school_years::pass1                       2/2 passed  (avg 1.000)
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     100.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    0.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       5
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       0
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      15
+    min/avg/max:     0.800 / 0.893 / 0.900
+    <0.5:            0
+    0.5-0.7:         0
+    0.7-0.9:         1
+    >=0.9:           14
+
+  ─── FAILED CASES ───
+
+    case_040    contract         tiny    clean         score=0.33  christopher-todd-horne
+      Failures:  ['llm_hallucination', 'schema_gap']
+
+==============================================================================

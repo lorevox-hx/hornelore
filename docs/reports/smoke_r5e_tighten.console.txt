@@ -1,0 +1,106 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     3
+  Passed:          2
+  Failed:          1
+  Pass rate:       66.7%
+  Avg score:       0.833
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 2/3 passed  (66.7%)
+    v2 (field avg):   2/3 passed  (66.7%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 2/3 passed (66.7%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        83.3%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                2/3 passed
+
+  By narrator:
+    christopher-todd-horne          1/1 passed  (avg 1.000)
+    kent-james-horne                1/1 passed  (avg 1.000)
+    janice-josephine-horne          0/1 passed  (avg 0.500)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  2/3
+    Known gaps (currentExtractorExpected=false):  0/0
+
+  Failure categories:
+    schema_gap                      1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   2/3 passed  (avg 0.833)
+
+  By style bucket:
+    life_history               2/3 passed  (avg 0.833)
+
+  By chunk size:
+    tiny                       2/3 passed  (avg 0.833)
+
+  By noise profile:
+    clean                      2/3 passed  (avg 0.833)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    school_years            1/2 passed  (avg 0.750)
+    early_adulthood         1/1 passed  (avg 1.000)
+
+  By pass:
+    pass1                   2/3 passed  (avg 0.833)
+
+  By mode:
+    open                    2/3 passed  (avg 0.833)
+
+  By era × pass:
+    early_adulthood::pass1                    1/1 passed  (avg 1.000)
+    school_years::pass1                       1/2 passed  (avg 0.750)
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     100.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    0.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       3
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       0
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      10
+    min/avg/max:     0.900 / 0.900 / 0.900
+    <0.5:            0
+    0.5-0.7:         0
+    0.7-0.9:         0
+    >=0.9:           10
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_049      offenders= 2  categories=['schema_gap']
+      emitted: parents.firstName, parents.occupation
+
+  ─── FAILED CASES ───
+
+    case_049    contract         tiny    clean         score=0.50  janice-josephine-horne
+      Failures:  ['schema_gap']
+
+==============================================================================

@@ -1,0 +1,90 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     1
+  Passed:          1
+  Failed:          0
+  Pass rate:       100.0%
+  Avg score:       1.000
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 1/1 passed  (100.0%)
+    v2 (field avg):   1/1 passed  (100.0%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 1/1 passed (100.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        100.0%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                1/1 passed
+
+  By narrator:
+    janice-josephine-horne          1/1 passed  (avg 1.000)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  1/1
+    Known gaps (currentExtractorExpected=false):  0/0
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   1/1 passed  (avg 1.000)
+
+  By style bucket:
+    life_history               1/1 passed  (avg 1.000)
+
+  By chunk size:
+    tiny                       1/1 passed  (avg 1.000)
+
+  By noise profile:
+    clean                      1/1 passed  (avg 1.000)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    school_years            1/1 passed  (avg 1.000)
+
+  By pass:
+    pass1                   1/1 passed  (avg 1.000)
+
+  By mode:
+    open                    1/1 passed  (avg 1.000)
+
+  By era × pass:
+    school_years::pass1                       1/1 passed  (avg 1.000)
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     100.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    0.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       1
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       0
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      4
+    min/avg/max:     0.800 / 0.875 / 0.900
+    <0.5:            0
+    0.5-0.7:         0
+    0.7-0.9:         1
+    >=0.9:           3
+
+==============================================================================
