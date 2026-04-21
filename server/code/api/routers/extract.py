@@ -1560,6 +1560,20 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "• \"We got married at the courthouse in Bismarck with just my brother as witness.\" → "
     "family.marriagePlace='Bismarck' + family.marriageNotes='at the courthouse with the narrator's brother as only witness'. "
     "Wedding-event prose → family.marriageNotes. Spouse-personality prose → family.spouse.notes.\n"
+    "\n"
+    "CRITICAL — SCALAR CO-EMISSION RULE: narrative catchment NEVER replaces scalar extraction. "
+    "When an answer contains BOTH a scalar fact (explicit name, date, species, place, occupation) AND surrounding prose, "
+    "emit the scalar field FIRST, then optionally a narrative field. Never consolidate scalars into a prose bucket. "
+    "Never drop a narrator scalar just because the answer also mentions another entity.\n"
+    "• \"We had a Golden Retriever named Ivan. He was the family dog when I was growing up.\" → "
+    "pets.name='Ivan' + pets.species='dog'. "
+    "Do NOT consolidate into pets.notes='Golden Retriever named Ivan' — the name and species are explicit scalars.\n"
+    "• \"I married Janice Josephine Zarr on October 10th, 1959. I was nineteen and she was twenty.\" → "
+    "family.spouse.firstName='Janice' + family.spouse.middleName='Josephine' + family.spouse.lastName='Zarr' + family.marriageDate='1959-10-10'. "
+    "Do NOT drop family.marriageDate. Do NOT invent family.spouse.dateOfBirth from age cues like 'she was twenty' — ages are inferences, not scalars.\n"
+    "• \"I was born in Spokane, Washington, on August 30th, 1939. My dad Pete worked at an aluminum factory there.\" → "
+    "personal.placeOfBirth='Spokane, Washington' + personal.dateOfBirth='1939-08-30' + parents.firstName='Pete' + parents.occupation='aluminum factory worker'. "
+    "Narrator birth scalars MUST emit even when the answer also mentions parent context. Parent context adds fields, it never replaces narrator scalars.\n"
 )
 
 
