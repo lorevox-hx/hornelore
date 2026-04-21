@@ -1,8 +1,9 @@
 # LOOP-01 R5.5 — Weekly Work Order Checklist (Apr 21–27, 2026)
 
-**Written:** Tuesday 2026-04-21 · **Author:** Claude (working with Chris)
-**Live baseline:** r5d = 58/104, v2=30/62 · **Locked floor:** r4i = 55/104, v2=30/62
-**Active decision:** r5e master eval in flight; scoring on return
+**Written:** Tuesday 2026-04-21 · **Author:** Claude (working with Chris) · **Last updated:** Tuesday 2026-04-21 (evening)
+**Clean floor:** r5d = 58/104, v2=30/62, must_not_write=0 · **Locked floor:** r4i = 55/104, v2=30/62
+**r5e status:** REJECTED — 57/104, v3=35/62, v2=29/62, must_not_write=**2** (case_035, case_066). Floor breached, priority-rule over-fire implicated.
+**Active eval:** r5e1 — surgical removal of NARRATOR-IDENTITY PRIORITY rule only (commit pending). SCALAR CO-EMISSION v1 + Fix A/B/C preserved. Clean one-variable attribution run.
 
 This is the chronological plan for the rest of the week. Extractor lane stays primary; UI work is gated behind STT-LIVE-02 browser verification and r5e adoption.
 
@@ -17,9 +18,9 @@ This is the chronological plan for the rest of the week. Extractor lane stays pr
 
 ---
 
-## Tuesday — April 21 (today, in progress)
+## Tuesday — April 21
 
-### Extractor lane
+### Extractor lane — morning
 
 - [x] Phase 2 narrative tighten landed (commits `3fec639`, `9706a87`)
 - [x] CLAIMS-02 role-exempt landed (commit `291cbb8`)
@@ -28,46 +29,68 @@ This is the chronological plan for the rest of the week. Extractor lane stays pr
 - [x] Code review of 5 stacked commits — verdict: clean, no lurking bugs
 - [x] CLAUDE.md changelog + Current-phase block updated
 - [x] WO-EX-NARRATIVE-FIELD-01_REPORT.md drafted with Phase 4 results stub
-- [ ] **r5e master eval completes** (Chris kicks off on warm stack)
-- [ ] Score r5e: topline / v2 / v3 / must_not_write / named flips
-- [ ] **Scorer-drift audit on every flip** — attribute each flip as `extraction_change` vs `scorer_credit` (Fix A is the only measurement-side change; focus on `.role` flips)
-- [ ] Fill in Phase 4 results section of WO-EX-NARRATIVE-FIELD-01_REPORT.md
-- [ ] Call decision gate: **ADOPT** / **ADOPT-WITH-CAVEAT** / **ITERATE** / **REJECT**
 
-### Decision gate rules
+### Extractor lane — afternoon (r5e measurement)
 
-- **ADOPT** (flag default-on): ≥ +2 topline gains vs r5d AND 0 regressions AND case_040 OR case_049 green
-- **ADOPT-WITH-CAVEAT**: +1 topline with regressions explained by scorer drift (not extraction)
-- **ITERATE**: net-neutral flips or scorer-drift audit shows Fix A is doing all the work
-- **REJECT**: topline below r5d floor (58/104) with no attribution story
+- [x] r5e master eval completed (Chris, warm stack)
+- [x] Scored r5e: **57/104, v3=35/62, v2=29/62, must_not_write=2** (case_035, case_066)
+- [x] Diff vs r5d: **9 new green** (incl. case_049 Phase 2 target ✓), **10 new red** (7 of 10 dropped 1.00 → 0.50/0.00)
+- [x] Scorer-drift audit: 0 of 10 reds involve `.role` fields → Fix A not credited for damage. Extraction-side regression, prompt-layer over-fire.
+- [x] Three-agent convergence (Claude / ChatGPT / Chris): **REJECT r5e**. Floor breached; priority-rule "MUST/NEVER" language implicated.
+- [x] r5e artifacts banked as commit `0bef492`
+
+### Extractor lane — evening (r5e1 attribution run)
+
+- [x] Attempt `git revert 9706a87` → conflict with Fix C (landed on top). Aborted cleanly.
+- [x] Surgical edit instead: remove NARRATOR-IDENTITY PRIORITY rule block only. Preserve SCALAR CO-EMISSION v1 + amendment + Fix C.
+- [x] `extract.py parses OK`; grep confirms rule removed (0 hits), SCALAR CO-EMISSION + DATE-RANGE PREFERENCE preserved (1 hit each)
+- [ ] Commit the surgical removal (Chris)
+- [ ] **r5e1 master eval completes** (Chris, warm stack)
+- [ ] Score r5e1: topline / v2 / v3 / must_not_write / named flips vs r5d AND vs r5e
+- [ ] Call decision gate (see rules below)
+
+### r5e1 decision gate (tonight)
+
+- **ADOPT r5e1**: topline ≥ 58/104 AND case_049 still green AND must_not_write == 0
+- **ITERATE (r5e2 with softer rewording)**: topline ≥ 58 AND case_049 regresses back to 0.50 — rewrite priority rule softer ("prefer" not "MUST"/"NEVER") and retry
+- **ESCALATE (revert 3fec639 too)**: topline < 58 — drop SCALAR CO-EMISSION too, fall back to base narrative fewshots + Fix A/B/C
+- **OBSERVE**: case_010 or case_012 regress — the SCALAR CO-EMISSION amendment was load-bearing; selective re-add in r5e2
 
 ### Close or iterate
 
-- [ ] Tasks #115, #116, #117 → completed (if ADOPT) or → in_progress with next-step note (if ITERATE)
+- [ ] Tasks #115, #116, #117 → completed (if ADOPT r5e1) or → in_progress with next-step note (if ITERATE / ESCALATE)
+- [ ] Fill in Phase 4 results section of WO-EX-NARRATIVE-FIELD-01_REPORT.md with r5e AND r5e1 numbers
 - [ ] Commit report updates via Chris (copy-paste block)
 
 ---
 
 ## Wednesday — April 22
 
-### Depends on r5e outcome
+### Depends on r5e1 outcome
 
-**If ADOPT or ADOPT-WITH-CAVEAT:**
+**If ADOPT r5e1:**
 
 - [ ] `HORNELORE_NARRATIVE=1` promoted to default-on in `.env` (Chris does)
 - [ ] NARRATIVE-FIELD-01 closed in CLAUDE.md
 - [ ] Move to #119 — turnscope `allowed_branches` fix for greatGrandparents subtree. Small surgical patch. Quick targeted smoke + master r5f to confirm.
 
-**If ITERATE:**
+**If ITERATE (r5e2 — softer priority rule):**
 
-- [ ] Diagnose r5e regressions (likely scalar co-emission over-firing or date-range rule missing)
-- [ ] Targeted smoke on regressed cases (no full master until smoke flips green)
-- [ ] r5e' rerun after patch
+- [ ] Rewrite NARRATOR-IDENTITY rule as "prefer to emit narrator-identity scalars first" (no MUST/NEVER)
+- [ ] Targeted smoke on case_049 only (confirm softer wording still catches it) before committing
+- [ ] r5e2 master rerun after smoke passes
 
-**If REJECT:**
+**If ESCALATE (r5e2 — revert SCALAR CO-EMISSION amendment too):**
 
-- [ ] Revert the 5-commit stack (or the offending subset) back to r5d/r5a state
-- [ ] Reopen NARRATIVE-FIELD-01 Phase 2 design with three-agent input
+- [ ] Revert `3fec639` — leaves base narrative fewshots only (from #114) + Fix A/B/C
+- [ ] r5e2 master rerun; case_049 may drop back to 0.50, that's expected
+- [ ] If floor recovers (≥58) with no must_not_write, adopt as baseline; NARRATIVE-FIELD reopens for a cleaner redesign
+
+**If OBSERVE (r5e1 ≥58 but case_010/012 regressed):**
+
+- [ ] SCALAR CO-EMISSION amendment was load-bearing on those cases; the priority rule wasn't the sole culprit
+- [ ] Selective re-add: keep the 3 amendment examples in SCALAR CO-EMISSION, don't restore the priority rule
+- [ ] Targeted smoke on case_010/012 → master rerun as r5e2
 
 ### Parallel tracks (Chris)
 
@@ -98,7 +121,7 @@ This is the chronological plan for the rest of the week. Extractor lane stays pr
 - [ ] Close task #95, #63 → completed
 - [ ] Update CLAUDE.md: SPANTAG moves from blocked to active
 
-### Contingency: if r5e still iterating
+### Contingency: if r5e1/r5e2 still iterating
 
 - [ ] Postpone Phase 3 causal matrix to Friday
 - [ ] Focus on getting NARRATIVE-FIELD signed off before opening a new lane
@@ -180,9 +203,9 @@ Low-bandwidth, no blocking work. Pick any of these as energy allows:
 
 | # | WO / Task | Status | Gate |
 |---|---|---|---|
-| 116 | NARRATIVE-FIELD Phase 4 eval | IN PROGRESS | r5e result today |
-| 117 | NARRATIVE-FIELD final report | PENDING | Phase 4 close |
-| 115 | Phase 3 scorer alias relax | PENDING | Phase 4 close |
+| 116 | NARRATIVE-FIELD Phase 4 eval | IN PROGRESS | r5e rejected; r5e1 in flight tonight |
+| 117 | NARRATIVE-FIELD final report | PENDING | r5e1 close (audit both r5e + r5e1) |
+| 115 | Phase 3 scorer alias relax | PENDING | r5e1 close; Fix A kept through all rollbacks |
 | 99 | STT-LIVE-02 | IN PROGRESS | Browser round-trip (Chris) |
 | 63/95 | SECTION-EFFECT Phase 3 | IN PROGRESS | Phase 2 landed; Phase 3 causal matrix next |
 | 119 | turnscope greatGrandparents | PENDING | Small surgical; Wed or Thu |
@@ -205,7 +228,7 @@ Low-bandwidth, no blocking work. Pick any of these as energy allows:
 
 ## Sequencing rationale (why this order)
 
-1. **r5e tonight, nothing else today.** 5 commits stacked for one measurement; we already took the attribution risk — finish scoring before opening anything new.
+1. **r5e1 tonight, nothing else today.** r5e landed and was rejected (57/104, 2 must_not_write). Surgical NARRATOR-IDENTITY PRIORITY removal gives one-variable attribution. Finish scoring r5e1 before opening anything new. Do NOT start another lane until the priority rule is isolated as cause-or-not-cause.
 2. **STT-LIVE-02 browser verify Wed.** Required before any `app.js` / `state.js` / `interview.js` work can start attribution-clean. Chris owns this.
 3. **SECTION-EFFECT Phase 3 Thu.** This is the real bottleneck — SPANTAG can't ship without the causal matrix. Do not let UI work distract from this.
 4. **SPANTAG Fri OR WO-12A Lite Fri.** If Phase 3 unblocks SPANTAG, extractor gains momentum — stay on that lane. If not, WO-12A Lite is a clean low-risk 1-hour palate cleanser (but only if STT-LIVE-02 is verified first).
@@ -214,7 +237,8 @@ Low-bandwidth, no blocking work. Pick any of these as energy allows:
 
 ## Risk register for the week
 
-- **Highest**: r5e lands with unattributable flips (mix of extraction and scorer credits). Mitigation: scorer-drift audit is already scripted in the report stub; run it strictly.
+- **Highest**: r5e1 still below 58/104 — priority rule was not the sole culprit, deeper rollback needed. Mitigation: ESCALATE path already scoped (revert `3fec639`); single additional commit, single additional master run.
+- **High (retired)**: r5e unattributable flips — addressed by r5e1 one-variable surgical removal.
 - **High**: STT-LIVE-02 browser verify surfaces a real bug. Mitigation: revert path is clean; `transcript_guard.js` is a standalone IIFE, easy to disable.
 - **Medium**: SECTION-EFFECT Phase 3 causal matrix shows no clean signal. Mitigation: SPANTAG can still ship with best-available priors; the matrix is validation, not a blocker in principle.
 - **Low**: SPANTAG Pass 2 implementation slips past Friday. Mitigation: Monday Apr 27 already reserved for first eval; one day slip doesn't cascade.
