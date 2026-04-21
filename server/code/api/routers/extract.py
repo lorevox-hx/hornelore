@@ -4571,17 +4571,25 @@ _NARRATIVE_VALUE_MAX_CHARS = 500
 # full WO routing gain into a near-zero topline movement.
 #
 # Fix: when HORNELORE_NARRATIVE=1, raise the cap to 2000 chars for the
-# specific suffixes this WO targets. ~2000 chars is roughly 380 words,
+# specific FULL PATHS this WO targets. ~2000 chars is roughly 380 words,
 # roughly 2× the largest observed legitimate narrative in today's corpus,
 # and still well below the full raw answer-dump sizes (3000+ chars) that
-# R4-A was originally designed to catch. Other narrative suffixes
-# (deploymentLocation, militaryBranch, etc.) keep the 500-char cap.
-_NARRATIVE_CATCHMENT_SUFFIXES = frozenset({
-    "notableLifeEvents",
-    "memorableStory",
-    "memorableStories",
-    "uniqueCharacteristics",
-    "notes",
+# R4-A was originally designed to catch.
+#
+# CRITICAL: the whitelist is full-path, not suffix-based. A suffix-based
+# ".notes" whitelist would silently raise the cap for pets.notes,
+# hobbies.notes, and any other .notes bucket — which masks answer-dump
+# hallucinations in non-target fields. Keeping it path-exact preserves
+# clean attribution when we diff r5d vs r5c.
+_NARRATIVE_CATCHMENT_PATHS = frozenset({
+    "parents.notableLifeEvents",
+    "parents.notes",
+    "grandparents.memorableStory",
+    "grandparents.memorableStories",
+    "greatGrandparents.memorableStories",
+    "family.spouse.notes",
+    "family.marriageNotes",
+    "siblings.uniqueCharacteristics",
 })
 _NARRATIVE_CATCHMENT_MAX_CHARS = 2000
 
@@ -4608,6 +4616,27 @@ def _apply_value_length_cap(items: List[dict]) -> List[dict]:
             continue
         suffix = fp.rsplit(".", 1)[-1] if "." in fp else fp
         n = len(val)
+
+        # WO-EX-NARRATIVE-FIELD-01 Phase 2.5: full-path whitelist FIRST.
+        # When HORNELORE_NARRATIVE=1, explicit narrative-catchment paths
+        # get a 2000-char ceiling instead of the 500-char narrative default.
+        # This runs ahead of the suffix-based checks so the 8 whitelisted
+        # paths get uniform treatment regardless of whether their suffix
+        # is in _NARRATIVE_VALUE_SUFFIXES (e.g., family.marriageNotes is
+        # NOT a known narrative suffix but is in this whitelist). Flag-off
+        # path is byte-stable — this branch is a no-op when the flag is
+        # disabled.
+        if _narrative_field_enabled() and fp in _NARRATIVE_CATCHMENT_PATHS:
+            if n > _NARRATIVE_CATCHMENT_MAX_CHARS:
+                logger.info(
+                    "[extract][R4-A answer-dump] dropping %s (narrative_catchment, "
+                    "%d chars > %d): %r…",
+                    fp, n, _NARRATIVE_CATCHMENT_MAX_CHARS, val[:80],
+                )
+                continue
+            out.append(it)
+            continue
+
         if suffix in _SCALAR_VALUE_SUFFIXES:
             has_sentence_boundary = bool(_SENTENCE_BOUNDARY.search(val))
             if n > _SCALAR_VALUE_MAX_CHARS or has_sentence_boundary:
@@ -4618,21 +4647,11 @@ def _apply_value_length_cap(items: List[dict]) -> List[dict]:
                 )
                 continue
         elif suffix in _NARRATIVE_VALUE_SUFFIXES:
-            # WO-EX-NARRATIVE-FIELD-01 Phase 2.5: catchment suffixes get a
-            # higher ceiling when the flag is on, to prevent R4-A from eating
-            # legitimate multi-paragraph oral-history prose that the flag's
-            # few-shots successfully routed. Flag-off path is byte-stable.
-            if _narrative_field_enabled() and suffix in _NARRATIVE_CATCHMENT_SUFFIXES:
-                cap = _NARRATIVE_CATCHMENT_MAX_CHARS
-                cap_reason = "narrative_catchment"
-            else:
-                cap = _NARRATIVE_VALUE_MAX_CHARS
-                cap_reason = "narrative"
-            if n > cap:
+            if n > _NARRATIVE_VALUE_MAX_CHARS:
                 logger.info(
-                    "[extract][R4-A answer-dump] dropping %s (%s, "
+                    "[extract][R4-A answer-dump] dropping %s (narrative, "
                     "%d chars > %d): %r…",
-                    fp, cap_reason, n, cap, val[:80],
+                    fp, n, _NARRATIVE_VALUE_MAX_CHARS, val[:80],
                 )
                 continue
         out.append(it)
