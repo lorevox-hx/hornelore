@@ -4533,7 +4533,7 @@ _SHORT_VALUE_EXEMPT_SUFFIXES = frozenset({
     "firstName", "lastName", "middleName", "maidenName", "nickname",
     "dateOfBirth", "dateOfDeath", "birthYear", "deathYear",
     "birthOrder", "gender", "relation", "branch", "denomination",
-    "rank", "status", "species", "type", "yearEnlisted", "yearDischarged",
+    "rank", "role", "status", "species", "type", "yearEnlisted", "yearDischarged",
     "yearStarted", "yearEnded", "startYear", "endYear",
     "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",
 })
