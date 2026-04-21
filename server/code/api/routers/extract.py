@@ -1582,6 +1582,17 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "If you emit one narrator-identity scalar (e.g. personal.placeOfBirth), you MUST also emit any other narrator-identity scalar present in the same sentence (e.g. personal.dateOfBirth) — "
     "this coupling holds EVEN WHEN the interview target is only one of them (e.g. target=personal.placeOfBirth). The target names a primary focus, not an emission cap. "
     "Extract every narrator-identity scalar the answer explicitly contains.\n"
+    "\n"
+    "DATE-RANGE PREFERENCE RULE: for *.yearsActive, *.dateRange, *.servicePeriod and similar date-span fields, "
+    "when the answer contains BOTH an explicit range (\"from 1985 to 2010\", \"1997-2026\") AND a duration phrase "
+    "(\"twenty-five years\", \"almost three decades\"), emit the explicit range form using a dash (\"1985-2010\"). "
+    "The range carries both endpoints; the duration phrase loses one endpoint and is redundant. "
+    "Expand common professional-role abbreviations (OT → Occupational therapist, RN → Registered nurse, "
+    "PT → Physical therapist, NP → Nurse practitioner) where the surrounding context makes the expansion clear.\n"
+    "• \"I was the RN at Mercy Hospital from 1985 to 2010. Twenty-five years in the ER.\" → "
+    "community.organization='Mercy Hospital' + community.role='Registered nurse' + community.yearsActive='1985-2010'. "
+    "Do NOT emit community.yearsActive='twenty-five years' — the range form carries both endpoints. "
+    "Do NOT emit community.role='RN' alone when the context clearly establishes 'Registered nurse'.\n"
 )
 
 
