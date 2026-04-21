@@ -1572,8 +1572,16 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "family.spouse.firstName='Janice' + family.spouse.middleName='Josephine' + family.spouse.lastName='Zarr' + family.marriageDate='1959-10-10'. "
     "Do NOT drop family.marriageDate. Do NOT invent family.spouse.dateOfBirth from age cues like 'she was twenty' — ages are inferences, not scalars.\n"
     "• \"I was born in Spokane, Washington, on August 30th, 1939. My dad Pete worked at an aluminum factory there.\" → "
-    "personal.placeOfBirth='Spokane, Washington' + personal.dateOfBirth='1939-08-30' + parents.firstName='Pete' + parents.occupation='aluminum factory worker'. "
+    "personal.dateOfBirth='1939-08-30' + personal.placeOfBirth='Spokane, Washington' + parents.firstName='Pete' + parents.occupation='aluminum factory worker'. "
     "Narrator birth scalars MUST emit even when the answer also mentions parent context. Parent context adds fields, it never replaces narrator scalars.\n"
+    "• \"I was born on June 14th, 1947 in Fargo. My mother Helen ran the little grocery on Main Street.\" → "
+    "personal.dateOfBirth='1947-06-14' + personal.placeOfBirth='Fargo' + parents.firstName='Helen' + parents.relation='Mother' + parents.occupation='ran the little grocery on Main Street'. "
+    "NARRATOR-IDENTITY PRIORITY RULE: personal.dateOfBirth, personal.placeOfBirth, personal.fullName are narrator-identity scalars. "
+    "When an answer contains the narrator's own birth facts, these scalars emit FIRST in the output array, before any parent/spouse/sibling fields. "
+    "They are NEVER suppressed by parent context, occupation prose, or any other surrounding detail. "
+    "If you emit one narrator-identity scalar (e.g. personal.placeOfBirth), you MUST also emit any other narrator-identity scalar present in the same sentence (e.g. personal.dateOfBirth) — "
+    "this coupling holds EVEN WHEN the interview target is only one of them (e.g. target=personal.placeOfBirth). The target names a primary focus, not an emission cap. "
+    "Extract every narrator-identity scalar the answer explicitly contains.\n"
 )
 
 
