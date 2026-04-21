@@ -7,6 +7,7 @@
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.
 - **Repo path (WSL)**: `/mnt/c/Users/chris/hornelore` — NOT `~/hornelore`.
 - **Agent workspace mount**: `/sessions/<session-id>/mnt/hornelore`. Edits here are live on Chris's repo.
+- **Git is NOT accessible from the sandbox mount.** `git status`, `git add`, `git commit`, `git diff --stat`, `git log` from the sandbox either fault with "not a git repository" or "unable to read <oid>". This is permanent — do not retry. File reads and edits work; only the git tooling is broken. All commit/branch/log operations must be handed to Chris as copy-paste blocks that he runs from `/mnt/c/Users/chris/hornelore`.
 - **GPU**: NVIDIA RTX 50-series (Blackwell). Local LLM serves from this machine.
 
 ## Stack ownership
