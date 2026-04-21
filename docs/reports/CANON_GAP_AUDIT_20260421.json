@@ -1,0 +1,1621 @@
+{
+  "_meta": {
+    "generated": "2026-04-21T04:01:51.071927Z",
+    "repo": "/sessions/ecstatic-determined-pasteur/mnt/hornelore",
+    "narrators": [
+      "kent-james-horne",
+      "janice-josephine-horne",
+      "christopher-todd-horne"
+    ],
+    "cases_total": 104
+  },
+  "narrators": {
+    "kent-james-horne": {
+      "cases_count": 33,
+      "unique_paths_referenced": 53,
+      "classification_counts": {
+        "POPULATED": 30,
+        "EMPTY": 7,
+        "MISSING_IN_CANON": 16
+      },
+      "paths": {
+        "personal.placeOfBirth": {
+          "resolved_path": "personal.placeOfBirth",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Stanley, North Dakota",
+          "cases": [
+            "case_011",
+            "case_054"
+          ]
+        },
+        "personal.dateOfBirth": {
+          "resolved_path": "personal.dateOfBirth",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "1939-12-24",
+          "cases": [
+            "case_011"
+          ]
+        },
+        "family.spouse.firstName": {
+          "resolved_path": "spouse.firstName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Janice",
+          "cases": [
+            "case_012",
+            "case_062",
+            "case_064",
+            "case_093"
+          ]
+        },
+        "family.marriageDate": {
+          "resolved_path": "marriage.weddingDetails",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Married Janice Josephine Zarr on October 10, 1959. Kent was 19, Janice was 20.",
+          "cases": [
+            "case_012",
+            "case_064"
+          ]
+        },
+        "family.spouse": {
+          "resolved_path": "spouse",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "{'firstName': 'Janice', 'middleName': 'Josephine', 'lastName': 'Horne', 'maidenName': 'Zarr', 'birthDate': '1939-08-30',",
+          "cases": [
+            "case_012"
+          ]
+        },
+        "family.children.firstName": {
+          "resolved_path": "children.firstName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[3/3] Vincent | Jason | Christopher",
+          "cases": [
+            "case_013",
+            "case_048",
+            "case_062",
+            "case_071",
+            "case_086",
+            "case_103"
+          ]
+        },
+        "family.children.placeOfBirth": {
+          "resolved_path": "children.placeOfBirth",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/3 entries have placeOfBirth",
+          "cases": [
+            "case_013",
+            "case_071",
+            "case_086",
+            "case_103"
+          ]
+        },
+        "family.children.dateOfBirth": {
+          "resolved_path": "children.dateOfBirth",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/3 entries have dateOfBirth",
+          "cases": [
+            "case_013",
+            "case_086"
+          ]
+        },
+        "family.children": {
+          "resolved_path": "children",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "<3 entries>",
+          "cases": [
+            "case_013"
+          ]
+        },
+        "residence.place": {
+          "resolved_path": "residence.place",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_013",
+            "case_018",
+            "case_044",
+            "case_050",
+            "case_086",
+            "case_103"
+          ]
+        },
+        "personal.birthOrder": {
+          "resolved_path": "personal.birthOrder",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "2",
+          "cases": [
+            "case_014"
+          ]
+        },
+        "siblings.firstName": {
+          "resolved_path": "siblings.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Sharon | Linda",
+          "cases": [
+            "case_014",
+            "case_068",
+            "case_077"
+          ]
+        },
+        "siblings.birthOrder": {
+          "resolved_path": "siblings.birthOrder",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] 1 | 3",
+          "cases": [
+            "case_014",
+            "case_077"
+          ]
+        },
+        "parents.firstName": {
+          "resolved_path": "parents.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Ervin | Leila",
+          "cases": [
+            "case_014",
+            "case_068"
+          ]
+        },
+        "parents.relation": {
+          "resolved_path": "parents.relation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Father | Mother",
+          "cases": [
+            "case_014"
+          ]
+        },
+        "parents.notableLifeEvents": {
+          "resolved_path": "parents.notableLifeEvents",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Born November 12, 1909, third child of Elizabeth Shong and George Horne. His fat | Born November 18, 1915. Married Ervin Horne. Mother of Sharon, Kent, and Linda H",
+          "cases": [
+            "case_015",
+            "case_068",
+            "case_090"
+          ]
+        },
+        "education.earlyCareer": {
+          "resolved_path": "education.earlyCareer",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Construction and trades",
+          "cases": [
+            "case_016",
+            "case_020",
+            "case_052",
+            "case_059",
+            "case_086"
+          ]
+        },
+        "education.careerProgression": {
+          "resolved_path": "education.careerProgression",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Long career in construction and trades; built family life across multiple states including time in Germany",
+          "cases": [
+            "case_016",
+            "case_059",
+            "case_086"
+          ]
+        },
+        "pets.name": {
+          "resolved_path": "pets.name",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/1] Ivan",
+          "cases": [
+            "case_017"
+          ]
+        },
+        "pets.species": {
+          "resolved_path": "pets.species",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/1] Dog",
+          "cases": [
+            "case_017"
+          ]
+        },
+        "hobbies.hobbies": {
+          "resolved_path": "hobbies.hobbies",
+          "schema_mismatch": false,
+          "classification": "EMPTY",
+          "evidence": null,
+          "cases": [
+            "case_017",
+            "case_074"
+          ]
+        },
+        "earlyMemories.significantEvent": {
+          "resolved_path": "earlyMemories.significantEvent",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Grew up in Stanley, North Dakota, second of three children born to Ervin and Leila Myrtle Carkuff Horne. His father Ervi",
+          "cases": [
+            "case_017",
+            "case_090"
+          ]
+        },
+        "residence.period": {
+          "resolved_path": "residence.period",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_018",
+            "case_050"
+          ]
+        },
+        "laterYears.lifeLessons": {
+          "resolved_path": "laterYears.lifeLessons",
+          "schema_mismatch": false,
+          "classification": "EMPTY",
+          "evidence": null,
+          "cases": [
+            "case_019"
+          ]
+        },
+        "hobbies.personalChallenges": {
+          "resolved_path": "hobbies.personalChallenges",
+          "schema_mismatch": false,
+          "classification": "EMPTY",
+          "evidence": null,
+          "cases": [
+            "case_019"
+          ]
+        },
+        "laterYears.significantEvent": {
+          "resolved_path": "laterYears.significantEvent",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_020"
+          ]
+        },
+        "military.branch": {
+          "resolved_path": "military.branch",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_033",
+            "case_071"
+          ]
+        },
+        "military.yearsOfService": {
+          "resolved_path": "military.yearsOfService",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_033"
+          ]
+        },
+        "military.deploymentLocation": {
+          "resolved_path": "military.deploymentLocation",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_033"
+          ]
+        },
+        "military.significantEvent": {
+          "resolved_path": "military.significantEvent",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_033"
+          ]
+        },
+        "health.majorCondition": {
+          "resolved_path": "health.majorCondition",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_037",
+            "case_096"
+          ]
+        },
+        "health.lifestyleChange": {
+          "resolved_path": "health.lifestyleChange",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_037"
+          ]
+        },
+        "health.milestone": {
+          "resolved_path": "health.milestone",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_037"
+          ]
+        },
+        "travel.destination": {
+          "resolved_path": "travel.destination",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_044"
+          ]
+        },
+        "travel.purpose": {
+          "resolved_path": "travel.purpose",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_044"
+          ]
+        },
+        "family.children.relation": {
+          "resolved_path": "children.relation",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/3 entries have relation",
+          "cases": [
+            "case_048",
+            "case_062"
+          ]
+        },
+        "parents.birthPlace": {
+          "resolved_path": "parents.birthPlace",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/2] North Dakota",
+          "cases": [
+            "case_054"
+          ]
+        },
+        "family.spouse.maidenName": {
+          "resolved_path": "spouse.maidenName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Zarr",
+          "cases": [
+            "case_064",
+            "case_093"
+          ]
+        },
+        "parents.lastName": {
+          "resolved_path": "parents.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Horne | Horne",
+          "cases": [
+            "case_068"
+          ]
+        },
+        "grandparents.firstName": {
+          "resolved_path": "grandparents.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] George | Elizabeth",
+          "cases": [
+            "case_068",
+            "case_080"
+          ]
+        },
+        "grandparents.memorableStory": {
+          "resolved_path": "grandparents.memorableStories",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[2/2] George Horne arrived in Ross, North Dakota in 1902. He walked north from Ross in | Elizabeth was the youngest of eight children of John Michael Shong (1829-1891) a",
+          "cases": [
+            "case_068",
+            "case_071",
+            "case_080",
+            "case_083"
+          ]
+        },
+        "personal.culture": {
+          "resolved_path": "personal.culture",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "French (Alsace-Lorraine via Shong family), German (Bolley family), North Dakota",
+          "cases": [
+            "case_074"
+          ]
+        },
+        "siblings.relation": {
+          "resolved_path": "siblings.relation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Sister | Sister",
+          "cases": [
+            "case_077"
+          ]
+        },
+        "siblings.lastName": {
+          "resolved_path": "siblings.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Woodmansee | Horne",
+          "cases": [
+            "case_077"
+          ]
+        },
+        "grandparents.lastName": {
+          "resolved_path": "grandparents.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Horne | Horne",
+          "cases": [
+            "case_080"
+          ]
+        },
+        "grandparents.maidenName": {
+          "resolved_path": "grandparents.maidenName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/2] Shong",
+          "cases": [
+            "case_080",
+            "case_083"
+          ]
+        },
+        "grandparents.birthPlace": {
+          "resolved_path": "grandparents.birthPlace",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/2] Fall Creek, Wisconsin",
+          "cases": [
+            "case_080"
+          ]
+        },
+        "grandparents.ancestry": {
+          "resolved_path": "grandparents.ancestry",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] American | French (Alsace-Lorraine), German",
+          "cases": [
+            "case_083"
+          ]
+        },
+        "family.marriageNotes": {
+          "resolved_path": "family.marriageNotes",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_093"
+          ]
+        },
+        "faith.denomination": {
+          "resolved_path": "faith.denomination",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_099"
+          ]
+        },
+        "faith.values": {
+          "resolved_path": "faith.values",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_099"
+          ]
+        },
+        "travel.significantTrip": {
+          "resolved_path": "travel.significantTrip",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_102"
+          ]
+        },
+        "family.children.placeOfBirth_2": {
+          "resolved_path": "children.placeOfBirth_2",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/3 entries have placeOfBirth_2",
+          "cases": [
+            "case_103"
+          ]
+        }
+      }
+    },
+    "janice-josephine-horne": {
+      "cases_count": 33,
+      "unique_paths_referenced": 47,
+      "classification_counts": {
+        "POPULATED": 31,
+        "EMPTY": 5,
+        "MISSING_IN_CANON": 11
+      },
+      "paths": {
+        "personal.placeOfBirth": {
+          "resolved_path": "personal.placeOfBirth",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Spokane, Washington",
+          "cases": [
+            "case_021",
+            "case_049",
+            "case_058",
+            "case_082",
+            "case_085"
+          ]
+        },
+        "personal.dateOfBirth": {
+          "resolved_path": "personal.dateOfBirth",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "1939-08-30",
+          "cases": [
+            "case_021",
+            "case_049"
+          ]
+        },
+        "parents.firstName": {
+          "resolved_path": "parents.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Josephine | Peter",
+          "cases": [
+            "case_021",
+            "case_075",
+            "case_082",
+            "case_085"
+          ]
+        },
+        "parents.occupation": {
+          "resolved_path": "parents.occupation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Housewife | Steam Boiler operator license, carpenter",
+          "cases": [
+            "case_021",
+            "case_075",
+            "case_082",
+            "case_085"
+          ]
+        },
+        "education.schooling": {
+          "resolved_path": "education.schooling",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Elementary: Dodge, ND for 1st and 2nd grade (could read big books, teacher had her read aloud to the class, sat alone wh",
+          "cases": [
+            "case_022",
+            "case_026",
+            "case_063",
+            "case_069",
+            "case_082"
+          ]
+        },
+        "earlyMemories.firstMemory": {
+          "resolved_path": "earlyMemories.firstMemory",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Liked to be outside and her sister Verene did not like to be outside. Milked cows when they were living in Dodge and lik",
+          "cases": [
+            "case_022",
+            "case_063"
+          ]
+        },
+        "family.spouse.firstName": {
+          "resolved_path": "spouse.firstName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Kent",
+          "cases": [
+            "case_023"
+          ]
+        },
+        "family.spouse.lastName": {
+          "resolved_path": "spouse.lastName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Horne",
+          "cases": [
+            "case_023"
+          ]
+        },
+        "family.marriageDate": {
+          "resolved_path": "marriage.weddingDetails",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Married Kent James Horne on October 10, 1959. Janice was 20, Kent was 19.",
+          "cases": [
+            "case_023",
+            "case_061",
+            "case_072",
+            "case_078"
+          ]
+        },
+        "family.spouse": {
+          "resolved_path": "spouse",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "{'firstName': 'Kent', 'middleName': 'James', 'lastName': 'Horne', 'birthDate': '1939-12-24', 'birthPlace': 'Stanley, Nor",
+          "cases": [
+            "case_023"
+          ]
+        },
+        "personal.birthOrder": {
+          "resolved_path": "personal.birthOrder",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "2",
+          "cases": [
+            "case_024"
+          ]
+        },
+        "siblings.firstName": {
+          "resolved_path": "siblings.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Verene | James",
+          "cases": [
+            "case_024",
+            "case_063",
+            "case_066",
+            "case_094"
+          ]
+        },
+        "siblings.birthOrder": {
+          "resolved_path": "siblings.birthOrder",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] 1 | 3",
+          "cases": [
+            "case_024"
+          ]
+        },
+        "pets.name": {
+          "resolved_path": "pets.name",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[3/3] Grey | Spot | Ivan",
+          "cases": [
+            "case_025",
+            "case_041",
+            "case_046",
+            "case_066"
+          ]
+        },
+        "pets.species": {
+          "resolved_path": "pets.species",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[3/3] Horse | Dog | Dog",
+          "cases": [
+            "case_025",
+            "case_041",
+            "case_046",
+            "case_066"
+          ]
+        },
+        "hobbies.hobbies": {
+          "resolved_path": "hobbies.hobbies",
+          "schema_mismatch": false,
+          "classification": "EMPTY",
+          "evidence": null,
+          "cases": [
+            "case_025",
+            "case_028"
+          ]
+        },
+        "earlyMemories.significantEvent": {
+          "resolved_path": "earlyMemories.significantEvent",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Family moved several times during childhood: Dodge ND, Glen Ulin ND, Strasburg ND. Father Pete worked various jobs inclu",
+          "cases": [
+            "case_025",
+            "case_028",
+            "case_029"
+          ]
+        },
+        "residence.place": {
+          "resolved_path": "residence.place",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_026",
+            "case_027",
+            "case_030",
+            "case_058",
+            "case_063",
+            "case_069",
+            "case_082"
+          ]
+        },
+        "education.higherEducation": {
+          "resolved_path": "education.higherEducation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Started college at Bismarck Junior College studying Speech and History. Those credits transferred to UND (University of ",
+          "cases": [
+            "case_027",
+            "case_069",
+            "case_078"
+          ]
+        },
+        "hobbies.personalChallenges": {
+          "resolved_path": "hobbies.personalChallenges",
+          "schema_mismatch": false,
+          "classification": "EMPTY",
+          "evidence": null,
+          "cases": [
+            "case_029"
+          ]
+        },
+        "family.children.firstName": {
+          "resolved_path": "children.firstName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[3/3] Vincent | Jason | Christopher",
+          "cases": [
+            "case_030",
+            "case_072"
+          ]
+        },
+        "family.children.placeOfBirth": {
+          "resolved_path": "children.placeOfBirth",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/3 entries have placeOfBirth",
+          "cases": [
+            "case_030",
+            "case_072"
+          ]
+        },
+        "family.children.dateOfBirth": {
+          "resolved_path": "children.dateOfBirth",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/3 entries have dateOfBirth",
+          "cases": [
+            "case_030",
+            "case_072"
+          ]
+        },
+        "family.children": {
+          "resolved_path": "children",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "<3 entries>",
+          "cases": [
+            "case_030"
+          ]
+        },
+        "grandparents.side": {
+          "resolved_path": "grandparents.side",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] maternal | maternal",
+          "cases": [
+            "case_031"
+          ]
+        },
+        "grandparents.firstName": {
+          "resolved_path": "grandparents.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Anna | Mathias",
+          "cases": [
+            "case_031",
+            "case_075"
+          ]
+        },
+        "grandparents.lastName": {
+          "resolved_path": "grandparents.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Schaaf | Schaaf",
+          "cases": [
+            "case_031"
+          ]
+        },
+        "grandparents.ancestry": {
+          "resolved_path": "grandparents.ancestry",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Germans from Russia | Ukraine",
+          "cases": [
+            "case_031"
+          ]
+        },
+        "grandparents.memorableStory": {
+          "resolved_path": "grandparents.memorableStories",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Gustins were the arrogant ones. Arno Gustin one of the founders of College of Ma | Hated the Russians. Family emigrated from Ukraine as part of the Germans from Ru",
+          "cases": [
+            "case_031"
+          ]
+        },
+        "faith.denomination": {
+          "resolved_path": "faith.denomination",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_035"
+          ]
+        },
+        "faith.significantMoment": {
+          "resolved_path": "faith.significantMoment",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_035"
+          ]
+        },
+        "faith.role": {
+          "resolved_path": "faith.role",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_035"
+          ]
+        },
+        "health.majorCondition": {
+          "resolved_path": "health.majorCondition",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_038"
+          ]
+        },
+        "health.milestone": {
+          "resolved_path": "health.milestone",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_038"
+          ]
+        },
+        "community.organization": {
+          "resolved_path": "community.organization",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_039",
+            "case_100"
+          ]
+        },
+        "community.role": {
+          "resolved_path": "community.role",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_039"
+          ]
+        },
+        "community.significantEvent": {
+          "resolved_path": "community.significantEvent",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_039"
+          ]
+        },
+        "pets.notes": {
+          "resolved_path": "pets.notes",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[3/3] Childhood horse, Janice loved horses as a girl | Last dog Janice had as a kid. Uncle Johnny got Spot when he had rented a farm. | Family dog when raising sons",
+          "cases": [
+            "case_041",
+            "case_046",
+            "case_066",
+            "case_088"
+          ]
+        },
+        "family.marriagePlace": {
+          "resolved_path": "marriage.weddingDetails",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Married Kent James Horne on October 10, 1959. Janice was 20, Kent was 19.",
+          "cases": [
+            "case_061",
+            "case_091"
+          ]
+        },
+        "parents.notableLifeEvents": {
+          "resolved_path": "parents.notableLifeEvents",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Josie was a gifted musician. During the silent movie era she played the organ at | Pete was born at home, delivered by Mrs. Steve Dodenheffer. When Janice was born",
+          "cases": [
+            "case_075",
+            "case_085"
+          ]
+        },
+        "parents.maidenName": {
+          "resolved_path": "parents.maidenName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/2] Schaaf",
+          "cases": [
+            "case_075"
+          ]
+        },
+        "residence.period": {
+          "resolved_path": "residence.period",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_082"
+          ]
+        },
+        "parents.lastName": {
+          "resolved_path": "parents.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Zarr | Zarr",
+          "cases": [
+            "case_085"
+          ]
+        },
+        "parents.birthPlace": {
+          "resolved_path": "parents.birthPlace",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Glen Ulin, ND | Dodge, ND",
+          "cases": [
+            "case_085"
+          ]
+        },
+        "family.marriageNotes": {
+          "resolved_path": "family.marriageNotes",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_091"
+          ]
+        },
+        "siblings.uniqueCharacteristics": {
+          "resolved_path": "siblings.uniqueCharacteristics",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/2] Did not like to be outside (opposite of Janice)",
+          "cases": [
+            "case_094"
+          ]
+        },
+        "additionalNotes.unfinishedDreams": {
+          "resolved_path": "additionalNotes.unfinishedDreams",
+          "schema_mismatch": false,
+          "classification": "EMPTY",
+          "evidence": null,
+          "cases": [
+            "case_097"
+          ]
+        }
+      }
+    },
+    "christopher-todd-horne": {
+      "cases_count": 38,
+      "unique_paths_referenced": 58,
+      "classification_counts": {
+        "POPULATED": 40,
+        "MISSING_IN_CANON": 15,
+        "EMPTY": 3
+      },
+      "paths": {
+        "personal.placeOfBirth": {
+          "resolved_path": "personal.placeOfBirth",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Williston, North Dakota",
+          "cases": [
+            "case_001",
+            "case_095"
+          ]
+        },
+        "personal.dateOfBirth": {
+          "resolved_path": "personal.dateOfBirth",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "1962-12-24",
+          "cases": [
+            "case_001"
+          ]
+        },
+        "parents.firstName": {
+          "resolved_path": "parents.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Janice | Kent",
+          "cases": [
+            "case_002",
+            "case_053"
+          ]
+        },
+        "parents.relation": {
+          "resolved_path": "parents.relation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Mother | Father",
+          "cases": [
+            "case_002",
+            "case_053"
+          ]
+        },
+        "siblings.firstName": {
+          "resolved_path": "siblings.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Vincent | Jason",
+          "cases": [
+            "case_002",
+            "case_047",
+            "case_053",
+            "case_079"
+          ]
+        },
+        "siblings.birthOrder": {
+          "resolved_path": "siblings.birthOrder",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] 1 | 2",
+          "cases": [
+            "case_002",
+            "case_047",
+            "case_079"
+          ]
+        },
+        "personal.birthOrder": {
+          "resolved_path": "personal.birthOrder",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "3",
+          "cases": [
+            "case_002"
+          ]
+        },
+        "parents.occupation": {
+          "resolved_path": "parents.occupation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Homemaker | Construction and trades",
+          "cases": [
+            "case_002",
+            "case_053"
+          ]
+        },
+        "education.schooling": {
+          "resolved_path": "education.schooling",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Graduated from Bismarck High School, 1981",
+          "cases": [
+            "case_003",
+            "case_067"
+          ]
+        },
+        "education.higherEducation": {
+          "resolved_path": "education.higherEducation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Occupational Therapy training",
+          "cases": [
+            "case_003"
+          ]
+        },
+        "education.earlyCareer": {
+          "resolved_path": "education.earlyCareer",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Began working in occupational therapy",
+          "cases": [
+            "case_003",
+            "case_009",
+            "case_067"
+          ]
+        },
+        "residence.place": {
+          "resolved_path": "residence.place",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_003",
+            "case_005",
+            "case_095",
+            "case_101"
+          ]
+        },
+        "family.spouse.firstName": {
+          "resolved_path": "spouse.firstName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Melanie",
+          "cases": [
+            "case_004",
+            "case_060",
+            "case_070",
+            "case_076"
+          ]
+        },
+        "family.spouse.lastName": {
+          "resolved_path": "spouse.lastName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Zollner",
+          "cases": [
+            "case_004",
+            "case_076"
+          ]
+        },
+        "family.marriageDate": {
+          "resolved_path": "marriage.weddingDetails",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "Married Melanie C. Zollner on December 22, 2010",
+          "cases": [
+            "case_004",
+            "case_060",
+            "case_070",
+            "case_076"
+          ]
+        },
+        "family.spouse": {
+          "resolved_path": "spouse",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "{'firstName': 'Melanie', 'middleName': 'C', 'lastName': 'Zollner', 'birthPlace': '', 'occupation': 'College professor', ",
+          "cases": [
+            "case_004"
+          ]
+        },
+        "family.children.firstName": {
+          "resolved_path": "children.firstName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[4/4] Vincent | Gretchen | Amelia",
+          "cases": [
+            "case_005",
+            "case_060",
+            "case_070",
+            "case_084",
+            "case_092"
+          ]
+        },
+        "family.children.dateOfBirth": {
+          "resolved_path": "children.dateOfBirth",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/4 entries have dateOfBirth",
+          "cases": [
+            "case_005",
+            "case_070",
+            "case_084"
+          ]
+        },
+        "family.children.placeOfBirth": {
+          "resolved_path": "children.placeOfBirth",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/4 entries have placeOfBirth",
+          "cases": [
+            "case_005",
+            "case_084"
+          ]
+        },
+        "family.children": {
+          "resolved_path": "children",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "<4 entries>",
+          "cases": [
+            "case_005"
+          ]
+        },
+        "laterYears.retirement": {
+          "resolved_path": "laterYears.retirement",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Planned retirement January 1, 2026",
+          "cases": [
+            "case_006",
+            "case_051"
+          ]
+        },
+        "education.careerProgression": {
+          "resolved_path": "education.careerProgression",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Occupational Therapist at West Las Vegas Schools since 1997",
+          "cases": [
+            "case_006",
+            "case_009",
+            "case_051"
+          ]
+        },
+        "additionalNotes.unfinishedDreams": {
+          "resolved_path": "additionalNotes.unfinishedDreams",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Building Lorevox into a lasting memory archive system",
+          "cases": [
+            "case_007"
+          ]
+        },
+        "parents.notableLifeEvents": {
+          "resolved_path": "parents.notableLifeEvents",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Born in Spokane while father Pete worked at an aluminum factory. Raised in Dodge | Born in Stanley, ND, second of three children of Ervin Horne (1909-1967) and Lei",
+          "cases": [
+            "case_008"
+          ]
+        },
+        "earlyMemories.significantEvent": {
+          "resolved_path": "earlyMemories.significantEvent",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Born on Christmas Eve in Williston, ND \u2014 shares birthday with father Kent",
+          "cases": [
+            "case_008",
+            "case_010"
+          ]
+        },
+        "pets.name": {
+          "resolved_path": "pets.name",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/1] Ivan",
+          "cases": [
+            "case_010",
+            "case_042",
+            "case_045",
+            "case_057",
+            "case_089"
+          ]
+        },
+        "pets.species": {
+          "resolved_path": "pets.species",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/1] Dog",
+          "cases": [
+            "case_010",
+            "case_042",
+            "case_045",
+            "case_057",
+            "case_089"
+          ]
+        },
+        "hobbies.hobbies": {
+          "resolved_path": "hobbies.hobbies",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Technology development, AI systems, genealogy, travel",
+          "cases": [
+            "case_010"
+          ]
+        },
+        "grandparents.side": {
+          "resolved_path": "grandparents.side",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[4/4] paternal | paternal | maternal",
+          "cases": [
+            "case_032"
+          ]
+        },
+        "grandparents.firstName": {
+          "resolved_path": "grandparents.firstName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[4/4] Ervin | Leila | Peter",
+          "cases": [
+            "case_032",
+            "case_065",
+            "case_073",
+            "case_087"
+          ]
+        },
+        "grandparents.birthPlace": {
+          "resolved_path": "grandparents.birthPlace",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[3/4] North Dakota | Dodge, ND | Glen Ulin, ND",
+          "cases": [
+            "case_032",
+            "case_065",
+            "case_073"
+          ]
+        },
+        "grandparents.lastName": {
+          "resolved_path": "grandparents.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[4/4] Horne | Horne | Zarr",
+          "cases": [
+            "case_032",
+            "case_065",
+            "case_073"
+          ]
+        },
+        "grandparents.memorableStory": {
+          "resolved_path": "grandparents.memorableStories",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[4/4] Born November 12, 1909, third child of Elizabeth Shong and George Horne. His fat | Born November 18, 1915. Married Ervin Horne. Mother of Sharon (1937), Kent (1939 | Born at home, delivered by Mrs. Steve Dodenheffer. Worked on the Garrison Dam as",
+          "cases": [
+            "case_032",
+            "case_073",
+            "case_081",
+            "case_087",
+            "case_098"
+          ]
+        },
+        "military.significantEvent": {
+          "resolved_path": "military.significantEvent",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_034"
+          ]
+        },
+        "military.branch": {
+          "resolved_path": "military.branch",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_034",
+            "case_098"
+          ]
+        },
+        "military.yearsOfService": {
+          "resolved_path": "military.yearsOfService",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_034"
+          ]
+        },
+        "faith.denomination": {
+          "resolved_path": "faith.denomination",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_036"
+          ]
+        },
+        "faith.values": {
+          "resolved_path": "faith.values",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_036"
+          ]
+        },
+        "community.organization": {
+          "resolved_path": "community.organization",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_040"
+          ]
+        },
+        "community.role": {
+          "resolved_path": "community.role",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_040"
+          ]
+        },
+        "community.yearsActive": {
+          "resolved_path": "community.yearsActive",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_040"
+          ]
+        },
+        "pets.notes": {
+          "resolved_path": "pets.notes",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[1/1] Family dog growing up",
+          "cases": [
+            "case_042",
+            "case_045"
+          ]
+        },
+        "travel.destination": {
+          "resolved_path": "travel.destination",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_043"
+          ]
+        },
+        "travel.purpose": {
+          "resolved_path": "travel.purpose",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_043"
+          ]
+        },
+        "travel.significantTrip": {
+          "resolved_path": "travel.significantTrip",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_043"
+          ]
+        },
+        "siblings.relation": {
+          "resolved_path": "siblings.relation",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Brother | Brother",
+          "cases": [
+            "case_047",
+            "case_079"
+          ]
+        },
+        "grandparents.ancestry": {
+          "resolved_path": "grandparents.ancestry",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[4/4] French (Alsace-Lorraine via Shong), German (via Bolley) | American | German-Russian",
+          "cases": [
+            "case_065",
+            "case_081",
+            "case_087"
+          ]
+        },
+        "grandparents.maidenName": {
+          "resolved_path": "grandparents.maidenName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/4] Carkuff | Schaaf",
+          "cases": [
+            "case_065",
+            "case_087"
+          ]
+        },
+        "family.children.relation": {
+          "resolved_path": "children.relation",
+          "schema_mismatch": true,
+          "classification": "EMPTY",
+          "evidence": "0/4 entries have relation",
+          "cases": [
+            "case_070"
+          ]
+        },
+        "family.children.lastName": {
+          "resolved_path": "children.lastName",
+          "schema_mismatch": true,
+          "classification": "POPULATED",
+          "evidence": "[4/4] Horne | Horne | Horne",
+          "cases": [
+            "case_070",
+            "case_084"
+          ]
+        },
+        "family.marriageNotes": {
+          "resolved_path": "family.marriageNotes",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_076"
+          ]
+        },
+        "siblings.lastName": {
+          "resolved_path": "siblings.lastName",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Horne | Horne",
+          "cases": [
+            "case_079"
+          ]
+        },
+        "siblings.uniqueCharacteristics": {
+          "resolved_path": "siblings.uniqueCharacteristics",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "[2/2] Born in Germany while the family was living abroad | Family-oriented",
+          "cases": [
+            "case_079"
+          ]
+        },
+        "personal.culture": {
+          "resolved_path": "personal.culture",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Germans from Russia (maternal), French Alsace-Lorraine and German Hanover (paternal, via Shong and Bolley families), Nor",
+          "cases": [
+            "case_081"
+          ]
+        },
+        "residence.notes": {
+          "resolved_path": "residence.notes",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_089"
+          ]
+        },
+        "earlyMemories.firstMemory": {
+          "resolved_path": "earlyMemories.firstMemory",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Growing up in North Dakota with rural surroundings and family-centered life",
+          "cases": [
+            "case_089"
+          ]
+        },
+        "residence.period": {
+          "resolved_path": "residence.period",
+          "schema_mismatch": false,
+          "classification": "MISSING_IN_CANON",
+          "evidence": null,
+          "cases": [
+            "case_095",
+            "case_101"
+          ]
+        },
+        "laterYears.lifeLessons": {
+          "resolved_path": "laterYears.lifeLessons",
+          "schema_mismatch": false,
+          "classification": "POPULATED",
+          "evidence": "Focus on family, persistence, and building something meaningful",
+          "cases": [
+            "case_104"
+          ]
+        }
+      }
+    }
+  }
+}
