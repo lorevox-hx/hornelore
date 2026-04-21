@@ -139,6 +139,35 @@ def _normalize_date(v: str) -> Optional[str]:
     return None
 
 
+# ── Role / occupation abbreviation aliases (WO-EX-NARRATIVE-FIELD-01 Phase 3)
+# Bidirectional alias map for unambiguous professional-role initialisms. When
+# either side of a comparison (expected or actual) is a known abbreviation and
+# the other is its canonical expansion, treat them as an exact match. Scoped
+# narrowly to healthcare/therapy roles where abbreviations are standard and
+# collision with common English words is zero. Widen only when a corpus case
+# surfaces need. See case_040 (OT ↔ Occupational therapist).
+_ROLE_ALIASES = {
+    "ot":  "occupational therapist",
+    "pt":  "physical therapist",
+    "rn":  "registered nurse",
+    "lpn": "licensed practical nurse",
+    "np":  "nurse practitioner",
+    "slp": "speech language pathologist",
+}
+
+
+def _role_alias_match(e: str, a: str) -> bool:
+    """Return True if normalized values e, a are alias-equivalent.
+
+    Bidirectional: accepts "OT" ↔ "Occupational therapist" in either order.
+    """
+    if _ROLE_ALIASES.get(e) == a:
+        return True
+    if _ROLE_ALIASES.get(a) == e:
+        return True
+    return False
+
+
 def score_field_match(expected_val: str, actual_val: str) -> float:
     """Score a single field match. Returns 0.0-1.0."""
     e = normalize_value(expected_val)
@@ -146,6 +175,10 @@ def score_field_match(expected_val: str, actual_val: str) -> float:
     if not e or not a:
         return 0.0
     if e == a:
+        return 1.0
+
+    # Role abbreviation alias (Phase 3 scorer relax): OT ↔ Occupational therapist
+    if _role_alias_match(e, a):
         return 1.0
 
     # Date-aware comparison: normalize both to YYYY-MM-DD before comparing
