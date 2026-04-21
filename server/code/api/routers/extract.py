@@ -4593,7 +4593,19 @@ _NARRATIVE_CATCHMENT_PATHS = frozenset({
 })
 _NARRATIVE_CATCHMENT_MAX_CHARS = 2000
 
+# WO-EX-NARRATIVE-FIELD-01 Phase 4 diagnostic: suffixes that belong to any
+# narrative-catchment whitelisted path. When a caller hits a suffix in this
+# set but the FULL path is NOT in _NARRATIVE_CATCHMENT_PATHS, we log a
+# "cap-diag" line so we can see the actual fp shape (variant, indexed, etc.)
+# vs the canonical whitelist entry. Empty when flag is off (no-op).
+_NARRATIVE_CATCHMENT_SUFFIXES = frozenset(
+    p.rsplit(".", 1)[-1] for p in _NARRATIVE_CATCHMENT_PATHS
+)
+
 _SENTENCE_BOUNDARY = re.compile(r'[.!?]\s+[A-Z]')
+
+# Module-level flag so the boot diagnostic fires exactly once per process.
+_cap_boot_diag_logged = False
 
 
 def _apply_value_length_cap(items: List[dict]) -> List[dict]:
@@ -4607,7 +4619,22 @@ def _apply_value_length_cap(items: List[dict]) -> List[dict]:
     """
     if not items:
         return items
+
+    # Phase 4 diagnostic: one-shot boot log confirming the narrative-catchment
+    # flag state as seen by THIS process. If this line shows narrative_flag=0
+    # while .env has HORNELORE_NARRATIVE=1, the env isn't reaching uvicorn.
+    global _cap_boot_diag_logged
+    if not _cap_boot_diag_logged:
+        _cap_boot_diag_logged = True
+        logger.info(
+            "[extract][R4-A cap-boot] narrative_flag=%d catchment_paths=%d catchment_max=%d",
+            1 if _narrative_field_enabled() else 0,
+            len(_NARRATIVE_CATCHMENT_PATHS),
+            _NARRATIVE_CATCHMENT_MAX_CHARS,
+        )
+
     out = []
+    flag_on = _narrative_field_enabled()
     for it in items:
         fp = str(it.get("fieldPath", ""))
         val = it.get("value", "")
@@ -4626,7 +4653,19 @@ def _apply_value_length_cap(items: List[dict]) -> List[dict]:
         # NOT a known narrative suffix but is in this whitelist). Flag-off
         # path is byte-stable — this branch is a no-op when the flag is
         # disabled.
-        if _narrative_field_enabled() and fp in _NARRATIVE_CATCHMENT_PATHS:
+        #
+        # Phase 4 diagnostic: when the suffix matches a catchment-leaf but
+        # the full path does NOT, log the exact fp string so we can see
+        # whether an index / prefix / variant is blocking the whitelist
+        # match. Gated on flag_on so legacy path stays silent.
+        if flag_on and suffix in _NARRATIVE_CATCHMENT_SUFFIXES and fp not in _NARRATIVE_CATCHMENT_PATHS:
+            logger.info(
+                "[extract][R4-A cap-diag] catchment-suffix but fp not in whitelist: "
+                "fp=%r suffix=%s n=%d val=%r",
+                fp, suffix, n, val[:80],
+            )
+
+        if flag_on and fp in _NARRATIVE_CATCHMENT_PATHS:
             if n > _NARRATIVE_CATCHMENT_MAX_CHARS:
                 logger.info(
                     "[extract][R4-A answer-dump] dropping %s (narrative_catchment, "
@@ -4634,6 +4673,10 @@ def _apply_value_length_cap(items: List[dict]) -> List[dict]:
                     fp, n, _NARRATIVE_CATCHMENT_MAX_CHARS, val[:80],
                 )
                 continue
+            logger.info(
+                "[extract][R4-A cap-keep] keeping %s (narrative_catchment, %d chars ≤ %d)",
+                fp, n, _NARRATIVE_CATCHMENT_MAX_CHARS,
+            )
             out.append(it)
             continue
 
