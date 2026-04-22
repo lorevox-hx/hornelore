@@ -6,57 +6,95 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-21 late evening)
+## Current state (as of 2026-04-22 afternoon, r5f ADOPTED)
 
-**Authoritative for current-day state:** `CLAUDE.md` (agent env + standard blocks + changelog) and `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` (phase 1 week plan, decision gates, mirrored to `Desktop/Horne/WEEKLY_CHECKLIST_20260421.md`). Read those first. This section is a compact delta pointer.
+**Authoritative for current-day state:** `CLAUDE.md` (agent env + standard blocks + changelog) and `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` (phase 1 week plan, decision gates). Read those first. This section is a compact delta pointer.
 
-### Active phase — LOOP-01 R5.5 Pillar 1 (r5e1 locked as the active floor)
+### Active phase — LOOP-01 R5.5 Pillar 1, r5f locked as floor
 
-**r5e2 master REJECTED.** 56/104, v3=35/62, v2=29/62, mnw=0. Did the job it was built for (mnw 2→0, case_093 0.70→0.90, case_005 0.00→1.00), but friendly-fired on 7 clean passes — case_003, 018, 022, 034, 067, 075, 088 — three of which went 1.00→0.00. **case_075 (mother_stories) was the rule's own target class, and it regressed.** `noise_leakage` tripled 4→12. Net −3 vs r5e1. Three-agent convergence (Chris / Claude / ChatGPT) called REJECT.
-
-**Action taken (path b+c):** reverted default live behavior to r5e1 equivalent. ATTRIBUTION-BOUNDARY exemplar block preserved in `extract.py` as `_ATTRIBUTION_BOUNDARY_FEWSHOT` and gated behind a new default-off `HORNELORE_ATTRIB_BOUNDARY=1` flag (paired with existing `HORNELORE_NARRATIVE=1`). With the new flag OFF, the system prompt is byte-identical to r5e1. The learning is not lost, and the live stack is on the 59/104 floor.
+**r5f ADOPTED, new active baseline.** 69/104, v3=41/62, v2=35/62, mnw=2. WO-EX-SILENT-OUTPUT-01 Phase 1 (instrumentation-only) + Phase 2 (parser preamble-tolerance one-liner) landed today; composite blew through the three-agent prediction of 61–63 by +6, zero newly-failed cases, zero scorer drift on any of the 10 pass-flips. Prior floor r5e1 (59/104) retired.
 
 ### Active baseline
 
-**r5e1: 59/104 · v3=38/62 · v2=32/62 · mnw=2.** Known offenders: `case_035` (faith turn, narrator `education.schooling` leak) and `case_093` (spouse-detail, `education.higherEducation` leak). Both offenders fall squarely in the WO-LORI-CONFIRM-01 target class — parent-detail / spouse-detail attribution is the kind of thing a confirmation pass resolves at the elicitation layer cleanly. Parking them as known cost.
+**r5f: 69/104 · v3=41/62 · v2=35/62 · mnw=2.** Known offenders (pre-existing r5e1 carryover, unchanged): `case_035` (faith turn, narrator `education.schooling` leak) and `case_093` (spouse-detail, `education.higherEducation` leak). Both fall squarely in the WO-LORI-CONFIRM-01 target class. Parked as known cost. Method distribution: 97 llm / 6 fallback / 1 rules_fallback. parse_success_rate=93.3%, parse_failure_rate=0.0%, truncation_rate=0.0%. Stubborn-pack primary sub-pack: 4/4 passed (100%). The ATTRIBUTION-BOUNDARY flag + NARRATIVE + PROMPTSHRINK flags all remain in-tree default-off; live behavior is the r5f composite only.
 
-### Next sequence
+### Today's landed work (2026-04-22)
 
-1. **SECTION-EFFECT Phase 3** (#95) — causal matrix.
-2. **SPANTAG** (#90) implementation after Phase 3 signoff.
-3. **WO-LORI-CONFIRM-01** (parked spec, repo root) — interview-engine confirm pass + kinship skeleton block, opens after SPANTAG decision.
+**Phase 1 — silent-output instrumentation** (`extract.py` L6609–6927):
 
-### Today's commits (2026-04-21, not yet pushed)
+- Five counters + terminal `[extract][silent-root]` log classifying silent events into `llm_empty` / `parse_drop` / `validator_drop` / `fallback_miss` / `rules_filter_drop`.
+- Raw-output dump gated behind default-off `HORNELORE_SILENT_DEBUG=1`.
+- `scripts/run_silent_output_probe.py` + 5-case diagnostic pack (case_005/045/065/077/081) = `probe_01`. Characterization: **`parse_drop` dominant, 4 of 5 silent events** — LLM was returning text, parser was rejecting it.
+- Code-review finding (not gating): `fallback_miss` branch in the cause cascade is logically subsumed by branches 1–3; residual always falls to `rules_filter_drop`. Naming is aspirational. Worth a TODO to tighten later if the classifier ever needs to distinguish "validator dropped everything AND fallback produced nothing" from "rules filter subsequently dropped surviving items."
+- Zero extractor-behavior change.
+
+**Phase 2 — parser preamble-tolerance salvage patch** (`extract.py` L3481–3485):
+
+- One-line tolerance fix in `_parse_llm_json`: replaces strict `if not text.startswith("["): return []` with `text = raw.lstrip(); bracket_idx = text.find("["); if bracket_idx == -1: return []; text = text[bracket_idx:]`.
+- Handles LLM preamble-wrapped truncated JSON (e.g., `"Here is the extracted JSON array:\n\`\`\`\n[\n  {..."`). Byte-identical when `raw` starts with `[` or contains no `[`. Existing brace-balanced `_salvage_truncated_array` walker does the rest.
+- `probe_02` (same 5-case pack): **0/5 → 2/5 pass, avg 0.140 → 0.620**. 4 of 5 silent events flipped `parse_drop` → successful parse. New `validator_drop` signal on case_077 `great_grandparents.*` + case_081 `grandparents.ancestry` — maps exactly to pending **#119 turnscope `allowed_branches` fix for greatGrandparents subtree**, which now has fresh evidence.
+
+**r5f master eval — ADOPTED** (`docs/reports/master_loop01_r5f.{json,console.txt}`):
+
+- **Topline:** 59→69/104 (+10), v3 38→41/62 (+3), v2 32→35/62 (+3), mnw 2→2 (unchanged, same offenders).
+- **Newly passed (10):** `case_005, 023, 025, 064, 072, 077, 082, 085, 086, 103` — all with `r5e1_cats ∈ {schema_gap, field_path_mismatch, llm_hallucination}` → `r5f_cats=[]`.
+- **Newly failed (0).**
+- **Score up (still same bucket):** `case_045, 046, 065, 066, 080, 084` (0.00 → 0.33–0.60).
+- **Score down:** `case_091` 1.00→0.80 (v3 still pass, v2 flipped via `noise_leakage` — patch-attributable, acceptable cost of recovering salvaged items); `case_068` 0.53→0.00 (LLM stochasticity, not patch-attributable — r5e1 already parsed cleanly, preamble-tolerance path never fired).
+- **Scorer-drift audit on all 10 flips: zero drift.** Truth-zone totals identical r5e1↔r5f on every flip; only `hit` counts rose and `miss` counts fell.
+- **Method dist:** 97 llm / 6 fallback / 1 rules_fallback. parse_success 93.3%, parse_failure 0.0%, truncation 0.0%.
+- **Stubborn primary:** 4/4 (`case_008, 009, 018, 082`).
+- **Invalid-fieldpath hallucinations top-10** concentrated on greatGrandparents/parents/grandparents schema_gap cluster (`case_028` 8 offenders, `case_033` 5, `case_039` 3) — exactly #119's target class.
+
+**Git hygiene gate codified in CLAUDE.md** — new top-level section between "Stack ownership" and "Standard eval command". Tree must be clean before any code-changing work begins; agent flags dirty tree and produces copy-paste commit plan before touching code. Code commits isolated from docs; specific-path `git add` (never `-A`); `.runtime/` exception. Trigger: today's 13-item uncommitted pile-up (overnight WO batch + r5e1 reports + Phase 1 instrumentation + tagging audit all tangled into one `git status`).
+
+### Next sequence (reordered 2026-04-22 afternoon after r5f ADOPT)
+
+1. **#119 turnscope `allowed_branches` fix** — promoted to top of queue. Now has **both** probe_02 evidence (validator_drop on `great_grandparents.*` / `grandparents.ancestry`) **and** r5f master evidence (hallucination top-10 is `case_028` 8 offenders / `case_033` 5 / `case_039` 3, all in the greatGrandparents/parents/grandparents schema_gap cluster).
+2. **SECTION-EFFECT Phase 3** (#95) — causal matrix, WO already written.
+3. **SPANTAG** (#90) — full WO already written, implementation unblocks after Phase 3.
+4. **WO-LORI-CONFIRM-01** — v1 scope = 3-field confirm pass (`personal.birthOrder`, `siblings.birthOrder`, `parents.relation`); date-range descoped to v1.1 conditional on #111 corpus expansion.
+5. **WO-INTAKE-IDENTITY-01** (Chris's lane) — v3 spec ready. Execution-order note: grep-for-partial-DOB-consumers must precede endpoint implementation; new `normalize_dob_intake` function must be isolated from existing `_normalize_date_value` (Patch H / Fix C reference it).
+
+### Today's commits (2026-04-22)
 
 | SHA | What |
 |---|---|
-| `ad52e4a` | r5e1 eval artifacts + weekly checklist through Tuesday evening |
-| `bfefe8b` | NARRATIVE-FIELD Phase 4 r5e2: ATTRIBUTION-BOUNDARY education rule (4-exemplar block w/ narrator-positive control) |
-| `c24efa9` | NARRATIVE-FIELD Phase 4 r5e2b: tighten faith exemplar (path-validity + thematic preference) |
-| (pending) | **r5e2 master artifacts + REJECT decision + revert to r5e1 default via new `HORNELORE_ATTRIB_BOUNDARY` flag** |
-| (pending) | FAILING_CASES_r5e1_RUNDOWN.md + WO-LORI-CONFIRM-01_Spec.md (parked, canon-first kinship skeleton + confirm pass) |
-| (pending) | HANDOFF + weekly checklist + CLAUDE.md changelog updates (this commit) |
+| Phase 1 | WO-EX-SILENT-OUTPUT-01 Phase 1 instrumentation + probe_01 artifacts |
+| Overnight | WO batch — SECTION-EFFECT Phase 3 WO + SPANTAG full WO + MULTITURN spec + LORI prep pack + multiturn pilot JSON |
+| Corpus | r5e1 corpus analysis — tagging audit + failure clusters |
+| Docs | NARRATIVE-FIELD Phase 4 + CLAUDE.md Git hygiene gate |
+| Phase 2 | WO-EX-SILENT-OUTPUT-01 Phase 2 salvage-preamble-tolerance patch + probe_02 artifacts |
+| r5f ADOPT | `docs/reports/master_loop01_r5f.{json,console.txt}` + baseline lock commit |
+| (pending) | HANDOFF + CLAUDE.md changelog updates reflecting r5f ADOPT (this commit) |
 
-Plus earlier today: `d2cfb31` (revert NARRATOR-IDENTITY), `74f7b0d` (date-range preference), `291cbb8` (CLAIMS-02 role-exempt), `9706a87` (SCALAR CO-EMISSION + NARRATOR-IDENTITY), `3fec639` (narrative fewshots Phase 2 tighten). Branch is ~22 commits ahead of `origin/main`.
+Yesterday (2026-04-21): `ad52e4a` (r5e1 eval), `bfefe8b` (NARRATIVE-FIELD Phase 4 r5e2), `c24efa9` (r5e2b tighten), `d2cfb31` (revert NARRATOR-IDENTITY), `74f7b0d` (date-range preference), `291cbb8` (CLAIMS-02 role-exempt), `9706a87` (SCALAR CO-EMISSION + NARRATOR-IDENTITY), `3fec639` (narrative Phase 2 tighten), plus r5e2 REJECT + ATTRIB_BOUNDARY flag.
 
 ### Where to pick up on laptop
 
 1. Pull latest `main` once desktop pushes.
-2. Read `CLAUDE.md` → operational env, standard eval block, full r5e2 REJECTED changelog.
-3. Read `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` → week plan + updated decision records.
-4. Read `docs/reports/FAILING_CASES_r5e1_RUNDOWN.md` for the 45-case Q/A/era/issue rundown that informed the next-lane thinking.
-5. Read `WO-LORI-CONFIRM-01_Spec.md` (repo root) for the parked product-lane plan.
-6. Next extractor-lane work is `#95 SECTION-EFFECT Phase 3` when you're ready to resume.
+2. Read `CLAUDE.md` → operational env, standard eval block, full changelog (most recent: 2026-04-22 afternoon r5f ADOPT).
+3. Read `docs/reports/master_loop01_r5f.json` + `.console.txt` for the r5f audit numbers; compare to `master_loop01_r5e1.*` for the flip diff.
+4. Read `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` → week plan + updated decision records.
+5. Read `docs/reports/FAILING_CASES_r5e1_RUNDOWN.md` for the 45-case Q/A/era/issue rundown (still relevant; most of the 35 remaining r5f failures are a subset of this).
+6. Read `docs/reports/question_bank_tagging_audit.md` + `docs/reports/silent_probe_01.json` + `docs/reports/silent_probe_02.json` for the silent-output lane context.
+7. Read `WO-LORI-CONFIRM-01_PREP_PACK.md` + `WO-EX-SECTION-EFFECT-01_PHASE3_WO.md` + `WO-EX-SPANTAG-01_FULL_WO.md` for the three queued lanes.
+8. Next extractor-lane work is **#119 turnscope greatGrandparents fix** — smallest surgical patch on the strongest-evidence target.
 
 ### Known carryover (unchanged)
 
-- **`parents.education` schema contradiction** — path IS in schema table at `server/code/api/routers/extract.py` L327 (`writeMode: suggest_only`); alias at L3711 maps it to `parents.notableLifeEvents`. Prompt warnings claiming "that path does not exist" are literally false, which is part of why the r5e2 rule misfired. Fix options for later: (1) hard-delete schema entry, (2) ensure alias fires before scoring, (3) extractor-layer attribution filter. Deferred.
+- **`parents.education` schema contradiction** — path IS in schema table at `server/code/api/routers/extract.py` L327 (`writeMode: suggest_only`); alias at L3711 maps it to `parents.notableLifeEvents`. Prompt warnings claiming "that path does not exist" are literally false. Fix options for later: (1) hard-delete schema entry, (2) ensure alias fires before scoring, (3) extractor-layer attribution filter. Deferred.
 - **`faith.significantMoment` thematic routing** — doesn't trigger from `target=faith.denomination` on case_035. Turn-purpose signal too weak to override "mother" subject binding. A SPANTAG / WO-LORI-CONFIRM-01 class of fix, not a prompt fix.
-- **`family.children.*` misroute on sister** — case_035 sister Verene still routes to `family.children.*`. Pre-existing relation-router bug, not from today's work.
+- **`family.children.*` misroute on sister** — case_035 sister Verene still routes to `family.children.*`. Pre-existing relation-router bug.
+- **`fallback_miss` cause-cascade branch** (new today) — logically unreachable under current counter logic; residual falls to `rules_filter_drop`. Not a correctness bug; naming tightening can wait until it matters.
 
 ### Stack ownership reminder
 
 Chris owns start/stop of the stack (`scripts/start_all.sh` / `scripts/stop_all.sh`). Cold boot is ~4 minutes (HTTP listener ~60–70s, then 2–3 min model warmup). Do NOT include restart commands in agent-issued eval blocks. API is assumed running at `localhost:8000` when evals are requested.
+
+### Git hygiene gate reminder (new today)
+
+Before any code-changing work starts, the tree must be clean (`git status` shows nothing uncommitted). If dirty when new code work is requested, agent's first action is to flag it and produce a copy-paste commit plan — not start the code work. Group commits with code isolated from docs; use specific file paths (never `git add -A` / `git add .`); exception only for `.runtime/` throwaways. Full rule in `CLAUDE.md`.
 
 ---
 
