@@ -1,0 +1,125 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     5
+  Passed:          0
+  Failed:          5
+  Pass rate:       0.0%
+  Avg score:       0.000
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 0/2 passed  (0.0%)
+    v2 (field avg):   0/2 passed  (0.0%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/5 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        0.0%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                0/4 passed
+    extract_compound                0/1 passed
+
+  By narrator:
+    christopher-todd-horne          0/4 passed  (avg 0.000)
+    kent-james-horne                0/1 passed  (avg 0.000)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/1
+    Known gaps (currentExtractorExpected=false):  0/4
+
+  Failure categories:
+    schema_gap                      5
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   0/2 passed  (avg 0.000)
+    mixed_narrative            0/2 passed  (avg 0.000)
+    dense_truth                0/1 passed  (avg 0.000)
+
+  By style bucket:
+    life_history               0/5 passed  (avg 0.000)
+
+  By chunk size:
+    small                      0/1 passed  (avg 0.000)
+    tiny                       0/1 passed  (avg 0.000)
+    medium                     0/2 passed  (avg 0.000)
+    large                      0/1 passed  (avg 0.000)
+
+  By noise profile:
+    clean                      0/2 passed  (avg 0.000)
+    good_garbage               0/1 passed  (avg 0.000)
+    mixed                      0/1 passed  (avg 0.000)
+    dense_truth                0/1 passed  (avg 0.000)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    early_adulthood         0/1 passed  (avg 0.000)
+    school_years            0/4 passed  (avg 0.000)
+
+  By pass:
+    pass1                   0/5 passed  (avg 0.000)
+
+  By mode:
+    open                    0/5 passed  (avg 0.000)
+
+  By era × pass:
+    early_adulthood::pass1                    0/1 passed  (avg 0.000)
+    school_years::pass1                       0/4 passed  (avg 0.000)
+
+  ─── LAYER 3b: STUBBORN-PACK PARTITION ───
+
+    truncation_starved      0/1 passed  (0.0%, avg 0.000)
+      cases: case_081
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     0.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    100.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    fallback                                  5
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       0
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      0
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_005      offenders= 0  categories=['schema_gap']
+    case_045      offenders= 0  categories=['schema_gap']
+    case_065      offenders= 0  categories=['schema_gap']
+    case_077      offenders= 0  categories=['schema_gap']
+    case_081      offenders= 0  categories=['schema_gap']
+
+  ─── FAILED CASES ───
+
+    case_005    contract         small   clean         score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+    case_045    contract         tiny    clean         score=0.00  christopher-todd-horne
+      Failures:  ['schema_gap']
+    case_065    mixed_narrative  medium  good_garbage  score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+    case_077    mixed_narrative  medium  mixed         score=0.00  kent-james-horne [GAP]
+      Failures:  ['schema_gap']
+    case_081    dense_truth      large   dense_truth   score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+
+==============================================================================
