@@ -1,0 +1,124 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     5
+  Passed:          2
+  Failed:          3
+  Pass rate:       40.0%
+  Avg score:       0.620
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 1/2 passed  (50.0%)
+    v2 (field avg):   1/2 passed  (50.0%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 2/5 passed (40.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        70.0%
+    may_extract bonus rate:     57.1%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                1/4 passed
+    extract_compound                1/1 passed
+
+  By narrator:
+    christopher-todd-horne          1/4 passed  (avg 0.525)
+    kent-james-horne                1/1 passed  (avg 1.000)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/1
+    Known gaps (currentExtractorExpected=false):  2/4
+
+  Failure categories:
+    llm_hallucination               2
+    schema_gap                      1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   1/2 passed  (avg 0.750)
+    mixed_narrative            1/2 passed  (avg 0.800)
+    dense_truth                0/1 passed  (avg 0.000)
+
+  By style bucket:
+    life_history               2/5 passed  (avg 0.620)
+
+  By chunk size:
+    small                      1/1 passed  (avg 1.000)
+    tiny                       0/1 passed  (avg 0.500)
+    medium                     1/2 passed  (avg 0.800)
+    large                      0/1 passed  (avg 0.000)
+
+  By noise profile:
+    clean                      1/2 passed  (avg 0.750)
+    good_garbage               0/1 passed  (avg 0.600)
+    mixed                      1/1 passed  (avg 1.000)
+    dense_truth                0/1 passed  (avg 0.000)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    early_adulthood         1/1 passed  (avg 1.000)
+    school_years            1/4 passed  (avg 0.525)
+
+  By pass:
+    pass1                   2/5 passed  (avg 0.620)
+
+  By mode:
+    open                    2/5 passed  (avg 0.620)
+
+  By era × pass:
+    early_adulthood::pass1                    1/1 passed  (avg 1.000)
+    school_years::pass1                       1/4 passed  (avg 0.525)
+
+  ─── LAYER 3b: STUBBORN-PACK PARTITION ───
+
+    truncation_starved      0/1 passed  (0.0%, avg 0.000)
+      cases: case_081
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     80.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    20.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       4
+    fallback                                  1
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       0
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      26
+    min/avg/max:     0.700 / 0.892 / 0.900
+    <0.5:            0
+    0.5-0.7:         0
+    0.7-0.9:         1
+    >=0.9:           25
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_081      offenders= 0  categories=['schema_gap']
+
+  ─── FAILED CASES ───
+
+    case_045    contract         tiny    clean         score=0.50  christopher-todd-horne
+      Failures:  ['llm_hallucination']
+    case_065    mixed_narrative  medium  good_garbage  score=0.60  christopher-todd-horne [GAP]
+      Failures:  ['llm_hallucination']
+    case_081    dense_truth      large   dense_truth   score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+
+==============================================================================
