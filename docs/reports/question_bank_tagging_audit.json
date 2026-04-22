@@ -1,0 +1,1327 @@
+{
+  "tag_counts_all": {
+    "scalar_harvest": 53,
+    "birth_order_confirm": 4,
+    "confirm_eligible": 6,
+    "dense_truth_risk": 21,
+    "kinship_skeleton": 25,
+    "narrative_only": 24,
+    "silent_output_risk": 26,
+    "high_ownership_risk": 11,
+    "thematic_evidence": 7,
+    "date_range_confirm": 1
+  },
+  "tag_counts_fail": {
+    "birth_order_confirm": 4,
+    "confirm_eligible": 4,
+    "dense_truth_risk": 10,
+    "kinship_skeleton": 15,
+    "scalar_harvest": 32,
+    "silent_output_risk": 23,
+    "narrative_only": 11,
+    "thematic_evidence": 5,
+    "high_ownership_risk": 5
+  },
+  "cases": [
+    {
+      "case_id": "case_001",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_002",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "score": 0.4,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "birth_order_confirm",
+        "confirm_eligible",
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_003",
+      "narratorId": "christopher-todd-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "the_launch",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_004",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_005",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_006",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "the_off_ramp",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_007",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "legacy_projects",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_008",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_009",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_010",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_011",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_012",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_013",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_014",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "score": 0.333,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "birth_order_confirm",
+        "confirm_eligible",
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_015",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "parental_care",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "high_ownership_risk",
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_016",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_017",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_018",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "middle_moves",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": [
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_019",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "reflection",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_020",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "civic_entry_age_18",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_021",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_022",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "educational_entry",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_023",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "relationship_anchors",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_024",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "score": 0.333,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "birth_order_confirm",
+        "confirm_eligible",
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_025",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_026",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "educational_entry",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_027",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "post_education",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_028",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_rituals_and_holidays",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_029",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_fears_and_comforts",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_030",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_031",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "score": 0.75,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_032",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "high_ownership_risk",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_033",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_stories_and_lore",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "dense_truth_risk",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_034",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "professional_genesis",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_035",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_rituals_and_holidays",
+      "score": 0.3,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "high_ownership_risk",
+        "scalar_harvest",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_036",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "reflection",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_037",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "health_and_body",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_038",
+      "narratorId": "janice-josephine-horne",
+      "phase": "midlife",
+      "subTopic": "health_and_body",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_039",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "community_belonging",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "high_ownership_risk",
+        "narrative_only",
+        "silent_output_risk",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_040",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "community_belonging",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "confirm_eligible",
+        "date_range_confirm",
+        "dense_truth_risk",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_041",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_042",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_043",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "travel_and_world",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_044",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "first_home",
+      "score": 0.333,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "dense_truth_risk",
+        "thematic_evidence"
+      ]
+    },
+    {
+      "case_id": "case_045",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_046",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_047",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "sibling_dynamics",
+      "score": 0.667,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "birth_order_confirm",
+        "confirm_eligible",
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_048",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "parenthood",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_049",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "origin_point",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_050",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "first_home",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_051",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "the_off_ramp",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_052",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "first_job",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_053",
+      "narratorId": "christopher-todd-horne",
+      "phase": "childhood_origins",
+      "subTopic": "compound_family",
+      "score": 0.75,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "confirm_eligible",
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_054",
+      "narratorId": "kent-james-horne",
+      "phase": "childhood_origins",
+      "subTopic": "mixed_narrator_family",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_055",
+      "narratorId": "christopher-todd-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "negated_military",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_056",
+      "narratorId": "janice-josephine-horne",
+      "phase": "later_adulthood",
+      "subTopic": "negated_health",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_057",
+      "narratorId": "christopher-todd-horne",
+      "phase": "childhood_origins",
+      "subTopic": "pet_in_hobby_language",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_058",
+      "narratorId": "janice-josephine-horne",
+      "phase": "childhood_origins",
+      "subTopic": "birthplace_vs_residence",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_059",
+      "narratorId": "kent-james-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "career_progression_vs_early",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_060",
+      "narratorId": "christopher-todd-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "ambiguous_family_role",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_061",
+      "narratorId": "janice-josephine-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "uncertain_date",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_062",
+      "narratorId": "kent-james-horne",
+      "phase": "later_adulthood",
+      "subTopic": "spouse_child_same_sentence",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_063",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_home",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "high_ownership_risk"
+      ]
+    },
+    {
+      "case_id": "case_064",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "marriage_story",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_065",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_origins",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_066",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_067",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "career_start",
+      "score": 0.8,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_068",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_loss",
+      "score": 0.525,
+      "v2_pass": true,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_069",
+      "narratorId": "janice-josephine-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "school_experience",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_070",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "family_life",
+      "score": 0.533,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_071",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "military_family",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_072",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "marriage_children",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_073",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "grandparent_stories",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "high_ownership_risk",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_074",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "family_traditions",
+      "score": 0.8,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_075",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "mother_stories",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": [
+        "dense_truth_risk",
+        "high_ownership_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_076",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "spouse_meeting",
+      "score": 1.0,
+      "v2_pass": true,
+      "pass": true,
+      "tags": [
+        "high_ownership_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_077",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "siblings_childhood",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_078",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "higher_education",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_079",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "siblings",
+      "score": 0.567,
+      "v2_pass": true,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_080",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_history",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "dense_truth_risk",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_081",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "great_grandparents",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "high_ownership_risk",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_082",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_moves",
+      "score": 0.467,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_083",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "grandmother_story",
+      "score": 0.5,
+      "v2_pass": true,
+      "pass": false,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_084",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "children_detailed",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "kinship_skeleton",
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_085",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_story",
+      "score": 0.2,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "dense_truth_risk",
+        "kinship_skeleton",
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_086",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "career_family",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_087",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "shong_family",
+      "score": 0.5,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest",
+        "silent_output_risk"
+      ]
+    },
+    {
+      "case_id": "case_088",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_pets",
+      "score": 0.7,
+      "v2_pass": false,
+      "pass": true,
+      "tags": [
+        "narrative_only"
+      ]
+    },
+    {
+      "case_id": "case_089",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "birthplace_detail",
+      "score": 0.967,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_090",
+      "narratorId": "kent-james-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_detail",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_091",
+      "narratorId": "janice-josephine-horne",
+      "phase": "early_adulthood",
+      "subTopic": "marriage_detail",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_092",
+      "narratorId": "christopher-todd-horne",
+      "phase": "midlife",
+      "subTopic": "child_detail",
+      "score": 0.9,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_093",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "spouse_detail",
+      "score": 0.7,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "high_ownership_risk"
+      ]
+    },
+    {
+      "case_id": "case_094",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "sibling_detail",
+      "score": 0.8,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_095",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "birthplace_clarify",
+      "score": 0.95,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_096",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "health",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_097",
+      "narratorId": "janice-josephine-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "regrets",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_098",
+      "narratorId": "christopher-todd-horne",
+      "phase": "early_adulthood",
+      "subTopic": "military",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_099",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "faith",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_100",
+      "narratorId": "janice-josephine-horne",
+      "phase": "midlife",
+      "subTopic": "community",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_101",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "uncertain_date",
+      "score": 0.9,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_102",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "travel",
+      "score": 1.0,
+      "v2_pass": false,
+      "pass": true,
+      "tags": []
+    },
+    {
+      "case_id": "case_103",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "germany_years",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "scalar_harvest"
+      ]
+    },
+    {
+      "case_id": "case_104",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "life_lessons",
+      "score": 0.0,
+      "v2_pass": false,
+      "pass": false,
+      "tags": [
+        "high_ownership_risk",
+        "narrative_only",
+        "silent_output_risk"
+      ]
+    }
+  ]
+}
