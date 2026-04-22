@@ -6604,6 +6604,41 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_target=req.current_target_path,
     )
 
+    # WO-EX-SILENT-OUTPUT-01 Phase 1: four-stage silent-output instrumentation.
+    # Goal — when accepted==0 we need to attribute the cause to exactly one of:
+    #   llm_empty      → LLM returned no raw_output at all
+    #   parse_drop     → raw_output present but JSON parse yielded 0 items
+    #   validator_drop → parse produced items, filter/validator stack dropped all
+    #   fallback_miss  → rules-fallback also produced 0 items
+    # Each stage emits its own log line so a single grep reconstructs the
+    # drop curve; the terminal [silent-root] line fires only on the empty-
+    # return path (L6834-ish below) and names the inferred cause.
+    _silent_llm_return = 1 if raw_output else 0
+    _silent_parse_count = len(llm_items) if llm_items else 0
+    _silent_post_validate_count = 0   # updated after filter stack below
+    _silent_fallback_count = 0        # updated after rules fallback below
+    logger.info("[extract][silent-diagnose] stage=llm_return count=%d section=%s target=%s",
+                _silent_llm_return, req.current_section or "?", req.current_target_path or "?")
+    logger.info("[extract][silent-diagnose] stage=parse count=%d section=%s target=%s",
+                _silent_parse_count, req.current_section or "?", req.current_target_path or "?")
+
+    # WO-EX-SILENT-OUTPUT-01 Phase 1.5: parse-drop characterization sample.
+    # When HORNELORE_SILENT_DEBUG=1 AND parse dropped despite raw_output
+    # being present, dump a bounded prefix of raw_output so one grep
+    # characterizes whether parse failures are (a) malformed JSON,
+    # (b) valid-JSON wrong shape, (c) empty array, (d) prose, or
+    # (e) TWOPASS marker mis-parsing. Off by default → byte-stable
+    # logging; the 300-char cap keeps a single failure under one log line
+    # even for verbose LLM responses. Truncated with [...N-char-raw...]
+    # so the full length is visible without dumping the tail.
+    if (_silent_llm_return == 1 and _silent_parse_count == 0
+            and os.getenv("HORNELORE_SILENT_DEBUG", "0").lower() in ("1", "true", "yes", "on")):
+        _raw_sample = (raw_output or "")[:300].replace("\n", "\\n").replace("\r", "\\r")
+        _raw_len = len(raw_output or "")
+        logger.info("[extract][silent-debug] parse_drop raw_len=%d raw_prefix=%r section=%s target=%s",
+                    _raw_len, _raw_sample,
+                    req.current_section or "?", req.current_target_path or "?")
+
     # WO-EX-REROUTE-01: Semantic rerouter — fix valid-but-wrong fieldPaths
     # before validators run. Rerouter requires section + path + lexical evidence.
     if llm_items:
@@ -6642,6 +6677,14 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         llm_items = _apply_month_name_sanity(llm_items)
         llm_items = _apply_field_value_sanity(llm_items)
         llm_items = _apply_claims_validators(llm_items, answer=answer)  # WO-EX-CLAIMS-02
+
+    # WO-EX-SILENT-OUTPUT-01 Phase 1: post-validator count. Delta between
+    # parse_count and post_validate_count attributes drops to the filter
+    # stack (rerouter / turnscope / birth-context / month / field-sanity /
+    # claims). If parse>0 and post_validate==0, cause=validator_drop.
+    _silent_post_validate_count = len(llm_items) if llm_items else 0
+    logger.info("[extract][silent-diagnose] stage=post_validate count=%d section=%s target=%s",
+                _silent_post_validate_count, req.current_section or "?", req.current_target_path or "?")
 
     # WO-EX-TWOPASS-01: detect extraction method from raw_output marker
     _is_twopass = raw_output and raw_output.startswith("[TWOPASS]")
@@ -6753,6 +6796,15 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         current_phase=req.current_phase,
     )
 
+    # WO-EX-SILENT-OUTPUT-01 Phase 1: fallback count. If LLM path produced
+    # no accepted items and rules fallback also yields 0, cause=fallback_miss
+    # (only reached when validators already zeroed the LLM path, i.e.
+    # post_validate_count==0). Logged before the guard stack so we see the
+    # raw rules-extractor output, not the post-filter survivors.
+    _silent_fallback_count = len(rules_items) if rules_items else 0
+    logger.info("[extract][silent-diagnose] stage=fallback count=%d section=%s target=%s",
+                _silent_fallback_count, req.current_section or "?", req.current_target_path or "?")
+
     # WO-EX-01C + WO-EX-01D: same guard stack on rules output (subject filter
     # is also applied inside _extract_via_rules itself, so the birth-context
     # call here is defense-in-depth for any future regex that escapes era
@@ -6831,6 +6883,47 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
 
     # Nothing extracted — return empty
     _record_metric("fallback", parsed=0, accepted=0, rejected=0)
+
+    # WO-EX-SILENT-OUTPUT-01 Phase 1: silent-root inference. This is the
+    # canonical zero-accepted return path, so every silent-output failure
+    # observed by an eval run transits this line. Cause cascade is ordered:
+    #   llm_empty     → LLM never returned anything
+    #   parse_drop    → raw_output present but 0 items parsed
+    #   validator_drop→ items parsed but filter stack dropped all, AND
+    #                   rules fallback also produced nothing
+    #   fallback_miss → validator_drop was 0 but fallback_count was 0 too
+    #                   (kept distinct from validator_drop so that the
+    #                   relative share of "rules extractor was empty" vs
+    #                   "LLM was killed by filters" is recoverable from
+    #                   one grep).
+    # Note: validator_drop only fires here when post_validate==0 AND
+    # fallback>0 — i.e. rules HAD extractions but something upstream (the
+    # rules-path filter stack at L6780ish) dropped them too. In practice
+    # the dominant terminal cause in the 26-case silent-output pool is
+    # expected to be one of {llm_empty, parse_drop, validator_drop}.
+    if _silent_parse_count == 0 and _silent_llm_return == 0:
+        _inferred_cause = "llm_empty"
+    elif _silent_parse_count == 0 and _silent_llm_return == 1:
+        _inferred_cause = "parse_drop"
+    elif _silent_parse_count > 0 and _silent_post_validate_count == 0:
+        _inferred_cause = "validator_drop"
+    elif _silent_post_validate_count == 0 and _silent_fallback_count == 0:
+        _inferred_cause = "fallback_miss"
+    else:
+        # Reached the empty-return path despite post_validate>0 or
+        # fallback>0 — would mean the downstream rules-filter stack
+        # dropped everything. Name it explicitly for the log grep so this
+        # residual case doesn't get silently bucketed into validator_drop.
+        _inferred_cause = "rules_filter_drop"
+    logger.info("[extract][silent-root] cause=%s llm_return=%d parse=%d validate=%d fallback=%d section=%s target=%s",
+                _inferred_cause,
+                _silent_llm_return,
+                _silent_parse_count,
+                _silent_post_validate_count,
+                _silent_fallback_count,
+                req.current_section or "?",
+                req.current_target_path or "?")
+
     return ExtractFieldsResponse(items=[], method="fallback", raw_llm_output=raw_output)
 
 
