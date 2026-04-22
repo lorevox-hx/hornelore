@@ -925,8 +925,12 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
 
     # WO-EX-NARRATIVE-FIELD-01 Phase 2: append narrative-catchment few-shots
     # when HORNELORE_NARRATIVE=1. Off by default → byte-stable legacy prompt.
+    # r5e2 attribution-boundary experiment kept behind secondary default-off
+    # HORNELORE_ATTRIB_BOUNDARY flag (rejected 2026-04-21 — see flag docstring).
     if _narrative_field_enabled():
         system += _NARRATIVE_FIELD_FEWSHOTS
+        if _attribution_boundary_enabled():
+            system += _ATTRIBUTION_BOUNDARY_FEWSHOT
 
     context_note = ""
     if current_section:
@@ -1483,8 +1487,12 @@ def _build_extraction_prompt_shrunk(
     # WO-EX-NARRATIVE-FIELD-01 Phase 2: mirror legacy builder behavior.
     # When HORNELORE_NARRATIVE=1, append narrative-catchment few-shots to
     # the shrunk prompt too. Off by default → byte-stable shrunk path.
+    # r5e2 attribution-boundary experiment kept behind secondary default-off
+    # HORNELORE_ATTRIB_BOUNDARY flag (rejected 2026-04-21 — see flag docstring).
     if _narrative_field_enabled():
         system += _NARRATIVE_FIELD_FEWSHOTS
+        if _attribution_boundary_enabled():
+            system += _ATTRIBUTION_BOUNDARY_FEWSHOT
 
     context_note = ""
     if current_section:
@@ -1587,6 +1595,28 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "community.organization='Mercy Hospital' + community.role='Registered nurse' + community.yearsActive='1985-2010'. "
     "Do NOT emit community.yearsActive='twenty-five years' — the range form carries both endpoints. "
     "Do NOT emit community.role='RN' alone when the context clearly establishes 'Registered nurse'.\n"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ATTRIBUTION-BOUNDARY FEW-SHOT (r5e2 experiment, PARKED behind default-off flag)
+#
+# WO-EX-NARRATIVE-FIELD-01 Phase 3-plus experiment. Measured on master r5e2
+# (2026-04-21, tag r5e2): 56/104, mnw=0, but -3 net vs r5e1 with
+# friendly-fire on case_075 (mother_stories 1.00 → 0.00) and noise_leakage
+# tripled (4 → 12). REJECTED as new default (three-agent convergence:
+# Chris / Claude / ChatGPT, 2026-04-21). Kept in-tree behind default-off
+# HORNELORE_ATTRIB_BOUNDARY=1 so the learning and exemplars are not lost.
+# The real fix for this class (parent-detail attribution on mixed turns)
+# is planned as elicitation-side via WO-LORI-CONFIRM-01 (parked spec), not
+# more prompt surgery here.
+#
+# When this flag is OFF (default), behavior is byte-stable with r5e1.
+# When it is ON, the four exemplars below are appended AFTER the main
+# _NARRATIVE_FIELD_FEWSHOTS block — i.e. the r5e2 prompt is reconstructed
+# exactly for diagnostic / future-reference purposes only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ATTRIBUTION_BOUNDARY_FEWSHOT = (
     "\n"
     "ATTRIBUTION-BOUNDARY RULE (education scope): education.schooling and education.higherEducation are narrator-only fields. "
     "If the person who attended school is not the narrator, do NOT write to education.*. "
@@ -1620,6 +1650,18 @@ def _narrative_field_enabled() -> bool:
     paths (parents.child.*, parents.parent.*, spouse.narrative, etc.).
     """
     return os.getenv("HORNELORE_NARRATIVE", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _attribution_boundary_enabled() -> bool:
+    """Env-gated. Default OFF — r5e2 attribution-boundary experiment was
+    REJECTED as the default (2026-04-21, -3 net vs r5e1 with friendly fire
+    on case_075 and noise_leakage 4→12). Kept behind this flag so the
+    exemplar block stays in-tree for reference and future diagnostics.
+
+    Only has effect when HORNELORE_NARRATIVE=1 is also on; otherwise the
+    whole fewshot path is skipped.
+    """
+    return os.getenv("HORNELORE_ATTRIB_BOUNDARY", "0").lower() in ("1", "true", "yes", "on")
 
 
 def _is_compound_answer(answer: str) -> bool:

@@ -1,10 +1,10 @@
 # LOOP-01 R5.5 — Weekly Work Order Checklist (Apr 21–27, 2026)
 
-**Written:** Tuesday 2026-04-21 · **Author:** Claude (working with Chris) · **Last updated:** Tuesday 2026-04-21 (late evening)
+**Written:** Tuesday 2026-04-21 · **Author:** Claude (working with Chris) · **Last updated:** Tuesday 2026-04-21 (late evening, post-r5e2 decision)
 **Clean floor:** r5d = 58/104, v2=30/62, must_not_write=0 · **Locked floor:** r4i = 55/104, v2=30/62
 **r5e status:** REJECTED — 57/104, v3=35/62, v2=29/62, must_not_write=**2** (case_035, case_066).
-**r5e1 status:** MEASURED (partial recovery) — 59/104, v3=38/62, v2=32/62, must_not_write=**2** (case_035, case_093). Surgical removal of NARRATOR-IDENTITY PRIORITY rule. Path: ITERATE chosen over ADOPT because of persistent mnw=2.
-**r5e2 status:** MASTER EVAL RUNNING (late evening). ATTRIBUTION-BOUNDARY education-scope rule added (commits `bfefe8b`, `c24efa9`) targeting the 2 forbidden-write violations. 2-case smoke: mnw=0 both cases ✓ · case_093 pass at 0.90 · case_035 plateaued at 0.50 (`parents.education` hallucination persists — root cause: schema table L327 contradicts prompt rule). Master is the systemic-impact gate.
+**r5e1 status:** **ACTIVE PERFORMANCE FLOOR** — 59/104, v3=38/62, v2=32/62, must_not_write=**2** (case_035, case_093). mnw=2 accepted as known cost; the two offenders are target class for the product-lane WO-LORI-CONFIRM-01 pilot (parent / spouse attribution).
+**r5e2 status:** **REJECTED** — 56/104, v3=35/62, v2=29/62, mnw=0. Cleared forbidden writes but friendly-fired on 7 clean passes (case_003, 018, 022, 034, 067, 075, 088 — three of them 1.00→0.00) **including case_075 which is the mother_stories class the rule was meant to protect**. `noise_leakage` tripled 4→12. Net −3 vs r5e1. Three-agent convergence (Chris / Claude / ChatGPT): REJECT. Path b+c taken — live behavior reverted to r5e1 default via new `HORNELORE_ATTRIB_BOUNDARY` flag (off by default); `_ATTRIBUTION_BOUNDARY_FEWSHOT` block preserved in extract.py for reference. The attribution / ownership fix is now planned at the elicitation layer via WO-LORI-CONFIRM-01 (parked spec, repo root).
 
 This is the chronological plan for the rest of the week. Extractor lane stays primary; UI work is gated behind STT-LIVE-02 browser verification and r5e adoption.
 
@@ -57,63 +57,46 @@ This is the chronological plan for the rest of the week. Extractor lane stays pr
 - [x] Faith exemplar retighten (commit `c24efa9`): added path-validity negation ("parents.education does not exist") + explicit thematic-turn preference
 - [x] 1-case re-smoke on case_035: still 0.50, mnw=0 held, `parents.education` hallucination PERSISTS. Root cause traced: `parents.education` IS in schema table L327 (`writeMode: suggest_only`), so prompt rule contradicts schema. Alias L3711 exists (→ `parents.notableLifeEvents`) but fires post-scoring.
 - [x] Three-agent convergence: run r5e2 master to measure systemic impact despite case_035 plateau
-- [ ] **r5e2 master eval running** (Chris, warm stack)
-- [ ] Score r5e2 per ChatGPT-sharpened audit (below)
-- [ ] Decision gate (below)
+- [x] r5e2 master completed (~20:09 local) — **56/104, v3=35/62, v2=29/62, mnw=0**
+- [x] Score r5e2 per ChatGPT-sharpened audit: 10 pass→fail flips, 7 fail→pass flips; **7 of the 10 losses are catastrophic 1.00→0.00 regressions** (case_003, 018, 022, 034, 067, 075, 088); `noise_leakage` 4→12 (3×); `parents.education` emissions contained at 2 (case_035 still, case_104 also now). Wins: case_093 0.70→0.90 ✓, case_005 0.00→1.00 ✓, case_070 0.53→1.00, case_061 0.00→1.00.
+- [x] **Decision: REJECT r5e2**. Friendly fire on case_075 (mother_stories is exactly the target class). Three-agent convergence (Chris / Claude / ChatGPT): path **b + c combined** — revert default behavior to r5e1, preserve r5e2 learning behind default-off flag.
+- [x] Path b + c executed in extract.py:
+  - `_NARRATIVE_FIELD_FEWSHOTS` truncated at end of DATE-RANGE PREFERENCE RULE
+  - `_ATTRIBUTION_BOUNDARY_FEWSHOT` block split into its own constant with full provenance comment
+  - New `_attribution_boundary_enabled()` helper, env flag `HORNELORE_ATTRIB_BOUNDARY` (default OFF)
+  - Both append sites (L929, L1491) consult the new flag as a secondary condition
+  - Syntax-clean; default live behavior byte-identical to r5e1
+- [x] CLAUDE.md changelog + Current-phase block updated
+- [x] HANDOFF.md refreshed for laptop sync
+- [ ] WO-EX-NARRATIVE-FIELD-01_REPORT.md Phase 4 results section — still TODO (r5e/r5e1/r5e2 numbers + carryover list). Can be done on laptop or Wednesday.
+- [ ] Commit block via Chris (copy-paste ready; see end of doc)
 
-### r5e2 post-master audit block (standard + specific)
+### r5e2 decision record (retroactive — for the file)
 
-Standard: total pass / v2 contract / v3 contract / must_not_write count / named flips (every pass↔fail) / scorer-drift audit on every flip / truncation rate.
-
-Specific to r5e2:
-- **`parents.education` drift audit**: grep raw_items across all 104 cases for `parents.education` emissions. If only case_035 → contained carryover. If ≥3 other cases → systemic schema-drift introduced by r5e2.
-- **case_093 retention**: does it hold as PASS at master scale?
-- **case_035 non-regression**: stays at 0.50 (no return to `education.schooling`)
-- **case_049 fragility watch**: known to swing across runs
-- **case_020 path-drift watch**: persistent drift case
-- **case_005 volatility watch**: has swung hard recently
-
-### r5e2 decision gate (tonight or tomorrow morning)
-
-- **ADOPT r5e2** (strong): **total ≥ 60/104 AND mnw == 0 AND v3 ≥ 38 AND v2 ≥ 32 AND `parents.education` offenders ≤ 1 (case_035 only) AND case_093 stays green**
-- **ADOPT r5e2** (bank-it): total ∈ [59, 60] AND mnw == 0 AND v3 ≥ 38 AND v2 ≥ 32. case_035 may stay at 0.50; acceptable.
-- **ITERATE r5e2b/c**: mnw == 1 OR `parents.education` appears on ≥3 new cases (systemic drift) — triage the leak, decide between (a) hard-delete schema entry L327, (b) fix alias ordering, (c) extractor-layer attribution filter
-- **REJECT r5e2**: total < 58 OR mnw ≥ 2 OR v3 < 38 OR v2 < 32 — roll back `bfefe8b`+`c24efa9`, r5e1 stays floor
-
-### Close or iterate
-
-- [ ] Tasks #115, #116, #117 → completed (if ADOPT) or → in_progress with next-step note (if ITERATE / REJECT)
-- [ ] Fill in Phase 4 results section of WO-EX-NARRATIVE-FIELD-01_REPORT.md with r5e + r5e1 + r5e2 numbers + carryover list (case_035 parents.education, faith.significantMoment routing, family.children.* sister misroute)
-- [ ] Commit report + master artifacts via Chris (copy-paste block)
+| Outcome | Criteria | Result |
+|---|---|---|
+| ADOPT strong | ≥60/104, mnw=0, v3≥38, v2≥32, `parents.education` ≤1 | ✗ (56, 2 emissions) |
+| ADOPT bank-it | 59-60/104, mnw=0 | ✗ (56) |
+| ITERATE | 57-58, salvageable | ✗ (borderline-no, collateral hit own target zone) |
+| **REJECT** | <57 OR broad collateral | **✓** (56, 7 catastrophic flips, noise_leakage tripled, friendly fire on case_075) |
 
 ---
 
 ## Wednesday — April 22
 
-### Depends on r5e2 outcome (measured overnight or first thing Wed)
+### Active path (r5e2 REJECTED Tuesday evening — path b+c taken)
 
-**If ADOPT r5e2 (strong or bank-it):**
-
-- [ ] `HORNELORE_NARRATIVE=1` promoted to default-on in `.env` (Chris does)
-- [ ] NARRATIVE-FIELD-01 closed in CLAUDE.md
+- [x] Live default behavior reverted to r5e1 via flag-gate (not a git revert — `HORNELORE_ATTRIB_BOUNDARY` off by default means the r5e2 exemplar block never appends to the prompt)
+- [x] r5e1 = **ACTIVE PERFORMANCE FLOOR** (59/104, mnw=2 — two known offenders case_035 + case_093, both are target class for WO-LORI-CONFIRM-01)
+- [x] NARRATIVE-FIELD-01 Phase 4 closed
+- [x] WO-LORI-CONFIRM-01 parked spec authored at repo root (canon-first kinship skeleton + confirm pass, 4-field pilot, gated behind SECTION-EFFECT Phase 3 + SPANTAG decision)
+- [x] `docs/reports/FAILING_CASES_r5e1_RUNDOWN.md` authored — 45-case Q/A/era/issue rundown, informs the WO-LORI-CONFIRM-01 targeting
+- [ ] **Next extractor-lane move: #119 turnscope greatGrandparents fix** (small surgical patch to `allowed_branches` when section targets greatGrandparents subtree). Quick targeted smoke + master r5f to confirm.
+- [ ] Parallel: begin SECTION-EFFECT Phase 3 prep (see below)
 - [ ] File carryover items as separate backlog tasks:
-  - case_035 `parents.education` schema contradiction → new WO or #115-adjacent
-  - case_035 `faith.significantMoment` thematic routing → R5.5 Pillar 2 or SPANTAG territory
-  - `family.children.*` sister-to-children misroute → pre-existing bug, R6 relation-router work
-- [ ] Move to #119 — turnscope `allowed_branches` fix for greatGrandparents subtree. Small surgical patch. Quick targeted smoke + master r5f to confirm.
-
-**If ITERATE (r5e2b/c — mnw leaked or parents.education systemic):**
-
-- Single triage decision before committing any code:
-  - If mnw leaked back in on any new case → diagnose which (not case_035/093), then targeted fix
-  - If `parents.education` ≥3 new cases → hard-delete schema entry L327 (safest first move, alias L3711 catches stragglers). Commit + targeted smoke on affected cases + master rerun as r5e2b
-- [ ] r5e2b master rerun after fix+smoke
-
-**If REJECT r5e2:**
-
-- [ ] Revert `bfefe8b` + `c24efa9` (two-commit revert, no conflicts expected)
-- [ ] r5e1 stays floor (59/104, mnw=2)
-- [ ] NARRATIVE-FIELD-01 paused at r5e1 pending deeper redesign (extractor-layer attribution filter is the likely next move, not prompt iteration)
+  - case_035 `parents.education` schema contradiction (L327 vs L3711 alias ordering) — bumped to post-SPANTAG
+  - case_035 `faith.significantMoment` thematic routing — SPANTAG / WO-LORI-CONFIRM-01 territory
+  - `family.children.*` sister-to-children misroute — pre-existing bug, R6 relation-router work
 
 ### Parallel tracks (Chris — if r5e2 adopted or running independently)
 

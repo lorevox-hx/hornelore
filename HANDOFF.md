@@ -6,13 +6,25 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-21 evening)
+## Current state (as of 2026-04-21 late evening)
 
 **Authoritative for current-day state:** `CLAUDE.md` (agent env + standard blocks + changelog) and `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` (phase 1 week plan, decision gates, mirrored to `Desktop/Horne/WEEKLY_CHECKLIST_20260421.md`). Read those first. This section is a compact delta pointer.
 
-### Active phase — LOOP-01 R5.5 Pillar 1
+### Active phase — LOOP-01 R5.5 Pillar 1 (r5e1 locked as the active floor)
 
-**WO-EX-NARRATIVE-FIELD-01 Phase 4** (r5e2 master eval running as of ~2026-04-21 evening). r5e rejected 2026-04-21 afternoon (57/104, v2=29, mnw=2). r5e1 landed as partial recovery (59/104, v2=32, mnw=2) via surgical revert of NARRATOR-IDENTITY PRIORITY rule. ATTRIBUTION-BOUNDARY education-scope rule then added to target the 2 remaining forbidden-write violations (case_035 education.schooling, case_093 education.higherEducation); r5e2 retighten via path-validity negation + faith-thematic preference. 2-case smoke and 1-case re-smoke: mnw=0 achieved on both target cases, but case_035 plateaued at 0.50 (`parents.education` hallucination persists — root cause traced to schema table at extract.py L327 contradicting prompt rule, plus `faith.significantMoment` thematic routing not triggered). Master eval is the decision gate.
+**r5e2 master REJECTED.** 56/104, v3=35/62, v2=29/62, mnw=0. Did the job it was built for (mnw 2→0, case_093 0.70→0.90, case_005 0.00→1.00), but friendly-fired on 7 clean passes — case_003, 018, 022, 034, 067, 075, 088 — three of which went 1.00→0.00. **case_075 (mother_stories) was the rule's own target class, and it regressed.** `noise_leakage` tripled 4→12. Net −3 vs r5e1. Three-agent convergence (Chris / Claude / ChatGPT) called REJECT.
+
+**Action taken (path b+c):** reverted default live behavior to r5e1 equivalent. ATTRIBUTION-BOUNDARY exemplar block preserved in `extract.py` as `_ATTRIBUTION_BOUNDARY_FEWSHOT` and gated behind a new default-off `HORNELORE_ATTRIB_BOUNDARY=1` flag (paired with existing `HORNELORE_NARRATIVE=1`). With the new flag OFF, the system prompt is byte-identical to r5e1. The learning is not lost, and the live stack is on the 59/104 floor.
+
+### Active baseline
+
+**r5e1: 59/104 · v3=38/62 · v2=32/62 · mnw=2.** Known offenders: `case_035` (faith turn, narrator `education.schooling` leak) and `case_093` (spouse-detail, `education.higherEducation` leak). Both offenders fall squarely in the WO-LORI-CONFIRM-01 target class — parent-detail / spouse-detail attribution is the kind of thing a confirmation pass resolves at the elicitation layer cleanly. Parking them as known cost.
+
+### Next sequence
+
+1. **SECTION-EFFECT Phase 3** (#95) — causal matrix.
+2. **SPANTAG** (#90) implementation after Phase 3 signoff.
+3. **WO-LORI-CONFIRM-01** (parked spec, repo root) — interview-engine confirm pass + kinship skeleton block, opens after SPANTAG decision.
 
 ### Today's commits (2026-04-21, not yet pushed)
 
@@ -20,27 +32,27 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 |---|---|
 | `ad52e4a` | r5e1 eval artifacts + weekly checklist through Tuesday evening |
 | `bfefe8b` | NARRATIVE-FIELD Phase 4 r5e2: ATTRIBUTION-BOUNDARY education rule (4-exemplar block w/ narrator-positive control) |
-| (smoke) | Smoke artifacts: r5e2 2-case attribution-boundary (mnw=0 both cases, case_035 routing miss) |
 | `c24efa9` | NARRATIVE-FIELD Phase 4 r5e2b: tighten faith exemplar (path-validity + thematic preference) |
-| (smoke) | Smoke artifacts: r5e2b case_035 retighten (mnw=0 held, parents.education hallucination persists) |
-| (pending) | HANDOFF.md laptop handoff update (this commit) |
-| (pending) | Master r5e2 artifacts when eval completes |
+| (pending) | **r5e2 master artifacts + REJECT decision + revert to r5e1 default via new `HORNELORE_ATTRIB_BOUNDARY` flag** |
+| (pending) | FAILING_CASES_r5e1_RUNDOWN.md + WO-LORI-CONFIRM-01_Spec.md (parked, canon-first kinship skeleton + confirm pass) |
+| (pending) | HANDOFF + weekly checklist + CLAUDE.md changelog updates (this commit) |
 
 Plus earlier today: `d2cfb31` (revert NARRATOR-IDENTITY), `74f7b0d` (date-range preference), `291cbb8` (CLAIMS-02 role-exempt), `9706a87` (SCALAR CO-EMISSION + NARRATOR-IDENTITY), `3fec639` (narrative fewshots Phase 2 tighten). Branch is ~22 commits ahead of `origin/main`.
 
 ### Where to pick up on laptop
 
 1. Pull latest `main` once desktop pushes.
-2. Read `CLAUDE.md` → operational env + standard eval block.
-3. Read `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` → week plan + decision gates.
-4. Check `docs/reports/master_loop01_r5e2.json` + `.console.txt` for the r5e2 master result.
-5. Adoption decision gate per weekly checklist: ADOPT / ADOPT-WITH-CAVEAT / ITERATE / REJECT based on total vs r5e1 floor (59/104, v2=32, mnw=2) and `parents.education` offender count across all 104 cases.
+2. Read `CLAUDE.md` → operational env, standard eval block, full r5e2 REJECTED changelog.
+3. Read `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` → week plan + updated decision records.
+4. Read `docs/reports/FAILING_CASES_r5e1_RUNDOWN.md` for the 45-case Q/A/era/issue rundown that informed the next-lane thinking.
+5. Read `WO-LORI-CONFIRM-01_Spec.md` (repo root) for the parked product-lane plan.
+6. Next extractor-lane work is `#95 SECTION-EFFECT Phase 3` when you're ready to resume.
 
-### Known carryover
+### Known carryover (unchanged)
 
-- **case_035** — `parents.education` hallucination persists even with prompt-level path-validity negation, because `parents.education` IS in the schema table at `server/code/api/routers/extract.py` L327 with `writeMode: suggest_only` (prompt rule contradicts schema). Fix options: (1) hard-delete schema entry, (2) ensure alias L3711 fires before scoring, (3) extractor-layer attribution filter. Deferred to post-r5e2 decision.
-- **case_035 `faith.significantMoment` missing** — thematic routing doesn't trigger from target=`faith.denomination`. Turn-purpose signal too weak to override "mother" subject binding. Deeper than prompt-level fix.
-- **`family.children.*` misroute** — sister Verene still routes to `family.children.*` in case_035. Pre-existing relation-router bug, not caused by this session's work.
+- **`parents.education` schema contradiction** — path IS in schema table at `server/code/api/routers/extract.py` L327 (`writeMode: suggest_only`); alias at L3711 maps it to `parents.notableLifeEvents`. Prompt warnings claiming "that path does not exist" are literally false, which is part of why the r5e2 rule misfired. Fix options for later: (1) hard-delete schema entry, (2) ensure alias fires before scoring, (3) extractor-layer attribution filter. Deferred.
+- **`faith.significantMoment` thematic routing** — doesn't trigger from `target=faith.denomination` on case_035. Turn-purpose signal too weak to override "mother" subject binding. A SPANTAG / WO-LORI-CONFIRM-01 class of fix, not a prompt fix.
+- **`family.children.*` misroute on sister** — case_035 sister Verene still routes to `family.children.*`. Pre-existing relation-router bug, not from today's work.
 
 ### Stack ownership reminder
 
