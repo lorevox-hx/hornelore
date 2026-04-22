@@ -6,7 +6,49 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-18)
+## Current state (as of 2026-04-21 evening)
+
+**Authoritative for current-day state:** `CLAUDE.md` (agent env + standard blocks + changelog) and `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` (phase 1 week plan, decision gates, mirrored to `Desktop/Horne/WEEKLY_CHECKLIST_20260421.md`). Read those first. This section is a compact delta pointer.
+
+### Active phase — LOOP-01 R5.5 Pillar 1
+
+**WO-EX-NARRATIVE-FIELD-01 Phase 4** (r5e2 master eval running as of ~2026-04-21 evening). r5e rejected 2026-04-21 afternoon (57/104, v2=29, mnw=2). r5e1 landed as partial recovery (59/104, v2=32, mnw=2) via surgical revert of NARRATOR-IDENTITY PRIORITY rule. ATTRIBUTION-BOUNDARY education-scope rule then added to target the 2 remaining forbidden-write violations (case_035 education.schooling, case_093 education.higherEducation); r5e2 retighten via path-validity negation + faith-thematic preference. 2-case smoke and 1-case re-smoke: mnw=0 achieved on both target cases, but case_035 plateaued at 0.50 (`parents.education` hallucination persists — root cause traced to schema table at extract.py L327 contradicting prompt rule, plus `faith.significantMoment` thematic routing not triggered). Master eval is the decision gate.
+
+### Today's commits (2026-04-21, not yet pushed)
+
+| SHA | What |
+|---|---|
+| `ad52e4a` | r5e1 eval artifacts + weekly checklist through Tuesday evening |
+| `bfefe8b` | NARRATIVE-FIELD Phase 4 r5e2: ATTRIBUTION-BOUNDARY education rule (4-exemplar block w/ narrator-positive control) |
+| (smoke) | Smoke artifacts: r5e2 2-case attribution-boundary (mnw=0 both cases, case_035 routing miss) |
+| `c24efa9` | NARRATIVE-FIELD Phase 4 r5e2b: tighten faith exemplar (path-validity + thematic preference) |
+| (smoke) | Smoke artifacts: r5e2b case_035 retighten (mnw=0 held, parents.education hallucination persists) |
+| (pending) | HANDOFF.md laptop handoff update (this commit) |
+| (pending) | Master r5e2 artifacts when eval completes |
+
+Plus earlier today: `d2cfb31` (revert NARRATOR-IDENTITY), `74f7b0d` (date-range preference), `291cbb8` (CLAIMS-02 role-exempt), `9706a87` (SCALAR CO-EMISSION + NARRATOR-IDENTITY), `3fec639` (narrative fewshots Phase 2 tighten). Branch is ~22 commits ahead of `origin/main`.
+
+### Where to pick up on laptop
+
+1. Pull latest `main` once desktop pushes.
+2. Read `CLAUDE.md` → operational env + standard eval block.
+3. Read `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` → week plan + decision gates.
+4. Check `docs/reports/master_loop01_r5e2.json` + `.console.txt` for the r5e2 master result.
+5. Adoption decision gate per weekly checklist: ADOPT / ADOPT-WITH-CAVEAT / ITERATE / REJECT based on total vs r5e1 floor (59/104, v2=32, mnw=2) and `parents.education` offender count across all 104 cases.
+
+### Known carryover
+
+- **case_035** — `parents.education` hallucination persists even with prompt-level path-validity negation, because `parents.education` IS in the schema table at `server/code/api/routers/extract.py` L327 with `writeMode: suggest_only` (prompt rule contradicts schema). Fix options: (1) hard-delete schema entry, (2) ensure alias L3711 fires before scoring, (3) extractor-layer attribution filter. Deferred to post-r5e2 decision.
+- **case_035 `faith.significantMoment` missing** — thematic routing doesn't trigger from target=`faith.denomination`. Turn-purpose signal too weak to override "mother" subject binding. Deeper than prompt-level fix.
+- **`family.children.*` misroute** — sister Verene still routes to `family.children.*` in case_035. Pre-existing relation-router bug, not caused by this session's work.
+
+### Stack ownership reminder
+
+Chris owns start/stop of the stack (`scripts/start_all.sh` / `scripts/stop_all.sh`). Cold boot is ~4 minutes (HTTP listener ~60–70s, then 2–3 min model warmup). Do NOT include restart commands in agent-issued eval blocks. API is assumed running at `localhost:8000` when evals are requested.
+
+---
+
+## Rolling summary (as of 2026-04-18)
 
 This section is a rolling summary of what's been shipped recently and what's still in-flight. If you're coming back after time away, read this first. For the full work order checklist with statuses, baselines, and priority sequence, see `docs/Hornelore-WO-Checklist.md`.
 
