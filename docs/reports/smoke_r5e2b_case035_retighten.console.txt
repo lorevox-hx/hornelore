@@ -1,0 +1,102 @@
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     1
+  Passed:          0
+  Failed:          1
+  Pass rate:       0.0%
+  Avg score:       0.500
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 0/1 passed  (0.0%)
+    v2 (field avg):   0/1 passed  (0.0%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/1 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        50.0%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                0/1 passed
+
+  By narrator:
+    janice-josephine-horne          0/1 passed  (avg 0.500)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/1
+    Known gaps (currentExtractorExpected=false):  0/0
+
+  Failure categories:
+    field_path_mismatch             1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   0/1 passed  (avg 0.500)
+
+  By style bucket:
+    life_history               0/1 passed  (avg 0.500)
+
+  By chunk size:
+    small                      0/1 passed  (avg 0.500)
+
+  By noise profile:
+    clean                      0/1 passed  (avg 0.500)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    school_years            0/1 passed  (avg 0.500)
+
+  By pass:
+    pass1                   0/1 passed  (avg 0.500)
+
+  By mode:
+    open                    0/1 passed  (avg 0.500)
+
+  By era × pass:
+    school_years::pass1                       0/1 passed  (avg 0.500)
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     100.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    0.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       1
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       1
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      8
+    min/avg/max:     0.700 / 0.838 / 0.950
+    <0.5:            0
+    0.5-0.7:         0
+    0.7-0.9:         6
+    >=0.9:           2
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_035      offenders= 7  categories=['field_path_mismatch']
+      emitted: family.children.relation, family.children.firstName, parents.firstName, parents.relation, parents.education
+
+  ─── FAILED CASES ───
+
+    case_035    contract         small   clean         score=0.50  janice-josephine-horne
+      Failures:  ['field_path_mismatch']
+
+==============================================================================

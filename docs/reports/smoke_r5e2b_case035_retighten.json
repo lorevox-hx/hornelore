@@ -1,0 +1,382 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-21T18:56:54",
+  "mode": "live",
+  "summary": {
+    "total_cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "pass_rate": 0.0,
+    "avg_overall_score": 0.5
+  },
+  "contract_subset": {
+    "total": 1,
+    "passed_v3": 0,
+    "passed_v2": 0,
+    "v2_avg_score": 0.5,
+    "pass_rate_v3": 0.0,
+    "pass_rate_v2": 0.0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_multiple": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    }
+  },
+  "by_narrator": {
+    "janice-josephine-horne": {
+      "total": 1,
+      "passed": 0,
+      "avg_score": 0.5
+    }
+  },
+  "by_case_type": {
+    "contract": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_chunk_size": {
+    "small": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_case_mode": {
+    "contract": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_era": {
+    "school_years": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_pass": {
+    "pass1": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_mode": {
+    "open": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "by_era_x_pass": {
+    "school_years::pass1": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    }
+  },
+  "method_distribution": {
+    "llm": 1
+  },
+  "method_rates": {
+    "parse_success_rate": 1.0,
+    "parse_failure_rate": 0.0,
+    "rules_fallback_rate": 0.0,
+    "truncation_rate": 0.0
+  },
+  "stubborn_pack_summary": {
+    "primary": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "secondary": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "truncation_starved": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "out_of_scope": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    }
+  },
+  "defensible_alt_credit": {
+    "rate": 0.0,
+    "count": 0,
+    "field_path_mismatch_count": 1,
+    "pairs_top": []
+  },
+  "defensible_value_alt_credit": {
+    "rate": 0.0,
+    "count": 0,
+    "cases": []
+  },
+  "invalid_field_path_hallucinations": [
+    {
+      "case_id": "case_035",
+      "offender_count": 7,
+      "offenders": [
+        "family.children.relation",
+        "family.children.firstName",
+        "parents.firstName",
+        "parents.relation",
+        "parents.education"
+      ],
+      "failure_categories": [
+        "field_path_mismatch"
+      ]
+    }
+  ],
+  "confidence_distribution": {
+    "item_count": 8,
+    "min": 0.7,
+    "max": 0.95,
+    "avg": 0.838,
+    "buckets": {
+      "lt_0_5": 0,
+      "0_5_to_0_7": 0,
+      "0_7_to_0_9": 6,
+      "ge_0_9": 2
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.5,
+    "may_extract_bonus_rate": 0,
+    "should_ignore_leak_rate": 0,
+    "must_not_write_violation_rate": 0.0,
+    "raw_counts": {
+      "must_extract": {
+        "total": 2,
+        "hit": 1,
+        "miss": 1
+      },
+      "may_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 0,
+        "hit": 0,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 2,
+        "hit": 2,
+        "violated": 0
+      }
+    }
+  },
+  "must_not_write_violations": [],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 1,
+      "actually_passed": 0
+    },
+    "known_gaps": {
+      "total": 0,
+      "actually_passed": 0
+    }
+  },
+  "failure_categories": {
+    "field_path_mismatch": 1
+  },
+  "case_results": [
+    {
+      "field_scores": {
+        "faith.denomination": {
+          "expected": "Catholic",
+          "actual": "Catholic",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "faith.significantMoment": {
+          "expected": "Mother Josie attended Mount Marty Catholic school in Yankton",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.5,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "faith.denomination": {
+          "zone": "must_extract",
+          "extracted": true,
+          "winning_path": "faith.denomination",
+          "winning_via": "primary",
+          "winning_score": 1.0
+        },
+        "faith.significantMoment": {
+          "zone": "must_extract",
+          "extracted": false,
+          "winning_path": null,
+          "winning_via": null
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_035",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_rituals_and_holidays",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 39592,
+      "extracted_count": 8,
+      "current_era": "school_years",
+      "current_pass": "pass1",
+      "current_mode": "open",
+      "confidence_stats": {
+        "count": 8,
+        "min": 0.7,
+        "max": 0.95,
+        "avg": 0.838,
+        "lt_0_5": 0,
+        "ge_0_9": 2
+      },
+      "stubborn_partition": null,
+      "raw_items": [
+        {
+          "fieldPath": "faith.denomination",
+          "value": "Catholic",
+          "confidence": 0.95
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "sister",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Verene",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Josie",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "mother",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "parents.education",
+          "value": "high school at Mount Marty in Yankton",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "value": "Mount Marty in Yankton",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "parents.notes",
+          "value": "Catholic school run by nuns",
+          "confidence": 0.7
+        }
+      ]
+    }
+  ]
+}
