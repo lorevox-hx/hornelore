@@ -3479,8 +3479,10 @@ def _salvage_truncated_array(raw: str) -> List[dict]:
     through _validate_item / rerouters / guards downstream.
     """
     text = raw.lstrip()
-    if not text.startswith("["):
+    bracket_idx = text.find("[")
+    if bracket_idx == -1:
         return []
+    text = text[bracket_idx:]
 
     items: List[dict] = []
     depth = 0            # {} nesting depth
