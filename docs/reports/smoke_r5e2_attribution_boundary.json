@@ -1,0 +1,524 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-21T17:58:40",
+  "mode": "live",
+  "summary": {
+    "total_cases": 2,
+    "passed": 1,
+    "failed": 1,
+    "pass_rate": 0.5,
+    "avg_overall_score": 0.7
+  },
+  "contract_subset": {
+    "total": 1,
+    "passed_v3": 0,
+    "passed_v2": 0,
+    "v2_avg_score": 0.5,
+    "pass_rate_v3": 0.0,
+    "pass_rate_v2": 0.0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_multiple": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    },
+    "extract_single": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0
+    }
+  },
+  "by_narrator": {
+    "janice-josephine-horne": {
+      "total": 1,
+      "passed": 0,
+      "avg_score": 0.5
+    },
+    "kent-james-horne": {
+      "total": 1,
+      "passed": 1,
+      "avg_score": 0.9
+    }
+  },
+  "by_case_type": {
+    "contract": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "follow_up": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "avg_score": 0.9
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "thematic_study": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "avg_score": 0.9
+    }
+  },
+  "by_chunk_size": {
+    "small": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1,
+      "avg_score": 0.7
+    }
+  },
+  "by_noise_profile": {
+    "clean": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1,
+      "avg_score": 0.7
+    }
+  },
+  "by_case_mode": {
+    "contract": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "hybrid": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "avg_score": 0.9
+    }
+  },
+  "by_era": {
+    "school_years": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "midlife": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "avg_score": 0.9
+    }
+  },
+  "by_pass": {
+    "pass1": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1,
+      "avg_score": 0.7
+    }
+  },
+  "by_mode": {
+    "open": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1,
+      "avg_score": 0.7
+    }
+  },
+  "by_era_x_pass": {
+    "school_years::pass1": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.5
+    },
+    "midlife::pass1": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "avg_score": 0.9
+    }
+  },
+  "method_distribution": {
+    "llm": 2
+  },
+  "method_rates": {
+    "parse_success_rate": 1.0,
+    "parse_failure_rate": 0.0,
+    "rules_fallback_rate": 0.0,
+    "truncation_rate": 0.0
+  },
+  "stubborn_pack_summary": {
+    "primary": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "secondary": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "truncation_starved": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "out_of_scope": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    }
+  },
+  "defensible_alt_credit": {
+    "rate": 0.0,
+    "count": 0,
+    "field_path_mismatch_count": 1,
+    "pairs_top": []
+  },
+  "defensible_value_alt_credit": {
+    "rate": 0.0,
+    "count": 0,
+    "cases": []
+  },
+  "invalid_field_path_hallucinations": [
+    {
+      "case_id": "case_035",
+      "offender_count": 5,
+      "offenders": [
+        "family.children.relation",
+        "family.children.firstName",
+        "parents.firstName",
+        "parents.relation",
+        "parents.education"
+      ],
+      "failure_categories": [
+        "field_path_mismatch"
+      ]
+    }
+  ],
+  "confidence_distribution": {
+    "item_count": 9,
+    "min": 0.7,
+    "max": 0.95,
+    "avg": 0.861,
+    "buckets": {
+      "lt_0_5": 0,
+      "0_5_to_0_7": 0,
+      "0_7_to_0_9": 4,
+      "ge_0_9": 5
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.5,
+    "may_extract_bonus_rate": 0.0,
+    "should_ignore_leak_rate": 1.0,
+    "must_not_write_violation_rate": 0.0,
+    "raw_counts": {
+      "must_extract": {
+        "total": 2,
+        "hit": 1,
+        "miss": 1
+      },
+      "may_extract": {
+        "total": 2,
+        "hit": 0,
+        "miss": 2
+      },
+      "should_ignore": {
+        "total": 1,
+        "hit": 0,
+        "leaked": 1
+      },
+      "must_not_write": {
+        "total": 5,
+        "hit": 5,
+        "violated": 0
+      }
+    }
+  },
+  "must_not_write_violations": [],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 1,
+      "actually_passed": 0
+    },
+    "known_gaps": {
+      "total": 1,
+      "actually_passed": 1
+    }
+  },
+  "failure_categories": {
+    "field_path_mismatch": 1,
+    "noise_leakage": 1
+  },
+  "case_results": [
+    {
+      "field_scores": {
+        "faith.denomination": {
+          "expected": "Catholic",
+          "actual": "Catholic",
+          "score": 1.0,
+          "status": "exact"
+        },
+        "faith.significantMoment": {
+          "expected": "Mother Josie attended Mount Marty Catholic school in Yankton",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.5,
+      "v2_score": 0.5,
+      "v2_pass": false,
+      "failure_categories": [
+        "field_path_mismatch"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 1,
+          "miss": 1
+        },
+        "may_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "should_ignore": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 2,
+          "hit": 2,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "faith.denomination": {
+          "zone": "must_extract",
+          "extracted": true,
+          "winning_path": "faith.denomination",
+          "winning_via": "primary",
+          "winning_score": 1.0
+        },
+        "faith.significantMoment": {
+          "zone": "must_extract",
+          "extracted": false,
+          "winning_path": null,
+          "winning_via": null
+        },
+        "personal.dateOfBirth": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.schooling": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_035",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "family_rituals_and_holidays",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 34505,
+      "extracted_count": 6,
+      "current_era": "school_years",
+      "current_pass": "pass1",
+      "current_mode": "open",
+      "confidence_stats": {
+        "count": 6,
+        "min": 0.7,
+        "max": 0.95,
+        "avg": 0.842,
+        "lt_0_5": 0,
+        "ge_0_9": 2
+      },
+      "stubborn_partition": null,
+      "raw_items": [
+        {
+          "fieldPath": "faith.denomination",
+          "value": "Catholic",
+          "confidence": 0.95
+        },
+        {
+          "fieldPath": "family.children.relation",
+          "value": "sister",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "family.children.firstName",
+          "value": "Verene",
+          "confidence": 0.85
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "value": "Josie",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "parents.relation",
+          "value": "mother",
+          "confidence": 0.8
+        },
+        {
+          "fieldPath": "parents.education",
+          "value": "attended Mount Marty in Yankton for high school",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "field_scores": {},
+      "forbidden_violations": [],
+      "overall_score": 0.9,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "noise_leakage"
+      ],
+      "pass": true,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0
+        },
+        "may_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "should_ignore": {
+          "total": 1,
+          "hit": 0,
+          "miss": 0,
+          "leaked": 1
+        },
+        "must_not_write": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": true,
+          "leaked": true
+        },
+        "family.spouse.maidenName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "family.marriageNotes": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.firstName": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "parents.occupation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        },
+        "education.higherEducation": {
+          "zone": "must_not_write",
+          "extracted": false,
+          "violated": false
+        }
+      },
+      "case_id": "case_093",
+      "narratorId": "kent-james-horne",
+      "phase": "midlife",
+      "subTopic": "spouse_detail",
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": false,
+      "caseType": "follow_up",
+      "oralHistoryStyle": "thematic",
+      "style_bucket": "thematic_study",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "hybrid",
+      "sequence_group": "kent_spouse",
+      "mode": "live",
+      "method": "llm",
+      "elapsed_ms": 36800,
+      "extracted_count": 3,
+      "current_era": "midlife",
+      "current_pass": "pass1",
+      "current_mode": "open",
+      "confidence_stats": {
+        "count": 3,
+        "min": 0.9,
+        "max": 0.9,
+        "avg": 0.9,
+        "lt_0_5": 0,
+        "ge_0_9": 3
+      },
+      "stubborn_partition": null,
+      "raw_items": [
+        {
+          "fieldPath": "family.spouse.firstName",
+          "value": "Janice",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.education",
+          "value": "Bismarck Junior College",
+          "confidence": 0.9
+        },
+        {
+          "fieldPath": "family.spouse.notes",
+          "value": "independent",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}
