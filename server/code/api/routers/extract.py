@@ -4911,6 +4911,31 @@ _FAMILY_RELATIONS_ROOTS = (
 )
 
 
+# WO-EX-TURNSCOPE-01 #119 — Ancestor-subtree expansion.
+#
+# Lineage/ancestry questions whose extractPriority targets grandparents.*
+# routinely elicit great-grandparent and deeper-ancestor content in the
+# same answer. Example: loriPrompt "Do you know anything about the
+# generations before your grandparents?" on case_081 — narrator replies
+# "My great-grandmother Elizabeth's father was John Michael Shong — born
+# October 11, 1829 near Nancy in Lorraine, France." The LLM correctly
+# routes those facts to greatGrandparents.*, but without expansion the
+# turnscope filter (allowed_roots={grandparents}) drops every emission
+# as cross-branch bleed, leaving extraction empty.
+#
+# The expansion is ASYMMETRIC: grandparents permits greatGrandparents,
+# but NOT the reverse. A greatGrandparents.* target that pulls in
+# grandparents.* content is ambiguity the scorer + SECTION-EFFECT
+# adjudication should arbitrate, not turnscope.
+#
+# Other ancestor-level expansions (parents → grandparents, etc.) are
+# deliberately out of scope — those are kinship-drift patterns handled
+# by WO-LORI-CONFIRM-01 (interview-engine confirm pass), not turnscope.
+_ANCESTOR_SUBTREE_EXPANSION: Dict[str, set] = {
+    "grandparents": {"greatGrandparents"},
+}
+
+
 def _resolve_turn_scope_branch(current_target_path: Optional[str]) -> Optional[str]:
     """Return the family-relations branch root of current_target_path, or
     None if the target is outside the family-relations cluster.
@@ -4986,6 +5011,24 @@ def _apply_turn_scope_filter(
     if not allowed_roots:
         # No declared target lives in the family-relations cluster → no-op.
         return items
+
+    # #119 ancestor-subtree expansion — grandparents target permits
+    # greatGrandparents items for deeper-lineage answers. Asymmetric
+    # (see _ANCESTOR_SUBTREE_EXPANSION docstring for rationale).
+    _original_roots = allowed_roots
+    _expanded_roots = set(allowed_roots)
+    for r in allowed_roots:
+        _expanded_roots.update(_ANCESTOR_SUBTREE_EXPANSION.get(r, set()))
+    if _expanded_roots != _original_roots:
+        try:
+            logger.info(
+                "[extract][turnscope] EXPAND base=%s expanded=%s reason=119_ancestor_subtree",
+                ",".join(sorted(_original_roots)),
+                ",".join(sorted(_expanded_roots)),
+            )
+        except Exception:
+            pass
+    allowed_roots = _expanded_roots
 
     allowed_roots_log = ",".join(sorted(allowed_roots))
     out = []
