@@ -1,0 +1,749 @@
+{
+  "schema_version": "multiturn-v1-draft",
+  "parent_spec": "WO-EVAL-MULTITURN-01_Spec.md",
+  "companion": "WO-LORI-CONFIRM-01_PREP_PACK.md",
+  "generated": "2026-04-21 overnight",
+  "note": "DRAFT. Not wired into any harness. Conforms to the MULTITURN schema so that when the harness ships, these 15 cases are the first pack. Target/control split is 6/9 — see prep pack §8.",
+  "target_cases": 6,
+  "control_cases": 9,
+  "disposition_legend": {
+    "confirm_pass_resolves": "Target case — confirm bank fires, resolves staged ambiguity, canon write completes.",
+    "confirm_pass_rejects": "Target case — narrator explicitly corrects the staged value.",
+    "confirm_pass_skipped": "Target case — narrator says 'come back to that'; staging stays.",
+    "skeleton_only": "Target case — kinship skeleton pre-populates canon; narrative turn extracts nothing new.",
+    "skeleton_then_narrative": "Target case — skeleton writes relation/names; later narrative turn adds narrative fields.",
+    "no_confirm_triggered": "Control case — no pilot field is staged; no confirm fires. Case behaves like single-turn baseline."
+  },
+  "cases": [
+    {
+      "id": "mt_case_001",
+      "source_case_id": "case_002",
+      "case_class": "TARGET",
+      "narratorId": "christopher-todd-horne",
+      "pilot_fields": ["parents.relation", "siblings.birthOrder", "personal.birthOrder"],
+      "initial_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Vincent", "Jason"],
+        "siblings.relation": ["brother", "brother"],
+        "siblings.birthOrder": ["older", "older"],
+        "personal.birthOrder": "3",
+        "_source_note": "Populated by kinship_skeleton_v1 at onboarding (kin_01 through kin_04)."
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Who were the people you saw every single day at the breakfast table when you were very small?",
+          "narrator_reply": "It was my mom Janice and my dad Kent, and my two older brothers Vincent and Jason. I was the youngest of three boys.",
+          "current_section": "developmental_foundations.early_caregivers",
+          "current_target_path": null,
+          "current_era": "school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "expected_emission": {
+            "writes": [],
+            "staged": [],
+            "reconcile_actions": [
+              {"path": "parents.firstName[0]", "action": "skip", "reason": "skeleton_authoritative", "existing_source": "kinship_skeleton"},
+              {"path": "parents.firstName[1]", "action": "skip", "reason": "skeleton_authoritative"},
+              {"path": "siblings.firstName[0]", "action": "skip", "reason": "skeleton_authoritative"},
+              {"path": "siblings.firstName[1]", "action": "skip", "reason": "skeleton_authoritative"},
+              {"path": "siblings.birthOrder[0]", "action": "skip", "reason": "skeleton_authoritative"},
+              {"path": "personal.birthOrder", "action": "skip", "reason": "skeleton_authoritative"}
+            ],
+            "_note": "Everything the extractor tries to emit is already in canon from skeleton. All writes skip with skeleton_authoritative telemetry."
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Vincent", "Jason"],
+        "siblings.birthOrder": ["older", "older"],
+        "personal.birthOrder": "3"
+      },
+      "expected_final_staged": [],
+      "disposition": "skeleton_only",
+      "single_turn_baseline_score": 0.400,
+      "expected_multiturn_score": 1.000,
+      "expected_delta": 0.600
+    },
+
+    {
+      "id": "mt_case_002",
+      "source_case_id": "case_014",
+      "case_class": "TARGET",
+      "narratorId": "kent-james-horne",
+      "pilot_fields": ["personal.birthOrder", "siblings.birthOrder"],
+      "initial_canon": {
+        "parents.firstName": ["Leila", "Ervin"],
+        "parents.relation": ["mother", "father"],
+        "_source_note": "Skeleton onboarding wrote mother/father but sibling roster step (kin_03a) wasn't yet walked for this narrator at the time of this case; siblings are fresh to extract."
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Where did you fall in the sibling lineup — oldest, youngest, somewhere in between?",
+          "narrator_reply": "I was the middle child. My older sister Sharon was born in 1937, I came along in '39, and then my little sister Linda in '42.",
+          "current_section": "developmental_foundations.early_caregivers",
+          "current_target_path": "personal.birthOrder",
+          "current_era": "school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "expected_emission": {
+            "writes": [
+              {"path": "siblings.firstName[0]", "value": "Sharon"},
+              {"path": "siblings.firstName[1]", "value": "Linda"},
+              {"path": "siblings.relation[0]", "value": "sister"},
+              {"path": "siblings.relation[1]", "value": "sister"}
+            ],
+            "staged": [
+              {"path": "siblings.birthOrder[0]", "value": "older", "writeMode": "suggest_only", "confirmation_reason": "compound_form_risk"},
+              {"path": "siblings.birthOrder[1]", "value": "younger", "writeMode": "suggest_only", "confirmation_reason": "compound_form_risk"},
+              {"path": "personal.birthOrder", "value": "middle", "writeMode": "suggest_only", "confirmation_reason": "prose_form_needs_integer"}
+            ]
+          }
+        },
+        {
+          "turn_index": 1,
+          "lori_prompt": "What number were you in that lineup — first, second, and so on?",
+          "narrator_reply": "Second. I was the middle one of the three of us.",
+          "current_section": "developmental_foundations.early_caregivers",
+          "current_target_path": "personal.birthOrder",
+          "fire_reason": "birthOrder_bank.position_probe",
+          "expected_emission": {
+            "writes": [
+              {"path": "personal.birthOrder", "value": "2", "writeMode": "write", "source": "confirm_pass"}
+            ],
+            "staged": [],
+            "promoted_from_staged": ["personal.birthOrder"]
+          }
+        },
+        {
+          "turn_index": 2,
+          "lori_prompt": "Was Sharon older or younger than you?",
+          "narrator_reply": "Older.",
+          "current_section": "developmental_foundations.early_caregivers",
+          "current_target_path": "siblings.birthOrder",
+          "fire_reason": "siblingsBirthOrder_bank.relative_probe",
+          "expected_emission": {
+            "writes": [
+              {"path": "siblings.birthOrder[0]", "value": "older", "writeMode": "write", "source": "confirm_pass"}
+            ],
+            "staged": [
+              {"path": "siblings.birthOrder[1]", "value": "younger", "writeMode": "suggest_only", "_note": "Hit max_per_section cap; carries forward."}
+            ],
+            "max_per_section_hit": true
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Leila", "Ervin"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Sharon", "Linda"],
+        "siblings.relation": ["sister", "sister"],
+        "siblings.birthOrder": ["older", null],
+        "personal.birthOrder": "2"
+      },
+      "expected_final_staged": [
+        {"path": "siblings.birthOrder[1]", "value": "younger", "reason": "max_per_section_carried_forward"}
+      ],
+      "disposition": "confirm_pass_resolves",
+      "single_turn_baseline_score": 0.333,
+      "expected_multiturn_score": 0.900,
+      "expected_delta": 0.567,
+      "_note": "Even with one field carried forward due to max_per_section cap, the resolved fields alone take this from failing to passing v3. Next section boundary would pick up the Linda-younger confirm."
+    },
+
+    {
+      "id": "mt_case_003",
+      "source_case_id": "case_024",
+      "case_class": "TARGET",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": ["personal.birthOrder", "siblings.birthOrder"],
+      "initial_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Where did you fall in the sibling lineup?",
+          "narrator_reply": "I was the middle child. My older sister Verene Marie — she married a Schnieder — she was the oldest. Then me. Then my little brother James Peter, who we called Jim. He was born in a car on the way to Richardton Hospital, can you believe that?",
+          "current_section": "developmental_foundations.early_caregivers",
+          "current_target_path": "personal.birthOrder",
+          "current_era": "school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "expected_emission": {
+            "writes": [
+              {"path": "siblings.firstName[0]", "value": "Verene Marie"},
+              {"path": "siblings.firstName[1]", "value": "James Peter"},
+              {"path": "siblings.relation[0]", "value": "sister"},
+              {"path": "siblings.relation[1]", "value": "brother"},
+              {"path": "siblings.uniqueCharacteristics[1]", "value": "born in a car on the way to Richardton Hospital"}
+            ],
+            "staged": [
+              {"path": "personal.birthOrder", "value": "middle", "writeMode": "suggest_only"},
+              {"path": "siblings.birthOrder[0]", "value": "older", "writeMode": "suggest_only"},
+              {"path": "siblings.birthOrder[1]", "value": "younger", "writeMode": "suggest_only"}
+            ]
+          }
+        },
+        {
+          "turn_index": 1,
+          "lori_prompt": "What number were you in that lineup?",
+          "narrator_reply": "I was the second.",
+          "fire_reason": "birthOrder_bank.position_probe",
+          "expected_emission": {
+            "writes": [{"path": "personal.birthOrder", "value": "2", "writeMode": "write", "source": "confirm_pass"}],
+            "promoted_from_staged": ["personal.birthOrder"]
+          }
+        },
+        {
+          "turn_index": 2,
+          "lori_prompt": "Was Verene older or younger than you?",
+          "narrator_reply": "Older.",
+          "fire_reason": "siblingsBirthOrder_bank.relative_probe",
+          "expected_emission": {
+            "writes": [{"path": "siblings.birthOrder[0]", "value": "older", "writeMode": "write", "source": "confirm_pass"}],
+            "promoted_from_staged": ["siblings.birthOrder[0]"]
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Verene Marie", "James Peter"],
+        "siblings.relation": ["sister", "brother"],
+        "siblings.birthOrder": ["older", null],
+        "personal.birthOrder": "2"
+      },
+      "expected_final_staged": [
+        {"path": "siblings.birthOrder[1]", "value": "younger", "reason": "max_per_section_carried_forward"}
+      ],
+      "disposition": "confirm_pass_resolves",
+      "single_turn_baseline_score": 0.333,
+      "expected_multiturn_score": 0.900,
+      "expected_delta": 0.567,
+      "_note": "'James Peter' vs expected 'James' — scorer partial match (0.8) holds. Not a LORI-fixable issue; this is scorer-alias territory (see NARRATIVE-FIELD Phase 3 Fix A)."
+    },
+
+    {
+      "id": "mt_case_004",
+      "source_case_id": "case_047",
+      "case_class": "TARGET",
+      "narratorId": "christopher-todd-horne",
+      "pilot_fields": ["siblings.relation", "siblings.birthOrder"],
+      "initial_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Tell me about your brothers and sisters.",
+          "narrator_reply": "I had two older brothers — Vincent and Jason. Vincent was the oldest, then Jason, then me. We were all pretty close growing up.",
+          "current_section": "developmental_foundations.sibling_dynamics",
+          "current_target_path": null,
+          "current_era": "school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "expected_emission": {
+            "writes": [
+              {"path": "siblings.firstName[0]", "value": "Vincent"},
+              {"path": "siblings.firstName[1]", "value": "Jason"}
+            ],
+            "staged": [
+              {"path": "siblings.relation[0]", "value": "brother", "writeMode": "suggest_only", "confirmation_reason": "inferred_not_explicit"},
+              {"path": "siblings.relation[1]", "value": "brother", "writeMode": "suggest_only"},
+              {"path": "siblings.birthOrder[0]", "value": "oldest", "writeMode": "suggest_only", "confirmation_reason": "wrong_canonical_form"},
+              {"path": "siblings.birthOrder[1]", "value": "second", "writeMode": "suggest_only"}
+            ]
+          }
+        },
+        {
+          "turn_index": 1,
+          "lori_prompt": "Was Vincent older or younger than you?",
+          "narrator_reply": "Older — he's the oldest of us.",
+          "fire_reason": "siblingsBirthOrder_bank.relative_probe",
+          "expected_emission": {
+            "writes": [{"path": "siblings.birthOrder[0]", "value": "older", "writeMode": "write", "source": "confirm_pass"}],
+            "promoted_from_staged": ["siblings.birthOrder[0]"]
+          }
+        },
+        {
+          "turn_index": 2,
+          "lori_prompt": "Was Jason older or younger than you?",
+          "narrator_reply": "Older.",
+          "fire_reason": "siblingsBirthOrder_bank.relative_probe",
+          "expected_emission": {
+            "writes": [{"path": "siblings.birthOrder[1]", "value": "older", "writeMode": "write", "source": "confirm_pass"}],
+            "max_per_section_hit": true,
+            "_note": "2/2 confirms used in this section; siblings.relation inferences carry forward as suggest_only."
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Vincent", "Jason"],
+        "siblings.birthOrder": ["older", "older"]
+      },
+      "expected_final_staged": [
+        {"path": "siblings.relation[0]", "value": "brother"},
+        {"path": "siblings.relation[1]", "value": "brother"}
+      ],
+      "disposition": "confirm_pass_resolves",
+      "single_turn_baseline_score": 0.667,
+      "expected_multiturn_score": 1.000,
+      "expected_delta": 0.333,
+      "_note": "Expected field is 'oldest' for Vincent (the eldest child overall), which siblingsBirthOrder bank maps as 'older' (relative to narrator). Scorer policy accepts either form per NARRATIVE-FIELD Phase 3 Fix A precedent."
+    },
+
+    {
+      "id": "mt_case_005",
+      "source_case_id": "case_077",
+      "case_class": "TARGET",
+      "narratorId": "kent-james-horne",
+      "pilot_fields": ["siblings.relation", "siblings.firstName"],
+      "initial_canon": {
+        "parents.firstName": ["Leila", "Ervin"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Did you have brothers or sisters? What were they like?",
+          "narrator_reply": "I had two sisters. Sharon was the oldest, born April 8, 1937. She married Ed Woodmansee. And then Linda was the youngest, born July 27, 1942. I was in the middle — the only boy. We grew up in North Dakota, kids of Ervin and Leila Horne. After Dad died in '67 we all kind of had to pull together. Mom Leila lived until 1985, she passed December 1st that year. We stayed close considering how much everybody moved around.",
+          "current_section": "developmental_foundations.siblings_childhood",
+          "current_target_path": null,
+          "current_era": "school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "expected_emission": {
+            "writes": [
+              {"path": "siblings.firstName[0]", "value": "Sharon"},
+              {"path": "siblings.firstName[1]", "value": "Linda"},
+              {"path": "siblings.relation[0]", "value": "sister"},
+              {"path": "siblings.relation[1]", "value": "sister"},
+              {"path": "siblings.birthOrder[0]", "value": "older"},
+              {"path": "siblings.birthOrder[1]", "value": "younger"},
+              {"path": "personal.birthOrder", "value": "2"}
+            ],
+            "staged": [],
+            "_note": "Narrator says 'two sisters' explicitly — relation is high-confidence. personal.birthOrder 'in the middle' + two sisters → 2, deterministic. No confirm should fire."
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Leila", "Ervin"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Sharon", "Linda"],
+        "siblings.relation": ["sister", "sister"],
+        "siblings.birthOrder": ["older", "younger"],
+        "personal.birthOrder": "2"
+      },
+      "expected_final_staged": [],
+      "disposition": "skeleton_then_narrative",
+      "single_turn_baseline_score": 0.000,
+      "expected_multiturn_score": 1.000,
+      "expected_delta": 1.000,
+      "_note": "This case is a silent-output fail in r5e1 (extractor raw was empty). Once the narrative pass runs against a canon that already knows parents.firstName+relation, and dispatcher allows per-sibling inline confirms, the extraction completes cleanly. Biggest expected delta in the pack."
+    },
+
+    {
+      "id": "mt_case_006",
+      "source_case_id": "case_079",
+      "case_class": "TARGET",
+      "narratorId": "christopher-todd-horne",
+      "pilot_fields": ["siblings.firstName"],
+      "initial_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Vincent", "Jason"],
+        "siblings.relation": ["brother", "brother"],
+        "siblings.birthOrder": ["older", "older"],
+        "personal.birthOrder": "3"
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Tell me about your brothers.",
+          "narrator_reply": "I've got two older brothers. Vince — Vincent Edward — he's the oldest. He was born in Germany when Mom and Dad were living over there for Dad's construction work. Then Jason, Jason Richard Horne, he's the middle one. Family-oriented guy. I'm the youngest, born in Williston. We all grew up together moving around with Dad's construction jobs. Mom kept us grounded through all those moves.",
+          "current_section": "developmental_foundations.siblings",
+          "current_target_path": null,
+          "current_era": "school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "expected_emission": {
+            "writes": [
+              {"path": "siblings.middleName[0]", "value": "Edward"},
+              {"path": "siblings.middleName[1]", "value": "Richard"},
+              {"path": "siblings.lastName[1]", "value": "Horne"},
+              {"path": "siblings.birthplace[0]", "value": "Germany"}
+            ],
+            "staged": [],
+            "reconcile_actions": [
+              {"path": "siblings.firstName[0]", "action": "skip", "reason": "already_in_canon"}
+            ],
+            "_note": "Canon already has Vincent/Jason from skeleton. 'Vince' is a nickname — skeleton canon wins. Narrative adds middle names and birthplace as new facts."
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Vincent", "Jason"],
+        "siblings.middleName": ["Edward", "Richard"],
+        "siblings.lastName": [null, "Horne"],
+        "siblings.birthplace": ["Germany", null],
+        "siblings.relation": ["brother", "brother"],
+        "siblings.birthOrder": ["older", "older"],
+        "personal.birthOrder": "3"
+      },
+      "expected_final_staged": [],
+      "disposition": "skeleton_then_narrative",
+      "single_turn_baseline_score": 0.567,
+      "expected_multiturn_score": 1.000,
+      "expected_delta": 0.433,
+      "_note": "Demonstrates canon-collision Rule 2 (exact_match) and Rule 3 (skeleton_authoritative) working together. 'Vince' narrative drift is suppressed in favor of skeleton's 'Vincent'."
+    },
+
+    {
+      "id": "mt_case_007",
+      "source_case_id": "case_028",
+      "case_class": "CONTROL",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Was there a food, a song, or a ritual in your home that only made sense once you knew where your family came from?",
+          "narrator_reply": "We were Germans from Russia. Both sides — the Zarrs and the Schaafs. My grandmother Josie's family, the Schaafs, came from Ukraine. My grandfather Mathias hated the Russians. That whole culture came through in the food and the way things were done.",
+          "current_section": "developmental_foundations.family_rituals_and_holidays",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [
+              {"path": "grandparents.firstName[0]", "value": "Mathias"},
+              {"path": "grandparents.ancestry", "value": "Germans from Russia"}
+            ],
+            "staged": [],
+            "_note": "No pilot fields involved. earlyMemories.significantEvent is the extract_priority target but schema_gap failure category — extractor side issue. LORI should not touch."
+          }
+        }
+      ],
+      "expected_final_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"],
+        "grandparents.firstName": ["Mathias"],
+        "grandparents.ancestry": "Germans from Russia"
+      },
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.000,
+      "expected_multiturn_score": 0.000,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — must not change. If multi-turn run shows this case improving, something is wrong with dispatcher (friendly-fire)."
+    },
+
+    {
+      "id": "mt_case_008",
+      "source_case_id": "case_035",
+      "case_class": "CONTROL",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "What role did church or faith play in your family growing up?",
+          "narrator_reply": "We were Catholic. My sister Verene's confirmation name was Gertrude. My mother Josie went to Mount Marty in Yankton for high school — that was a Catholic school run by nuns. The faith was a big part of everything.",
+          "current_section": "developmental_foundations.family_rituals_and_holidays",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [
+              {"path": "faith.denomination", "value": "Catholic"},
+              {"path": "parents.education", "value": "Mount Marty Catholic school in Yankton"}
+            ],
+            "forbidden_violations_expected": ["education.schooling"],
+            "_note": "Attribution class — narrator-parent boundary. LORI doesn't target this; this is WO-EX-SPANTAG or ATTRIBUTION-BOUNDARY territory. Control stays at baseline mnw=1."
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.300,
+      "expected_multiturn_score": 0.300,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — attribution/ownership case. Explicitly out of LORI scope. Included to verify no accidental cross-class effect."
+    },
+
+    {
+      "id": "mt_case_009",
+      "source_case_id": "case_049",
+      "case_class": "CONTROL",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": [],
+      "initial_canon": {},
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Where were you born?",
+          "narrator_reply": "I was born in Spokane, Washington, on August 30th, 1939. My dad Pete worked at an aluminum factory there.",
+          "current_section": "developmental_foundations.origin_point",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [
+              {"path": "personal.placeOfBirth", "value": "Spokane, Washington"},
+              {"path": "parents.firstName[0]", "value": "Pete"},
+              {"path": "parents.occupation[0]", "value": "aluminum factory worker"}
+            ],
+            "staged": [],
+            "_note": "personal.dateOfBirth is missing on baseline — that's a date-parsing issue, not a confirm-pass issue. LORI doesn't target date-of-birth fields."
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.500,
+      "expected_multiturn_score": 0.500,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — date-of-birth extraction, not pilot-scope."
+    },
+
+    {
+      "id": "mt_case_010",
+      "source_case_id": "case_068",
+      "case_class": "CONTROL",
+      "narratorId": "kent-james-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Leila", "Ervin"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Were there any big losses in your family when you were growing up?",
+          "narrator_reply": "My dad Ervin — he lost his own father George when he was only four years old. That was 1914. And then my grandmother Elizabeth, she remarried a man named William Mc Raith in 1916, but he died too...",
+          "current_section": "developmental_foundations.family_loss",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [],
+            "staged": [],
+            "_note": "parents.notableLifeEvents is a narrative/prose field, not a scalar. LORI doesn't confirm prose. Baseline partial (0.525) is the ceiling for this case in the pilot."
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.525,
+      "expected_multiturn_score": 0.525,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — narrative prose class. LORI doesn't target."
+    },
+
+    {
+      "id": "mt_case_011",
+      "source_case_id": "case_093",
+      "case_class": "CONTROL",
+      "narratorId": "kent-james-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "family.spouse.firstName": "Janice",
+        "family.marriageDate": "1959-10-10",
+        "_source_note": "priorContext establishes spouse Janice. Kent is being asked a followup about his wife."
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "What else can you tell me about Janice?",
+          "narrator_reply": "Janice is a strong woman. She grew up milking cows and riding horses in North Dakota. Her dad Pete worked all kinds of jobs — Garrison Dam, carpentry, steam boiler work. She went to Bismarck Junior College before we got married. She's always been independent. We raised three boys together and she kept that family running through every move and every job change.",
+          "current_section": "midlife.spouse_detail",
+          "current_era": "midlife",
+          "current_pass": "pass1",
+          "current_mode": "followup",
+          "expected_emission": {
+            "writes": [
+              {"path": "family.spouse.maidenName", "value": "Zarr", "_note": "from prior context + narrator's later mention"},
+              {"path": "family.marriageNotes", "value": "raised three boys through many moves"}
+            ],
+            "forbidden_violations_expected": ["parents.firstName=Pete", "parents.occupation=Garrison Dam", "education.higherEducation=Bismarck Junior College"],
+            "_note": "The mnw violations here are attribution — parent-of-spouse and spouse-education writing as narrator's. LORI doesn't fix this; ATTRIBUTION-BOUNDARY (rejected in r5e2) or WO-LORI-CONFIRM-01's Feature A (kinship skeleton already wrote Kent's parents = Leila+Ervin) partially mitigates by making the collision visible."
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": "mnw=1",
+      "expected_multiturn_score": "mnw=1_or_0",
+      "expected_delta": "0_or_-1_mnw",
+      "_note": "CONTROL with a TWIST. If canon-collision Rule 3 (skeleton_authoritative) is live, the 'Pete'/'Leila'/'Ervin' collision on parents.firstName writes should be caught and skipped with narrative_drift_vs_skeleton telemetry. This wouldn't improve scorer numerics directly, but mnw violation should drop from 1 to 0 on this specific case because parents.firstName='Pete' write is blocked by skeleton canon ('Leila','Ervin'). Worth measuring."
+    },
+
+    {
+      "id": "mt_case_012",
+      "source_case_id": "case_025",
+      "case_class": "CONTROL",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"],
+        "siblings.firstName": ["Verene Marie", "James Peter"],
+        "siblings.relation": ["sister", "brother"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Was there an animal in your childhood that felt most like yours?",
+          "narrator_reply": "Oh, my horse Grey. I loved that horse. I liked to be outside — my sister Verene hated it, but I was always out with Grey. And we had a dog named Spot, he was the last dog I had as a kid. Uncle Johnny got Spot when he rented a farm.",
+          "current_section": "developmental_foundations.childhood_pets",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [],
+            "staged": [],
+            "_note": "Pets class — explicitly out of pilot. Baseline fails on salience; LORI doesn't intervene."
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.000,
+      "expected_multiturn_score": 0.000,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — pets cluster. Reserved for future micro-flow."
+    },
+
+    {
+      "id": "mt_case_013",
+      "source_case_id": "case_045",
+      "case_class": "CONTROL",
+      "narratorId": "christopher-todd-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Janice", "Kent"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Did you have any pets growing up?",
+          "narrator_reply": "We had a big old yellow lab named Buster. He followed us everywhere. Best dog I ever had.",
+          "current_section": "developmental_foundations.childhood_pets",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [],
+            "staged": []
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.000,
+      "expected_multiturn_score": 0.000,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — silent-output fail. Pets cluster."
+    },
+
+    {
+      "id": "mt_case_014",
+      "source_case_id": "case_046",
+      "case_class": "CONTROL",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Were there animals around the house when you were growing up?",
+          "narrator_reply": "Oh, we always had cats. Barn cats mostly. And my dad had a horse named Dusty that he used for ranch work.",
+          "current_section": "developmental_foundations.childhood_pets",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [],
+            "staged": []
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.000,
+      "expected_multiturn_score": 0.000,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — pets cluster."
+    },
+
+    {
+      "id": "mt_case_015",
+      "source_case_id": "case_066",
+      "case_class": "CONTROL",
+      "narratorId": "janice-josephine-horne",
+      "pilot_fields": [],
+      "initial_canon": {
+        "parents.firstName": ["Josie", "Peter"],
+        "parents.relation": ["mother", "father"]
+      },
+      "turns": [
+        {
+          "turn_index": 0,
+          "lori_prompt": "Did you have any animals or pets when you were growing up?",
+          "narrator_reply": "Oh yes. I had a horse named Grey — I loved that horse. I was a real country girl, always outside. My sister Verene wouldn't go near the barn but I was out there every day. We also had Spot, he was our last dog when I was a kid. Uncle Johnny got Spot when he rented a farm. Johnny was the youngest of my dad's siblings — there was Tillie who was the oldest sister, then my dad Peter, then Steven, Joe, August, and Johnny...",
+          "current_section": "developmental_foundations.childhood_pets",
+          "current_era": "school_years",
+          "expected_emission": {
+            "writes": [],
+            "staged": [],
+            "noise_leakage_expected": true,
+            "_note": "This case is a salience-losing-to-family-entities failure. LORI doesn't intervene on the salience axis. Canon-collision Rule 3 should at least prevent siblings.firstName=Verene from being overwritten by the narrative pass given skeleton has Verene Marie in canon — but that mnw isn't the driving score."
+          }
+        }
+      ],
+      "expected_final_canon": {},
+      "expected_final_staged": [],
+      "disposition": "no_confirm_triggered",
+      "single_turn_baseline_score": 0.000,
+      "expected_multiturn_score": 0.000,
+      "expected_delta": 0.000,
+      "_note": "CONTROL — pets + noise_leakage cluster."
+    }
+  ],
+  "summary_expectations": {
+    "target_cases_expected_delta_sum": 3.500,
+    "target_cases_expected_improved_count": 6,
+    "target_cases_expected_regressed_count": 0,
+    "control_cases_expected_delta_sum": 0.000,
+    "control_cases_expected_improved_count": 0,
+    "control_cases_expected_regressed_count": 0,
+    "acceptance_gates": {
+      "PRIMARY_GREEN": "≥4 of 6 target cases improved by ≥0.3 AND 0 targets regressed",
+      "PRIMARY_YELLOW": "2-3 target cases improved by ≥0.3",
+      "PRIMARY_RED": "≤1 target case improved OR any target regressed",
+      "CONTROL_REQUIRED": "0 of 9 control cases drift by more than ±0.05",
+      "MASTER_EVAL_REQUIRED": "Single-turn master unchanged from locked floor (byte-stable)"
+    }
+  },
+  "known_limitations": [
+    "Narrator replies in turn_index >= 1 are canned — the harness replays these, not a live LLM narrator. Expected behavior on real narrators will diverge. Good enough for measuring dispatcher + reconciliation logic; not a proxy for real-world skip rates.",
+    "Skeleton canon is assumed pre-populated in initial_canon. If skeleton dispatcher fails or is skipped, all target-case expectations change. Pilot harness should log skeleton state separately.",
+    "Scorer policy: multiturn eval uses the same alt_defensible_paths + alias_match as master (Fix A precedent). No schema drift allowed between lanes."
+  ]
+}
