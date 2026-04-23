@@ -104,6 +104,246 @@ def _confidence_stats(items: List[dict]) -> Dict[str, Any]:
     }
 
 
+# ── WO-EX-DISCIPLINE-01 (#142) — run-report discipline header ───────────────
+# Captures the system state at run time (git SHA, flag state, api endpoint,
+# warmup classification, scorer/case-bank file hashes) so that when a master
+# eval produces movement, the reader can attribute the delta to a specific
+# code state without reconstructing it from memory or timestamp correlation.
+# Harness-side only; zero scoring impact. Output: first ~20 lines of the
+# .console.txt, plus a top-level "run_metadata" key on the JSON report.
+
+_DISCIPLINE_FLAG_NAMES = (
+    "HORNELORE_NARRATIVE",
+    "HORNELORE_ATTRIB_BOUNDARY",
+    "HORNELORE_PROMPTSHRINK",
+    "HORNELORE_SILENT_DEBUG",
+    "HORNELORE_SPANTAG",
+    "HORNELORE_INTAKE_MINIMAL",
+)
+
+
+def _capture_discipline_header(
+    api_base: str,
+    mode: str,
+    cases_path: Path,
+    output_path: Optional[Path],
+) -> tuple[Dict[str, Any], str]:
+    """Build the discipline-header dict + its rendered console text.
+
+    Called BEFORE the eval loop runs so the warmup-probe classification and
+    api.log freshness reflect the pre-run state of the stack. Never raises —
+    every sub-capture catches its own exceptions and records a graceful
+    'unavailable' string so a partial environment still produces a header.
+    """
+    import datetime as _dt
+    import hashlib as _hashlib
+    import subprocess as _sp
+
+    header: Dict[str, Any] = {}
+
+    # eval_tag — derived from master_loop01_<tag>.json convention
+    eval_tag: Optional[str] = None
+    if output_path is not None:
+        stem = output_path.stem
+        if stem.startswith("master_loop01_"):
+            eval_tag = stem[len("master_loop01_"):]
+    header["eval_tag"] = eval_tag
+    header["started_at"] = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    header["mode"] = mode
+
+    # Git state — best-effort; may be unreachable from sandbox mounts.
+    for key, cmd in (
+        ("git_sha",    ["git", "rev-parse", "--short=7", "HEAD"]),
+        ("branch",     ["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+    ):
+        try:
+            out = _sp.check_output(
+                cmd, cwd=str(REPO_ROOT),
+                stderr=_sp.DEVNULL, timeout=5,
+            ).decode().strip()
+            header[key] = out or "unavailable"
+        except Exception:
+            header[key] = "unavailable"
+    try:
+        status = _sp.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=str(REPO_ROOT), stderr=_sp.DEVNULL, timeout=5,
+        ).decode()
+        header["git_dirty"] = bool(status.strip())
+    except Exception:
+        header["git_dirty"] = None
+
+    # Flag state — exact runtime env-var values at harness spawn.
+    header["flags"] = {
+        name: os.environ.get(name, "0") for name in _DISCIPLINE_FLAG_NAMES
+    }
+
+    # API endpoint + live-only probes.
+    header["api_endpoint"] = api_base if mode == "live" else "(offline mode)"
+    header["api_model"] = "(offline mode)" if mode != "live" else None
+    header["api_model_hash"] = "(offline mode)" if mode != "live" else None
+    header["api_uptime_seconds"] = None
+    header["api_log_last_line_age_seconds"] = None
+    header["warmup_probe"] = {"classification": "skipped_offline"}
+
+    if mode == "live":
+        try:
+            import requests as _req  # noqa: F401
+            _have_requests = True
+        except ImportError:
+            _have_requests = False
+
+        # /status or /health — optional. Not all builds expose them; if absent
+        # we record 'unavailable' and proceed rather than failing the header.
+        if _have_requests:
+            import requests as _req
+            for path in ("/status", "/health"):
+                try:
+                    r = _req.get(
+                        f"{api_base.rstrip('/')}{path}",
+                        timeout=5,
+                    )
+                    if r.status_code == 200:
+                        try:
+                            j = r.json()
+                        except Exception:
+                            j = None
+                        if isinstance(j, dict):
+                            if "model" in j and j["model"]:
+                                header["api_model"] = str(j["model"])
+                            if "uptime_seconds" in j:
+                                header["api_uptime_seconds"] = j["uptime_seconds"]
+                            elif "uptime" in j:
+                                header["api_uptime_seconds"] = j["uptime"]
+                        break
+                except Exception:
+                    continue
+
+        if header["api_model"]:
+            header["api_model_hash"] = _hashlib.sha256(
+                str(header["api_model"]).encode("utf-8")
+            ).hexdigest()[:12]
+        else:
+            header["api_model"] = "unavailable — /status endpoint not exposed"
+            header["api_model_hash"] = "unavailable"
+
+        # api.log freshness — mtime of the last-written line, approximated
+        # by file mtime. Cheap, covers the "was the stack idle?" question.
+        api_log_path = REPO_ROOT / ".runtime" / "logs" / "api.log"
+        try:
+            if api_log_path.exists():
+                header["api_log_last_line_age_seconds"] = round(
+                    time.time() - os.path.getmtime(api_log_path), 1
+                )
+        except Exception:
+            header["api_log_last_line_age_seconds"] = None
+
+        # Warmup probe — one trivial /api/extract-fields call. RTT classifies
+        # the stack per CLAUDE.md cold-boot rule. Uses a janice person_id
+        # because janice is the most-populated narrator in the case bank and
+        # the extractor will always have a schema view for her.
+        if _have_requests:
+            import requests as _req
+            probe_payload = {
+                "person_id":           "93479171-0b97-4072-bcf0-d44c7f9078ba",
+                "session_id":          "discipline_warmup",
+                "answer":              "My name is Janice.",
+                "current_section":     "personal_identity",
+                "current_target_path": "personal.firstName",
+                "current_phase":       "childhood_origins",
+                "current_era":         "early_childhood",
+                "current_pass":        "pass1",
+                "current_mode":        "open",
+            }
+            try:
+                _t0 = time.time()
+                _r = _req.post(
+                    f"{api_base.rstrip('/')}/api/extract-fields",
+                    json=probe_payload, timeout=120,
+                )
+                _rtt_ms = round((time.time() - _t0) * 1000)
+                header["warmup_probe"] = {
+                    "post_extract_roundtrip_ms": _rtt_ms,
+                    "http_status": _r.status_code,
+                    "classification": (
+                        "hot"     if _rtt_ms <  30_000
+                        else "warming" if _rtt_ms <  90_000
+                        else "cold"
+                    ),
+                }
+            except Exception as e:
+                header["warmup_probe"] = {
+                    "post_extract_roundtrip_ms": None,
+                    "http_status": None,
+                    "classification": "unreachable",
+                    "error": f"{type(e).__name__}: {e}",
+                }
+        else:
+            header["warmup_probe"] = {
+                "classification": "unreachable",
+                "error": "requests package not installed",
+            }
+
+    # Scorer + case-bank hashes — detect scorer or fixture drift across runs
+    # that would otherwise masquerade as extractor movement.
+    try:
+        header["scorer_version"] = _hashlib.sha256(
+            Path(__file__).read_bytes()
+        ).hexdigest()[:12]
+    except Exception:
+        header["scorer_version"] = "unavailable"
+    try:
+        header["case_bank_version"] = _hashlib.sha256(
+            cases_path.read_bytes()
+        ).hexdigest()[:12]
+    except Exception:
+        header["case_bank_version"] = "unavailable"
+
+    # Render a ~20-line console-friendly representation.
+    lines: List[str] = []
+    lines.append(f"[discipline] eval_tag={header['eval_tag']}")
+    lines.append(f"[discipline] started_at={header['started_at']}")
+    lines.append(f"[discipline] mode={header['mode']}")
+    lines.append(
+        f"[discipline] git_sha={header['git_sha']} "
+        f"git_dirty={header['git_dirty']} "
+        f"branch={header['branch']}"
+    )
+    lines.append("[discipline] flags:")
+    for name in _DISCIPLINE_FLAG_NAMES:
+        v = header["flags"][name]
+        suffix = " (default)" if v == "0" else ""
+        lines.append(f"  {name}={v}{suffix}")
+    lines.append(f"[discipline] api_endpoint={header['api_endpoint']}")
+    lines.append(
+        f"[discipline] api_model={header['api_model']}  "
+        f"api_model_hash={header['api_model_hash']}"
+    )
+    if header["api_uptime_seconds"] is not None:
+        lines.append(
+            f"[discipline] api_uptime_seconds={header['api_uptime_seconds']}"
+        )
+    if header["api_log_last_line_age_seconds"] is not None:
+        lines.append(
+            f"[discipline] api_log_last_line_age_seconds="
+            f"{header['api_log_last_line_age_seconds']}"
+        )
+    wp = header["warmup_probe"]
+    lines.append("[discipline] warmup_probe:")
+    if wp.get("post_extract_roundtrip_ms") is not None:
+        lines.append(
+            f"  post_extract_roundtrip_ms={wp['post_extract_roundtrip_ms']}"
+        )
+    lines.append(f"  classification: {wp.get('classification', 'unknown')}")
+    if wp.get("error"):
+        lines.append(f"  error: {wp['error']}")
+    lines.append(f"[discipline] scorer_version={header['scorer_version']}")
+    lines.append(f"[discipline] case_bank_version={header['case_bank_version']}")
+
+    rendered = "\n".join(lines) + "\n"
+    return header, rendered
+
+
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
 def normalize_value(v: str) -> str:
@@ -386,6 +626,39 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                             winning_alt_score = ab
                             winning_alt_path = ap
 
+            # 4. WO-EX-VALUE-ALT-CREDIT-01 (#97) step-3 NEW branch: if alt path
+            # matched at all (but value fuzzy <0.5 vs expected), re-check the
+            # alt-path values against alt_defensible_values. This closes the
+            # value-drift-on-alt-path class — e.g. case_087 LLM emits
+            # greatGrandparents.ancestry='French' when expected is
+            # 'French (Alsace-Lorraine), German (Hanover)'. The path alt fires
+            # only on the primary expected value under step 3; step 4 is the
+            # second-chance scorer for a pre-curated alt-value set on the same
+            # alt path. Strictly additive: cases without alt_defensible_values
+            # are unaffected. Gate remains ≥0.5.
+            alt_value_hit = False
+            winning_alt_value_path = None
+            winning_alt_value_score = 0.0
+            winning_alt_value = None
+            if (not primary_hit and not value_alt_hit and not alt_hit
+                    and alt_paths and alt_values):
+                for ap in alt_paths:
+                    if ap not in extracted_map:
+                        continue
+                    for av_expected in alt_values:
+                        if not av_expected:
+                            continue
+                        ab = max(
+                            (score_field_match(av_expected, v)
+                             for v in extracted_map[ap]),
+                            default=0.0,
+                        )
+                        if ab >= 0.5 and ab > winning_alt_value_score:
+                            alt_value_hit = True
+                            winning_alt_value_score = ab
+                            winning_alt_value_path = ap
+                            winning_alt_value = av_expected
+
             if primary_hit:
                 tz_scores["must_extract"]["hit"] += 1
                 tz_details[detail_key] = {
@@ -415,6 +688,19 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                     "winning_via": "alt_defensible_path",
                     "winning_score": round(winning_alt_score, 3),
                     "alt_defensible_paths": list(alt_paths),
+                }
+            elif alt_value_hit:
+                # WO-EX-VALUE-ALT-CREDIT-01 (#97) step-3: alt path + alt value.
+                tz_scores["must_extract"]["hit"] += 1
+                tz_details[detail_key] = {
+                    "zone": zone,
+                    "extracted": True,
+                    "winning_path": winning_alt_value_path,
+                    "winning_via": "alt_defensible_path_and_value",
+                    "winning_score": round(winning_alt_value_score, 3),
+                    "matched_alt_value": winning_alt_value,
+                    "alt_defensible_paths": list(alt_paths),
+                    "alt_defensible_values": list(alt_values),
                 }
             else:
                 tz_details[detail_key] = {
@@ -537,6 +823,7 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     for fp, fs in field_scores.items():
         if fs["status"] == "missing":
             alt_set = _alt_paths_for(fp)
+            alt_vals_for_fp = _alt_values_for(fp)
             # Was it extracted under a different path?
             found_alt_defensible = False
             found_elsewhere = False
@@ -551,8 +838,31 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
                             break
                     if found_alt_defensible or found_elsewhere:
                         break
+            # WO-EX-VALUE-ALT-CREDIT-01 (#97) step-3 classifier: if none of the
+            # ≥0.7 checks fired but an alt path carries a value that fuzzy-
+            # matches any alt_defensible_values entry ≥0.5, tag defensible_
+            # alt_value_credit rather than schema_gap. Matches the scorer's
+            # step-3 crediting so the classifier mirrors the truth-zone hit.
+            found_alt_value_defensible = False
+            if (not found_alt_defensible and not found_elsewhere
+                    and alt_set and alt_vals_for_fp):
+                for efp in alt_set:
+                    if efp in extracted_map:
+                        for av_expected in alt_vals_for_fp:
+                            if not av_expected:
+                                continue
+                            for v in extracted_map[efp]:
+                                if score_field_match(av_expected, v) >= 0.5:
+                                    found_alt_value_defensible = True
+                                    break
+                            if found_alt_value_defensible:
+                                break
+                    if found_alt_value_defensible:
+                        break
             if found_alt_defensible:
                 failure_categories.append("defensible_alt_credit")
+            elif found_alt_value_defensible:
+                failure_categories.append("defensible_alt_value_credit")
             elif found_elsewhere:
                 failure_categories.append("field_path_mismatch")
             else:
@@ -1780,6 +2090,15 @@ def main():
         "--max-cases", type=int, default=None,
         help="Cap the number of cases to run (for quick debug loops)"
     )
+    # WO-EX-DISCIPLINE-01 (#142): optional cold-stack fail-fast when invoked
+    # from a combined restart+eval block. Default off — normal eval runs
+    # proceed regardless of warmup classification.
+    parser.add_argument(
+        "--fail-on-cold", action="store_true",
+        help=("Exit 2 if the discipline warmup probe classifies the stack "
+              "as 'cold' or 'unreachable'. Use only from a combined "
+              "restart+eval block; default is to proceed and record."),
+    )
     args = parser.parse_args()
 
     # Load cases
@@ -1821,6 +2140,49 @@ def main():
 
     print(f"Running {len(cases)} evaluation cases from {cases_path.name}")
 
+    # WO-EX-DISCIPLINE-01 (#142): build the discipline header BEFORE the eval
+    # loop runs so the warmup probe and api.log freshness reflect the pre-run
+    # stack state. Output-path is resolved here (not later) so eval_tag is
+    # captured in the header. The rendered text is printed to stdout now and
+    # also prepended to the .console.txt later via the tee buffer.
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = Path(args.output) if args.output else (
+        REPORT_DIR / "question_bank_extraction_eval_report.json"
+    )
+    try:
+        _discipline_header, _discipline_text = _capture_discipline_header(
+            api_base=args.api,
+            mode=args.mode,
+            cases_path=cases_path,
+            output_path=output_path,
+        )
+        print(_discipline_text, end="")
+        print()
+    except Exception as _dh_err:
+        # Header capture should never break the eval. Record the failure
+        # and proceed with a stub so downstream code can still reference
+        # run_metadata.
+        print(f"WARNING: discipline header capture failed: {_dh_err}",
+              file=sys.stderr)
+        _discipline_header = {
+            "eval_tag": None,
+            "capture_error": f"{type(_dh_err).__name__}: {_dh_err}",
+        }
+        _discipline_text = (
+            f"[discipline] capture_error: {type(_dh_err).__name__}\n"
+        )
+
+    # --fail-on-cold gate: applies only to the combined restart+eval case.
+    _wp = _discipline_header.get("warmup_probe") or {}
+    _wp_class = _wp.get("classification")
+    if args.fail_on_cold and _wp_class in ("cold", "unreachable"):
+        print(
+            f"ERROR: --fail-on-cold set and warmup_probe classification="
+            f"{_wp_class!r}; aborting before eval loop.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     # Run
     if args.mode == "offline":
         results = run_offline(cases)
@@ -1829,6 +2191,9 @@ def main():
 
     # Generate report
     report = generate_report(results, args.mode)
+    # Attach the discipline header as a top-level run_metadata key. Additive;
+    # scoring code never reads this.
+    report["run_metadata"] = _discipline_header
 
     # Print summary FIRST — stdout survives even if file write crashes.
     # Also tee into an in-memory buffer so we can write a .console.txt
@@ -1836,6 +2201,11 @@ def main():
     # silently failed under WSL pipe-buffering conditions — r4h's 0-byte
     # console was the trigger for adding this).
     _console_buffer = io.StringIO()
+    # WO-EX-DISCIPLINE-01 (#142): discipline header leads the .console.txt.
+    # Written directly into the buffer (not through _Tee) because it was
+    # already emitted to stdout before the eval loop ran.
+    _console_buffer.write(_discipline_text)
+    _console_buffer.write("\n")
     class _Tee(io.TextIOBase):
         def __init__(self, *streams): self._streams = streams
         def write(self, s):
@@ -1851,11 +2221,9 @@ def main():
     with contextlib.redirect_stdout(_tee):
         print_summary(report)
 
-    # Write report — atomic temp-file-then-rename to prevent truncation
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = Path(args.output) if args.output else (
-        REPORT_DIR / "question_bank_extraction_eval_report.json"
-    )
+    # Write report — atomic temp-file-then-rename to prevent truncation.
+    # output_path and REPORT_DIR were resolved earlier (pre-eval) for
+    # discipline-header eval_tag derivation; reuse that resolved path here.
     try:
         report_json = json.dumps(report, indent=2, ensure_ascii=False, default=str)
         fd, tmp_path = tempfile.mkstemp(

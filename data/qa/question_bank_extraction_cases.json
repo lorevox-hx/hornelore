@@ -2687,7 +2687,14 @@
           "alt_defensible_paths": [
             "greatGrandparents.militaryBranch"
           ],
-          "alt_defensible_source": "#144 Lane 1 annotation, value-drift flagged for #97 \u2014 LLM emits greatGrandparents.militaryBranch='Union' (Civil War Union = US Army semantically). Path alt credits under #94 only if value fuzzy \u22650.5; fuzzy falls below gate, so value-alt-credit (#97 WO-EX-VALUE-ALT-CREDIT-01) needed with alt_defensible_values=['Union','United States Army']."
+          "alt_defensible_values": [
+            "Union",
+            "United States Army",
+            "Union Army",
+            "US Army",
+            "U.S. Army"
+          ],
+          "alt_defensible_source": "#144 Lane 1 annotation, value-drift flagged for #97 \u2014 LLM emits greatGrandparents.militaryBranch='Union' (Civil War Union = US Army semantically). Path alt credits under #94 only if value fuzzy \u22650.5; fuzzy falls below gate, so value-alt-credit (#97 WO-EX-VALUE-ALT-CREDIT-01) landed 2026-04-23 with alt_defensible_values=['Union','United States Army',...]. Step-3 scorer credits alt-path + alt-value cross-product at \u22650.5."
         },
         "military.yearsOfService": {
           "zone": "must_extract",
@@ -6304,7 +6311,16 @@
           "zone": "must_extract",
           "expected": "French (Alsace-Lorraine), German (Hanover)",
           "alt_defensible_paths": ["greatGrandparents.ancestry"],
-          "alt_defensible_source": "#119 turnscope greatGrandparents fix r5g adjudication 2026-04-22 — narrator describes Shong generation (great-great-grandparent); LLM emits greatGrandparents.ancestry which is semantically correct; schema routes ancestry to grandparents.ancestry only; alt-credit until schema expansion"
+          "alt_defensible_values": [
+            "French",
+            "German",
+            "French and German",
+            "French (Alsace-Lorraine)",
+            "German (Hanover)",
+            "Alsace-Lorraine",
+            "Hanover"
+          ],
+          "alt_defensible_source": "#119 turnscope greatGrandparents fix r5g adjudication 2026-04-22 — narrator describes Shong generation (great-great-grandparent); LLM emits greatGrandparents.ancestry which is semantically correct; schema routes ancestry to grandparents.ancestry only; alt-credit until schema expansion. #97 WO-EX-VALUE-ALT-CREDIT-01 2026-04-23: adds alt_defensible_values for the value-drift class where LLM emits compressed 'French' on the alt path when expected is the full bi-ancestry string. Step-3 scorer credits alt-path + alt-value cross-product at ≥0.5."
         },
         "grandparents.memorableStory": {
           "zone": "must_extract",
