@@ -1125,6 +1125,10 @@
     if (!section) return;
     var bb = _bb(); if (!bb) return;
 
+    // WO-INTAKE-IDENTITY-01: restore before migrate — symmetric with _addRepeatEntry
+    // Covers code paths that invoke save without a prior render pass.
+    var pid = _currentPersonId();
+    if (pid) _restoreQuestionnaire(pid);
     if (bb && bb.questionnaire) {
       _migrateRemovedSectionsToLegacy(bb.questionnaire);
     }
