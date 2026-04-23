@@ -2683,7 +2683,11 @@
       "truthZones": {
         "military.branch": {
           "zone": "must_extract",
-          "expected": "Army"
+          "expected": "Army",
+          "alt_defensible_paths": [
+            "greatGrandparents.militaryBranch"
+          ],
+          "alt_defensible_source": "#144 Lane 1 annotation, value-drift flagged for #97 \u2014 LLM emits greatGrandparents.militaryBranch='Union' (Civil War Union = US Army semantically). Path alt credits under #94 only if value fuzzy \u22650.5; fuzzy falls below gate, so value-alt-credit (#97 WO-EX-VALUE-ALT-CREDIT-01) needed with alt_defensible_values=['Union','United States Army']."
         },
         "military.yearsOfService": {
           "zone": "must_extract",
@@ -2695,7 +2699,12 @@
         },
         "military.significantEvent": {
           "zone": "must_extract",
-          "expected": "Civil War service, Company G, 28th Infantry"
+          "expected": "Civil War service, Company G, 28th Infantry",
+          "alt_defensible_paths": [
+            "greatGrandparents.militaryEvent",
+            "greatGrandparents.militaryUnit"
+          ],
+          "alt_defensible_source": "#144 Lane 1 (WO-EX-SCHEMA-ANCESTOR-EXPAND-01, 2026-04-22) \u2014 narrator describes great-grandfather John Michael Shong's Civil War service; LLM emits greatGrandparents.militaryUnit='Company G, 28th Infantry' (substring-matches expected) and greatGrandparents.militaryEvent; schema routes military.* to narrator-era only; alt-credit for ancestor-era military emissions."
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write"
@@ -3105,7 +3114,11 @@
         },
         "community.role": {
           "zone": "must_extract",
-          "expected": "Foreman of finishing crew for cement forms"
+          "expected": "Foreman of finishing crew for cement forms",
+          "alt_defensible_paths": [
+            "parents.occupation"
+          ],
+          "alt_defensible_source": "#144 Lane 1 (WO-EX-SCHEMA-ANCESTOR-EXPAND-01, 2026-04-22) \u2014 LLM emits parents.occupation='foreman of a finishing crew for cement forms' (fuzzy ~0.95 vs expected); narrator's father Pete worked at Garrison Dam; LLM binds occupation to parent schema rather than community schema. Alt-credit under #94."
         },
         "education.earlyCareer": {
           "zone": "must_not_write"
