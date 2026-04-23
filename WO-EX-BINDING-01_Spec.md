@@ -1,121 +1,310 @@
-# WO-EX-BINDING-01 — Schema-binding rules for weakly-constrained narrative (Type C)
+# WO-EX-BINDING-01 — Type C schema-binding correction (residence/placeOfBirth, residence.period/education.gradeLevel, sibling leakage)
 
-**Status:** DRAFT (2026-04-23, authored after #95 PARK)
+**Status:** DRAFT v2 (2026-04-23, re-locked after Chris's Boris-style WO + Architecture Spec v1 paste)
 **Owner:** extractor lane (Claude)
-**Priority:** parallel lane — does not block SPANTAG promotion (#90)
-**Blocks:** nothing directly; may reduce friction for SPANTAG Pass 2 binding step
-**Blocked by:** nothing
-**Eval tag:** `r5l` or successor (runs after SPANTAG r5f-spantag + any BINDING rule layer)
-**Task:** new (created 2026-04-23 as follow-up #2 from SECTION-EFFECT Phase 3 PARK)
+**Priority:** parallel lane — sequenced after SPANTAG (#90), not coupled to it
+**Blocks:** nothing directly
+**Blocked by:** SPANTAG (#90) landing + `r5f-spantag` eval banked
+**Eval tag:** `r5g-binding`
+**Task:** new (created 2026-04-23 as follow-up #2 from SECTION-EFFECT Phase 3 PARK; re-locked 2026-04-23 per Chris's Boris WO)
 
 ---
 
+## 0. One-line intent
+
+Fix Type C schema binding without touching extraction routing, era/pass/mode plumbing, schema inventory, or SPANTAG's own implementation. This is a **binding-only** lane.
+
 ## 1. Problem statement
 
-The #95 SECTION-EFFECT causal matrix surfaced a question typology (Type A / B / C). Type C — weakly-constrained narrative — is the class the existing extractor handles worst. case_082 (janice-josephine-horne / developmental_foundations / childhood_moves) is the smoke-test exemplar.
+#95 SECTION-EFFECT Phase 3 established:
 
-**Core diagnosis (upgraded after per-item read).** The over-emission on case_082 is not a V6 regression — V1 already emits four `personal.placeOfBirth` items in the "ideal" configuration (full target_path + section + era/pass/mode). That reframes the whole lane: **Type C is mis-bound under ideal conditions, not just under prompt stripping.** Routing signals (target_path, section) don't fix it. Context signals (era/pass/mode) don't fix it. The failure is extractor-internal binding, not runtime context.
+- runtime context (era/pass/mode) is not causal for extraction behavior
+- Q2/Q3 effects are stratified by Type A / Type B / Type C, not unresolved
+- Type C remains mis-bound even in baseline V1
+- `case_082` V1 already emits four `personal.placeOfBirth` values; V6 preserves that and swaps `residence.period` for `education.gradeLevel`
+
+**Core Law (from Architecture Spec v1):** *Extraction is semantics-driven, but errors arise from failures in causal attribution at the binding layer.*
+
+The Binding Layer maps detected semantic spans → schema fields. It owns field selection, domain separation, and cardinality enforcement. `case_082` fails on all three.
 
 **Evidence from the matrix (per-item view, V1 and V6 both):**
 
 | Symptom | V1 (baseline) | V6 (target stripped) | Interpretation |
 |---|---|---|---|
-| `personal.placeOfBirth` emits 4 items (Spokane, Dodge, Glen Ullin, Strasburg) | ✓ | ✓ | **Two violations:** (a) domain-bind error — places she *lived* routed to birthplace-scalar slot; (b) cardinality violation — scalar field emits 4 values. Prompt-invariant. |
+| `personal.placeOfBirth` emits 4 items (Spokane, Dodge, Glen Ullin, Strasburg) | ✓ | ✓ | Two violations: (a) domain-bind error — places she *lived* routed to birthplace-scalar slot; (b) cardinality violation — scalar field emits 4 values. Prompt-invariant. |
 | `residence.period` with grade-range values ("first and second grade"…) | ✓ (3 items) | ✗ (swapped for `education.gradeLevel`) | Schema-slot drift when target_path absent. Target_path nudges but is not authoritative. |
 | `education.schooling` = "Sacred Hearts" (correct) | ✓ | ✓ | No problem. |
 
-case_082 passes the eval by accident — `alt_defensible_paths` credits the places-lived-as-birthplace emissions against the `residence.place` truth zone. But the underlying extraction is incorrect on two orthogonal axes: (i) the LLM is conflating three distinct schema families (`personal.*` narrator-scalar, `residence.*` temporal-list, `education.*` school-indexed) — **wrong-field** error; (ii) the LLM is emitting N values into a scalar slot — **wrong-cardinality** error. Both must be addressed for Type C to be honestly correct.
-
-Type A (case_008) and Type B (case_018) are not affected — Type A has target_path as its semantic anchor and Type B has evidence that is self-binding. Type C has neither: target_path helps at the margin (restores `residence.period`) but does not fix the underlying binding failure.
+Type A (case_008) and Type B (case_018) are not affected — Type A is target-anchored, Type B is self-binding. Type C has neither; this WO targets Type C only.
 
 ## 2. Scope (in)
 
-Binding rules in two layers: **wrong-field** (routing) and **wrong-cardinality** (constraint).
+Three conflation pairs plus one enforcement layer.
 
-**Layer 1 — routing rules (three conflation pairs evident in case_082):**
+**Conflation pairs:**
 
-1. **`residence.place` vs `personal.placeOfBirth`** — multi-value movement places must not land on a birthplace-scalar. When the question-section is `childhood_moves` / `middle_moves` / any `*_moves` section, `personal.placeOfBirth` is `must_not_write` unless the evidence text contains explicit birthplace language ("born in", "birthplace", "I was born").
-2. **`residence.period` vs `education.gradeLevel`** — grade-range values ("first and second grade") anchor residence duration when the narrator is describing a move; they anchor education timeline only when the narrator is describing schooling separately. Default: grade-range values co-occurring with place-name values attach to `residence.period`, not `education.gradeLevel`.
-3. **`siblings.*` vs narrative-reference collisions** — sibling first-name mentions inside a narrative about the narrator's life (not the sibling's) should land on `siblings.firstName` only when the narrator's explicit subject was a sibling. Otherwise mention-only with no write. (case_082 `siblings.firstName='Verene'` currently lands because the narrator mentions her — but the subject of the narrative was Janice's moves, not Verene.)
+1. **`residence.*` vs `personal.placeOfBirth`** — multi-value movement places must not land on the birthplace scalar unless evidence explicitly anchors birth.
+2. **`residence.period` vs `education.gradeLevel`** — grade-range values anchor residence duration when narrator is describing a move; they anchor education only when narrator is describing schooling separately.
+3. **`siblings.*` vs narrative/person mentions** — sibling fields only when the text explicitly names a sibling relation or is strongly anchored in local family context.
 
-**Layer 2 — cardinality enforcement:**
+**Cardinality discipline (minimal, PATCH 4 only):**
 
-4. **Scalar fields must emit ≤1 value per extraction call.** Enforced on the schema-declared scalar set: `personal.placeOfBirth`, `personal.dateOfBirth`, `personal.firstName`, `personal.lastName`, `personal.birthOrder`, and any other field the schema marks as scalar. When the LLM emits N>1 candidates for a scalar, the binding pass selects the best candidate (highest confidence, most-explicit anchor) and demotes the rest — either remapped to the correct list-field if routing rule 1–3 identifies one (e.g., four `personal.placeOfBirth` candidates in a `*_moves` section become four `residence.place` candidates), or dropped with a `[extract][binding] cardinality_demotion` log line.
-5. **Multi-value fields emit N as-is** (`residence.place`, `residence.period`, `education.schooling`, `siblings.firstName`, etc.). No enforcement needed — this is the default.
+4. **`personal.placeOfBirth` is scalar — emit ≤1 per extraction pass.** Protected identity fields (`placeOfBirth`, `dateOfBirth`, `timeOfBirth`, scalar `firstName`/`lastName` per schema) must not receive repeated multi-location narrative values. If >1 `personal.placeOfBirth` survives binding: keep the strongest explicit birth-anchored candidate; if none is explicitly anchored, keep the first and flag the rest for drop; **do not silently re-route extras in this WO**.
 
-The cardinality layer is the reason SPANTAG alone will not close Type C: SPANTAG separates span-detection from binding, but the binding step still needs a schema-aware constraint check before it commits. Without Layer 2, four `placeOfBirth` candidates remain four `placeOfBirth` items regardless of how cleanly Pass 1 detects them.
+Residence-shaped fields (`residence.place`, `residence.period`, `education.schooling`, `siblings.firstName`, etc.) may emit N values — no enforcement.
 
 ## 3. Scope (out)
 
-- **Global synonym tables.** This WO introduces section-conditioned routing rules only, not a lookup dictionary.
-- **Any change to `alt_defensible_paths` / `alt_defensible_values` scorer annotations.** Those are #94 and #97 respectively; BINDING-01 is extractor-side.
-- **Type A (case_008) and Type B (case_018) behavior.** Both are already handled correctly by the matrix-baseline extractor; the friendly-fire probe (§5) is the guardrail that catches any bleed-through.
-- **Naming / scope extension to a successor "FIELD-DISCIPLINE-01" lane.** Explicitly not used — #142 owns "discipline" (run-report header). If Layer 2 cardinality enforcement proves insufficient and a further domain-gating lane emerges, it will be named separately and scoped on its own evidence.
-- **Coupling with SPANTAG (#90).** BINDING-01 runs **after** SPANTAG, not alongside — see §4.
+- **No `extract.py` schema inventory changes.**
+- **No turnscope / section-routing changes.**
+- **No era/pass/mode prompt changes.**
+- **SPANTAG implementation itself is not modified.** This WO *rides on* SPANTAG's Pass 2 prompt surface; it does not rewrite SPANTAG.
+- **No new eval cases in this WO.**
+- **No rename or re-open of #95.**
+- **No global synonym tables.**
+- **No `alt_defensible_paths` / `alt_defensible_values` scorer changes** (#94 / #97 own those).
+- **No FIELD-DISCIPLINE-01 lane** — #142 owns "discipline" (run-report header).
+- **FIELD-CARDINALITY-01 is a separate deferred lane, not folded here.** Architecture Spec v1 §7.3 names it as a potential future WO layered on top of BINDING-01 if the minimal scalar guard in PATCH 4 proves insufficient. BINDING-01 does not pre-commit to that scope.
 
-## 4. Implementation options — sequencing decision
+## 4. Implementation strategy — Option A primary (re-locked 2026-04-23)
 
-**SPANTAG runs first, alone. BINDING-01 layers on top.** Three-agent convergence on this ordering:
+**Decision:** Option A first. Binding rules live in the SPANTAG Pass 2 prompt / binding contract. No standalone rule-layer in this WO. No fewshot-only patch as primary fix.
 
-- Coupling BINDING into SPANTAG's Pass 2 prompt would confound the eval gate — any r5f-spantag delta could be attributed to span-separation (SPANTAG), binding rules (BINDING-01), or interaction, and the matrix that produced this WO explicitly set up clean causal attribution. Collapsing the variables now throws that away.
-- Separating them preserves signal: (1) r5f-spantag eval measures pure span-separation lift; (2) r5l eval (BINDING on top of adopted SPANTAG) measures the binding delta.
-- This also means if SPANTAG's Pass 2 prompt rewrite itself lifts case_082 materially (possible — two-pass structure may improve routing as a side effect), BINDING-01's scope can contract accordingly.
+**Rationale:**
 
-**Three implementation options, evaluated against the separated-sequencing decision:**
+- Keeps causal attribution clean when paired with the sequencing decision below.
+- Aligns with #90 SPANTAG being promoted to active; BINDING-01 uses the SPANTAG Pass 2 scaffold as its delivery vector without adding a second mechanism.
+- Avoids a parallel rule-layer that would need its own env-flag guardrail, eval channel, and rollback surface.
 
-**Option B (preferred) — standalone rule layer in extract.py.**
-Add a post-LLM rewrite pass (layers 1 + 2) that inspects emitted items and applies remapping + cardinality demotion. Gated behind `HORNELORE_BINDING=1` flag. Lands **after** SPANTAG default-on. Independent of the SPANTAG gate; clean r5l delta. Requires explicit "this is not a Type C case" short-circuit (section-based gate: fire only on `*_moves`, `childhood_*`, `family_*_lore` sections, plus whichever sections the Type C classifier evolves to cover).
+**Option B (standalone rule layer, `HORNELORE_BINDING=1`):** demoted to conditional follow-up. Opens only if SPANTAG lands cleanly but binding still fails after Option A ships.
 
-**Option C — fewshot addition to `_NARRATIVE_FIELD_FEWSHOTS`.**
-Add a case_082-style fewshot demonstrating correct routing + scalar cardinality. Cheapest commit, but least durable — fewshots regress under LLM sampling and don't enforce cardinality deterministically. Fallback only; not primary.
+**Option C (fewshot-only patch to `_NARRATIVE_FIELD_FEWSHOTS`):** rejected as primary. Fewshots regress under sampling and don't enforce cardinality deterministically.
 
-**Option A — prompt rule layer in SPANTAG Pass 2.** Rejected for primary BINDING-01 delivery (couples the evals), but a targeted lightweight version of the routing rules MAY land as a SPANTAG Pass 2 fewshot addition if (and only if) SPANTAG's eval shows no Type C improvement without binding help. That would be scoped as a SPANTAG addendum, not a BINDING-01 deliverable, to keep the eval-attribution story clean.
+### Sequencing
 
-**Decision gate:** Option B primary; Option C fallback if B's cardinality demotion proves too aggressive on non-Type-C cases; Option A only as a scoped SPANTAG addendum if Type C signal is invisible without binding help.
+1. Land SPANTAG-only (no binding rules in prompt).
+2. Run `r5f-spantag` eval. Bank the pure span-separation delta.
+3. Land BINDING-01 (PATCH 1–5 into SPANTAG Pass 2 surface).
+4. Run `r5g-binding` eval. Bank the binding delta layered on SPANTAG.
 
-## 5. Acceptance (r5l — run **after** SPANTAG r5f-spantag has been adopted)
+Do **not** combine fresh SPANTAG changes and BINDING changes into the same tag. `r5f-spantag` and `r5g-binding` are the required tag pair.
 
-- **Smoke-test target: case_082.**
-  - `personal.placeOfBirth` emits ≤1 item (preferably 0, since Janice's birthplace is not clearly in the childhood_moves evidence text; certainly not 4). This is the cardinality-layer check.
-  - The four place values (Spokane/Dodge/Glen Ullin/Strasburg) land on `residence.place` (list field) via Layer 1 rule 1 remap. This is the routing-layer check.
-  - `residence.period` restored in V6-equivalent runs (target-stripped) — grade-range anchors land on residence, not education.
-  - `education.gradeLevel` not emitted unless evidence text describes schooling separately from place-movement.
-  - `siblings.firstName='Verene'` down-weighted or absent.
-  - Overall case_082 score stays 1.0 on the primary truth zone (`residence.place`, now via primary path not alt-credit), with the failure-category tags reducing: `noise_leakage` classifier should lose its trigger on this case.
-- **No regressions on Type A / Type B exemplars.** case_008 and case_018 unchanged.
-- **Master eval (r5l vs post-SPANTAG baseline):** pass count ≥ post-SPANTAG baseline, zero newly-failing cases from the BINDING rule firing on cases it shouldn't. v3 and v2 subsets flat or improved.
-- **must_not_write ≤ 2** (same two pre-existing offenders; no new violations from BINDING firing).
-- **Friendly-fire probe.** A 10-case sample of non-Type-C cases (5 Type A + 5 Type B proxies, chosen from the post-SPANTAG passing set) must emit byte-identical items with and without the BINDING flag. This is the guardrail that caught the r5e2 ATTRIBUTION-BOUNDARY regression — bake it in before landing.
-- **Clean causal attribution.** r5l minus post-SPANTAG baseline isolates the BINDING delta; SPANTAG's own signal is already banked separately. No collapsed variables.
+## 5. Patch targets
 
-## 6. Evaluation & rollback
+**Primary file:** `server/code/api/routers/extract.py` — the SPANTAG Pass 2 prompt / binding contract block, any colocated binding rubric, and (only for PATCH 4) a narrow post-bind area if one already exists.
 
-Eval tag `r5l`, master + standard post-eval audit block (pass count / v3 / v2 / mnw / flips / scorer-drift / truncation_rate).
+Do not patch unrelated prompt sections. Do not broaden scope.
 
-Rollback: if Option A, revert the Pass 2 prompt additions; if Option B, set `HORNELORE_BINDING=0` and byte-check against r5h. No scorer-side changes to revert.
+### PATCH 1 — Explicit Type C binding rules in the Pass 2 binding contract
 
-## 7. Open questions (resolve before implementation)
+FIND the Pass 2 prompt block that tells the model how to map evidence spans / extracted facts onto canonical field paths (where the model is told to choose canonical paths, prefer exact schema matches, avoid unrelated fields, output structured items).
 
-- Is the Type A/B/C classification cheap enough at runtime to gate BINDING firing? (Crude: BINDING applies only when `current_section` matches `*_moves` and target_path is in `residence.*`. Finer gates possible.)
-- Does Option A's SPANTAG coupling complicate the SPANTAG gate itself? (If BINDING fires inside SPANTAG Pass 2, does SPANTAG's eval need to separately credit BINDING for any improvement?)
-- Should `siblings.firstName` routing rule wait for a bigger-sample evidence base? (case_082 alone may not justify it; the `noise_leakage` classifier signal is diffuse.)
+INSERT / MERGE:
 
-## 8. Standard audit block (required at landing)
+```
+BINDING RULES — TYPE C NARRATIVE CORRECTION
 
-Report r5l:
+1. Residence vs place of birth
+- Use personal.placeOfBirth only for the narrator's actual birth location.
+- Do not write personal.placeOfBirth for places the narrator later lived,
+  moved to, attended school in, or passed through.
+- If multiple place names appear in a childhood-moves or life-sequence
+  narrative, treat them as residence-related unless the text explicitly
+  states birth.
 
-- total pass count
-- v3 / v2 contract subset
-- must_not_write violations
-- named affected cases (case_082 primary; any non-Type-C case that moves)
-- pass↔fail flips (must be 0 friendly-fire)
-- scorer-drift audit on every flip
-- truncation_rate
-- friendly-fire probe result (byte-identical on 10-case sample)
+2. Residence period vs education grade level
+- Use residence.period for time anchors attached to where the narrator
+  lived (e.g., "first and second grade in Strasburg", "third through
+  fifth in Glen Ullin", "sixth grade in Bismarck").
+- Do not bind grade-number timing phrases to education.gradeLevel when
+  they are functioning as move/lived-there timeline anchors.
+- Use education.gradeLevel only when the statement is about schooling
+  level itself rather than residence chronology.
+
+3. Sibling references vs narrative mentions
+- Only write siblings.* when the text explicitly identifies a sibling
+  relation or clearly names a sibling as a family member.
+- Do not create sibling fields from incidental person mentions unless
+  sibling relation is explicit or strongly anchored in local context.
+
+4. Cardinality discipline
+- personal.placeOfBirth is scalar: emit at most one value.
+- dateOfBirth, timeOfBirth, placeOfBirth and other protected identity
+  fields should not receive repeated multi-location narrative values.
+- Residence-related fields may take multiple values across a life
+  sequence when supported by the text.
+
+5. Movement narratives
+- In childhood_moves, middle_moves, or similar place-sequence prompts,
+  default ambiguous place mentions toward residence.* rather than
+  personal.placeOfBirth.
+```
+
+### PATCH 2 — Negative examples directly in prompt guidance
+
+FIND the example / instruction area where field-path examples are given.
+
+INSERT a tight contrast set:
+
+```
+Examples
+
+Correct:
+- "I was born in Williston, then we moved to Minot, then West Fargo."
+  -> personal.placeOfBirth = "Williston"
+  -> residence.place = "Minot"
+  -> residence.place = "West Fargo"
+
+Correct:
+- "We were in Strasburg for first and second grade, then Glen Ullin for
+   third through fifth."
+  -> residence.period = "first and second grade"
+  -> residence.period = "third through fifth grade"
+
+Incorrect:
+- "Strasburg", "Glen Ullin", "Bismarck" -> personal.placeOfBirth
+  Reason: these are movement/lived-there places, not birth location
+  unless birth is explicitly stated.
+
+Incorrect:
+- "first and second grade" -> education.gradeLevel
+  Reason: here grade labels are being used as residence timeline anchors,
+  not as school-level facts.
+
+Incorrect:
+- A named person mentioned in passing -> siblings.firstName
+  Reason: sibling binding requires explicit sibling relation or clear
+  local family anchor.
+```
+
+### PATCH 3 — Local tie-break for childhood_moves-style prompts
+
+FIND any part of the Pass 2 contract that references current section / topic / section semantics.
+
+INSERT:
+
+```
+Section-sensitive tie-break:
+If the current section/topic is about moves, places lived, or life
+chronology, and a phrase could map either to residence.* or to an
+identity/education field, prefer residence.* unless the text explicitly
+states birth or explicit schooling facts.
+```
+
+This is **not** reintroducing runtime-causal logic (era/pass/mode remain non-causal per #95). It is a local tie-break for schema binding in semantically ambiguous narratives — a Binding Layer concern, not a Control Layer one.
+
+### PATCH 4 — Minimal post-bind scalar guard for `personal.placeOfBirth`
+
+**Only apply if a narrow post-processing area for extracted items already exists in `extract.py`.** If no clean colocation exists, skip this patch rather than creating a large new rule layer. Deferred cardinality work belongs to FIELD-CARDINALITY-01.
+
+RULE: if more than one `personal.placeOfBirth` item is produced in a single extraction pass:
+
+- keep the strongest explicit birth-anchored candidate;
+- if none is explicitly birth-anchored, keep only the first and flag the rest for drop;
+- **do not silently re-route extras in this WO.** Silent re-routing could hide prompt failures; surface them.
+
+This is a last-resort cardinality guard, not the primary fix. The primary fix is PATCH 1.4 inside the prompt.
+
+### PATCH 5 — Debug marker
+
+Add one narrow debug log marker around any binding correction branch or scalar guard touched. Format:
+
+```
+[extract][BINDING-01]
+```
+
+Examples:
+
+- `[extract][BINDING-01] dropped repeated personal.placeOfBirth candidate`
+- `[extract][BINDING-01] residence.period favored over education.gradeLevel due to movement narrative tie-break`
+
+Required for eval interpretation — a targeted Type C run must show `[extract][BINDING-01]` evidence in logs if a correction or guard fires.
+
+## 6. Acceptance tests
+
+### A. Primary case — `case_082`
+
+Run on the exact case used in the #95 matrix.
+
+- `personal.placeOfBirth` emits ≤1 value (0 acceptable; 4 is not).
+- Childhood movement places do not pile into `personal.placeOfBirth`.
+- `residence.period` present for grade-range move anchors.
+- `education.gradeLevel` not used for move-timeline anchors unless the text is explicitly about school level.
+- No new sibling leakage from incidental mentions.
+
+This is the main gate.
+
+### B. Friendly-fire probe (bake in r5e2 lesson)
+
+10-case Type A/B sample (5 Type A proxies + 5 Type B proxies, chosen from the post-SPANTAG passing set). Require byte-identical or behavior-identical output with the BINDING surface off vs on, except where a sample genuinely contains the targeted Type C conflation.
+
+- Type A cases: no degradation.
+- Type B cases: invariant.
+- No new parse failures.
+- No new `must_not_write` violations.
+
+### C. Regression guard — identity damage
+
+Probe clean personal-identity cases (cases where the narrator has an explicit, unambiguous birth location statement).
+
+- True birth-location statements still bind to `personal.placeOfBirth`.
+- No drop in legitimate birth-extraction recall.
+- No changes to `dateOfBirth` / `timeOfBirth` behavior.
+
+### D. Cardinality check
+
+For every extraction in this WO:
+
+- `personal.placeOfBirth` count ≤1.
+- No duplicate scalar protected-identity fields.
+
+### E. Log visibility
+
+At least one targeted Type C run must show `[extract][BINDING-01]` evidence in `.runtime/logs/api.log` if any correction fires.
+
+## 7. Eval & rollback
+
+Tag: `r5g-binding`. Master eval + standard post-eval audit block (pass count / v3 / v2 / mnw / flips / scorer-drift / truncation_rate) plus the four probes above.
+
+Baseline for delta: `r5f-spantag` (post-SPANTAG, pre-BINDING). Binding delta isolated by construction.
+
+Rollback: revert PATCH 1–5 from the Pass 2 prompt block (single-file edit in `extract.py`). No scorer-side changes, no schema changes, no env flag gating (if PATCH 4 was applied with a flag, unset `HORNELORE_BINDING` to restore Option-A-prompt-only behavior, then revert PATCH 4). Byte-check against `r5f-spantag` after rollback.
+
+## 8. Failure conditions — stop and report
+
+Stop and escalate if:
+
+- Fixing `case_082` requires large nonlocal rule machinery.
+- Birth-location recall degrades on clean personal-information cases.
+- Type A cases begin collapsing or routing incorrectly.
+- SPANTAG and binding changes cannot be cleanly separated in eval (attribution breaks).
+- `must_not_write` count rises above the known r5h floor of 2.
+
+Disposition: **ADOPT** / **PARK** / **ITERATE** / **ESCALATE** per standard WO §8 semantics.
+
+## 9. Report deliverables
+
+1. Short code-review note on which of PATCH 1–5 landed and where.
+2. Exact patch list (OLD → NEW prompt block diffs).
+3. Eval command(s) executed.
+4. Before/after for `case_082` (V1 and V6 per-item views if re-run against the matrix).
+5. Friendly-fire probe result summary.
+6. Final disposition.
+7. Standard post-eval audit block + `[extract][BINDING-01]` log occurrences.
+
+## 10. Claude execution notes
+
+- Read the SPANTAG Pass 2 prompt surface in `extract.py` **before** writing any patch.
+- Do not broaden scope.
+- Do not re-open stage-routing theories.
+- Do not tune era/pass/mode.
+- Preserve existing extractor behavior outside the targeted Type C binding lane.
+- Cardinality work beyond PATCH 4 belongs to FIELD-CARDINALITY-01.
 
 ---
 
 ## Changelog
 
-- 2026-04-23: Drafted as follow-up #2 from #95 SECTION-EFFECT Phase 3 PARK. Smoke-test target case_082 V1 per-item view pulled and grounded (V1 already emits 4 `personal.placeOfBirth` items; V6 preserves that and swaps `residence.period` for `education.gradeLevel`). Cardinality/domain-gating lane name deferred per Chris's direction; explicitly not FIELD-DISCIPLINE-01 (#142 collision). Three implementation options scoped; decision gate favors Option A if SPANTAG lands cleanly.
-- 2026-04-23 (revision): Cardinality pulled **into** BINDING-01 scope as Layer 2 — per-item read confirmed the over-emission is prompt-invariant (V1 baseline already has it), which upgrades the diagnosis from "Type C gets worse without target" to "Type C is mis-bound under ideal conditions." Scalar fields enforce ≤1 value per extraction call; excess candidates demote (remap to list-field if routing identifies one, drop otherwise) with a `[extract][binding] cardinality_demotion` log line. SPANTAG↔BINDING coupling decision flipped: **sequenced, not coupled** — SPANTAG eval runs alone (r5f-spantag) for clean span-separation signal; BINDING-01 layers on top (r5l) for clean binding delta. Option A (BINDING inside SPANTAG Pass 2) demoted to fallback-only to protect eval attribution. Option B (standalone rule layer, `HORNELORE_BINDING=1`) promoted to primary. Successor-lane naming language tightened in §3 (still not FIELD-DISCIPLINE-01). Bumper sticker captured: **"Extraction is semantics-driven, but errors are binding-driven."**
+- 2026-04-23 (morning): Drafted as follow-up #2 from #95 SECTION-EFFECT Phase 3 PARK. Smoke-test target case_082 V1 per-item view pulled and grounded. Three implementation options scoped.
+- 2026-04-23 (afternoon): Cardinality pulled **into** BINDING-01 scope as Layer 2 — per-item read confirmed the over-emission is prompt-invariant (V1 baseline already has it), which upgrades the diagnosis from "Type C gets worse without target" to "Type C is mis-bound under ideal conditions." Option B promoted to primary; Option A (BINDING inside SPANTAG Pass 2) demoted to fallback to protect eval attribution. Eval tag `r5l`.
+- 2026-04-23 (evening, re-lock): Chris's Boris-style WO + Architecture Spec v1 paste inverts the Option A/B decision. **Option A is now primary**: binding rules live in the SPANTAG Pass 2 prompt / binding contract via PATCH 1–3. **Option B demoted to conditional follow-up** — opens only if SPANTAG lands cleanly but binding still fails. **Option C rejected**. Sequencing preserved via distinct eval tags: `r5f-spantag` → `r5g-binding`. Cardinality scope contracted — PATCH 4 is a minimal scalar guard for `personal.placeOfBirth` only, optional and colocation-gated; broader cardinality work becomes **FIELD-CARDINALITY-01** as a separate deferred lane (Architecture Spec v1 §7.3). `[extract][BINDING-01]` log marker standard codified (PATCH 5). Friendly-fire probe (§B) + identity-damage regression guard (§C) added to acceptance. Core Law quoted verbatim from Architecture Spec v1. Eval tag changed `r5l` → `r5g-binding`.
