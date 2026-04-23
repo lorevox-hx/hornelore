@@ -1,0 +1,59 @@
+{
+  "case_id": "case_008",
+  "variant": "V6",
+  "run": 4,
+  "tag": "se_r5h_20260423",
+  "stage": {
+    "section": "family_stories_and_lore",
+    "target_path": null,
+    "era": "school_years",
+    "pass": "pass1",
+    "mode": "open"
+  },
+  "payload_echo": {
+    "current_section": "family_stories_and_lore",
+    "current_target_path": null,
+    "current_target_paths": null,
+    "current_phase": "pre_school",
+    "current_era": "school_years",
+    "current_pass": "pass1",
+    "current_mode": "open"
+  },
+  "method": "fallback",
+  "elapsed_ms": 22011,
+  "items": [],
+  "score_result": {
+    "pass": false,
+    "overall_score": 0.0,
+    "v2_score": 0.0,
+    "failure_categories": [
+      "schema_gap"
+    ],
+    "truth_zone_scores": {
+      "must_extract": {
+        "total": 1,
+        "hit": 0,
+        "miss": 1
+      },
+      "may_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 2,
+        "hit": 2,
+        "miss": 0,
+        "violated": 0
+      }
+    },
+    "must_not_write_violations": []
+  },
+  "winning_via": []
+}

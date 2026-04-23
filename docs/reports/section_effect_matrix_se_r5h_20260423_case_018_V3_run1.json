@@ -1,0 +1,80 @@
+{
+  "case_id": "case_018",
+  "variant": "V3",
+  "run": 1,
+  "tag": "se_r5h_20260423",
+  "stage": {
+    "section": "middle_moves",
+    "target_path": "residence.place",
+    "era": "midlife",
+    "pass": "pass2a",
+    "mode": "open"
+  },
+  "payload_echo": {
+    "current_section": "middle_moves",
+    "current_target_path": "residence.place",
+    "current_target_paths": [
+      "residence.place",
+      "residence.period"
+    ],
+    "current_phase": "post_school",
+    "current_era": "midlife",
+    "current_pass": "pass2a",
+    "current_mode": "open"
+  },
+  "method": "llm",
+  "elapsed_ms": 21663,
+  "items": [
+    {
+      "fieldPath": "family.children.relation",
+      "value": "son",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "family.children.firstName",
+      "value": "Vincent",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "family.children.placeOfBirth",
+      "value": "Germany",
+      "confidence": 0.9
+    }
+  ],
+  "score_result": {
+    "pass": true,
+    "overall_score": 1.0,
+    "v2_score": 0.0,
+    "failure_categories": [
+      "defensible_alt_credit"
+    ],
+    "truth_zone_scores": {
+      "must_extract": {
+        "total": 1,
+        "hit": 1,
+        "miss": 0
+      },
+      "may_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 2,
+        "hit": 2,
+        "miss": 0,
+        "violated": 0
+      }
+    },
+    "must_not_write_violations": []
+  },
+  "winning_via": [
+    "alt_defensible_path"
+  ]
+}

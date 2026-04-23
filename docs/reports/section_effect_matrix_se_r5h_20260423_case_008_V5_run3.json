@@ -1,0 +1,59 @@
+{
+  "case_id": "case_008",
+  "variant": "V5",
+  "run": 3,
+  "tag": "se_r5h_20260423",
+  "stage": {
+    "section": null,
+    "target_path": null,
+    "era": null,
+    "pass": null,
+    "mode": null
+  },
+  "payload_echo": {
+    "current_section": null,
+    "current_target_path": null,
+    "current_target_paths": null,
+    "current_phase": null,
+    "current_era": null,
+    "current_pass": null,
+    "current_mode": null
+  },
+  "method": "fallback",
+  "elapsed_ms": 36127,
+  "items": [],
+  "score_result": {
+    "pass": false,
+    "overall_score": 0.0,
+    "v2_score": 0.0,
+    "failure_categories": [
+      "schema_gap"
+    ],
+    "truth_zone_scores": {
+      "must_extract": {
+        "total": 1,
+        "hit": 0,
+        "miss": 1
+      },
+      "may_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 2,
+        "hit": 2,
+        "miss": 0,
+        "violated": 0
+      }
+    },
+    "must_not_write_violations": []
+  },
+  "winning_via": []
+}

@@ -1,0 +1,56 @@
+==============================================================================
+  SECTION-EFFECT Phase 3 matrix — tag=se_r5h_20260423
+==============================================================================
+  cases    : case_008, case_018, case_082
+  variants : V1, V2, V3, V4, V5, V6
+  runs/cell: 4
+  total    : 72 planned, 72 attempted, 0 errors
+  api_base : http://localhost:8000
+
+  ── case_008  (christopher-todd-horne / phase=developmental_foundations / subTopic=family_stories_and_lore / baseline_era=school_years) ──
+    var era               pass    mode          paths emit  method          pass  shape @alt  
+    V1  school_years      pass1   open          1     1.0   llm             4/4   ·     Y     
+    V2  adolescence       pass1   open          1     1.0   llm             4/4   ·     Y     
+    V3  school_years      pass2a  open          1     1.0   llm             4/4   ·     Y     
+    V4  school_years      pass1   recognition   1     1.0   llm             4/4   ·     Y     
+    V5  —                 —       —             0     0     fallback        0/4   ·     ·     
+    V6  school_years      pass1   open          0     0     fallback        0/4   ·     ·     
+
+    Path-diff vs V1 (adds + removes, union over runs):
+      Q1 target-held, era/pass/mode vary : V2=0  V3=0  V4=0
+      Q2 section-held, target stripped    : V6=1
+      Q3 stage stripped entirely          : V5=1
+
+  ── case_018  (kent-james-horne / phase=midlife / subTopic=middle_moves / baseline_era=midlife) ──
+    var era               pass    mode          paths emit  method          pass  shape @alt  
+    V1  midlife           pass1   open          3     3.0   llm             4/4   ·     Y     
+    V2  later_life        pass1   open          3     3.0   llm             4/4   ·     Y     
+    V3  midlife           pass2a  open          3     3.0   llm             4/4   ·     Y     
+    V4  midlife           pass1   recognition   3     3.0   llm             4/4   ·     Y     
+    V5  —                 —       —             3     3.0   llm             4/4   ·     Y     
+    V6  midlife           pass1   open          3     3.0   llm             4/4   ·     Y     
+
+    Path-diff vs V1 (adds + removes, union over runs):
+      Q1 target-held, era/pass/mode vary : V2=0  V3=0  V4=0
+      Q2 section-held, target stripped    : V6=0
+      Q3 stage stripped entirely          : V5=0
+
+  ── case_082  (janice-josephine-horne / phase=developmental_foundations / subTopic=childhood_moves / baseline_era=school_years) ──
+    var era               pass    mode          paths emit  method          pass  shape @alt  
+    V1  school_years      pass1   open          6     11.0  llm             4/4   ·     Y     
+    V2  adolescence       pass1   open          6     11.0  llm             4/4   ·     Y     
+    V3  school_years      pass2a  open          6     11.0  llm             4/4   ·     Y     
+    V4  school_years      pass1   recognition   6     11.0  llm             4/4   ·     Y     
+    V5  —                 —       —             7     10.0  llm             4/4   ·     Y     
+    V6  school_years      pass1   open          6     10.0  llm             4/4   ·     Y     
+
+    Path-diff vs V1 (adds + removes, union over runs):
+      Q1 target-held, era/pass/mode vary : V2=0  V3=0  V4=0
+      Q2 section-held, target stripped    : V6=2
+      Q3 stage stripped entirely          : V5=3
+
+  NOTE: script emits evidence only. Author Q1/Q2/Q3 YES/NO/IND + decision
+        (ADOPT/PARK/ITERATE/ESCALATE) in docs/reports/
+        WO-EX-SECTION-EFFECT-01_CAUSAL.md using this summary + the
+        JSON at section_effect_matrix_se_r5h_20260423_summary.json.
+==============================================================================

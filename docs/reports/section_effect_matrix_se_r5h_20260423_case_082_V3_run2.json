@@ -1,0 +1,122 @@
+{
+  "case_id": "case_082",
+  "variant": "V3",
+  "run": 2,
+  "tag": "se_r5h_20260423",
+  "stage": {
+    "section": "childhood_moves",
+    "target_path": "residence.place",
+    "era": "school_years",
+    "pass": "pass2a",
+    "mode": "open"
+  },
+  "payload_echo": {
+    "current_section": "childhood_moves",
+    "current_target_path": "residence.place",
+    "current_target_paths": [
+      "residence.place",
+      "residence.period"
+    ],
+    "current_phase": "pre_school",
+    "current_era": "school_years",
+    "current_pass": "pass2a",
+    "current_mode": "open"
+  },
+  "method": "llm",
+  "elapsed_ms": 46892,
+  "items": [
+    {
+      "fieldPath": "personal.placeOfBirth",
+      "value": "Spokane, Washington",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "personal.placeOfBirth",
+      "value": "Dodge, North Dakota",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "education.schooling",
+      "value": "Sacred Hearts",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "personal.placeOfBirth",
+      "value": "Glen Ullin",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "personal.placeOfBirth",
+      "value": "Strasburg",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "parents.firstName",
+      "value": "Pete",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "parents.occupation",
+      "value": "worked at an aluminum factory",
+      "confidence": 0.9
+    },
+    {
+      "fieldPath": "residence.period",
+      "value": "first and second grade",
+      "confidence": 0.8
+    },
+    {
+      "fieldPath": "residence.period",
+      "value": "third, fourth, and fifth grade",
+      "confidence": 0.8
+    },
+    {
+      "fieldPath": "residence.period",
+      "value": "sixth grade",
+      "confidence": 0.8
+    },
+    {
+      "fieldPath": "siblings.firstName",
+      "value": "Verene",
+      "confidence": 0.9
+    }
+  ],
+  "score_result": {
+    "pass": true,
+    "overall_score": 1.0,
+    "v2_score": 0.5,
+    "failure_categories": [
+      "defensible_alt_credit",
+      "noise_leakage"
+    ],
+    "truth_zone_scores": {
+      "must_extract": {
+        "total": 2,
+        "hit": 2,
+        "miss": 0
+      },
+      "may_extract": {
+        "total": 3,
+        "hit": 3,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 3,
+        "hit": 2,
+        "miss": 0,
+        "leaked": 1
+      },
+      "must_not_write": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0,
+        "violated": 0
+      }
+    },
+    "must_not_write_violations": []
+  },
+  "winning_via": [
+    "alt_defensible_path",
+    "primary"
+  ]
+}

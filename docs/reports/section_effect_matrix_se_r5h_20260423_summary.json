@@ -1,0 +1,1051 @@
+{
+  "_wo": "WO-EX-SECTION-EFFECT-01 Phase 3 (#95)",
+  "generated": "2026-04-23T09:40:41",
+  "meta": {
+    "tag": "se_r5h_20260423",
+    "cases": [
+      "case_008",
+      "case_018",
+      "case_082"
+    ],
+    "variants": [
+      "V1",
+      "V2",
+      "V3",
+      "V4",
+      "V5",
+      "V6"
+    ],
+    "runs_per_cell": 4,
+    "total_extractions_planned": 72,
+    "total_extractions_attempted": 72,
+    "total_errors": 0,
+    "api_base": "http://localhost:8000",
+    "cases_path": "/mnt/c/Users/chris/hornelore/data/qa/question_bank_extraction_cases.json"
+  },
+  "per_case": {
+    "case_008": {
+      "narrator_id": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "sub_topic": "family_stories_and_lore",
+      "extract_priority": [
+        "earlyMemories.significantEvent",
+        "parents.notableLifeEvents"
+      ],
+      "baseline_era": "school_years",
+      "slots": {
+        "V1": {
+          "runs_completed": 4,
+          "path_set": [
+            "earlyMemories.significantEvent"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "emission_count_median": 1.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "family_stories_and_lore",
+            "target_path": "earlyMemories.significantEvent",
+            "era": "school_years",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        },
+        "V2": {
+          "runs_completed": 4,
+          "path_set": [
+            "earlyMemories.significantEvent"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "emission_count_median": 1.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "family_stories_and_lore",
+            "target_path": "earlyMemories.significantEvent",
+            "era": "adolescence",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        },
+        "V3": {
+          "runs_completed": 4,
+          "path_set": [
+            "earlyMemories.significantEvent"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "emission_count_median": 1.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "family_stories_and_lore",
+            "target_path": "earlyMemories.significantEvent",
+            "era": "school_years",
+            "pass": "pass2a",
+            "mode": "open"
+          }
+        },
+        "V4": {
+          "runs_completed": 4,
+          "path_set": [
+            "earlyMemories.significantEvent"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "emission_count_median": 1.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "family_stories_and_lore",
+            "target_path": "earlyMemories.significantEvent",
+            "era": "school_years",
+            "pass": "pass1",
+            "mode": "recognition"
+          }
+        },
+        "V5": {
+          "runs_completed": 4,
+          "path_set": [],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "emission_count_median": 0.0,
+          "methods": [
+            "fallback",
+            "fallback",
+            "fallback",
+            "fallback"
+          ],
+          "method_modal": "fallback",
+          "scores": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "score_median": 0.0,
+          "pass_count": 0,
+          "passed_any_run": false,
+          "shape_change_across_runs": false,
+          "pass_at_alt": false,
+          "winning_via_any": [],
+          "errors": [],
+          "stage": {
+            "section": null,
+            "target_path": null,
+            "era": null,
+            "pass": null,
+            "mode": null
+          }
+        },
+        "V6": {
+          "runs_completed": 4,
+          "path_set": [],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "emission_count_median": 0.0,
+          "methods": [
+            "fallback",
+            "fallback",
+            "fallback",
+            "fallback"
+          ],
+          "method_modal": "fallback",
+          "scores": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "score_median": 0.0,
+          "pass_count": 0,
+          "passed_any_run": false,
+          "shape_change_across_runs": false,
+          "pass_at_alt": false,
+          "winning_via_any": [],
+          "errors": [],
+          "stage": {
+            "section": "family_stories_and_lore",
+            "target_path": null,
+            "era": "school_years",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        }
+      },
+      "compare_vs_v1": {
+        "per_variant_vs_v1": {
+          "V1": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V2": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V3": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V4": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V5": {
+            "added_paths": [],
+            "removed_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "path_set_same": false,
+            "emission_count_delta": -1.0,
+            "method_changed": true
+          },
+          "V6": {
+            "added_paths": [],
+            "removed_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "path_set_same": false,
+            "emission_count_delta": -1.0,
+            "method_changed": true
+          }
+        },
+        "q1_path_diff_counts": {
+          "V2": 0,
+          "V3": 0,
+          "V4": 0
+        },
+        "q2_path_diff_count": 1,
+        "q3_path_diff_count": 1
+      }
+    },
+    "case_018": {
+      "narrator_id": "kent-james-horne",
+      "phase": "midlife",
+      "sub_topic": "middle_moves",
+      "extract_priority": [
+        "residence.place",
+        "residence.period"
+      ],
+      "baseline_era": "midlife",
+      "slots": {
+        "V1": {
+          "runs_completed": 4,
+          "path_set": [
+            "family.children.firstName",
+            "family.children.placeOfBirth",
+            "family.children.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "emission_count_median": 3.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "middle_moves",
+            "target_path": "residence.place",
+            "era": "midlife",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        },
+        "V2": {
+          "runs_completed": 4,
+          "path_set": [
+            "family.children.firstName",
+            "family.children.placeOfBirth",
+            "family.children.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "emission_count_median": 3.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "middle_moves",
+            "target_path": "residence.place",
+            "era": "later_life",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        },
+        "V3": {
+          "runs_completed": 4,
+          "path_set": [
+            "family.children.firstName",
+            "family.children.placeOfBirth",
+            "family.children.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "emission_count_median": 3.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "middle_moves",
+            "target_path": "residence.place",
+            "era": "midlife",
+            "pass": "pass2a",
+            "mode": "open"
+          }
+        },
+        "V4": {
+          "runs_completed": 4,
+          "path_set": [
+            "family.children.firstName",
+            "family.children.placeOfBirth",
+            "family.children.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "emission_count_median": 3.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "middle_moves",
+            "target_path": "residence.place",
+            "era": "midlife",
+            "pass": "pass1",
+            "mode": "recognition"
+          }
+        },
+        "V5": {
+          "runs_completed": 4,
+          "path_set": [
+            "family.children.firstName",
+            "family.children.placeOfBirth",
+            "family.children.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "emission_count_median": 3.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": null,
+            "target_path": null,
+            "era": null,
+            "pass": null,
+            "mode": null
+          }
+        },
+        "V6": {
+          "runs_completed": 4,
+          "path_set": [
+            "family.children.firstName",
+            "family.children.placeOfBirth",
+            "family.children.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "emission_count_median": 3.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "middle_moves",
+            "target_path": null,
+            "era": "midlife",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        }
+      },
+      "compare_vs_v1": {
+        "per_variant_vs_v1": {
+          "V1": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V2": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V3": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V4": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V5": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V6": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          }
+        },
+        "q1_path_diff_counts": {
+          "V2": 0,
+          "V3": 0,
+          "V4": 0
+        },
+        "q2_path_diff_count": 0,
+        "q3_path_diff_count": 0
+      }
+    },
+    "case_082": {
+      "narrator_id": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "sub_topic": "childhood_moves",
+      "extract_priority": [
+        "residence.place",
+        "residence.period"
+      ],
+      "baseline_era": "school_years",
+      "slots": {
+        "V1": {
+          "runs_completed": 4,
+          "path_set": [
+            "education.schooling",
+            "parents.firstName",
+            "parents.occupation",
+            "personal.placeOfBirth",
+            "residence.period",
+            "siblings.firstName"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            11,
+            11,
+            11,
+            11
+          ],
+          "emission_count_median": 11.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path",
+            "primary"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "childhood_moves",
+            "target_path": "residence.place",
+            "era": "school_years",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        },
+        "V2": {
+          "runs_completed": 4,
+          "path_set": [
+            "education.schooling",
+            "parents.firstName",
+            "parents.occupation",
+            "personal.placeOfBirth",
+            "residence.period",
+            "siblings.firstName"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            11,
+            11,
+            11,
+            11
+          ],
+          "emission_count_median": 11.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path",
+            "primary"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "childhood_moves",
+            "target_path": "residence.place",
+            "era": "adolescence",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        },
+        "V3": {
+          "runs_completed": 4,
+          "path_set": [
+            "education.schooling",
+            "parents.firstName",
+            "parents.occupation",
+            "personal.placeOfBirth",
+            "residence.period",
+            "siblings.firstName"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            11,
+            11,
+            11,
+            11
+          ],
+          "emission_count_median": 11.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path",
+            "primary"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "childhood_moves",
+            "target_path": "residence.place",
+            "era": "school_years",
+            "pass": "pass2a",
+            "mode": "open"
+          }
+        },
+        "V4": {
+          "runs_completed": 4,
+          "path_set": [
+            "education.schooling",
+            "parents.firstName",
+            "parents.occupation",
+            "personal.placeOfBirth",
+            "residence.period",
+            "siblings.firstName"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            11,
+            11,
+            11,
+            11
+          ],
+          "emission_count_median": 11.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path",
+            "primary"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "childhood_moves",
+            "target_path": "residence.place",
+            "era": "school_years",
+            "pass": "pass1",
+            "mode": "recognition"
+          }
+        },
+        "V5": {
+          "runs_completed": 4,
+          "path_set": [
+            "education.gradeLevel",
+            "education.schooling",
+            "parents.firstName",
+            "parents.occupation",
+            "personal.placeOfBirth",
+            "siblings.firstName",
+            "siblings.relation"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            10,
+            10,
+            10,
+            10
+          ],
+          "emission_count_median": 10.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path",
+            "primary"
+          ],
+          "errors": [],
+          "stage": {
+            "section": null,
+            "target_path": null,
+            "era": null,
+            "pass": null,
+            "mode": null
+          }
+        },
+        "V6": {
+          "runs_completed": 4,
+          "path_set": [
+            "education.gradeLevel",
+            "education.schooling",
+            "parents.firstName",
+            "parents.occupation",
+            "personal.placeOfBirth",
+            "siblings.firstName"
+          ],
+          "path_set_n_runs": 4,
+          "emission_counts": [
+            10,
+            10,
+            10,
+            10
+          ],
+          "emission_count_median": 10.0,
+          "methods": [
+            "llm",
+            "llm",
+            "llm",
+            "llm"
+          ],
+          "method_modal": "llm",
+          "scores": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "score_median": 1.0,
+          "pass_count": 4,
+          "passed_any_run": true,
+          "shape_change_across_runs": false,
+          "pass_at_alt": true,
+          "winning_via_any": [
+            "alt_defensible_path",
+            "primary"
+          ],
+          "errors": [],
+          "stage": {
+            "section": "childhood_moves",
+            "target_path": null,
+            "era": "school_years",
+            "pass": "pass1",
+            "mode": "open"
+          }
+        }
+      },
+      "compare_vs_v1": {
+        "per_variant_vs_v1": {
+          "V1": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V2": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V3": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V4": {
+            "added_paths": [],
+            "removed_paths": [],
+            "path_set_same": true,
+            "emission_count_delta": 0.0,
+            "method_changed": false
+          },
+          "V5": {
+            "added_paths": [
+              "education.gradeLevel",
+              "siblings.relation"
+            ],
+            "removed_paths": [
+              "residence.period"
+            ],
+            "path_set_same": false,
+            "emission_count_delta": -1.0,
+            "method_changed": false
+          },
+          "V6": {
+            "added_paths": [
+              "education.gradeLevel"
+            ],
+            "removed_paths": [
+              "residence.period"
+            ],
+            "path_set_same": false,
+            "emission_count_delta": -1.0,
+            "method_changed": false
+          }
+        },
+        "q1_path_diff_counts": {
+          "V2": 0,
+          "V3": 0,
+          "V4": 0
+        },
+        "q2_path_diff_count": 2,
+        "q3_path_diff_count": 3
+      }
+    }
+  }
+}

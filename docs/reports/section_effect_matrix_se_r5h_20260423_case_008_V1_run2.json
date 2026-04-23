@@ -1,0 +1,70 @@
+{
+  "case_id": "case_008",
+  "variant": "V1",
+  "run": 2,
+  "tag": "se_r5h_20260423",
+  "stage": {
+    "section": "family_stories_and_lore",
+    "target_path": "earlyMemories.significantEvent",
+    "era": "school_years",
+    "pass": "pass1",
+    "mode": "open"
+  },
+  "payload_echo": {
+    "current_section": "family_stories_and_lore",
+    "current_target_path": "earlyMemories.significantEvent",
+    "current_target_paths": [
+      "earlyMemories.significantEvent",
+      "parents.notableLifeEvents"
+    ],
+    "current_phase": "pre_school",
+    "current_era": "school_years",
+    "current_pass": "pass1",
+    "current_mode": "open"
+  },
+  "method": "llm",
+  "elapsed_ms": 27766,
+  "items": [
+    {
+      "fieldPath": "earlyMemories.significantEvent",
+      "value": "born in a car on the way to Richardton Hospital",
+      "confidence": 0.9
+    }
+  ],
+  "score_result": {
+    "pass": true,
+    "overall_score": 1.0,
+    "v2_score": 0.0,
+    "failure_categories": [
+      "defensible_alt_credit"
+    ],
+    "truth_zone_scores": {
+      "must_extract": {
+        "total": 1,
+        "hit": 1,
+        "miss": 0
+      },
+      "may_extract": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0
+      },
+      "should_ignore": {
+        "total": 0,
+        "hit": 0,
+        "miss": 0,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 2,
+        "hit": 2,
+        "miss": 0,
+        "violated": 0
+      }
+    },
+    "must_not_write_violations": []
+  },
+  "winning_via": [
+    "alt_defensible_path"
+  ]
+}
