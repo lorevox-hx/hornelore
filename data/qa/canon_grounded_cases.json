@@ -1,7 +1,7 @@
 {
   "_wo": "WO-EVAL-CANON-REBUILD-01 — canon-grounded seed corpus",
-  "_version": 1,
-  "_generated": "2026-04-20",
+  "_version": 2,
+  "_generated": "2026-04-23",
   "_notes": [
     "12 seed cases (4 per narrator: kent/janice/christopher) authored strictly from",
     "ui/templates/{narrator}.json PLUS Chris's 2026-04-20 canon corrections:",
@@ -15,7 +15,21 @@
     "    Vincent is Chris's BROTHER, not a child (template bug known).",
     "",
     "Schema shape matches question_bank_extraction_cases.json so the same score_case()",
-    "logic from scripts/run_question_bank_extraction_eval.py applies. truthZones drive scoring."
+    "logic from scripts/run_question_bank_extraction_eval.py applies. truthZones drive scoring.",
+    "",
+    "2026-04-23 expansion (#111): added 6 cases (cg_019–cg_024) → 24 total.",
+    "Balance preserved at 8/narrator (Kent/Janice/Chris).",
+    "Phase gap fill:",
+    "  early_adulthood       +1 (cg_019 Kent army, 1957-1959 stubborn date-range)",
+    "  middle_adulthood      +2 (cg_020 Chris career, 1997-2026 stubborn date-range;",
+    "                            cg_021 Janice Germany, 1964-1967 stubborn date-range)",
+    "  transitional_adolescence +1 (cg_023 Janice Strasburg 6th grade)",
+    "  legacy_reflection     +2 (cg_022 Kent retirement; cg_024 Chris advice/lessons)",
+    "Date-range stubborn targets: cg_019 / cg_020 / cg_021 (all three use",
+    "two-digit-year phrasing and duration-vs-range ambiguity, the two failure",
+    "modes LORI v1.1 dateRange confirm pass is designed to catch). Meets",
+    "WO-LORI-CONFIRM-01 §2.4 reactivation gate: ≥2 stubborn date-range cases",
+    "in corpus (criterion exceeded at 3)."
   ],
   "cases": [
     {
@@ -188,7 +202,10 @@
         "marriage.weddingDetails": {
           "zone": "must_extract",
           "expected": "Married October 10, 1959 in Bismarck, North Dakota",
-          "alt_defensible_paths": ["family.marriageDate", "family.marriagePlace"]
+          "alt_defensible_paths": [
+            "family.marriageDate",
+            "family.marriagePlace"
+          ]
         },
         "parents.firstName": {
           "zone": "must_not_write"
@@ -286,7 +303,10 @@
         "parents.notableLifeEvents": {
           "zone": "must_extract",
           "expected": "Played organ at movie theaters during the silent movie era",
-          "alt_defensible_paths": ["parents.occupation", "parents.notes"]
+          "alt_defensible_paths": [
+            "parents.occupation",
+            "parents.notes"
+          ]
         },
         "grandparents.firstName": {
           "zone": "must_not_write",
@@ -332,7 +352,10 @@
         "grandparents.memorableStories": {
           "zone": "may_extract",
           "expected": "Was 50 years old when she had Josie (Janice's mother)",
-          "alt_defensible_paths": ["grandparents.notes", "grandparents.memorableStory"],
+          "alt_defensible_paths": [
+            "grandparents.notes",
+            "grandparents.memorableStory"
+          ],
           "note": "Downgraded from must_extract to may_extract pending WO-EX-NARRATIVE-FIELD-01 — narrative-story fields are under-extracted by current pipeline even when the story is unambiguous in the reply."
         },
         "parents.firstName": {
@@ -672,7 +695,9 @@
         "siblings.memories": {
           "zone": "may_extract",
           "expected": "Born in a car on the way to Richardton hospital",
-          "alt_defensible_paths": ["siblings.notes"],
+          "alt_defensible_paths": [
+            "siblings.notes"
+          ],
           "note": "Narrative-story field — gated by WO-EX-NARRATIVE-FIELD-01."
         },
         "children.firstName": {
@@ -772,7 +797,10 @@
         "grandparents.memorableStories": {
           "zone": "may_extract",
           "expected": "George died when Ervin was only four years old",
-          "alt_defensible_paths": ["grandparents.notes", "grandparents.memorableStory"],
+          "alt_defensible_paths": [
+            "grandparents.notes",
+            "grandparents.memorableStory"
+          ],
           "note": "Narrative-story field — gated by WO-EX-NARRATIVE-FIELD-01."
         },
         "parents.firstName": {
@@ -821,7 +849,9 @@
         "grandparents.ancestry": {
           "zone": "may_extract",
           "expected": "Ukraine",
-          "alt_defensible_paths": ["grandparents.culturalBackground"]
+          "alt_defensible_paths": [
+            "grandparents.culturalBackground"
+          ]
         },
         "grandparents.firstName": {
           "zone": "may_extract",
@@ -881,6 +911,300 @@
         }
       },
       "scoringNotes": "Canon (2026-04-20 Chris): cats LSD + Speed in Grand Forks, Jinx the black cat in Bismarck. Tests multi-pet array extraction across species (companion to cg_012 which tests breed-vs-species routing). Family moved Grand Forks → Bismarck → Rapid City (after Chris's HS).",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_019",
+      "narratorId": "kent-james-horne",
+      "phase": "early_adulthood",
+      "subTopic": "military_service",
+      "questionBankAnchor": "When did you serve in the Army?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "military.yearsOfService",
+        "military.branch"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "When did you serve in the Army?",
+      "narratorReply": "Oh, the Army — I enlisted right after I turned eighteen, December of fifty-seven, and mustered out sometime in late fifty-nine. Two years and change.",
+      "expectedFields": {
+        "military.yearsOfService": "1957-1959",
+        "military.branch": "Army"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "military.yearsOfService": {
+          "zone": "must_extract",
+          "expected": "1957-1959",
+          "alt_defensible_values": [
+            "1957 to 1959",
+            "Dec 1957 - late 1959",
+            "December 1957 through 1959",
+            "about 2 years starting 1957"
+          ]
+        },
+        "military.branch": {
+          "zone": "must_extract",
+          "expected": "Army"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Kent enlisted at 18 (Dec 1957) per personal.dateOfBirth 1939-12-24 → Army per education.earlyCareer 'Army at 18'. STUBBORN date-range target for LORI v1.1 reactivation: two-digit year phrasing, duration-vs-range ambiguity.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_020",
+      "narratorId": "christopher-todd-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "career_longevity",
+      "questionBankAnchor": "How long have you been with West Las Vegas Schools?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "community.yearsActive",
+        "community.organization"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "How long have you been with West Las Vegas Schools?",
+      "narratorReply": "I started at West Las Vegas back in ninety-seven, so that's going on twenty-nine years now, right up until I retire this coming January.",
+      "expectedFields": {
+        "community.yearsActive": "1997-2026",
+        "community.organization": "West Las Vegas Schools"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "community.yearsActive": {
+          "zone": "must_extract",
+          "expected": "1997-2026",
+          "alt_defensible_values": [
+            "1997 to 2026",
+            "since 1997",
+            "1997 - Jan 2026",
+            "29 years beginning 1997"
+          ]
+        },
+        "community.organization": {
+          "zone": "must_extract",
+          "expected": "West Las Vegas Schools"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Chris at West Las Vegas Schools since 1997 per education.careerProgression; retirement 2026-01-01 per laterYears.retirement. STUBBORN date-range target: forward-looking range terminating at retirement, duration-rather-than-range phrasing ('going on twenty-nine years').",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_021",
+      "narratorId": "janice-josephine-horne",
+      "phase": "middle_adulthood",
+      "subTopic": "residence_period",
+      "questionBankAnchor": "How long did you live in Germany?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "residence.period",
+        "residence.place"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "How long did you live in Germany?",
+      "narratorReply": "We were in Germany about three years — sixty-four through sixty-seven, somewhere in there. Vincent was born there in sixty-four, and we were back stateside before Jason came along.",
+      "expectedFields": {
+        "residence.period": "1964-1967",
+        "residence.place": "Germany"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "residence.period": {
+          "zone": "must_extract",
+          "expected": "1964-1967",
+          "alt_defensible_values": [
+            "1964 to 1967",
+            "1964-1967",
+            "about 3 years starting 1964",
+            "mid-1960s for about three years"
+          ]
+        },
+        "residence.place": {
+          "zone": "must_extract",
+          "expected": "Germany"
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Janice+Kent lived in Germany per hobbies.travel 'Lived in Germany (where first son Vincent was born)'. Vincent's exact birth year not in canon template but consistent with Kent's Army service end + oldest-son birth order. STUBBORN date-range target: two-digit-year compact phrasing, duration/range hybrid.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_022",
+      "narratorId": "kent-james-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "retirement_reflection",
+      "questionBankAnchor": "What does your retirement look like?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "laterYears.retirement"
+      ],
+      "templateSource": "kent-james-horne.json",
+      "loriPrompt": "What does your retirement look like?",
+      "narratorReply": "Oh, retirement has been good. I garden — that keeps me busy. I read a lot, probably more than I should. And I spend more time with the grandchildren than I ever thought I would.",
+      "expectedFields": {
+        "laterYears.retirement": "Gardens, reads a lot, spends time with grandchildren"
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "laterYears.retirement": {
+          "zone": "must_extract",
+          "expected": "Gardens, reads a lot, spends time with grandchildren",
+          "alt_defensible_values": [
+            "Gardening, reading, spending time with grandchildren in retirement",
+            "Gardens; reads a lot; time with grandchildren"
+          ]
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon-safe narrative-field test for laterYears.retirement (empty in template). No career-phase claim — narratorReply is pure retirement-activity narrative (garden/read/grandchildren) consistent with tone. Currently 8 master cases target this path; this adds canon-controlled coverage.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_023",
+      "narratorId": "janice-josephine-horne",
+      "phase": "transitional_adolescence",
+      "subTopic": "school_memories",
+      "questionBankAnchor": "Tell me about middle school.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "education.schooling"
+      ],
+      "templateSource": "janice-josephine-horne.json",
+      "loriPrompt": "Tell me about middle school.",
+      "narratorReply": "Oh, Strasburg — sixth grade. The teacher was a nun I called a nut. She falsely accused me over a note that actually came from another girl, and she made Johnny Baumgartner wear a dunce hat in front of the whole class. Lawrence Welk was from Strasburg — did you know his wife was a nurse at the hospital there?",
+      "expectedFields": {
+        "education.schooling": "Sixth grade in Strasburg, ND; teacher was a nun Janice called 'a nut' who falsely accused her over a note from another girl and made classmate Johnny Baumgartner wear a dunce hat. Lawrence Welk was from Strasburg; his wife was a nurse at the local hospital."
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "education.schooling": {
+          "zone": "must_extract",
+          "expected": "Sixth grade in Strasburg, ND; teacher was a nun Janice called 'a nut' who falsely accused her over a note from another girl and made classmate Johnny Baumgartner wear a dunce hat. Lawrence Welk was from Strasburg; his wife was a nurse at the local hospital.",
+          "alt_defensible_values": [
+            "Strasburg ND sixth grade; nun teacher falsely accused her over a note; made Johnny Baumgartner wear dunce hat; Lawrence Welk's hometown",
+            "6th grade Strasburg ND with a nun teacher; class clown Johnny Baumgartner dunce hat; Lawrence Welk lived there"
+          ]
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Janice's education.schooling explicitly covers Strasburg 6th grade with this exact anecdote (see template L~200). Transitional-adolescence phase fills a gap (currently 2 cases total). Tests narrative consolidation of multiple vignettes into one schooling prose field.",
+      "style_bucket": "life_history",
+      "chunk_size": "small",
+      "noise_profile": "clean",
+      "case_mode": "contract"
+    },
+    {
+      "id": "cg_024",
+      "narratorId": "christopher-todd-horne",
+      "phase": "legacy_reflection",
+      "subTopic": "wisdom_transfer",
+      "questionBankAnchor": "What would you want your grandchildren to know?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "laterYears.adviceForFutureGenerations",
+        "laterYears.lifeLessons"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "What would you want your grandchildren to know?",
+      "narratorReply": "The thing I come back to most is persistence. You get knocked around a lot in any meaningful work — and the work I care most about is family, the people you build a life with. Focus on family, and keep going.",
+      "expectedFields": {
+        "laterYears.adviceForFutureGenerations": "Focus on family and persistence; meaningful work involves being knocked around, and family is the work that matters most.",
+        "laterYears.lifeLessons": "Persistence matters because meaningful work is hard; family is the most meaningful work."
+      },
+      "forbiddenFields": [
+        "family.spouse.firstName"
+      ],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "laterYears.adviceForFutureGenerations": {
+          "zone": "must_extract",
+          "expected": "Focus on family and persistence; meaningful work involves being knocked around, and family is the work that matters most.",
+          "alt_defensible_values": [
+            "Focus on family; persistence",
+            "Persistence and family-first",
+            "Build a life with family; keep going"
+          ],
+          "alt_defensible_paths": [
+            "laterYears.lifeLessons"
+          ]
+        },
+        "laterYears.lifeLessons": {
+          "zone": "must_extract",
+          "expected": "Persistence matters because meaningful work is hard; family is the most meaningful work.",
+          "alt_defensible_values": [
+            "Persistence; family is what matters most",
+            "Keep going; family-first",
+            "Focus on family; persistence"
+          ],
+          "alt_defensible_paths": [
+            "laterYears.adviceForFutureGenerations"
+          ]
+        },
+        "family.spouse.firstName": {
+          "zone": "must_not_write"
+        }
+      },
+      "scoringNotes": "Canon: Chris's laterYears.lifeLessons explicitly lists 'Focus on family, persistence, and building something meaningful'. legacy_reflection phase fills a gap (currently 1 case total). Dual-path defensible by design: advice/lessons semantically overlap in the narrator's answer.",
       "style_bucket": "life_history",
       "chunk_size": "small",
       "noise_profile": "clean",
