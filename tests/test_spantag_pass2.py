@@ -91,10 +91,17 @@ logging.getLogger("lorevox.extract").setLevel(logging.WARNING)
 
 class BuildPass2PromptTests(unittest.TestCase):
     """The Pass 2 prompt is schema-aware and surfaces the controlled priors
-    explicitly. Unlike Pass 1, Pass 2 IS allowed to see section / target_path /
-    era / pass / mode and the allowed output space."""
+    explicitly.
 
-    def test_prompt_carries_priors_explicitly(self):
+    r5f-spantag re-lock (2026-04-23, post-#95 Phase 3): the controlled-prior
+    block carries current_section + current_target_path ONLY. current_era /
+    current_pass / current_mode have been dropped from the prompt (Q1=NO:
+    era/pass/mode produced zero within-cell variance in the causal matrix).
+    The kwargs remain on the signature for backward-compat and future
+    experiments, but the prompt must NOT leak them into the LLM surface.
+    """
+
+    def test_prompt_carries_section_and_target_path(self):
         tags = [{"id": "t0", "type": "person", "text": "Janice",
                  "start": 10, "end": 16, "polarity": "asserted"}]
         _, user = _build_spantag_pass2_prompt(
@@ -102,15 +109,34 @@ class BuildPass2PromptTests(unittest.TestCase):
             tags,
             current_section="marriage",
             current_target_path="family.spouse",
-            current_era="early_adulthood",
-            current_pass="pass1",
-            current_mode="interview",
         )
         self.assertIn("marriage", user)
         self.assertIn("family.spouse", user)
-        self.assertIn("early_adulthood", user)
-        self.assertIn("pass1", user)
-        self.assertIn("interview", user)
+
+    def test_prompt_drops_era_pass_mode_from_priors_block(self):
+        # r5f-spantag re-lock: even when callers pass era/pass/mode, the
+        # prompt must NOT surface them — they are ignored controlled priors.
+        tags = [{"id": "t0", "type": "person", "text": "Janice",
+                 "start": 10, "end": 16, "polarity": "asserted"}]
+        _, user = _build_spantag_pass2_prompt(
+            "I married Janice in 1959.",
+            tags,
+            current_section="marriage",
+            current_target_path="family.spouse",
+            current_era="early_adulthood_zzz",
+            current_pass="pass1_zzz",
+            current_mode="interview_zzz",
+        )
+        # Unique sentinels so this test can't false-pass on an unrelated
+        # substring match somewhere else in the prompt.
+        self.assertNotIn("early_adulthood_zzz", user)
+        self.assertNotIn("pass1_zzz", user)
+        self.assertNotIn("interview_zzz", user)
+        # The priors-block description itself must also not enumerate
+        # era/pass/mode.
+        self.assertNotIn("current_era", user)
+        self.assertNotIn("current_pass", user)
+        self.assertNotIn("current_mode", user)
 
     def test_prompt_surfaces_allowed_field_paths(self):
         _, user = _build_spantag_pass2_prompt(

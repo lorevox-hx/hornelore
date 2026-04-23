@@ -1713,19 +1713,26 @@ def _is_compound_answer(answer: str) -> bool:
 
 
 def _extract_via_llm(answer: str, current_section: Optional[str], current_target: Optional[str]) -> tuple[List[dict], Optional[str]]:
-    """Route to two-pass or single-pass extraction based on feature flag.
+    """Route to SPANTAG, TWOPASS, or single-pass extraction based on feature flags.
 
-    WO-EX-TWOPASS-01: When HORNELORE_TWOPASS_EXTRACT=1, uses span-tagger
-    (pass 1) + field-classifier (pass 2). Falls back to single-pass on
-    any pass 1 failure. When flag is OFF, behavior is identical to pre-WO.
+    Dispatch order (first flag that is ON wins):
+      1. HORNELORE_SPANTAG (WO-EX-SPANTAG-01) — NL span-tag evidence pass +
+         schema-bind pass. Falls back to single-pass on any parse failure.
+      2. HORNELORE_TWOPASS_EXTRACT (WO-EX-TWOPASS-01) — span tagger + field
+         classifier. Falls back to single-pass on pass 1 failure.
+      3. single-pass (legacy) — the default. Byte-identical to pre-WO when
+         both flags are off.
     """
     try:
         from .. import flags as _flags
+        if _flags.spantag_enabled():
+            logger.info("[extract][spantag] flag ON — using SPANTAG pipeline")
+            return _extract_via_spantag(answer, current_section, current_target)
         if _flags.twopass_extract_enabled():
             logger.info("[extract][twopass] flag ON — using two-pass pipeline")
             return _extract_via_twopass(answer, current_section, current_target)
     except Exception as _e:
-        logger.warning("[extract][twopass] flag check failed (%s), using single-pass", _e)
+        logger.warning("[extract][dispatch] flag check failed (%s), using single-pass", _e)
 
     return _extract_via_singlepass(answer, current_section, current_target)
 
@@ -2998,17 +3005,21 @@ def _build_spantag_pass2_prompt(
     malformed JSON with trailing prose, and orphan sourceTagIds.
     """
     # --- Controlled priors block ----------------------------------------
+    # WO-EX-SPANTAG-01 (r5f-spantag re-lock, 2026-04-23): the controlled-prior
+    # block carries current_section + current_target_path ONLY. current_era /
+    # current_pass / current_mode have been dropped per #95 Phase 3 matrix
+    # (Q1=NO: era/pass/mode produced zero within-cell variance across 72 extractions,
+    # so they carry no independent signal in the binding surface). The kwargs
+    # remain on the signature for backward-compatibility with existing unit
+    # tests + future experiments, but are intentionally ignored by the prompt.
+    _ = current_era
+    _ = current_pass
+    _ = current_mode
     prior_lines: List[str] = []
     if current_section:
         prior_lines.append(f"  - current_section: {current_section}")
     if current_target_path:
         prior_lines.append(f"  - current_target_path: {current_target_path}")
-    if current_era:
-        prior_lines.append(f"  - current_era: {current_era}")
-    if current_pass:
-        prior_lines.append(f"  - current_pass: {current_pass}")
-    if current_mode:
-        prior_lines.append(f"  - current_mode: {current_mode}")
     priors_block = "\n".join(prior_lines) if prior_lines else "  (none supplied)"
 
     # --- Allowed output space block -------------------------------------
@@ -3052,10 +3063,10 @@ def _build_spantag_pass2_prompt(
         "  1. The narrator's answer (primary evidence).\n"
         "  2. A JSON array of evidence tags (Pass 1 output), each with id, type, "
         "text, start/end character offsets, and polarity.\n"
-        "  3. Controlled priors (current_section, current_target_path, "
-        "current_era, current_pass, current_mode). These are RANKING INPUTS, "
-        "not forces — they tell you what the interviewer was asking about, "
-        "but a clean non-narrator subject in Pass 1 BEATS the section prior.\n"
+        "  3. Controlled priors (current_section, current_target_path). "
+        "These are RANKING INPUTS, not forces — they tell you what the "
+        "interviewer was asking about, but a clean non-narrator subject in "
+        "Pass 1 BEATS the section prior.\n"
         "  4. The allowed output space (a list of canonical field paths "
         "scoped to the current sub-topic).\n"
         "  5. extract_priority: a soft preference list for which paths the "
@@ -3464,6 +3475,212 @@ def _spantag_extract_balanced_object_for(
 
 # ══════════════════════════════════════════════════════════════════════════════
 # End WO-EX-SPANTAG-01 Commit 2 block
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WO-EX-SPANTAG-01 Commit 3 — pipeline wiring (Pass 1 → Pass 2 → down-project)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Narrow scope per Chris's 2026-04-23 directive:
+#   - Pass 1 detects and tags spans only (schema-blind; scaffold from Commit 1)
+#   - Pass 2 binds spans to schema fields using section + target_path ONLY
+#     (era / pass / mode dropped per #95 Phase 3 Q1=NO evidence)
+#   - No BINDING-01 rules, no broad cardinality rules, no new scoring logic
+#   - Default OFF behind HORNELORE_SPANTAG flag; byte-stable when flag is off
+#
+# Success criteria judged by Type A/B/C outcomes at eval tag r5f-spantag:
+#   - Type A (target-anchored abstract, case_008): no regress
+#   - Type B (overdetermined factual, case_018): stable
+#   - Type C (weakly-constrained narrative, case_082): more legible even if
+#     not fully fixed (binding layer still dirty; that's BINDING-01's job)
+#
+# This block adds:
+#   - _extract_via_spantag()          : Pass 1 → Pass 2 pipeline with
+#                                       fallback-to-single-pass on any
+#                                       parse failure or empty-evidence state
+#   - _down_project_spantag_writes()  : strip SPANTAG-only keys so the
+#                                       downstream rails / guardrails see
+#                                       {fieldPath, value, confidence} cleanly
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _down_project_spantag_writes(writes: List[Dict[str, Any]]) -> List[dict]:
+    """Project SPANTAG Pass 2 writes into legacy extractor-item shape.
+
+    The legacy rails / guardrails consume {fieldPath, value, confidence}.
+    SPANTAG writes carry extra keys (priority, sourceSpan, sourceTagIds,
+    disagreement_reason, alt_path_section_driven, normalization) that the
+    rails do not understand. Strip them here. Retain priority / span /
+    tag-id metadata under private (underscore-prefixed) keys so a future
+    surfacer (UI, scorer audit) can read them without the rails choking.
+    """
+    items: List[dict] = []
+    for w in writes:
+        field_path = w.get("fieldPath")
+        if not isinstance(field_path, str) or not field_path.strip():
+            continue
+        if "value" not in w:
+            continue
+
+        # Default confidence mirrors singlepass items; priority-driven
+        # adjustments are minimal (secondary writes are still emitted at
+        # their stated confidence — the rails decide what to do with them).
+        try:
+            conf = float(w.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            conf = 0.5
+        if conf < 0.0:
+            conf = 0.0
+        elif conf > 1.0:
+            conf = 1.0
+
+        item: Dict[str, Any] = {
+            "fieldPath": field_path.strip(),
+            "value": w["value"],
+            "confidence": conf,
+        }
+
+        # Retain SPANTAG metadata under private keys. Rails must ignore
+        # any key starting with '_spantag_'; the eval scorer reads them.
+        pri = w.get("priority")
+        if pri in ("primary", "secondary"):
+            item["_spantag_priority"] = pri
+        if "sourceSpan" in w:
+            item["_spantag_source_span"] = w["sourceSpan"]
+        if "sourceTagIds" in w:
+            item["_spantag_source_tag_ids"] = w["sourceTagIds"]
+        if "disagreement_reason" in w:
+            item["_spantag_disagreement_reason"] = w["disagreement_reason"]
+        if w.get("alt_path_section_driven") is True:
+            item["_spantag_alt_path_section_driven"] = True
+
+        items.append(item)
+
+    return items
+
+
+def _extract_via_spantag(
+    answer: str,
+    current_section: Optional[str],
+    current_target: Optional[str],
+) -> tuple[List[dict], Optional[str]]:
+    """WO-EX-SPANTAG-01 Commit 3: two-pass extraction pipeline.
+
+    Pass 1 (schema-blind): emits a 10-tag-type NL inventory of evidence spans.
+    Pass 2 (schema-aware): binds Pass 1 tags to canonical fieldPaths, using
+        current_section + current_target_path ONLY as controlled priors
+        (era / pass / mode dropped per #95 Phase 3).
+    Down-project: strips SPANTAG-only keys so the rails see legacy items.
+
+    Falls back to _extract_via_singlepass on:
+      - empty Pass 1 raw output
+      - zero Pass 1 tags (no evidence to bind against)
+      - empty Pass 2 raw output
+      - Pass 2 parse failure that yields no writes AND no no_write
+    """
+    if not _is_llm_available():
+        logger.info("[extract][spantag] LLM unavailable (cached) — falling back to single-pass")
+        return _extract_via_singlepass(answer, current_section, current_target)
+
+    try:
+        from ..llm_interview import _try_call_llm
+    except ImportError:
+        logger.warning("[extract][spantag] _try_call_llm import failed — falling back")
+        return _extract_via_singlepass(answer, current_section, current_target)
+
+    # ── Pass 1 ──────────────────────────────────────────────────────────
+    p1_system, p1_user = _build_spantag_pass1_prompt(
+        answer,
+        current_section=current_section,
+        current_target_path=current_target,
+    )
+    p1_conv = f"_spantag_p1_{_uuid.uuid4().hex[:12]}"
+    p1_max_new = int(os.getenv("SPANTAG_PASS1_MAX_NEW", "512"))
+    p1_temp = float(os.getenv("SPANTAG_PASS1_TEMP", "0.1"))
+    p1_top_p = float(os.getenv("SPANTAG_PASS1_TOP_P", "0.9"))
+    logger.info(
+        "[extract][spantag][pass1] calling LLM max_new=%d temp=%.2f top_p=%.2f conv=%s",
+        p1_max_new, p1_temp, p1_top_p, p1_conv,
+    )
+    p1_raw = _try_call_llm(
+        p1_system, p1_user,
+        max_new=p1_max_new, temp=p1_temp, top_p=p1_top_p,
+        conv_id=p1_conv,
+    )
+    if not p1_raw:
+        logger.warning("[extract][spantag][fallback] Pass 1 returned empty raw")
+        _mark_llm_unavailable("spantag-pass1-empty")
+        return _extract_via_singlepass(answer, current_section, current_target)
+    _mark_llm_available()
+
+    tags = _parse_spantag_pass1(p1_raw, answer)
+    if not tags:
+        logger.info(
+            "[extract][spantag][fallback] Pass 1 yielded 0 tags — falling back to single-pass"
+        )
+        return _extract_via_singlepass(answer, current_section, current_target)
+
+    # ── Pass 2 ──────────────────────────────────────────────────────────
+    # Narrow-scope call: pass section + target_path ONLY. era/pass/mode are
+    # defaulted to None (they also no longer appear in the prompt body).
+    p2_system, p2_user = _build_spantag_pass2_prompt(
+        answer=answer,
+        pass1_tags=tags,
+        current_section=current_section,
+        current_target_path=current_target,
+    )
+    p2_conv = f"_spantag_p2_{_uuid.uuid4().hex[:12]}"
+    p2_max_new = int(os.getenv("SPANTAG_PASS2_MAX_NEW", "1024"))
+    p2_temp = float(os.getenv("SPANTAG_PASS2_TEMP", "0.15"))
+    p2_top_p = float(os.getenv("SPANTAG_PASS2_TOP_P", "0.9"))
+    logger.info(
+        "[extract][spantag][pass2] calling LLM max_new=%d temp=%.2f top_p=%.2f conv=%s "
+        "tags=%d section=%r target=%r",
+        p2_max_new, p2_temp, p2_top_p, p2_conv,
+        len(tags), current_section, current_target,
+    )
+    p2_raw = _try_call_llm(
+        p2_system, p2_user,
+        max_new=p2_max_new, temp=p2_temp, top_p=p2_top_p,
+        conv_id=p2_conv,
+    )
+    if not p2_raw:
+        logger.warning("[extract][spantag][fallback] Pass 2 returned empty raw")
+        _mark_llm_unavailable("spantag-pass2-empty")
+        return _extract_via_singlepass(answer, current_section, current_target)
+    _mark_llm_available()
+
+    parsed = _parse_spantag_pass2(p2_raw, tags, answer)
+    writes = parsed.get("writes", []) or []
+    no_writes = parsed.get("no_write", []) or []
+
+    # Pass 2 legitimately CAN return zero writes (all evidence refused with
+    # reasons — e.g. polarity=negated). Only fall back when BOTH writes and
+    # no_writes are empty (parser recovered nothing usable).
+    if not writes and not no_writes:
+        logger.warning(
+            "[extract][spantag][fallback] Pass 2 returned 0 writes and 0 no_writes"
+            " — falling back to single-pass"
+        )
+        return _extract_via_singlepass(answer, current_section, current_target)
+
+    # ── Down-project ────────────────────────────────────────────────────
+    items = _down_project_spantag_writes(writes)
+
+    raw_combined = (
+        f"[SPANTAG] P1_TAGS={len(tags)} P2_WRITES={len(writes)} "
+        f"P2_NOWRITES={len(no_writes)}"
+    )
+    logger.info(
+        "[extract][spantag][summary] tags=%d writes=%d no_writes=%d items=%d",
+        len(tags), len(writes), len(no_writes), len(items),
+    )
+    return items, raw_combined
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# End WO-EX-SPANTAG-01 Commit 3 block
 # ══════════════════════════════════════════════════════════════════════════════
 
 
