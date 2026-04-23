@@ -33,6 +33,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# WO-EX-FAILURE-PACK-01 (#141): cluster-JSON sidecar companion. Additive only;
+# the master report JSON remains byte-identical.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from failure_pack import build_failure_pack, render_failure_pack_console  # noqa: E402
+
 # ── Paths ───────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CASES_PATH = REPO_ROOT / "data" / "qa" / "question_bank_extraction_cases.json"
@@ -1890,6 +1895,38 @@ def main():
         print(f"Console summary written to {console_path}", file=sys.stderr)
     except Exception as e:
         print(f"WARNING: Failed to write console summary: {e}",
+              file=sys.stderr)
+
+    # WO-EX-FAILURE-PACK-01 (#141): failure-cluster sidecar. Grouped by
+    # failure_category × narrator × phase × score-bucket, plus hallucination
+    # prefix rollup and must_not_write breakout. Derived from the same report
+    # dict — zero impact on the master JSON. Failures here must not abort the
+    # run; the master eval remains the source of truth.
+    try:
+        # Derive eval_tag from --output filename when it matches the
+        # standard pattern master_loop01_<tag>.json — cheap heuristic.
+        eval_tag = None
+        stem = output_path.stem
+        if stem.startswith("master_loop01_"):
+            eval_tag = stem[len("master_loop01_"):]
+
+        pack = build_failure_pack(report, eval_tag=eval_tag)
+        pack_json = json.dumps(pack, indent=2, ensure_ascii=False, default=str)
+        # Sidecars live next to the master JSON with compound suffixes.
+        # Compound suffixes don't round-trip through Path.with_suffix (it only
+        # replaces the final `.x`), so build from stem.
+        base_stem = output_path.stem if output_path.suffix == ".json" else output_path.name
+        pack_json_path = output_path.parent / f"{base_stem}.failure_pack.json"
+        pack_json_path.write_text(pack_json, encoding="utf-8")
+
+        pack_console = render_failure_pack_console(pack)
+        pack_console_path = output_path.parent / f"{base_stem}.failure_pack.console.txt"
+        pack_console_path.write_text(pack_console, encoding="utf-8")
+        print(f"Failure pack written to {pack_json_path}", file=sys.stderr)
+        print(f"Failure pack console written to {pack_console_path}",
+              file=sys.stderr)
+    except Exception as e:
+        print(f"WARNING: Failed to write failure pack: {e}",
               file=sys.stderr)
 
     # Exit code: 0 if all expected-to-pass cases pass, 1 otherwise
