@@ -46,7 +46,7 @@ grep "\[extract\]\[turnscope\]" .runtime/logs/api.log | tail -40
 
 The eval script auto-writes `docs/reports/master_loop01_<SUFFIX>.console.txt` next to the JSON — no shell `| tee` needed (was silently producing 0-byte files under WSL pipe-buffer conditions; r4h's empty console triggered the fix on 2026-04-19).
 
-Suffix convention: latest **locked baseline is `r5f`** (2026-04-22, WO-EX-SILENT-OUTPUT-01 Phase 1+2 composite: 69/104, v3=41/62, v2=35/62, mnw=2). Earlier suffixes: `r4f` = Patch F narrowing; `r4g` = TURNSCOPE v1; `r4h` = TURNSCOPE v2 (#72 CLOSED); `r4i` = #67 date-field fix; `r4j` = PROMPTSHRINK (measured, not adopted); `r5a–r5e` = NARRATIVE-FIELD Phases 1–3; `r5e1` = prior floor (59/104); `r5e2` = ATTRIBUTION-BOUNDARY (REJECTED, flag-gated in-tree). Next: `r5g` = post-#119 turnscope greatGrandparents fix, or next extractor-lane patch.
+Suffix convention: latest **locked baseline is `r5h`** (2026-04-22, 70/104, v3=41/62, v2=35/62, mnw=2 known). Earlier ladder: `r4h` TURNSCOPE v2 (#72 closed) → `r4i` #67 date-field (R4 floor 55/104) → `r4j` PROMPTSHRINK (measured, not adopted; flag in-tree for SPANTAG Pass 2) → `r5a–r5e1` NARRATIVE-FIELD (r5e1 floor 59/104) → `r5e2` ATTRIBUTION-BOUNDARY (REJECTED, in-tree behind `HORNELORE_ATTRIB_BOUNDARY=1`) → `r5f` SILENT-OUTPUT Phase 1+2 (69/104) → `r5g` #119 turnscope greatGrandparents (null, closed complete-with-caveat) → `r5h` WO-SCHEMA-ANCESTOR-EXPAND-01 Lane 1 trial annotations (current). Next: `r5i` = full Lane 1 (case_033 + case_039) or next extractor-lane patch.
 
 The grep at the end rotates — change the tag to whatever filter is being tested (`turnscope`, `negation-guard`, `R4-E`, etc.) or drop it when not needed.
 
@@ -100,43 +100,27 @@ All of these are readable from the agent workspace mount via the session prefix.
 
 ## Current phase
 
-**LOOP-01 R5.5 Phase 1 — r5h ADOPTED as the active performance floor (70/104).** R4 is closed (r4i baseline, see `POST-R4-BASELINE-LOCK.md`). R5.5 evals r5a → r5e1 → r5e2 (REJECTED) → r5f → r5g (null) → r5h landed over 2026-04-20 → 2026-04-22. SPANTAG implementation still paused behind SECTION-EFFECT-01 Phase 3 (#95). The r5f→r5g null result reframes #119: the turnscope EXPAND is necessary but not sufficient — items die at schema validation because greatGrandparents.* identity fields aren't in schema. Real unlock is WO-SCHEMA-ANCESTOR-EXPAND-01 (#144).
+**LOOP-01 R5.5 — active baseline `r5h` (70/104, v3=41/62, v2=35/62, mnw=2).** Two known mnw offenders (pre-r5e1 carryover, both WO-LORI-CONFIRM-01 targets): `case_035` faith turn (`education.schooling` narrator-leak) and `case_093` spouse-detail follow-up (`education.higherEducation`). r5h delta vs r5f (69/104) is scorer-side only: +1 case_081 via `alt_defensible_paths` annotation adding `greatGrandparents.ancestry` as acceptable path for `grandparents.ancestry` truth zone. parse_success_rate 93.3%, truncation_rate 0.0%. ATTRIBUTION-BOUNDARY / NARRATIVE / PROMPTSHRINK exemplar blocks remain in-tree behind default-off env flags; default live behavior is the r5f composite.
 
-**Active baseline: r5h (70/104, v3=41/62, v2=35/62, mnw=2).** Same two known mnw offenders as r5e1/r5f: `case_035` (faith turn, `education.schooling` narrator-leak) and `case_093` (spouse-detail follow-up, `education.higherEducation` narrator-leak) — both classed as WO-LORI-CONFIRM-01 target cases. r5h delta vs r5f: +1 case_081 (0.00→1.00), zero regressions. The case_081 flip is scorer-side (alt_defensible_paths annotation adding `greatGrandparents.ancestry` as an acceptable path for `grandparents.ancestry` truth zone), not extractor-side — scorer-drift audit on the flip: zero drift (hit count rose, miss count fell, truth zone totals identical). case_087 same annotation, score 0.00→0.50 but still fails because LLM ancestry value 'French' fuzzy-matches <0.5 against expected 'French (Alsace-Lorraine), German (Hanover)' — escalates to #97. Stochasticity noise: case_046 0.667→0.333 (r5g→r5h), case_087 0.5→0.0→0.5 (r5f→r5g→r5h) — both traceable to LLM sampling variance, not patch-attributable. parse_success_rate=93.3% (unchanged), truncation_rate=0.0%. ATTRIBUTION-BOUNDARY exemplar block remains in-tree behind default-off `HORNELORE_ATTRIB_BOUNDARY=1` flag.
+r5h hallucination prefix rollup: parents 11, family 10, siblings 7, greatGrandparents 5, education 5, grandparents 4, laterYears 2, residence 1. The parents/family/siblings cluster is the dominant hallucination vector now, not greatGrandparents (that class dropped post-r5f).
 
-The real fix for the attribution/ownership class is still planned as **WO-LORI-CONFIRM-01** (parked spec, repo root). The greatGrandparents/parents schema_gap cluster is now planned as **WO-SCHEMA-ANCESTOR-EXPAND-01** (#144) — two-lane: (1) scorer-only `alt_defensible_paths` annotations for cases where the LLM emits ancestor-level paths with semantic alts in other truth paths (case_033 greatGrandparents.military* → military.*, case_039 parents.occupation → community.role/organization); (2) schema expansion adding greatGrandparents.* identity fields (firstName/lastName/relation) to reduce raw hallucination count. Lane 1 is zero-risk / test-only; Lane 2 is schema-side.
+Active sequence (reordered 2026-04-22 after r5h adopt):
 
-Active sequence (reordered 2026-04-22 after r5h ADOPT — #144 is the real unlock, #119 closes complete-with-caveat, #97 now has fresh r5h evidence):
+1. **#144 / WO-SCHEMA-ANCESTOR-EXPAND-01** — two-lane. Lane 1 = scorer-only `alt_defensible_paths` for case_033 (greatGrandparents.military* → military.*) and case_039 (parents.occupation → community.role/organization); zero-extractor-risk. Lane 2 = schema expansion (greatGrandparents.firstName/lastName/relation/ancestry); gated behind Lane 1 evidence. Spec: `WO-EX-SCHEMA-ANCESTOR-EXPAND-01_Spec.md`.
+2. **#97 / WO-EX-VALUE-ALT-CREDIT-01** — value-axis alt-credit under the same ≥0.5 fuzzy gate. r5h evidence: case_087 ancestry='French' vs 'French (Alsace-Lorraine), German (Hanover)'. Parallel cases 075, 088. Spec: `WO-EX-VALUE-ALT-CREDIT-01_Spec.md`.
+3. **#95 / SECTION-EFFECT Phase 3** — 2-3-case causal matrix (Phases 1 & 2 landed). Unblocks SPANTAG.
+4. **#90 / WO-EX-SPANTAG-01** — two-pass extraction. Implementation unblocks after #95.
+5. **Post-SPANTAG gate** — SPANTAG default-on opens R5.5 Pillar 2 (entity-role binding); else iterate.
+6. **WO-LORI-CONFIRM-01** — parked. v1 = 3-field pilot (`personal.birthOrder` / `siblings.birthOrder` / `parents.relation`). dateRange descoped to v1.1 pending #111 expansion.
+7. **WO-INTAKE-IDENTITY-01** (Chris's lane) — v3 spec FINAL, pending Chris's decisions on rollback-flag data path + idempotency-guard legacy-key scan before endpoint impl.
 
-1. **#144 / WO-SCHEMA-ANCESTOR-EXPAND-01** — two-lane spec addressing the greatGrandparents/parents/siblings cluster that dominates r5h hallucinations (parents 11, family 10, siblings 7, greatGrandparents 5, education 5). Lane 1 (scorer-only alt annotations for case_033/case_039) lands first and is zero-extractor-risk. Lane 2 (schema expansion) requires schema+router changes and is gated behind Lane 1 evidence. See `WO-EX-SCHEMA-ANCESTOR-EXPAND-01_Spec.md`.
-2. **#97 / WO-EX-VALUE-ALT-CREDIT-01** — scorer-policy spec for value-axis alt-credit. When `alt_defensible_paths` matches but the value fails the ≥0.5 fuzzy gate, allow an `alt_defensible_values` array (pre-curated acceptable value variants) to grant credit under the same ≥0.5 gate. r5h evidence: case_087 (ancestry='French' vs 'French (Alsace-Lorraine), German (Hanover)'). Parallel cases 075, 088. See `WO-EX-VALUE-ALT-CREDIT-01_Spec.md`.
-3. **#63 / WO-EX-SECTION-EFFECT-01 Phase 3** (#95) — 2–3-case causal matrix varying stage context. Phases 1 & 2 landed. Unblocks SPANTAG.
-4. **#90 / WO-EX-SPANTAG-01** — two-pass extraction (spec full). **Implementation unblocks after SECTION-EFFECT-01 Phase 3 signoff.** See `WO-EX-SPANTAG-01_Spec.md`.
-5. **Post-SPANTAG gate** — if SPANTAG ships default-on, R5.5 Pillar 2 (entity-role binding) opens. If it doesn't, iterate or revisit.
-6. **WO-LORI-CONFIRM-01** — parked spec. v1 scope = 3-field pilot (personal.birthOrder / siblings.birthOrder / parents.relation); date-range descoped to v1.1 conditional on #111 corpus expansion.
-7. **WO-INTAKE-IDENTITY-01** (Chris's lane) — manual HITL intake for narrator identity (v3 spec FINAL, pending Chris's HIGH-severity decisions on rollback-flag data path + idempotency-guard legacy-key scan before endpoint impl).
+Parallel cleanup lanes (do not block the main sequence): **#141 WO-EX-FAILURE-PACK-01** (cluster-JSON sidecar per master eval, grouped by failure_category × narrator × phase-family); **#142 WO-EX-DISCIPLINE-01** (run-report header: git SHA, flag state, model hash, api.log freshness window, stack uptime); **#111 canon-grounding corpus expansion** (target ~24 cases; ≥2 stubborn date-range needed to reactivate LORI v1.1 dateRange bank).
 
-Parallel cleanup lanes (do not block the main sequence):
+Each WO reports the standard audit block (extended with `truncation_rate`) before being called done.
 
-- **#141 / WO-EX-FAILURE-PACK-01** — cluster-JSON output for each master eval, grouping failures by (failure_category, narrator, phase-family) for faster triage. Spec drafted 2026-04-22.
-- **#142 / WO-EX-DISCIPLINE-01** — run-report discipline header on every eval console (git SHA, flag state, model hash, api.log freshness window, stack uptime). Spec drafted 2026-04-22.
-- **#111 / canon-grounding corpus expansion** — extend canon-grounded pack beyond 14 cases toward ~24; must add ≥2 stubborn date-range cases to reactivate LORI v1.1 dateRange bank.
+**Closed (suffix → outcome):** `r4h` #72 TURNSCOPE; `r4i` #67 date-field; `r4j` #81 PROMPTSHRINK (measured, not adopted — flag in-tree for SPANTAG Pass 2); `r5e1` WO-EX-NARRATIVE-FIELD-01 (Phase 2 tighten + CLAIMS-02 role-exempt + Fix A/C composite); `r5f` WO-EX-SILENT-OUTPUT-01 Phase 1+2 (salvage-preamble-tolerance at `extract.py` L3481–5 + 5-counter silent-root cascade L6609–6927); `r5g` #119 turnscope greatGrandparents (complete-with-caveat — EXPAND fires but items die at schema validation; real unlock is #144); WO-STT-LIVE-02 fragile-fact transcript guard (backend + frontend, byte-stable with eval harness).
 
-Each WO above must report the standard audit block (extended with `truncation_rate`) before being called done.
-
-**Closed:**
-- **#72 / WO-EX-TURNSCOPE-01** (r4h: case_094 pass, 060/062 restored, must_not_write=0).
-- **#67 / WO-EX-PATCH-H-DATEFIELD-01** (r4i: case_011 + case_012 green).
-- **#68 / case_053 wrong-entity** — disposition memo, deferred to R6 Pillar 2.
-- **#81 / WO-EX-PROMPTSHRINK-01** — measured at r4j, **not adopted**. r4j produced one regression (`case_012` green→red via schema_gap/spouse-DOB fabrication) and zero gains. 15/15 stubborn-pack truncation across 3 runs showed the frontier is truncation-dominated, not prompt-verbosity-dominated. Flag stays in-tree (`HORNELORE_PROMPTSHRINK=1`) for possible SPANTAG Pass 2 pairing. See `WO-EX-PROMPTSHRINK-01_Spec.md` Disposition section.
-- **WO-EX-NARRATIVE-FIELD-01** (r5e1: Phase 2 tighten + CLAIMS-02 role-exempt + Fix A/C composite adopted).
-- **WO-EX-SILENT-OUTPUT-01 Phase 1+2** (r5f: 59→69/104, +10 newly-passed, 0 newly-failed, zero scorer drift — salvage-preamble-tolerance one-line fix to `_parse_llm_json` L3481–3485 + 5-counter silent-root cause cascade around primary extraction loop L6609–6927).
-- **#119 / turnscope greatGrandparents fix** (r5g, complete-with-caveat) — `allowed_branches` correctly expands (observed EXPAND events in api.log: `base=grandparents expanded=grandparents,greatGrandparents reason=119_ancestor_subtree`), zero master-eval regressions vs r5f, zero master-eval lift on its own (r5g = 69/104 identical to r5f; items the EXPAND lets through still die at schema validation because greatGrandparents.* identity fields aren't in schema). Real unlock tracked as #144 (WO-SCHEMA-ANCESTOR-EXPAND-01).
-
-**Deferred (long tail):**
-- Hermes 3 / Qwen A/B — sequenced *after* SPANTAG signoff to keep attribution clean (see SPANTAG spec Appendix A).
-- KORIE staged-pipeline (detection/OCR/IE) — conditional on SPANTAG delivering ≥20% topline lift or ≥3 stubborn flips (Appendix B).
-- #35 V4 scope axes, R6 Pillars 2 & 3.
+**Deferred (long tail):** Hermes 3 / Qwen A/B (post-SPANTAG, attribution clean-up first); KORIE staged-pipeline (conditional on SPANTAG ≥20% lift or ≥3 stubborn flips); #35 V4 scope axes; R6 Pillars 2 & 3; **#68 case_053 wrong-entity** (disposition memo, deferred to R6 Pillar 2).
 
 ## Chris's working preferences
 
@@ -146,6 +130,20 @@ Each WO above must report the standard audit block (extended with `truncation_ra
 - When three agents (Claude/Gemini/ChatGPT) converge on the same answer, act on it; don't re-argue.
 - Do not regenerate command blocks from memory — copy from this file.
 - Read logs and reports directly from the workspace mount; don't ask Chris to paste.
+
+## Companion stack (Lori — the point of the whole system)
+
+The extraction pipeline is one output surface; **Lori is the companion** — designed around older-adult narrators with possible cognitive decline. When planning UI, interview flow, or LORI-CONFIRM work, remember the narrator may not be able to correct, clarify, or re-engage on a standard cadence.
+
+**WO-10C Cognitive Support Mode (landed, dementia-safe):** six behavioral guarantees — protected silence, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts. Silence timing stretched 30s/55–75s → 120s/300s/600s. Re-entry bypasses confidence gates. **Known gap: no operator UI toggle yet — flag must be set programmatically.** Report: `Hornelore-WO10C-Cognitive-Support-Report.docx`.
+
+**Facial awareness stack (browser-only, zero video transmission):** MediaPipe FaceMesh (468 landmarks) → geometry rules → affect labels (steady / engaged / reflective / moved / distressed / overwhelmed). Never ships video, raw landmarks, or raw emotion vectors — only derived `affect_state` + confidence + duration. `facial-consent.js` persists consent in `localStorage['lorevox_facial_consent_granted']`. `emotion.js` L348 has a load-bearing SIMD→non-SIMD WASM redirect (SIMD build crashes at `loadGraph` on Chris's stack). `cognitive-auto.js` v7.4C policy: visual can *accelerate* but not *cause* a mode transition; text has veto.
+
+**Camera / mic / TTS state-machine interactions:** activation chain is `toggleEmotionAware()` → `FacialConsent.request()` → `LoreVoxEmotion.init()` → `LoreVoxEmotion.start()` → `cameraActive=true` + `state.inputState.cameraActive=true` + `window.lv74.showCameraPreview()`. Two truth sources for `cameraActive` (global at `state.js:407` and mirror at `state.js:283`) can desync on narrator switch. Perm-card path flips `emotionAware=true` only — it does NOT call `startEmotionEngine`. `camera-preview.js` reuses the emotion-engine's hidden video `srcObject`; if absent, falls back to a second `getUserMedia` (can double-prompt or fail silently). WO-MIC-UI-02A's 4-state visual (LISTENING / OFF / WAIT amber / BLOCKED) × WO-10H turn-claim state machine × WO-10C stretched silence can interact badly when TTS on 8001 errors mid-stream (mic stuck amber).
+
+**Diag panel first.** For any camera/mic/TTS bug, open the in-app diag at `app.js:5730–5819` (`lv10dSyncHeaderControls`) — it already emits warnings for "Camera active but preview DOM not created", "emotionAware=true but facial consent declined", "Turn state stuck in awaiting_tts_end", plus live `lv10dBpFacialConsent` / `lv10dBpConsentStored` / `lv10dBpCamPreview` / `lv10dBpTts` / `lv10dBpSignalAge` readouts. Check these first; the fault surface collapses to one branch.
+
+**Parallel/supporting subsystems:** Kawa (river metaphor — client-as-theorist, pre-generated "River of Memories" per narrator) and Pheno (lived experience + wisdom extraction, separate from truth fields) are DESIGN COMPLETE specs, not wired to extraction output; they consume the same affect signal. WO-STT-LIVE-02 fragile-fact transcript guard is landed (7-pattern classifier + 30s staleness cap + typed-input fallback).
 
 ## Changelog
 
