@@ -5893,7 +5893,9 @@
       "truthZones": {
         "grandparents.ancestry": {
           "zone": "must_extract",
-          "expected": "French (Alsace-Lorraine), German (Hanover)"
+          "expected": "French (Alsace-Lorraine), German (Hanover)",
+          "alt_defensible_paths": ["greatGrandparents.ancestry"],
+          "alt_defensible_source": "#119 turnscope greatGrandparents fix r5g adjudication 2026-04-22 — narrator describes great-great-grandparent generation (John Michael Shong, Christine Bolley); LLM emits greatGrandparents.ancestry which is semantically correct; schema routes ancestry to grandparents.ancestry only; alt-credit until schema expansion"
         },
         "grandparents.memorableStory": {
           "zone": "may_extract",
@@ -6287,7 +6289,9 @@
       "truthZones": {
         "grandparents.ancestry": {
           "zone": "must_extract",
-          "expected": "French (Alsace-Lorraine), German (Hanover)"
+          "expected": "French (Alsace-Lorraine), German (Hanover)",
+          "alt_defensible_paths": ["greatGrandparents.ancestry"],
+          "alt_defensible_source": "#119 turnscope greatGrandparents fix r5g adjudication 2026-04-22 — narrator describes Shong generation (great-great-grandparent); LLM emits greatGrandparents.ancestry which is semantically correct; schema routes ancestry to grandparents.ancestry only; alt-credit until schema expansion"
         },
         "grandparents.memorableStory": {
           "zone": "must_extract",
