@@ -284,6 +284,17 @@ function lvShellShowTab(tabName) {
   // Media tab preflight — single-shot probe for /api/photos so we can
   // surface the "not enabled" hint without navigating away.
   if (tabName === "media") _lvMediaPreflightOnce();
+  // Narrator room upkeep — repaint identity + controls on entry; start
+  // a light tick so mic/camera state stays synced while we're here.
+  if (tabName === "narrator") {
+    if (typeof _lvNarratorPaintIdentity === "function") _lvNarratorPaintIdentity();
+    if (typeof _lvNarratorPaintControls === "function") _lvNarratorPaintControls();
+    _lvNarratorStartPaintTick();
+    // Anchor to latest when entering (in case user was reading old messages).
+    setTimeout(() => { if (typeof lvNarratorScrollToBottom === "function") lvNarratorScrollToBottom(true); }, 60);
+  } else {
+    _lvNarratorStopPaintTick();
+  }
 }
 window.lvShellShowTab = lvShellShowTab;
 
@@ -377,27 +388,424 @@ function lvOpenMediaTool(tool) {
 }
 window.lvOpenMediaTool = lvOpenMediaTool;
 
-/** One-shot preflight for Media tab — hides the "not enabled" note if
-    /api/photos responds, shows it on 404 (feature flag off). */
+/** One-shot preflight for Media tab — hides the "not enabled" note
+    when HORNELORE_PHOTO_ENABLED is on, shows it when off.
+    Uses /api/photos/health which returns {ok, enabled} regardless of
+    the flag (the photo surface 404s the list/mutate routes when off,
+    but /health is intentionally flag-agnostic). */
 let _lvMediaPreflightDone = false;
 async function _lvMediaPreflightOnce() {
   if (_lvMediaPreflightDone) return;
   _lvMediaPreflightDone = true;
   const note = document.getElementById("lvMediaDisabledNote");
+  if (!note) return;
   try {
-    const res = await fetch("/api/photos?limit=1", { method: "GET" });
-    if (note) {
-      if (res.status === 404) {
-        note.hidden = false;
-        note.textContent = "Photo tools are not enabled for this run.";
-      } else {
-        note.hidden = true;
-      }
+    const res = await fetch("/api/photos/health", { method: "GET" });
+    let enabled = false;
+    if (res.ok) {
+      const j = await res.json();
+      enabled = !!(j && j.enabled);
     }
+    if (enabled) { note.hidden = true; }
+    else { note.hidden = false; note.textContent = "Photo tools are not enabled for this run."; }
   } catch (_) {
     // Leave note hidden on network error — don't block the launcher cards.
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-NARRATOR-ROOM-01 — Narrator session room.
+   Topbar (identity + Mic/Camera/Pause/Break) → view tabs (Memory
+   River | Life Map | Photos | Peek at Memoir) → 3-column main.
+   Controls delegate to existing entry points (lv10dToggleMic,
+   lv10dToggleCamera, lv80TogglePauseListening); Take-a-break is a
+   new overlay.  Chat scroll uses FocusCanvas's existing _scrollToLatest.
+═══════════════════════════════════════════════════════════════ */
+
+const LV_NARRATOR_SESSION_STYLE_LABELS = {
+  questionnaire_first: "Questionnaire first",
+  clear_direct:        "Clear & direct",
+  warm_storytelling:   "Warm storytelling",
+  memory_exercise:     "Memory exercise",
+  companion:           "Companion",
+};
+
+/** Paint the topbar identity (narrator name + session style pill). */
+function _lvNarratorPaintIdentity() {
+  const nameEl  = document.getElementById("lvNarratorRoomName");
+  const styleEl = document.getElementById("lvNarratorRoomStyle");
+  if (nameEl) {
+    const header = document.getElementById("lv80ActiveNarratorName");
+    nameEl.textContent = (header && header.textContent) || "—";
+  }
+  if (styleEl) {
+    const v = (typeof getSessionStyle === "function") ? getSessionStyle() : "warm_storytelling";
+    styleEl.textContent = LV_NARRATOR_SESSION_STYLE_LABELS[v] || v;
+  }
+}
+window._lvNarratorPaintIdentity = _lvNarratorPaintIdentity;
+
+/** Return the current narrator view name. */
+function lvNarratorCurrentView() {
+  return (state && state.session && state.session.narratorView) || "river";
+}
+
+/** Switch narrator-room view. */
+function lvNarratorShowView(view) {
+  if (!["river", "map", "photos", "memoir"].includes(view)) return;
+  if (!state.session) state.session = {};
+  state.session.narratorView = view;
+  // Paint tab active state.
+  document.querySelectorAll(".lv-narrator-view-tab").forEach(t => {
+    const isActive = t.dataset.view === view;
+    t.classList.toggle("lv-narrator-view-tab-active", isActive);
+    t.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+  // Render view content.
+  switch (view) {
+    case "river":  _lvNarratorRenderRiver();  break;
+    case "map":    _lvNarratorRenderMap();    break;
+    case "photos": _lvNarratorRenderPhotos(); break;
+    case "memoir": _lvNarratorRenderMemoir(); break;
+  }
+}
+window.lvNarratorShowView = lvNarratorShowView;
+
+/* ── View renderers ──────────────────────────────────────────────
+   All renderers write into #lvNarratorViewHost.  Kawa + Life Map +
+   Memoir reuse existing popovers via a "Open full" CTA; Phase 1
+   minimal-slice per the WO's acceptable fallback. */
+
+function _lvNarratorRenderRiver() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  const segs = (state.kawa && Array.isArray(state.kawa.segmentList)) ? state.kawa.segmentList : [];
+  const activeId = state.kawa && state.kawa.activeSegmentId;
+  let body = `
+    <h3 class="lv-narrator-view-head">Memory River</h3>
+    <p class="lv-narrator-view-lede">Your life in the shape of a river — pick a stretch and tell Lori about it.</p>
+  `;
+  if (!segs.length) {
+    body += `<p class="lv-narrator-view-empty">Your river is still filling in. Keep talking — Lori is listening.</p>`;
+  } else {
+    body += `<div class="lv-narrator-segment-list" role="list">`;
+    segs.slice(0, 12).forEach((s) => {
+      const sid = s.segment_id || s.id || "";
+      const label = (s.anchor && (s.anchor.label || s.anchor.era)) || s.title || s.label || "Unnamed stretch";
+      const sub = (s.anchor && s.anchor.years) ? s.anchor.years :
+                  (s.anchor && s.anchor.age_range) ? `Age ${s.anchor.age_range}` : "";
+      const active = sid && activeId === sid ? " is-active" : "";
+      body += `<button type="button" role="listitem" class="lv-narrator-segment-row${active}"
+        onclick="_lvNarratorSelectSegment(${JSON.stringify(sid)})">
+        <span class="lv-narrator-segment-label">${_lvEscapeHtml(label)}</span>
+        ${sub ? `<span class="lv-narrator-segment-sub">${_lvEscapeHtml(sub)}</span>` : ""}
+      </button>`;
+    });
+    body += `</div>`;
+  }
+  body += `<button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('kawaRiverPopover')?.showPopover?.()">
+      Open full Memory River
+    </button>`;
+  host.innerHTML = body;
+}
+
+function _lvNarratorSelectSegment(sid) {
+  if (!state.kawa) state.kawa = {};
+  state.kawa.activeSegmentId = sid || null;
+  _lvNarratorRenderRiver();
+  // Signal downstream consumers (runtime / prompt composer) — best-effort.
+  try { window.dispatchEvent(new CustomEvent("lv-narrator-segment-change", { detail: { segment_id: sid } })); } catch (_) {}
+}
+window._lvNarratorSelectSegment = _lvNarratorSelectSegment;
+
+function _lvNarratorRenderMap() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Life Map</h3>
+    <p class="lv-narrator-view-lede">A picture of the places and eras in your life. Tap an era to tell Lori about that time.</p>
+    <button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('lifeMapPopover')?.showPopover?.()">
+      Open your Life Map
+    </button>
+    <p class="lv-narrator-view-empty" style="margin-top:12px;">Full map will live here in the next update (Phase 2).</p>
+  `;
+}
+
+function _lvNarratorRenderMemoir() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Peek at Memoir</h3>
+    <p class="lv-narrator-view-lede">Read what we have so far, in your own words.</p>
+    <button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('memoirScrollPopover')?.showPopover?.()">
+      Open your memoir
+    </button>
+  `;
+}
+
+/* Photos view — Phase 1 minimal slice: fetch, browse, stage memory.
+   Memory save requires a "show" context (POST /api/photos/shows/{show_id}/memory)
+   which is WO-LORI-PHOTO-ELICIT-01 Phase 2 territory; for now we
+   just stage locally with a clear note. */
+let _lvNarratorPhotos = { list: [], idx: 0, loaded: false, loading: false, error: null };
+
+async function _lvNarratorRenderPhotos() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Photos</h3>
+    <p class="lv-narrator-view-lede">One at a time. Tell Lori what you remember.</p>
+    <div id="lvNarratorPhotoSlot">Loading…</div>
+  `;
+  const pid = state && state.person_id;
+  if (!pid) {
+    document.getElementById("lvNarratorPhotoSlot").innerHTML =
+      `<p class="lv-narrator-view-empty">Choose a narrator on the Operator tab first.</p>`;
+    return;
+  }
+  if (!_lvNarratorPhotos.loaded && !_lvNarratorPhotos.loading) {
+    _lvNarratorPhotos.loading = true;
+    try {
+      const res = await fetch(`/api/photos?narrator_id=${encodeURIComponent(pid)}`);
+      if (res.status === 404) {
+        _lvNarratorPhotos.error = "Photos are not enabled for this run.";
+      } else if (res.ok) {
+        const j = await res.json();
+        _lvNarratorPhotos.list = Array.isArray(j && j.photos) ? j.photos : [];
+      } else {
+        _lvNarratorPhotos.error = `Could not load photos (status ${res.status}).`;
+      }
+    } catch (e) {
+      _lvNarratorPhotos.error = "Could not reach the photo server.";
+      console.warn("[lv-narrator] photos fetch failed:", e);
+    }
+    _lvNarratorPhotos.loading = false;
+    _lvNarratorPhotos.loaded = true;
+  }
+  _lvNarratorPaintPhotoSlot();
+}
+
+function _lvNarratorPaintPhotoSlot() {
+  const slot = document.getElementById("lvNarratorPhotoSlot");
+  if (!slot) return;
+  if (_lvNarratorPhotos.error) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty">${_lvEscapeHtml(_lvNarratorPhotos.error)}</p>`;
+    return;
+  }
+  if (!_lvNarratorPhotos.list.length) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty">No photos yet. Add photos from the Media tab → Photo Intake.</p>`;
+    return;
+  }
+  const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  const src   = photo.thumbnail_url || photo.url || photo.src || photo.photo_url || "";
+  const caption = photo.caption || photo.filename || photo.name || "";
+  const year    = photo.year || (photo.taken_at ? String(photo.taken_at).slice(0,4) : "");
+  slot.innerHTML = `
+    <div class="lv-narrator-photo-frame">
+      ${src ? `<img src="${_lvEscapeAttr(src)}" alt="${_lvEscapeAttr(caption)}" />` : `<span class="lv-narrator-view-empty">No image</span>`}
+    </div>
+    <div class="lv-narrator-photo-meta">${_lvEscapeHtml(caption)}${year ? ` · ${year}` : ""} <span style="color:#7a8bb0;">(${_lvNarratorPhotos.idx+1} of ${_lvNarratorPhotos.list.length})</span></div>
+    <div class="lv-narrator-photo-nav">
+      <button type="button" onclick="_lvNarratorPhotoStep(-1)" ${_lvNarratorPhotos.idx === 0 ? "disabled" : ""}>‹ Previous</button>
+      <button type="button" onclick="_lvNarratorPhotoStep( 1)" ${_lvNarratorPhotos.idx >= _lvNarratorPhotos.list.length - 1 ? "disabled" : ""}>Next ›</button>
+    </div>
+    <textarea class="lv-narrator-photo-memory" id="lvNarratorPhotoMemory"
+      placeholder="Type what you remember about this picture…"
+      oninput="_lvNarratorStagePhotoMemory(this.value)"></textarea>
+    <p class="lv-narrator-photo-hint">Memory saving arrives with the photo-session flow; for now your notes stay in this browser.</p>
+  `;
+}
+
+function _lvNarratorPhotoStep(delta) {
+  const n = _lvNarratorPhotos.list.length;
+  if (!n) return;
+  _lvNarratorPhotos.idx = Math.max(0, Math.min(n - 1, _lvNarratorPhotos.idx + delta));
+  _lvNarratorPaintPhotoSlot();
+}
+window._lvNarratorPhotoStep = _lvNarratorPhotoStep;
+
+function _lvNarratorStagePhotoMemory(text) {
+  // Phase 1 stages locally and emits an event.  Phase 2 (ELICIT-01) will
+  // persist via POST /api/photos/shows/{show_id}/memory.
+  const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  if (!photo) return;
+  photo._stagedMemory = text;
+  try { window.dispatchEvent(new CustomEvent("lv-narrator-photo-memory-staged", { detail: { photo_id: photo.id, text } })); } catch (_) {}
+}
+window._lvNarratorStagePhotoMemory = _lvNarratorStagePhotoMemory;
+
+function _lvEscapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function _lvEscapeAttr(s) { return _lvEscapeHtml(s); }
+
+/* ── Topbar controls — delegate to existing state machines ────── */
+
+/** Mic toggle → delegates to lv10dToggleMic.  After the call we paint
+    our button's data-on from state.inputState.micActive. */
+function lvNarratorToggleMic() {
+  if (typeof lv10dToggleMic === "function") { try { lv10dToggleMic(); } catch (e) { console.warn("[lv-narrator] mic toggle threw:", e); } }
+  // Paint asynchronously; the underlying flow may be async.
+  setTimeout(_lvNarratorPaintControls, 120);
+}
+window.lvNarratorToggleMic = lvNarratorToggleMic;
+
+/** Camera toggle → delegates to lv10dToggleCamera (which handles consent,
+    engine start, preview).  We just mirror state onto our button. */
+function lvNarratorToggleCamera() {
+  if (typeof lv10dToggleCamera === "function") { try { lv10dToggleCamera(); } catch (e) { console.warn("[lv-narrator] cam toggle threw:", e); } }
+  setTimeout(_lvNarratorPaintControls, 250);
+  // Camera flow can be async (consent modal); re-poll a few times.
+  setTimeout(_lvNarratorPaintControls, 1200);
+  setTimeout(_lvNarratorPaintControls, 3000);
+}
+window.lvNarratorToggleCamera = lvNarratorToggleCamera;
+
+/** Pause toggle → delegates to listening pause. */
+function lvNarratorTogglePause() {
+  if (typeof lv80TogglePauseListening === "function") {
+    try { lv80TogglePauseListening(); } catch (e) { console.warn("[lv-narrator] pause toggle threw:", e); }
+  }
+  setTimeout(_lvNarratorPaintControls, 80);
+}
+window.lvNarratorTogglePause = lvNarratorTogglePause;
+
+/** Paint Mic/Camera state dots + labels from global state.
+    Safe to call whenever — re-reads state each time. */
+function _lvNarratorPaintControls() {
+  const micBtn = document.getElementById("lvNarratorMicBtn");
+  const camBtn = document.getElementById("lvNarratorCamBtn");
+  const pauseBtn = document.getElementById("lvNarratorPauseBtn");
+  const micLabel = document.getElementById("lvNarratorMicLabel");
+  const camLabel = document.getElementById("lvNarratorCamLabel");
+  const pauseLabel = document.getElementById("lvNarratorPauseLabel");
+  const micOn = !!(state && state.inputState && state.inputState.micActive) ||
+                (typeof isRecording !== "undefined" && !!isRecording);
+  const camOn = !!(state && state.inputState && state.inputState.cameraActive) ||
+                (typeof cameraActive !== "undefined" && !!cameraActive);
+  const paused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
+  if (micBtn) micBtn.setAttribute("data-on", micOn ? "true" : "false");
+  if (camBtn) camBtn.setAttribute("data-on", camOn ? "true" : "false");
+  if (pauseBtn) pauseBtn.setAttribute("data-on", paused ? "true" : "false");
+  if (micLabel)   micLabel.textContent   = micOn ? "Mic on"    : "Mic";
+  if (camLabel)   camLabel.textContent   = camOn ? "Camera on" : "Camera";
+  if (pauseLabel) pauseLabel.textContent = paused ? "Resume"   : "Pause";
+  // Paint the context panel blocks to match.
+  const ctxCam = document.getElementById("lvNarratorCtxCamera");
+  const ctxCamBody = document.getElementById("lvNarratorCtxCameraBody");
+  const ctxMic = document.getElementById("lvNarratorCtxMic");
+  const ctxMicBody = document.getElementById("lvNarratorCtxMicBody");
+  if (ctxCam)     ctxCam.setAttribute("data-state", camOn ? "on" : "off");
+  if (ctxCamBody) ctxCamBody.textContent = camOn ? "On — Lori adjusts pacing from your expressions." : "Off — Lori won't see you.";
+  if (ctxMic)     ctxMic.setAttribute("data-state", micOn ? "on" : "off");
+  if (ctxMicBody) ctxMicBody.textContent = paused ? "Paused — tap Resume to keep talking." : (micOn ? "Listening." : "Off — type your answer.");
+}
+window._lvNarratorPaintControls = _lvNarratorPaintControls;
+
+/* ── Take a Break overlay ─────────────────────────────────────── */
+
+function lvNarratorStartBreak() {
+  if (!state.session) state.session = {};
+  state.session.breakActive = true;
+  state.session.micAutoRearm = false;   // stop auto-rearm during break
+  // Pause mic if active, so the overlay really is silent.
+  const micOn = !!(state.inputState && state.inputState.micActive);
+  const paused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
+  if (micOn && !paused && typeof lv80TogglePauseListening === "function") {
+    try { lv80TogglePauseListening(); } catch (_) {}
+  }
+  const overlay = document.getElementById("lvNarratorBreakOverlay");
+  if (overlay) { overlay.hidden = false; overlay.setAttribute("aria-hidden", "false"); }
+  _lvNarratorPaintControls();
+}
+window.lvNarratorStartBreak = lvNarratorStartBreak;
+
+function lvNarratorEndBreak() {
+  if (!state.session) state.session = {};
+  state.session.breakActive = false;
+  const overlay = document.getElementById("lvNarratorBreakOverlay");
+  if (overlay) { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); }
+  _lvNarratorPaintControls();
+}
+window.lvNarratorEndBreak = lvNarratorEndBreak;
+
+function lvNarratorReturnToOperator() {
+  lvNarratorEndBreak();
+  if (typeof lvShellShowTab === "function") lvShellShowTab("operator");
+}
+window.lvNarratorReturnToOperator = lvNarratorReturnToOperator;
+
+/* ── Chat scroll helpers (delegate to FocusCanvas's existing plumbing). ── */
+
+function lvNarratorIsNearBottom() {
+  const el = document.getElementById("crChatInner");
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= 40;
+}
+window.lvNarratorIsNearBottom = lvNarratorIsNearBottom;
+
+function lvNarratorScrollToBottom(force) {
+  const el = document.getElementById("crChatInner");
+  if (!el) return;
+  if (force || lvNarratorIsNearBottom()) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+window.lvNarratorScrollToBottom = lvNarratorScrollToBottom;
+
+function lvNarratorPauseAutoScroll()  { try { window._scrollPauseByUser = true;  } catch (_) {} }
+function lvNarratorResumeAutoScroll() {
+  try { window._scrollPauseByUser = false; } catch (_) {}
+  if (typeof window._scrollToLatest === "function") window._scrollToLatest();
+}
+window.lvNarratorPauseAutoScroll  = lvNarratorPauseAutoScroll;
+window.lvNarratorResumeAutoScroll = lvNarratorResumeAutoScroll;
+
+/* Lightweight paint tick — runs only while the narrator tab is active.
+   1.5s cadence; all it does is re-read state flags and toggle a few
+   data-attrs/textContent.  Cheap, but we still gate it by the tab. */
+let _lvNarratorPaintTickId = null;
+function _lvNarratorStartPaintTick() {
+  if (_lvNarratorPaintTickId != null) return;
+  _lvNarratorPaintTickId = setInterval(() => {
+    if (typeof _lvNarratorPaintControls === "function") _lvNarratorPaintControls();
+    if (typeof _lvNarratorPaintIdentity === "function") _lvNarratorPaintIdentity();
+  }, 1500);
+}
+function _lvNarratorStopPaintTick() {
+  if (_lvNarratorPaintTickId != null) { clearInterval(_lvNarratorPaintTickId); _lvNarratorPaintTickId = null; }
+}
+
+/** Room init — called by lvStartNarratorSession (WO-UI-SHELL-01).
+    Paints identity, loads default view, hydrates control state. */
+function lvNarratorRoomInit() {
+  _lvNarratorPaintIdentity();
+  _lvNarratorPaintControls();
+  // Kawa segments may already be preloaded; if not, kick off a refresh.
+  if (typeof kawaRefreshList === "function" &&
+      state.kawa && (!state.kawa.segmentList || !state.kawa.segmentList.length)) {
+    kawaRefreshList().catch(() => {}).finally(() => {
+      if (lvNarratorCurrentView() === "river") _lvNarratorRenderRiver();
+    });
+  }
+  lvNarratorShowView(lvNarratorCurrentView() || "river");
+  // Anchor chat at latest when entering the room.
+  setTimeout(() => lvNarratorScrollToBottom(true), 40);
+  // Reset photo cache on narrator change so the next "photos" view refetches.
+  const pid = state && state.person_id;
+  if (_lvNarratorPhotos._pid !== pid) {
+    _lvNarratorPhotos = { list: [], idx: 0, loaded: false, loading: false, error: null, _pid: pid };
+  }
+}
+window.lvNarratorRoomInit = lvNarratorRoomInit;
 
 /* ═══════════════════════════════════════════════════════════════
    INIT
