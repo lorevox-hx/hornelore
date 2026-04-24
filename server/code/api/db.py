@@ -941,6 +941,19 @@ def init_db() -> None:
     _wo13_backfill_facts_to_family_truth_rows(con, cur)
 
     con.commit()
+
+    # WO-LORI-PHOTO-SHARED-01 — apply post-legacy migrations in
+    # server/code/db/migrations/*.sql. Runner is idempotent (tracked in
+    # schema_migrations). Kept AFTER the legacy CREATE TABLE block so any
+    # failure here never truncates the pre-WO schema.
+    try:
+        from ..db.migrations_runner import run_pending_migrations  # type: ignore
+        run_pending_migrations(con)
+    except Exception:
+        logger.exception("Post-legacy migrations failed")
+        con.close()
+        raise
+
     con.close()
 
 
