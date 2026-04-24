@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Hornelore — Photo Intake (Curator)</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="css/photo-intake.css">
+</head>
+<body>
+  <div class="pi-shell">
+    <header class="pi-header">
+      <div>
+        <h1>Photo Intake</h1>
+        <div class="pi-subtitle">Curator page — upload family photos and add what you know about each one.</div>
+      </div>
+      <div>
+        <a href="photo-timeline.html" class="pi-chip-btn" style="text-decoration:none;display:inline-block;">Timeline →</a>
+      </div>
+    </header>
+
+    <div class="pi-grid">
+
+      <!-- ────────── Upload form ────────── -->
+      <section class="pi-card" id="piUploadCard">
+        <h2>Add a Photo</h2>
+
+        <div class="pi-field">
+          <label for="piNarrator">Narrator</label>
+          <select id="piNarrator"></select>
+        </div>
+
+        <div class="pi-field">
+          <label for="piFile">Image file</label>
+          <input type="file" id="piFile" accept="image/*"/>
+        </div>
+
+        <div class="pi-field">
+          <label for="piDescription">Description (optional)</label>
+          <textarea id="piDescription" placeholder="What's happening in this photo?"></textarea>
+        </div>
+
+        <div class="pi-field-row">
+          <div class="pi-field">
+            <label for="piDateValue">Date (optional)</label>
+            <input type="text" id="piDateValue" placeholder="e.g. 1968 or 1968-07-04"/>
+          </div>
+          <div class="pi-field">
+            <label for="piDatePrecision">Date precision</label>
+            <select id="piDatePrecision">
+              <option value="unknown">unknown</option>
+              <option value="decade">decade</option>
+              <option value="year">year</option>
+              <option value="month">month</option>
+              <option value="day">day</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pi-field-row">
+          <div class="pi-field">
+            <label for="piLocationLabel">Location (optional)</label>
+            <input type="text" id="piLocationLabel" placeholder="e.g. Ada, Oklahoma"/>
+          </div>
+          <div class="pi-field">
+            <label for="piLocationSource">Location source</label>
+            <select id="piLocationSource">
+              <option value="unknown">unknown</option>
+              <option value="typed_address">typed_address</option>
+              <option value="spoken_place">spoken_place</option>
+              <option value="description_geocode">description_geocode</option>
+              <option value="exif_gps">exif_gps</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pi-field">
+          <label>People in the photo (optional)</label>
+          <div class="pi-people-list" id="piPeopleList"></div>
+          <button type="button" class="pi-chip-btn" id="piAddPersonBtn">+ Add person</button>
+        </div>
+
+        <div class="pi-field">
+          <label>Events or occasions (optional)</label>
+          <div class="pi-events-list" id="piEventsList"></div>
+          <button type="button" class="pi-chip-btn" id="piAddEventBtn">+ Add event</button>
+        </div>
+
+        <label class="pi-check">
+          <input type="checkbox" id="piNarratorReady"/>
+          <span>Ready to show this photo to the narrator</span>
+        </label>
+
+        <div class="pi-actions">
+          <button type="button" class="pi-btn-primary" id="piSaveBtn">Save Photo</button>
+          <button type="button" class="pi-btn-ghost" id="piResetBtn">Reset</button>
+          <span class="pi-status" id="piStatus"></span>
+        </div>
+      </section>
+
+      <!-- ────────── Saved list ────────── -->
+      <section class="pi-card" id="piListCard">
+        <h2>Saved Photos</h2>
+        <div class="pi-status" id="piListStatus"></div>
+        <div class="pi-list" id="piList"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="js/photo-intake.js"></script>
+</body>
+</html>
