@@ -1,0 +1,71 @@
+==============================================================================
+  FAILURE PACK — eval_tag=r5f-spantag-on
+==============================================================================
+  total: 104   passed: 25   failed: 79
+
+  Failure categories:
+    schema_gap                        61   [case_002, case_004, case_005, case_006, case_008, case_010...]
+    field_path_mismatch               31   [case_001, case_003, case_009, case_010, case_012, case_018...]
+    llm_hallucination                  2   [case_024, case_043]
+    guard_false_positive               1   [case_034]
+
+  By narrator (failures):
+    christopher-todd-horne            31
+    janice-josephine-horne            27
+    kent-james-horne                  21
+
+  By phase (failures):
+    developmental_foundations         38
+    early_adulthood                   18
+    midlife                            8
+    legacy_reflection                  5
+    transitional_adolescence           4
+    childhood_origins                  3
+    middle_adulthood                   2
+    later_adulthood                    1
+
+  By era (failures):
+    school_years                      38
+    early_adulthood                   18
+    midlife                           10
+    later_life                         6
+    adolescence                        4
+    early_childhood                    3
+
+  By score bucket (failures):
+    0.00        60
+    0.01-0.24    1
+    0.25-0.49    6
+    0.50-0.69   12
+    0.70+        0
+
+  Hallucination prefix rollup:
+    family                   offenders= 17  cases= 6
+    education                offenders= 13  cases= 5
+    grandparents             offenders=  5  cases= 1
+    location                 offenders=  4  cases= 2
+    laterYears               offenders=  4  cases= 1
+    children                 offenders=  3  cases= 1
+    childhood_fears_and_comforts offenders=  3  cases= 1
+    time                     offenders=  2  cases= 1
+    ancestry                 offenders=  2  cases= 1
+    earlyMemories            offenders=  2  cases= 1
+    military                 offenders=  1  cases= 1
+    spouse                   offenders=  1  cases= 1
+    parents                  offenders=  1  cases= 1
+    people                   offenders=  1  cases= 1
+    travel                   offenders=  1  cases= 1
+    hobbies                  offenders=  1  cases= 1
+    childhood_pets           offenders=  1  cases= 1
+    marriage                 offenders=  1  cases= 1
+    birth                    offenders=  1  cases= 1
+    child                    offenders=  1  cases= 1
+
+  must_not_write violations: 1
+    case_034       military.branch
+
+  Cross-axis highlights (biggest cell per grid):
+    narrator×phase           janice-josephine-horne×developmental_foundations             failed=19
+    category×narrator        schema_gap×christopher-todd-horne                            failed=27
+
+==============================================================================
