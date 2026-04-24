@@ -61,6 +61,7 @@ window.lvUiHealthCheck = (function () {
     { key: "media",      label: "Media Tab",           fn: _check_media_tab      },
     { key: "photos",     label: "Photos",              fn: _check_photos         },
     { key: "archive",    label: "Archive",             fn: _check_archive        },
+    { key: "session",    label: "Session Style",       fn: _check_session_style  },
     { key: "navigation", label: "Navigation Recovery", fn: _check_navigation     },
     { key: "self",       label: "Harness Self-Check",  fn: _check_self           },
   ];
@@ -697,6 +698,118 @@ window.lvUiHealthCheck = (function () {
     } else {
       _push(cat, "archive session readable", STATUS.WARN,
         `status=${sess.status} ${sess.error || ""}`);
+    }
+  }
+
+  // ── Category: Session Style ────────────────────────────────────
+  // Verifies WO-SESSION-STYLE-WIRING-01: state + persistence + dispatcher
+  // wired + topbar reflects choice + questionnaire_first lane is real.
+  async function _check_session_style() {
+    const cat = "session";
+
+    const valid = ["questionnaire_first","clear_direct","warm_storytelling",
+                   "memory_exercise","companion"];
+
+    // 1. state.session.sessionStyle is one of 5 valid values
+    const ss = state && state.session && state.session.sessionStyle;
+    _push(cat, "state.session.sessionStyle is one of 5 valid styles",
+      valid.includes(ss) ? STATUS.PASS : STATUS.FAIL,
+      `value=${JSON.stringify(ss)}`);
+
+    // 2. localStorage persistence agreement (informational if unset)
+    const ls = localStorage.getItem("hornelore_session_style_v1");
+    if (ls) {
+      _push(cat, "sessionStyle persists in localStorage matches state",
+        ls === ss ? STATUS.PASS : STATUS.WARN,
+        `ls=${ls} state=${ss}`);
+    } else {
+      _push(cat, "sessionStyle persists in localStorage matches state", STATUS.PASS,
+        "no localStorage value yet (default applied)");
+    }
+
+    // 3. Dispatcher wired
+    const dispatch = typeof window.lvSessionStyleEnter;
+    _push(cat, "lvSessionStyleEnter dispatcher present",
+      dispatch === "function" ? STATUS.PASS : STATUS.FAIL,
+      `typeof=${dispatch} (session-style-router.js)`);
+
+    // 4. Router accessor exposes valid styles
+    const router = window.lvSessionStyleRouter;
+    if (router && Array.isArray(router.validStyles) && router.validStyles.length === 5) {
+      _push(cat, "router.validStyles enumerates all 5 styles", STATUS.PASS,
+        router.validStyles.join(","));
+    } else {
+      _push(cat, "router.validStyles enumerates all 5 styles", STATUS.FAIL,
+        `validStyles=${JSON.stringify(router && router.validStyles)}`);
+    }
+
+    // 5. Narrator-room topbar pill reflects current style (only meaningful
+    //    when the narrator room has been entered at least once; otherwise INFO).
+    const pill = document.getElementById("lvNarratorRoomStyle");
+    if (pill) {
+      const txt = (pill.textContent || "").trim();
+      const expectedLabels = {
+        questionnaire_first: "Questionnaire first",
+        clear_direct:        "Clear & direct",
+        warm_storytelling:   "Warm storytelling",
+        memory_exercise:     "Memory exercise",
+        companion:           "Companion",
+      };
+      const want = expectedLabels[ss];
+      if (txt === "—" || txt === "") {
+        _push(cat, "narrator-room topbar style label", STATUS.INFO,
+          "narrator room not yet entered (label updates on lvNarratorRoomInit)");
+      } else if (want && txt.toLowerCase() === want.toLowerCase()) {
+        _push(cat, "narrator-room topbar style label",
+          STATUS.PASS, `pill="${txt}" matches state ${ss}`);
+      } else {
+        _push(cat, "narrator-room topbar style label",
+          STATUS.WARN, `pill="${txt}" but state=${ss} expected="${want}"`);
+      }
+    } else {
+      _push(cat, "narrator-room topbar style label", STATUS.WARN,
+        "#lvNarratorRoomStyle missing (narrator room not loaded)");
+    }
+
+    // 6. v9 incomplete-gate bypass for questionnaire_first.  We use a
+    //    side-channel signal because some other module wraps lv80SwitchPerson
+    //    (its toString returns the wrapper, not the original) so source
+    //    introspection is unreliable.  Two-part check:
+    //      a) lv80SwitchPerson exists at all
+    //      b) router.bypassWired is true (session-style-router loaded)
+    //      c) (informational) _lv80QuestionnaireFirstBypassFired is set
+    //         after any narrator switch with style=questionnaire_first
+    const fn = window.lv80SwitchPerson;
+    if (typeof fn !== "function") {
+      _push(cat, "lv80SwitchPerson available", STATUS.FAIL,
+        "narrator-switch entry point missing");
+    } else if (router && router.bypassWired === true) {
+      _push(cat, "questionnaire_first incomplete-gate bypass wired",
+        STATUS.PASS, "lv80SwitchPerson present + session-style-router loaded");
+      // Informational: has the bypass branch fired this session?
+      const fired = window._lv80QuestionnaireFirstBypassFired === true;
+      _push(cat, "incomplete-gate bypass observed firing",
+        fired ? STATUS.PASS : STATUS.INFO,
+        fired ? "Corky-class bypass exercised this session"
+              : "no questionnaire_first switch yet this session");
+    } else {
+      _push(cat, "questionnaire_first incomplete-gate bypass wired",
+        STATUS.FAIL, "session-style-router.js not loaded (router.bypassWired missing)");
+    }
+
+    // 7. Questionnaire-first lane substate scaffolded (only when active).
+    if (ss === "questionnaire_first") {
+      const qf = state && state.session && state.session.questionnaireFirst;
+      if (qf && typeof qf === "object") {
+        _push(cat, "questionnaireFirst substate present", STATUS.PASS,
+          `segment=${qf.segment} active=${qf.active}`);
+      } else {
+        _push(cat, "questionnaireFirst substate present", STATUS.INFO,
+          "lane not yet entered (initializes on lvSessionStyleEnter)");
+      }
+    } else {
+      _push(cat, "questionnaireFirst substate present", STATUS.SKIP,
+        `current style is ${ss}, lane not in use`);
     }
   }
 

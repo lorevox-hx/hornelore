@@ -4315,6 +4315,7 @@
 <script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
 <script src="js/emotion-pipeline-tests.js"></script>
+<script src="js/session-style-router.js"></script>
 <script src="js/ui-health-check.js"></script>
 
 <script>
@@ -4754,8 +4755,21 @@ async function lv80SwitchPerson(personId) {
 
     state.narratorOpen.openStatus = "ready";
   } else {
-    // 5b. INCOMPLETE — do NOT auto-start onboarding. Show explicit UI.
-    state.narratorOpen.openStatus = "incomplete";
+    // 5b. INCOMPLETE — do NOT auto-start onboarding by default.
+    // WO-SESSION-STYLE-WIRING-01 / Slice 1 (Corky rule):
+    //   If the operator picked "Questionnaire First" as their session style,
+    //   we BYPASS the incomplete-narrator dead-end and route into the
+    //   questionnaire-first lane instead.  questionnaire-first IS the way
+    //   incomplete narrators become complete (identity intake first, then
+    //   Bio Builder section walk).  All other styles still get the
+    //   explicit incomplete UI so the operator deliberately fills basics.
+    const _ssStyle = (state.session && state.session.sessionStyle)
+      || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling");
+    if (_ssStyle === "questionnaire_first") {
+      state.narratorOpen.openStatus = "questionnaire_first";
+    } else {
+      state.narratorOpen.openStatus = "incomplete";
+    }
     state.narratorOpen.incompletePid = personId;
 
     state.session = {
@@ -4777,8 +4791,24 @@ async function lv80SwitchPerson(personId) {
     };
     lv80ResetCaptureBar();
 
-    // v9: Show incomplete narrator UI instead of auto-onboarding
-    lv80ShowIncompleteNarratorUi(personId);
+    // WO-SESSION-STYLE-WIRING-01 / Slice 1: questionnaire_first bypass.
+    // If the operator chose Questionnaire First, do NOT show the
+    // incomplete-narrator dead-end card.  The lvSessionStyleEnter call
+    // below (or the lvNarratorRoomInit hook in session-style-router.js)
+    // will kick off identity intake instead.  For all other styles,
+    // keep the explicit incomplete UI so the operator deliberately
+    // fills basics before opening the room.
+    if (state.narratorOpen.openStatus === "questionnaire_first") {
+      console.log("[v9-gate] questionnaire_first override — skipping incomplete UI for", personId);
+      // session-style-router.js owns the actual identity intake handoff.
+      // It runs from the lvNarratorRoomInit hook on the next room paint.
+      // Side-channel signal so the UI Health Check harness can verify
+      // the bypass landed without invoking lv80SwitchPerson (observation-only).
+      try { window._lv80QuestionnaireFirstBypassFired = true; } catch (_) {}
+    } else {
+      // v9: Show incomplete narrator UI instead of auto-onboarding
+      lv80ShowIncompleteNarratorUi(personId);
+    }
   }
 
   // 6. Clear loading state
