@@ -97,6 +97,28 @@ def photo_enabled() -> bool:
     return _truthy(os.environ.get("HORNELORE_PHOTO_ENABLED"))
 
 
+def archive_enabled() -> bool:
+    """WO-ARCHIVE-AUDIO-01. When True, the ``/api/memory-archive`` router
+    is mounted and serves live responses. When False, every endpoint under
+    the prefix returns 404 via _require_enabled so the surface is invisible
+    to the UI unless the operator opts in.
+
+    The archive itself is the durable home for two-sided transcripts and
+    narrator-only audio at:
+
+        DATA_DIR/memory/archive/people/<person_id>/sessions/<conv_id>/
+
+    Storage cap behavior is controlled by two sibling env vars:
+      - HORNELORE_ARCHIVE_MAX_MB_PER_PERSON  (default 500)
+      - HORNELORE_ARCHIVE_WARN_AT            (default 0.8)
+
+    Hard invariant: Lori / assistant audio uploads are rejected 400
+    inside the router regardless of flag state.  The flag only gates
+    mount; it does not relax role validation.
+    """
+    return _truthy(os.environ.get("HORNELORE_ARCHIVE_ENABLED"))
+
+
 def spantag_enabled() -> bool:
     """WO-EX-SPANTAG-01. When True, /api/extract-fields uses the two-pass
     SPANTAG extraction pipeline: Pass 1 emits a schema-blind NL tag

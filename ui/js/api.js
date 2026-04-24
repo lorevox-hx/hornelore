@@ -92,6 +92,14 @@ const API = {
   KAWA_SEGMENT: (pid, sid) => `${ORIGIN}/api/kawa/segment?person_id=${encodeURIComponent(pid)}&segment_id=${encodeURIComponent(sid)}`,
   KAWA_BUILD:   `${ORIGIN}/api/kawa/build`,
   KAWA_SAVE:    `${ORIGIN}/api/kawa/segment`,
+  // WO-ARCHIVE-AUDIO-01 — Memory archive (narrator-only audio + transcript)
+  MEMORY_ARCHIVE_HEALTH:  ORIGIN + "/api/memory-archive/health",
+  MEMORY_ARCHIVE_START:   ORIGIN + "/api/memory-archive/session/start",
+  MEMORY_ARCHIVE_TURN:    ORIGIN + "/api/memory-archive/turn",
+  MEMORY_ARCHIVE_AUDIO:   ORIGIN + "/api/memory-archive/audio",
+  MEMORY_ARCHIVE_SESSION: (conv_id, pid) => `${ORIGIN}/api/memory-archive/session/${encodeURIComponent(conv_id)}?person_id=${encodeURIComponent(pid)}`,
+  MEMORY_ARCHIVE_EXPORT:  (pid) => `${ORIGIN}/api/memory-archive/people/${encodeURIComponent(pid)}/export`,
+  MEMORY_ARCHIVE_DELETE:  (pid) => `${ORIGIN}/api/memory-archive/people/${encodeURIComponent(pid)}`,
 };
 
 /* ── WO-KAWA-UI-01A — Kawa API helpers ───────────────────────── */
