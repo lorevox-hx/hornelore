@@ -125,6 +125,23 @@ let state = {
        only; prompt-composer wiring is a later WO. */
     sessionStyle: "warm_storytelling",
 
+    /* WO-NARRATOR-ROOM-01 — hands-free session scaffolding.
+       These are Phase-1 hooks for WO-STT-HANDSFREE-01.  The room
+       controls set them but the auto-rearm STT loop lives in a
+       later WO.
+         handsFree      : narrator has opted into hands-free mode
+         micAutoRearm   : after TTS ends, rearm mic without narrator tap
+         loriSpeaking   : Lori's TTS is currently playing (must suppress
+                          mic to avoid echo)  */
+    handsFree:    false,
+    micAutoRearm: false,
+    loriSpeaking: false,
+    /* Current narrator-room view — "river" | "map" | "photos" | "memoir".
+       Defaults to "river" (Memory River). */
+    narratorView: "river",
+    /* Break overlay active (Take a break clicked).  Pauses auto-rearm. */
+    breakActive: false,
+
     /* WO-ARCH-07A — explicit turn routing */
     turnMode: "interview",      // interview | followup | memory_echo | correction | clarify | trainer
     lastTurnMode: null,         // previous completed mode for correction follow-through
