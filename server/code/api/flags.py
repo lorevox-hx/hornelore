@@ -81,6 +81,22 @@ def twopass_extract_enabled() -> bool:
     return _truthy(os.environ.get("HORNELORE_TWOPASS_EXTRACT"))
 
 
+def photo_enabled() -> bool:
+    """WO-LORI-PHOTO-SHARED-01. When True, the ``/api/photos`` router is
+    mounted and returns live responses. When False, every endpoint under
+    the prefix returns 404 (the router is registered but guards each
+    handler), so the entire photo surface is invisible to the UI unless
+    the operator opts in. Default OFF.
+
+    Phase 2 adds two sibling flags that gate behavior *within* the
+    mounted router:
+      - HORNELORE_PHOTO_INTAKE  → EXIF + real geocoder + conflict detector
+      - HORNELORE_PHOTO_ELICIT  → LLM-tuned prompts + photo_memory extraction
+    The Phase 1 router must be on before either Phase 2 flag takes effect.
+    """
+    return _truthy(os.environ.get("HORNELORE_PHOTO_ENABLED"))
+
+
 def spantag_enabled() -> bool:
     """WO-EX-SPANTAG-01. When True, /api/extract-fields uses the two-pass
     SPANTAG extraction pipeline: Pass 1 emits a schema-blind NL tag

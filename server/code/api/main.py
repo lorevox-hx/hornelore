@@ -99,6 +99,7 @@ from .routers import (  # type: ignore
     chronology_accordion,  # WO-CR-01 — Chronology Accordion (read-only)
     test_lab,        # WO-QA-01 — Hornelore Quality Harness (operator-only)
     kawa,            # WO-KAWA-UI-01A — River View (Kawa meaning layer)
+    photos,          # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer
 )
 
 # Core Entity & State Routers
@@ -126,6 +127,7 @@ app.include_router(family_truth.router)    # WO-13 — Family Truth (Shadow / Pr
 app.include_router(chronology_accordion.router)  # WO-CR-01 — Chronology Accordion
 app.include_router(test_lab.router)               # WO-QA-01 — Quality Harness
 app.include_router(kawa.router)                   # WO-KAWA-UI-01A — River View
+app.include_router(photos.router)                 # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer (404s when HORNELORE_PHOTO_ENABLED=0)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)
