@@ -93,6 +93,17 @@ window._forceModelReady = _forceModelReady;
 /** Show/hide the warmup banner overlay. */
 function _setWarmupBanner(visible, message) {
   const banner = document.getElementById("lv80WarmupBanner");
+  // WO-UI-SHELL-01: mirror banner state to the Operator tab readiness card.
+  if (typeof lvUpdateOperatorReadiness === "function") {
+    if (visible) {
+      lvUpdateOperatorReadiness("pending",
+        message || "Lori is getting ready…",
+        "This can take a few minutes on first load.");
+    } else {
+      lvUpdateOperatorReadiness("ready", "Lori is ready.",
+        "You can hand her the session when you're set.");
+    }
+  }
   if (!banner) return;
   if (visible) {
     banner.querySelector(".warmup-msg").textContent = message || "Hornelore is warming up…";
@@ -181,9 +192,211 @@ function _onModelReady() {
   wo9DrainQueuedSystemPrompt();
   // v9: Startup neutrality — always open narrator selector on ready.
   console.log("[readiness] v9 — startup neutral. Opening narrator selector.");
+  // WO-UI-SHELL-01: paint readiness card green once warm.
+  if (typeof lvUpdateOperatorReadiness === "function") {
+    lvUpdateOperatorReadiness("ready", "Lori is ready.", "You can hand her the session when you're set.");
+  }
   setTimeout(() => {
     if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
   }, 400);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-UI-SHELL-01 — Three-tab shell wiring.
+   Operator | Narrator Session | Media.  Startup lands on Operator.
+   Session style is a state + persistence + label only concern in
+   Phase 1; WO-NARRATOR-ROOM-01 and a future prompt-composer WO will
+   route it into Lori's behavior.  Do NOT overload currentMode.
+═══════════════════════════════════════════════════════════════ */
+
+const LV_SESSION_STYLE_KEY = "hornelore_session_style_v1";
+const LV_VALID_SESSION_STYLES = [
+  "questionnaire_first", "clear_direct", "warm_storytelling",
+  "memory_exercise",    "companion",
+];
+
+/** Read the current session style.  Defaults to warm_storytelling. */
+function getSessionStyle() {
+  return (state && state.session && state.session.sessionStyle) || "warm_storytelling";
+}
+window.getSessionStyle = getSessionStyle;
+
+/**
+ * Persist a session style selection.  Updates state.session.sessionStyle
+ * (NOT currentMode — those are different abstractions) and mirrors the
+ * choice to localStorage so it survives reload.
+ */
+function lvSetSessionStyle(value) {
+  if (!LV_VALID_SESSION_STYLES.includes(value)) {
+    console.warn("[lv-shell] ignored invalid session style:", value);
+    return;
+  }
+  if (!state.session) state.session = {};
+  state.session.sessionStyle = value;
+  try { localStorage.setItem(LV_SESSION_STYLE_KEY, value); } catch (_) {}
+  // Sync the radio group in case this was a programmatic call.
+  const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
+  radios.forEach(r => { r.checked = (r.value === value); });
+  console.log("[lv-shell] sessionStyle =", value);
+}
+window.lvSetSessionStyle = lvSetSessionStyle;
+
+/** Hydrate session style from localStorage (or default) and paint radios. */
+function _lvHydrateSessionStyle() {
+  let saved = null;
+  try { saved = localStorage.getItem(LV_SESSION_STYLE_KEY); } catch (_) {}
+  const value = (saved && LV_VALID_SESSION_STYLES.includes(saved)) ? saved : "warm_storytelling";
+  if (!state.session) state.session = {};
+  state.session.sessionStyle = value;
+  const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
+  radios.forEach(r => { r.checked = (r.value === value); });
+}
+
+/** Which tab is currently visible. */
+function lvShellGetActiveTab() {
+  const active = document.querySelector("#lvShellTabs .lv-shell-tab-active");
+  return active ? active.dataset.tab : "operator";
+}
+window.lvShellGetActiveTab = lvShellGetActiveTab;
+
+/**
+ * Switch to the named tab.  Safe to call before init (no-op if the DOM
+ * isn't present yet).  Updates aria-selected on both tab buttons and
+ * panel visibility via the .lv-shell-panel-active class.
+ */
+function lvShellShowTab(tabName) {
+  const nav = document.getElementById("lvShellTabs");
+  if (!nav) return;
+  const tabs   = nav.querySelectorAll(".lv-shell-tab");
+  const panels = document.querySelectorAll(".lv-shell-panel");
+  tabs.forEach(t => {
+    const isActive = t.dataset.tab === tabName;
+    t.classList.toggle("lv-shell-tab-active", isActive);
+    t.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+  panels.forEach(p => {
+    const isActive = p.id === `lv${tabName.charAt(0).toUpperCase()}${tabName.slice(1)}Tab` ||
+                     p.id === `lv${tabName === "narrator" ? "Narrator" : tabName === "operator" ? "Operator" : "Media"}Tab`;
+    p.classList.toggle("lv-shell-panel-active", isActive);
+  });
+  // Reflect on body for any CSS hooks.
+  try { document.body.setAttribute("data-shell-tab", tabName); } catch (_) {}
+  // Media tab preflight — single-shot probe for /api/photos so we can
+  // surface the "not enabled" hint without navigating away.
+  if (tabName === "media") _lvMediaPreflightOnce();
+}
+window.lvShellShowTab = lvShellShowTab;
+
+/** One-shot init — hydrate session style, land on Operator, install tab handlers. */
+function lvShellInitTabs() {
+  _lvHydrateSessionStyle();
+  lvShellShowTab("operator");
+  // Mirror warmup banner state to the readiness card on boot.
+  const banner = document.getElementById("lv80WarmupBanner");
+  if (banner && !banner.classList.contains("hidden")) {
+    const msg = banner.querySelector(".warmup-msg");
+    lvUpdateOperatorReadiness("pending",
+      (msg && msg.textContent) || "Lori is getting ready…",
+      "This can take a few minutes on first load.");
+  } else if (typeof isLlmReady === "function" && isLlmReady()) {
+    lvUpdateOperatorReadiness("ready", "Lori is ready.",
+      "You can hand her the session when you're set.");
+  }
+}
+window.lvShellInitTabs = lvShellInitTabs;
+
+/**
+ * Update the readiness card on the Operator tab.  Safe if the card
+ * isn't in the DOM (returns silently).
+ *   state: "pending" | "ready" | "error"
+ */
+function lvUpdateOperatorReadiness(readyState, label, sub) {
+  const card = document.getElementById("lvOperatorReadiness");
+  if (!card) return;
+  card.setAttribute("data-ready", readyState || "pending");
+  const lbl = document.getElementById("lvOperatorReadinessLabel");
+  const sbl = document.getElementById("lvOperatorReadinessSub");
+  if (lbl && label) lbl.textContent = label;
+  if (sbl && sub)   sbl.textContent = sub;
+  // Reflect on the Start button.
+  const btn = document.getElementById("lvOperatorStartBtn");
+  if (btn) btn.disabled = (readyState !== "ready");
+}
+window.lvUpdateOperatorReadiness = lvUpdateOperatorReadiness;
+
+/**
+ * Hand the session to Lori — switch to the Narrator tab and call the
+ * narrator-room init hook if WO-NARRATOR-ROOM-01 has installed one.
+ * Requires an active narrator; if none is set, nudge the operator to
+ * pick one first.
+ */
+function lvStartNarratorSession() {
+  const hint = document.getElementById("lvOperatorStartHint");
+  const hasNarrator = !!(state && state.person_id);
+  if (!hasNarrator) {
+    if (hint) { hint.hidden = false; hint.textContent = "Choose a narrator first."; }
+    // Also pop the switcher if it's available.
+    if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
+    return;
+  }
+  if (hint) hint.hidden = true;
+  lvShellShowTab("narrator");
+  if (typeof window.lvNarratorRoomInit === "function") {
+    try { window.lvNarratorRoomInit(); } catch (e) { console.warn("[lv-shell] lvNarratorRoomInit threw:", e); }
+  }
+}
+window.lvStartNarratorSession = lvStartNarratorSession;
+
+/**
+ * Media tab launchers.  Phase 1: open existing photo pages.  The
+ * Photo Session requires an active narrator so the elicit page can
+ * bind the right narrator_id.
+ */
+function lvOpenMediaTool(tool) {
+  const noteEl = document.getElementById("lvMediaDisabledNote");
+  switch (tool) {
+    case "photo_intake":
+      window.open("photo-intake.html", "_blank", "noopener");
+      break;
+    case "photo_timeline":
+      window.open("photo-timeline.html", "_blank", "noopener");
+      break;
+    case "photo_session": {
+      const pid = state && state.person_id;
+      if (!pid) {
+        if (noteEl) { noteEl.hidden = false; noteEl.textContent = "Choose a narrator before starting a photo session."; }
+        if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
+        return;
+      }
+      window.open(`photo-elicit.html?narrator_id=${encodeURIComponent(pid)}`, "_blank", "noopener");
+      break;
+    }
+    default:
+      console.warn("[lv-shell] unknown media tool:", tool);
+  }
+}
+window.lvOpenMediaTool = lvOpenMediaTool;
+
+/** One-shot preflight for Media tab — hides the "not enabled" note if
+    /api/photos responds, shows it on 404 (feature flag off). */
+let _lvMediaPreflightDone = false;
+async function _lvMediaPreflightOnce() {
+  if (_lvMediaPreflightDone) return;
+  _lvMediaPreflightDone = true;
+  const note = document.getElementById("lvMediaDisabledNote");
+  try {
+    const res = await fetch("/api/photos?limit=1", { method: "GET" });
+    if (note) {
+      if (res.status === 404) {
+        note.hidden = false;
+        note.textContent = "Photo tools are not enabled for this run.";
+      } else {
+        note.hidden = true;
+      }
+    }
+  } catch (_) {
+    // Leave note hidden on network error — don't block the launcher cards.
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -203,6 +416,9 @@ window.onload = async () => {
   renderMemoirChapters();
   updateArchiveReadiness();
   update71RuntimeUI();   // v7.1 — paint runtime badges on first load
+  // WO-UI-SHELL-01: mount the three-tab shell.  Lands on Operator;
+  // hydrates session style from localStorage; mirrors warmup state.
+  if (typeof lvShellInitTabs === "function") lvShellInitTabs();
   // WO-KAWA-UI-01A: Pre-load river segments (non-blocking)
   if (typeof kawaRefreshList === "function") {
     kawaRefreshList().catch(e => console.warn("[kawa] initial load skipped:", e));

@@ -116,6 +116,15 @@ let state = {
     currentEra:  null,
     currentMode: "open",
 
+    /* WO-UI-SHELL-01 — operator-chosen session style.
+       Separate from currentMode (which is cognitive/runtime state).
+       Values: questionnaire_first | clear_direct | warm_storytelling
+               | memory_exercise   | companion
+       Persisted to localStorage under 'hornelore_session_style_v1' and
+       rehydrated by lvShellInitTabs on load.  Phase 1 = state + label
+       only; prompt-composer wiring is a later WO. */
+    sessionStyle: "warm_storytelling",
+
     /* WO-ARCH-07A — explicit turn routing */
     turnMode: "interview",      // interview | followup | memory_echo | correction | clarify | trainer
     lastTurnMode: null,         // previous completed mode for correction follow-through
