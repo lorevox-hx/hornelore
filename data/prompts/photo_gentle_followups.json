@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "purpose": "Scripted gentle follow-up prompts for Lori's narrator-facing photo sessions. Non-LLM, curator-editable. Used when narrator has spoken at least once and Lori needs a low-demand invitation to continue, or when extended silence crosses a soft re-entry threshold.",
+    "rules": [
+      "All prompts are invitational, never demanding.",
+      "Never read curator people-tags aloud ('teach the test' rule).",
+      "Never correct a narrator's fact.",
+      "Prompts are selected at random or round-robin; LLM is NOT involved in Phase 1."
+    ],
+    "wo_references": ["WO-LORI-PHOTO-ELICIT-01", "WO-10C"],
+    "version": 1,
+    "last_updated": "2026-04-23"
+  },
+  "followups": [
+    "What part of this picture catches your eye first?",
+    "What do you remember feeling in this moment?",
+    "Who do you think of when you look at this?",
+    "What was happening around this time in your life?",
+    "Is there a sound, smell, or feeling that comes back with this photo?",
+    "What would you want your family to know about this moment?",
+    "Does this remind you of another story?",
+    "It is okay if you do not remember. What do you notice in the picture?"
+  ]
+}
