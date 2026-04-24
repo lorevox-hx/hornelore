@@ -2860,7 +2860,10 @@
     </span>
 
     <div>
-      <!-- WO-10D: Persistent header input controls -->
+      <!-- WO-10D: Persistent header input controls.
+           WO-UI-SHELL-01: operator/debug launchers moved into the Operator tab
+           below; Mic + Cam remain in the header as persistent narrator controls.
+           Bug Panel lives on the Operator tab launcher grid. -->
       <div class="lv10d-header-controls" id="lv10dHeaderControls">
         <button class="lv10d-ctrl-btn" id="lv10dMicBtn" type="button"
                 onclick="lv10dToggleMic()" title="Toggle microphone">
@@ -2872,54 +2875,8 @@
           <span class="lv10d-dot" id="lv10dCamDot"></span>
           <span id="lv10dCamLabel">Cam</span>
         </button>
-        <button class="lv10d-ctrl-btn" id="lv10dBugBtn" type="button"
-                popovertarget="lv10dBugPanel" title="Open Bug Panel diagnostics">
-          <span>🔍</span>
-          <span>Bug Panel</span>
-        </button>
       </div>
 
-      <button id="lv80BioBuilderBtn" popovertarget="bioBuilderPopover" title="Capture and organize biographical material">
-        🧩 Bio Builder
-      </button>
-      <button id="lv80BioControlBtn"
-              popovertarget="bioControlCenterPopover"
-              title="Open Bio Builder control center"
-              class="dev-only hidden">
-        🛠 Control Center
-      </button>
-      <button id="lv80LifeMapBtn" popovertarget="lifeMapPopover" title="View your Life Map">
-        🗺 Life Map
-      </button>
-      <button id="lv80RiverBtn" popovertarget="kawaRiverPopover" title="View your Memory River">
-        🌊 Memory River
-      </button>
-      <button id="lv80PeekBtn" popovertarget="memoirScrollPopover" title="Read your story so far">
-        📖 Peek at Memoir
-      </button>
-      <button id="wo10TranscriptBtn" popovertarget="wo10TranscriptPopover" title="View transcript and resume preview">
-        📋 Transcript
-      </button>
-      <!-- WO-13 Phase 6: Review Queue drawer trigger -->
-      <button id="wo13ReviewBtn" popovertarget="wo13ReviewPopover"
-              title="Review proposal rows (approve / reject / source-only)"
-              onclick="if(typeof wo13OpenReviewDrawer==='function') setTimeout(wo13OpenReviewDrawer,0)">
-        🗂 Review
-      </button>
-      <button id="lv80OperatorBtn"
-              class="settings-btn dev-only hidden"
-              type="button"
-              popovertarget="lv80OperatorPopover"
-              title="Hornelore operator tools">
-        &#x1F6E0;
-      </button>
-      <button id="lv80TestLabBtn"
-              class="settings-btn dev-only hidden"
-              type="button"
-              popovertarget="testLabPopover"
-              title="WO-QA-01 Quality Harness (operator-only)">
-        &#x1F9EA;
-      </button>
       <button class="settings-btn" onclick="toggleSettings()" title="Settings">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -2929,6 +2886,165 @@
       </button>
     </div>
   </header>
+
+  <!-- ── WO-UI-SHELL-01: THREE-TAB SHELL ─────────────────────────
+       Operator | Narrator Session | Media.
+       Default: Operator.  Tabs act as a tablist switching which
+       .lv-shell-panel below is active.  Startup lands on Operator;
+       chat does not auto-begin.  Operator tools live in the Operator
+       tab only; the Narrator tab contains the conversation surface.
+  ────────────────────────────────────────────────────────────────-->
+  <nav id="lvShellTabs" class="lv-shell-tabs" role="tablist" aria-label="Hornelore workspace">
+    <button type="button" id="lvShellTabOperator" role="tab" data-tab="operator"
+            class="lv-shell-tab lv-shell-tab-active" aria-selected="true"
+            aria-controls="lvOperatorTab"
+            onclick="lvShellShowTab('operator')">Operator</button>
+    <button type="button" id="lvShellTabNarrator" role="tab" data-tab="narrator"
+            class="lv-shell-tab" aria-selected="false"
+            aria-controls="lvNarratorTab"
+            onclick="lvShellShowTab('narrator')">Narrator Session</button>
+    <button type="button" id="lvShellTabMedia" role="tab" data-tab="media"
+            class="lv-shell-tab" aria-selected="false"
+            aria-controls="lvMediaTab"
+            onclick="lvShellShowTab('media')">Media</button>
+  </nav>
+
+  <!-- ── OPERATOR TAB ──────────────────────────────────────────── -->
+  <section id="lvOperatorTab" class="lv-shell-panel lv-shell-panel-active"
+           role="tabpanel" aria-labelledby="lvShellTabOperator">
+    <div class="lv-operator-container">
+
+      <header class="lv-operator-intro">
+        <h2>Prepare the session</h2>
+        <p class="lv-operator-sub">Choose a narrator, pick a style, then hand the session to Lori.</p>
+      </header>
+
+      <!-- Readiness card — mirrors #lv80WarmupBanner state in an operator-visible surface -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Session readiness</h3>
+        <div id="lvOperatorReadiness" class="lv-readiness-card" data-ready="pending">
+          <span class="lv-readiness-dot" aria-hidden="true"></span>
+          <div class="lv-readiness-meta">
+            <div class="lv-readiness-label" id="lvOperatorReadinessLabel">Lori is getting ready…</div>
+            <div class="lv-readiness-sub" id="lvOperatorReadinessSub">This can take a few minutes on first load.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Session style (WO-UI-SHELL-01): sets state.session.sessionStyle + localStorage.
+           Phase 1 is state + persistence + label only; prompt-composer wiring is deferred. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Session style</h3>
+        <p class="lv-operator-section-sub">Shapes how Lori opens the conversation. You can change this later.</p>
+        <div id="lvOperatorStyleGrid" class="lv-session-style-grid"
+             role="radiogroup" aria-label="Session style">
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="questionnaire_first"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Questionnaire First</strong>
+            <span>Start with the basics, step by step.</span>
+          </label>
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="clear_direct"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Clear &amp; Direct</strong>
+            <span>Short answers, one fact at a time.</span>
+          </label>
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="warm_storytelling" checked
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Warm Storytelling</strong>
+            <span>Tell it with detail, feeling, and scene.</span>
+          </label>
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="memory_exercise"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Memory Exercise</strong>
+            <span>Gentle recall prompts, no pressure.</span>
+          </label>
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="companion"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Companion</strong>
+            <span>Social presence, no interview agenda.</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Primary action: hand session to Lori -->
+      <section class="lv-operator-section lv-operator-actions">
+        <button id="lvOperatorStartBtn" class="lv-operator-start-btn" type="button"
+                onclick="lvStartNarratorSession()">
+          Start Narrator Session
+        </button>
+        <button id="lvOperatorPhotoBtn" class="lv-operator-ghost-btn" type="button"
+                onclick="lvOpenMediaTool('photo_session')">
+          Start Photo Session
+        </button>
+        <p id="lvOperatorStartHint" class="lv-operator-hint" hidden>Choose a narrator first.</p>
+      </section>
+
+      <!-- Operator tools — launcher grid (moved from header). Popovertargets unchanged. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Operator tools</h3>
+        <div class="lv-launcher-grid">
+          <button id="lv80BioBuilderBtn" popovertarget="bioBuilderPopover" title="Capture and organize biographical material">
+            🧩 Bio Builder
+          </button>
+          <button id="lv80BioControlBtn"
+                  popovertarget="bioControlCenterPopover"
+                  title="Open Bio Builder control center"
+                  class="dev-only hidden">
+            🛠 Control Center
+          </button>
+          <button id="lv80LifeMapBtn" popovertarget="lifeMapPopover" title="View your Life Map">
+            🗺 Life Map
+          </button>
+          <button id="lv80RiverBtn" popovertarget="kawaRiverPopover" title="View your Memory River">
+            🌊 Memory River
+          </button>
+          <button id="lv80PeekBtn" popovertarget="memoirScrollPopover" title="Read your story so far">
+            📖 Peek at Memoir
+          </button>
+          <button id="wo10TranscriptBtn" popovertarget="wo10TranscriptPopover" title="View transcript and resume preview">
+            📋 Transcript
+          </button>
+          <!-- WO-13 Phase 6: Review Queue drawer trigger -->
+          <button id="wo13ReviewBtn" popovertarget="wo13ReviewPopover"
+                  title="Review proposal rows (approve / reject / source-only)"
+                  onclick="if(typeof wo13OpenReviewDrawer==='function') setTimeout(wo13OpenReviewDrawer,0)">
+            🗂 Review
+          </button>
+          <button class="lv-launcher-btn" id="lv10dBugBtn" type="button"
+                  popovertarget="lv10dBugPanel" title="Open Bug Panel diagnostics">
+            🔍 Bug Panel
+          </button>
+          <button id="lv80OperatorBtn"
+                  class="settings-btn dev-only hidden"
+                  type="button"
+                  popovertarget="lv80OperatorPopover"
+                  title="Hornelore operator tools">
+            &#x1F6E0;
+          </button>
+          <button id="lv80TestLabBtn"
+                  class="settings-btn dev-only hidden"
+                  type="button"
+                  popovertarget="testLabPopover"
+                  title="WO-QA-01 Quality Harness (operator-only)">
+            &#x1F9EA;
+          </button>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+  <!-- ── NARRATOR TAB — wraps existing chat surface.  WO-NARRATOR-ROOM-01
+       will flesh out the room layout (topbar, view tabs, conversation +
+       context panels).  For WO-UI-SHELL-01 this tab simply hosts the
+       existing chat shell verbatim so nothing breaks when switching. ── -->
+  <section id="lvNarratorTab" class="lv-shell-panel"
+           role="tabpanel" aria-labelledby="lvShellTabNarrator">
 
   <!-- ── CHAT AREA ───────────────────────────────────────────── -->
   <main id="lv80ChatWrap">
@@ -3009,6 +3125,40 @@
       <button id="lv80SendBtn" onclick="sendUserMessage()">Send</button>
     </div>
   </footer>
+
+  </section><!-- /lvNarratorTab -->
+
+  <!-- ── MEDIA TAB — Phase 1 launcher surface.  Opens existing
+       photo pages; detailed room lives on WO-LORI-PHOTO lanes. ── -->
+  <section id="lvMediaTab" class="lv-shell-panel"
+           role="tabpanel" aria-labelledby="lvShellTabMedia">
+    <div class="lv-media-container">
+      <header class="lv-operator-intro">
+        <h2>Media</h2>
+        <p class="lv-operator-sub">Intake photos, review the photo timeline, or start a photo session with the active narrator.</p>
+      </header>
+
+      <div class="lv-media-launch-grid">
+        <button class="lv-media-launch-card" type="button" onclick="lvOpenMediaTool('photo_intake')">
+          <span class="lv-media-icon" aria-hidden="true">📥</span>
+          <strong>Photo Intake</strong>
+          <span>Upload and tag photos for this narrator.</span>
+        </button>
+        <button class="lv-media-launch-card" type="button" onclick="lvOpenMediaTool('photo_timeline')">
+          <span class="lv-media-icon" aria-hidden="true">🗓</span>
+          <strong>Photo Timeline</strong>
+          <span>Review photos by era on the life timeline.</span>
+        </button>
+        <button class="lv-media-launch-card" type="button" onclick="lvOpenMediaTool('photo_session')">
+          <span class="lv-media-icon" aria-hidden="true">📷</span>
+          <strong>Photo Session</strong>
+          <span>Start a narrator-safe photo memory session.</span>
+        </button>
+      </div>
+
+      <p id="lvMediaDisabledNote" class="lv-operator-hint" hidden>Photo tools are not enabled for this run.</p>
+    </div>
+  </section>
 
   <!-- ── APP.JS COMPATIBILITY SHIMS ──────────────────────────────
        app.js accesses these elements directly without null guards.
