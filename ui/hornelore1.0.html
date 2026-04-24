@@ -3046,6 +3046,66 @@
   <section id="lvNarratorTab" class="lv-shell-panel"
            role="tabpanel" aria-labelledby="lvShellTabNarrator">
 
+  <!-- ── WO-NARRATOR-ROOM-01 — Narrator Session room ────────────
+       Wraps the existing chat shell (#lv80ChatWrap + voice bar +
+       capture bar + <footer>) inside a calm conversation-room layout:
+       topbar (identity + Mic/Camera/Pause/Take-a-break) → view tabs
+       (Memory River | Life Map | Photos | Peek at Memoir) →
+       three-column main (view-host | conversation | context-panel).
+       All operator tools live on the Operator tab; this room shows
+       only narrator-facing surfaces. ── -->
+  <div id="lvNarratorRoom">
+
+    <header class="lv-narrator-topbar">
+      <div class="lv-narrator-identity">
+        <span class="lv-narrator-eyebrow">Talking with Lori</span>
+        <strong id="lvNarratorRoomName">—</strong>
+        <span id="lvNarratorRoomStyle" class="lv-narrator-style-pill">Warm storytelling</span>
+      </div>
+
+      <div class="lv-narrator-controls">
+        <button id="lvNarratorMicBtn"   class="lv-narrator-ctrl" type="button"
+                onclick="lvNarratorToggleMic()"    title="Toggle microphone">
+          <span class="lv-narrator-ctrl-dot" data-state="off" aria-hidden="true"></span>
+          <span id="lvNarratorMicLabel">Mic</span>
+        </button>
+        <button id="lvNarratorCamBtn"   class="lv-narrator-ctrl" type="button"
+                onclick="lvNarratorToggleCamera()" title="Toggle camera (facial expression pacing)">
+          <span class="lv-narrator-ctrl-dot" data-state="off" aria-hidden="true"></span>
+          <span id="lvNarratorCamLabel">Camera</span>
+        </button>
+        <button id="lvNarratorPauseBtn" class="lv-narrator-ctrl" type="button"
+                onclick="lvNarratorTogglePause()"  title="Pause listening">
+          <span id="lvNarratorPauseLabel">Pause</span>
+        </button>
+        <button id="lvNarratorBreakBtn" class="lv-narrator-ctrl lv-narrator-break" type="button"
+                onclick="lvNarratorStartBreak()"   title="Take a break — pause the conversation">
+          Take a break
+        </button>
+      </div>
+    </header>
+
+    <nav class="lv-narrator-view-tabs" role="tablist" aria-label="Narrator views">
+      <button type="button" data-view="river"  role="tab" aria-selected="true"
+              class="lv-narrator-view-tab lv-narrator-view-tab-active"
+              onclick="lvNarratorShowView('river')">Memory River</button>
+      <button type="button" data-view="map"    role="tab" aria-selected="false"
+              class="lv-narrator-view-tab"
+              onclick="lvNarratorShowView('map')">Life Map</button>
+      <button type="button" data-view="photos" role="tab" aria-selected="false"
+              class="lv-narrator-view-tab"
+              onclick="lvNarratorShowView('photos')">Photos</button>
+      <button type="button" data-view="memoir" role="tab" aria-selected="false"
+              class="lv-narrator-view-tab"
+              onclick="lvNarratorShowView('memoir')">Peek at Memoir</button>
+    </nav>
+
+    <div class="lv-narrator-main">
+      <aside id="lvNarratorViewHost" class="lv-narrator-view-host" role="tabpanel"
+             aria-label="Narrator view content"></aside>
+
+      <section id="lvNarratorConversation" class="lv-narrator-conversation">
+
   <!-- ── CHAT AREA ───────────────────────────────────────────── -->
   <main id="lv80ChatWrap">
     <!-- WO-CR-01: Chronology Accordion — left column -->
@@ -3125,6 +3185,48 @@
       <button id="lv80SendBtn" onclick="sendUserMessage()">Send</button>
     </div>
   </footer>
+
+      </section><!-- /lvNarratorConversation -->
+
+      <aside id="lvNarratorContextPanel" class="lv-narrator-context-panel">
+        <div class="lv-narrator-ctx-header">
+          <span class="lv-narrator-ctx-label">Right now</span>
+        </div>
+        <div id="lvNarratorCtxCamera" class="lv-narrator-ctx-block" data-state="off">
+          <div class="lv-narrator-ctx-title">Camera</div>
+          <div class="lv-narrator-ctx-body" id="lvNarratorCtxCameraBody">Off — Lori won't see you.</div>
+        </div>
+        <div id="lvNarratorCtxMic" class="lv-narrator-ctx-block" data-state="off">
+          <div class="lv-narrator-ctx-title">Microphone</div>
+          <div class="lv-narrator-ctx-body" id="lvNarratorCtxMicBody">Off — type your answer.</div>
+        </div>
+        <div id="lvNarratorCtxMemoir" class="lv-narrator-ctx-block">
+          <div class="lv-narrator-ctx-title">Your story so far</div>
+          <div class="lv-narrator-ctx-body">
+            <button type="button" class="lv-narrator-ctx-cta"
+                    onclick="lvNarratorShowView('memoir')">
+              Peek at your memoir
+            </button>
+          </div>
+        </div>
+      </aside>
+
+    </div><!-- /lv-narrator-main -->
+  </div><!-- /lvNarratorRoom -->
+
+  <!-- WO-NARRATOR-ROOM-01 — Take a Break overlay.  Hidden unless the
+       narrator clicks Take a break; pauses listening + halts hands-free
+       rearm; Resume or Return to Operator exits. -->
+  <div id="lvNarratorBreakOverlay" class="lv-narrator-break-overlay" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="lvNarratorBreakTitle">
+    <div class="lv-narrator-break-card">
+      <h2 id="lvNarratorBreakTitle">Let's take a break.</h2>
+      <p>Your story is saved. We can come back whenever you are ready.</p>
+      <div class="lv-narrator-break-actions">
+        <button type="button" class="lv-operator-start-btn" onclick="lvNarratorEndBreak()">Resume</button>
+        <button type="button" class="lv-operator-ghost-btn" onclick="lvNarratorReturnToOperator()">Return to Operator</button>
+      </div>
+    </div>
+  </div>
 
   </section><!-- /lvNarratorTab -->
 
