@@ -1,0 +1,385 @@
+{
+  "_wo": "WO-QB-MASTER-EVAL-01",
+  "_generated": "2026-04-23T21:21:21",
+  "mode": "live",
+  "summary": {
+    "total_cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "pass_rate": 0.0,
+    "avg_overall_score": 0.0
+  },
+  "contract_subset": {
+    "total": 0,
+    "passed_v3": 0,
+    "passed_v2": 0,
+    "v2_avg_score": 0,
+    "pass_rate_v3": 0,
+    "pass_rate_v2": 0,
+    "note": "v2 = old scorer (field avg >= 0.7). v3 = truth zone recall. Prior baseline: 32/62 v2."
+  },
+  "v2_baseline": {
+    "total_v2_passed": 0,
+    "total_v2_rate": 0.0,
+    "note": "v2-compat scoring for all 104 cases. Compare contract subset v2 against old 32/62."
+  },
+  "by_behavior": {
+    "extract_multiple": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    }
+  },
+  "by_narrator": {
+    "janice-josephine-horne": {
+      "total": 1,
+      "passed": 0,
+      "avg_score": 0.0
+    }
+  },
+  "by_case_type": {
+    "dense_truth": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_style_bucket": {
+    "life_history": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_chunk_size": {
+    "large": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_noise_profile": {
+    "dense_truth": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_case_mode": {
+    "style": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_era": {
+    "school_years": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_pass": {
+    "pass1": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_mode": {
+    "open": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "by_era_x_pass": {
+    "school_years::pass1": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0
+    }
+  },
+  "method_distribution": {
+    "error_ConnectionError": 1
+  },
+  "method_rates": {
+    "parse_success_rate": 0.0,
+    "parse_failure_rate": 1.0,
+    "rules_fallback_rate": 0.0,
+    "truncation_rate": 0.0
+  },
+  "stubborn_pack_summary": {
+    "primary": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "avg_score": 0.0,
+      "case_ids": [
+        "case_082"
+      ],
+      "pass_rate": 0.0
+    },
+    "secondary": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "truncation_starved": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    },
+    "out_of_scope": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "avg_score": 0.0,
+      "case_ids": [],
+      "pass_rate": 0.0
+    }
+  },
+  "defensible_alt_credit": {
+    "rate": 0.0,
+    "count": 0,
+    "field_path_mismatch_count": 0,
+    "pairs_top": []
+  },
+  "defensible_value_alt_credit": {
+    "rate": 0.0,
+    "count": 0,
+    "cases": []
+  },
+  "invalid_field_path_hallucinations": [
+    {
+      "case_id": "case_082",
+      "offender_count": 0,
+      "offenders": [],
+      "failure_categories": [
+        "schema_gap"
+      ]
+    }
+  ],
+  "confidence_distribution": {
+    "item_count": 0,
+    "min": null,
+    "max": null,
+    "avg": null,
+    "buckets": {
+      "lt_0_5": 0,
+      "0_5_to_0_7": 0,
+      "0_7_to_0_9": 0,
+      "ge_0_9": 0
+    }
+  },
+  "truth_zone_summary": {
+    "must_extract_recall": 0.0,
+    "may_extract_bonus_rate": 0.0,
+    "should_ignore_leak_rate": 0.0,
+    "must_not_write_violation_rate": 0,
+    "raw_counts": {
+      "must_extract": {
+        "total": 2,
+        "hit": 0,
+        "miss": 2
+      },
+      "may_extract": {
+        "total": 3,
+        "hit": 0,
+        "miss": 3
+      },
+      "should_ignore": {
+        "total": 3,
+        "hit": 3,
+        "leaked": 0
+      },
+      "must_not_write": {
+        "total": 0,
+        "hit": 0,
+        "violated": 0
+      }
+    }
+  },
+  "must_not_write_violations": [],
+  "expected_extractor_results": {
+    "should_pass": {
+      "total": 0,
+      "actually_passed": 0
+    },
+    "known_gaps": {
+      "total": 1,
+      "actually_passed": 0
+    }
+  },
+  "failure_categories": {
+    "schema_gap": 1
+  },
+  "case_results": [
+    {
+      "field_scores": {
+        "residence.place": {
+          "expected": "Spokane, Washington",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        },
+        "personal.placeOfBirth": {
+          "expected": "Spokane, Washington",
+          "actual": null,
+          "score": 0.0,
+          "status": "missing"
+        }
+      },
+      "forbidden_violations": [],
+      "overall_score": 0.0,
+      "v2_score": 0.0,
+      "v2_pass": false,
+      "failure_categories": [
+        "schema_gap"
+      ],
+      "pass": false,
+      "truth_zone_scores": {
+        "must_extract": {
+          "total": 2,
+          "hit": 0,
+          "miss": 2
+        },
+        "may_extract": {
+          "total": 3,
+          "hit": 0,
+          "miss": 3
+        },
+        "should_ignore": {
+          "total": 3,
+          "hit": 3,
+          "miss": 0,
+          "leaked": 0
+        },
+        "must_not_write": {
+          "total": 0,
+          "hit": 0,
+          "miss": 0,
+          "violated": 0
+        }
+      },
+      "truth_zone_details": {
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "extracted": false,
+          "winning_path": null,
+          "winning_via": null
+        },
+        "residence.place": {
+          "zone": "must_extract",
+          "extracted": false,
+          "winning_path": null,
+          "winning_via": null,
+          "alt_defensible_paths": [
+            "personal.placeOfBirth"
+          ]
+        },
+        "education.schooling": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.occupation": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "parents.firstName": {
+          "zone": "may_extract",
+          "extracted": false
+        },
+        "siblings.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.children.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        },
+        "family.spouse.firstName": {
+          "zone": "should_ignore",
+          "extracted": false,
+          "leaked": false
+        }
+      },
+      "case_id": "case_082",
+      "narratorId": "janice-josephine-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "childhood_moves",
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": false,
+      "caseType": "dense_truth",
+      "oralHistoryStyle": "life_history",
+      "style_bucket": "life_history",
+      "chunk_size": "large",
+      "noise_profile": "dense_truth",
+      "case_mode": "style",
+      "sequence_group": null,
+      "mode": "live",
+      "method": "error_ConnectionError",
+      "elapsed_ms": 0,
+      "extracted_count": 0,
+      "current_era": "school_years",
+      "current_pass": "pass1",
+      "current_mode": "open",
+      "confidence_stats": {
+        "count": 0,
+        "min": null,
+        "max": null,
+        "avg": null,
+        "lt_0_5": 0,
+        "ge_0_9": 0
+      },
+      "stubborn_partition": "primary",
+      "raw_items": []
+    }
+  ],
+  "run_metadata": {
+    "eval_tag": "r5f-spantag-probe",
+    "started_at": "2026-04-24T03:21:19Z",
+    "mode": "live",
+    "git_sha": "9112a0d",
+    "branch": "main",
+    "git_dirty": false,
+    "flags": {
+      "HORNELORE_NARRATIVE": "1",
+      "HORNELORE_ATTRIB_BOUNDARY": "0",
+      "HORNELORE_PROMPTSHRINK": "0",
+      "HORNELORE_SILENT_DEBUG": "0",
+      "HORNELORE_SPANTAG": "1",
+      "HORNELORE_INTAKE_MINIMAL": "0"
+    },
+    "api_endpoint": "http://localhost:8000",
+    "api_model": "unavailable — /status endpoint not exposed",
+    "api_model_hash": "unavailable",
+    "api_uptime_seconds": null,
+    "api_log_last_line_age_seconds": 1.4,
+    "warmup_probe": {
+      "post_extract_roundtrip_ms": null,
+      "http_status": null,
+      "classification": "unreachable",
+      "error": "ConnectionError: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/extract-fields (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x72a65bdc3020>: Failed to establish a new connection: [Errno 111] Connection refused'))"
+    },
+    "scorer_version": "8e7795e7930c",
+    "case_bank_version": "666d732fe813"
+  }
+}

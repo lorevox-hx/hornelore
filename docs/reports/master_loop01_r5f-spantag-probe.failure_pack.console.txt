@@ -1,0 +1,33 @@
+==============================================================================
+  FAILURE PACK — eval_tag=r5f-spantag-probe
+==============================================================================
+  total: 1   passed: 0   failed: 1
+
+  Failure categories:
+    schema_gap                         1   [case_082]
+
+  By narrator (failures):
+    janice-josephine-horne             1
+
+  By phase (failures):
+    developmental_foundations          1
+
+  By era (failures):
+    school_years                       1
+
+  By score bucket (failures):
+    0.00         1
+    0.01-0.24    0
+    0.25-0.49    0
+    0.50-0.69    0
+    0.70+        0
+
+  Hallucination prefix rollup:
+
+  must_not_write violations: 0
+
+  Cross-axis highlights (biggest cell per grid):
+    narrator×phase           janice-josephine-horne×developmental_foundations             failed=1
+    category×narrator        schema_gap×janice-josephine-horne                            failed=1
+
+==============================================================================

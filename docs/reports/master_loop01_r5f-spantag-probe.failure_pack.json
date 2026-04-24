@@ -1,0 +1,85 @@
+{
+  "_wo": "WO-EX-FAILURE-PACK-01",
+  "eval_tag": "r5f-spantag-probe",
+  "generated_from": {
+    "_wo": "WO-QB-MASTER-EVAL-01",
+    "_generated": "2026-04-23T21:21:21",
+    "mode": "live"
+  },
+  "total_cases": 1,
+  "passed": 0,
+  "failed": 1,
+  "failure_categories": {
+    "schema_gap": {
+      "count": 1,
+      "cases": [
+        "case_082"
+      ]
+    }
+  },
+  "by_narrator": {
+    "janice-josephine-horne": {
+      "failed": 1,
+      "cases": [
+        "case_082"
+      ]
+    }
+  },
+  "by_phase": {
+    "developmental_foundations": {
+      "failed": 1,
+      "cases": [
+        "case_082"
+      ]
+    }
+  },
+  "by_era": {
+    "school_years": {
+      "failed": 1,
+      "cases": [
+        "case_082"
+      ]
+    }
+  },
+  "by_score_bucket": {
+    "0.00": {
+      "count": 1,
+      "cases": [
+        "case_082"
+      ]
+    },
+    "0.01-0.24": {
+      "count": 0,
+      "cases": []
+    },
+    "0.25-0.49": {
+      "count": 0,
+      "cases": []
+    },
+    "0.50-0.69": {
+      "count": 0,
+      "cases": []
+    },
+    "0.70+": {
+      "count": 0,
+      "cases": []
+    }
+  },
+  "hallucination_prefix_rollup": {},
+  "must_not_write": {
+    "count": 0,
+    "cases": []
+  },
+  "cross_axis_highlights": [
+    {
+      "axis": "narrator×phase",
+      "row": "janice-josephine-horne×developmental_foundations",
+      "failed": 1
+    },
+    {
+      "axis": "category×narrator",
+      "row": "schema_gap×janice-josephine-horne",
+      "failed": 1
+    }
+  ]
+}

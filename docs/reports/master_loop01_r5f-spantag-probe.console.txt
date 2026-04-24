@@ -1,0 +1,121 @@
+[discipline] eval_tag=r5f-spantag-probe
+[discipline] started_at=2026-04-24T03:21:19Z
+[discipline] mode=live
+[discipline] git_sha=9112a0d git_dirty=False branch=main
+[discipline] flags:
+  HORNELORE_NARRATIVE=1
+  HORNELORE_ATTRIB_BOUNDARY=0 (default)
+  HORNELORE_PROMPTSHRINK=0 (default)
+  HORNELORE_SILENT_DEBUG=0 (default)
+  HORNELORE_SPANTAG=1
+  HORNELORE_INTAKE_MINIMAL=0 (default)
+[discipline] api_endpoint=http://localhost:8000
+[discipline] api_model=unavailable — /status endpoint not exposed  api_model_hash=unavailable
+[discipline] api_log_last_line_age_seconds=1.4
+[discipline] warmup_probe:
+  classification: unreachable
+  error: ConnectionError: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/extract-fields (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x72a65bdc3020>: Failed to establish a new connection: [Errno 111] Connection refused'))
+[discipline] scorer_version=8e7795e7930c
+[discipline] case_bank_version=666d732fe813
+
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     1
+  Passed:          0
+  Failed:          1
+  Pass rate:       0.0%
+  Avg score:       0.000
+
+  CONTRACT SUBSET (regression guard):
+
+
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 0/1 passed (0.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        0.0%
+    may_extract bonus rate:     0.0%
+    should_ignore leak rate:    0.0%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_multiple                0/1 passed
+
+  By narrator:
+    janice-josephine-horne          0/1 passed  (avg 0.000)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  0/0
+    Known gaps (currentExtractorExpected=false):  0/1
+
+  Failure categories:
+    schema_gap                      1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    dense_truth                0/1 passed  (avg 0.000)
+
+  By style bucket:
+    life_history               0/1 passed  (avg 0.000)
+
+  By chunk size:
+    large                      0/1 passed  (avg 0.000)
+
+  By noise profile:
+    dense_truth                0/1 passed  (avg 0.000)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    school_years            0/1 passed  (avg 0.000)
+
+  By pass:
+    pass1                   0/1 passed  (avg 0.000)
+
+  By mode:
+    open                    0/1 passed  (avg 0.000)
+
+  By era × pass:
+    school_years::pass1                       0/1 passed  (avg 0.000)
+
+  ─── LAYER 3b: STUBBORN-PACK PARTITION ───
+
+    primary                 0/1 passed  (0.0%, avg 0.000)
+      cases: case_082
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     0.0%
+    parse_failure_rate:     100.0%
+    rules_fallback_rate:    0.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    error_ConnectionError                     1
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               0  (0.0%)
+    still-mismatched cases:       0
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+
+  Confidence distribution:
+    item_count:      0
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_082      offenders= 0  categories=['schema_gap']
+
+  ─── FAILED CASES ───
+
+    case_082    dense_truth      large   dense_truth   score=0.00  janice-josephine-horne [GAP]
+      Failures:  ['schema_gap']
+
+==============================================================================
