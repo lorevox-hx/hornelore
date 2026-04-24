@@ -4013,6 +4013,22 @@
       </ul>
     </div>
 
+    <!-- WO-UI-TEST-LAB-01: UI Health Check (operator preflight) -->
+    <div class="lv10d-bp-section" id="lv10dBpUiHealth">
+      <div class="lv10d-bp-section-title">UI Health Check</div>
+      <div class="lv10d-bp-actions" style="flex-wrap:wrap;">
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runAll()">Run Full UI Check</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('camera')">Camera</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('switch')">Narrator Switch</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('scroll')">Chat Scroll</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('archive')">Archive</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.copyReport()">Copy Report</button>
+      </div>
+      <div id="lv10dBpUiHealthResults" class="lv10d-bp-test-results">
+        <div class="lv10d-bp-test-empty">No results yet — click a Run button.</div>
+      </div>
+    </div>
+
     <!-- Actions -->
     <div class="lv10d-bp-section">
       <div class="lv10d-bp-section-title">Actions</div>
@@ -4299,6 +4315,7 @@
 <script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
 <script src="js/emotion-pipeline-tests.js"></script>
+<script src="js/ui-health-check.js"></script>
 
 <script>
 /* ── Auto-reset on startup ──────────────────────────────────────

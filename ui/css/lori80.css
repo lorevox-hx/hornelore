@@ -1215,3 +1215,84 @@ mark.fragment-fact {
   border-color: #a08658;
   color: #6a4a14;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-UI-TEST-LAB-01 — UI Health Check section inside #lv10dBugPanel
+   Re-uses existing .lv10d-bp-value .ok/.warn/.err/.off color classes
+   for status pills.  Layout-only additions here.
+   ─────────────────────────────────────────────────────────────── */
+.lv10d-bp-test-results {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.lv10d-bp-test-summary {
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  background: rgba(15,23,42,0.6);
+  border: 1px solid rgba(99,102,241,0.18);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.lv10d-bp-test-duration {
+  margin-left: auto;
+  color: #64748b;
+  font-family: 'SF Mono','Consolas',monospace;
+  font-size: 11px;
+}
+.lv10d-bp-test-group-title {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.lv10d-bp-test-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.lv10d-bp-test-row:hover { background: rgba(99,102,241,0.06); }
+.lv10d-bp-test-status {
+  flex: 0 0 auto;
+  min-width: 64px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.lv10d-bp-test-name {
+  flex: 1 1 auto;
+  color: #cbd5e1;
+  min-width: 0;
+}
+.lv10d-bp-test-detail {
+  flex: 0 1 auto;
+  color: #64748b;
+  font-family: 'SF Mono','Consolas',monospace;
+  font-size: 11px;
+  white-space: normal;
+}
+.lv10d-bp-test-empty {
+  color: #64748b;
+  font-style: italic;
+  padding: 4px;
+}
+.lv10d-bp-test-copy-note {
+  background: rgba(74,222,128,0.18);
+  border: 1px solid rgba(74,222,128,0.4);
+  color: #4ade80;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
