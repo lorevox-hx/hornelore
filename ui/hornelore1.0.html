@@ -4597,6 +4597,26 @@ async function lv80SwitchPerson(personId) {
     if (_sw && _sw.matches && _sw.matches(":popover-open")) _sw.hidePopover();
   } catch (_) {}
 
+  // #176 (WO-NARRATOR-ROOM-01 follow-up): stop the camera on every
+  // narrator change. Without this, Janice's camera stream + MediaPipe
+  // + preview carry into Kent (and into a freshly-created narrator),
+  // with no new consent pass for the new narrator. stopEmotionEngine
+  // handles the full cleanup: MediaStream tracks stopped, preview
+  // hidden, cameraActive=false, state.inputState.cameraActive=false,
+  // visual signals nulled. FacialConsent.reset() clears the session
+  // consent flags but preserves stored (localStorage) consent per the
+  // WO-02 family-friendly policy — so the next Cam click for the new
+  // narrator auto-passes consent (no re-overlay on a family machine)
+  // while still forcing a clean engine start. Covers both narrator
+  // switches and new-narrator creation (lv80NewPerson routes through
+  // this function via lv80ConfirmNarratorSwitch).
+  try {
+    if (typeof stopEmotionEngine === "function") stopEmotionEngine();
+    if (window.FacialConsent && typeof window.FacialConsent.reset === "function") {
+      window.FacialConsent.reset();
+    }
+  } catch (_) {}
+
   /* ── v9: GATED NARRATOR OPEN FLOW ────────────────────────── */
 
   // 1. Mark loading state
@@ -4743,13 +4763,29 @@ async function lv80SwitchPerson(personId) {
   }
 
   // WO-CAM-FIX: Auto-start camera on narrator load if family defaults are on.
-  // Previously camera only started from interview.js _ivStartActual() (fresh section start)
-  // or lv80ToggleCam() (which had a session_id gate). Narrator-resume loads never
-  // triggered either path, so camera stayed off despite emotionAware=true, permCamOn=true.
+  // Originally this fired on every narrator load so emotionAware+permCamOn
+  // defaults would actually take effect.  Post WO-UI-SHELL-01 / WO-NARRATOR-
+  // ROOM-01 the operator explicitly chooses the narrator and has a Camera
+  // button in the narrator-room topbar, so blanket auto-start on every
+  // switch became a privacy footgun: switching Janice → Kent carried the
+  // stream forward and a brand-new narrator got a camera with no deliberate
+  // activation.  We now:
+  //   (a) stop the previous narrator's camera at the top of this function
+  //       (see FacialConsent.reset + stopEmotionEngine above);
+  //   (b) auto-start only on the FIRST narrator load of the page session.
+  // Subsequent switches require a deliberate Cam click.  Stored facial
+  // consent (WO-02 family-friendly) still auto-passes at click time, so
+  // this is friction-free on a trusted family machine without being an
+  // invisible-always-on footgun.
   if (state.narratorOpen.openStatus === "ready" && permCamOn && emotionAware && !cameraActive) {
-    if (typeof startEmotionEngine === "function") {
-      console.log("[WO-CAM-FIX] Auto-starting camera for ready narrator (permCamOn + emotionAware)");
-      startEmotionEngine();
+    if (!window._lv80CamAutoStartedThisPageSession) {
+      window._lv80CamAutoStartedThisPageSession = true;
+      if (typeof startEmotionEngine === "function") {
+        console.log("[WO-CAM-FIX] Auto-starting camera on first narrator load of this page session (permCamOn + emotionAware).");
+        startEmotionEngine();
+      }
+    } else {
+      console.log("[WO-CAM-FIX] Subsequent narrator load — camera stays off; operator can click Cam in the narrator room or Operator tab.");
     }
   }
 }
@@ -4870,6 +4906,19 @@ async function lv80NewPerson() {
     if (!resp.ok) { alert("Failed to create narrator: " + resp.status); return; }
     const data = await resp.json();
     const pid = data.person_id || data.person?.id;
+    // #190 follow-up: a brand-new narrator should hit the full facial
+    // expression consent overlay, not the family-friendly auto-pass.
+    // The WO-02 storage policy is "trusted family machine, don't re-ask
+    // for returning narrators" — a newly-created narrator isn't returning,
+    // they haven't consented yet. revokeStored() wipes the persisted
+    // consent so the next Cam click shows the overlay.  The subsequent
+    // lv80SwitchPerson still runs FacialConsent.reset() (clears session
+    // flags) and stopEmotionEngine() so the switch is clean either way.
+    try {
+      if (window.FacialConsent && typeof window.FacialConsent.revokeStored === "function") {
+        window.FacialConsent.revokeStored();
+      }
+    } catch (_) {}
     if (typeof refreshPeople === "function") await refreshPeople();
     lv80RenderNarratorCards();
     if (pid && typeof lv80ConfirmNarratorSwitch === "function") lv80ConfirmNarratorSwitch(pid);
