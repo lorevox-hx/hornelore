@@ -4689,6 +4689,14 @@ async function lv80SwitchPerson(personId) {
         complete: false, cameraForPacing: false, profilePhotoEnabled: false,
         questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
       },
+      // #194 (WO-UI-SHELL-01 follow-up): preserve sessionStyle so the
+      // narrator-room topbar paints the operator's chosen style label
+      // ("Questionnaire first" etc.) after a narrator switch.  Without
+      // this, the rebuild drops sessionStyle and getSessionStyle() falls
+      // back to "warm_storytelling" even when localStorage holds a
+      // different value the operator just selected.
+      sessionStyle: (state.session && state.session.sessionStyle)
+        || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling"),
     };
     setAssistantRole("interviewer");
     lv80RefreshCaptureBar();
@@ -4746,6 +4754,9 @@ async function lv80SwitchPerson(personId) {
         complete: false, cameraForPacing: false, profilePhotoEnabled: false,
         questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
       },
+      // #194: preserve sessionStyle — see READY path above.
+      sessionStyle: (state.session && state.session.sessionStyle)
+        || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling"),
     };
     lv80ResetCaptureBar();
 
