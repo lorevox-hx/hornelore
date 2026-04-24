@@ -5401,7 +5401,17 @@ function appendLoriOnboardingMessage(text) {
 }
 
 async function beginCameraConsent74(opts = {}) {
-  if (typeof state === "undefined" || !state.session?.onboarding) return false;
+  if (typeof state === "undefined") return false;
+  // #145: lazy-init onboarding — narrator-switch handler rebuilds state.session
+  // from scratch and the original static-init object in state.js is lost.
+  // Without this, the Cam button silently no-ops on every post-first-load narrator.
+  if (!state.session) state.session = {};
+  if (!state.session.onboarding) {
+    state.session.onboarding = {
+      complete: false, cameraForPacing: false, profilePhotoEnabled: false,
+      questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
+    };
+  }
 
   state.session.onboarding.cameraForPacing = !!opts.cameraForPacing;
   state.session.onboarding.profilePhotoEnabled = !!opts.profilePhotoEnabled;
@@ -5434,7 +5444,15 @@ async function beginCameraConsent74(opts = {}) {
 }
 
 function finalizeOnboarding74() {
-  if (typeof state === "undefined" || !state.session?.onboarding) return;
+  if (typeof state === "undefined") return;
+  // #145: lazy-init — same reason as beginCameraConsent74 above.
+  if (!state.session) state.session = {};
+  if (!state.session.onboarding) {
+    state.session.onboarding = {
+      complete: false, cameraForPacing: false, profilePhotoEnabled: false,
+      questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
+    };
+  }
 
   if (window.AffectBridge74) {
     window.AffectBridge74.finalizeBaseline();

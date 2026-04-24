@@ -4333,6 +4333,18 @@ async function lv80LoadPeople() {
 async function lv80SwitchPerson(personId) {
   if (!personId) return;
 
+  // #145: always close the narrator-switcher popover on any narrator change.
+  // It renders in the browser's top layer and covers the header Cam/Mic
+  // buttons; left open, the first Cam click is consumed by popover="auto"
+  // light-dismiss instead of reaching the header. lv80ConfirmNarratorSwitch
+  // (card Open path) already closes it, but the hidden <select onchange> path
+  // and any other caller of lv80SwitchPerson did not. Belt-and-suspenders
+  // close here covers every path.
+  try {
+    const _sw = document.getElementById("lv80NarratorSwitcher");
+    if (_sw && _sw.matches && _sw.matches(":popover-open")) _sw.hidePopover();
+  } catch (_) {}
+
   /* ── v9: GATED NARRATOR OPEN FLOW ────────────────────────── */
 
   // 1. Mark loading state
@@ -4398,6 +4410,13 @@ async function lv80SwitchPerson(personId) {
         heritage: null, education: null, military: null,
         career: null, partner: null, children: null, life_stage: null,
       },
+      // #145: preserve onboarding object across narrator switches so the
+      // camera-consent / pacing / photo consent flow doesn't silently
+      // short-circuit at app.js beginCameraConsent74 L5404.
+      onboarding: (state.session && state.session.onboarding) || {
+        complete: false, cameraForPacing: false, profilePhotoEnabled: false,
+        questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
+      },
     };
     setAssistantRole("interviewer");
     lv80RefreshCaptureBar();
@@ -4449,6 +4468,11 @@ async function lv80SwitchPerson(personId) {
         childhood_home: null, siblings: null, parents_work: null,
         heritage: null, education: null, military: null,
         career: null, partner: null, children: null, life_stage: null,
+      },
+      // #145: preserve onboarding object across narrator switches — see READY path above.
+      onboarding: (state.session && state.session.onboarding) || {
+        complete: false, cameraForPacing: false, profilePhotoEnabled: false,
+        questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
       },
     };
     lv80ResetCaptureBar();

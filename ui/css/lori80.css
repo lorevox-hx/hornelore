@@ -214,6 +214,11 @@ mark.fragment-fact {
   transform: translateX(-50%);
   z-index: 9000;
   width: 180px;
+  height: 159px; /* 24px title bar + 135px video = initial 4:3 video */
+  min-width: 140px;
+  min-height: 120px;
+  max-width: 90vw;
+  max-height: 90vh;
   background: #0f1117;
   border: 1px solid rgba(99,102,241,.45);
   border-radius: 10px;
@@ -221,6 +226,11 @@ mark.fragment-fact {
   overflow: hidden;
   cursor: move;
   user-select: none;
+  /* Native browser resize handle (bottom-right corner). Drag handler in
+     camera-preview.js skips drag-start when mousedown is in the handle box. */
+  resize: both;
+  display: flex;
+  flex-direction: column;
 }
 #lv74-cam-preview.lv74-preview-hidden { display: none; }
 #lv74-cam-preview-bar {
@@ -247,8 +257,9 @@ mark.fragment-fact {
 #lv74-cam-close:hover { color: #fff; }
 #lv74-cam-video {
   display: block;
-  width: 180px;
-  height: 135px;
+  width: 100%;
+  flex: 1 1 auto;     /* fill remaining space as the preview box is resized */
+  min-height: 0;      /* allow flex-shrink below the video's intrinsic size */
   object-fit: cover;
   transform: scaleX(-1); /* mirror — natural self-view */
   background: #000;

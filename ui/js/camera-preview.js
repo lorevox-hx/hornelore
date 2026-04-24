@@ -21,26 +21,80 @@
   "use strict";
 
   /**
+   * Is this MediaStream usable — i.e. does it have at least one live track?
+   * After Cam toggle off the old stream stays attached to the preview video,
+   * but all its tracks are in readyState="ended". Early-returning on
+   * `video.srcObject` truthy then leaves the preview bound to a dead stream
+   * (frame frozen / blank) when Cam toggles back on.
+   */
+  function _streamIsLive(s) {
+    if (!s) return false;
+    try {
+      var tracks = s.getTracks ? s.getTracks() : [];
+      for (var i = 0; i < tracks.length; i++) {
+        if (tracks[i] && tracks[i].readyState === "live") return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /**
+   * Find the emotion engine's hidden video element without matching
+   * the preview video itself. emotion.js creates its video with
+   * playsinline and display:none and no id; the preview video is
+   * id="lv74-cam-video" and ALSO carries playsinline, so a raw
+   * `querySelector("video[playsinline]")` can return the preview
+   * video and end up copying its own (possibly stale) srcObject.
+   */
+  function _findEmotionEngineVideo() {
+    var vids = document.querySelectorAll("video[playsinline]");
+    for (var i = 0; i < vids.length; i++) {
+      var v = vids[i];
+      if (v.id === "lv74-cam-video") continue;
+      if (v.srcObject && _streamIsLive(v.srcObject)) return v;
+    }
+    // Fallback — any video with a live srcObject, excluding the preview
+    for (var j = 0; j < vids.length; j++) {
+      if (vids[j].id !== "lv74-cam-video" && vids[j].srcObject) return vids[j];
+    }
+    return null;
+  }
+
+  /**
    * Attach the camera stream to the preview video element.
-   * Reuses an existing srcObject if present; otherwise requests
-   * a new stream (camera permission should already be granted
-   * by the emotion engine's earlier getUserMedia call).
+   * Reuses an existing srcObject if present AND live; otherwise rebinds
+   * from the emotion engine's fresh stream, or (last resort) requests a
+   * new stream (camera permission should already be granted by the
+   * emotion engine's earlier getUserMedia call).
    */
   function _attachPreviewStream() {
     var video = document.getElementById("lv74-cam-video");
     if (!video) return;
-    if (video.srcObject) return;
 
-    // Try to reuse the emotion engine's existing stream first
-    var emotionVideo = document.querySelector("video[playsinline]");
+    // If the preview is already bound to a live stream, nothing to do.
+    if (video.srcObject && _streamIsLive(video.srcObject)) return;
+
+    // If the preview has a dead stream attached (all tracks ended after
+    // a Cam toggle-off), drop it so the new assignment takes effect.
+    if (video.srcObject) {
+      try { video.srcObject = null; } catch (_) {}
+    }
+
+    // Try to reuse the emotion engine's existing (live) stream first.
+    var emotionVideo = _findEmotionEngineVideo();
     if (emotionVideo && emotionVideo.srcObject) {
       video.srcObject = emotionVideo.srcObject;
+      // Some browsers need a nudge to start rendering after src swap.
+      try { video.play && video.play().catch(function () {}); } catch (_) {}
       return;
     }
 
     // Fallback: request own stream (permission already granted)
     navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-      .then(function (stream) { video.srcObject = stream; })
+      .then(function (stream) {
+        video.srcObject = stream;
+        try { video.play && video.play().catch(function () {}); } catch (_) {}
+      })
       .catch(function (err) {
         console.warn("[lv74] Camera preview stream error:", err.message);
       });
@@ -90,13 +144,20 @@
       reopen.classList.remove("lv74-reopen-visible");
     });
 
-    // ── Drag support ────────────────────────────────────────────
+    // ── Drag + resize support ───────────────────────────────────
+    // Native CSS `resize: both` on #lv74-cam-preview provides a bottom-right
+    // resize handle. We skip drag-start when mousedown lands inside the
+    // handle's ~18px box so it doesn't fight the browser's resize gesture.
+    var RESIZE_HANDLE_PX = 18;
     var dragging = false, ox = 0, oy = 0;
 
     preview.addEventListener("mousedown", function (e) {
       if (e.target.id === "lv74-cam-close") return;
-      dragging = true;
       var r = preview.getBoundingClientRect();
+      // Skip drag if the mousedown is inside the resize-handle corner.
+      if (e.clientX > r.right - RESIZE_HANDLE_PX &&
+          e.clientY > r.bottom - RESIZE_HANDLE_PX) return;
+      dragging = true;
       preview.style.left = r.left + "px";
       preview.style.top = r.top + "px";
       preview.style.transform = "none";
@@ -112,6 +173,32 @@
     });
 
     document.addEventListener("mouseup", function () { dragging = false; });
+
+    // ── Persist chosen size across reloads ──────────────────────
+    var SIZE_KEY = "lv74_cam_preview_size";
+    try {
+      var saved = JSON.parse(localStorage.getItem(SIZE_KEY) || "null");
+      if (saved && saved.w && saved.h) {
+        preview.style.width  = saved.w + "px";
+        preview.style.height = saved.h + "px";
+      }
+    } catch (_) {}
+
+    if (typeof ResizeObserver === "function") {
+      var _sizeSaveTimer = null;
+      var ro = new ResizeObserver(function () {
+        clearTimeout(_sizeSaveTimer);
+        _sizeSaveTimer = setTimeout(function () {
+          try {
+            var r = preview.getBoundingClientRect();
+            localStorage.setItem(SIZE_KEY, JSON.stringify({
+              w: Math.round(r.width), h: Math.round(r.height),
+            }));
+          } catch (_) {}
+        }, 180); // debounce during continuous drag
+      });
+      ro.observe(preview);
+    }
 
     // ── Attach camera stream ────────────────────────────────────
     _attachPreviewStream();
