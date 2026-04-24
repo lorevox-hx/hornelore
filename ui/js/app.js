@@ -2901,11 +2901,16 @@ function startIdentityOnboarding(){
   setAssistantRole("onboarding");
   // v7.4E — Tell Lori to briefly explain WHY she needs the three anchors before asking.
   // This sets expectations, builds trust, and gets more accurate answers.
+  // #202: Drop the "Hornelore" etymology lecture — that was the codebase
+  //       project name leaking into the user-facing chat.  User-facing
+  //       product is Lorevox; Lori is the assistant.  Keep the intro
+  //       simple and warm; if asked, Lori is part of Lorevox, no etymology.
   sendSystemPrompt(
     "[SYSTEM: Begin the identity onboarding sequence. " +
-    "Introduce yourself as Lori. " +
-    "You may briefly share what your name means — Hornelore: 'Horne' is the family name, " +
-    "'Lore' means stories and oral tradition, so Hornelore means the Horne family stories. Lori is your nickname from that. " +
+    "Introduce yourself simply as Lori. " +
+    "Do NOT explain where your name comes from. Do NOT mention 'Hornelore' " +
+    "or any name etymology.  If asked, you can say you're part of Lorevox " +
+    "in one short clause, but do not lecture about it.  " +
     "Explain that your purpose is to help them build a Life Archive — a lasting record of their life story " +
     "told in their own voice. " +
     "Then explain you need just three things to get started: their name, their date of birth, and where they were born. " +
