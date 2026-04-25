@@ -1004,12 +1004,22 @@
       flex-shrink: 0;
       padding: 20px 24px 0;
       border-bottom: 1px solid rgba(20,184,166,0.15);
+      position: relative; /* anchor for #bbResetIdentityBtn (BUG-228) */
     }
     .bb-header h3 {
       margin: 0 0 2px;
       font-size: 16px;
       font-weight: 600;
       color: #e2e8f0;
+    }
+    /* BUG-228: Reset Identity button — top-right of BB popover header. */
+    #bbResetIdentityBtn {
+      position: absolute;
+      top: 18px;
+      right: 24px;
+    }
+    #bbResetIdentityBtn:hover {
+      background: rgba(127, 29, 29, 0.15) !important;
     }
     #bbSubtitle {
       font-size: 12px;
@@ -3662,6 +3672,17 @@
     <div class="bb-header">
       <h3>🧩 Bio Builder</h3>
       <span id="bbSubtitle">Choose a narrator to begin</span>
+      <!-- BUG-228: Operator-accessible Reset Identity link.
+           Same handler as the Bug Panel button but always visible
+           inside the BB popover so it's reachable during normal flow
+           without diving into devtools. -->
+      <button id="bbResetIdentityBtn"
+              type="button"
+              title="Wipe this narrator's identity fields and re-fire identity onboarding. Memory archive, parents/siblings sections, other narrators preserved."
+              onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()"
+              style="font-size:11px;padding:.25rem .5rem;border:1px solid #7f1d1d;background:transparent;color:#f87171;border-radius:4px;cursor:pointer;">
+        ⟲ Reset Identity
+      </button>
       <div class="bb-tabs" role="tablist">
         <button id="bbTabCapture"       class="bb-tab bb-tab-active" data-tab="capture"
                 onclick="window.LorevoxBioBuilder._switchTab('capture')"
@@ -4141,6 +4162,30 @@
       <div id="lv10dBpDeepResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
     </div>
 
+    <!-- BB Walk Test Harness — programmatic 30-item verification -->
+    <div class="lv10d-bp-section" style="border:1px solid #374151;padding:8px;margin-top:8px;">
+      <h4 style="margin:0 0 4px 0;color:#60a5fa;">🧪 BB Walk Test Harness</h4>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Creates a fresh test narrator, drives identity onboarding (3 anchors)
+        + QF walk (3 personal fields) with deterministic answers, verifies
+        each save lands in the expected BB field. Stubs Lori prompts so no
+        LLM call fires. Output prints to console as a pass/fail table.
+        Future-coverage parents/siblings items skipped (27 items) until QF
+        walk Phase 2 ships repeatable section walking.
+      </p>
+      <div class="lv10d-bp-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
+                onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true})">
+          Run BB Walk Test (verbose)
+        </button>
+        <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
+                onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true, cleanup:true})">
+          Run + Clean Up
+        </button>
+      </div>
+      <div id="lv10dBpBbWalkStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
     <!-- ── BUG-228: Reset Identity for Current Narrator ─────────────
          Use when bb.questionnaire.personal contains polluted data
          (refusal replies as fullName, wrong DOB/POB) that the BUG-220A
@@ -4439,6 +4484,7 @@
 <script src="js/chronology-accordion.js"></script>
 <script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
+<script src="js/test-bb-walk.js"></script>
 <script src="js/emotion-pipeline-tests.js"></script>
 <script src="js/session-style-router.js"></script>
 <script src="js/session-loop.js"></script>
