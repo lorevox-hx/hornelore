@@ -1076,6 +1076,146 @@
   };
 
   /* ───────────────────────────────────────────────────────────
+     BUG-228: RESET IDENTITY for current narrator
+
+     Operational tool — wipes the polluted identity fields for the
+     active narrator and re-opens identity onboarding.  Use when a
+     narrator's bb.questionnaire.personal contains garbage from
+     prior test sessions (refusal replies saved as fullName,
+     wrong DOB, wrong birthplace, etc.) and the simple BUG-220A
+     scope fix can't help because the data IS for this narrator.
+
+     Scope (narrow on purpose):
+       • bb.questionnaire.personal — wiped to {}
+       • state.profile.basics.fullname / preferred / dob / pob — wiped
+       • state.session.identityPhase — reset to "askName"
+       • state.session.identityCapture — reset to fresh shape
+       • backend BB QQ personal section — PUT empty
+       • backend person row — PATCHed to clear date_of_birth + place_of_birth
+       • identity onboarding — re-fired via startIdentityOnboarding()
+
+     Out of scope:
+       • Other narrators' data (not touched)
+       • Memory archive (preserved — sessions stay intact)
+       • Family tree, life threads, photos (preserved)
+       • Other BB sections (parents, siblings) (preserved)
+       • person_id (preserved — same narrator, just identity reset)
+   ─────────────────────────────────────────────────────────── */
+  async function lvBbResetIdentityForCurrentNarrator() {
+    const pid = (typeof state !== "undefined" && state.person_id) || null;
+    if (!pid) {
+      console.warn("[bb-reset-identity] ABORT — no active narrator");
+      try { alert("No active narrator selected — pick a narrator first."); } catch (_) {}
+      return false;
+    }
+    const bb = _bb();
+    if (!bb || bb.personId !== pid) {
+      console.warn("[bb-reset-identity] ABORT — bb.personId mismatch (bb=" +
+        ((bb && bb.personId) || "null").slice(0, 8) + " state=" + pid.slice(0, 8) + ")");
+      try { alert("Bio Builder scope is reconciling — try again in a moment."); } catch (_) {}
+      return false;
+    }
+
+    const currentName = (state.profile && state.profile.basics &&
+      (state.profile.basics.preferred || state.profile.basics.fullname)) || "this narrator";
+
+    // Confirm with the operator (popover-aware so it shows above bug panel).
+    const ok = await _confirmIdentityReset(currentName, pid);
+    if (!ok) {
+      console.log("[bb-reset-identity] cancelled by operator");
+      return false;
+    }
+
+    console.log("[bb-reset-identity] starting reset for pid=" + pid.slice(0, 8) +
+      " name=" + currentName);
+
+    // 1. Wipe in-memory bb.questionnaire.personal (preserve other sections).
+    try {
+      if (bb.questionnaire) bb.questionnaire.personal = {};
+    } catch (e) { console.warn("[bb-reset-identity] bb wipe threw:", e); }
+
+    // 2. Wipe state.profile.basics identity fields.
+    try {
+      if (state.profile && state.profile.basics) {
+        delete state.profile.basics.fullname;
+        delete state.profile.basics.fullName;
+        delete state.profile.basics.preferred;
+        delete state.profile.basics.preferredName;
+        delete state.profile.basics.dob;
+        delete state.profile.basics.dateOfBirth;
+        delete state.profile.basics.pob;
+        delete state.profile.basics.placeOfBirth;
+      }
+    } catch (e) { console.warn("[bb-reset-identity] basics wipe threw:", e); }
+
+    // 3. Reset session identity machine.
+    try {
+      if (!state.session) state.session = {};
+      state.session.identityPhase   = "askName";
+      state.session.identityCapture = { name: null, dob: null, birthplace: null };
+      state.session.speakerName     = null;
+    } catch (e) { console.warn("[bb-reset-identity] session reset threw:", e); }
+
+    // 4. Persist BB blob to backend (empty personal merges with whatever else is there).
+    try { _persistDrafts(pid); } catch (e) { console.warn("[bb-reset-identity] persist threw:", e); }
+
+    // 5. PATCH backend person row to clear DOB + place fields.
+    try {
+      if (typeof API !== "undefined" && API.PERSON) {
+        const r = await fetch(API.PERSON(pid), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date_of_birth: null, place_of_birth: null }),
+        });
+        if (!r.ok) console.warn("[bb-reset-identity] PATCH person failed:", r.status);
+        else console.log("[bb-reset-identity] PATCH person cleared DOB+POB");
+      }
+    } catch (e) { console.warn("[bb-reset-identity] PATCH person threw:", e); }
+
+    // 6. Re-render BB if popover is open.
+    try {
+      if (window.LorevoxBioBuilder && typeof window.LorevoxBioBuilder.refresh === "function") {
+        window.LorevoxBioBuilder.refresh();
+      }
+    } catch (_) {}
+
+    // 7. Re-fire identity onboarding so Lori asks for the three anchors again.
+    try {
+      if (typeof window.startIdentityOnboarding === "function") {
+        window.startIdentityOnboarding();
+      } else if (typeof startIdentityOnboarding === "function") {
+        startIdentityOnboarding();
+      }
+    } catch (e) { console.warn("[bb-reset-identity] startIdentityOnboarding threw:", e); }
+
+    console.log("[bb-reset-identity] complete — Lori will re-ask name + DOB + birthplace");
+    return true;
+  }
+
+  function _confirmIdentityReset(name, pid) {
+    return new Promise(function (resolve) {
+      const msg =
+        "Reset identity for \"" + name + "\" (" + pid.slice(0, 8) + ")?\n\n" +
+        "This will:\n" +
+        "  • Wipe bb.questionnaire.personal (Full Name / Preferred / DOB / Birthplace / Time of Birth)\n" +
+        "  • Clear state.profile.basics identity fields\n" +
+        "  • PATCH the backend person row to null DOB + birthplace\n" +
+        "  • Re-fire identity onboarding (Lori will ask the three anchors again)\n\n" +
+        "PRESERVED:\n" +
+        "  • Memory archive (transcripts intact)\n" +
+        "  • Other BB sections (parents, siblings, family tree)\n" +
+        "  • Other narrators (untouched)\n" +
+        "  • person_id (same narrator, just identity reset)\n\n" +
+        "Continue?";
+      let answer;
+      try { answer = window.confirm(msg); } catch (_) { answer = false; }
+      resolve(!!answer);
+    });
+  }
+
+  window.lvBbResetIdentityForCurrentNarrator = lvBbResetIdentityForCurrentNarrator;
+
+  /* ───────────────────────────────────────────────────────────
      EXPORT MODULE
   ─────────────────────────────────────────────────────────── */
 

@@ -4140,6 +4140,29 @@
       </div>
       <div id="lv10dBpDeepResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
     </div>
+
+    <!-- ── BUG-228: Reset Identity for Current Narrator ─────────────
+         Use when bb.questionnaire.personal contains polluted data
+         (refusal replies as fullName, wrong DOB/POB) that the BUG-220A
+         scope fix can't help with because the data IS for this narrator
+         (just from earlier test sessions). -->
+    <div class="lv10d-bp-section" style="border:1px solid #374151;padding:8px;margin-top:8px;">
+      <h4 style="margin:0 0 4px 0;color:#f87171;">⚠ Reset Identity for Current Narrator (BUG-228)</h4>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Wipes bb.questionnaire.personal (name / DOB / birthplace / preferred / timeOfBirth),
+        clears state.profile.basics identity fields, PATCHes the backend person row to null
+        DOB + place_of_birth, and re-fires identity onboarding so Lori re-asks the three
+        anchors. Memory archive, other BB sections (parents/siblings/family tree),
+        and other narrators are untouched. person_id stays the same.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()">
+          Reset Identity for Current Narrator
+        </button>
+      </div>
+      <div id="lv10dBpResetIdentityStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
   </div>
 
   <!-- ── SETTINGS POPOVER (Step 3) ───────────────────────────

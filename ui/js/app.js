@@ -3104,12 +3104,61 @@ function _parseBirthplaceFromUtterance(text){
 }
 
 /**
+ * BUG-227: Shared name extractor — pulls a plausible first/preferred
+ * name from intro patterns: "my name is X", "call me X", "I'm X",
+ * "I am X", "I go by X", "preferred name is X".
+ *
+ * Returns null if no name pattern matches OR if the matched word is
+ * a common pronoun/word/emotional content (handled by the same
+ * _NOT_A_NAME guard the askName handler uses).
+ *
+ * Used by both the identity onboarding state machine (askName) and
+ * the questionnaire_first walk (BUG-227) so a narrator's intro
+ * captures cleanly regardless of which path is active.
+ */
+function _parseNameFromUtterance(text){
+  if (!text || typeof text !== "string") return null;
+  const t = text.trim();
+  if (t.length < 2) return null;
+
+  const _NOT_A_NAME = new Set([
+    "that","it","i","the","a","an","this","there","here","yes","no","yeah","nope",
+    "okay","ok","well","so","hi","hello","hey","oh","ah","uh","um","my","mine",
+    "what","when","where","why","how","who","which","they","we","you","he","she",
+    "just","not","but","and","or","if","then","was","were","is","am","are",
+    "had","have","has","did","do","does","would","could","should","will","can",
+  ]);
+  const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken)\b/i;
+  if (_EMOTIONAL_MARKERS.test(t)) return null;
+
+  const _patterns = [
+    /\bmy\s+(?:\w+\s+)*name\s+is\s+([A-Za-z][a-z'-]+(?:\s+[A-Z][a-z'-]+)?)/i,
+    /\bcall\s+me\s+([A-Za-z][a-z'-]+)/i,
+    /\bi(?:'m|\s+am)\s+(?:called\s+)?([A-Za-z][a-z'-]+(?:\s+[A-Z][a-z'-]+)?)/i,
+    /\bi\s+go\s+by\s+([A-Za-z][a-z'-]+)/i,
+    /\byou\s+can\s+call\s+me\s+([A-Za-z][a-z'-]+)/i,
+    /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?([A-Za-z][a-z'-]+)/i,
+  ];
+  for (const pat of _patterns) {
+    const m = t.match(pat);
+    if (!m || !m[1]) continue;
+    const cand = m[1].trim();
+    const firstWord = cand.split(/\s+/)[0].toLowerCase();
+    if (_NOT_A_NAME.has(firstWord) || firstWord.length < 2) continue;
+    // Capitalize first letter of first word (preserve any second word as-is)
+    return cand.charAt(0).toUpperCase() + cand.slice(1);
+  }
+  return null;
+}
+
+/**
  * BUG-226: Bundle name + DOB + POB extraction so any identity-phase
  * handler can use a single call site. Each field is independent — a
  * partial extraction (e.g. just dob + pob) is still useful.
  */
 function _extractIdentityFieldsFromUtterance(text){
   return {
+    name: _parseNameFromUtterance(text),
     dob: _parseDob(text),
     pob: _parseBirthplaceFromUtterance(text),
   };

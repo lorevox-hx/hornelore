@@ -198,6 +198,116 @@
       return false;
     }
 
+    // BUG-227: Multi-field identity rescue inside the QF walk.
+    //
+    // When a narrator's BB blob is polluted from earlier sessions
+    // (live evidence 2026-04-25T21:13: pid 3fc781ae had garbage in
+    // fullName/preferredName/dateOfBirth/placeOfBirth from prior tests),
+    // the QF walk skips past those "filled" fields and asks only the
+    // remaining empty one (timeOfBirth in the live case). The narrator's
+    // re-introduction ("My name is Melanie ... born in Lima Peru
+    // December 20 1972") then gets ignored or saved as a single-field
+    // answer to whatever the QF walk happened to be asking.
+    //
+    // Fix: every narrator_turn during QF, run the canonical identity
+    // extractors against the FULL utterance. If the input contains
+    // identity-shaped facts (name + DOB + POB, or any subset), overwrite
+    // the polluted fields and skip the asked-field save for THIS turn.
+    // This makes the narrator's intro authoritative.
+    if (event && event.trigger === "narrator_turn" &&
+        typeof event.text === "string" && event.text.trim() &&
+        typeof window._extractIdentityFieldsFromUtterance === "function") {
+      try {
+        const _identity = window._extractIdentityFieldsFromUtterance(event.text);
+        const _hasIdentitySignal = !!(_identity && (_identity.name || _identity.dob || _identity.pob));
+        if (_hasIdentitySignal) {
+          // Update state.profile.basics first — runtime71 reads from here.
+          if (!state.profile) state.profile = { basics: {}, kinship: [], pets: [] };
+          if (!state.profile.basics) state.profile.basics = {};
+          let _wrote = [];
+          if (_identity.name) {
+            state.profile.basics.fullname  = _identity.name;
+            state.profile.basics.preferred = _identity.name;
+            state.session.speakerName      = _identity.name;
+            _wrote.push("name=" + _identity.name);
+          }
+          if (_identity.dob) {
+            state.profile.basics.dob = _identity.dob;
+            _wrote.push("dob=" + _identity.dob);
+          }
+          if (_identity.pob) {
+            state.profile.basics.pob = _identity.pob;
+            _wrote.push("pob=" + _identity.pob);
+          }
+          // Project to the canonical projection layer so subsequent reads see it.
+          if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
+            try {
+              if (_identity.name) {
+                LorevoxProjectionSync.projectValue("personal.fullName", _identity.name,
+                  { source: "interview", turnId: "qf-identity-rescue", confidence: 0.9 });
+                LorevoxProjectionSync.projectValue("personal.preferredName", _identity.name,
+                  { source: "interview", turnId: "qf-identity-rescue", confidence: 0.9 });
+              }
+              if (_identity.dob) {
+                LorevoxProjectionSync.projectValue("personal.dateOfBirth", _identity.dob,
+                  { source: "interview", turnId: "qf-identity-rescue", confidence: 0.9 });
+              }
+              if (_identity.pob) {
+                LorevoxProjectionSync.projectValue("personal.placeOfBirth", _identity.pob,
+                  { source: "interview", turnId: "qf-identity-rescue", confidence: 0.9 });
+              }
+            } catch (e) { console.warn("[session-loop] BUG-227 projection write threw:", e); }
+          }
+          // Mirror to BB questionnaire.personal — overwrite policy in
+          // BUG-227 differs from lvBbSyncIdentity's idempotent behavior:
+          // here we need to OVERWRITE polluted fields, not fill empties.
+          await _overwriteBbPersonal(state.person_id, _identity);
+          // Update the active narrator card for visible feedback.
+          if (typeof lv80UpdateActiveNarratorCard === "function") {
+            try { lv80UpdateActiveNarratorCard(); } catch (_) {}
+          }
+          console.log("[session-loop] BUG-227: identity rescue — wrote " + _wrote.join(", "));
+
+          // If the input was clearly an INTRO (name + at least one of
+          // dob/pob present), the user wasn't answering the asked field
+          // — they were re-introducing themselves. Skip the asked-field
+          // save AND skip the next-field prompt this turn so Lori
+          // acknowledges naturally instead of robotically asking the
+          // next field.
+          const _isFullIntro = !!(_identity.name && (_identity.dob || _identity.pob));
+          if (_isFullIntro) {
+            loop.tellingStoryOnce = true;
+            loop.lastAction = "bug227_identity_rescue_intro";
+            // Tell Lori to acknowledge the corrected identity warmly
+            // and ask one open question. Do not re-ask any of the
+            // identity fields.
+            const greetName = _identity.name || state.profile.basics.preferred || "";
+            const dobStr = _identity.dob ? `, born ${_identity.dob}` : "";
+            const pobStr = _identity.pob ? ` in ${_identity.pob}` : "";
+            const directive = "[SYSTEM_QF: BUG-227 IDENTITY RESCUE — the narrator just " +
+              "re-introduced themselves with name" +
+              (_identity.dob ? " + date of birth" : "") +
+              (_identity.pob ? " + birthplace" : "") + ". " +
+              "Their identity is: " + greetName + dobStr + pobStr + ". " +
+              "Their previous BB record had stale or incorrect data; that is now overwritten. " +
+              "Acknowledge them warmly using their name. Do NOT ask for any of: name, " +
+              "date of birth, birthplace — those are captured. Ask ONE open question " +
+              "that invites a memory or sense of place. Two sentences max.]";
+            try {
+              if (typeof sendSystemPrompt === "function") sendSystemPrompt(directive);
+            } catch (e) { console.warn("[session-loop] BUG-227 directive send threw:", e); }
+            return;
+          }
+          // Partial identity (just one field): fall through to the
+          // normal asked-field save logic. The extracted field is now
+          // captured in BB; the asked-field save will overwrite if
+          // they're the same field, or co-exist if different.
+        }
+      } catch (e) {
+        console.warn("[session-loop] BUG-227 identity rescue threw (non-fatal):", e);
+      }
+    }
+
     // WO-01B: Save the answer to the field we asked last turn (if any).
     // Only fires on narrator_turn (not identity_complete which is the
     // first call where currentField is null).
@@ -471,6 +581,89 @@
     _bbCache = { pid: null, blob: null, ts: 0 };
   }
   window._lvSessionLoopResetBBCache = _resetBBCache;
+
+  /* ── BUG-227: BB personal-section overwrite helper ─────────────
+     Used by the QF identity rescue path. Unlike _saveBBAnswer which
+     saves a single field, this helper writes name + DOB + POB
+     atomically and OVERWRITES whatever was there (vs lvBbSyncIdentity
+     which only fills empty fields). Polluted blobs from prior test
+     sessions need explicit overwrite, not idempotent fill.
+
+     Persists via the canonical PUT /api/bio-builder/questionnaire path
+     after merging into the fresh backend-fetched blob.
+     Includes the same BUG-208 narrator-scope guards as _saveBBAnswer.
+  ─────────────────────────────────────────────────────────────── */
+  async function _overwriteBbPersonal(personId, identity) {
+    if (!personId || !identity) return;
+    const stPid = (typeof state !== "undefined") ? state.person_id : null;
+    const bb    = (typeof state !== "undefined") ? state.bioBuilder : null;
+    const bbPid = bb && bb.personId;
+    if (stPid !== personId || (bbPid && bbPid !== personId)) {
+      console.warn("[bb-drift] _overwriteBbPersonal SKIPPED: " +
+        "personId=" + (personId || "").slice(0, 8) +
+        " state.person_id=" + ((stPid || "").slice(0, 8) || "null") +
+        " bb.personId=" + ((bbPid || "").slice(0, 8) || "null") +
+        " — refusing identity-rescue overwrite under wrong narrator");
+      return;
+    }
+
+    // Fetch fresh blob (same path _saveBBAnswer uses) to avoid stomping
+    // unrelated sections that may have been edited elsewhere.
+    let blob = null;
+    try {
+      blob = await _getQuestionnaireBlob(personId);
+    } catch (e) {
+      console.warn("[session-loop] BUG-227 _getQuestionnaireBlob threw:", e);
+    }
+    if (!blob || typeof blob !== "object") blob = {};
+    if (!blob.personal || typeof blob.personal !== "object") blob.personal = {};
+
+    // Overwrite the polluted fields. We OVERWRITE rather than fill-empty
+    // because the polluted data is wrong; the new identity is correct.
+    if (identity.name) {
+      blob.personal.fullName      = identity.name;
+      blob.personal.preferredName = identity.name;
+    }
+    if (identity.dob) {
+      blob.personal.dateOfBirth = identity.dob;
+    }
+    if (identity.pob) {
+      blob.personal.placeOfBirth = identity.pob;
+    }
+
+    // Mirror to in-memory bb.questionnaire so the BB UI re-renders cleanly.
+    try {
+      if (state.bioBuilder && state.bioBuilder.personId === personId) {
+        if (!state.bioBuilder.questionnaire) state.bioBuilder.questionnaire = {};
+        state.bioBuilder.questionnaire.personal = blob.personal;
+      }
+    } catch (_) {}
+
+    // PUT to backend.
+    const putUrl = (typeof API !== "undefined" && API.BB_QQ_PUT)
+      ? API.BB_QQ_PUT
+      : "/api/bio-builder/questionnaire";
+    try {
+      const r = await fetch(putUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_id: personId,
+          questionnaire: blob,
+          source: "bug227_identity_rescue",
+        }),
+      });
+      if (!r.ok) {
+        console.warn("[session-loop] BUG-227 backend PUT failed:", r.status);
+      } else {
+        console.log("[session-loop] BUG-227: BB personal section overwritten for " + personId.slice(0, 8));
+        // Invalidate the local blob cache so next read sees the fresh write.
+        _resetBBCache();
+      }
+    } catch (e) {
+      console.warn("[session-loop] BUG-227 backend PUT threw:", e);
+    }
+  }
 
   /* ── WO-01B: BB save helper ────────────────────────────────────
      PUT a single answer into the existing /api/bio-builder/questionnaire
