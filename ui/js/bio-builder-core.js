@@ -1101,10 +1101,18 @@
        • Other BB sections (parents, siblings) (preserved)
        • person_id (preserved — same narrator, just identity reset)
    ─────────────────────────────────────────────────────────── */
+  function _setResetIdentityStatus(html) {
+    try {
+      const el = document.getElementById("lv10dBpResetIdentityStatus");
+      if (el) el.innerHTML = html;
+    } catch (_) {}
+  }
+
   async function lvBbResetIdentityForCurrentNarrator() {
     const pid = (typeof state !== "undefined" && state.person_id) || null;
     if (!pid) {
       console.warn("[bb-reset-identity] ABORT — no active narrator");
+      _setResetIdentityStatus('<span style="color:#f87171;">✗ FAIL — no narrator selected</span>');
       try { alert("No active narrator selected — pick a narrator first."); } catch (_) {}
       return false;
     }
@@ -1112,6 +1120,7 @@
     if (!bb || bb.personId !== pid) {
       console.warn("[bb-reset-identity] ABORT — bb.personId mismatch (bb=" +
         ((bb && bb.personId) || "null").slice(0, 8) + " state=" + pid.slice(0, 8) + ")");
+      _setResetIdentityStatus('<span style="color:#f87171;">✗ FAIL — BB scope reconciling, try again</span>');
       try { alert("Bio Builder scope is reconciling — try again in a moment."); } catch (_) {}
       return false;
     }
@@ -1189,6 +1198,10 @@
     } catch (e) { console.warn("[bb-reset-identity] startIdentityOnboarding threw:", e); }
 
     console.log("[bb-reset-identity] complete — Lori will re-ask name + DOB + birthplace");
+    _setResetIdentityStatus(
+      '<span style="color:#22c55e;">✓ PASS — identity cleared for ' +
+      currentName.replace(/[<>&]/g, "") + ' (' + pid.slice(0, 8) + ')</span><br>' +
+      '<span style="color:#94a3b8;">Identity cleared. Start Questionnaire First and re-enter name/DOB/birthplace.</span>');
     return true;
   }
 
