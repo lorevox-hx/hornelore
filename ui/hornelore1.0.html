@@ -2877,6 +2877,15 @@
         </button>
       </div>
 
+      <!-- #205: Bug Panel button back in header (was in Operator launcher
+           grid by WO-UI-SHELL-01, but operator needs it during Narrator
+           Session for live diagnostics). Always-visible across tabs. -->
+      <button class="lv10d-ctrl-btn" id="lv10dBugBtn" type="button"
+              popovertarget="lv10dBugPanel" title="Open Bug Panel diagnostics">
+        <span>🔍</span>
+        <span>Bug</span>
+      </button>
+
       <button class="settings-btn" onclick="toggleSettings()" title="Settings">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -3014,10 +3023,6 @@
                   title="Review proposal rows (approve / reject / source-only)"
                   onclick="if(typeof wo13OpenReviewDrawer==='function') setTimeout(wo13OpenReviewDrawer,0)">
             🗂 Review
-          </button>
-          <button class="lv-launcher-btn" id="lv10dBugBtn" type="button"
-                  popovertarget="lv10dBugPanel" title="Open Bug Panel diagnostics">
-            🔍 Bug Panel
           </button>
           <button id="lv80OperatorBtn"
                   class="settings-btn dev-only hidden"
@@ -4731,8 +4736,18 @@ async function lv80SwitchPerson(personId) {
     // user turns joined to this narrator via sessions.active_person_id.
     // A fresh narrator with zero user turns must NOT trigger a fake
     // "welcome back" greeting — it only pollutes the turns table.
+    //
+    // #207: SECOND gate — when sessionStyle is questionnaire_first, the
+    // session-loop owns Lori's next prompt (BB walk).  Firing the welcome-
+    // back here races the loop dispatch and Lori responds to whichever
+    // prompt was queued first — usually the welcome-back.  Skip welcome-
+    // back so the loop's structured-question prompt wins.  Same for the
+    // opener-greeting fallback below.
     const _wo13PriorUserTurns = Number((state.session && state.session.priorUserTurns) || 0);
-    if (_wo13PriorUserTurns > 0) {
+    const _ssIsQF = (state.session && state.session.sessionStyle) === "questionnaire_first";
+    if (_ssIsQF) {
+      console.log("[WO-13] questionnaire_first override — skipping welcome-back/opener so session-loop owns first prompt");
+    } else if (_wo13PriorUserTurns > 0) {
       // WO-9: Use queue-safe sender to survive startup race
       wo9SendOrQueueSystemPrompt(
         `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
@@ -4822,29 +4837,31 @@ async function lv80SwitchPerson(personId) {
   }
 
   // WO-CAM-FIX: Auto-start camera on narrator load if family defaults are on.
-  // Originally this fired on every narrator load so emotionAware+permCamOn
-  // defaults would actually take effect.  Post WO-UI-SHELL-01 / WO-NARRATOR-
-  // ROOM-01 the operator explicitly chooses the narrator and has a Camera
-  // button in the narrator-room topbar, so blanket auto-start on every
-  // switch became a privacy footgun: switching Janice → Kent carried the
-  // stream forward and a brand-new narrator got a camera with no deliberate
-  // activation.  We now:
-  //   (a) stop the previous narrator's camera at the top of this function
-  //       (see FacialConsent.reset + stopEmotionEngine above);
-  //   (b) auto-start only on the FIRST narrator load of the page session.
-  // Subsequent switches require a deliberate Cam click.  Stored facial
-  // consent (WO-02 family-friendly) still auto-passes at click time, so
-  // this is friction-free on a trusted family machine without being an
-  // invisible-always-on footgun.
+  //
+  // History:
+  //   - Original: fired on every narrator load (#190 surfaced the carry-
+  //     over class — Janice → Kent left Janice's stream alive).
+  //   - #190 fix: gated to FIRST narrator load of page session.
+  //   - #206 fix (now): the one-shot gate broke switch-away/switch-back
+  //     UX (Chris: "I have to manually turn camera back on"; expected the
+  //     stored consent to auto-restart the stream when returning to the
+  //     same narrator).
+  //
+  // Current safety stack (the gate is no longer load-bearing):
+  //   (a) stopEmotionEngine + FacialConsent.reset() at the TOP of
+  //       lv80SwitchPerson — kills the carry-over stream class outright.
+  //   (b) FacialConsent.revokeStored() in lv80NewPerson — brand-new
+  //       narrators get the full overlay before camera fires.
+  //   (c) Stored consent for existing narrators auto-passes (WO-02
+  //       family-friendly), so re-firing auto-start is friction-free.
+  //
+  // With (a)+(b)+(c) in place, dropping the page-session one-shot is
+  // safe: no carry-over (engine stopped on switch), no silent activation
+  // for new narrators (revoke fired), returning narrators auto-restart.
   if (state.narratorOpen.openStatus === "ready" && permCamOn && emotionAware && !cameraActive) {
-    if (!window._lv80CamAutoStartedThisPageSession) {
-      window._lv80CamAutoStartedThisPageSession = true;
-      if (typeof startEmotionEngine === "function") {
-        console.log("[WO-CAM-FIX] Auto-starting camera on first narrator load of this page session (permCamOn + emotionAware).");
-        startEmotionEngine();
-      }
-    } else {
-      console.log("[WO-CAM-FIX] Subsequent narrator load — camera stays off; operator can click Cam in the narrator room or Operator tab.");
+    if (typeof startEmotionEngine === "function") {
+      console.log("[WO-CAM-FIX] Auto-starting camera for ready narrator (permCamOn + emotionAware).");
+      startEmotionEngine();
     }
   }
 }
