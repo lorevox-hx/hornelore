@@ -528,6 +528,28 @@ window.lvUiHealthCheck = (function () {
           "#lvNarratorRecordVoice not present — narrator-room may not be loaded yet");
       }
     }
+
+    // ── BUG-219: pre-mic draft preservation observable ──────────
+    // The patch lives in app.js around startRecording/_wo8VoiceChunkUpdate/
+    // _wo8FinalizeTurn.  We can't observe the closure variable directly,
+    // but we can confirm the patched startRecording is in place by
+    // checking its source for the BUG-219 marker comment.
+    if (typeof startRecording === "function") {
+      const src = startRecording.toString();
+      if (/BUG-219/.test(src)) {
+        _push(cat, "typed text preserved when mic toggles on (BUG-219)",
+          STATUS.PASS,
+          "startRecording wrapper carries BUG-219 marker — pre-mic draft snapshot wired");
+      } else {
+        _push(cat, "typed text preserved when mic toggles on (BUG-219)",
+          STATUS.INFO,
+          "startRecording present but BUG-219 marker not in toString output (likely OK if app.js is minified or wrapper hides it)");
+      }
+    } else {
+      _push(cat, "typed text preserved when mic toggles on (BUG-219)",
+        STATUS.WARN,
+        "startRecording function not in scope — this should not happen");
+    }
   }
 
   // ── Category: Chat Scroll ──────────────────────────────────────

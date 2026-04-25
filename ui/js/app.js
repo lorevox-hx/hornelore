@@ -3495,6 +3495,10 @@ async function sendUserMessage(){
   }
 
   if(!_bubbleAlreadyAdded){ setv("chatInput",""); appendBubble("user",text); }
+  // BUG-219: clear pre-mic draft snapshot now that the turn has been
+  // committed.  Next mic-arm will capture a fresh snapshot from a
+  // (typically empty) chatInput.
+  _wo8PreMicDraft = "";
   let systemInstruction="";
 
   if(state.interview.session_id&&state.interview.question_id){
@@ -4649,6 +4653,20 @@ function startRecording(){
     return;
   }
   const r=_ensureRecognition(); if(!r) return;
+  // BUG-219: snapshot any text the narrator already typed BEFORE we
+  // start collecting STT chunks.  WO-8 voice-turn accumulator joins
+  // _wo8VoiceTurnChunks into chatInput; without a snapshot of the
+  // pre-mic draft, that overwrites typed text.  We prepend this
+  // snapshot when rendering the chunks.  Cleared on send / finalize.
+  try {
+    const _existingDraft = (typeof getv === "function" ? getv("chatInput") : "") || "";
+    // Only capture if there's something meaningful to preserve AND we're
+    // not already in a voice-turn (re-arm should not overwrite the snapshot).
+    if (_existingDraft.trim().length > 0 && !_wo8LongTurnMode && _wo8VoiceTurnChunks.length === 0) {
+      _wo8PreMicDraft = _existingDraft;
+      console.log("[BUG-219] pre-mic draft snapshot: " + JSON.stringify(_existingDraft.slice(0, 60)));
+    }
+  } catch (_) {}
   try{
     r.start(); isRecording=true;
     _setMicVisual(true);
@@ -5226,6 +5244,15 @@ let _wo8VoicePaused = false;
 let _wo8VoiceTurnChunks = [];  // accumulate speech chunks for the current turn
 let _wo8VoiceTurnStart = null;
 let _wo8LongTurnMode = false;  // true when narrator is in extended speech
+/* BUG-219: pre-mic typed draft preservation.
+   When the narrator types something then toggles the mic on, the WO-8
+   voice-turn accumulator was overwriting chatInput with chunks.join(" "),
+   wiping any text the narrator had typed.  Now we snapshot the existing
+   chatInput value at mic-arm time and prepend it to the chunks display.
+   Cleared on send or finalize.  Acceptance per BUG-219:
+     1. Type "My father was"  →  2. Click mic  →  3. Say "Kent Horne"
+     4. chatInput should read "My father was Kent Horne"  (not just "Kent Horne") */
+let _wo8PreMicDraft = "";
 
 /**
  * WO-8: Enhanced recognition result handler that accumulates speech
@@ -5282,8 +5309,12 @@ function _wo8HandleRecognitionResult(e) {
   if (!_wo8VoiceTurnStart) _wo8VoiceTurnStart = Date.now();
   _wo8LongTurnMode = true;
 
-  // Update the chat input with accumulated text
-  const fullText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  // Update the chat input with accumulated text.
+  // BUG-219: prepend any pre-mic typed draft so toggling the mic doesn't
+  // wipe what the narrator was already typing.  Single space separator.
+  const _chunkText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  const _draft = (_wo8PreMicDraft || "").trim();
+  const fullText = _draft ? (_draft + " " + _chunkText) : _chunkText;
   setv("chatInput", fullText);
 
   // WO-MIC-UI-02A: #wo8LiveTranscript was a competing visible surface that confused
@@ -5315,16 +5346,20 @@ function _wo8HandleRecognitionResult(e) {
 function _wo8FinalizeTurn() {
   if (!_wo8VoiceTurnChunks.length) return;
 
-  const fullText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  // BUG-219: include any pre-mic typed draft as a prefix.
+  const _chunkTextFinal = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  const _draftFinal = (_wo8PreMicDraft || "").trim();
+  const fullText = _draftFinal ? (_draftFinal + " " + _chunkTextFinal) : _chunkTextFinal;
   setv("chatInput", fullText);
 
   // Stop recording before sending
   if (isRecording) stopRecording();
 
-  // Reset turn state
+  // Reset turn state (including BUG-219 draft snapshot)
   _wo8VoiceTurnChunks = [];
   _wo8VoiceTurnStart = null;
   _wo8LongTurnMode = false;
+  _wo8PreMicDraft = "";
 
   // Clear live transcript
   const transcriptEl = document.getElementById("wo8LiveTranscript");
@@ -6061,6 +6096,10 @@ startRecording = function() {
   _wo8VoiceTurnStart = null;
   _wo8LongTurnMode = false;
   _wo8VoicePaused = false;
+  // BUG-219: clear pre-mic draft snapshot here so original startRecording's
+  // capture step has a clean slate.  Original captures the CURRENT chatInput
+  // value (whatever the narrator just typed) AFTER this reset.
+  _wo8PreMicDraft = "";
   _wo8OrigStartRecording();
   // Install enhanced handlers after recognition is created
   setTimeout(() => _wo8InstallEnhancedVoice(), 100);
