@@ -979,8 +979,22 @@
       container.innerHTML = _emptyStateHtml("No narrator selected", "Select a narrator to start the structured questionnaire.", []);
       return;
     }
-    // Phase 1.2: ensure canonical questionnaire state is loaded before any render
+    // BUG-220A: fail-closed scope guard. If bb.personId still points at
+    // the previous narrator (async race or missing _personChanged hop),
+    // refuse to paint stale data. Caller (_renderActiveTab) also guards
+    // this; belt-and-suspenders here protects any direct call paths
+    // (e.g., section-detail re-render after edit).
     var bb = _bb();
+    if (bb && bb.personId && bb.personId !== pid) {
+      console.warn("[bb-scope] questionnaire tab render blocked — bb.personId=" +
+        (bb.personId || "").slice(0, 8) + " active=" + pid.slice(0, 8));
+      container.innerHTML = _emptyStateHtml(
+        "Loading active narrator questionnaire…",
+        "Scope reconciling. If this persists, switch narrators again.",
+        []);
+      return;
+    }
+    // Phase 1.2: ensure canonical questionnaire state is loaded before any render
     if (bb && (!bb.questionnaire || Object.keys(bb.questionnaire).length === 0)) {
       _restoreQuestionnaire(pid);
     }

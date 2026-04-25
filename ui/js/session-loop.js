@@ -64,6 +64,10 @@
         currentSection: null, currentField: null,
         askedKeys: [], savedKeys: [], lastTrigger: null, lastAction: null,
         tellingStoryOnce: false,
+        // PATCH 6 (WO-SESSION-INTENT-STABILITY-01): handoff tracker.
+        // Replaces the prior mechanism of mutating state.session.sessionStyle
+        // to suppress repeated handoff prompts after the QF walk exhausts.
+        activeIntent: null,
       };
     }
     // WO-01B: belt-and-suspenders for sessions with a stale state.js
@@ -71,8 +75,25 @@
     if (!Array.isArray(state.session.loop.savedKeys)) {
       state.session.loop.savedKeys = [];
     }
+    // PATCH 6: belt-and-suspenders for sessions whose loop predates
+    // activeIntent — landed 2026-04-25.  Default null preserves prior
+    // behavior; the early-return guard in _routeQuestionnaireFirst only
+    // fires once activeIntent is explicitly set to "people_who_shaped_you".
+    if (typeof state.session.loop.activeIntent === "undefined") {
+      state.session.loop.activeIntent = null;
+    }
     event = event || {};
     state.session.loop.lastTrigger = event.trigger || "unknown";
+
+    // PATCH 6: identity_complete is the canonical "fresh session start"
+    // signal — fires after v9 identity intake, before the first BB walk
+    // turn.  Reset activeIntent so a returning narrator (or operator
+    // re-picking questionnaire_first) can walk again.  Without this,
+    // the post-handoff early-return would permanently suppress the
+    // walk for any narrator who completed it once.
+    if (event.trigger === "identity_complete") {
+      state.session.loop.activeIntent = null;
+    }
 
     const style = (typeof getSessionStyle === "function")
       ? getSessionStyle()
@@ -119,6 +140,20 @@
   async function _routeQuestionnaireFirst(event) {
     const loop = state.session.loop;
 
+    // PATCH 6 (WO-SESSION-INTENT-STABILITY-01): once the personal-basics
+    // walk has handed off to the "people who shaped you" branch, do NOT
+    // re-fire the handoff prompt on every subsequent narrator_turn.
+    // Earlier code mutated state.session.sessionStyle to "warm_storytelling"
+    // as the suppression mechanism, but that broke operator-selected mode
+    // authority (localStorage stayed questionnaire_first while in-memory
+    // flipped — confirmed AMBER in 2026-04-25T19:18 operator log).
+    // Now we use loop.activeIntent as the suppression flag and let the
+    // base LLM stack drive subsequent turns without an overlay directive.
+    if (loop && loop.activeIntent === "people_who_shaped_you") {
+      loop.lastAction = "no_op:post_handoff (questionnaire_first)";
+      return;
+    }
+
     // BUG-212: digression detector.  When the narrator's reply is a
     // long-form story rather than an answer to the asked structured
     // field, do NOT save it to that field (would pollute the scalar)
@@ -133,6 +168,14 @@
       if (!text || typeof text !== "string") return false;
       const t = text.trim();
       const wc = t.split(/\s+/).filter(Boolean).length;
+      // BUG-222: refusal / repetition cues — short replies that aren't
+      // narrative but also aren't valid answers.  Live evidence: Corky
+      // BB Time of Birth field showed "i told you more than once that
+      // information" — 8 words, well below longForm threshold, no
+      // STORY_CUES match, so the prior detector let it through and it
+      // was saved verbatim to the structured time field.
+      const REFUSAL_CUES = /\b(told you (more than|already|before|that)|already (said|told|answered)|same as before|asked already|like i (said|told)|repeating myself|i don't (want|wanna) (to )?(say|answer|talk))\b/i;
+      if (REFUSAL_CUES.test(t)) return true;
       // Hard length cutoff: anything > 120 chars or > 18 words is a
       // narrative, regardless of field.  Older-adult narrators give
       // succinct answers to structured Qs; long replies are stories.
@@ -233,12 +276,17 @@
         );
       }
 
-      // Switch to warm_storytelling FOR THIS NARRATOR ONLY (not localStorage)
-      // so subsequent turns don't keep re-firing the handoff prompt.
-      // Operator can re-pick questionnaire_first on the Operator tab to
-      // walk again (e.g. after Phase 2 ships repeatable section walking).
-      state.session.sessionStyle = "warm_storytelling";
-      console.log("[session-loop] auto-switched to warm_storytelling (in-memory only) after walk completed");
+      // PATCH 6 (WO-SESSION-INTENT-STABILITY-01): track handoff via
+      // loop.activeIntent instead of mutating state.session.sessionStyle.
+      // Operator-selected sessionStyle (localStorage) stays authoritative;
+      // the early-return at top of _routeQuestionnaireFirst uses
+      // activeIntent === "people_who_shaped_you" to suppress repeated
+      // handoff prompts on subsequent turns.  Live drift evidence:
+      // 2026-04-25T19:18 operator log AMBER on
+      // `localStorage=questionnaire_first vs state=warm_storytelling`.
+      loop.activeIntent = "people_who_shaped_you";
+      loop.lastAction   = "handoff:people_who_shaped_you";
+      console.log("[session-loop] handoff fired — activeIntent=people_who_shaped_you (sessionStyle UNCHANGED)");
       return;
     }
 
