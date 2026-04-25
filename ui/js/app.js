@@ -3005,6 +3005,117 @@ function _parseDob(text){
 }
 
 /**
+ * BUG-226: Robust birthplace extractor for identity onboarding.
+ * Handles all four real input shapes seen in live sessions:
+ *   1. "I was born in Lima Peru December 20 1972"   (place before date, digits follow)
+ *   2. "I was born December 20 1972 in Lima Peru"   (place after date)
+ *   3. "I'm from Williston, North Dakota"           (no "born" trigger)
+ *   4. "Lima Peru" / "Mason City Iowa"              (just the place)
+ *
+ * Replaces the prior /\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i regex which
+ * failed on shape 1 because it required period or end-of-string immediately
+ * after the place — Melanie's input "born in Lima Peru December 20 1972"
+ * has digits following Peru, so the prior regex never matched and the
+ * state machine fell through to asking "where were you born?" on a fresh
+ * turn even though Lima Peru was already in the same utterance.
+ *
+ * Returns a clean place name string (e.g. "Lima Peru", "Williston, North Dakota")
+ * or null if no plausible place can be extracted.
+ */
+function _parseBirthplaceFromUtterance(text){
+  if (!text || typeof text !== "string") return null;
+  const t = text.trim();
+  if (t.length < 2 || t.length > 500) return null;
+
+  const MONTHS = "(?:january|february|march|april|may|june|july|august|september|october|november|december)";
+  // Stop tokens — terminate the place capture at the first occurrence of any:
+  //   - a digit (date)
+  //   - a sentence-end punctuation mark
+  //   - a month name (e.g. "Lima Peru December" → stop before December)
+  //   - a conjunction or pronoun starting the next clause
+  //   - "in" (already-consumed "born in"; second "in" is a date qualifier)
+  const STOP_RE = new RegExp(
+    "\\d|" +
+    "[.!?;:]|" +
+    "\\b(?:" + MONTHS + "|when|where|but|so|then|i|we|my|on|at|in|or|and)\\b",
+    "i"
+  );
+
+  // Trigger phrases — strong signal that a place name follows.
+  // Order matters: stronger triggers first.
+  const TRIGGERS = [
+    /\b(?:born|grew\s+up|raised|lived)\s+(?:in|at|near)\s+/i,
+    /\bhail(?:s|ed)?\s+from\s+/i,
+    /\bfrom\s+(?=[A-Z])/i,   // "from <Place>" — only if next word starts capital
+  ];
+
+  function _cleanPlace(raw){
+    if (!raw) return null;
+    let p = String(raw).trim();
+    // Trim trailing comma/period/space
+    p = p.replace(/[,.\s]+$/, "").trim();
+    if (p.length < 2 || p.length > 60) return null;
+    // Reject obvious non-places (articles, pronouns, common single-word replies)
+    if (/^(?:a|an|the|when|where|how|that|hello|yes|no|maybe|sure|okay|i)\b/i.test(p)) return null;
+    // Place must start with a letter (proper noun)
+    if (!/^[A-Za-z]/.test(p)) return null;
+    return p;
+  }
+
+  // Pass 1: try direct triggers
+  for (const trig of TRIGGERS) {
+    const m = t.match(trig);
+    if (!m) continue;
+    const start = m.index + m[0].length;
+    const tail = t.slice(start);
+    const stop = tail.match(STOP_RE);
+    const raw = stop ? tail.slice(0, stop.index) : tail;
+    const place = _cleanPlace(raw);
+    if (place) return place;
+  }
+
+  // Pass 2: "born <date> in <Place>" — date came first, "in" second
+  if (/\bborn\b/i.test(t)) {
+    const inIdx = t.search(/\bin\s+[A-Z]/);
+    if (inIdx >= 0) {
+      const tail = t.slice(inIdx + 3);  // skip "in "
+      const stop = tail.match(STOP_RE);
+      const raw = stop ? tail.slice(0, stop.index) : tail;
+      const place = _cleanPlace(raw);
+      if (place) return place;
+    }
+  }
+
+  // Pass 3 (last resort): the whole utterance IS the place name.
+  // Place-only replies look like proper nouns: every word starts with a
+  // capital (or punctuation like apostrophe/dash). "It was a long time ago"
+  // starts with capital "It" but contains lowercase words — those would
+  // be lowercased in a real place name only at proper-noun boundaries
+  // (which are rare; we accept "of"/"the" in "Land of the Free" if needed
+  // but for birthplace the "all capital-led" rule is safe).
+  if (t.length <= 60 && /^[A-Z]/.test(t) && !STOP_RE.test(t)) {
+    const allCapitalLed = t.split(/\s+/).every(function (w) {
+      return w.length === 0 || /^[A-Z]/.test(w) || /^[,'-]/.test(w);
+    });
+    if (allCapitalLed) return _cleanPlace(t);
+  }
+
+  return null;
+}
+
+/**
+ * BUG-226: Bundle name + DOB + POB extraction so any identity-phase
+ * handler can use a single call site. Each field is independent — a
+ * partial extraction (e.g. just dob + pob) is still useful.
+ */
+function _extractIdentityFieldsFromUtterance(text){
+  return {
+    dob: _parseDob(text),
+    pob: _parseBirthplaceFromUtterance(text),
+  };
+}
+
+/**
  * Advance the identity state machine based on the user's reply.
  * Called at the TOP of sendUserMessage() before anything else.
  * Returns true when the machine is active and consumed the message.
@@ -3088,12 +3199,24 @@ async function _advanceIdentityPhase(text){
     // v8.0 FIX: Update narrator header card immediately
     if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
 
-    // v9.0 FIX: Check if the user also provided DOB in the same message.
-    // e.g. "tom and i was born july 3 1942" — extract both, skip the DOB question.
+    // BUG-226: Mirror name into Bio Builder questionnaire.personal so BB
+    // shows what Lori already knows. Idempotent — only fills empty fields.
+    try {
+      if (typeof window.lvBbSyncIdentity === "function") {
+        window.lvBbSyncIdentity(state.profile.basics);
+      }
+    } catch (e) { console.warn("[bb-sync] askName/name-only threw:", e); }
+
+    // v9.0 FIX + BUG-226: Multi-field extraction from single answer.
+    // Live evidence (2026-04-25): Melanie said "My name is Melanie Zollner
+    // I was born in Lima Peru December 20 1972" and the prior code captured
+    // only name + DOB, missing POB because the embedded-POB regex required
+    // period/EOS after the place. Lori then re-asked birthplace — parent UX
+    // failure. New parser + skip-ahead control flow below.
     const _embeddedDob = _parseDob(text);
+    const _embeddedPob = _parseBirthplaceFromUtterance(text);
     if (_embeddedDob) {
       state.session.identityCapture.dob = _embeddedDob;
-      state.session.identityPhase = "askBirthplace";
       if(!state.profile) state.profile = {basics:{}, kinship:[], pets:[]};
       state.profile.basics.dob = _embeddedDob;
       if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
@@ -3102,11 +3225,46 @@ async function _advanceIdentityPhase(text){
         });
       }
       if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
-      // Check for embedded birthplace too: "born july 3 1942 in Rugby ND"
-      const _pobInName = text.match(/\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i);
-      if (_pobInName && _pobInName[1] && _pobInName[1].trim().length >= 3) {
-        state.session.identityCapture._embeddedPob = _pobInName[1].trim().replace(/[,.\s]+$/, "");
+
+      // BUG-226: SKIP-AHEAD — if POB also captured in same utterance,
+      // mark all three identity anchors complete in one shot and skip
+      // askBirthplace entirely. Lori must NOT ask for what's already given.
+      if (_embeddedPob) {
+        state.session.identityCapture.birthplace = _embeddedPob;
+        state.profile.basics.pob = _embeddedPob;
+        if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
+          LorevoxProjectionSync.projectValue("personal.placeOfBirth", _embeddedPob, {
+            source: "interview", turnId: "identity-pob", confidence: 0.85
+          });
+        }
+        if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
+
+        // Mirror to Bio Builder questionnaire.personal so BB shows what
+        // Lori already knows instead of asking again later.
+        try {
+          if (typeof window.lvBbSyncIdentity === "function") {
+            window.lvBbSyncIdentity(state.profile.basics);
+          }
+        } catch (e) { console.warn("[bb-sync] askName/skip-ahead threw:", e); }
+
+        console.log("[identity] BUG-226: name + DOB + POB extracted from single message:", name, _embeddedDob, _embeddedPob);
+        // Skip directly to person resolution — _resolveOrCreatePerson sets
+        // identityPhase = "complete" and dispatches the session-loop.
+        state.session.identityPhase = "resolving";
+        sendSystemPrompt(
+          `[SYSTEM: SPEAKER IDENTITY — The person is named "${name}", born ${_embeddedDob} in ${_embeddedPob}. ` +
+          `You are Lori, the interviewer. Use "${name}" when addressing the speaker. ` +
+          `These three anchors (name, date of birth, birthplace) were ALL captured from this one message. ` +
+          `Do NOT ask for any of them again — that would be a confidence-killing mistake. ` +
+          `Acknowledge them warmly in one or two sentences (use "${name}" once). ` +
+          `Then ask one open question that invites them to share an early memory or what kind of place ${_embeddedPob} was when they were growing up. One question only.]`
+        );
+        await _resolveOrCreatePerson();
+        return true;
       }
+
+      // Only name + DOB captured — proceed to askBirthplace as before.
+      state.session.identityPhase = "askBirthplace";
       console.log("[identity] Name + DOB extracted from single message:", name, _embeddedDob);
       sendSystemPrompt(
         `[SYSTEM: SPEAKER IDENTITY — The person is named "${name}", born ${_embeddedDob}. ` +
@@ -3115,6 +3273,13 @@ async function _advanceIdentityPhase(text){
         `Then ask where they were born — town, city, or region. One question only.]`
       );
       return true;
+    }
+
+    // BUG-226: name only (no DOB), but maybe POB was given anyway —
+    // capture it for use when askBirthplace fires later. Keeps the
+    // existing askDob → askBirthplace flow intact.
+    if (_embeddedPob) {
+      state.session.identityCapture._embeddedPob = _embeddedPob;
     }
 
     // No embedded DOB — ask for it separately
@@ -3133,7 +3298,6 @@ async function _advanceIdentityPhase(text){
   if(phase === "askDob"){
     const dob = _parseDob(text);
     state.session.identityCapture.dob = dob;  // may be null if unrecognised
-    state.session.identityPhase = "askBirthplace";
 
     // v8.0 FIX: Immediately project DOB into profile and projection state
     if (dob) {
@@ -3148,14 +3312,65 @@ async function _advanceIdentityPhase(text){
       if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
     }
 
-    // v8.0 FIX: Check if POB is embedded in the DOB answer (e.g. "born July 26 1943 in Dartford")
-    const _pobFromDob = text.match(/\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i);
-    if (_pobFromDob && _pobFromDob[1]) {
-      const embeddedPob = _pobFromDob[1].trim().replace(/[,.\s]+$/, "");
-      if (embeddedPob.length >= 3) {
-        state.session.identityCapture._embeddedPob = embeddedPob;
+    // BUG-226: Replace fragile /\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i regex
+    // with the new robust parser. Handles "born July 26 1943 in Dartford"
+    // AND "born in Lima Peru December 20 1972" AND "I was born in Williston
+    // North Dakota in 1949" — the previous regex required period or EOS
+    // immediately after the place, which failed on any utterance with
+    // trailing context.
+    const _embeddedPob = _parseBirthplaceFromUtterance(text);
+
+    // BUG-226: SKIP-AHEAD — if DOB + POB both captured in same answer,
+    // mark all three identity anchors complete (name was set in askName)
+    // and skip askBirthplace entirely. Prevents Lori from re-asking what
+    // the narrator just told her — parent UX failure mode.
+    if (dob && _embeddedPob) {
+      state.session.identityCapture.birthplace = _embeddedPob;
+      if(!state.profile) state.profile = {basics:{}, kinship:[], pets:[]};
+      state.profile.basics.pob = _embeddedPob;
+      if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
+        LorevoxProjectionSync.projectValue("personal.placeOfBirth", _embeddedPob, {
+          source: "interview", turnId: "identity-pob", confidence: 0.85
+        });
       }
+      if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
+
+      // BB sync — mirror to questionnaire.personal
+      try {
+        if (typeof window.lvBbSyncIdentity === "function") {
+          window.lvBbSyncIdentity(state.profile.basics);
+        }
+      } catch (e) { console.warn("[bb-sync] askDob/skip-ahead threw:", e); }
+
+      const name = state.session.identityCapture.name || state.profile.basics.preferred || "";
+      console.log("[identity] BUG-226: DOB + POB extracted from askDob answer:", dob, _embeddedPob);
+      state.session.identityPhase = "resolving";
+      sendSystemPrompt(
+        `[SYSTEM: The user just answered with their date of birth AND birthplace in one message: ` +
+        `born ${dob} in ${_embeddedPob}. ` +
+        `${name ? `Their name is "${name}". ` : ""}` +
+        `These three identity anchors are ALL captured. ` +
+        `Do NOT ask for any of them again. ` +
+        `Acknowledge them warmly in one or two sentences. ` +
+        `Then ask one open question that invites them to share an early memory or what kind of place ${_embeddedPob} was when they were growing up. One question only.]`
+      );
+      await _resolveOrCreatePerson();
+      return true;
     }
+
+    // Only DOB captured — store any embedded POB hint and proceed to askBirthplace.
+    state.session.identityPhase = "askBirthplace";
+    if (_embeddedPob) {
+      state.session.identityCapture._embeddedPob = _embeddedPob;
+    }
+
+    // BB sync — mirror DOB to questionnaire.personal
+    try {
+      if (dob && typeof window.lvBbSyncIdentity === "function") {
+        window.lvBbSyncIdentity(state.profile.basics);
+      }
+    } catch (e) { console.warn("[bb-sync] askDob threw:", e); }
+
     sendSystemPrompt(
       `[SYSTEM: The user gave their date of birth as "${text.trim()}". ` +
       `${dob ? "You have parsed it as "+dob+"." : "The date wasn't entirely clear but that's okay — continue."} ` +
@@ -3170,27 +3385,25 @@ async function _advanceIdentityPhase(text){
     // v8.0 FIX: Extract place from the answer instead of using the raw text.
     let birthplace = text.trim();
 
-    // BEST SOURCE: If the DOB answer already contained a place ("born in Dartford"),
-    // prefer that extracted value over anything in this answer.
+    // BEST SOURCE: If askName or askDob already extracted a place from
+    // an earlier utterance, prefer that — narrator may have repeated
+    // themselves or given a different (less precise) answer this turn.
     if (state.session.identityCapture._embeddedPob) {
       birthplace = state.session.identityCapture._embeddedPob;
     } else {
-      // Try structured extraction: "in X", "from X"
-      const _placePatterns = [
-        /\b(?:born|grew up|raised|from|lived)\s+(?:in|at|near)\s+([A-Z][a-zA-Z\s,]+?)(?:\.|,?\s+(?:and|my|I|we|the|where|when|\d))/i,
-      ];
-      for (const pat of _placePatterns) {
-        const m = text.match(pat);
-        if (m && m[1] && m[1].trim().length >= 3 && m[1].trim().length < 80) {
-          birthplace = m[1].trim().replace(/[,.\s]+$/, "");
-          break;
+      // BUG-226: use the canonical parser. Handles all four real input
+      // shapes (place before/after date, "from X", just the place name).
+      const parsed = _parseBirthplaceFromUtterance(text);
+      if (parsed) {
+        birthplace = parsed;
+      } else {
+        // Fallback: whole-text trim (used when the narrator just says
+        // "Lima, Peru" with no surrounding sentence — the parser's
+        // last-resort branch handles that, so this is for malformed input).
+        if (birthplace.length > 80) {
+          const firstClause = text.split(/[.!?,]/)[0].trim();
+          if (firstClause.length < 80) birthplace = firstClause;
         }
-      }
-
-      // If still a long narrative, truncate to first clause
-      if (birthplace.length > 80) {
-        const firstClause = text.split(/[.!?,]/)[0].trim();
-        if (firstClause.length < 80) birthplace = firstClause;
       }
     }
 
@@ -3206,6 +3419,14 @@ async function _advanceIdentityPhase(text){
     }
     // v8.0 FIX: Update narrator header card with POB
     if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
+
+    // BUG-226: Mirror identity to Bio Builder questionnaire.personal —
+    // all three anchors should now be in BB.
+    try {
+      if (typeof window.lvBbSyncIdentity === "function") {
+        window.lvBbSyncIdentity(state.profile.basics);
+      }
+    } catch (e) { console.warn("[bb-sync] askBirthplace threw:", e); }
 
     state.session.identityPhase = "resolving";
     // Create the person record now that we have the three anchors
@@ -3293,6 +3514,29 @@ async function _resolveOrCreatePerson(){
   } catch (e) {
     console.warn("[session-loop] identity_complete dispatch threw:", e);
   }
+
+  // WO-IDENTITY-TO-LIFEMAP-01: trigger Life Map + Chronology Accordion
+  // refresh so the just-captured DOB / POB / name immediately surface
+  // visible anchors. Life Map already builds 6 default era scaffolds
+  // (Early Childhood / School Years / Adolescence / Early Adulthood /
+  // Midlife / Later Life) from state.profile.basics.dob — those just
+  // need a render kick. Chronology Accordion fetches per-decade from
+  // backend (DOB-gated). Both helpers already exist and are called by
+  // narrator-switch flow (app.js:1935, html:4938); the fresh-onboarding
+  // path was the only gap. Two-call refresh — non-fatal if either
+  // throws.
+  try {
+    if (window.LorevoxLifeMap && typeof window.LorevoxLifeMap.render === "function") {
+      window.LorevoxLifeMap.render(true);
+      console.log("[identity] post-identity Life Map refresh fired");
+    }
+  } catch (e) { console.warn("[lifemap] post-identity render threw:", e); }
+  try {
+    if (typeof window.crInitAccordion === "function") {
+      window.crInitAccordion();
+      console.log("[identity] post-identity Chronology Accordion refresh fired");
+    }
+  } catch (e) { console.warn("[chronology] post-identity init threw:", e); }
 
   // v8.1: Mark this device as onboarded so future startups skip the welcome flow
   // and go straight to the narrator selector instead.

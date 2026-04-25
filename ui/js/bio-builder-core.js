@@ -477,6 +477,67 @@
     _qqDebugSnapshot("narrator_switch", newId, bb);
   }
 
+  /* ── BUG-226: Identity intake → Bio Builder questionnaire sync ──
+     Called from app.js identity onboarding handlers (askName / askDob /
+     askBirthplace) whenever the canonical identity captures land in
+     state.profile.basics.  Mirrors the captures into
+     bb.questionnaire.personal under the canonical MINIMAL_SECTIONS
+     schema (camelCase: fullName / preferredName / dateOfBirth /
+     placeOfBirth) so that Bio Builder reflects what Lori already knows
+     instead of asking again.  Persists via the canonical _persistDrafts
+     path (backend PUT + transient localStorage).
+     Idempotent: only fills empty fields, never overwrites operator-edited values.
+  ─────────────────────────────────────────────────────────── */
+  function _syncIdentityToBB(profile) {
+    var bb = _bb(); if (!bb) return false;
+    var basics = (profile && profile.basics) || profile || {};
+    if (!basics || typeof basics !== "object") return false;
+
+    var pid = bb.personId || _currentPersonId();
+    if (!pid) {
+      console.warn("[bb-sync] _syncIdentityToBB: no active narrator pid — skipping");
+      return false;
+    }
+    // Scope guard — never write under the wrong narrator
+    if (bb.personId && bb.personId !== pid) {
+      console.warn("[bb-sync] _syncIdentityToBB BLOCKED: bb.personId=" +
+        (bb.personId || "").slice(0, 8) + " !== pid=" + (pid || "").slice(0, 8));
+      return false;
+    }
+
+    if (!bb.questionnaire) bb.questionnaire = {};
+    if (!bb.questionnaire.personal || typeof bb.questionnaire.personal !== "object") {
+      bb.questionnaire.personal = {};
+    }
+    var personal = bb.questionnaire.personal;
+
+    // Accept either camelCase or legacy snake/lowercase shapes from state.profile.basics
+    var fullName = basics.fullname || basics.fullName ||
+                   basics.preferred || basics.preferredName || null;
+    var dob      = basics.dob || basics.dateOfBirth || null;
+    var pob      = basics.pob || basics.placeOfBirth || null;
+
+    var changed = false;
+    if (fullName && !personal.fullName)        { personal.fullName        = fullName; changed = true; }
+    if (fullName && !personal.preferredName)   { personal.preferredName   = fullName; changed = true; }
+    if (dob      && !personal.dateOfBirth)     { personal.dateOfBirth     = dob;      changed = true; }
+    if (pob      && !personal.placeOfBirth)    { personal.placeOfBirth    = pob;      changed = true; }
+
+    if (!changed) return false;
+
+    console.log("[bb-sync] identity → questionnaire.personal " +
+      JSON.stringify({ fullName: !!fullName, dob: !!dob, pob: !!pob }) +
+      " for pid=" + pid.slice(0, 8));
+
+    // Persist via canonical path (backend PUT + transient localStorage).
+    // _persistDrafts gates on bb.personId === pid so this is scope-safe.
+    try { _persistDrafts(pid); } catch (e) {
+      console.warn("[bb-sync] _persistDrafts threw:", e);
+    }
+
+    return true;
+  }
+
   /* ── Person-change logic (called from render path) ──────── */
   function _personChanged(newId) {
     var bb = _bb(); if (!bb) return;
@@ -1007,6 +1068,13 @@
   }
   window.lvBbDeepResetCurrentNarrator = lvBbDeepResetCurrentNarrator;
 
+  // BUG-226: expose identity → BB sync so app.js identity onboarding can call it
+  // without depending on the LorevoxBioBuilderCore module export shape.
+  window.lvBbSyncIdentity = function (profile) {
+    try { return _syncIdentityToBB(profile); }
+    catch (e) { console.warn("[bb-sync] lvBbSyncIdentity threw:", e); return false; }
+  };
+
   /* ───────────────────────────────────────────────────────────
      EXPORT MODULE
   ─────────────────────────────────────────────────────────── */
@@ -1030,6 +1098,7 @@
     _LS_QC_PREFIX:            _LS_QC_PREFIX,
     _LS_DRAFT_INDEX:          _LS_DRAFT_INDEX,
     _persistDrafts:           _persistDrafts,
+    _syncIdentityToBB:        _syncIdentityToBB,
     _loadDrafts:              _loadDrafts,
     _clearDrafts:             _clearDrafts,
     _getDraftIndex:           _getDraftIndex,
