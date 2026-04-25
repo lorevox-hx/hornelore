@@ -311,13 +311,13 @@ tail -f /mnt/c/Users/chris/hornelore/.runtime/logs/api.log | grep --line-buffere
 cd /mnt/c/Users/chris/hornelore
 
 echo "=== Generational pack ==="
-python scripts/run_question_bank_extraction_eval.py \
+python scripts/archive/run_question_bank_extraction_eval.py \
   --mode live \
   --api http://localhost:8000 \
   --cases data/qa/question_bank_generational_cases.json
 
 echo "=== Full 104-case master suite ==="
-python scripts/run_question_bank_extraction_eval.py \
+python scripts/archive/run_question_bank_extraction_eval.py \
   --mode live \
   --api http://localhost:8000
 ```
@@ -327,17 +327,17 @@ python scripts/run_question_bank_extraction_eval.py \
 cd /mnt/c/Users/chris/hornelore
 
 # Guard cases only
-python scripts/run_question_bank_extraction_eval.py \
+python scripts/archive/run_question_bank_extraction_eval.py \
   --mode live --api http://localhost:8000 \
   --case-ids case_094,case_096,case_097,case_100
 
 # Single narrator
-python scripts/run_question_bank_extraction_eval.py \
+python scripts/archive/run_question_bank_extraction_eval.py \
   --mode live --api http://localhost:8000 \
   --narrator kent-james-horne
 
 # Failed cases from last report
-python scripts/run_question_bank_extraction_eval.py \
+python scripts/archive/run_question_bank_extraction_eval.py \
   --mode live --api http://localhost:8000 \
   --failed-only docs/reports/question_bank_extraction_eval_report.json
 ```
@@ -559,7 +559,7 @@ This:
 
 Logs land in `logs/api.log`, `logs/tts.log`, `logs/ui.log`. To tail:
 ```bash
-bash scripts/logs_visible.sh
+bash scripts/archive/logs_visible.sh
 ```
 
 To stop everything:
@@ -569,25 +569,25 @@ bash scripts/stop_all.sh
 
 To restart just the API (e.g., after a `.env` or code change):
 ```bash
-bash scripts/restart_api.sh
+bash scripts/archive/restart_api.sh
 ```
 
 ---
 
 ## 6. First load — narrators auto-seed
 
-The first time the API starts, `_horneloreEnsureNarrators()` checks the `people` table. If Chris, Kent, or Janice are missing, they're seeded from `ui/templates/`. Reference narrators (Shatner, Dolly) seed via `scripts/preload_trainer.py`:
+The first time the API starts, `_horneloreEnsureNarrators()` checks the `people` table. If Chris, Kent, or Janice are missing, they're seeded from `ui/templates/`. Reference narrators (Shatner, Dolly) seed via `scripts/archive/preload_trainer.py`:
 
 ```bash
 python3 -m pip install -r scripts/requirements.txt --break-system-packages
 python3 -m playwright install chromium
-python3 scripts/preload_trainer.py --all
+python3 scripts/archive/preload_trainer.py --all
 ```
 
 Synthetic test narrators for the Quality Harness seed via:
 
 ```bash
-python3 scripts/seed_test_narrators.py
+python3 scripts/archive/seed_test_narrators.py
 ```
 
 ---
@@ -608,11 +608,11 @@ After the stack is up:
 
 **From WSL:**
 ```bash
-bash scripts/run_test_lab.sh                              # full matrix
-bash scripts/run_test_lab.sh --dry-run                    # plumbing check
-bash scripts/run_test_lab.sh --compare-to <prior_run_id>  # regression vs baseline
-bash scripts/test_lab_doctor.sh                           # one-shot health check
-bash scripts/test_lab_watch.sh                            # terminal live monitor
+bash scripts/archive/run_test_lab.sh                              # full matrix
+bash scripts/archive/run_test_lab.sh --dry-run                    # plumbing check
+bash scripts/archive/run_test_lab.sh --compare-to <prior_run_id>  # regression vs baseline
+bash scripts/archive/test_lab_doctor.sh                           # one-shot health check
+bash scripts/archive/test_lab_watch.sh                            # terminal live monitor
 ```
 
 Run artifacts land in `/mnt/c/hornelore_data/test_lab/runs/<run_id>/`.
@@ -625,19 +625,19 @@ This is separate from the Quality Harness. The extraction eval tests the field-e
 
 ```bash
 # Full 104-case suite
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000
+python scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000
 
 # Generational pack (14 cases, separate file)
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --cases data/qa/question_bank_generational_cases.json
+python scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --cases data/qa/question_bank_generational_cases.json
 
 # Guard cases only
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --case-ids case_094,case_096,case_097,case_100
+python scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --case-ids case_094,case_096,case_097,case_100
 
 # Kent only
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --narrator kent-james-horne
+python scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --narrator kent-james-horne
 
 # Failed cases from prior report
-python scripts/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --failed-only docs/reports/question_bank_extraction_eval_report.json
+python scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --failed-only docs/reports/question_bank_extraction_eval_report.json
 ```
 
 Always use the 3-terminal methodology described above when running evals.
@@ -673,7 +673,7 @@ cd /mnt/c/Users/chris/hornelore
 git pull origin main
 ```
 
-If the pull touched `chat_ws.py`, any router, or anything in `server/`, restart the API: `bash scripts/restart_api.sh`. If it touched UI files, hard-reload Chrome (Ctrl+Shift+R). If it touched `.env.example`, manually merge any new keys into your local `.env`.
+If the pull touched `chat_ws.py`, any router, or anything in `server/`, restart the API: `bash scripts/archive/restart_api.sh`. If it touched UI files, hard-reload Chrome (Ctrl+Shift+R). If it touched `.env.example`, manually merge any new keys into your local `.env`.
 
 ---
 
@@ -686,7 +686,7 @@ If the pull touched `chat_ws.py`, any router, or anything in `server/`, restart 
 | 401/403 from HF | Token missing or doesn't accept Llama license | Get token from huggingface.co, accept Llama-3.1 license |
 | Test Lab button missing | Dev mode off | Console: `toggleDevMode()` |
 | `Status: failed` after Test Lab run | Stuck status from a previous run | `curl -X POST http://localhost:8000/api/test-lab/reset` |
-| 404 on `/api/test-lab/*` | API wasn't restarted after pulling new code | `bash scripts/restart_api.sh` |
+| 404 on `/api/test-lab/*` | API wasn't restarted after pulling new code | `bash scripts/archive/restart_api.sh` |
 | Browser gets 404 on `/api/...` | Cached old `api.js` | Hard-reload (Ctrl+Shift+R) |
 | Harness preflight fails with "only N tokens streamed" | `MAX_NEW_TOKENS_CHAT_HARD` not raised | Edit `.env`, restart API |
 | PowerShell chokes on multi-line scripts with backslashes | PowerShell doesn't support backslash line continuation | Run in WSL instead |
@@ -703,20 +703,20 @@ bash scripts/start_all.sh
 bash scripts/stop_all.sh
 
 # Restart just the API (after code/env changes)
-bash scripts/restart_api.sh
+bash scripts/archive/restart_api.sh
 
 # Tail all logs in separate windows
-bash scripts/logs_visible.sh
+bash scripts/archive/logs_visible.sh
 
 # Check stack health
-bash scripts/test_stack_health.sh
-bash scripts/status_all.sh
+bash scripts/archive/test_stack_health.sh
+bash scripts/archive/status_all.sh
 
 # Run the Quality Harness (full matrix)
-bash scripts/run_test_lab.sh --compare-to <last-baseline>
+bash scripts/archive/run_test_lab.sh --compare-to <last-baseline>
 
 # Diagnose a stuck Test Lab run
-bash scripts/test_lab_doctor.sh
+bash scripts/archive/test_lab_doctor.sh
 
 # Open Hornelore
 # → http://localhost:8082/ui/hornelore1.0.html
