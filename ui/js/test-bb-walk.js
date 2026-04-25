@@ -48,6 +48,25 @@
   if (typeof window === "undefined") return;
   if (window.lvBbWalkTest) return;
 
+  /* ── Global resolvers ─────────────────────────────────────────
+     api.js declares `const API = {...}` and state.js declares
+     `let state = {...}` at top level. In modern browsers, top-level
+     const/let bindings live in the script's outer scope but DO NOT
+     attach to `window` (only `var` and `function` declarations do).
+     This IIFE runs in strict mode, so accessing an undeclared bare
+     identifier throws a ReferenceError. Use typeof to safely probe.
+  ─────────────────────────────────────────────────────────── */
+  function _api() {
+    try { if (typeof API !== "undefined" && API && API.PEOPLE) return API; } catch (_) {}
+    try { if (window.API && window.API.PEOPLE) return window.API; } catch (_) {}
+    return null;
+  }
+  function _state() {
+    try { if (typeof state !== "undefined" && state) return state; } catch (_) {}
+    try { if (window.state) return window.state; } catch (_) {}
+    return null;
+  }
+
   /* ── Test dataset (Sarah Reed, born 1954-06-12 Cedar Rapids Iowa) ── */
   const TEST_DATA = {
     intro:    "My name is Test Harness Sarah Reed. I was born June 12, 1954 in Cedar Rapids, Iowa in the morning.",
@@ -103,7 +122,7 @@
   /* ── Helpers ─────────────────────────────────────────────────── */
   function _now() { return new Date().toISOString(); }
   function _short(s) { return (s || "").slice(0, 8); }
-  function _readBb() { try { return (window.state && window.state.bioBuilder) || {}; } catch (_) { return {}; } }
+  function _readBb() { try { return (_state() && _state().bioBuilder) || {}; } catch (_) { return {}; } }
   function _readBlob() { return (_readBb().questionnaire) || {}; }
   function _readNested(obj, path) {
     if (!obj || !path) return undefined;
@@ -151,7 +170,7 @@
   async function _createTestNarrator() {
     const stamp = Date.now().toString(36);
     const display = "Test Harness Sarah " + stamp;
-    const r = await fetch(window.API.PEOPLE, {
+    const r = await fetch(_api().PEOPLE, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ display_name: display, role: "test", narrator_type: "live", is_test: true }),
     });
@@ -164,7 +183,7 @@
 
   async function _deleteTestNarrator(pid) {
     try {
-      const url = (window.API && window.API.PERSON) ? window.API.PERSON(pid) : ("/api/people/" + pid);
+      const url = (_api() && _api().PERSON) ? _api().PERSON(pid) : ("/api/people/" + pid);
       const r = await fetch(url, { method: "DELETE" });
       return r.ok;
     } catch (_) { return false; }
@@ -180,7 +199,7 @@
   }
 
   async function _putBbBlob(pid, blob) {
-    const url = (window.API && window.API.BB_QQ_PUT) ? window.API.BB_QQ_PUT : "/api/bio-builder/questionnaire";
+    const url = (_api() && _api().BB_QQ_PUT) ? _api().BB_QQ_PUT : "/api/bio-builder/questionnaire";
     const r = await fetch(url, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ person_id: pid, questionnaire: blob, source: "test_harness", version: 1 }),
@@ -189,7 +208,7 @@
   }
 
   async function _getBbBlob(pid) {
-    const url = (window.API && window.API.BB_QQ_GET) ? window.API.BB_QQ_GET(pid)
+    const url = (_api() && _api().BB_QQ_GET) ? _api().BB_QQ_GET(pid)
               : ("/api/bio-builder/questionnaire?person_id=" + encodeURIComponent(pid));
     try {
       const r = await fetch(url);
@@ -261,8 +280,8 @@
     let origStubs = {};
 
     try {
-      if (!window.API || !window.API.PEOPLE) throw new Error("window.API not loaded");
-      if (!window.state) throw new Error("window.state not loaded");
+      if (!_api() || !_api().PEOPLE) throw new Error("API not loaded (api.js global not reachable)");
+      if (!_state()) throw new Error("state not loaded (state.js global not reachable)");
 
       // ── 1. Create test narrator ────────────────────────────
       const created = await _createTestNarrator();
@@ -272,7 +291,7 @@
       if (typeof window.lv80LoadPeople === "function") { try { await window.lv80LoadPeople(); } catch (_) {} }
 
       // ── 2. Force questionnaire_first BEFORE switch ─────────
-      if (window.state.session) window.state.session.sessionStyle = "questionnaire_first";
+      if (_state().session) _state().session.sessionStyle = "questionnaire_first";
       try { localStorage.setItem("lv_session_style", "questionnaire_first"); } catch (_) {}
 
       // ── 3. Switch to test narrator ─────────────────────────
@@ -282,10 +301,10 @@
 
       // Scope check — bb.personId should match state.person_id
       const bb1 = _readBb();
-      if (bb1.personId !== window.state.person_id) {
+      if (bb1.personId !== _state().person_id) {
         report.scope_violations++;
         report.results.push({ section: "scope", status: "FAIL",
-          detail: "bb.personId=" + _short(bb1.personId) + " != state.person_id=" + _short(window.state.person_id) });
+          detail: "bb.personId=" + _short(bb1.personId) + " != state.person_id=" + _short(_state().person_id) });
       }
 
       // ── 4. Identity intro through real BUG-226 parser path ─
@@ -302,11 +321,23 @@
       }
 
       // Drive intro through the real identity machine.
-      // Lori's askName prompt has already fired during switch; her phase is now askName.
+      // _advanceIdentityPhase returns false early if identityPhase is null
+      // or "complete", so explicitly arm it to "askName" first — same shape
+      // startIdentityOnboarding sets up. The harness skips the v9-gate
+      // chat UI path, so we have to put the state machine in askName mode
+      // ourselves.
+      if (_state() && _state().session) {
+        _state().session.identityPhase   = "askName";
+        _state().session.identityCapture = { name: null, dob: null, birthplace: null };
+      }
       if (typeof window._advanceIdentityPhase === "function") {
         try { await window._advanceIdentityPhase(intro); } catch (e) {
           report.results.push({ section: "A.advance", status: "FAIL", detail: String(e) }); report.fail++;
         }
+      } else {
+        report.results.push({ section: "A.advance", status: "FAIL",
+          detail: "_advanceIdentityPhase not available on window — top-level function attachment may have changed" });
+        report.fail++;
       }
       await _wait(400);
 
@@ -326,7 +357,7 @@
 
       // QF redundant-birthplace check — BUG-226 should have skipped askBirthplace.
       // Identity phase should be "complete" or "resolving" right now, NOT "askBirthplace".
-      const idPhaseAfter = window.state.session && window.state.session.identityPhase;
+      const idPhaseAfter = _state().session && _state().session.identityPhase;
       if (idPhaseAfter === "askBirthplace") {
         report.qf_redundant_question_asked = true;
       }
@@ -390,8 +421,8 @@
       // Mirror to in-memory state.bioBuilder before PUT, so harness reads
       // are immediately consistent (sync) with the about-to-be-persisted state.
       try {
-        if (window.state.bioBuilder && window.state.bioBuilder.personId === created.pid) {
-          window.state.bioBuilder.questionnaire = blob;
+        if (_state().bioBuilder && _state().bioBuilder.personId === created.pid) {
+          _state().bioBuilder.questionnaire = blob;
         }
       } catch (_) {}
 
@@ -449,8 +480,8 @@
       // ── 7. Truth-propagation: projection layer ──────────────
       // After identity captures, projection map should hold name/DOB/POB.
       try {
-        if (window.state.interviewProjection && window.state.interviewProjection.fields) {
-          const projFields = window.state.interviewProjection.fields;
+        if (_state().interviewProjection && _state().interviewProjection.fields) {
+          const projFields = _state().interviewProjection.fields;
           const projChecks = [
             { path: "personal.fullName",      expectContains: "Sarah" },
             { path: "personal.dateOfBirth",   expectExact: "1954-06-12" },
@@ -507,10 +538,10 @@
 
       // ── 9. Final scope check ────────────────────────────────
       const bb2 = _readBb();
-      if (bb2.personId !== window.state.person_id) {
+      if (bb2.personId !== _state().person_id) {
         report.scope_violations++;
         report.results.push({ section: "scope-final", status: "FAIL",
-          detail: "bb.personId=" + _short(bb2.personId) + " != state.person_id=" + _short(window.state.person_id) });
+          detail: "bb.personId=" + _short(bb2.personId) + " != state.person_id=" + _short(_state().person_id) });
       } else {
         report.results.push({ section: "scope-final", status: "PASS", detail: "scope intact" });
         report.pass++;
