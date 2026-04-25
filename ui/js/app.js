@@ -710,6 +710,28 @@ function _lvNarratorPaintControls() {
 }
 window._lvNarratorPaintControls = _lvNarratorPaintControls;
 
+/* ── WO-AUDIO-NARRATOR-ONLY-01: "Save my voice" toggle ────────────
+   Operator-facing flip in the narrator-room topbar.  Default ON.
+   When OFF, the audio recorder becomes a no-op (transcript still
+   flows; backend chat_ws still writes the text).  Persists in
+   state.session.recordVoice so it survives the rest of the session
+   (per-session, not per-narrator). */
+function lvNarratorSetRecordVoice(enabled) {
+  if (!state.session) state.session = {};
+  state.session.recordVoice = !!enabled;
+  console.log("[narrator-audio] state.session.recordVoice = " + state.session.recordVoice);
+  // Sync the checkbox visual (in case this was called programmatically
+  // rather than via the onchange handler).
+  const cb = document.getElementById("lvNarratorRecordVoice");
+  if (cb && cb.checked !== state.session.recordVoice) cb.checked = state.session.recordVoice;
+  // If toggled OFF mid-session, drop any in-progress segment without
+  // uploading.  If toggled ON, the next mic-arm will start fresh.
+  if (!state.session.recordVoice && typeof window.lvNarratorAudioRecorder === "object") {
+    try { window.lvNarratorAudioRecorder.cleanup && window.lvNarratorAudioRecorder.cleanup(); } catch (_) {}
+  }
+}
+window.lvNarratorSetRecordVoice = lvNarratorSetRecordVoice;
+
 /* ── Take a Break overlay ─────────────────────────────────────── */
 
 function lvNarratorStartBreak() {
@@ -3447,6 +3469,24 @@ async function sendUserMessage(){
   //   try { window.lvArchiveOnNarratorTurn(text); } catch (_) {}
   // }
 
+  // WO-AUDIO-NARRATOR-ONLY-01: stop in-progress audio segment + upload.
+  // Generate a client-side turn_id; backend stores audio under that id
+  // in audio/<turn_id>.webm regardless of whether the chat_ws transcript
+  // row eventually links it.  Operator can correlate by timestamp at
+  // review time.  A no-op if audio recorder isn't loaded or recordVoice
+  // is OFF or there's no live segment.
+  if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.stop) {
+    try {
+      const _audioTurnId = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : ("t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10));
+      // Fire-and-forget — don't block sendUserMessage on upload.
+      window.lvNarratorAudioRecorder.stop(_audioTurnId).catch((e) => {
+        console.warn("[narrator-audio] stop+upload threw:", e && e.message || e);
+      });
+    } catch (e) { console.warn("[narrator-audio] turn_id gen threw:", e); }
+  }
+
   // v7.4D — helper-mode detection. If the user appears to be asking how to use
   // the app, switch Lori to helper role for this turn. The role resets to
   // "interviewer" in onAssistantReply() after Lori's response lands.
@@ -4292,6 +4332,11 @@ async function drainTts(){
   // This prevents the STT engine from transcribing Lori's own voice.
   isLoriSpeaking=true;
   if(isRecording) stopRecording();
+  // WO-AUDIO-NARRATOR-ONLY-01: TTS gate ON.  Drops any in-progress
+  // narrator-audio segment without uploading (Lori-audio defense).
+  if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.gate) {
+    try { window.lvNarratorAudioRecorder.gate(true); } catch (e) { console.warn("[narrator-audio] gate(true) threw:", e); }
+  }
   // WO-MIC-UI-02A: Show WAIT state so narrator knows Lori has the floor.
   // stopRecording() sets MIC OFF, but we override to WAIT while Lori speaks.
   _setMicVisual("wait");
@@ -4400,6 +4445,11 @@ async function drainTts(){
     // stuck true permanently, silently suppressing all STT forever.
     isLoriSpeaking=false;
     ttsBusy=false;
+    // WO-AUDIO-NARRATOR-ONLY-01: TTS gate OFF.  Recorder will wait
+    // 700ms before clearing the gate (audible-but-flag-cleared edge).
+    if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.gate) {
+      try { window.lvNarratorAudioRecorder.gate(false); } catch (e) { console.warn("[narrator-audio] gate(false) threw:", e); }
+    }
     // WO-11E: Reset abort state and clear source ref
     _ttsAbortRequested = false;
     _ttsCurrentSource = null;
@@ -4604,6 +4654,12 @@ function startRecording(){
     _setMicVisual(true);
     setLoriState("listening");
     console.log("[STT] recognition started");
+    // WO-AUDIO-NARRATOR-ONLY-01: arm audio segment alongside STT.
+    // Recorder gates itself on isLoriSpeaking and recordVoice toggle;
+    // a no-op when those are off.
+    if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.start) {
+      try { window.lvNarratorAudioRecorder.start(); } catch (e) { console.warn("[narrator-audio] start threw:", e); }
+    }
   }catch(e){
     console.error("[STT] start() failed:",e.message);
     // "already started" — just update state

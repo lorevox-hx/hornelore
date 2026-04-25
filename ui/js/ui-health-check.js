@@ -472,6 +472,62 @@ window.lvUiHealthCheck = (function () {
     _push(cat, "audio preflight overall (WO-AUDIO-READY-CHECK-01)",
       apf.ready ? STATUS.PASS : STATUS.WARN,
       apf.ready ? "Mic ready ✓" : "Mic NOT ready: " + apf.detail);
+
+    // ── WO-AUDIO-NARRATOR-ONLY-01: per-turn audio recorder ──────
+    const nar = window.lvNarratorAudioRecorder;
+    if (!nar || nar.loaded !== true) {
+      _push(cat, "narrator-audio-recorder loaded (WO-AUDIO-NARRATOR-ONLY-01)",
+        STATUS.FAIL,
+        "window.lvNarratorAudioRecorder missing — Lori can't capture parent audio");
+    } else {
+      _push(cat, "narrator-audio-recorder loaded (WO-AUDIO-NARRATOR-ONLY-01)",
+        STATUS.PASS,
+        "available=" + nar.isAvailable() + " enabled=" + nar.isEnabled());
+
+      // Check state.session.recordVoice (Save my voice toggle).
+      const rv = state && state.session ? state.session.recordVoice : undefined;
+      _push(cat, "Save my voice toggle (WO-AUDIO-NARRATOR-ONLY-01)",
+        (rv === true || rv === false) ? STATUS.PASS : STATUS.INFO,
+        "state.session.recordVoice=" + JSON.stringify(rv));
+
+      // Recorder stats — segments_started/uploaded/lost.
+      const st = nar.stats();
+      const totalAttempted = (st.segments_started || 0);
+      const totalLost = (st.segments_lost || 0);
+      const totalUp = (st.segments_uploaded || 0);
+      if (totalAttempted === 0) {
+        _push(cat, "narrator-audio segment activity (WO-AUDIO-NARRATOR-ONLY-01)",
+          STATUS.INFO,
+          "no segments yet (state=" + st.state + ", ttsGate=" + st.ttsGateBlocked + ")");
+      } else if (totalLost > 0 && totalLost / totalAttempted > 0.5) {
+        _push(cat, "narrator-audio segment activity (WO-AUDIO-NARRATOR-ONLY-01)",
+          STATUS.WARN,
+          "started=" + totalAttempted + " uploaded=" + totalUp + " lost=" + totalLost +
+          " — over 50% lost; check console for [narrator-audio] errors");
+      } else {
+        _push(cat, "narrator-audio segment activity (WO-AUDIO-NARRATOR-ONLY-01)",
+          STATUS.PASS,
+          "started=" + totalAttempted + " uploaded=" + totalUp + " lost=" + totalLost +
+          " state=" + st.state);
+      }
+
+      // TTS gate observable.
+      _push(cat, "narrator-audio TTS gate observable (WO-AUDIO-NARRATOR-ONLY-01)",
+        typeof st.ttsGateBlocked === "boolean" ? STATUS.PASS : STATUS.WARN,
+        "ttsGateBlocked=" + st.ttsGateBlocked + " — recorder drops segments when Lori speaks");
+
+      // Save my voice UI toggle present
+      const cb = document.getElementById("lvNarratorRecordVoice");
+      if (cb) {
+        _push(cat, "narrator-room Save my voice checkbox (WO-AUDIO-NARRATOR-ONLY-01)",
+          STATUS.PASS,
+          "checkbox present, checked=" + cb.checked);
+      } else {
+        _push(cat, "narrator-room Save my voice checkbox (WO-AUDIO-NARRATOR-ONLY-01)",
+          STATUS.WARN,
+          "#lvNarratorRecordVoice not present — narrator-room may not be loaded yet");
+      }
+    }
   }
 
   // ── Category: Chat Scroll ──────────────────────────────────────
@@ -989,14 +1045,26 @@ window.lvUiHealthCheck = (function () {
       const wsDir = window._lvEmitStyleDirective("warm_storytelling") || "";
       const honestyPresent = /CAPABILITIES/i.test(cdDir) && /CAPABILITIES/i.test(wsDir);
       const styleSuffixPresent = /Ask one short/i.test(cdDir);
-      if (honestyPresent && styleSuffixPresent) {
-        _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
-          STATUS.PASS, `cd len=${cdDir.length} ws len=${wsDir.length} (capabilities-honesty present on both)`);
+      // Post-WO-AUDIO-NARRATOR-ONLY-01: directive is now dynamic — should
+      // reflect current state.session.recordVoice + recorder availability.
+      // When recordVoice=true + recorder available: directive should say
+      // "Yes, your voice is being saved" pattern.  When OFF: "No, audio
+      // is currently not being captured".
+      const audioOn = /your voice is being saved/i.test(wsDir);
+      const audioOff = /audio is currently not being captured/i.test(wsDir);
+      const dynamicCorrect = audioOn || audioOff;  // exactly one should be true
+      if (honestyPresent && styleSuffixPresent && dynamicCorrect) {
+        _push(cat, "tier-2 directives + dynamic BUG-218 honesty rule",
+          STATUS.PASS,
+          `cd len=${cdDir.length} ws len=${wsDir.length}; audio=${audioOn ? "ON" : (audioOff ? "OFF" : "?")}`);
       } else if (!honestyPresent) {
-        _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
-          STATUS.WARN, "BUG-218 capabilities-honesty rule missing from directive — Lori may hallucinate audio capture");
+        _push(cat, "tier-2 directives + dynamic BUG-218 honesty rule",
+          STATUS.WARN, "BUG-218 capabilities-honesty rule missing from directive");
+      } else if (!dynamicCorrect) {
+        _push(cat, "tier-2 directives + dynamic BUG-218 honesty rule",
+          STATUS.WARN, "honesty rule present but audio-state language unclear — Lori may give vague answers");
       } else {
-        _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
+        _push(cat, "tier-2 directives + dynamic BUG-218 honesty rule",
           STATUS.WARN, `cd="${cdDir.slice(0,60)}..." ws="${wsDir.slice(0,60)}..."`);
       }
     } else {

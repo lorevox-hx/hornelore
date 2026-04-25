@@ -3117,6 +3117,17 @@
                 onclick="lvNarratorStartBreak()"   title="Take a break — pause the conversation">
           Take a break
         </button>
+        <!-- WO-AUDIO-NARRATOR-ONLY-01: Save my voice toggle.  Default ON.
+             Reads/writes state.session.recordVoice; recorder is a no-op
+             when OFF.  Lori-audio is NEVER captured regardless. -->
+        <label id="lvNarratorRecordVoiceWrap" class="lv-narrator-ctrl"
+               title="Save your voice as audio recordings during this session"
+               style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="lvNarratorRecordVoice" checked
+                 onchange="lvNarratorSetRecordVoice(this.checked)"
+                 style="cursor:pointer;">
+          <span id="lvNarratorRecordVoiceLabel">Save my voice</span>
+        </label>
       </div>
     </header>
 
@@ -4390,6 +4401,7 @@
 <script src="js/session-style-router.js"></script>
 <script src="js/session-loop.js"></script>
 <script src="js/archive-writer.js"></script>
+<script src="js/narrator-audio-recorder.js"></script>
 <script src="js/ui-health-check.js"></script>
 <script src="js/session-health-monitor.js"></script>
 

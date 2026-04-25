@@ -298,30 +298,44 @@
   }
 
   /* ── BUG-218: Capabilities honesty rule (always included) ──
-     Lori was caught hallucinating capabilities — narrator asked "are you
-     saving the audio from this question" and Lori answered "Yes, I am
-     saving the audio."  Audio capture isn't built yet (WO-AUDIO-NARRATOR-
-     ONLY-01 is the next step).  Parents could trust this answer and
-     share intimate content believing it's preserved.
-     Fix: every session_style_directive prepends a hard honesty rule
-     about what's actually captured RIGHT NOW.
-     TODO: when WO-AUDIO-NARRATOR-ONLY-01 ships and the operator's
-     "Save my voice" toggle is ON, swap this string for the audio-on
-     variant.  Until then, hardcode "text-only" to keep Lori truthful. */
-  const _CAPABILITIES_HONESTY = (
-    "CAPABILITIES (must be honest, never overstate): " +
-    "Right now this session captures only the typed text and speech-to-text " +
-    "transcript of our conversation. Audio recording, video recording, " +
-    "image saving, photo analysis, and any other capability not explicitly " +
-    "listed are NOT active in this session. " +
-    "If the narrator asks whether audio, voice, video, photos, or any other " +
-    "media is being recorded or saved, answer warmly and honestly — for " +
-    "example: \"We're saving the text of our conversation right now, not the " +
-    "audio recording or video. Those aren't part of this session yet.\" " +
-    "NEVER say \"yes, I'm saving the audio\" or \"I'm recording your voice\" " +
-    "or imply capabilities that aren't real. " +
-    "If unsure what's saved, default to \"text only\" rather than promising more."
-  );
+     History:
+       - 2026-04-25 morning: BUG-218 filed when Lori claimed "Yes I am
+         saving the audio" while audio capture wasn't built. Initial fix
+         hardcoded "text-only" to keep Lori from over-claiming.
+       - 2026-04-25 afternoon: WO-AUDIO-NARRATOR-ONLY-01 shipped — audio
+         IS now captured per-turn when state.session.recordVoice is true.
+         Verified via export zip with 7 .webm files (Test B passed).
+         Hardcoded "text-only" rule is now the OPPOSITE of reality.
+     Updated rule: dynamic based on state.session.recordVoice + the
+     audio recorder's actual readiness.  Reflects truth at all times.
+     Video is still NOT captured.  Only narrator's voice, never Lori's. */
+  function _capabilitiesHonesty() {
+    const recordVoice = !!(typeof state !== "undefined" &&
+                            state.session && state.session.recordVoice !== false);
+    const recorderAvail = !!(typeof window !== "undefined" &&
+                             window.lvNarratorAudioRecorder &&
+                             typeof window.lvNarratorAudioRecorder.isAvailable === "function" &&
+                             window.lvNarratorAudioRecorder.isAvailable());
+    const audioActive = recordVoice && recorderAvail;
+    const audioPart = audioActive
+      ? "AND your voice as audio recordings per turn (only your voice, never Lori's)"
+      : "ONLY (audio recording is currently OFF — either Save my voice is unchecked or the browser doesn't support recording)";
+    return (
+      "CAPABILITIES (must be honest, never overstate): " +
+      "Right now this session captures the typed text and speech-to-text " +
+      "transcript of our conversation, " + audioPart + ". " +
+      "Video recording, image saving, photo analysis, and any other " +
+      "capability not explicitly listed are NOT active. " +
+      "If the narrator asks whether their voice or audio is being recorded, " +
+      "answer based on the toggle state: " +
+      (audioActive
+        ? "\"Yes, your voice is being saved this session — your voice only, never mine.\""
+        : "\"No, audio is currently not being captured. Only the text of our conversation is saved.\"") +
+      " If asked about video, always say no. " +
+      "NEVER claim capabilities that aren't listed above. " +
+      "If unsure what's saved, default to \"text only\" rather than promising more."
+    );
+  }
 
   /* ── Tier-2 directive helper ───────────────────────────────────
      Called by buildRuntime71 (app.js) to set runtime71.session_style_directive.
@@ -351,9 +365,12 @@
     }
     // BUG-218: capabilities-honesty rule is always included; style suffix
     // (if any) follows.  No-op styles still receive the honesty preamble.
+    // Honesty rule is computed per-call so it reflects current recordVoice
+    // + recorder availability (post-WO-AUDIO-NARRATOR-ONLY-01).
+    const capabilities = _capabilitiesHonesty();
     return styleSuffix
-      ? _CAPABILITIES_HONESTY + " " + styleSuffix
-      : _CAPABILITIES_HONESTY;
+      ? capabilities + " " + styleSuffix
+      : capabilities;
   }
   // Exposed so buildRuntime71 in app.js can read it.
   window._lvEmitStyleDirective = _emitStyleDirective;

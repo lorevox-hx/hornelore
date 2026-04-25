@@ -167,6 +167,13 @@ let state = {
     handsFree:    false,
     micAutoRearm: false,
     loriSpeaking: false,
+    /* WO-AUDIO-NARRATOR-ONLY-01: per-session "Save my voice" toggle.
+       Default true — capturing parents' audio is the whole point of
+       the data-acquisition pipeline.  Operator can flip OFF in the
+       narrator-room topbar OR Settings popover; recorder becomes a
+       no-op when false (transcript still flows).  Lori audio is
+       NEVER captured regardless of this flag. */
+    recordVoice:  true,
     /* Current narrator-room view — "river" | "map" | "photos" | "memoir".
        Defaults to "river" (Memory River). */
     narratorView: "river",
