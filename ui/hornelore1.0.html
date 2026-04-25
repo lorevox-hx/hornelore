@@ -3005,12 +3005,15 @@
             <strong>Warm Storytelling</strong>
             <span>Tell it with detail, feeling, and scene.</span>
           </label>
-          <label class="lv-session-style-card">
-            <input type="radio" name="lvSessionStyle" value="memory_exercise"
-                   onchange="lvSetSessionStyle(this.value)">
-            <strong>Memory Exercise</strong>
-            <span>Gentle recall prompts, no pressure.</span>
-          </label>
+          <!-- Memory Exercise picker option REMOVED 2026-04-25.
+               Was a no-op (prompt suffix only, no real routing).
+               Live test 2026-04-25T22:52: operator selected it,
+               Lori behavior didn't change. Chris's call: shelved
+               for distant future product work (see WO-MEMORY-LIFEMAP-CUES-01
+               draft archived in chatgpt-ideas notes).
+               The internal Lori posture-mode memory_exercise (fact-seed
+               flow, WO-10C cognitive support tier) is UNCHANGED — that's
+               a separate system in app.js _wsPosture handling. -->
           <label class="lv-session-style-card">
             <input type="radio" name="lvSessionStyle" value="companion"
                    onchange="lvSetSessionStyle(this.value)">

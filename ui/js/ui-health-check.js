@@ -221,19 +221,20 @@ window.lvUiHealthCheck = (function () {
       photoBtn ? STATUS.PASS : STATUS.FAIL,
       photoBtn ? "" : "#lvOperatorPhotoBtn missing");
 
-    // 5 session style radios with the expected values
-    const expectedStyles = ["questionnaire_first","clear_direct","warm_storytelling","memory_exercise","companion"];
+    // 4 session style radios with the expected values (memory_exercise
+    // dropped 2026-04-25 — picker no-op, shelved).
+    const expectedStyles = ["questionnaire_first","clear_direct","warm_storytelling","companion"];
     const radios = Array.from(document.querySelectorAll('input[name="lvSessionStyle"]'));
-    if (radios.length === 5) {
+    if (radios.length === 4) {
       const present = radios.map(r => r.value).sort();
       const want = expectedStyles.slice().sort();
       const match = present.length === want.length && present.every((v,i) => v === want[i]);
-      _push(cat, "Session style picker has all 5 expected styles",
+      _push(cat, "Session style picker has all 4 expected styles",
         match ? STATUS.PASS : STATUS.WARN,
         match ? "" : `present=${present.join(",")}`);
     } else {
-      _push(cat, "Session style picker has all 5 expected styles", STATUS.FAIL,
-        `radio count=${radios.length} (expected 5)`);
+      _push(cat, "Session style picker has all 4 expected styles", STATUS.FAIL,
+        `radio count=${radios.length} (expected 4)`);
     }
 
     // Operator launcher grid populated (popovers moved out of header)
@@ -269,10 +270,9 @@ window.lvUiHealthCheck = (function () {
         "#lv80NarratorList missing");
     }
 
-    // sessionStyle is one of 5 valid values
+    // sessionStyle is one of 4 valid values (memory_exercise dropped 2026-04-25)
     const validStyles = [
-      "questionnaire_first", "clear_direct", "warm_storytelling",
-      "memory_exercise", "companion",
+      "questionnaire_first", "clear_direct", "warm_storytelling", "companion",
     ];
     const ss = state && state.session && state.session.sessionStyle;
     _push(cat, "state.session.sessionStyle is valid",
@@ -928,12 +928,12 @@ window.lvUiHealthCheck = (function () {
   async function _check_session_style() {
     const cat = "session";
 
-    const valid = ["questionnaire_first","clear_direct","warm_storytelling",
-                   "memory_exercise","companion"];
+    const valid = ["questionnaire_first","clear_direct","warm_storytelling","companion"];
 
-    // 1. state.session.sessionStyle is one of 5 valid values
+    // 1. state.session.sessionStyle is one of 4 valid values (memory_exercise
+    //    dropped 2026-04-25 — picker no-op, shelved for future product work).
     const ss = state && state.session && state.session.sessionStyle;
-    _push(cat, "state.session.sessionStyle is one of 5 valid styles",
+    _push(cat, "state.session.sessionStyle is one of 4 valid styles",
       valid.includes(ss) ? STATUS.PASS : STATUS.FAIL,
       `value=${JSON.stringify(ss)}`);
 
@@ -973,7 +973,10 @@ window.lvUiHealthCheck = (function () {
         questionnaire_first: "Questionnaire first",
         clear_direct:        "Clear & direct",
         warm_storytelling:   "Warm storytelling",
-        memory_exercise:     "Memory exercise",
+        // memory_exercise dropped 2026-04-25 — kept here as legacy
+        // fallback in case a saved sessionStyle slipped through the
+        // session-style-router redirect.
+        memory_exercise:     "Warm storytelling",
         companion:           "Companion",
       };
       const want = expectedLabels[ss];

@@ -117,7 +117,12 @@
     switch (style) {
       case "questionnaire_first": return _routeQuestionnaireFirst(event);
       case "clear_direct":        return _routeClearDirect(event);
-      case "memory_exercise":     return _routeMemoryExercise(event);
+      // memory_exercise REMOVED 2026-04-25 — picker option dropped after
+      // live test showed it was a no-op (prompt suffix only, no real
+      // routing). Legacy redirect in session-style-router coerces any
+      // saved value to warm_storytelling on load, so this case can't
+      // realistically be hit. If it is hit (stale state), fall through
+      // to warm_storytelling default.
       case "companion":           return _routeCompanion(event);
       case "warm_storytelling":
       default:                    return _routeWarmStorytelling(event);
@@ -444,14 +449,9 @@
     return _routeQuestionnaireFirst(event);
   }
 
-  /* ── Style: memory_exercise ────────────────────────────────────
-     Tier-2 directive only.  No structured walk; Lori uses recognition
-     cues and patient pacing.  Defer to existing Lori behavior + the
-     directive injected into runtime71. */
-  function _routeMemoryExercise(event) {
-    state.session.loop.lastAction = "directive_only:memory_exercise";
-    console.log("[session-loop] memory_exercise: directive-only, no walk");
-  }
+  // _routeMemoryExercise REMOVED 2026-04-25 — picker dropped after live
+  // test showed it was a no-op. Legacy redirects in session-style-router
+  // coerce any saved memory_exercise to warm_storytelling on load.
 
   /* ── Style: companion ──────────────────────────────────────────
      Tier-2 directive only.  No question-asking; Lori reflects + listens. */
@@ -519,10 +519,14 @@
         styleSuffix = "Ask one short question at a time. Avoid open-ended " +
                       "exploration. Acknowledge briefly, then move on.";
         break;
-      case "memory_exercise":
-        styleSuffix = "Use recognition cues. Allow long silences. Never correct. " +
-                      "Speak more slowly. Match dementia-safe cognitive support pacing.";
-        break;
+      // memory_exercise REMOVED 2026-04-25 — picker option dropped after
+      // live test (Lori didn't follow the directive strongly enough; the
+      // suffix got diluted in the long capabilities-honesty preamble).
+      // The dementia-safe behaviors now live exclusively in WO-10C
+      // cognitive support mode, which has its own posture-side activation
+      // path. Tier-2 prompt suffix is gone; if anyone re-introduces
+      // memory_exercise as a session style later, route it through
+      // cognitive_support_mode flag in runtime71 instead.
       case "companion":
         styleSuffix = "Don't probe for facts. Listen. Reflect feelings. Speak less " +
                       "than the narrator does.";

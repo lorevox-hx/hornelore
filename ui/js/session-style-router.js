@@ -33,15 +33,26 @@
     "questionnaire_first",
     "clear_direct",
     "warm_storytelling",
-    "memory_exercise",
+    // "memory_exercise" REMOVED 2026-04-25 — picker no-op, shelved.
     "companion",
   ];
+
+  // Legacy coercion — narrators with saved sessionStyle="memory_exercise"
+  // (from before the picker option was removed) get coerced to
+  // warm_storytelling so they don't end up in dispatch limbo.
+  const _LEGACY_REDIRECTS = { memory_exercise: "warm_storytelling" };
 
   /* ── Public dispatcher ─────────────────────────────────────────
      Called from lvNarratorRoomInit (WO-NARRATOR-ROOM-01) so every
      time the narrator room paints, the chosen style is re-applied.
      Idempotent — safe to call multiple times for the same narrator. */
   function lvSessionStyleEnter(style, personId) {
+    // Apply legacy redirects first.
+    if (typeof style === "string" && _LEGACY_REDIRECTS[style]) {
+      console.warn("[session-style] legacy '" + style + "' coerced to '" +
+        _LEGACY_REDIRECTS[style] + "' (memory_exercise picker removed 2026-04-25)");
+      style = _LEGACY_REDIRECTS[style];
+    }
     style = (typeof style === "string" && VALID_STYLES.includes(style))
       ? style
       : "warm_storytelling";
@@ -53,13 +64,11 @@
       case "questionnaire_first":
         return _enterQuestionnaireFirst(personId);
       case "clear_direct":
-      case "memory_exercise":
       case "companion":
-        // Slice 3 will inject a prompt-composer directive here.  For now
-        // these are byte-stable with warm_storytelling (no behavior change).
-        // Logging for observability.
-        console.log("[session-style] tier-2 style selected:", style,
-          "(directive injection pending Slice 3)");
+        // Tier-2 directives only — byte-stable with warm_storytelling
+        // for routing purposes; Lori's prompt picks up the directive via
+        // the runtime71 builder.
+        console.log("[session-style] tier-2 style selected:", style);
         return;
       case "warm_storytelling":
       default:

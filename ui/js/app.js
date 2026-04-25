@@ -210,9 +210,9 @@ function _onModelReady() {
 ═══════════════════════════════════════════════════════════════ */
 
 const LV_SESSION_STYLE_KEY = "hornelore_session_style_v1";
+// memory_exercise dropped 2026-04-25 — picker no-op, shelved.
 const LV_VALID_SESSION_STYLES = [
-  "questionnaire_first", "clear_direct", "warm_storytelling",
-  "memory_exercise",    "companion",
+  "questionnaire_first", "clear_direct", "warm_storytelling", "companion",
 ];
 
 /** Read the current session style.  Defaults to warm_storytelling. */
@@ -426,7 +426,10 @@ const LV_NARRATOR_SESSION_STYLE_LABELS = {
   questionnaire_first: "Questionnaire first",
   clear_direct:        "Clear & direct",
   warm_storytelling:   "Warm storytelling",
-  memory_exercise:     "Memory exercise",
+  // memory_exercise dropped 2026-04-25 — kept as legacy fallback label
+  // for narrators with saved sessionStyle="memory_exercise" that haven't
+  // yet been redirected by session-style-router on next load.
+  memory_exercise:     "Warm storytelling",
   companion:           "Companion",
 };
 
