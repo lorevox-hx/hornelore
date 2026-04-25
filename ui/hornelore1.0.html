@@ -4121,6 +4121,25 @@
       </div>
       <div id="lv10dBpBbResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
     </div>
+
+    <!-- WO-DEEP-RESET: dev-only nuke for projection_family pollution -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Deep Reset (Projection + Family)</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Bigger scope than Reset BB. Also wipes projection layer (the dirty
+        parents/family roster feeding runtime71), state.profile.kinship,
+        state.profile.pets, and backend projection blob. Identity (name/DOB/place),
+        memory archive (transcripts + audio), and other narrators untouched.
+        Cannot be undone.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                onclick="window.lvBbDeepResetCurrentNarrator && window.lvBbDeepResetCurrentNarrator()">
+          Deep Reset Projection for Current Narrator
+        </button>
+      </div>
+      <div id="lv10dBpDeepResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
   </div>
 
   <!-- ── SETTINGS POPOVER (Step 3) ───────────────────────────

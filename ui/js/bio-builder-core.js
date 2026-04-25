@@ -767,6 +767,247 @@
   window.lvBbResetCurrentNarrator = lvBbResetCurrentNarrator;
 
   /* ───────────────────────────────────────────────────────────
+     WO-DEEP-RESET — Dev/operator-only nuke for dirty narrator data.
+     Extends the lvBbResetCurrentNarrator scope to ALSO clear the
+     interview projection layer + state.profile family fields.
+
+     Use case: Chris's runtime71.projection_family had pollution like
+     "Stanley ND" as Father, "and dad" as Mother, dupe Janice rows —
+     pre-existing data accumulated from old extraction errors.
+     Reset BB clears the BB questionnaire blob but does NOT reach
+     the projection layer; this reset does both.
+
+     SCOPE — clears:
+       1. Bio Builder substate (questionnaire / candidates / drafts /
+          quick capture / family-graph) — same as lvBbResetCurrentNarrator
+       2. localStorage drafts (FT / LT / QQ / QC) for active narrator
+       3. interview projection (state.interviewProjection.fields +
+          lorevox_proj_draft_<pid> localStorage key) via existing
+          LorevoxProjectionSync.clearProjection(pid)
+       4. state.profile.kinship + state.profile.pets (derived/polluted
+          family rosters that might feed runtime71)
+       5. Backend questionnaire blob (PUT empty)
+       6. Backend projection (PUT empty fields)
+
+     DOES NOT touch:
+       - state.profile.basics (name/DOB/place — load-bearing for identity)
+       - memory archive (transcripts + audio + meta.json + zips)
+       - state.session (style, recordVoice, narrator-room state)
+       - any OTHER narrator
+       - WO-13 promoted truth pipeline (only the projection-derived view
+         that feeds runtime71)
+  ─────────────────────────────────────────────────────────── */
+  function lvBbDeepResetCurrentNarrator() {
+    console.log("[bb-deep-reset] button clicked — entering lvBbDeepResetCurrentNarrator");
+    var bb = _bb(); if (!bb) {
+      console.warn("[bb-deep-reset] ABORT — state.bioBuilder not initialized");
+      alert("Bio Builder state not initialized. Pick a narrator first.");
+      return false;
+    }
+    var pid = bb.personId || _currentPersonId();
+    if (!pid) {
+      console.warn("[bb-deep-reset] ABORT — no active narrator");
+      alert("No active narrator selected. Pick a narrator first, then try again.");
+      return false;
+    }
+    var name = _currentPersonName() || pid.slice(0, 8);
+
+    // Pre-snapshot
+    var qq = bb.questionnaire || {};
+    var qqFieldCount = 0;
+    Object.keys(qq).forEach(function (sk) {
+      var v = qq[sk];
+      if (Array.isArray(v)) qqFieldCount += v.length;
+      else if (v && typeof v === "object") qqFieldCount += Object.keys(v).filter(function (fk) { return v[fk] && String(v[fk]).trim(); }).length;
+    });
+    var candidateCount = 0;
+    if (bb.candidates) {
+      Object.keys(bb.candidates).forEach(function (k) {
+        if (Array.isArray(bb.candidates[k])) candidateCount += bb.candidates[k].length;
+      });
+    }
+    // Projection field count
+    var projFieldCount = 0;
+    try {
+      var iProj = (typeof state !== "undefined") ? state.interviewProjection : null;
+      if (iProj && iProj.fields) projFieldCount = Object.keys(iProj.fields).length;
+    } catch (_) {}
+    // Kinship + pets count
+    var kinshipCount = 0, petsCount = 0;
+    try {
+      var prof = (typeof state !== "undefined") ? state.profile : null;
+      if (prof) {
+        if (Array.isArray(prof.kinship)) kinshipCount = prof.kinship.length;
+        if (Array.isArray(prof.pets))    petsCount    = prof.pets.length;
+      }
+    } catch (_) {}
+    console.log("[bb-deep-reset] PRE-RESET snapshot for " + name + " (" + pid.slice(0, 8) + "): " +
+      qqFieldCount + " BB field(s), " + candidateCount + " candidate(s), " +
+      projFieldCount + " projection field(s), " + kinshipCount + " kinship row(s), " +
+      petsCount + " pet(s)");
+
+    _showInlineConfirm(
+      "<strong style='color:#dc2626;'>Deep Reset</strong> for <strong>" + _esc(name) + "</strong>?<br><br>" +
+      "<div style='text-align:left;font-size:12px;color:#475569;'>" +
+      "Will clear:<br>" +
+      "&nbsp;&nbsp;• " + qqFieldCount + " questionnaire field" + (qqFieldCount === 1 ? "" : "s") + "<br>" +
+      "&nbsp;&nbsp;• " + candidateCount + " candidate" + (candidateCount === 1 ? "" : "s") + "<br>" +
+      "&nbsp;&nbsp;• " + projFieldCount + " projection field" + (projFieldCount === 1 ? "" : "s") + " (the dirty parents/family roster)<br>" +
+      "&nbsp;&nbsp;• " + kinshipCount + " kinship row" + (kinshipCount === 1 ? "" : "s") + "<br>" +
+      "&nbsp;&nbsp;• " + petsCount + " pet" + (petsCount === 1 ? "" : "s") + "<br>" +
+      "&nbsp;&nbsp;• localStorage QQ + projection draft<br>" +
+      "&nbsp;&nbsp;• Backend questionnaire + projection blobs (PUT empty)" +
+      "</div>" +
+      "<br><strong style='color:#dc2626;'>Will NOT touch:</strong>" +
+      "<div style='text-align:left;font-size:12px;color:#475569;'>" +
+      "&nbsp;&nbsp;• Identity (name/DOB/place)<br>" +
+      "&nbsp;&nbsp;• Memory archive (transcripts + audio + zips)<br>" +
+      "&nbsp;&nbsp;• Session style + recordVoice toggle<br>" +
+      "&nbsp;&nbsp;• Other narrators" +
+      "</div>" +
+      "<br><small>Other narrators are NOT affected. Cannot be undone.</small>",
+      function () {
+        // 1. Bump narrator-switch generation to invalidate any in-flight async
+        _narratorSwitchGen += 1;
+
+        // 2. Clear BB substate (in-memory)
+        bb.quickItems    = [];
+        bb.questionnaire = {};
+        bb.graph         = { persons: {}, relationships: {} };
+        bb.sourceCards   = [];
+        bb.candidates    = {
+          people: [], relationships: [], events: [], memories: [], places: [], documents: []
+        };
+
+        // 3. Clear projection layer via projection-sync's existing helper
+        var projCleared = false;
+        try {
+          if (typeof LorevoxProjectionSync !== "undefined" && LorevoxProjectionSync.clearProjection) {
+            LorevoxProjectionSync.clearProjection(pid);
+            projCleared = true;
+            console.log("[bb-deep-reset] LorevoxProjectionSync.clearProjection() called");
+          } else {
+            // Fallback: clear directly
+            try { localStorage.removeItem("lorevox_proj_draft_" + pid); } catch (_) {}
+            if (typeof state !== "undefined" && state.interviewProjection &&
+                state.interviewProjection.personId === pid) {
+              state.interviewProjection.fields = {};
+              state.interviewProjection.pendingSuggestions = [];
+              state.interviewProjection.syncLog = [];
+            }
+            projCleared = true;
+            console.log("[bb-deep-reset] projection cleared via fallback path");
+          }
+        } catch (e) {
+          console.warn("[bb-deep-reset] projection clear threw:", e && e.message || e);
+        }
+
+        // 4. Clear state.profile.kinship + pets (preserve basics — load-bearing for identity)
+        var profileCleared = { kinship: 0, pets: 0 };
+        try {
+          if (typeof state !== "undefined" && state.profile) {
+            if (Array.isArray(state.profile.kinship)) {
+              profileCleared.kinship = state.profile.kinship.length;
+              state.profile.kinship = [];
+            }
+            if (Array.isArray(state.profile.pets)) {
+              profileCleared.pets = state.profile.pets.length;
+              state.profile.pets = [];
+            }
+          }
+        } catch (e) {
+          console.warn("[bb-deep-reset] state.profile clear threw:", e);
+        }
+
+        // 5. Clear localStorage drafts (FT, LT, QQ, QC) for active narrator
+        try {
+          localStorage.removeItem(_LS_FT_PREFIX + pid);
+          localStorage.removeItem(_LS_LT_PREFIX + pid);
+          localStorage.removeItem(_LS_QQ_PREFIX + pid);
+          localStorage.removeItem(_LS_QC_PREFIX + pid);
+        } catch (e) {
+          console.warn("[bb-deep-reset] localStorage clear partial:", e);
+        }
+
+        // 6. Backend QQ wipe (best-effort, fire-and-forget)
+        if (typeof API !== "undefined" && API.BB_QQ_PUT) {
+          try {
+            fetch(API.BB_QQ_PUT, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                person_id: pid,
+                questionnaire: {},
+                source: "bb_deep_reset",
+                version: DRAFT_SCHEMA_VERSION
+              })
+            }).then(function (r) {
+              console.log("[bb-deep-reset] backend QQ wipe → " + r.status);
+            }).catch(function (e) {
+              console.warn("[bb-deep-reset] backend QQ wipe failed:", e);
+            });
+          } catch (e) { console.warn("[bb-deep-reset] backend QQ wipe threw:", e); }
+        }
+
+        // 7. Backend projection wipe (best-effort, fire-and-forget)
+        if (typeof API !== "undefined" && API.IV_PROJ_PUT) {
+          try {
+            fetch(API.IV_PROJ_PUT, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                person_id: pid,
+                fields: {},
+                source: "bb_deep_reset",
+                version: 1
+              })
+            }).then(function (r) {
+              console.log("[bb-deep-reset] backend projection wipe → " + r.status);
+            }).catch(function (e) {
+              console.warn("[bb-deep-reset] backend projection wipe failed:", e);
+            });
+          } catch (e) { console.warn("[bb-deep-reset] backend projection wipe threw:", e); }
+        }
+
+        console.log("[bb-deep-reset] CLEARED for " + pid.slice(0, 8) + " (" + name + ") — was " +
+          qqFieldCount + " BB fields, " + candidateCount + " candidates, " +
+          projFieldCount + " projection fields, " + kinshipCount + " kinship rows, " +
+          petsCount + " pets. projCleared=" + projCleared +
+          " profileCleared=" + JSON.stringify(profileCleared));
+
+        // Status line if Bug Panel is open
+        var status = document.getElementById("lv10dBpDeepResetStatus");
+        if (status) {
+          status.textContent = "✓ deep reset for " + name + " (" + pid.slice(0, 8) +
+            ") — cleared " + qqFieldCount + " BB + " + projFieldCount + " projection + " +
+            kinshipCount + " kinship at " + new Date().toLocaleTimeString();
+        }
+
+        // Visible top-of-viewport toast
+        try {
+          var openPopoverT = null;
+          try { openPopoverT = document.querySelector('[popover]:popover-open'); } catch (_) {}
+          var toast = document.createElement("div");
+          toast.id = "bbDeepResetToast";
+          toast.style.cssText = "position:fixed;top:24px;left:50%;transform:translateX(-50%);" +
+            "z-index:2147483647;background:#dc2626;color:#fff;padding:14px 22px;border-radius:8px;" +
+            "box-shadow:0 6px 24px rgba(0,0,0,0.35);font-size:14px;font-weight:600;font-family:inherit;" +
+            "min-width:340px;text-align:center;line-height:1.4;";
+          toast.innerHTML = "✓ Deep Reset for " + _esc(name) + "<br>" +
+            "<span style='font-weight:400;font-size:12px;opacity:0.95;'>" +
+            "cleared " + qqFieldCount + " BB + " + projFieldCount + " projection + " +
+            kinshipCount + " kinship row(s).<br>" +
+            "Switch away/back or hard-refresh to verify runtime71.</span>";
+          (openPopoverT || document.body).appendChild(toast);
+          setTimeout(function () { try { toast.remove(); } catch (_) {} }, 10000);
+        } catch (_) {}
+      }
+    );
+    return true;
+  }
+  window.lvBbDeepResetCurrentNarrator = lvBbDeepResetCurrentNarrator;
+
+  /* ───────────────────────────────────────────────────────────
      EXPORT MODULE
   ─────────────────────────────────────────────────────────── */
 
