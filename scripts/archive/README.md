@@ -3,25 +3,32 @@
 Everything in this folder was moved out of `scripts/` on 2026-04-25 to keep the
 `scripts/` folder clean for shortcuts on the laptop. Nothing was deleted.
 
-The `scripts/` root now contains only:
+The `scripts/` root now contains:
 - `start_all.sh`
 - `stop_all.sh`
 - `common.sh` (sourced by both — must stay alongside them)
+- `start_api_visible.sh`, `start_tts_visible.sh`, `start_ui_visible.sh`,
+  `restart_api_visible.sh`, `logs_visible.sh`, `status_all.sh` —
+  **wired to the Windows launchers** in the repo root
+  (`start_hornelore.bat`, `logs_hornelore.bat`). These were briefly
+  archived on 2026-04-25 morning, then restored that evening when the
+  Windows Terminal tabs started exiting with code 127 on launch.
+  Do NOT re-archive without also rewriting the .bat files first.
 
 ## What's in here, organized by purpose
 
 ### Stack restart + restart variants
 
 - `restart_api.sh` — restart the API only (after `.env` or code change)
-- `restart_api_visible.sh` — same, runs in visible window
-- `start_api_visible.sh` — start API in visible window
-- `start_tts_visible.sh` — start TTS server in visible window
-- `start_ui_visible.sh` — start UI static server in visible window
-- `status_all.sh` — print PID/port status of API + TTS + UI
+- ~~`restart_api_visible.sh`~~ — RESTORED to `scripts/` (Windows launcher dependency)
+- ~~`start_api_visible.sh`~~ — RESTORED to `scripts/` (Windows launcher dependency)
+- ~~`start_tts_visible.sh`~~ — RESTORED to `scripts/` (Windows launcher dependency)
+- ~~`start_ui_visible.sh`~~ — RESTORED to `scripts/` (Windows launcher dependency)
+- ~~`status_all.sh`~~ — RESTORED to `scripts/` (called from `logs_visible.sh`)
 
 ### Diagnostic + log helpers
 
-- `logs_visible.sh` — tail API + TTS + UI logs in separate windows
+- ~~`logs_visible.sh`~~ — RESTORED to `scripts/` (Windows launcher dependency)
 - `test_stack_health.sh` — check API/TTS/UI reachability + warmth
 - `test_lab_doctor.sh` — diagnose stuck Test Lab runs
 - `test_lab_watch.sh` — terminal live monitor for Test Lab
