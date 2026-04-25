@@ -125,6 +125,32 @@ let state = {
        only; prompt-composer wiring is a later WO. */
     sessionStyle: "warm_storytelling",
 
+    /* WO-HORNELORE-SESSION-LOOP-01 — post-identity orchestrator state.
+       After identityPhase becomes "complete", lvSessionLoopOnTurn drives
+       what Lori does next based on sessionStyle.  This substate tracks
+       the questionnaire walk progress so subsequent turns advance to
+       the next field instead of asking the same one twice.
+         currentSection: BB section id we're walking (e.g. "personal")
+         currentField:   field id we just asked the narrator about
+         askedKeys:      stable list of "<sectionId>.<fieldId>" strings
+                         we've already asked this session (capped at 60)
+         lastTrigger:    "identity_complete" | "narrator_turn" |
+                         "operator_skip" — diagnostic for the harness
+         lastAction:     last action the dispatcher chose, e.g.
+                         "ask_personal.preferredName" | "deferred:parents"
+                         | "fallback_warm_storytelling"
+         tellingStoryOnce: when narrator says "tell a story instead",
+                         we route ONE turn through warm_storytelling and
+                         resume the walk on the next narrator turn. */
+    loop: {
+      currentSection:    null,
+      currentField:      null,
+      askedKeys:         [],
+      lastTrigger:       null,
+      lastAction:        null,
+      tellingStoryOnce:  false,
+    },
+
     /* WO-NARRATOR-ROOM-01 — hands-free session scaffolding.
        These are Phase-1 hooks for WO-STT-HANDSFREE-01.  The room
        controls set them but the auto-rearm STT loop lives in a

@@ -811,6 +811,51 @@ window.lvUiHealthCheck = (function () {
       _push(cat, "questionnaireFirst substate present", STATUS.SKIP,
         `current style is ${ss}, lane not in use`);
     }
+
+    // 8. WO-HORNELORE-SESSION-LOOP-01: orchestrator wired
+    _push(cat, "lvSessionLoopOnTurn dispatcher present",
+      typeof window.lvSessionLoopOnTurn === "function" ? STATUS.PASS : STATUS.FAIL,
+      `typeof=${typeof window.lvSessionLoopOnTurn} (session-loop.js)`);
+
+    // 9. state.session.loop substate.  The dispatcher lazy-inits this
+    //    on first call, so a missing substate at idle is INFO, not FAIL —
+    //    only fail if the dispatcher is missing (caught by check #8 above).
+    //    PASS once any narrator turn has fired the dispatcher and the
+    //    askedKeys ledger is materialized.
+    const loop = state && state.session && state.session.loop;
+    if (loop && typeof loop === "object" && Array.isArray(loop.askedKeys)) {
+      _push(cat, "state.session.loop substate materialized", STATUS.PASS,
+        `askedKeys=${loop.askedKeys.length} lastTrigger=${loop.lastTrigger || "-"} lastAction=${loop.lastAction || "-"}`);
+    } else if (typeof window.lvSessionLoopOnTurn === "function") {
+      _push(cat, "state.session.loop substate materialized", STATUS.INFO,
+        "dispatcher present but no turn yet — substate will lazy-init on first dispatch");
+    } else {
+      _push(cat, "state.session.loop substate materialized", STATUS.FAIL,
+        "dispatcher missing AND substate missing — orchestrator can't run");
+    }
+
+    // 10. Tier-2 directive emitter present + emits non-empty for tier-2 styles
+    const emitFn = typeof window._lvEmitStyleDirective;
+    if (emitFn === "function") {
+      const cdDir = window._lvEmitStyleDirective("clear_direct") || "";
+      const wsDir = window._lvEmitStyleDirective("warm_storytelling") || "";
+      if (cdDir && cdDir.length > 10 && wsDir === "") {
+        _push(cat, "tier-2 directives emit correctly",
+          STATUS.PASS, `clear_direct len=${cdDir.length}, warm_storytelling empty`);
+      } else {
+        _push(cat, "tier-2 directives emit correctly",
+          STATUS.WARN, `clear_direct="${cdDir.slice(0,40)}..." warm="${wsDir}"`);
+      }
+    } else {
+      _push(cat, "tier-2 directives emit correctly", STATUS.FAIL,
+        "_lvEmitStyleDirective not exposed");
+    }
+
+    // 11. Loop diagnostic accessor exposed
+    _push(cat, "window.lvSessionLoop diagnostic accessor present",
+      window.lvSessionLoop && window.lvSessionLoop.loaded === true
+        ? STATUS.PASS : STATUS.FAIL,
+      window.lvSessionLoop ? "loaded" : "missing");
   }
 
   // ── Category: Navigation Recovery ──────────────────────────────

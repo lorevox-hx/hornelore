@@ -133,23 +133,34 @@
     }
   }
 
-  /* ── Bio Builder section walk (Slice 2 STUB) ───────────────────
-     Phase 1 ships a friendly placeholder so the lane has a sensible
-     terminal state.  Slice 2 replaces this with the real loop that
-     walks bio-builder-questionnaire.js MINIMAL_SECTIONS field-by-field
-     and PUTs answers to /api/bio-builder/questionnaire.
-  ─────────────────────────────────────────────────────────────── */
+  /* ── Bio Builder section walk handoff ───────────────────────────
+     WO-HORNELORE-SESSION-LOOP-01 ships the real loop; we just hand
+     the steering wheel over to it.  The loop reads BB MINIMAL_SECTIONS,
+     finds the next empty personal field, and asks Lori to ask it.
+     If the loop module hasn't loaded yet for some reason, we fall back
+     to a friendly bubble (defense-in-depth — should never fire in
+     normal load order). */
   function _enterBioBuilderSectionWalk(personId) {
-    if (typeof appendBubble === "function") {
-      try {
-        appendBubble("ai",
-          "Your basics are saved. We can keep building your story " +
-          "from here. (The full questionnaire walk lands in the next update.)");
-      } catch (_) {}
-    }
     // Mark segment so the harness can observe the lane state.
     if (state.session.questionnaireFirst) {
       state.session.questionnaireFirst.segment = "sections";
+    }
+    // Reset BB cache — narrator may have switched, blob could be stale.
+    if (typeof window._lvSessionLoopResetBBCache === "function") {
+      try { window._lvSessionLoopResetBBCache(); } catch (_) {}
+    }
+    // Real handoff.
+    if (typeof window.lvSessionLoopOnTurn === "function") {
+      try { window.lvSessionLoopOnTurn({ trigger: "identity_complete" }); }
+      catch (e) { console.warn("[session-style] lvSessionLoopOnTurn threw:", e); return; }
+      return;
+    }
+    // Fallback (should not happen if session-loop.js loads).
+    if (typeof appendBubble === "function") {
+      try {
+        appendBubble("ai",
+          "Your basics are saved. We can keep building your story from here.");
+      } catch (_) {}
     }
   }
 

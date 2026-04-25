@@ -1323,6 +1323,21 @@ function buildRuntime71() {
     visual_signals,
     /* v7.4D — assistant role for prompt routing */
     assistant_role:  getAssistantRole(),
+    /* WO-HORNELORE-SESSION-LOOP-01 — tier-2 session-style directive.
+       For clear_direct / memory_exercise / companion this is a short
+       string that prompt_composer appends to the directive block.  For
+       warm_storytelling and questionnaire_first this is empty (no
+       addendum — the questionnaire walk owns its own Lori prompts).
+       Backend gracefully ignores empty / missing values. */
+    session_style_directive: (function() {
+      try {
+        const style = (typeof getSessionStyle === "function") ? getSessionStyle() :
+          (state.session && state.session.sessionStyle) || "warm_storytelling";
+        return (typeof window._lvEmitStyleDirective === "function")
+          ? window._lvEmitStyleDirective(style) || ""
+          : "";
+      } catch (_) { return ""; }
+    })(),
     /* v7.4D Phase 6B — identity gating fields for prompt_composer.py */
     identity_complete: hasIdentityBasics74(),
     identity_phase:    getIdentityPhase74(),
@@ -3235,6 +3250,19 @@ async function _resolveOrCreatePerson(){
   state.session.identityPhase = "complete";
   setAssistantRole("interviewer");
 
+  // WO-HORNELORE-SESSION-LOOP-01: identity intake just finished.  Hand
+  // the steering wheel to the post-identity orchestrator so Lori has a
+  // defined next step (BB walk for questionnaire_first; tier-2 directive
+  // for clear_direct/memory_exercise/companion; no-op for warm_storytelling).
+  // Without this hook, the session dead-ends here a second time.
+  try {
+    if (typeof window.lvSessionLoopOnTurn === "function") {
+      window.lvSessionLoopOnTurn({ trigger: "identity_complete" });
+    }
+  } catch (e) {
+    console.warn("[session-loop] identity_complete dispatch threw:", e);
+  }
+
   // v8.1: Mark this device as onboarded so future startups skip the welcome flow
   // and go straight to the narrator selector instead.
   try { localStorage.setItem("lorevox_device_onboarded", "1"); } catch(_) {}
@@ -3378,6 +3406,21 @@ async function sendUserMessage(){
     const _handled = await _advanceIdentityPhase(text);
     if(_handled) return;
     // Not handled — fall through to normal chat path with IDENTITY MODE active.
+  }
+
+  // WO-HORNELORE-SESSION-LOOP-01: per-turn dispatch.  Once identity is
+  // complete, every narrator turn pings the orchestrator so it can
+  // advance the questionnaire walk (questionnaire_first / clear_direct)
+  // OR refresh tier-2 directives (memory_exercise / companion).
+  // warm_storytelling is a no-op.  Idempotent — askedKeys ledger
+  // prevents duplicate field asks.
+  if (state.session?.identityPhase === "complete" &&
+      typeof window.lvSessionLoopOnTurn === "function") {
+    try {
+      window.lvSessionLoopOnTurn({ trigger: "narrator_turn", text });
+    } catch (e) {
+      console.warn("[session-loop] narrator_turn dispatch threw:", e);
+    }
   }
 
   // v7.4D — helper-mode detection. If the user appears to be asking how to use
