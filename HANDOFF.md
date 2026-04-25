@@ -6,93 +6,95 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-22 afternoon, r5f ADOPTED)
+## Current state (as of 2026-04-25 night — test-narrator-only prep posture)
 
-**Authoritative for current-day state:** `CLAUDE.md` (agent env + standard blocks + changelog) and `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` (phase 1 week plan, decision gates). Read those first. This section is a compact delta pointer.
+**Locked posture (Chris's late-evening directive):** **tomorrow is prep + debug only with test narrators (Corky and the existing test set), NOT live parent sessions. Real parents move out by ~3 days, gated by the 7-point readiness checklist.**
 
-### Active phase — LOOP-01 R5.5 Pillar 1, r5f locked as floor
+**Authoritative for current-day state:** `CLAUDE.md` (extractor lane env + changelog), `README.md` (product surface + companion-app status), `docs/reports/CODE-REVIEW-2026-04-25.md` (this week's tech debt audit), `docs/PARENT-SESSION-READINESS-CHECKLIST.md` (the 7 gates that gate real parent sessions). Read those first. This section is a compact delta pointer for the laptop.
 
-**r5f ADOPTED, new active baseline.** 69/104, v3=41/62, v2=35/62, mnw=2. WO-EX-SILENT-OUTPUT-01 Phase 1 (instrumentation-only) + Phase 2 (parser preamble-tolerance one-liner) landed today; composite blew through the three-agent prediction of 61–63 by +6, zero newly-failed cases, zero scorer drift on any of the 10 pass-flips. Prior floor r5e1 (59/104) retired.
+### Two parallel lanes, distinct posture
 
-### Active baseline
+The repo now runs two coordinated lanes; understand which one you're looking at before debugging:
 
-**r5f: 69/104 · v3=41/62 · v2=35/62 · mnw=2.** Known offenders (pre-existing r5e1 carryover, unchanged): `case_035` (faith turn, narrator `education.schooling` leak) and `case_093` (spouse-detail, `education.higherEducation` leak). Both fall squarely in the WO-LORI-CONFIRM-01 target class. Parked as known cost. Method distribution: 97 llm / 6 fallback / 1 rules_fallback. parse_success_rate=93.3%, parse_failure_rate=0.0%, truncation_rate=0.0%. Stubborn-pack primary sub-pack: 4/4 passed (100%). The ATTRIBUTION-BOUNDARY flag + NARRATIVE + PROMPTSHRINK flags all remain in-tree default-off; live behavior is the r5f composite only.
+1. **Companion-app lane (Hornelore UI / Lori)** — three-tab shell, narrator room, BB save, archive integration, harness. **Goal: parents using next week.** OT-appropriate life review with older adults; Mom + Dad as first family-real narrators. The application as a whole.
+2. **Extractor lane (LOOP-01 R5.5 Pillar 1)** — `r5h: 70/104, v3=41/62, v2=35/62, mnw=2` is the locked benchmark. SPANTAG Commit 3 is live default-off. r5f-spantag eval inconclusive (token caps + stack collapse mid-run); decision still blocked on one clean full-master with flag confirmed firing server-side. Synthetic 104-case bench until parents start producing real narrator data, then real sessions become the data acquisition pipeline.
 
-### Today's landed work (2026-04-22)
+These lanes touch different code paths (`server/code/api/routers/extract.py` for extractor; `ui/`, `archive-writer.js`, `session-loop.js`, `ui-health-check.js` for companion). They intersect only at the truth pipeline (extractor consumes narrator answers; companion writes them via `/api/memory-archive/turn`). Don't conflate them when reading the changelog.
 
-**Phase 1 — silent-output instrumentation** (`extract.py` L6609–6927):
+### Companion-app status (this week's shipped surface area)
 
-- Five counters + terminal `[extract][silent-root]` log classifying silent events into `llm_empty` / `parse_drop` / `validator_drop` / `fallback_miss` / `rules_filter_drop`.
-- Raw-output dump gated behind default-off `HORNELORE_SILENT_DEBUG=1`.
-- `scripts/run_silent_output_probe.py` + 5-case diagnostic pack (case_005/045/065/077/081) = `probe_01`. Characterization: **`parse_drop` dominant, 4 of 5 silent events** — LLM was returning text, parser was rejecting it.
-- Code-review finding (not gating): `fallback_miss` branch in the cause cascade is logically subsumed by branches 1–3; residual always falls to `rules_filter_drop`. Naming is aspirational. Worth a TODO to tighten later if the classifier ever needs to distinguish "validator dropped everything AND fallback produced nothing" from "rules filter subsequently dropped surviving items."
-- Zero extractor-behavior change.
+Three-tab shell (Operator | Narrator Session | Media), narrator room, photos view, post-identity orchestrator, session-style picker driving Lori behavior, BB-save in-loop, repeatable-section handoff, two-sided text transcript writer, expanded harness, audio archive backend (34/34 PASS, frontend recorder tomorrow). Specs queued for live-build with Chris in browser:
 
-**Phase 2 — parser preamble-tolerance salvage patch** (`extract.py` L3481–3485):
+- **WO-AUDIO-NARRATOR-ONLY-01** (Boris-style spec at repo root) — per-turn webm segments via MediaRecorder, TTS-gated by `isLoriSpeaking`, 500–900ms post-TTS buffer, upload to existing `/api/memory-archive/audio`. Chrome-only Phase 1. ~2.5–3 hours of live work tomorrow morning. **Ship-critical for parents-by-next-week** — this is the data acquisition pipeline.
+- **WO-STT-HANDSFREE-01A** (spec at repo root) — auto-rearm browser STT after Lori finishes speaking. **Deferred past first parent session.** Polish; parents can type or single-shot mic.
 
-- One-line tolerance fix in `_parse_llm_json`: replaces strict `if not text.startswith("["): return []` with `text = raw.lstrip(); bracket_idx = text.find("["); if bracket_idx == -1: return []; text = text[bracket_idx:]`.
-- Handles LLM preamble-wrapped truncated JSON (e.g., `"Here is the extracted JSON array:\n\`\`\`\n[\n  {..."`). Byte-identical when `raw` starts with `[` or contains no `[`. Existing brace-balanced `_salvage_truncated_array` walker does the rest.
-- `probe_02` (same 5-case pack): **0/5 → 2/5 pass, avg 0.140 → 0.620**. 4 of 5 silent events flipped `parse_drop` → successful parse. New `validator_drop` signal on case_077 `great_grandparents.*` + case_081 `grandparents.ancestry` — maps exactly to pending **#119 turnscope `allowed_branches` fix for greatGrandparents subtree**, which now has fresh evidence.
+### Companion-app open bugs
 
-**r5f master eval — ADOPTED** (`docs/reports/master_loop01_r5f.{json,console.txt}`):
+- **#219 / Bug — bio-builder-core cross-narrator contamination** (filed, NOT FIXED). `GET /api/bio-builder/questionnaire?person_id=<corky>` returns Christopher Todd Horne's data. `[bb-drift] KEY MISMATCH` console logs hint at a localStorage / backend key mix between narrators. **P0 before parents touch the system** — every session pollutes the next without this fix.
+- **Cache-busting brittle** — `<script src="js/foo.js">` tags don't carry `?v=`. Hard-reload (Ctrl+Shift+R) is the workaround. P1.
+- **`lv80SwitchPerson` rebuilds `state.session` from scratch** — `hornelore1.0.html:4646`, two parallel branches. New session-scoped fields get DROPPED on narrator switch unless explicitly preserved (already bit #145 onboarding, #194 sessionStyle, #206 camera one-shot). Defer to a quiet-day refactor.
 
-- **Topline:** 59→69/104 (+10), v3 38→41/62 (+3), v2 32→35/62 (+3), mnw 2→2 (unchanged, same offenders).
-- **Newly passed (10):** `case_005, 023, 025, 064, 072, 077, 082, 085, 086, 103` — all with `r5e1_cats ∈ {schema_gap, field_path_mismatch, llm_hallucination}` → `r5f_cats=[]`.
-- **Newly failed (0).**
-- **Score up (still same bucket):** `case_045, 046, 065, 066, 080, 084` (0.00 → 0.33–0.60).
-- **Score down:** `case_091` 1.00→0.80 (v3 still pass, v2 flipped via `noise_leakage` — patch-attributable, acceptable cost of recovering salvaged items); `case_068` 0.53→0.00 (LLM stochasticity, not patch-attributable — r5e1 already parsed cleanly, preamble-tolerance path never fired).
-- **Scorer-drift audit on all 10 flips: zero drift.** Truth-zone totals identical r5e1↔r5f on every flip; only `hit` counts rose and `miss` counts fell.
-- **Method dist:** 97 llm / 6 fallback / 1 rules_fallback. parse_success 93.3%, parse_failure 0.0%, truncation 0.0%.
-- **Stubborn primary:** 4/4 (`case_008, 009, 018, 082`).
-- **Invalid-fieldpath hallucinations top-10** concentrated on greatGrandparents/parents/grandparents schema_gap cluster (`case_028` 8 offenders, `case_033` 5, `case_039` 3) — exactly #119's target class.
+Full audit: `docs/reports/CODE-REVIEW-2026-04-25.md`.
 
-**Git hygiene gate codified in CLAUDE.md** — new top-level section between "Stack ownership" and "Standard eval command". Tree must be clean before any code-changing work begins; agent flags dirty tree and produces copy-paste commit plan before touching code. Code commits isolated from docs; specific-path `git add` (never `-A`); `.runtime/` exception. Trigger: today's 13-item uncommitted pile-up (overnight WO batch + r5e1 reports + Phase 1 instrumentation + tagging audit all tangled into one `git status`).
+### Extractor-lane status — `r5h` locked, SPANTAG inconclusive
 
-### Next sequence (reordered 2026-04-22 afternoon after r5f ADOPT)
+**Active baseline `r5h`: 70/104, v3=41/62, v2=35/62, mnw=2.** Two known mnw offenders (pre-r5e1 carryover, both WO-LORI-CONFIRM-01 targets): `case_035` faith turn (`education.schooling` narrator-leak) and `case_093` spouse-detail follow-up (`education.higherEducation`). r5h delta vs r5f (69/104) is scorer-side only: +1 case_081 via `alt_defensible_paths` annotation adding `greatGrandparents.ancestry` as acceptable path for `grandparents.ancestry` truth zone. parse_success_rate 93.3%, truncation_rate 0.0%.
 
-1. **#119 turnscope `allowed_branches` fix** — promoted to top of queue. Now has **both** probe_02 evidence (validator_drop on `great_grandparents.*` / `grandparents.ancestry`) **and** r5f master evidence (hallucination top-10 is `case_028` 8 offenders / `case_033` 5 / `case_039` 3, all in the greatGrandparents/parents/grandparents schema_gap cluster).
-2. **SECTION-EFFECT Phase 3** (#95) — causal matrix, WO already written.
-3. **SPANTAG** (#90) — full WO already written, implementation unblocks after Phase 3.
-4. **WO-LORI-CONFIRM-01** — v1 scope = 3-field confirm pass (`personal.birthOrder`, `siblings.birthOrder`, `parents.relation`); date-range descoped to v1.1 conditional on #111 corpus expansion.
-5. **WO-INTAKE-IDENTITY-01** (Chris's lane) — v3 spec ready. Execution-order note: grep-for-partial-DOB-consumers must precede endpoint implementation; new `normalize_dob_intake` function must be isolated from existing `_normalize_date_value` (Patch H / Fix C reference it).
+r5h hallucination prefix rollup: parents 11, family 10, siblings 7, greatGrandparents 5, education 5, grandparents 4, laterYears 2, residence 1. The parents/family/siblings cluster is the dominant hallucination vector now, not greatGrandparents (that class dropped post-r5f).
 
-### Today's commits (2026-04-22)
+**SPANTAG Commit 3 (#90) landed default-off, late 2026-04-23.** Pipeline wired in `server/code/api/routers/extract.py`: `_extract_via_spantag()` runs Pass 1 → Pass 2 → down-projection; falls back to singlepass on empty raw / zero Pass 1 tags / Pass 2 returning both zero writes and zero no_writes. Pass 2's controlled-prior block carries `current_section` + `current_target_path` ONLY; era/pass/mode kwargs explicitly dropped per #95 SECTION-EFFECT Phase 3 PARK (Q1=NO at n=4, zero within-cell variance). 56 Pass 2 + 36 Pass 1 unit tests green; byte-stable when `HORNELORE_SPANTAG=0`.
 
-| SHA | What |
-|---|---|
-| Phase 1 | WO-EX-SILENT-OUTPUT-01 Phase 1 instrumentation + probe_01 artifacts |
-| Overnight | WO batch — SECTION-EFFECT Phase 3 WO + SPANTAG full WO + MULTITURN spec + LORI prep pack + multiturn pilot JSON |
-| Corpus | r5e1 corpus analysis — tagging audit + failure clusters |
-| Docs | NARRATIVE-FIELD Phase 4 + CLAUDE.md Git hygiene gate |
-| Phase 2 | WO-EX-SILENT-OUTPUT-01 Phase 2 salvage-preamble-tolerance patch + probe_02 artifacts |
-| r5f ADOPT | `docs/reports/master_loop01_r5f.{json,console.txt}` + baseline lock commit |
-| (pending) | HANDOFF + CLAUDE.md changelog updates reflecting r5f ADOPT (this commit) |
+**`r5f-spantag` eval test battery 2026-04-23 night — INCONCLUSIVE.** Four attempts, zero usable 104-case Commit 5 baselines:
+- `r5f-spantag` (default-off due to flag-export discipline issue) — 70/104, byte-stable parity with r5h, zero SPANTAG methods. Confirms the gate but produces no SPANTAG signal.
+- `r5f-spantag-on` (flag exported, raised caps not yet applied) — 25/104, 48/104 HTTP-layer failures (read timeouts + 500s + connection errors) from stack collapse mid-run.
+- `r5f-spantag-probe` — port 8000 dead, zero extractions.
+- `r5f-spantag-on-v2` (`SPANTAG_PASS1_MAX_NEW=1024`, `SPANTAG_PASS2_MAX_NEW=1536` exported pre-start) — aborted mid-run.
 
-Yesterday (2026-04-21): `ad52e4a` (r5e1 eval), `bfefe8b` (NARRATIVE-FIELD Phase 4 r5e2), `c24efa9` (r5e2b tighten), `d2cfb31` (revert NARRATOR-IDENTITY), `74f7b0d` (date-range preference), `291cbb8` (CLAIMS-02 role-exempt), `9706a87` (SCALAR CO-EMISSION + NARRATOR-IDENTITY), `3fec639` (narrative Phase 2 tighten), plus r5e2 REJECT + ATTRIB_BOUNDARY flag.
+Real SPANTAG evidence came from an ad-hoc 18:34–19:15 session in api.log: 12 extractions, 4 Pass 1 parse_fails (Pass 1 truncated at 1246–1352 chars `{"tags": [` mid-array), 2 Pass 2 parse_fails, 6 clean Pass 2 successes. **End-to-end fallback rate ≈ 50%, dominated by Pass 1 token truncation.** Intervention is env-override only (`SPANTAG_PASS1_MAX_NEW=1024`, `SPANTAG_PASS2_MAX_NEW=1536`), no code change required.
 
-### Where to pick up on laptop
+**Env-variable discipline note:** all four SPANTAG-related env vars (`HORNELORE_SPANTAG`, `SPANTAG_PASS1_MAX_NEW`, `SPANTAG_PASS2_MAX_NEW`, plus `HORNELORE_NARRATIVE`) are read server-side per-request; they must be exported in the shell that runs `start_all.sh` so the uvicorn child inherits them. Setting them only in the eval-script shell doesn't reach the router. The discipline-header's flag-line reads from the eval-script env, not the server — decisive server-side check is `grep "\[extract\]\[spantag\] flag ON" .runtime/logs/api.log` after any extraction fires.
+
+### Active sequence (extractor lane, reordered 2026-04-23 evening)
+
+1. **#90 SPANTAG** — promoted active. Need one clean full-master run with `HORNELORE_SPANTAG=1` confirmed firing server-side at raised caps; eval tag `r5f-spantag` reused once disciplined. Decision criteria: judge by Type A/B/C, not a general regression gate. Type A (case_008) must not regress; Type B (case_018) stays stable; Type C (case_082) becomes more legible (separation of detection from binding) even if not fully fixed.
+2. **#152 WO-EX-BINDING-01** — parallel cleanup lane. **Option A primary re-lock** (binding rules delivered inside SPANTAG Pass 2 prompt / binding contract via PATCH 1–5). Smoke-test target case_082 V1/V6. Eval tag `r5g-binding` layered on `r5f-spantag`. Spec: `WO-EX-BINDING-01_Spec.md` (v2).
+3. **#144 WO-SCHEMA-ANCESTOR-EXPAND-01 Lane 2** — schema expansion (greatGrandparents.firstName/lastName/relation/ancestry). Lane 1 (scorer-only `alt_defensible_paths`) is partially trial-running already; full lane 1 = next eval `r5i`.
+4. **#97 WO-EX-VALUE-ALT-CREDIT-01** — value-axis alt-credit under ≥0.5 fuzzy gate. case_087 ancestry='French' vs 'French (Alsace-Lorraine), German (Hanover)'. Parallel cases 075, 088.
+5. **WO-LORI-CONFIRM-01** v1 = 3-field confirm pass (`personal.birthOrder`, `siblings.birthOrder`, `parents.relation`). dateRange v1.1 REACTIVATION UNLOCKED — #111 canon-grounded corpus expansion to 24 cases (closed 2026-04-23) added 3 stubborn date-range cases.
+6. **WO-INTAKE-IDENTITY-01** (Chris's lane) — v3 spec FINAL.
+
+Parallel cleanup lanes (do not block main): **#142 WO-EX-DISCIPLINE-01** (run-report header). **#141 WO-EX-FAILURE-PACK-01** CLOSED 2026-04-23.
+
+### Closed extractor lanes since 2026-04-22
+
+- **#95 SECTION-EFFECT Phase 3 PARK** — matrix ran clean 72/72 at tag `se_r5h_20260423`. Q1=NO; Q2/Q3 stratified by Type A/B/C. Bumper sticker: **Extraction is semantics-driven, but errors are binding-driven** — the real axes of variation live in the question-evidence pair, and Type C's failures are present even in V1 (the "ideal" configuration). Era/pass/mode carry no independent signal. Follow-ups: SPANTAG promoted, BINDING-01 lane minted.
+- **#119 turnscope greatGrandparents** — closed complete-with-caveat. EXPAND fires correctly; items die at schema validation because greatGrandparents.* identity fields aren't in the schema. Real unlock is #144 Lane 2.
+- **#111 canon-grounded corpus expansion** — 24 cases at `_version=2`, 8/8/8 narrator balance, 3 stubborn date-range cases (cg_019/020/021) exceeding LORI v1.1 ≥2 gate.
+- **`docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`** authored — canonical reference for every extractor-lane WO. Core Law LOCKED: *Extraction is semantics-driven, but errors arise from failures in causal attribution at the binding layer.* 5-layer pipeline: Architectural / Control / Binding (PRIMARY FAILURE SURFACE) / Decision / Evaluation. Type A/B/C question typology LOCKED.
+
+### Where to pick up on the laptop
 
 1. Pull latest `main` once desktop pushes.
-2. Read `CLAUDE.md` → operational env, standard eval block, full changelog (most recent: 2026-04-22 afternoon r5f ADOPT).
-3. Read `docs/reports/master_loop01_r5f.json` + `.console.txt` for the r5f audit numbers; compare to `master_loop01_r5e1.*` for the flip diff.
-4. Read `docs/reports/LOOP-01_R5.5_WEEKLY_CHECKLIST_20260421.md` → week plan + updated decision records.
-5. Read `docs/reports/FAILING_CASES_r5e1_RUNDOWN.md` for the 45-case Q/A/era/issue rundown (still relevant; most of the 35 remaining r5f failures are a subset of this).
-6. Read `docs/reports/question_bank_tagging_audit.md` + `docs/reports/silent_probe_01.json` + `docs/reports/silent_probe_02.json` for the silent-output lane context.
-7. Read `WO-LORI-CONFIRM-01_PREP_PACK.md` + `WO-EX-SECTION-EFFECT-01_PHASE3_WO.md` + `WO-EX-SPANTAG-01_FULL_WO.md` for the three queued lanes.
-8. Next extractor-lane work is **#119 turnscope greatGrandparents fix** — smallest surgical patch on the strongest-evidence target.
+2. Read `CLAUDE.md` → agent env, standard eval block, full changelog through 2026-04-23 (latest entry: SPANTAG Commit 3 landed + r5f-spantag inconclusive battery).
+3. Read `README.md` → product surface, OT framing, `Status as of 2026-04-25` section.
+4. Read `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md` → canonical extractor architecture; required reading before scoping any extractor-lane WO.
+5. Read `docs/reports/CODE-REVIEW-2026-04-25.md` → this week's tech debt audit (Bug #219 P0, app.js + lori80.css size shape, cache-busting strategy, lv80SwitchPerson rebuild).
+6. Read `docs/reports/master_loop01_r5h.{json,console.txt}` for r5h baseline numbers.
+7. Read `WO-AUDIO-NARRATOR-ONLY-01_Spec.md` + `WO-STT-HANDSFREE-01A_Spec.md` for the queued live-build specs.
+8. Next companion-app work is **WO-AUDIO-NARRATOR-ONLY-01 live build** (~3 hours with Chris in browser tomorrow).
+9. Next extractor-lane work is **one clean `r5f-spantag` master run** (env-disciplined, raised caps, server-side flag confirmed via api.log grep).
 
-### Known carryover (unchanged)
+### Known carryover (extractor lane, unchanged)
 
-- **`parents.education` schema contradiction** — path IS in schema table at `server/code/api/routers/extract.py` L327 (`writeMode: suggest_only`); alias at L3711 maps it to `parents.notableLifeEvents`. Prompt warnings claiming "that path does not exist" are literally false. Fix options for later: (1) hard-delete schema entry, (2) ensure alias fires before scoring, (3) extractor-layer attribution filter. Deferred.
-- **`faith.significantMoment` thematic routing** — doesn't trigger from `target=faith.denomination` on case_035. Turn-purpose signal too weak to override "mother" subject binding. A SPANTAG / WO-LORI-CONFIRM-01 class of fix, not a prompt fix.
+- **`parents.education` schema contradiction** — path IS in schema table at `server/code/api/routers/extract.py` L327 (`writeMode: suggest_only`); alias at L3711 maps it to `parents.notableLifeEvents`. Prompt warnings claiming "that path does not exist" are literally false. Deferred.
+- **`faith.significantMoment` thematic routing** — doesn't trigger from `target=faith.denomination` on case_035. Turn-purpose signal too weak to override "mother" subject binding. A SPANTAG / WO-LORI-CONFIRM-01 class of fix.
 - **`family.children.*` misroute on sister** — case_035 sister Verene still routes to `family.children.*`. Pre-existing relation-router bug.
-- **`fallback_miss` cause-cascade branch** (new today) — logically unreachable under current counter logic; residual falls to `rules_filter_drop`. Not a correctness bug; naming tightening can wait until it matters.
 
 ### Stack ownership reminder
 
 Chris owns start/stop of the stack (`scripts/start_all.sh` / `scripts/stop_all.sh`). Cold boot is ~4 minutes (HTTP listener ~60–70s, then 2–3 min model warmup). Do NOT include restart commands in agent-issued eval blocks. API is assumed running at `localhost:8000` when evals are requested.
 
-### Git hygiene gate reminder (new today)
+### Git hygiene gate reminder
 
 Before any code-changing work starts, the tree must be clean (`git status` shows nothing uncommitted). If dirty when new code work is requested, agent's first action is to flag it and produce a copy-paste commit plan — not start the code work. Group commits with code isolated from docs; use specific file paths (never `git add -A` / `git add .`); exception only for `.runtime/` throwaways. Full rule in `CLAUDE.md`.
 

@@ -8,6 +8,64 @@ Built from a live-audited subset of Lorevox 9.0. Every included file was verifie
 
 ---
 
+## Use case framing — Occupational Therapy + life review with older adults
+
+The product design choices in Hornelore reflect an OT/life-review use case more than a general chatbot use case. Specifically:
+
+- **Dementia-safe pacing (WO-10C)**: protected silence intervals at 120s / 300s / 600s with progressively softer re-entry prompts; never an interrogative cadence
+- **No correction**: Lori never "well-actually's" the narrator; whatever the narrator says lands as-is, edits happen later via the operator review queue (WO-13 truth pipeline)
+- **Listen-first behavior**: tier-2 directives bias Lori toward reflecting rather than probing for facts (`memory_exercise`, `companion` styles)
+- **Take-a-break overlay**: one click pauses the session with a calm parchment-themed modal, narrator chooses Resume or Return-to-Operator
+- **Operator/narrator separation**: Operator tab holds all dashboards, Bug Panel, controls; Narrator Session tab is the calm conversation room with no debug clutter
+- **Two-sided transcript + optional audio capture**: every session produces a portable archive (transcript.jsonl + transcript.txt + per-turn audio webm) so the operator can proof corrections after the session — turning each conversation into a piece of recoverable family history regardless of cognitive variability
+
+This positions Hornelore as a tool that maps onto OT life-review practice with older adults, not as a general-purpose memoir generator.
+
+---
+
+## Status as of 2026-04-25 (night)
+
+**Operating posture (locked Chris's late-evening directive):** **tomorrow is prep + debug only. Test narrators only (Corky + the seeded test set). NO real parent sessions.** Real parents (Mom + Dad) start in **~3 days**, gated by all 7 readiness gates GREEN in `docs/PARENT-SESSION-READINESS-CHECKLIST.md`. The 7 gates are: (1) no cross-narrator contamination, (2) text archive saves both sides, (3) narrator-only audio rule verified, (4) export zip verified, (5) UI Health Check clean, (6) test narrator session reviewable end-to-end from transcript + audio, (7) live parent-session checklist exists (which it now does).
+
+**Shipped this week:**
+
+- WO-UI-SHELL-01 — Three-tab shell (Operator | Narrator Session | Media); Operator default; session-style picker (5 styles, persistent)
+- WO-NARRATOR-ROOM-01 — Narrator room layout: topbar + view tabs (Memory River | Life Map | Photos | Peek at Memoir) + chat conversation column + context panel; Take-a-break overlay; chat scroll stabilization; hands-free state scaffolding
+- WO-ARCHIVE-AUDIO-01 — Memory archive backend: 7 endpoints under `/api/memory-archive/*` with `archive session_id == conv_id`; per-narrator zip export; smoke-tested 34/34 PASS
+- WO-UI-TEST-LAB-01 — Operator UI Health Check inside Bug Panel; 14 categories; PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO; <100ms full run
+- WO-SESSION-STYLE-WIRING-01 — Operator session-style picker drives narrator behavior; questionnaire_first BYPASSES the v9 incomplete-narrator gate (Corky rule)
+- WO-HORNELORE-SESSION-LOOP-01 — Post-identity orchestrator that asks one Bio Builder question at a time and routes per `sessionStyle`
+- WO-HORNELORE-SESSION-LOOP-01B — Loop saves answers via `PUT /api/bio-builder/questionnaire`
+- WO-HORNELORE-SESSION-LOOP-01C — Repeatable-section deferred-handoff is a real next-branch offer, not a dead-end
+- WO-UI-HEALTH-CHECK-02 — Harness extended for new loop behavior + welcome-back suppression + camera-return verification
+- WO-ARCHIVE-INTEGRATION-01 — Two-sided text transcript writer; every chat turn (narrator + Lori) lands in `transcript.jsonl` and `transcript.txt` under the archive
+- Multiple bug fixes: #145/#175/#190/#193 (camera class), #194 (sessionStyle persistence), #202 (Lori intro brand naming), #205 (Bug Panel in header), #206 (camera one-shot dropped), #207 (welcome-back collision)
+
+**Specced + ready to build (not yet shipped):**
+
+- WO-AUDIO-NARRATOR-ONLY-01 — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. Live build with operator in browser; 2.5–3 hours.
+- WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish; ship after first parent session.
+
+**Landed overnight 2026-04-25 (test-narrator validation pending tomorrow):**
+
+- **BUG-208 / #219** — bio-builder-core.js cross-narrator contamination. **Code landed**: narrator-switch generation counter + 3-guard backend response check + persist guard + pre/post-fetch pid scope assertions in session-loop + 4 new BUG-208 harness checks under `session` category. **Awaiting live verify with test narrators tomorrow morning.** Report: `docs/reports/BUG-208_REPORT.md`.
+- **WO-ARCHIVE-EXPORT-UX-01** — one-click "Export Current Session" button in Bug Panel; `lvExportCurrentSessionArchive` helper with status feedback.
+- **WO-TRANSCRIPT-TAGGING-01** — every archive turn now stamped with `meta.session_style`, `meta.identity_phase`, `meta.bb_field`, `meta.timestamp`, `meta.session_id`, `meta.writer_role`.
+- **WO-ARCHIVE-SESSION-BOUNDARY-01** — per page-load `session_id` (`s_<base36ts>_<rand>`) stamped on `session/start` body and every transcript line; exposed via `lvArchiveWriter.sessionId()`.
+- **WO-UI-HEALTH-CHECK-03** — harness extended with archive-writer module load + transcript-writes-flowing + session_id stamped + onAssistantReply chained + Export helper wired checks under `archive` category.
+- **WO-BB-RESET-UTILITY-01** — dev-only "Reset BB for Current Narrator" button in Bug Panel; clears questionnaire/candidates/drafts/QC for active narrator only with inline confirm.
+- **WO-SOFT-TRANSCRIPT-REVIEW-CUE-01** — non-blocking bottom-right "Want to review what we've captured so far?" pill after 4 narrator turns, single-fire per session.
+- **WO-AUDIO-READY-CHECK-01** — `lvAudioPreflight()` + Bug Panel "Run Audio Preflight" button + 5 new harness checks under `mic` category (MediaRecorder API, secure context, getUserMedia, mic permission state, overall ready).
+
+**Specced + ready to build (not yet shipped):**
+
+- WO-AUDIO-NARRATOR-ONLY-01 — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. **Live build with operator in browser tomorrow morning; 2.5–3 hours.** Gate 3 of the readiness checklist depends on this.
+- WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish; ship after first parent session.
+
+**Master extractor lane:** unchanged this week. Locked baseline `r5h` at 70/104. Active sequence still BINDING-01 → SPANTAG → LORI-CONFIRM. Per-week parent sessions (once they begin in ~3 days) become the new ground-truth dataset for climbing past 70/104 — the synthetic 104-case bench is the regression net, not the goal.
+
+---
+
 ## Narrators
 
 | Name | Template | Born | Preferred |
