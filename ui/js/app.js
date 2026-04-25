@@ -2952,12 +2952,21 @@ function _parseDob(text){
   m = t.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
   if(m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`;
   // Month name forms: "December 24, 1962" / "24 December 1962"
+  // BUG-210: accept ordinal suffixes (1st, 2nd, 3rd, 4th, ...) between
+  // the day digit and the year separator.  Live evidence: Jake said
+  // "December 31st 1937" → was parsed as 1937-01-01 because the original
+  // regexes required digit then comma/whitespace, and "st" is letters.
   const MONTHS = {january:"01",february:"02",march:"03",april:"04",may:"05",
     june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
+  const ORDINAL = "(?:st|nd|rd|th)?";   // optional ordinal suffix
   const lower = t.toLowerCase();
   for(const [name,num] of Object.entries(MONTHS)){
-    const re1 = new RegExp(name+"\\s+(\\d{1,2})[,\\s]+(\\d{4})");
-    const re2 = new RegExp("(\\d{1,2})\\s+"+name+"[,\\s]+(\\d{4})");
+    // re1: "December 24th, 1962" / "december 24th 1962" / "december 24 1962"
+    const re1 = new RegExp(name+"\\s+(\\d{1,2})"+ORDINAL+"[,\\s]+(\\d{4})");
+    // re2: "24th of December, 1962" / "24th December 1962" / "the 24 December 1962"
+    // BUG-210 extension: accept optional "of" between day and month.
+    const re2 = new RegExp("(\\d{1,2})"+ORDINAL+"\\s+(?:of\\s+)?"+name+"[,\\s]+(\\d{4})");
+    // re3: month-and-year only ("December 1962") — day unknown, returns -01
     const re3 = new RegExp(name+"[,\\s]+(\\d{4})");
     let mm;
     if((mm=lower.match(re1))) return `${mm[2]}-${num}-${mm[1].padStart(2,"0")}`;
@@ -3422,6 +3431,21 @@ async function sendUserMessage(){
       console.warn("[session-loop] narrator_turn dispatch threw:", e);
     }
   }
+
+  // BUG-209: archive-writer narrator inline-call DISABLED.
+  // The backend chat_ws path already writes the narrator turn into the
+  // same memory archive.  Calling lvArchiveOnNarratorTurn here caused
+  // every turn to land twice in transcript.jsonl (once as `user` from
+  // chat_ws, once as `narrator` from archive-writer).  Confirmed via
+  // Chris's morning export 2026-04-25.  Backend WS is single source.
+  // The lvArchiveOnNarratorTurn hook remains callable for the
+  // future WO-AUDIO-NARRATOR-ONLY-01 audio-attachment flow if it
+  // needs a paired write — that's a deliberate manual path.
+  // To re-enable: remove this comment and uncomment the original block.
+  //
+  // if (typeof window.lvArchiveOnNarratorTurn === "function") {
+  //   try { window.lvArchiveOnNarratorTurn(text); } catch (_) {}
+  // }
 
   // v7.4D — helper-mode detection. If the user appears to be asking how to use
   // the app, switch Lori to helper role for this turn. The role resets to

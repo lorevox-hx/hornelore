@@ -146,6 +146,11 @@ let state = {
       currentSection:    null,
       currentField:      null,
       askedKeys:         [],
+      /* WO-01B: stable list of "<sectionId>.<fieldId>" strings for fields
+         the loop has actually persisted to /api/bio-builder/questionnaire
+         this session.  Used by the harness to observe save activity and
+         to prevent double-PUT on idempotent re-dispatch. */
+      savedKeys:         [],
       lastTrigger:       null,
       lastAction:        null,
       tellingStoryOnce:  false,

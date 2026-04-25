@@ -2937,6 +2937,36 @@
             <div class="lv-readiness-label" id="lvOperatorReadinessLabel">Lori is getting ready…</div>
             <div class="lv-readiness-sub" id="lvOperatorReadinessSub">This can take a few minutes on first load.</div>
           </div>
+          <span id="lvSessionHealthPill" class="lv-session-health-pill" data-status="GREEN" title="Session monitor — auto-refresh every 30s">Session: GREEN</span>
+        </div>
+      </section>
+
+      <!-- WO-SESSION-HEALTH-MONITOR-01: calm operator-facing health view sitting
+           on top of the existing UI Health Check.  Bug Panel stays as the deep
+           diagnostic tool; this surface answers ONE question for the operator:
+           is this session GREEN / AMBER / RED?  Three buttons, no clutter. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Session Health</h3>
+        <div id="lvSessionHealthCard" class="lv-session-health-card" data-status="GREEN">
+          <div class="lv-session-health-meta">
+            <div class="lv-session-health-label" id="lvSessionHealthLabel">Ready</div>
+            <div class="lv-session-health-sub" id="lvSessionHealthSub">Click <strong>Ready for Session</strong> to run a full preflight.</div>
+            <div class="lv-session-health-ts" id="lvSessionHealthTs" style="font-size:11px;color:#94a3b8;margin-top:4px;">Last check: —</div>
+          </div>
+          <div class="lv-session-health-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+            <button class="lv-operator-start-btn" type="button" style="padding:8px 16px;font-size:14px;"
+                    onclick="window.lvSessionHealthMonitor && window.lvSessionHealthMonitor.runReadyCheck()">
+              Ready for Session
+            </button>
+            <button class="lv-operator-ghost-btn" type="button" style="padding:8px 16px;font-size:14px;"
+                    onclick="window.lvSessionHealthMonitor && window.lvSessionHealthMonitor.runWrapUp()">
+              Wrap Up Session
+            </button>
+            <button class="lv-operator-ghost-btn" type="button" style="padding:8px 16px;font-size:14px;"
+                    popovertarget="lv10dBugPanel">
+              Open Full Bug Panel
+            </button>
+          </div>
         </div>
       </section>
 
@@ -4043,6 +4073,43 @@
         <button class="lv10d-bp-action-btn" onclick="lv10dCopyDiag()">Copy Diagnostics</button>
       </div>
     </div>
+
+    <!-- WO-ARCHIVE-EXPORT-UX-01: one-click session export -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Archive Export</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Download a zip of this narrator's full archive: transcript.txt, transcript.jsonl, meta.json, audio/.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" onclick="lvExportCurrentSessionArchive && lvExportCurrentSessionArchive()">Export Current Session</button>
+      </div>
+      <div id="lv10dBpExportStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
+    <!-- WO-AUDIO-READY-CHECK-01: mic preflight before recording -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Audio Preflight</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Verify MediaRecorder API + secure context + mic permission before recording.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" onclick="(async () => { const r = await (window.lvAudioPreflight && window.lvAudioPreflight()); const el = document.getElementById('lv10dBpAudioPreflightStatus'); if (!el) return; if (!r) { el.textContent = '✗ preflight unavailable'; return; } el.textContent = (r.ready ? '✓ Mic ready' : '⚠ Mic NOT ready') + ' — ' + r.detail; })()">Run Audio Preflight</button>
+      </div>
+      <div id="lv10dBpAudioPreflightStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
+    <!-- WO-BB-RESET-UTILITY-01: dev-only Reset BB for active narrator -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Bio Builder (Dev Reset)</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Safety valve. Clears questionnaire + candidates + drafts ONLY for the active narrator.
+        Other narrators untouched. Cannot be undone.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" onclick="window.lvBbResetCurrentNarrator && window.lvBbResetCurrentNarrator()">Reset BB for Current Narrator</button>
+      </div>
+      <div id="lv10dBpBbResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
   </div>
 
   <!-- ── SETTINGS POPOVER (Step 3) ───────────────────────────
@@ -4322,7 +4389,9 @@
 <script src="js/emotion-pipeline-tests.js"></script>
 <script src="js/session-style-router.js"></script>
 <script src="js/session-loop.js"></script>
+<script src="js/archive-writer.js"></script>
 <script src="js/ui-health-check.js"></script>
+<script src="js/session-health-monitor.js"></script>
 
 <script>
 /* ── Auto-reset on startup ──────────────────────────────────────
@@ -4747,6 +4816,8 @@ async function lv80SwitchPerson(personId) {
     const _ssIsQF = (state.session && state.session.sessionStyle) === "questionnaire_first";
     if (_ssIsQF) {
       console.log("[WO-13] questionnaire_first override — skipping welcome-back/opener so session-loop owns first prompt");
+      // WO-UI-HEALTH-CHECK-02: side-channel for harness observation.
+      try { window._lv80WelcomeBackSuppressedForQF = true; } catch (_) {}
     } else if (_wo13PriorUserTurns > 0) {
       // WO-9: Use queue-safe sender to survive startup race
       wo9SendOrQueueSystemPrompt(

@@ -62,9 +62,14 @@
     if (!state.session.loop) {
       state.session.loop = {
         currentSection: null, currentField: null,
-        askedKeys: [], lastTrigger: null, lastAction: null,
+        askedKeys: [], savedKeys: [], lastTrigger: null, lastAction: null,
         tellingStoryOnce: false,
       };
+    }
+    // WO-01B: belt-and-suspenders for sessions with a stale state.js
+    // that initialized loop without savedKeys.
+    if (!Array.isArray(state.session.loop.savedKeys)) {
+      state.session.loop.savedKeys = [];
     }
     event = event || {};
     state.session.loop.lastTrigger = event.trigger || "unknown";
@@ -104,9 +109,76 @@
      intake already captured fullName + dateOfBirth + placeOfBirth, so
      the walk asks the remaining personal fields (preferredName,
      birthOrder, timeOfBirth) and then hits the deferred parents
-     section, at which point we offer to switch to warm storytelling. */
+     section, at which point we offer to switch to warm storytelling.
+
+     WO-01B: On narrator_turn, the previously-asked field's answer gets
+     PUT to /api/bio-builder/questionnaire BEFORE we look for the next
+     empty field — turns the loop from "asks questions" into "actually
+     builds the record".
+  ─────────────────────────────────────────────────────────────── */
   async function _routeQuestionnaireFirst(event) {
     const loop = state.session.loop;
+
+    // BUG-212: digression detector.  When the narrator's reply is a
+    // long-form story rather than an answer to the asked structured
+    // field, do NOT save it to that field (would pollute the scalar)
+    // and do NOT fire the next-field SYSTEM_QF prompt this turn.
+    // Live evidence: Jake (test session 119bf732) said "I turn the
+    // camera on for you that elbow Woods was a fun place on the river
+    // too bad they had to ruin it and flood it" — Lori then dismissed
+    // it with "That's a nice detail, but I didn't ask about time of
+    // birth earlier" because the loop fired SYSTEM_QF timeOfBirth
+    // immediately after.  Violates WO-10C (no correction, listen-first).
+    function _isDigressionAnswer(text, fieldId) {
+      if (!text || typeof text !== "string") return false;
+      const t = text.trim();
+      const wc = t.split(/\s+/).filter(Boolean).length;
+      // Hard length cutoff: anything > 120 chars or > 18 words is a
+      // narrative, regardless of field.  Older-adult narrators give
+      // succinct answers to structured Qs; long replies are stories.
+      const longForm = (t.length > 120) || (wc > 18);
+      // Memory markers — phrases that signal the narrator went into
+      // narrative mode rather than answering.
+      const STORY_CUES = /\b(too bad|fun place|great place|loved|hated|i miss|i remember|back then|growing up|reminds me|wish|story|kids|that was|those days|when i was)\b/i;
+      const hasStoryCue = STORY_CUES.test(t);
+      // Field-shape mismatch: most BB fields expect short tokens.
+      // birthOrder = oldest/youngest/middle/etc; timeOfBirth = morning/etc.
+      const SHORT_FIELDS = ["birthOrder", "timeOfBirth", "preferredName"];
+      const fieldExpectsShort = SHORT_FIELDS.includes(fieldId);
+      // A short field with a long reply is a clear digression.
+      // A long field (placeOfBirth, fullName, dateOfBirth) tolerates
+      // longer answers; we still bail on extreme length + story cues.
+      if (fieldExpectsShort && (longForm || hasStoryCue)) return true;
+      if (longForm && hasStoryCue) return true;
+      // Extra-long across the board.
+      if (t.length > 200 || wc > 30) return true;
+      return false;
+    }
+
+    // WO-01B: Save the answer to the field we asked last turn (if any).
+    // Only fires on narrator_turn (not identity_complete which is the
+    // first call where currentField is null).
+    if (event && event.trigger === "narrator_turn" &&
+        loop.currentSection && loop.currentField &&
+        typeof event.text === "string" && event.text.trim()) {
+      // BUG-212: digression check BEFORE save.
+      if (_isDigressionAnswer(event.text, loop.currentField)) {
+        const askedKey = `${loop.currentSection}.${loop.currentField}`;
+        loop.lastAction = `digression_skip_save_${askedKey}`;
+        loop.tellingStoryOnce = true;   // suppress next turn's QF too
+        console.log(`[session-loop] BUG-212: digression detected on ${askedKey} ` +
+          `(${event.text.length}c / ${event.text.trim().split(/\s+/).length}w). ` +
+          `Skipping save + skipping next-field prompt. Letting Lori respond naturally.`);
+        // Don't ask "what was your story you wanted to tell?" — just
+        // let warm_storytelling drive THIS turn (Lori will respond to
+        // whatever the narrator just said in her natural reflective voice).
+        return;
+      }
+      await _saveBBAnswer(state.person_id, loop.currentSection,
+                          loop.currentField, event.text.trim());
+      // Cache is invalidated inside _saveBBAnswer so the next
+      // _getQuestionnaireBlob call re-fetches the freshly-PUT blob.
+    }
 
     // Fetch (or reuse cached) BB questionnaire blob for this narrator.
     const blob = await _getQuestionnaireBlob(state.person_id);
@@ -115,17 +187,56 @@
     const next = _findNextEmptyPersonalField(blob, loop.askedKeys);
 
     if (!next) {
-      // No more non-repeatable fields → repeatable sections begin (parents).
-      // Phase 1 stops here and offers a soft handoff.
+      // WO-01C: No more non-repeatable personal fields → name what's
+      // coming so the narrator doesn't dead-end on a vague bubble.
+      // Repeatable sections (parents/siblings/grandparents/residences)
+      // are still deferred to Phase 2 of the loop, but we explicitly
+      // offer the next obvious branches so Lori has a real handoff.
       console.log("[session-loop] questionnaire_first: minimal personal fields exhausted; repeatable sections deferred (Phase 2)");
-      loop.lastAction = "deferred:parents (Phase 2)";
-      _appendLoriBubble(
-        "We've got your basics down. Want to keep building your story " +
-        "from here, or is there something specific you'd like to talk about?"
-      );
+      loop.lastAction = "deferred:repeatable_sections (Phase 2)";
+
+      // Pull whatever we have for warmth (preferredName / fullName).
+      const blobNow = await _getQuestionnaireBlob(state.person_id);
+      const personal = (blobNow && blobNow.personal) || {};
+      const greetName = (personal.preferredName || personal.fullName || "").trim();
+
+      // Use a system prompt so Lori delivers the handoff in her voice
+      // (warm, brief), rather than dropping a hard-coded UI bubble.
+      const handoffPrompt = "[SYSTEM_QF: questionnaire_first lane — " +
+        "the personal-basics walk is COMPLETE. Lori must now offer " +
+        "the narrator a clear next branch in two or three sentences. " +
+        "Acknowledge what we just covered briefly. Then say something " +
+        "like: 'we can talk about the people who shaped you next — your " +
+        "parents, your siblings, the people you grew up around — or you " +
+        "can pick a memory you'd like to share, your call.' " +
+        "Do NOT lecture. Do NOT list. Do NOT promise to build a database. " +
+        "Just warmly hand off the conversation. " +
+        (greetName ? `You may use the name "${greetName}" once if it lands naturally. ` : "") +
+        "Two to three sentences total.]";
+
+      if (typeof sendSystemPrompt === "function") {
+        try { sendSystemPrompt(handoffPrompt); } catch (e) {
+          console.warn("[session-loop] handoff sendSystemPrompt threw:", e);
+          _appendLoriBubble(
+            "Your basics are saved. We can talk about the people who " +
+            "shaped you — your parents, your siblings, the people you " +
+            "grew up around — or you can pick a memory you'd like to " +
+            "share, your call."
+          );
+        }
+      } else {
+        _appendLoriBubble(
+          "Your basics are saved. We can talk about the people who " +
+          "shaped you — your parents, your siblings, the people you " +
+          "grew up around — or you can pick a memory you'd like to " +
+          "share, your call."
+        );
+      }
+
       // Switch to warm_storytelling FOR THIS NARRATOR ONLY (not localStorage)
-      // so subsequent turns don't keep firing the deferred-bubble.
-      // Operator can re-pick questionnaire_first on the Operator tab to retry.
+      // so subsequent turns don't keep re-firing the handoff prompt.
+      // Operator can re-pick questionnaire_first on the Operator tab to
+      // walk again (e.g. after Phase 2 ships repeatable section walking).
       state.session.sessionStyle = "warm_storytelling";
       console.log("[session-loop] auto-switched to warm_storytelling (in-memory only) after walk completed");
       return;
@@ -186,26 +297,63 @@
     state.session.loop.lastAction = "no_op:warm_storytelling";
   }
 
+  /* ── BUG-218: Capabilities honesty rule (always included) ──
+     Lori was caught hallucinating capabilities — narrator asked "are you
+     saving the audio from this question" and Lori answered "Yes, I am
+     saving the audio."  Audio capture isn't built yet (WO-AUDIO-NARRATOR-
+     ONLY-01 is the next step).  Parents could trust this answer and
+     share intimate content believing it's preserved.
+     Fix: every session_style_directive prepends a hard honesty rule
+     about what's actually captured RIGHT NOW.
+     TODO: when WO-AUDIO-NARRATOR-ONLY-01 ships and the operator's
+     "Save my voice" toggle is ON, swap this string for the audio-on
+     variant.  Until then, hardcode "text-only" to keep Lori truthful. */
+  const _CAPABILITIES_HONESTY = (
+    "CAPABILITIES (must be honest, never overstate): " +
+    "Right now this session captures only the typed text and speech-to-text " +
+    "transcript of our conversation. Audio recording, video recording, " +
+    "image saving, photo analysis, and any other capability not explicitly " +
+    "listed are NOT active in this session. " +
+    "If the narrator asks whether audio, voice, video, photos, or any other " +
+    "media is being recorded or saved, answer warmly and honestly — for " +
+    "example: \"We're saving the text of our conversation right now, not the " +
+    "audio recording or video. Those aren't part of this session yet.\" " +
+    "NEVER say \"yes, I'm saving the audio\" or \"I'm recording your voice\" " +
+    "or imply capabilities that aren't real. " +
+    "If unsure what's saved, default to \"text only\" rather than promising more."
+  );
+
   /* ── Tier-2 directive helper ───────────────────────────────────
      Called by buildRuntime71 (app.js) to set runtime71.session_style_directive.
      The backend prompt_composer reads this field and appends to the
-     directive block.  Empty string for default/no-op styles. */
+     directive block.  Always includes the BUG-218 capabilities-honesty
+     rule; style-specific suffix appended for tier-2 styles. */
   function _emitStyleDirective(style) {
+    let styleSuffix = "";
     switch (style) {
       case "clear_direct":
-        return "Ask one short question at a time. Avoid open-ended " +
-               "exploration. Acknowledge briefly, then move on.";
+        styleSuffix = "Ask one short question at a time. Avoid open-ended " +
+                      "exploration. Acknowledge briefly, then move on.";
+        break;
       case "memory_exercise":
-        return "Use recognition cues. Allow long silences. Never correct. " +
-               "Speak more slowly. Match dementia-safe cognitive support pacing.";
+        styleSuffix = "Use recognition cues. Allow long silences. Never correct. " +
+                      "Speak more slowly. Match dementia-safe cognitive support pacing.";
+        break;
       case "companion":
-        return "Don't probe for facts. Listen. Reflect feelings. Speak less " +
-               "than the narrator does.";
+        styleSuffix = "Don't probe for facts. Listen. Reflect feelings. Speak less " +
+                      "than the narrator does.";
+        break;
       case "questionnaire_first":
       case "warm_storytelling":
       default:
-        return "";
+        styleSuffix = "";
+        break;
     }
+    // BUG-218: capabilities-honesty rule is always included; style suffix
+    // (if any) follows.  No-op styles still receive the honesty preamble.
+    return styleSuffix
+      ? _CAPABILITIES_HONESTY + " " + styleSuffix
+      : _CAPABILITIES_HONESTY;
   }
   // Exposed so buildRuntime71 in app.js can read it.
   window._lvEmitStyleDirective = _emitStyleDirective;
@@ -231,6 +379,15 @@
         return {};
       }
       const data = await res.json();
+      // BUG-208: reject backend payload if echoed person_id doesn't match
+      // the one we requested.  Defends against mid-flight narrator swap and
+      // any backend caching surprise.  Do NOT cache or return the blob.
+      if (data && data.person_id && data.person_id !== personId) {
+        console.warn("[bb-drift] BB GET response REJECTED: requested=" +
+          personId.slice(0, 8) + " response.person_id=" +
+          (data.person_id || "").slice(0, 8) + " — refusing to merge");
+        return {};
+      }
       // Backend returns the questionnaire under various keys; defensively
       // unwrap.  The PUT shape is { questionnaire: {...} } so the GET
       // typically mirrors that.
@@ -249,6 +406,115 @@
     _bbCache = { pid: null, blob: null, ts: 0 };
   }
   window._lvSessionLoopResetBBCache = _resetBBCache;
+
+  /* ── WO-01B: BB save helper ────────────────────────────────────
+     PUT a single answer into the existing /api/bio-builder/questionnaire
+     endpoint.  The endpoint expects the WHOLE questionnaire blob, so we
+     fetch fresh, merge, and PUT.  Best-effort: failures are logged but
+     don't block the walk.  Tracked in state.session.loop.savedKeys for
+     harness observability and to prevent double-saves on idempotent
+     re-dispatch.  Lightly normalizes a few specific fields (dateOfBirth,
+     timeOfBirth) using the helpers exposed by bio-builder-questionnaire.js
+     when present; otherwise saves raw. */
+  async function _saveBBAnswer(personId, sectionId, fieldId, answer) {
+    if (!personId || !sectionId || !fieldId || !answer) return;
+    if (!state.session.loop) return;
+    if (!Array.isArray(state.session.loop.savedKeys)) {
+      state.session.loop.savedKeys = [];
+    }
+    const savedKey = `${sectionId}.${fieldId}`;
+
+    // BUG-208: hard pid scope guard.  Three things must agree before we
+    // touch anything: the pid we were called with, state.person_id, and
+    // state.bioBuilder.personId.  If any disagree, halt the loop, do NOT
+    // save the answer, and log [bb-drift] so the harness can surface it.
+    const stPid  = (typeof state !== "undefined") ? state.person_id : null;
+    const bb     = (typeof state !== "undefined") ? state.bioBuilder : null;
+    const bbPid  = bb && bb.personId;
+    if (stPid !== personId || (bbPid && bbPid !== personId)) {
+      console.warn("[bb-drift] _saveBBAnswer SKIPPED: " +
+        "personId=" + (personId || "").slice(0, 8) +
+        " state.person_id=" + ((stPid || "").slice(0, 8) || "null") +
+        " bb.personId=" + ((bbPid || "").slice(0, 8) || "null") +
+        " — refusing to save " + savedKey + " under wrong narrator");
+      // Stop the loop to prevent further mis-saves until next dispatch.
+      if (state.session.loop) {
+        state.session.loop.lastAction = "halted_pid_drift:" + savedKey;
+      }
+      return;
+    }
+
+    // Light per-field normalization — lean on helpers if loaded.
+    let normalized = answer;
+    try {
+      if (fieldId === "dateOfBirth" && typeof window.normalizeDobInput === "function") {
+        normalized = window.normalizeDobInput(answer) || answer;
+      } else if (fieldId === "timeOfBirth" && typeof window.normalizeTimeInput === "function") {
+        normalized = window.normalizeTimeInput(answer) || answer;
+      } else if (fieldId === "placeOfBirth" && typeof window.normalizePlaceInput === "function") {
+        normalized = window.normalizePlaceInput(answer) || answer;
+      }
+    } catch (_) { /* keep raw on any normalization throw */ }
+
+    // Fetch the freshest blob (bypass cache so we don't merge stale state).
+    _resetBBCache();
+    const blob = await _getQuestionnaireBlob(personId);
+    if (!blob || typeof blob !== "object") {
+      console.warn("[session-loop] _saveBBAnswer: BB blob unavailable; skipping save for", savedKey);
+      return;
+    }
+    // BUG-208: re-check pid after the network await — state.person_id and
+    // bb.personId may have moved during the in-flight fetch.  This is the
+    // "save Christopher's answer to Corky" race that started the bug.
+    const stPid2 = (typeof state !== "undefined") ? state.person_id : null;
+    const bb2    = (typeof state !== "undefined") ? state.bioBuilder : null;
+    const bbPid2 = bb2 && bb2.personId;
+    if (stPid2 !== personId || (bbPid2 && bbPid2 !== personId)) {
+      console.warn("[bb-drift] _saveBBAnswer ABORTED post-fetch: narrator switched during BB GET. " +
+        "Refusing to PUT " + savedKey + " (was=" + (personId || "").slice(0, 8) +
+        " now state=" + ((stPid2 || "").slice(0, 8) || "null") +
+        " bb=" + ((bbPid2 || "").slice(0, 8) || "null") + ")");
+      if (state.session.loop) {
+        state.session.loop.lastAction = "halted_pid_drift_postfetch:" + savedKey;
+      }
+      return;
+    }
+    if (!blob[sectionId] || typeof blob[sectionId] !== "object") {
+      blob[sectionId] = {};
+    }
+    blob[sectionId][fieldId] = normalized;
+
+    const url = (typeof API !== "undefined" && API.BB_QQ_PUT)
+      ? API.BB_QQ_PUT
+      : "/api/bio-builder/questionnaire";
+
+    try {
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_id: personId,
+          questionnaire: blob,
+          source: "session_loop",
+          version: 1,
+        }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        if (!state.session.loop.savedKeys.includes(savedKey)) {
+          state.session.loop.savedKeys.push(savedKey);
+        }
+        state.session.loop.lastAction = `saved_${savedKey}`;
+        console.log(`[session-loop] saved BB answer: ${savedKey} = ${JSON.stringify(normalized).slice(0, 80)}`);
+        // Invalidate cache so the next read sees the freshly-PUT blob.
+        _resetBBCache();
+      } else {
+        console.warn(`[session-loop] save_failed ${savedKey}: status=${res.status}`);
+      }
+    } catch (e) {
+      console.warn(`[session-loop] save_failed ${savedKey}: ${e && e.message || e}`);
+    }
+  }
 
   function _findNextEmptyPersonalField(blob, askedKeys) {
     // Phase 1 walks ONLY the personal section's non-repeatable fields.

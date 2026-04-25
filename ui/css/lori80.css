@@ -583,6 +583,42 @@ mark.fragment-fact {
 .lv-readiness-label { font-size: 15px; font-weight: 600; color: #e2e8f0; }
 .lv-readiness-sub   { font-size: 13px; color: #94a3b8; }
 
+/* WO-SESSION-HEALTH-MONITOR-01 — operator-facing GREEN/AMBER/RED card */
+.lv-session-health-card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(99,102,241,0.22);
+  background: rgba(15,23,42,0.65);
+  border-left-width: 4px;
+  border-left-color: #22c55e;
+}
+.lv-session-health-card[data-status="GREEN"] { border-left-color: #22c55e; }
+.lv-session-health-card[data-status="AMBER"] { border-left-color: #eab308; }
+.lv-session-health-card[data-status="RED"]   { border-left-color: #f43f5e; }
+.lv-session-health-meta { display: flex; flex-direction: column; gap: 2px; }
+.lv-session-health-label { font-size: 16px; font-weight: 700; color: #e2e8f0; letter-spacing: 0.2px; }
+.lv-session-health-card[data-status="GREEN"] .lv-session-health-label { color: #4ade80; }
+.lv-session-health-card[data-status="AMBER"] .lv-session-health-label { color: #facc15; }
+.lv-session-health-card[data-status="RED"]   .lv-session-health-label { color: #fb7185; }
+.lv-session-health-sub  { font-size: 13px; color: #cbd5e1; line-height: 1.45; }
+.lv-session-health-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: auto;
+  background: #1e293b;
+  color: #4ade80;
+  border: 1px solid #22c55e;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+.lv-session-health-pill[data-status="AMBER"] { color: #facc15; border-color: #eab308; }
+.lv-session-health-pill[data-status="RED"]   { color: #fb7185; border-color: #f43f5e; }
+
 /* Session style radio grid — five cards */
 .lv-session-style-grid {
   display: grid;

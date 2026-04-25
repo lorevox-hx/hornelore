@@ -31,6 +31,15 @@
      Never touches: state.archive, state.facts, state.timeline.
   ─────────────────────────────────────────────────────────── */
 
+  /* ── BUG-208: Narrator-switch generation counter ─────────────
+     Every reset/personChanged increments this.  Async restores stamp
+     the value at call-time and verify it before applying — defends
+     against a slow Christopher backend response landing AFTER a switch
+     to Corky and overwriting Corky's questionnaire blob.
+  ─────────────────────────────────────────────────────────── */
+  var _narratorSwitchGen = 0;
+  function _currentSwitchGen() { return _narratorSwitchGen; }
+
   function _ensureState() {
     if (typeof state === "undefined") return null;
     if (!state.bioBuilder) {
@@ -83,7 +92,13 @@
       if (lt) localStorage.setItem(_LS_LT_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: lt }));
       // Phase G: persist questionnaire to BACKEND (canonical authority)
       // FT/LT stay in localStorage; QQ goes backend-first with localStorage as transient fallback.
-      if (pid === bb.personId) {
+      // BUG-208: Hard-stop if the requested pid does not match the active
+      // narrator — never cross-write one narrator's blob under another's id.
+      if (pid !== bb.personId) {
+        console.warn("[bb-drift] _persistDrafts BLOCKED: pid=" + (pid || "").slice(0, 8) +
+          " !== bb.personId=" + ((bb.personId || "").slice(0, 8) || "null") +
+          " — refusing to persist to avoid cross-narrator contamination");
+      } else {
         var qq = bb.questionnaire;
         if (qq && Object.keys(qq).length > 0) {
           // Backend canonical save (fire-and-forget, non-blocking)
@@ -272,26 +287,58 @@
   /* ── Phase G: Backend questionnaire restore (async) ────────
      Fetches canonical QQ from backend and overwrites in-memory
      state if the backend has data. Non-blocking.
+
+     BUG-208: Stamps the narrator-switch generation + requested pid
+     at call-time.  When the response resolves, three guards must all
+     hold before the response is applied:
+       (a) the switch generation hasn't advanced (no narrator switch
+           happened during the in-flight request),
+       (b) bb.personId still equals the requested pid,
+       (c) the backend response's person_id field equals the requested pid.
+     If any guard fails, log [bb-drift] and discard the response.
   ─────────────────────────────────────────────────────────── */
   function _restoreQuestionnaireFromBackend(pid) {
     if (!pid || typeof API === "undefined" || !API.BB_QQ_GET) return;
+    var stampedGen = _narratorSwitchGen;
+    var stampedPid = pid;
     fetch(API.BB_QQ_GET(pid))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
-        if (!j || !j.questionnaire) return;
+        if (!j) return;
+        var bb = _bb(); if (!bb) return;
+        // Guard A: switch generation
+        if (_narratorSwitchGen !== stampedGen) {
+          console.warn("[bb-drift] backend QQ response DISCARDED: narrator switch happened during fetch " +
+            "(stampedGen=" + stampedGen + " currentGen=" + _narratorSwitchGen + " stampedPid=" +
+            stampedPid.slice(0, 8) + ")");
+          return;
+        }
+        // Guard B: in-memory pid
+        if (bb.personId !== stampedPid) {
+          console.warn("[bb-drift] backend QQ response DISCARDED: bb.personId moved during fetch " +
+            "(stampedPid=" + stampedPid.slice(0, 8) + " bb.personId=" +
+            ((bb.personId || "").slice(0, 8) || "null") + ")");
+          return;
+        }
+        // Guard C: backend echoed person_id matches request
+        if (j.person_id && j.person_id !== stampedPid) {
+          console.warn("[bb-drift] backend QQ response DISCARDED: response.person_id mismatch " +
+            "(requested=" + stampedPid.slice(0, 8) + " response=" + (j.person_id || "").slice(0, 8) + ")");
+          return;
+        }
+        if (!j.questionnaire) return;
         var q = j.questionnaire;
         if (typeof q === "object" && Object.keys(q).length > 0) {
-          var bb = _bb(); if (!bb) return;
           // Unwrap { v, d } envelope if present — backend stores { v:1, d:{sections} }
           // but bb.questionnaire expects flat sections { personal:{}, parents:[], ... }
           var sections = (q.d && typeof q.d === "object" && !Array.isArray(q.d)) ? q.d : q;
           // Only overwrite if backend has data (backend authority rule)
           bb.questionnaire = sections;
-          _qqDebugSnapshot("restore_backend", pid, bb);
-          console.log("[bb-core] ✅ Questionnaire restored from backend for " + pid);
+          _qqDebugSnapshot("restore_backend", stampedPid, bb);
+          console.log("[bb-core] ✅ Questionnaire restored from backend for " + stampedPid.slice(0, 8));
           // Update transient localStorage to match backend (wrap in { v, d } for localStorage format)
           try {
-            localStorage.setItem(_LS_QQ_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
+            localStorage.setItem(_LS_QQ_PREFIX + stampedPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
           } catch (e) {}
         }
       })
@@ -370,6 +417,10 @@
   function _resetNarratorScopedState(newId) {
     var bb = _bb(); if (!bb) return;
 
+    // BUG-208: bump generation FIRST so any in-flight async restores stamped
+    // under the OLD pid see a stale generation when they resolve and discard.
+    _narratorSwitchGen += 1;
+
     // v8-fix: persist outgoing narrator's questionnaire before clearing (WD-1 fix)
     // Phase M: also persists Quick Capture inbox
     var outgoingPid = bb.personId;
@@ -430,6 +481,9 @@
   function _personChanged(newId) {
     var bb = _bb(); if (!bb) return;
     if (bb.personId !== newId) {
+      // BUG-208: bump generation FIRST so any in-flight async restores
+      // stamped under the OLD pid see a stale generation when they resolve.
+      _narratorSwitchGen += 1;
       // v8-fix: persist outgoing narrator's questionnaire before clearing
       // Phase M: also persists Quick Capture inbox
       var outgoingPid = bb.personId;
@@ -502,27 +556,43 @@
     return (bytes / 1048576).toFixed(1) + " MB";
   }
 
-  /* ── v7: Inline confirmation dialog (replaces native confirm()) ── */
+  /* ── v7: Inline confirmation dialog (replaces native confirm()) ──
+     Native popovers (popover="auto") render in the browser's top layer
+     ABOVE position:fixed elements.  So if the caller is inside an open
+     popover (e.g., Bug Panel), a fixed-position overlay appended to
+     document.body will be hidden BEHIND the popover.
+     Fix: detect the currently-open popover and append the overlay to
+     it so it renders in the same top layer.  Falls back to bioBuilder
+     popover or document.body. */
   function _showInlineConfirm(message, onConfirm) {
     var existing = document.getElementById("bbInlineConfirm");
     if (existing) existing.remove();
     var overlay = document.createElement("div");
     overlay.id = "bbInlineConfirm";
-    overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);z-index:99999;display:flex;align-items:center;justify-content:center;";
+    overlay.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:2147483647;display:flex;align-items:center;justify-content:center;";
     var box = document.createElement("div");
-    box.style.cssText = "background:#fff;border-radius:8px;padding:20px 24px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.2);text-align:center;font-family:inherit;";
-    box.innerHTML = '<p style="margin:0 0 16px;font-size:14px;color:#1e293b;">' + message + '</p>'
+    box.style.cssText = "background:#fff;border-radius:8px;padding:20px 24px;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.35);text-align:center;font-family:inherit;color:#1e293b;";
+    box.innerHTML = '<div style="margin:0 0 16px;font-size:14px;color:#1e293b;line-height:1.5;">' + message + '</div>'
       + '<div style="display:flex;gap:8px;justify-content:center;">'
-      + '<button id="bbConfirmCancel" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;">Cancel</button>'
-      + '<button id="bbConfirmOk" style="padding:6px 16px;border:none;border-radius:4px;background:#ef4444;color:#fff;cursor:pointer;font-size:13px;">Delete</button>'
+      + '<button id="bbConfirmCancel" style="padding:8px 18px;border:1px solid #cbd5e1;border-radius:4px;background:#f1f5f9;color:#1e293b;cursor:pointer;font-size:13px;">Cancel</button>'
+      + '<button id="bbConfirmOk" style="padding:8px 18px;border:none;border-radius:4px;background:#ef4444;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Delete</button>'
       + '</div>';
     overlay.appendChild(box);
-    // Append inside the popover (top layer) so overlay is visible above it
-    var popover = document.getElementById("bioBuilderPopover");
-    (popover || document.body).appendChild(overlay);
-    document.getElementById("bbConfirmCancel").onclick = function () { overlay.remove(); };
-    document.getElementById("bbConfirmOk").onclick = function () { overlay.remove(); onConfirm(); };
-    overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+    // Find the currently-open popover (top layer).  Native popover spec:
+    // :popover-open matches any open popover.  Append the overlay to it
+    // so the overlay renders in the same top-layer as the popover above
+    // all page content.
+    var openPopover = null;
+    try { openPopover = document.querySelector('[popover]:popover-open'); } catch (_) {}
+    var bioPopover = document.getElementById("bioBuilderPopover");
+    var target = openPopover || bioPopover || document.body;
+    target.appendChild(overlay);
+    console.log("[bb-confirm-dialog] shown (target=" + (target.id || target.tagName) + ")");
+    var doneCancel = function () { overlay.remove(); console.log("[bb-confirm-dialog] cancelled"); };
+    var doneOk     = function () { overlay.remove(); console.log("[bb-confirm-dialog] confirmed → running onConfirm"); onConfirm(); };
+    document.getElementById("bbConfirmCancel").onclick = doneCancel;
+    document.getElementById("bbConfirmOk").onclick     = doneOk;
+    overlay.onclick = function (e) { if (e.target === overlay) doneCancel(); };
   }
 
   function _emptyStateHtml(title, message, actions) {
@@ -559,6 +629,144 @@
   };
 
   /* ───────────────────────────────────────────────────────────
+     WO-BB-RESET-UTILITY-01 — Dev-only safety valve.
+     Clears questionnaire / candidates / drafts / Quick Capture
+     ONLY for the currently-active narrator.  Never touches another
+     narrator's data.  Confirms via inline dialog before firing.
+     Triggered from the Bug Panel button.
+  ─────────────────────────────────────────────────────────── */
+  function lvBbResetCurrentNarrator() {
+    console.log("[bb-reset] button clicked — entering lvBbResetCurrentNarrator");
+    var bb = _bb(); if (!bb) {
+      console.warn("[bb-reset] ABORT — state.bioBuilder not initialized — nothing to reset");
+      alert("Bio Builder state not initialized yet. Open the Bio Builder once or pick a narrator first.");
+      return false;
+    }
+    var pid = bb.personId || _currentPersonId();
+    if (!pid) {
+      console.warn("[bb-reset] ABORT — no active narrator selected");
+      alert("No active narrator selected. Pick a narrator first, then try again.");
+      return false;
+    }
+    var name = _currentPersonName() || pid.slice(0, 8);
+    // Pre-snapshot — counts of what's about to be cleared so the user can
+    // see the reset DID something, even if the confirm dialog is hidden.
+    var qq = bb.questionnaire || {};
+    var qqSectionCount = Object.keys(qq).length;
+    var qqFieldCount = 0;
+    Object.keys(qq).forEach(function (sk) {
+      var v = qq[sk];
+      if (Array.isArray(v)) qqFieldCount += v.length;
+      else if (v && typeof v === "object") qqFieldCount += Object.keys(v).filter(function (fk) { return v[fk] && String(v[fk]).trim(); }).length;
+    });
+    var candidateCount = 0;
+    if (bb.candidates) {
+      Object.keys(bb.candidates).forEach(function (k) {
+        if (Array.isArray(bb.candidates[k])) candidateCount += bb.candidates[k].length;
+      });
+    }
+    var qcCount = (bb.quickItems || []).length;
+    console.log("[bb-reset] PRE-RESET snapshot for " + name + " (" + pid.slice(0,8) + "): " +
+      qqSectionCount + " questionnaire section(s), " + qqFieldCount + " filled field(s), " +
+      candidateCount + " candidate(s), " + qcCount + " quick-capture item(s)");
+    _showInlineConfirm(
+      "Reset Bio Builder data for <strong>" + _esc(name) + "</strong>?<br><br>" +
+      "<div style='text-align:left;font-size:12px;color:#475569;'>" +
+      "Will clear:<br>" +
+      "&nbsp;&nbsp;• " + qqSectionCount + " questionnaire section(s) (" + qqFieldCount + " filled field" + (qqFieldCount === 1 ? "" : "s") + ")<br>" +
+      "&nbsp;&nbsp;• " + candidateCount + " candidate" + (candidateCount === 1 ? "" : "s") + " across people / events / memories<br>" +
+      "&nbsp;&nbsp;• " + qcCount + " Quick Capture item" + (qcCount === 1 ? "" : "s") + "<br>" +
+      "&nbsp;&nbsp;• localStorage drafts for this narrator<br>" +
+      "&nbsp;&nbsp;• Backend questionnaire blob (PUT empty)" +
+      "</div>" +
+      "<br><small>Other narrators are NOT affected. Cannot be undone.</small>",
+      function () {
+        // Bump generation to invalidate any in-flight async restores.
+        _narratorSwitchGen += 1;
+        // Clear in-memory state for active narrator only
+        bb.quickItems    = [];
+        bb.questionnaire = {};
+        bb.graph         = { persons: {}, relationships: {} };
+        bb.sourceCards   = [];
+        bb.candidates    = {
+          people: [], relationships: [], events: [], memories: [], places: [], documents: []
+        };
+        // Clear localStorage drafts for active narrator only
+        try {
+          localStorage.removeItem(_LS_FT_PREFIX + pid);
+          localStorage.removeItem(_LS_LT_PREFIX + pid);
+          localStorage.removeItem(_LS_QQ_PREFIX + pid);
+          localStorage.removeItem(_LS_QC_PREFIX + pid);
+          localStorage.removeItem(_LS_QC_PREFIX.replace("_qc_", "_qc_") + pid);
+        } catch (e) {
+          console.warn("[bb-reset] localStorage clear partial:", e);
+        }
+        // Best-effort backend wipe — PUT an empty questionnaire under this pid.
+        // Backend echoes person_id; if mismatch, we don't write.
+        if (typeof API !== "undefined" && API.BB_QQ_PUT) {
+          try {
+            fetch(API.BB_QQ_PUT, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                person_id: pid,
+                questionnaire: {},
+                source: "bb_reset_utility",
+                version: DRAFT_SCHEMA_VERSION
+              })
+            }).catch(function (e) {
+              console.warn("[bb-reset] backend wipe failed:", e);
+            });
+          } catch (e) {
+            console.warn("[bb-reset] backend wipe threw:", e);
+          }
+        }
+        console.log("[bb-reset] CLEARED for " + pid.slice(0, 8) + " (" + name + ") — was " +
+          qqSectionCount + " section(s), " + qqFieldCount + " field(s), " +
+          candidateCount + " candidate(s), " + qcCount + " QC item(s).");
+        // Post-reset snapshot — confirms the wipe in console
+        try {
+          var bbAfter = _bb() || {};
+          console.log("[bb-reset] POST-RESET snapshot:", {
+            personId: bbAfter.personId,
+            questionnaireSections: Object.keys(bbAfter.questionnaire || {}).length,
+            candidates: bbAfter.candidates ? Object.values(bbAfter.candidates).reduce(function (s, a) { return s + (Array.isArray(a) ? a.length : 0); }, 0) : 0,
+            quickItems: (bbAfter.quickItems || []).length,
+          });
+        } catch (_) {}
+        // Update status line if Bug Panel is open
+        var status = document.getElementById("lv10dBpBbResetStatus");
+        if (status) {
+          status.textContent = "✓ reset BB for " + name + " (" + pid.slice(0, 8) +
+            ") — cleared " + qqFieldCount + " field(s), " + candidateCount + " candidate(s), at " +
+            new Date().toLocaleTimeString();
+        }
+        // Visible top-of-viewport toast — operator sees success even when
+        // the Bug Panel popover obscures the status line.  Append to the
+        // currently-open popover so it renders in the same top layer.
+        try {
+          var openPopoverT = null;
+          try { openPopoverT = document.querySelector('[popover]:popover-open'); } catch (_) {}
+          var toast = document.createElement("div");
+          toast.id = "bbResetToast";
+          toast.style.cssText = "position:fixed;top:24px;left:50%;transform:translateX(-50%);" +
+            "z-index:2147483647;background:#10b981;color:#fff;padding:14px 22px;border-radius:8px;" +
+            "box-shadow:0 6px 24px rgba(0,0,0,0.35);font-size:14px;font-weight:600;font-family:inherit;" +
+            "min-width:300px;text-align:center;line-height:1.4;";
+          toast.innerHTML = "✓ Bio Builder reset for " + _esc(name) + "<br>" +
+            "<span style='font-weight:400;font-size:12px;opacity:0.9;'>" +
+            "cleared " + qqFieldCount + " field(s), " + candidateCount + " candidate(s), " +
+            qcCount + " quick item(s)</span>";
+          (openPopoverT || document.body).appendChild(toast);
+          setTimeout(function () { try { toast.remove(); } catch (_) {} }, 8000);
+        } catch (_) {}
+      }
+    );
+    return true;
+  }
+  window.lvBbResetCurrentNarrator = lvBbResetCurrentNarrator;
+
+  /* ───────────────────────────────────────────────────────────
      EXPORT MODULE
   ─────────────────────────────────────────────────────────── */
 
@@ -585,6 +793,9 @@
     _clearDrafts:             _clearDrafts,
     _getDraftIndex:           _getDraftIndex,
     _restoreQuestionnaire:    _restoreQuestionnaire,
+
+    // BUG-208: Narrator-switch generation (in-flight async guard)
+    _currentSwitchGen:        _currentSwitchGen,
 
     // Debug / drift detection (Phase 2.5)
     _qqDebugSnapshot:         _qqDebugSnapshot,

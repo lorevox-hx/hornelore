@@ -441,6 +441,37 @@ window.lvUiHealthCheck = (function () {
         allBool ? STATUS.PASS : STATUS.WARN,
         JSON.stringify(hfFields));
     }
+
+    // ── WO-AUDIO-READY-CHECK-01: preflight before audio capture ──
+    // Catches morning frustration: mic permission denied, MediaRecorder
+    // unavailable, non-secure context (HTTPS required for getUserMedia).
+    const apf = await _audioPreflightProbe();
+    _push(cat, "MediaRecorder API available (WO-AUDIO-READY-CHECK-01)",
+      apf.media_recorder ? STATUS.PASS : STATUS.FAIL,
+      apf.media_recorder
+        ? "MediaRecorder defined — Chrome/Edge audio capture path available"
+        : "MediaRecorder undefined — narrator audio capture WILL NOT work in this browser");
+    _push(cat, "secure context for getUserMedia (WO-AUDIO-READY-CHECK-01)",
+      apf.secure_context ? STATUS.PASS : STATUS.FAIL,
+      apf.secure_context
+        ? "isSecureContext=true (HTTPS or localhost)"
+        : "isSecureContext=false — getUserMedia will reject; serve over https or localhost");
+    _push(cat, "navigator.mediaDevices.getUserMedia present (WO-AUDIO-READY-CHECK-01)",
+      apf.get_user_media ? STATUS.PASS : STATUS.FAIL,
+      apf.get_user_media
+        ? "getUserMedia available"
+        : "getUserMedia missing — older browser?  audio capture impossible");
+    let micStatus, micDetail;
+    switch (apf.mic_permission) {
+      case "granted": micStatus = STATUS.PASS;  micDetail = "operator already granted mic"; break;
+      case "denied":  micStatus = STATUS.FAIL;  micDetail = "operator must re-grant mic from browser settings"; break;
+      case "prompt":  micStatus = STATUS.INFO;  micDetail = "browser will prompt on first mic toggle"; break;
+      default:        micStatus = STATUS.INFO;  micDetail = "permissions API didn't report state (browser may not support 'microphone' query)"; break;
+    }
+    _push(cat, "mic permission state (WO-AUDIO-READY-CHECK-01)", micStatus, micDetail);
+    _push(cat, "audio preflight overall (WO-AUDIO-READY-CHECK-01)",
+      apf.ready ? STATUS.PASS : STATUS.WARN,
+      apf.ready ? "Mic ready ✓" : "Mic NOT ready: " + apf.detail);
   }
 
   // ── Category: Chat Scroll ──────────────────────────────────────
@@ -699,7 +730,119 @@ window.lvUiHealthCheck = (function () {
       _push(cat, "archive session readable", STATUS.WARN,
         `status=${sess.status} ${sess.error || ""}`);
     }
+
+    // ── WO-UI-HEALTH-CHECK-03: archive integrity + writer state ──
+    // Surface counters from archive-writer so operator sees whether
+    // text turns are actually flowing.
+
+    // Writer module loaded
+    const aw = window.lvArchiveWriter;
+    if (!aw || aw.loaded !== true) {
+      _push(cat, "archive-writer module loaded (WO-HC-03)", STATUS.FAIL,
+        "window.lvArchiveWriter missing — text transcripts won't write");
+    } else {
+      _push(cat, "archive-writer module loaded (WO-HC-03)", STATUS.PASS,
+        `enabled=${aw.isEnabled()} session_id=${(aw.sessionId() || "(none)").slice(0, 24)}`);
+
+      // Stats — narrator + Lori writes flowing
+      const st = aw.stats();
+      const totalWrites = (st.narrator_writes || 0) + (st.lori_writes || 0);
+      const failRate = totalWrites > 0 ? (st.fails / totalWrites) : 0;
+      if (totalWrites === 0) {
+        _push(cat, "archive transcript writes flowing (WO-HC-03)",
+          STATUS.INFO,
+          `no writes yet this session (narrator=${st.narrator_writes} lori=${st.lori_writes} fails=${st.fails})`);
+      } else if (st.fails > 0 && failRate > 0.1) {
+        _push(cat, "archive transcript writes flowing (WO-HC-03)",
+          STATUS.WARN,
+          `narrator=${st.narrator_writes} lori=${st.lori_writes} fails=${st.fails} (>10% failure rate)`);
+      } else {
+        _push(cat, "archive transcript writes flowing (WO-HC-03)",
+          STATUS.PASS,
+          `narrator=${st.narrator_writes} lori=${st.lori_writes} fails=${st.fails} skipped(disabled=${st.skipped_disabled || 0}, no_pid=${st.skipped_no_pid || 0})`);
+      }
+
+      // session_id sanity — should be non-empty + same shape across calls
+      const sid = aw.sessionId();
+      if (sid && typeof sid === "string" && sid.length >= 6) {
+        _push(cat, "archive session_id stamped (WO-ARCHIVE-SESSION-BOUNDARY-01)",
+          STATUS.PASS, `session_id=${sid.slice(0, 24)}…`);
+      } else {
+        _push(cat, "archive session_id stamped (WO-ARCHIVE-SESSION-BOUNDARY-01)",
+          STATUS.FAIL, `session_id missing or malformed: ${JSON.stringify(sid)}`);
+      }
+    }
+
+    // BUG-209: archive-writer auto-chain is now intentionally OFF —
+    // backend chat_ws writes the canonical transcript.  Verify the
+    // chain is OFF (not double-writing) AND that the manual hook is
+    // still callable for future audio-attachment use.
+    const oar = window.onAssistantReply;
+    if (typeof oar !== "function") {
+      _push(cat, "transcript writer wiring (BUG-209)",
+        STATUS.FAIL, "onAssistantReply not defined — page may still be loading");
+    } else if (oar._archiveWriterChained === true) {
+      _push(cat, "transcript writer wiring (BUG-209)",
+        STATUS.WARN, "auto-chain ENABLED — every turn will double-write to transcript.jsonl. Disable unless backend WS is off.");
+    } else {
+      const manual = (typeof window.lvArchiveOnNarratorTurn === "function") &&
+                     (typeof window.lvArchiveOnLoriReply === "function");
+      _push(cat, "transcript writer wiring (BUG-209)",
+        manual ? STATUS.PASS : STATUS.WARN,
+        manual
+          ? "auto-chain OFF (backend WS is single source); manual hooks present for audio attachment"
+          : "auto-chain OFF and manual hooks missing — audio attachment can't link to a turn");
+    }
+
+    // Export endpoint reachable (HEAD-equivalent via GET)
+    if (typeof window.lvExportCurrentSessionArchive === "function") {
+      _push(cat, "Export Current Session helper wired (WO-ARCHIVE-EXPORT-UX-01)",
+        STATUS.PASS, "Bug Panel button is operational");
+    } else {
+      _push(cat, "Export Current Session helper wired (WO-ARCHIVE-EXPORT-UX-01)",
+        STATUS.WARN, "lvExportCurrentSessionArchive not exposed — export button won't work");
+    }
   }
+
+  // ── WO-AUDIO-READY-CHECK-01 helper ──────────────────────────
+  // Lightweight standalone preflight callable from header / Bug Panel.
+  // Returns { ready: bool, mic: state, recorder: bool, https: bool, detail }.
+  // Pure observation — never requests permission, never opens a stream.
+  async function _audioPreflightProbe() {
+    const result = {
+      ready: false,
+      mic_permission: "unknown",   // granted | denied | prompt | unknown
+      media_recorder: false,
+      secure_context: false,
+      get_user_media: false,
+      detail: "",
+    };
+    try {
+      result.media_recorder = (typeof MediaRecorder !== "undefined");
+      result.secure_context = !!window.isSecureContext;
+      result.get_user_media = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+      // Permissions API may be unavailable in some browsers; degrade gracefully.
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const p = await navigator.permissions.query({ name: "microphone" });
+          result.mic_permission = p && p.state ? p.state : "unknown";
+        } catch (_) { /* not all browsers support 'microphone' */ }
+      }
+      // "Ready" = all hard requirements met AND permission isn't denied.
+      result.ready = !!(result.media_recorder && result.secure_context &&
+                        result.get_user_media && result.mic_permission !== "denied");
+      if (!result.media_recorder)  result.detail = "MediaRecorder unavailable (Chrome/Edge required)";
+      else if (!result.get_user_media) result.detail = "navigator.mediaDevices.getUserMedia unavailable";
+      else if (!result.secure_context) result.detail = "non-secure context (HTTPS required for getUserMedia)";
+      else if (result.mic_permission === "denied") result.detail = "mic permission denied — operator must re-grant";
+      else result.detail = "ready (mic_permission=" + result.mic_permission + ")";
+    } catch (e) {
+      result.detail = "preflight threw: " + (e && e.message || e);
+    }
+    return result;
+  }
+  // Expose for the Bug Panel button + the morning live build.
+  window.lvAudioPreflight = _audioPreflightProbe;
 
   // ── Category: Session Style ────────────────────────────────────
   // Verifies WO-SESSION-STYLE-WIRING-01: state + persistence + dispatcher
@@ -834,21 +977,31 @@ window.lvUiHealthCheck = (function () {
         "dispatcher missing AND substate missing — orchestrator can't run");
     }
 
-    // 10. Tier-2 directive emitter present + emits non-empty for tier-2 styles
+    // 10. Tier-2 directive emitter present.  Post-BUG-218: the
+    // capabilities-honesty preamble is included on EVERY style, so
+    // warm_storytelling and questionnaire_first are no longer empty.
+    // Expected shape:
+    //   - cdDir contains "Ask one short" (clear_direct style suffix)
+    //   - all directives contain "CAPABILITIES" (honesty preamble)
     const emitFn = typeof window._lvEmitStyleDirective;
     if (emitFn === "function") {
       const cdDir = window._lvEmitStyleDirective("clear_direct") || "";
       const wsDir = window._lvEmitStyleDirective("warm_storytelling") || "";
-      if (cdDir && cdDir.length > 10 && wsDir === "") {
-        _push(cat, "tier-2 directives emit correctly",
-          STATUS.PASS, `clear_direct len=${cdDir.length}, warm_storytelling empty`);
+      const honestyPresent = /CAPABILITIES/i.test(cdDir) && /CAPABILITIES/i.test(wsDir);
+      const styleSuffixPresent = /Ask one short/i.test(cdDir);
+      if (honestyPresent && styleSuffixPresent) {
+        _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
+          STATUS.PASS, `cd len=${cdDir.length} ws len=${wsDir.length} (capabilities-honesty present on both)`);
+      } else if (!honestyPresent) {
+        _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
+          STATUS.WARN, "BUG-218 capabilities-honesty rule missing from directive — Lori may hallucinate audio capture");
       } else {
-        _push(cat, "tier-2 directives emit correctly",
-          STATUS.WARN, `clear_direct="${cdDir.slice(0,40)}..." warm="${wsDir}"`);
+        _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
+          STATUS.WARN, `cd="${cdDir.slice(0,60)}..." ws="${wsDir.slice(0,60)}..."`);
       }
     } else {
-      _push(cat, "tier-2 directives emit correctly", STATUS.FAIL,
-        "_lvEmitStyleDirective not exposed");
+      _push(cat, "tier-2 directives emit correctly + BUG-218 honesty rule",
+        STATUS.FAIL, "_lvEmitStyleDirective not exposed");
     }
 
     // 11. Loop diagnostic accessor exposed
@@ -856,6 +1009,198 @@ window.lvUiHealthCheck = (function () {
       window.lvSessionLoop && window.lvSessionLoop.loaded === true
         ? STATUS.PASS : STATUS.FAIL,
       window.lvSessionLoop ? "loaded" : "missing");
+
+    // 12. WO-01B: BB save ledger exists.  PASS if savedKeys is an
+    //     array (lazy-init).  INFO if no saves have happened yet.
+    if (loop && Array.isArray(loop.savedKeys)) {
+      _push(cat, "loop.savedKeys ledger materialized (WO-01B)",
+        STATUS.PASS,
+        `${loop.savedKeys.length} field(s) saved this session: ${loop.savedKeys.slice(-3).join(",") || "(none yet)"}`);
+    } else if (typeof window.lvSessionLoopOnTurn === "function") {
+      _push(cat, "loop.savedKeys ledger materialized (WO-01B)",
+        STATUS.INFO,
+        "dispatcher present; ledger lazy-inits on first dispatch");
+    } else {
+      _push(cat, "loop.savedKeys ledger materialized (WO-01B)",
+        STATUS.WARN,
+        "loop substate missing");
+    }
+
+    // 13. WO-01B: BB PUT endpoint reachable from the page.  Lightweight
+    //     OPTIONS-equivalent — a HEAD/GET on the GET form of the same
+    //     endpoint.  Observation only, no PUT mutation.
+    //     Skipped if no narrator selected (the GET endpoint requires
+    //     person_id and would 422 without it).
+    if (_hasNarrator()) {
+      const ep = await _fetchJSON(`/api/bio-builder/questionnaire?person_id=${encodeURIComponent(state.person_id)}`);
+      if (ep.ok) {
+        _push(cat, "/api/bio-builder/questionnaire reachable",
+          STATUS.PASS,
+          `status=${ep.status} (BB save target endpoint live)`);
+      } else if (ep.status === 404) {
+        _push(cat, "/api/bio-builder/questionnaire reachable",
+          STATUS.NOT_INSTALLED,
+          "Bio Builder router not mounted");
+      } else {
+        _push(cat, "/api/bio-builder/questionnaire reachable",
+          STATUS.WARN,
+          `status=${ep.status} ${ep.error || ""}`);
+      }
+    } else {
+      _push(cat, "/api/bio-builder/questionnaire reachable",
+        STATUS.SKIP, "no narrator selected (probe requires person_id)");
+    }
+
+    // 14. WO-207: welcome-back suppression observable.  Set by
+    //     lv80SwitchPerson when sessionStyle=questionnaire_first AND the
+    //     v9-gate READY branch fires.  PASS if observed firing this session.
+    const wbSuppressed = window._lv80WelcomeBackSuppressedForQF === true;
+    _push(cat, "WO-13 welcome-back suppressed for questionnaire_first (#207)",
+      wbSuppressed ? STATUS.PASS : STATUS.INFO,
+      wbSuppressed
+        ? "side-channel flag fired this session"
+        : "no QF narrator-load this session yet");
+
+    // 15. WO-206: camera one-shot gate dropped.  PASS if the global
+    //     gate flag is not set (we removed the gating logic).
+    const camOneShot = window._lv80CamAutoStartedThisPageSession;
+    if (camOneShot === undefined) {
+      _push(cat, "camera one-shot gate dropped (#206)",
+        STATUS.PASS,
+        "_lv80CamAutoStartedThisPageSession unset — auto-start fires per ready load");
+    } else {
+      _push(cat, "camera one-shot gate dropped (#206)",
+        STATUS.WARN,
+        `gate flag still defined: ${camOneShot} (regression?)`);
+    }
+
+    // ── BUG-208: Bio Builder narrator-scope checks ───────────────
+    // Catches the cross-narrator contamination class.  Each check is
+    // a pure read; nothing mutates state.
+
+    // 16. bb.personId === state.person_id (the cardinal scope rule)
+    const bb208 = state && state.bioBuilder;
+    const stPid208 = state && state.person_id;
+    if (!stPid208) {
+      _push(cat, "BB person scope: bb.personId === state.person_id (BUG-208)",
+        STATUS.SKIP, "no narrator selected yet");
+    } else if (!bb208) {
+      _push(cat, "BB person scope: bb.personId === state.person_id (BUG-208)",
+        STATUS.INFO, "state.bioBuilder not yet initialized (no Bio Builder activity)");
+    } else if (bb208.personId === stPid208) {
+      _push(cat, "BB person scope: bb.personId === state.person_id (BUG-208)",
+        STATUS.PASS, `pid=${stPid208.slice(0, 8)}`);
+    } else {
+      _push(cat, "BB person scope: bb.personId === state.person_id (BUG-208)",
+        STATUS.FAIL,
+        `state.person_id=${(stPid208 || "").slice(0, 8)} but bb.personId=${(bb208.personId || "null").toString().slice(0, 8)}`);
+    }
+
+    // 17. Questionnaire identity does NOT contradict the active profile.
+    // If the active profile has fullName/dateOfBirth and bb.questionnaire.personal
+    // also has them set, they should agree.  Mismatch = the Corky-shows-Christopher
+    // class of contamination.
+    if (!stPid208 || !bb208 || !bb208.questionnaire || !bb208.questionnaire.personal) {
+      _push(cat, "BB questionnaire identity matches active profile (BUG-208)",
+        STATUS.SKIP, "no narrator or no questionnaire personal block to validate");
+    } else {
+      const pp = bb208.questionnaire.personal || {};
+      const profile = (state && state.profile && state.profile.basics) || {};
+      const errs = [];
+      const _norm = (v) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+      if (pp.fullName && profile.fullName) {
+        const a = _norm(pp.fullName);
+        const b = _norm(profile.fullName);
+        if (a && b && a !== b && !a.includes(b) && !b.includes(a)) {
+          errs.push(`fullName mem="${pp.fullName.slice(0, 24)}" profile="${profile.fullName.slice(0, 24)}"`);
+        }
+      }
+      if (pp.dateOfBirth && profile.dateOfBirth) {
+        const a = _norm(pp.dateOfBirth);
+        const b = _norm(profile.dateOfBirth);
+        if (a && b && a !== b) {
+          errs.push(`dob mem="${pp.dateOfBirth}" profile="${profile.dateOfBirth}"`);
+        }
+      }
+      if (errs.length) {
+        _push(cat, "BB questionnaire identity matches active profile (BUG-208)",
+          STATUS.FAIL,
+          `cross-narrator contamination suspected — ${errs.join("; ")}`);
+      } else {
+        _push(cat, "BB questionnaire identity matches active profile (BUG-208)",
+          STATUS.PASS,
+          "no fullName/DOB contradiction between bb.questionnaire.personal and profile.basics");
+      }
+    }
+
+    // 18. localStorage QQ key for active narrator either matches active pid
+    // or is absent.  Catches the case where a stale draft for narrator X
+    // leaks into narrator Y's view because of restore-fallback logic.
+    if (!stPid208) {
+      _push(cat, "BB localStorage draft key scoped to active narrator (BUG-208)",
+        STATUS.SKIP, "no narrator selected");
+    } else {
+      try {
+        const otherDrafts = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf("lorevox_qq_draft_") === 0) {
+            const draftPid = k.slice("lorevox_qq_draft_".length);
+            if (draftPid && draftPid !== stPid208) otherDrafts.push(draftPid.slice(0, 8));
+          }
+        }
+        // Other-narrator drafts existing is FINE (multi-narrator system) —
+        // we only need to check that THIS narrator's view is clean.
+        const myKey = "lorevox_qq_draft_" + stPid208;
+        const myRaw = localStorage.getItem(myKey);
+        let lsResolved = false;
+        if (myRaw) {
+          try {
+            const parsed = JSON.parse(myRaw);
+            const d = parsed && (parsed.d || parsed.data || parsed);
+            const lsName = d && d.personal && d.personal.fullName;
+            const profileName = state && state.profile && state.profile.basics && state.profile.basics.fullName;
+            if (lsName && profileName) {
+              const a = lsName.toLowerCase().trim();
+              const b = profileName.toLowerCase().trim();
+              if (a && b && a !== b && !a.includes(b) && !b.includes(a)) {
+                _push(cat, "BB localStorage draft key scoped to active narrator (BUG-208)",
+                  STATUS.FAIL,
+                  `localStorage[${myKey.slice(-12)}] fullName="${lsName.slice(0, 30)}" but active profile fullName="${profileName.slice(0, 30)}"`);
+                lsResolved = true;
+              }
+            }
+            if (!lsResolved) {
+              _push(cat, "BB localStorage draft key scoped to active narrator (BUG-208)",
+                STATUS.PASS,
+                `key matches active pid; ${otherDrafts.length} other-narrator draft(s) parked separately: [${otherDrafts.join(",")}]`);
+            }
+          } catch (e) {
+            _push(cat, "BB localStorage draft key scoped to active narrator (BUG-208)",
+              STATUS.WARN,
+              `key exists but failed to parse: ${e && e.message || e}`);
+          }
+        } else {
+          _push(cat, "BB localStorage draft key scoped to active narrator (BUG-208)",
+            STATUS.PASS,
+            `no draft yet for active pid (clean); ${otherDrafts.length} other-narrator draft(s) parked separately`);
+        }
+      } catch (e) {
+        _push(cat, "BB localStorage draft key scoped to active narrator (BUG-208)",
+          STATUS.WARN, `localStorage scan threw: ${e && e.message || e}`);
+      }
+    }
+
+    // 19. Narrator-switch generation counter exposed (defends in-flight fetches).
+    const coreMod = window.LorevoxBioBuilderModules && window.LorevoxBioBuilderModules.core;
+    if (coreMod && typeof coreMod._currentSwitchGen === "function") {
+      _push(cat, "BB narrator-switch generation counter wired (BUG-208)",
+        STATUS.PASS, `gen=${coreMod._currentSwitchGen()} (in-flight backend GETs check this on resolve)`);
+    } else {
+      _push(cat, "BB narrator-switch generation counter wired (BUG-208)",
+        STATUS.FAIL,
+        "LorevoxBioBuilderModules.core._currentSwitchGen missing — late backend responses can clobber active narrator's blob");
+    }
   }
 
   // ── Category: Navigation Recovery ──────────────────────────────
