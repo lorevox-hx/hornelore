@@ -157,12 +157,36 @@
   async function _wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   async function _waitForField(path, timeoutMs) {
+    // Fast path: poll local state.bioBuilder.questionnaire.
     const start = Date.now();
     while (Date.now() - start < (timeoutMs || 3000)) {
       const v = _readNested(_readBlob(), path);
       if (v != null && String(v).trim() !== "") return v;
       await _wait(120);
     }
+    // BUG-232: local-state lag fallback. session-loop._saveBBAnswer does
+    // async backend PUT; local state.bioBuilder.questionnaire only reflects
+    // the save after a backend GET round-trip. If the local read timed out,
+    // hit the backend directly via API.BB_QQ_GET. Mirror response into
+    // local state so subsequent reads see it.
+    const st = _state();
+    const pid = st && st.person_id;
+    if (pid) {
+      try {
+        const backendBlob = await _getBbBlob(pid);
+        if (backendBlob) {
+          // Mirror to local — only if scope still matches
+          try {
+            if (st.bioBuilder && st.bioBuilder.personId === pid) {
+              st.bioBuilder.questionnaire = backendBlob;
+            }
+          } catch (_) {}
+          const bv = _readNested(backendBlob, path);
+          if (bv != null && String(bv).trim() !== "") return bv;
+        }
+      } catch (_) {}
+    }
+    // Final read attempt from local (after potential backend mirror)
     return _readNested(_readBlob(), path);
   }
 
