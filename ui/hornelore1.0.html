@@ -3951,6 +3951,59 @@
       <div class="lv10d-bp-subtitle">Live diagnostics — refreshes every 2s</div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════
+         OPERATOR TEST TOOLS — pinned at top for fast access.
+         These are the workflow buttons an operator reaches for during
+         a session. Diagnostic dumps + scope/state probes follow below.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div class="lv10d-bp-section" style="background:rgba(30,58,138,0.08);border-left:3px solid #60a5fa;padding-left:12px;">
+      <div class="lv10d-bp-section-title" style="color:#60a5fa;font-weight:600;">
+        🧪 OPERATOR TEST TOOLS
+      </div>
+
+      <!-- BB Walk Test Harness — programmatic 30-item pipeline test -->
+      <div style="margin-top:8px;">
+        <div style="font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:2px;">BB Walk Test (30-field pipeline)</div>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Creates "Test Harness Sarah" narrator, drives identity intro through real
+          BUG-226/227 parser, populates personal + parents + siblings + spouse +
+          children + education via direct writes, runs 5 break cases (overwrite
+          guards), verifies persistence reload + projection propagation. Inline
+          report below — color-coded.
+        </p>
+        <div class="lv10d-bp-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
+                  onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true})">
+            Run BB Walk Test (verbose)
+          </button>
+          <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
+                  onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true, cleanup:true})">
+            Run + Clean Up
+          </button>
+        </div>
+        <div id="lv10dBpBbWalkStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+      </div>
+
+      <!-- Reset Identity for Current Narrator -->
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:2px;">⟲ Reset Identity for Current Narrator (BUG-228)</div>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Wipes bb.questionnaire.personal + state.profile.basics identity fields,
+          PATCHes backend person row to null DOB + place, re-fires identity
+          onboarding. Memory archive, other BB sections, other narrators
+          untouched. person_id stays the same. Use when polluted data carried
+          over from earlier test sessions.
+        </p>
+        <div class="lv10d-bp-actions">
+          <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                  onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()">
+            Reset Identity for Current Narrator
+          </button>
+        </div>
+        <div id="lv10dBpResetIdentityStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+      </div>
+    </div>
+
     <!-- Session -->
     <div class="lv10d-bp-section">
       <div class="lv10d-bp-section-title">Session</div>
@@ -4162,52 +4215,6 @@
       <div id="lv10dBpDeepResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
     </div>
 
-    <!-- BB Walk Test Harness — programmatic 30-item verification -->
-    <div class="lv10d-bp-section" style="border:1px solid #374151;padding:8px;margin-top:8px;">
-      <h4 style="margin:0 0 4px 0;color:#60a5fa;">🧪 BB Walk Test Harness</h4>
-      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
-        Creates a fresh test narrator, drives identity onboarding (3 anchors)
-        + QF walk (3 personal fields) with deterministic answers, verifies
-        each save lands in the expected BB field. Stubs Lori prompts so no
-        LLM call fires. Output prints to console as a pass/fail table.
-        Future-coverage parents/siblings items skipped (27 items) until QF
-        walk Phase 2 ships repeatable section walking.
-      </p>
-      <div class="lv10d-bp-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
-                onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true})">
-          Run BB Walk Test (verbose)
-        </button>
-        <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
-                onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true, cleanup:true})">
-          Run + Clean Up
-        </button>
-      </div>
-      <div id="lv10dBpBbWalkStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
-    </div>
-
-    <!-- ── BUG-228: Reset Identity for Current Narrator ─────────────
-         Use when bb.questionnaire.personal contains polluted data
-         (refusal replies as fullName, wrong DOB/POB) that the BUG-220A
-         scope fix can't help with because the data IS for this narrator
-         (just from earlier test sessions). -->
-    <div class="lv10d-bp-section" style="border:1px solid #374151;padding:8px;margin-top:8px;">
-      <h4 style="margin:0 0 4px 0;color:#f87171;">⚠ Reset Identity for Current Narrator (BUG-228)</h4>
-      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
-        Wipes bb.questionnaire.personal (name / DOB / birthplace / preferred / timeOfBirth),
-        clears state.profile.basics identity fields, PATCHes the backend person row to null
-        DOB + place_of_birth, and re-fires identity onboarding so Lori re-asks the three
-        anchors. Memory archive, other BB sections (parents/siblings/family tree),
-        and other narrators are untouched. person_id stays the same.
-      </p>
-      <div class="lv10d-bp-actions">
-        <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
-                onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()">
-          Reset Identity for Current Narrator
-        </button>
-      </div>
-      <div id="lv10dBpResetIdentityStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
-    </div>
   </div>
 
   <!-- ── SETTINGS POPOVER (Step 3) ───────────────────────────

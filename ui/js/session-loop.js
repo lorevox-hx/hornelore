@@ -219,7 +219,19 @@
         typeof window._extractIdentityFieldsFromUtterance === "function") {
       try {
         const _identity = window._extractIdentityFieldsFromUtterance(event.text);
-        const _hasIdentitySignal = !!(_identity && (_identity.name || _identity.dob || _identity.pob));
+        // BUG-230: require 2+ identity fields to fire rescue.
+        // Single-field hits are too eager — live evidence 2026-04-25T22:48:
+        // narrator answered preferredName="Sarah" during QF walk; the
+        // birthplace parser's last-resort branch matched "Sarah" as a
+        // place name (capital-led, no stop tokens), single-field rescue
+        // overwrote BB POB with "Sarah". An intro has multiple identity
+        // facts in one utterance ("My name is X, born in Y on Z"), not
+        // just one. Require 2+ to discriminate intro from field-answer.
+        const _fieldCount = (_identity ? 0 : 0)
+          + (_identity && _identity.name ? 1 : 0)
+          + (_identity && _identity.dob  ? 1 : 0)
+          + (_identity && _identity.pob  ? 1 : 0);
+        const _hasIdentitySignal = _fieldCount >= 2;
         if (_hasIdentitySignal) {
           // Update state.profile.basics first — runtime71 reads from here.
           if (!state.profile) state.profile = { basics: {}, kinship: [], pets: [] };

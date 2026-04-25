@@ -3131,22 +3131,34 @@ function _parseNameFromUtterance(text){
   const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken)\b/i;
   if (_EMOTIONAL_MARKERS.test(t)) return null;
 
-  const _patterns = [
-    /\bmy\s+(?:\w+\s+)*name\s+is\s+([A-Za-z][a-z'-]+(?:\s+[A-Z][a-z'-]+)?)/i,
-    /\bcall\s+me\s+([A-Za-z][a-z'-]+)/i,
-    /\bi(?:'m|\s+am)\s+(?:called\s+)?([A-Za-z][a-z'-]+(?:\s+[A-Z][a-z'-]+)?)/i,
-    /\bi\s+go\s+by\s+([A-Za-z][a-z'-]+)/i,
-    /\byou\s+can\s+call\s+me\s+([A-Za-z][a-z'-]+)/i,
-    /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?([A-Za-z][a-z'-]+)/i,
+  // BUG-231: split trigger detection (case-insensitive, /i) from name
+  // capture (case-sensitive). Earlier attempt used /i on the whole regex
+  // and the [A-Z] anchor degraded to [A-Za-z], so "my name is Sarah and i"
+  // captured "Sarah and" instead of stopping at the first lowercase word.
+  // Live evidence 2026-04-25T22:48: "My name is Test Harness Sarah Reed"
+  // captured only "Test" because the prior regex allowed at most "First Last".
+  // Real names range 1-4 capital-led words (Christopher Todd Horne / Janice
+  // Josephine Horne / Test Harness Sarah Reed). Capture 1-4 capital-led
+  // words AFTER the trigger position; stop at any lowercase-led word.
+  const _triggers = [
+    /\bmy\s+(?:\w+\s+)*name\s+is\s+/i,
+    /\bcall\s+me\s+/i,
+    /\bi(?:'m|\s+am)\s+(?:called\s+)?/i,
+    /\bi\s+go\s+by\s+/i,
+    /\byou\s+can\s+call\s+me\s+/i,
+    /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?/i,
   ];
-  for (const pat of _patterns) {
-    const m = t.match(pat);
-    if (!m || !m[1]) continue;
-    const cand = m[1].trim();
-    const firstWord = cand.split(/\s+/)[0].toLowerCase();
-    if (_NOT_A_NAME.has(firstWord) || firstWord.length < 2) continue;
-    // Capitalize first letter of first word (preserve any second word as-is)
-    return cand.charAt(0).toUpperCase() + cand.slice(1);
+  const _NAME_CAP = /^([A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,3})/;  // case-SENSITIVE: stops at lowercase word
+  for (const trig of _triggers) {
+    const m = t.match(trig);
+    if (!m) continue;
+    const tail = t.slice(m.index + m[0].length);
+    const nm = tail.match(_NAME_CAP);
+    if (!nm || !nm[1]) continue;
+    const cand = nm[1].trim();
+    const firstWord = cand.split(/\s+/)[0];
+    if (_NOT_A_NAME.has(firstWord.toLowerCase()) || firstWord.length < 2) continue;
+    return cand;
   }
   return null;
 }
