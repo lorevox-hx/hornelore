@@ -572,7 +572,12 @@ async function _lvNarratorRenderPhotos() {
   if (!_lvNarratorPhotos.loaded && !_lvNarratorPhotos.loading) {
     _lvNarratorPhotos.loading = true;
     try {
-      const res = await fetch(`/api/photos?narrator_id=${encodeURIComponent(pid)}`);
+      // BUG-238: narrator MUST only see photos the curator marked
+      // narrator_ready=true. Without this filter, scanned-but-unvetted
+      // photos and in-progress curator entries leak into the narrator
+      // room before metadata is reviewed. The repo-side list_photos
+      // endpoint accepts the narrator_ready query param.
+      const res = await fetch(`/api/photos?narrator_id=${encodeURIComponent(pid)}&narrator_ready=true`);
       if (res.status === 404) {
         _lvNarratorPhotos.error = "Photos are not enabled for this run.";
       } else if (res.ok) {
