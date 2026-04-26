@@ -37,6 +37,15 @@
     list:            $("piList"),
     listStatus:      $("piListStatus"),
 
+    // Review File Info preview (visualschedulebot pattern)
+    thumbPreview:        $("piThumbPreview"),
+    thumbPreviewImg:     $("piThumbPreviewImg"),
+    reviewBtn:           $("piReviewBtn"),
+    reviewStatus:        $("piReviewStatus"),
+    descriptionSource:   $("piDescriptionSource"),
+    dateSource:          $("piDateSource"),
+    locationSourcePill:  $("piLocationSourcePill"),
+
     // Batch upload (multi-file + EXIF auto-fill)
     batchNarrator:      $("piBatchNarrator"),
     batchNarratorReady: $("piBatchNarratorReady"),
@@ -119,11 +128,21 @@
       });
   }
 
+  // P1.2 (code review 2026-04-26 night): when narrator changes, reset
+  // BOTH narrator_ready checkboxes. Curator must re-affirm "ready"
+  // for the new narrator. Without this, a checkbox state from
+  // narrator A could silently apply to narrator B's next upload.
+  function _resetReadyCheckboxesForNarratorSwitch() {
+    if (el.narratorReady) el.narratorReady.checked = false;
+    if (el.batchNarratorReady) el.batchNarratorReady.checked = false;
+  }
+
   el && el.narrator && el.narrator.addEventListener("change", function () {
     localStorage.setItem(LS_NARRATOR, el.narrator.value);
     if (el.batchNarrator && el.batchNarrator.value !== el.narrator.value) {
       el.batchNarrator.value = el.narrator.value;
     }
+    _resetReadyCheckboxesForNarratorSwitch();
     refreshList();
   });
 
@@ -132,6 +151,7 @@
     if (el.narrator && el.narrator.value !== el.batchNarrator.value) {
       el.narrator.value = el.batchNarrator.value;
     }
+    _resetReadyCheckboxesForNarratorSwitch();
     refreshList();
   });
 
@@ -526,6 +546,14 @@
     if (!fileList || !fileList.length) return;
     var added = 0;
     var skipped_nonimage = 0;
+    // P1.4 (code review 2026-04-26 night): capture narrator_id +
+    // ready_flag at queue-add time, NOT at upload time. Without this,
+    // operator could drop 5 photos as Narrator A, switch the dropdown
+    // to Narrator B, click Upload All, and have all 5 photos land on
+    // B's row. Snapshotting at queue-add freezes the intent at the
+    // moment the file was added.
+    var snapshot_narrator_id = (el.batchNarrator && el.batchNarrator.value || "").trim();
+    var snapshot_ready_flag  = !!(el.batchNarratorReady && el.batchNarratorReady.checked);
     for (var i = 0; i < fileList.length; i++) {
       if (batchItems.length >= BATCH_MAX) {
         _setBatchStatus("Queue full (" + BATCH_MAX + " max). Upload some first.", "warn");
@@ -541,6 +569,9 @@
         date: null,
         loc: null,
         error: null,
+        // Frozen snapshots (P1.4): used at upload time, not the live dropdown
+        narrator_id_snapshot: snapshot_narrator_id,
+        ready_flag_snapshot:  snapshot_ready_flag,
       };
       batchItems.push(item);
       el.batchQueue.appendChild(_renderBatchItem(item));
@@ -589,12 +620,15 @@
   }
 
   function _runBatchSerially() {
-    var narratorId = (el.batchNarrator && el.batchNarrator.value || "").trim();
-    if (!narratorId) {
-      _setBatchStatus("Pick a narrator first.", "warn");
+    // P1.4: each item carries its own narrator snapshot from queue-add
+    // time. We still validate that at least the first queued item has
+    // a non-empty narrator -- if the operator never picked one, the
+    // snapshot would be empty across the board.
+    var firstQueued = batchItems.find(function (i) { return i.status === "queued"; });
+    if (!firstQueued || !firstQueued.narrator_id_snapshot) {
+      _setBatchStatus("Pick a narrator first, then re-add the files.", "warn");
       return Promise.resolve();
     }
-    var readyFlag = !!(el.batchNarratorReady && el.batchNarratorReady.checked);
 
     batchInFlight = true;
     _updateBatchButtons();
@@ -621,7 +655,9 @@
       _updateBatchItem(item);
       _setBatchStatus("Uploading… " + (idx + 1) + "/" + todo.length, "");
 
-      return _uploadOne(item, narratorId, readyFlag)
+      // Read narrator + ready from the item's own snapshot, not the
+      // live dropdown -- protects against narrator-switch races.
+      return _uploadOne(item, item.narrator_id_snapshot, item.ready_flag_snapshot)
         .then(function (resp) {
           if (resp && resp._duplicate) {
             item.status = "duplicate";
@@ -914,6 +950,167 @@
       closePhotoModal();
     }
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // REVIEW FILE INFO (visualschedulebot pattern)
+  //
+  // Pick file -> thumbnail preview appears -> click "Review File Info"
+  // -> server reads EXIF + reverse-geocodes -> populates description,
+  // date, location_label fields with what was found, plus "from EXIF"
+  // pills next to each label so the curator sees provenance at a
+  // glance.
+  //
+  // Curator can then edit any field and click "Save Photo" to commit
+  // (existing flow). Or skip Review entirely and type from scratch.
+  // Or pick file + leave fields blank -> upload-time EXIF auto-fill
+  // still runs server-side. Three paths, same destination.
+  // ═══════════════════════════════════════════════════════════════
+
+  function _setReviewStatus(msg, level) {
+    if (!el.reviewStatus) return;
+    el.reviewStatus.textContent = msg || "";
+    el.reviewStatus.className = "pi-status" + (level ? " " + level : "");
+  }
+
+  function _setSourcePill(pillEl, label, kind) {
+    // kind: "exif" | "gps" | "curator" | "" (hide)
+    if (!pillEl) return;
+    if (!label || !kind) {
+      pillEl.hidden = true;
+      pillEl.textContent = "";
+      pillEl.className = "pi-source-pill";
+      return;
+    }
+    pillEl.hidden = false;
+    pillEl.textContent = label;
+    pillEl.className = "pi-source-pill " + kind;
+  }
+
+  function _previewThumbnailFromFile(file) {
+    if (!file || !el.thumbPreview || !el.thumbPreviewImg) return;
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      el.thumbPreviewImg.src = ev.target.result;
+      el.thumbPreview.hidden = false;
+    };
+    reader.onerror = function () {
+      el.thumbPreview.hidden = true;
+    };
+    try { reader.readAsDataURL(file); } catch (e) { /* ignore */ }
+  }
+
+  // File picker change -> show thumbnail + enable Review button
+  if (el.file) {
+    el.file.addEventListener("change", function (ev) {
+      var f = ev.target.files && ev.target.files[0];
+      if (!f) {
+        if (el.thumbPreview) el.thumbPreview.hidden = true;
+        if (el.reviewBtn) el.reviewBtn.disabled = true;
+        return;
+      }
+      _previewThumbnailFromFile(f);
+      if (el.reviewBtn) el.reviewBtn.disabled = false;
+      _setReviewStatus("");
+    });
+  }
+
+  // Review File Info button: POST file to /api/photos/preview, autofill
+  if (el.reviewBtn) {
+    el.reviewBtn.addEventListener("click", function () {
+      var f = el.file && el.file.files && el.file.files[0];
+      if (!f) {
+        _setReviewStatus("Pick a file first.", "warn");
+        return;
+      }
+
+      var fd = new FormData();
+      fd.append("file", f);
+
+      el.reviewBtn.disabled = true;
+      _setReviewStatus("Reading EXIF + reverse-geocoding...");
+
+      fetch(ORIGIN + "/api/photos/preview", { method: "POST", body: fd })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) {
+              throw new Error(t || ("HTTP " + r.status));
+            });
+          }
+          return r.json();
+        })
+        .then(function (data) {
+          // Description: only fill if the curator hasn't typed anything
+          if (data.description && !(el.description.value || "").trim()) {
+            el.description.value = data.description;
+            _setSourcePill(el.descriptionSource, "auto-generated", "exif");
+          } else if (data.description) {
+            // curator already wrote something — keep theirs, don't pill
+            _setSourcePill(el.descriptionSource, "", "");
+          }
+
+          // Date: full ISO date if available
+          if (data.captured_at && !(el.dateValue.value || "").trim()) {
+            el.dateValue.value = data.captured_at;
+            el.datePrecision.value = data.captured_at_precision || "exact";
+            _setSourcePill(el.dateSource, "from EXIF", "exif");
+          }
+
+          // Location: composed address if reverse-geocoder returned anything,
+          // OR Plus Code + city if address parts present.
+          var addr = data.address || {};
+          var bits = [];
+          if (data.plus_code) bits.push(data.plus_code);
+          var addrPart = "";
+          if (addr.city) addrPart = addr.city;
+          if (addr.state_abbrev) addrPart += (addrPart ? ", " : "") + addr.state_abbrev;
+          else if (addr.state) addrPart += (addrPart ? ", " : "") + addr.state;
+          if (addr.country) addrPart += (addrPart ? ", " : "") + addr.country;
+          if (addrPart) bits.push(addrPart);
+          var composedLocation = bits.join(" ");
+
+          if (composedLocation && !(el.locationLabel.value || "").trim()) {
+            el.locationLabel.value = composedLocation;
+            // GPS-derived location is high-confidence; mark source.
+            if (data.gps && data.gps.source === "exif_gps") {
+              el.locationSource.value = "exif_gps";
+              _setSourcePill(el.locationSourcePill, "from phone GPS", "gps");
+            } else {
+              el.locationSource.value = "description_geocode";
+              _setSourcePill(el.locationSourcePill, "geocoded", "exif");
+            }
+          }
+
+          // Status readout
+          var summary_bits = [];
+          if (data.captured_at) summary_bits.push("date");
+          if (data.gps && data.gps.latitude != null) summary_bits.push("GPS");
+          if (addr.city) summary_bits.push("city");
+          if (data.plus_code) summary_bits.push("Plus Code");
+          summary_bits.push(data.raw_exif_keys + " EXIF tags");
+
+          _setReviewStatus("Found: " + summary_bits.join(", "), "ok");
+        })
+        .catch(function (e) {
+          _setReviewStatus("Review failed: " + (e.message || e), "err");
+        })
+        .finally(function () {
+          el.reviewBtn.disabled = !(el.file && el.file.files && el.file.files[0]);
+        });
+    });
+  }
+
+  // Reset button should also clear the thumbnail + pills
+  if (el.reset) {
+    var origReset = el.reset.onclick;
+    el.reset.addEventListener("click", function () {
+      if (el.thumbPreview) el.thumbPreview.hidden = true;
+      if (el.reviewBtn) el.reviewBtn.disabled = true;
+      _setReviewStatus("");
+      _setSourcePill(el.descriptionSource, "", "");
+      _setSourcePill(el.dateSource, "", "");
+      _setSourcePill(el.locationSourcePill, "", "");
+    });
+  }
 
   // ── Bootstrap ────────────────────────────────────────────────
   loadNarrators().then(refreshList);

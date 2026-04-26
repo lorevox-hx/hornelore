@@ -73,14 +73,34 @@
           <input type="file" id="piFile" accept="image/*"/>
         </div>
 
+        <!-- Thumbnail preview (client-side; appears after file picked) -->
+        <div class="pi-thumb-preview" id="piThumbPreview" hidden>
+          <img id="piThumbPreviewImg" alt=""/>
+        </div>
+
+        <!-- "Review File Info" button — visualschedulebot pattern.
+             Reads EXIF + reverse-geocodes server-side, prefills date /
+             location / description with what was found. Curator edits if
+             needed, then clicks "Save Photo" to commit. -->
+        <button type="button" class="pi-btn-review" id="piReviewBtn" disabled>
+          Review File Info
+        </button>
+        <div class="pi-status" id="piReviewStatus"></div>
+
         <div class="pi-field">
-          <label for="piDescription">Description (optional)</label>
+          <label for="piDescription">
+            Description (optional)
+            <span class="pi-source-pill" id="piDescriptionSource" hidden></span>
+          </label>
           <textarea id="piDescription" placeholder="What's happening in this photo?"></textarea>
         </div>
 
         <div class="pi-field-row">
           <div class="pi-field">
-            <label for="piDateValue">Date (optional)</label>
+            <label for="piDateValue">
+              Date (optional)
+              <span class="pi-source-pill" id="piDateSource" hidden></span>
+            </label>
             <input type="text" id="piDateValue" placeholder="e.g. 1968 or 1968-07-04"/>
           </div>
           <div class="pi-field">
@@ -97,7 +117,10 @@
 
         <div class="pi-field-row">
           <div class="pi-field">
-            <label for="piLocationLabel">Location (optional)</label>
+            <label for="piLocationLabel">
+              Location (optional)
+              <span class="pi-source-pill" id="piLocationSourcePill" hidden></span>
+            </label>
             <input type="text" id="piLocationLabel" placeholder="e.g. Ada, Oklahoma"/>
           </div>
           <div class="pi-field">

@@ -586,3 +586,67 @@ html, body {
   border-top: 1px solid rgba(99, 102, 241, 0.18);
   flex-shrink: 0;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   REVIEW FILE INFO (visualschedulebot pattern)
+   Thumbnail preview + Review button + source-attribution pills
+   on form labels showing where each value came from.
+═══════════════════════════════════════════════════════════════ */
+
+.pi-thumb-preview {
+  margin: 8px 0 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.pi-thumb-preview img {
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: rgba(15, 15, 26, 0.5);
+  object-fit: contain;
+}
+
+.pi-btn-review {
+  width: 100%;
+  background: #2563eb;
+  color: #fff;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 6px;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.pi-btn-review:hover:not([disabled]) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.pi-btn-review[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Source-attribution pills next to field labels */
+.pi-source-pill {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 500;
+}
+
+.pi-source-pill.exif    { background: rgba(99, 102, 241, 0.22); color: #c7d2fe; }
+.pi-source-pill.gps     { background: rgba(74, 222, 128, 0.22); color: #86efac; }
+.pi-source-pill.curator { background: rgba(251, 191, 36, 0.22); color: #fcd34d; }
