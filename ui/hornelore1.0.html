@@ -3303,6 +3303,24 @@
     </div>
   </div>
 
+  <!-- BUG-240: full-screen photo lightbox for the narrator-room Photos
+       view. Mom/Dad clicks the small thumbnail and gets a real
+       photo-sized view with caption + date + location. Critical for
+       tablet sessions where the inline view is too small to
+       recognize faces. Close paths: X button, backdrop click, ESC
+       (handled in app.js). -->
+  <div id="lvNarratorLightbox" class="lv-narrator-lightbox" hidden aria-hidden="true"
+       role="dialog" aria-modal="true" aria-label="Photo full-size view"
+       onclick="if (event.target === this) _lvNarratorCloseLightbox();">
+    <button type="button" class="lv-narrator-lightbox-close"
+            onclick="_lvNarratorCloseLightbox()" aria-label="Close photo">×</button>
+    <img class="lv-narrator-lightbox-img" alt=""/>
+    <div class="lv-narrator-lightbox-meta">
+      <div class="lv-narrator-lightbox-caption"></div>
+      <div class="lv-narrator-lightbox-subline"></div>
+    </div>
+  </div>
+
   </section><!-- /lvNarratorTab -->
 
   <!-- ── MEDIA TAB — Phase 1 launcher surface.  Opens existing
@@ -4028,6 +4046,27 @@
           </button>
         </div>
         <div id="lv10dBpResetIdentityStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+      </div>
+
+      <!-- BUG-221B: Purge Test Narrators (nuclear, dev-only) -->
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:2px;">☢ Purge Test Narrators (BUG-221B)</div>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Walks the people list, soft-deletes any narrator whose display_name
+          isn't on the canonical 5-name whitelist (Kent Janice Christopher Horne
+          + Shatner / Parton trainers), wipes their localStorage keys. Photos +
+          memory archive on disk preserved. Use before parent sessions to
+          clean up dev pollution accumulated across days of testing
+          (Sarah Reed / Test Harness / temp narrators / etc.).
+          Shows a confirm dialog with the full purge list before any deletion.
+        </p>
+        <div class="lv10d-bp-actions">
+          <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                  onclick="window.lvBbPurgeTestNarrators && window.lvBbPurgeTestNarrators()">
+            Purge Test Narrators
+          </button>
+        </div>
+        <div id="lv10dBpPurgeTestStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
       </div>
     </div>
 

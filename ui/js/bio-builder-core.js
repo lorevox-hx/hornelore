@@ -1229,6 +1229,206 @@
   window.lvBbResetIdentityForCurrentNarrator = lvBbResetIdentityForCurrentNarrator;
 
   /* ───────────────────────────────────────────────────────────
+     BUG-221B: PURGE TEST NARRATORS (nuclear, dev-only)
+
+     Walks the people list, identifies any narrator whose display_name
+     does NOT match the 5 canonical Horne-family + trainer narrators,
+     and removes them from BOTH localStorage AND backend (soft-delete).
+
+     Purpose: clean up dev pollution accumulated across days of test
+     sessions (Sarah/Walter/Test Harness/Corky variants/etc.) BEFORE
+     real parent sessions start. The ad-hoc per-narrator cleanup
+     (BUG-228 above) is too slow for "I have 14 stale test narrators
+     in my list" cases.
+
+     Preserved (whitelist, exact display_name match):
+       - Kent James Horne
+       - Janice Josephine Horne
+       - Christopher Todd Horne
+       - William Alan Shatner   (trainer)
+       - Dolly Rebecca Parton   (trainer)
+
+     For each non-canonical narrator the purge:
+       - Wipes localStorage keys: lorevox_qq_draft_<pid>, lv_done_<pid>,
+         lv_segs_<pid>, lorevox_offline_profile_<pid>,
+         lorevox_proj_draft_<pid>, bb_qq_<pid> (legacy)
+       - Soft-deletes the person row via DELETE /api/people/{id}?mode=soft
+
+     NOT touched:
+       - Photo + memory archive on disk (preserved for forensic restore)
+       - The 5 canonical narrators (zero risk to real demo data)
+       - Backend family_truth / projection tables (covered by soft-delete)
+
+     The whitelist is hardcoded by display_name so renaming a real
+     narrator would orphan it. That's a deliberate trade — the utility
+     refuses to delete based on heuristics; it deletes only what isn't
+     on the explicit whitelist.
+  ─────────────────────────────────────────────────────────── */
+
+  var _CANONICAL_NARRATOR_NAMES = [
+    "Kent James Horne",
+    "Janice Josephine Horne",
+    "Christopher Todd Horne",
+    "William Alan Shatner",
+    "Dolly Rebecca Parton"
+  ];
+
+  function _setPurgeStatus(html) {
+    try {
+      var el = document.getElementById("lv10dBpPurgeTestStatus");
+      if (el) el.innerHTML = html;
+    } catch (_) {}
+  }
+
+  function _isCanonicalNarrator(person) {
+    if (!person) return false;
+    var name = (person.display_name || person.name || "").trim();
+    return _CANONICAL_NARRATOR_NAMES.indexOf(name) >= 0;
+  }
+
+  function _wipeNarratorLocalStorage(pid) {
+    if (!pid) return [];
+    var prefixes = [
+      "lorevox_qq_draft_",
+      "lv_done_",
+      "lv_segs_",
+      "lorevox_offline_profile_",
+      "lorevox_proj_draft_",
+      "bb_qq_",                    // legacy pre-WO-INTAKE-IDENTITY-01
+      "lv_active_person_v55_",     // edge case: stale active-pid pointers
+    ];
+    var wiped = [];
+    for (var i = 0; i < prefixes.length; i += 1) {
+      var key = prefixes[i] + pid;
+      try {
+        if (localStorage.getItem(key) !== null) {
+          localStorage.removeItem(key);
+          wiped.push(key);
+        }
+      } catch (_) {}
+    }
+    return wiped;
+  }
+
+  async function _softDeleteNarrator(pid) {
+    if (typeof API === "undefined" || !API.PERSON) {
+      throw new Error("API.PERSON helper not available");
+    }
+    var resp = await fetch(API.PERSON(pid) + "?mode=soft", { method: "DELETE" });
+    if (!resp.ok) {
+      throw new Error("DELETE /api/people/" + pid + " returned HTTP " + resp.status);
+    }
+    return true;
+  }
+
+  async function lvBbPurgeTestNarrators() {
+    _setPurgeStatus('<span style="color:#94a3b8;">Fetching narrator list…</span>');
+
+    // 1. Fetch all narrators from backend
+    var allNarrators;
+    try {
+      var resp = await fetch(API.PEOPLE + "?limit=200");
+      if (!resp.ok) {
+        _setPurgeStatus('<span style="color:#f87171;">✗ FAIL — could not fetch narrators (HTTP ' + resp.status + ')</span>');
+        return false;
+      }
+      var body = await resp.json();
+      allNarrators = Array.isArray(body) ? body : (body && body.people) || [];
+    } catch (e) {
+      _setPurgeStatus('<span style="color:#f87171;">✗ FAIL — fetch threw: ' + (e.message || e) + '</span>');
+      return false;
+    }
+
+    // 2. Partition into canonical (preserve) and tests (purge)
+    var canonical = allNarrators.filter(_isCanonicalNarrator);
+    var tests = allNarrators.filter(function (p) { return !_isCanonicalNarrator(p); });
+
+    if (!tests.length) {
+      _setPurgeStatus('<span style="color:#22c55e;">✓ No test narrators found. ' +
+        canonical.length + ' canonical narrators preserved.</span>');
+      console.log("[bb-purge] no test narrators to purge; canonical preserved:",
+        canonical.map(function (p) { return p.display_name || p.name; }));
+      try {
+        alert("No test narrators to purge.\n\nCanonical narrators preserved (" +
+          canonical.length + "):\n  • " +
+          canonical.map(function (p) { return p.display_name || p.name; }).join("\n  • "));
+      } catch (_) {}
+      return true;
+    }
+
+    // 3. Confirm with operator (full list shown so they can verify)
+    var testNames = tests.map(function (p) {
+      return (p.display_name || p.name || "(unnamed)") + " — " + (p.id || "").slice(0, 8);
+    });
+    var canonicalNames = canonical.map(function (p) { return p.display_name || p.name; });
+
+    var msg =
+      "PURGE " + tests.length + " test narrators?\n\n" +
+      "Will be DELETED (soft-delete + localStorage wipe):\n  • " + testNames.join("\n  • ") + "\n\n" +
+      "Will be PRESERVED (canonical, " + canonical.length + "):\n  • " +
+      (canonicalNames.length ? canonicalNames.join("\n  • ") : "(NONE FOUND — check display_name strings)") + "\n\n" +
+      "Photos + memory archive on disk are NOT touched (preserved for restore).\n\n" +
+      "This is irreversible from the UI. Continue?";
+
+    var ok;
+    try { ok = window.confirm(msg); } catch (_) { ok = false; }
+    if (!ok) {
+      _setPurgeStatus('<span style="color:#94a3b8;">Cancelled by operator.</span>');
+      console.log("[bb-purge] cancelled by operator");
+      return false;
+    }
+
+    // 4. Execute purge (sequential — protects backend from N parallel deletes)
+    _setPurgeStatus('<span style="color:#94a3b8;">Purging ' + tests.length + ' narrators…</span>');
+    console.log("[bb-purge] starting purge of " + tests.length + " test narrators");
+
+    var succeeded = 0;
+    var failed = 0;
+    var ls_keys_total = 0;
+    for (var i = 0; i < tests.length; i += 1) {
+      var narrator = tests[i];
+      var pid = narrator.id;
+      if (!pid) {
+        console.warn("[bb-purge] skipping narrator with no id:", narrator);
+        failed += 1;
+        continue;
+      }
+
+      // Wipe localStorage first (always succeeds)
+      var wiped_keys = _wipeNarratorLocalStorage(pid);
+      ls_keys_total += wiped_keys.length;
+
+      // Soft-delete from backend
+      try {
+        await _softDeleteNarrator(pid);
+        succeeded += 1;
+        console.log("[bb-purge] purged " + (narrator.display_name || pid.slice(0, 8)) +
+          " (" + pid.slice(0, 8) + ") — " + wiped_keys.length + " LS keys + 1 backend row");
+      } catch (e) {
+        failed += 1;
+        console.warn("[bb-purge] backend delete FAILED for " +
+          (narrator.display_name || pid.slice(0, 8)) + ": " + (e.message || e) +
+          " — localStorage was still wiped");
+      }
+    }
+
+    var summaryColor = failed ? "#fbbf24" : "#22c55e";
+    var summaryIcon = failed ? "⚠" : "✓";
+    _setPurgeStatus(
+      '<span style="color:' + summaryColor + ';">' + summaryIcon + ' Purged ' +
+      succeeded + '/' + tests.length + ' test narrators (' + ls_keys_total + ' LS keys wiped' +
+      (failed ? ', ' + failed + ' backend deletes failed' : '') + ').</span><br>' +
+      '<span style="color:#94a3b8;">Refresh the page to see the cleaned narrator list.</span>'
+    );
+    console.log("[bb-purge] complete — " + succeeded + "/" + tests.length +
+      " purged, " + ls_keys_total + " localStorage keys wiped, " +
+      failed + " backend failures");
+    return failed === 0;
+  }
+
+  window.lvBbPurgeTestNarrators = lvBbPurgeTestNarrators;
+
+  /* ───────────────────────────────────────────────────────────
      EXPORT MODULE
   ─────────────────────────────────────────────────────────── */
 

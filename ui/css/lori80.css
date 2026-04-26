@@ -1198,6 +1198,102 @@ mark.fragment-fact {
   line-height: 1.4;
 }
 
+/* BUG-240: clickable thumbnail in narrator-room Photos view + sub-line
+   for date / location below the photo caption. */
+.lv-narrator-photo-frame--clickable {
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.lv-narrator-photo-frame--clickable:hover {
+  opacity: 0.92;
+}
+.lv-narrator-photo-subline {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+/* ── BUG-240: Photo lightbox (narrator-room full-size view) ─────
+   Modeled on the take-a-break overlay below for visual consistency
+   but optimized for image display: dark backdrop, contained image
+   that respects viewport, caption row underneath, prominent close
+   button. Soft fade-in (180ms) — dementia-safe, not jarring. */
+.lv-narrator-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482001;       /* above break overlay */
+  background: rgba(5, 7, 14, 0.92);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: lvLightboxFadeIn 180ms ease-out;
+  cursor: pointer;            /* hint: click backdrop to close */
+}
+.lv-narrator-lightbox[hidden] { display: none; }
+@keyframes lvLightboxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lv-narrator-lightbox-img {
+  max-width: 100%;
+  max-height: calc(100vh - 160px);  /* reserve room for caption + close */
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  background: rgba(15, 15, 26, 0.7);
+  cursor: default;
+  object-fit: contain;
+}
+
+.lv-narrator-lightbox-meta {
+  margin-top: 16px;
+  text-align: center;
+  max-width: min(900px, 100%);
+  cursor: default;
+}
+
+.lv-narrator-lightbox-caption {
+  color: #f8fafc;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.lv-narrator-lightbox-subline {
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.lv-narrator-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 300;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease;
+}
+.lv-narrator-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.lv-narrator-lightbox-close:focus-visible {
+  outline: 2px solid rgba(165, 180, 252, 0.7);
+  outline-offset: 2px;
+}
+
 /* ── Take-a-break overlay ──────────────────────────────────────── */
 .lv-narrator-break-overlay {
   position: fixed;

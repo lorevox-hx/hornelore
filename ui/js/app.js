@@ -613,14 +613,27 @@ function _lvNarratorPaintPhotoSlot() {
     return;
   }
   const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  // BUG-240: prefer thumbnail_url for the inline view (faster paint),
+  // but the lightbox uses media_url for the full-resolution photo.
   const src   = photo.thumbnail_url || photo.url || photo.src || photo.photo_url || "";
-  const caption = photo.caption || photo.filename || photo.name || "";
-  const year    = photo.year || (photo.taken_at ? String(photo.taken_at).slice(0,4) : "");
+  // Composed caption: description first, then date + location for context.
+  // Falls back to the legacy caption/filename/name fields if description
+  // and the structured metadata are absent (e.g. pre-Phase-2 uploads).
+  const captionParts = [];
+  if (photo.description && String(photo.description).trim()) captionParts.push(String(photo.description).trim());
+  else if (photo.caption || photo.filename || photo.name) captionParts.push(photo.caption || photo.filename || photo.name);
+  const caption = captionParts.join("");
+  const subBits = [];
+  if (photo.date_value) subBits.push(photo.date_value);
+  if (photo.location_label) subBits.push(photo.location_label);
+  const subline = subBits.join(" · ");
+  const year    = photo.year || (photo.taken_at ? String(photo.taken_at).slice(0,4) : "") || (photo.date_value ? String(photo.date_value).slice(0,4) : "");
   slot.innerHTML = `
-    <div class="lv-narrator-photo-frame">
+    <div class="lv-narrator-photo-frame lv-narrator-photo-frame--clickable" onclick="_lvNarratorOpenLightbox()" title="Click to see this photo full size">
       ${src ? `<img src="${_lvEscapeAttr(src)}" alt="${_lvEscapeAttr(caption)}" />` : `<span class="lv-narrator-view-empty">No image</span>`}
     </div>
     <div class="lv-narrator-photo-meta">${_lvEscapeHtml(caption)}${year ? ` · ${year}` : ""} <span style="color:#7a8bb0;">(${_lvNarratorPhotos.idx+1} of ${_lvNarratorPhotos.list.length})</span></div>
+    ${subline ? `<div class="lv-narrator-photo-subline">${_lvEscapeHtml(subline)}</div>` : ""}
     <div class="lv-narrator-photo-nav">
       <button type="button" onclick="_lvNarratorPhotoStep(-1)" ${_lvNarratorPhotos.idx === 0 ? "disabled" : ""}>‹ Previous</button>
       <button type="button" onclick="_lvNarratorPhotoStep( 1)" ${_lvNarratorPhotos.idx >= _lvNarratorPhotos.list.length - 1 ? "disabled" : ""}>Next ›</button>
@@ -631,6 +644,67 @@ function _lvNarratorPaintPhotoSlot() {
     <p class="lv-narrator-photo-hint">Memory saving arrives with the photo-session flow; for now your notes stay in this browser.</p>
   `;
 }
+
+/* BUG-240: full-screen photo lightbox for the narrator room.
+   Mom/Dad clicking the small thumbnail expands to a full-frame view
+   they can actually SEE. Critical for tablet sessions where the
+   inline view is otherwise too small to recognize faces.
+
+   Close paths: X button, backdrop click, Escape key.
+   Caption row shows description + date + location below the photo
+   so the narrator gets the curator's metadata at a glance. */
+function _lvNarratorOpenLightbox() {
+  const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  if (!photo) return;
+  const overlay = document.getElementById("lvNarratorLightbox");
+  if (!overlay) {
+    console.warn("[lv-narrator] lightbox host #lvNarratorLightbox not found in DOM");
+    return;
+  }
+  // Prefer the full-resolution media_url; thumbnail is only ~400px which
+  // looks pixelated on a 10" tablet. Fall back to whatever's available.
+  const fullSrc = photo.media_url || photo.url || photo.src || photo.photo_url || photo.thumbnail_url || "";
+  const caption = (photo.description && String(photo.description).trim())
+    || photo.caption || photo.filename || photo.name || "";
+  const subBits = [];
+  if (photo.date_value) subBits.push(photo.date_value);
+  if (photo.location_label) subBits.push(photo.location_label);
+  const subline = subBits.join(" · ");
+
+  const img = overlay.querySelector(".lv-narrator-lightbox-img");
+  const cap = overlay.querySelector(".lv-narrator-lightbox-caption");
+  const sub = overlay.querySelector(".lv-narrator-lightbox-subline");
+  if (img) img.src = fullSrc;
+  if (img) img.alt = caption;
+  if (cap) cap.textContent = caption;
+  if (sub) sub.textContent = subline;
+
+  overlay.hidden = false;
+  // Suppress page scroll while lightbox is open so swipe doesn't drag
+  // the chat behind it.
+  document.body.style.overflow = "hidden";
+}
+window._lvNarratorOpenLightbox = _lvNarratorOpenLightbox;
+
+function _lvNarratorCloseLightbox() {
+  const overlay = document.getElementById("lvNarratorLightbox");
+  if (!overlay) return;
+  overlay.hidden = true;
+  const img = overlay.querySelector(".lv-narrator-lightbox-img");
+  if (img) img.src = "";  // free memory; full-res images can be 5+ MB
+  document.body.style.overflow = "";
+}
+window._lvNarratorCloseLightbox = _lvNarratorCloseLightbox;
+
+// ESC closes lightbox. Single global listener; cheap.
+document.addEventListener("keydown", function (ev) {
+  if (ev.key === "Escape") {
+    var overlay = document.getElementById("lvNarratorLightbox");
+    if (overlay && !overlay.hidden) {
+      _lvNarratorCloseLightbox();
+    }
+  }
+});
 
 function _lvNarratorPhotoStep(delta) {
   const n = _lvNarratorPhotos.list.length;
