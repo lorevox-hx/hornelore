@@ -19,6 +19,44 @@
       </div>
     </header>
 
+    <!-- ────────── Batch upload (multi-file + EXIF auto-fill) ────────── -->
+    <section class="pi-card pi-card-full" id="piBatchCard">
+      <h2>Quick Batch Upload</h2>
+      <div class="pi-batch-help">
+        Drop a folder of phone photos here, or pick multiple files. Date and location auto-fill from each photo's EXIF when present (phone GPS / camera timestamp). Edit any photo's details later from its row in Saved Photos below.
+      </div>
+
+      <div class="pi-field-row">
+        <div class="pi-field">
+          <label for="piBatchNarrator">Narrator (applies to every file in this batch)</label>
+          <select id="piBatchNarrator"></select>
+        </div>
+        <div class="pi-field" style="justify-content:flex-end;">
+          <label class="pi-check" style="margin-top:24px;">
+            <input type="checkbox" id="piBatchNarratorReady" checked/>
+            <span>Mark each photo "ready to show" by default</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="pi-dropzone" id="piDropzone">
+        <div class="pi-dropzone-label">
+          Drop photos here, or
+          <label for="piBatchFile" class="pi-dropzone-pick">choose files</label>
+          <input type="file" id="piBatchFile" accept="image/*" multiple style="display:none"/>
+        </div>
+        <div class="pi-dropzone-sub">JPG · PNG · HEIC · WEBP — up to 50 per batch</div>
+      </div>
+
+      <div class="pi-actions">
+        <button type="button" class="pi-btn-primary" id="piBatchStartBtn" disabled>Upload All</button>
+        <button type="button" class="pi-btn-ghost"   id="piBatchClearBtn" disabled>Clear Queue</button>
+        <span class="pi-status" id="piBatchStatus"></span>
+      </div>
+
+      <div class="pi-batch-queue" id="piBatchQueue"></div>
+    </section>
+
     <div class="pi-grid">
 
       <!-- ────────── Upload form ────────── -->
@@ -105,6 +143,89 @@
         <div class="pi-list" id="piList"></div>
       </section>
 
+    </div>
+  </div>
+
+  <!-- ────────── View / Edit modal (BUG-239) ────────── -->
+  <div class="pi-modal-backdrop" id="piModalBackdrop" hidden>
+    <div class="pi-modal" role="dialog" aria-labelledby="piModalTitle" aria-modal="true">
+      <div class="pi-modal-header">
+        <h2 id="piModalTitle">Photo</h2>
+        <button type="button" class="pi-chip-btn" id="piModalCloseBtn" aria-label="Close">×</button>
+      </div>
+
+      <div class="pi-modal-body">
+        <div class="pi-modal-image-wrap">
+          <img id="piModalImage" alt="" />
+          <div class="pi-modal-source-attr" id="piModalSourceAttr"></div>
+        </div>
+
+        <div class="pi-modal-form">
+          <div class="pi-field">
+            <label for="piModalDescription">Description</label>
+            <textarea id="piModalDescription" placeholder="What's happening in this photo?"></textarea>
+          </div>
+
+          <div class="pi-field-row">
+            <div class="pi-field">
+              <label for="piModalDateValue">Date <span class="pi-field-hint" id="piModalDateHint"></span></label>
+              <input type="text" id="piModalDateValue" placeholder="e.g. 1968 or 1968-07-04"/>
+            </div>
+            <div class="pi-field">
+              <label for="piModalDatePrecision">Date precision</label>
+              <select id="piModalDatePrecision">
+                <option value="unknown">unknown</option>
+                <option value="decade">decade</option>
+                <option value="year">year</option>
+                <option value="month">month</option>
+                <option value="day">day</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pi-field-row">
+            <div class="pi-field">
+              <label for="piModalLocationLabel">Location <span class="pi-field-hint" id="piModalLocationHint"></span></label>
+              <input type="text" id="piModalLocationLabel" placeholder="e.g. Ada, Oklahoma"/>
+            </div>
+            <div class="pi-field">
+              <label for="piModalLocationSource">Location source</label>
+              <select id="piModalLocationSource">
+                <option value="unknown">unknown</option>
+                <option value="typed_address">typed_address</option>
+                <option value="spoken_place">spoken_place</option>
+                <option value="description_geocode">description_geocode</option>
+                <option value="exif_gps">exif_gps</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pi-field" id="piModalGpsField" hidden>
+            <label>GPS coordinates (from EXIF — read-only)</label>
+            <div class="pi-modal-readonly" id="piModalGpsValue"></div>
+          </div>
+
+          <label class="pi-check">
+            <input type="checkbox" id="piModalNarratorReady"/>
+            <span>Ready to show this photo to the narrator</span>
+          </label>
+
+          <details class="pi-modal-exif">
+            <summary>Raw EXIF metadata (forensic — read-only)</summary>
+            <pre class="pi-modal-exif-pre" id="piModalExifPre">none</pre>
+          </details>
+
+          <div class="pi-completeness" id="piModalCompleteness"></div>
+        </div>
+      </div>
+
+      <div class="pi-modal-footer">
+        <button type="button" class="pi-btn-ghost"   id="piModalDeleteBtn">Delete</button>
+        <span class="pi-status" id="piModalStatus"></span>
+        <span style="flex:1"></span>
+        <button type="button" class="pi-btn-ghost"   id="piModalCancelBtn">Cancel</button>
+        <button type="button" class="pi-btn-primary" id="piModalSaveBtn">Save Changes</button>
+      </div>
     </div>
   </div>
 

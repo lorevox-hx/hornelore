@@ -36,6 +36,39 @@
     status:          $("piStatus"),
     list:            $("piList"),
     listStatus:      $("piListStatus"),
+
+    // Batch upload (multi-file + EXIF auto-fill)
+    batchNarrator:      $("piBatchNarrator"),
+    batchNarratorReady: $("piBatchNarratorReady"),
+    batchFile:          $("piBatchFile"),
+    dropzone:           $("piDropzone"),
+    batchStart:         $("piBatchStartBtn"),
+    batchClear:         $("piBatchClearBtn"),
+    batchStatus:        $("piBatchStatus"),
+    batchQueue:         $("piBatchQueue"),
+
+    // View / Edit modal (BUG-239)
+    modalBackdrop:        $("piModalBackdrop"),
+    modalTitle:           $("piModalTitle"),
+    modalImage:           $("piModalImage"),
+    modalSourceAttr:      $("piModalSourceAttr"),
+    modalDescription:     $("piModalDescription"),
+    modalDateValue:       $("piModalDateValue"),
+    modalDateHint:        $("piModalDateHint"),
+    modalDatePrecision:   $("piModalDatePrecision"),
+    modalLocationLabel:   $("piModalLocationLabel"),
+    modalLocationHint:    $("piModalLocationHint"),
+    modalLocationSource:  $("piModalLocationSource"),
+    modalGpsField:        $("piModalGpsField"),
+    modalGpsValue:        $("piModalGpsValue"),
+    modalNarratorReady:   $("piModalNarratorReady"),
+    modalExifPre:         $("piModalExifPre"),
+    modalCompleteness:    $("piModalCompleteness"),
+    modalCloseBtn:        $("piModalCloseBtn"),
+    modalCancelBtn:       $("piModalCancelBtn"),
+    modalSaveBtn:         $("piModalSaveBtn"),
+    modalDeleteBtn:       $("piModalDeleteBtn"),
+    modalStatus:          $("piModalStatus"),
   };
 
   function setStatus(msg, level) {
@@ -49,36 +82,56 @@
   }
 
   // ── Narrator picker ─────────────────────────────────────────
+  function _populateNarratorSelect(selectEl, items, savedKey) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    if (!items.length) {
+      selectEl.innerHTML = '<option value="">— no narrators —</option>';
+      return;
+    }
+    items.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.id || p.person_id || "";
+      opt.textContent = p.display_name || p.name || opt.value;
+      selectEl.appendChild(opt);
+    });
+    var saved = savedKey ? localStorage.getItem(savedKey) : null;
+    if (saved) {
+      var opts = Array.from(selectEl.options).map(function(o){return o.value;});
+      if (opts.indexOf(saved) >= 0) selectEl.value = saved;
+    }
+  }
+
   function loadNarrators() {
     return fetch(ORIGIN + "/api/people")
       .then(function (r) { return r.ok ? r.json() : []; })
       .then(function (people) {
         var items = Array.isArray(people) ? people
                    : (people && Array.isArray(people.people) ? people.people : []);
-        el.narrator.innerHTML = "";
-        if (!items.length) {
-          el.narrator.innerHTML = '<option value="">— no narrators —</option>';
-          return;
-        }
-        items.forEach(function (p) {
-          var opt = document.createElement("option");
-          opt.value = p.id || p.person_id || "";
-          opt.textContent = p.display_name || p.name || opt.value;
-          el.narrator.appendChild(opt);
-        });
-        var saved = localStorage.getItem(LS_NARRATOR);
-        if (saved) {
-          var opts = Array.from(el.narrator.options).map(function(o){return o.value;});
-          if (opts.indexOf(saved) >= 0) el.narrator.value = saved;
-        }
+        // Single-photo dropdown (legacy LS key, untouched on the wire).
+        _populateNarratorSelect(el.narrator,      items, LS_NARRATOR);
+        // Batch dropdown shares the same saved selection.
+        _populateNarratorSelect(el.batchNarrator, items, LS_NARRATOR);
       })
       .catch(function () {
-        el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+        if (el.narrator)      el.narrator.innerHTML      = '<option value="">— /api/people unavailable —</option>';
+        if (el.batchNarrator) el.batchNarrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
       });
   }
 
   el && el.narrator && el.narrator.addEventListener("change", function () {
     localStorage.setItem(LS_NARRATOR, el.narrator.value);
+    if (el.batchNarrator && el.batchNarrator.value !== el.narrator.value) {
+      el.batchNarrator.value = el.narrator.value;
+    }
+    refreshList();
+  });
+
+  el && el.batchNarrator && el.batchNarrator.addEventListener("change", function () {
+    localStorage.setItem(LS_NARRATOR, el.batchNarrator.value);
+    if (el.narrator && el.narrator.value !== el.batchNarrator.value) {
+      el.narrator.value = el.batchNarrator.value;
+    }
     refreshList();
   });
 
@@ -251,9 +304,11 @@
       row.className = "pi-list-row";
 
       var img = document.createElement("img");
-      img.className = "pi-thumb";
+      img.className = "pi-thumb pi-thumb-clickable";
       img.alt = "";
+      img.title = "Click to view or edit";
       img.src = p.thumbnail_url || p.media_url || "";
+      img.addEventListener("click", function () { openPhotoModal(p); });
       row.appendChild(img);
 
       var meta = document.createElement("div");
@@ -287,19 +342,20 @@
 
       var actions = document.createElement("div");
       actions.className = "pi-list-actions";
+
+      var view = document.createElement("button");
+      view.type = "button";
+      view.className = "pi-chip-btn";
+      view.textContent = "View / Edit";
+      view.addEventListener("click", function () { openPhotoModal(p); });
+      actions.appendChild(view);
+
       var toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "pi-chip-btn";
       toggle.textContent = p.narrator_ready ? "Mark not ready" : "Mark ready";
       toggle.addEventListener("click", function () { patchReady(p, !p.narrator_ready); });
       actions.appendChild(toggle);
-
-      var del = document.createElement("button");
-      del.type = "button";
-      del.className = "pi-chip-btn";
-      del.textContent = "Delete";
-      del.addEventListener("click", function () { deletePhoto(p); });
-      actions.appendChild(del);
 
       row.appendChild(actions);
       el.list.appendChild(row);
@@ -331,6 +387,533 @@
       })
       .catch(function (e) { setListStatus("Delete failed: " + e.message, "err"); });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // BATCH UPLOAD (multi-file + EXIF auto-fill)
+  //
+  // Sequential upload (NOT parallel): the backend chains thumbnail
+  // generation, dedupe hash, and DB write per file. Hammering the
+  // server with 50 parallel uploads would melt the LLM context if
+  // anything else is in flight. Sequential is also easier to reason
+  // about for status display.
+  //
+  // EXIF auto-fill is server-side (HORNELORE_PHOTO_INTAKE flag). The
+  // browser just sends the file; the response carries the populated
+  // date_value / location_source / latitude / longitude back. We
+  // surface those on the queue card so the operator sees what stuck.
+  // ═══════════════════════════════════════════════════════════════
+
+  var BATCH_MAX = 50;
+  var batchItems = [];   // [{ id, file, status, photoId, date, loc, error }]
+  var batchInFlight = false;
+  var _batchUid = 0;
+  function _nextBatchId() { _batchUid += 1; return "b" + _batchUid; }
+
+  function _bytesPretty(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(0) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+
+  function _isImageFile(f) {
+    if (!f) return false;
+    var t = (f.type || "").toLowerCase();
+    if (t.indexOf("image/") === 0) return true;
+    // Some browsers don't tag HEIC mime; fall back to extension.
+    var name = (f.name || "").toLowerCase();
+    return /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/.test(name);
+  }
+
+  function _setBatchStatus(msg, level) {
+    if (!el.batchStatus) return;
+    el.batchStatus.textContent = msg || "";
+    el.batchStatus.className = "pi-status" + (level ? " " + level : "");
+  }
+
+  function _updateBatchButtons() {
+    var hasQueued = batchItems.some(function (i) { return i.status === "queued"; });
+    var hasAny = batchItems.length > 0;
+    if (el.batchStart) el.batchStart.disabled = !hasQueued || batchInFlight;
+    if (el.batchClear) el.batchClear.disabled = !hasAny || batchInFlight;
+  }
+
+  function _renderBatchItem(item) {
+    var row = document.createElement("div");
+    row.className = "pi-batch-row";
+    row.dataset.id = item.id;
+
+    // Thumbnail (client-side preview via FileReader)
+    var thumb = document.createElement("img");
+    thumb.className = "pi-batch-thumb";
+    thumb.alt = "";
+    var reader = new FileReader();
+    reader.onload = function (ev) { thumb.src = ev.target.result; };
+    try { reader.readAsDataURL(item.file); } catch (e) { /* ignore */ }
+    row.appendChild(thumb);
+
+    // Body
+    var body = document.createElement("div");
+    body.className = "pi-batch-body";
+
+    var name = document.createElement("div");
+    name.className = "pi-batch-name";
+    name.textContent = item.file.name + "  ·  " + _bytesPretty(item.file.size);
+    body.appendChild(name);
+
+    var meta = document.createElement("div");
+    meta.className = "pi-batch-meta";
+    meta.textContent = "Queued — EXIF date / GPS will be auto-filled by the server if present.";
+    body.appendChild(meta);
+
+    row.appendChild(body);
+
+    // Status pill
+    var pill = document.createElement("span");
+    pill.className = "pi-batch-pill queued";
+    pill.textContent = "queued";
+    row.appendChild(pill);
+
+    // Remove button (only meaningful for queued items)
+    var rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "pi-chip-btn";
+    rm.textContent = "Remove";
+    rm.addEventListener("click", function () {
+      if (item.status === "uploading") return;
+      batchItems = batchItems.filter(function (i) { return i.id !== item.id; });
+      row.remove();
+      _updateBatchButtons();
+    });
+    row.appendChild(rm);
+
+    // Stash refs on the item so update fns can mutate without re-render
+    item._row = row;
+    item._meta = meta;
+    item._pill = pill;
+    item._rm = rm;
+
+    return row;
+  }
+
+  function _updateBatchItem(item) {
+    if (!item._pill) return;
+    item._pill.className = "pi-batch-pill " + item.status;
+    item._pill.textContent = item.status;
+    if (item.status === "saved") {
+      var bits = [];
+      if (item.date) bits.push(item.date);
+      if (item.loc)  bits.push(item.loc);
+      item._meta.textContent = bits.length ? ("Saved — " + bits.join(" · ")) : "Saved.";
+      item._meta.className = "pi-batch-meta ok";
+      if (item._rm) item._rm.style.display = "none";
+    } else if (item.status === "uploading") {
+      item._meta.textContent = "Uploading…";
+      item._meta.className = "pi-batch-meta";
+    } else if (item.status === "duplicate") {
+      item._meta.textContent = "Already saved for this narrator (dedup match by file hash).";
+      item._meta.className = "pi-batch-meta warn";
+      item._pill.className = "pi-batch-pill warn";
+      item._pill.textContent = "duplicate";
+    } else if (item.status === "error") {
+      item._meta.textContent = "Failed: " + (item.error || "unknown error");
+      item._meta.className = "pi-batch-meta err";
+      item._pill.className = "pi-batch-pill err";
+      item._pill.textContent = "error";
+    }
+  }
+
+  function _addFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    var added = 0;
+    var skipped_nonimage = 0;
+    for (var i = 0; i < fileList.length; i++) {
+      if (batchItems.length >= BATCH_MAX) {
+        _setBatchStatus("Queue full (" + BATCH_MAX + " max). Upload some first.", "warn");
+        break;
+      }
+      var f = fileList[i];
+      if (!_isImageFile(f)) { skipped_nonimage += 1; continue; }
+      var item = {
+        id: _nextBatchId(),
+        file: f,
+        status: "queued",
+        photoId: null,
+        date: null,
+        loc: null,
+        error: null,
+      };
+      batchItems.push(item);
+      el.batchQueue.appendChild(_renderBatchItem(item));
+      added += 1;
+    }
+    var msg = added + " queued";
+    if (skipped_nonimage) msg += " · " + skipped_nonimage + " non-image skipped";
+    _setBatchStatus(msg, added ? "ok" : "warn");
+    _updateBatchButtons();
+  }
+
+  function _clearQueue() {
+    if (batchInFlight) return;
+    batchItems = [];
+    if (el.batchQueue) el.batchQueue.innerHTML = "";
+    _setBatchStatus("");
+    _updateBatchButtons();
+  }
+
+  function _uploadOne(item, narratorId, readyFlag) {
+    var fd = new FormData();
+    fd.append("file", item.file);
+    fd.append("narrator_id", narratorId);
+    fd.append("uploaded_by_user_id", getCuratorId());
+    // No description / date / location from form — server fills via EXIF
+    // (HORNELORE_PHOTO_INTAKE=1) when blank. date_precision / location_source
+    // both default to 'unknown' so the EXIF block can override them.
+    fd.append("date_precision", "unknown");
+    fd.append("location_source", "unknown");
+    fd.append("narrator_ready", readyFlag ? "true" : "false");
+
+    return fetch(ORIGIN + "/api/photos", { method: "POST", body: fd })
+      .then(function (r) {
+        if (r.status === 409) {
+          return r.json().then(function (body) {
+            return { _duplicate: true, photo: body && body.photo };
+          });
+        }
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            throw new Error(t || ("HTTP " + r.status));
+          });
+        }
+        return r.json();
+      });
+  }
+
+  function _runBatchSerially() {
+    var narratorId = (el.batchNarrator && el.batchNarrator.value || "").trim();
+    if (!narratorId) {
+      _setBatchStatus("Pick a narrator first.", "warn");
+      return Promise.resolve();
+    }
+    var readyFlag = !!(el.batchNarratorReady && el.batchNarratorReady.checked);
+
+    batchInFlight = true;
+    _updateBatchButtons();
+    _setBatchStatus("Uploading… 0/" + batchItems.filter(function(i){return i.status==="queued";}).length, "");
+
+    var todo = batchItems.filter(function (i) { return i.status === "queued"; });
+    var idx = 0;
+    var ok = 0, dup = 0, err = 0;
+
+    function step() {
+      if (idx >= todo.length) {
+        batchInFlight = false;
+        _setBatchStatus(
+          "Done. " + ok + " saved" + (dup ? " · " + dup + " duplicate" : "")
+                                   + (err ? " · " + err + " failed" : ""),
+          err ? "warn" : "ok"
+        );
+        _updateBatchButtons();
+        refreshList();
+        return Promise.resolve();
+      }
+      var item = todo[idx];
+      item.status = "uploading";
+      _updateBatchItem(item);
+      _setBatchStatus("Uploading… " + (idx + 1) + "/" + todo.length, "");
+
+      return _uploadOne(item, narratorId, readyFlag)
+        .then(function (resp) {
+          if (resp && resp._duplicate) {
+            item.status = "duplicate";
+            dup += 1;
+          } else {
+            item.status = "saved";
+            item.photoId = resp && resp.id;
+            item.date = resp && resp.date_value;
+            // Show location label if curator/EXIF reverse-geo provided one,
+            // else show the raw lat/lng from EXIF (Phase 2 reverse-geocoder
+            // not wired yet). location_source tells us where it came from.
+            if (resp && resp.location_label) {
+              item.loc = resp.location_label;
+            } else if (resp && resp.latitude != null && resp.longitude != null) {
+              item.loc = "GPS " + resp.latitude.toFixed(4) + ", " + resp.longitude.toFixed(4);
+            }
+            ok += 1;
+          }
+        })
+        .catch(function (e) {
+          item.status = "error";
+          item.error = (e && e.message) || String(e);
+          err += 1;
+        })
+        .then(function () {
+          _updateBatchItem(item);
+          idx += 1;
+          return step();
+        });
+    }
+
+    return step();
+  }
+
+  // ── Wire batch controls ─────────────────────────────────────
+  if (el.batchFile) {
+    el.batchFile.addEventListener("change", function (ev) {
+      _addFiles(ev.target.files);
+      // Reset value so re-picking the same file fires "change" again.
+      try { ev.target.value = ""; } catch (e) {}
+    });
+  }
+
+  if (el.dropzone) {
+    ["dragenter", "dragover"].forEach(function (evt) {
+      el.dropzone.addEventListener(evt, function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        el.dropzone.classList.add("drag");
+      });
+    });
+    ["dragleave", "drop"].forEach(function (evt) {
+      el.dropzone.addEventListener(evt, function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        el.dropzone.classList.remove("drag");
+      });
+    });
+    el.dropzone.addEventListener("drop", function (e) {
+      var dt = e.dataTransfer;
+      if (!dt || !dt.files) return;
+      _addFiles(dt.files);
+    });
+  }
+
+  if (el.batchStart) {
+    el.batchStart.addEventListener("click", function () {
+      _runBatchSerially();
+    });
+  }
+
+  if (el.batchClear) {
+    el.batchClear.addEventListener("click", _clearQueue);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // VIEW / EDIT MODAL (BUG-239)
+  //
+  // Opens on click of a saved-photo thumbnail or its "View / Edit"
+  // button. Shows the full image + all metadata, distinguishes
+  // EXIF-derived fields from curator-typed ones, lets the curator add
+  // missing info post-upload (critical for old scanned prints with no
+  // EXIF date or GPS).
+  //
+  // Save → PATCH /api/photos/{id} with all editable fields.
+  // Delete → DELETE /api/photos/{id} (soft delete on the backend).
+  // ═══════════════════════════════════════════════════════════════
+
+  var _modalPhoto = null;   // currently-open photo row (full object as returned by GET /api/photos)
+
+  function _setModalStatus(msg, level) {
+    if (!el.modalStatus) return;
+    el.modalStatus.textContent = msg || "";
+    el.modalStatus.className = "pi-status" + (level ? " " + level : "");
+  }
+
+  function _renderSourceAttribution(photo) {
+    // The metadata_json blob carries `exif` + `exif_captured_at` +
+    // `exif_gps`. Use those to label which fields came from EXIF vs
+    // were typed by the curator. Helps the operator see at a glance
+    // what they need to fill in for old scanned photos.
+    if (!el.modalSourceAttr) return;
+    var meta = (photo && photo.metadata_json) || {};
+    var bits = [];
+    if (meta.exif_captured_at) {
+      bits.push('<span class="pi-source-pill exif">date · from EXIF</span>');
+    } else if (photo && photo.date_value) {
+      bits.push('<span class="pi-source-pill curator">date · typed by curator</span>');
+    } else {
+      bits.push('<span class="pi-source-pill missing">date · MISSING</span>');
+    }
+    var loc_src = photo && photo.location_source;
+    if (loc_src === "exif_gps") {
+      bits.push('<span class="pi-source-pill exif">location · GPS from EXIF</span>');
+    } else if (photo && (photo.location_label || loc_src && loc_src !== "unknown")) {
+      bits.push('<span class="pi-source-pill curator">location · typed by curator</span>');
+    } else {
+      bits.push('<span class="pi-source-pill missing">location · MISSING</span>');
+    }
+    el.modalSourceAttr.innerHTML = bits.join(" ");
+  }
+
+  function _renderCompleteness(photo) {
+    if (!el.modalCompleteness) return;
+    var checks = [
+      { label: "description", ok: !!(photo && photo.description && photo.description.trim()) },
+      { label: "date",        ok: !!(photo && photo.date_value && photo.date_value.trim()) },
+      { label: "location",    ok: !!(photo && photo.location_label && photo.location_label.trim()) },
+      { label: "ready",       ok: !!(photo && photo.narrator_ready) },
+    ];
+    var missing = checks.filter(function (c) { return !c.ok; });
+    var html = '<div class="pi-completeness-row">';
+    checks.forEach(function (c) {
+      html += '<span class="pi-completeness-pill ' + (c.ok ? 'ok' : 'gap') + '">' + c.label + '</span>';
+    });
+    html += '</div>';
+    if (missing.length) {
+      var nm = missing.map(function (c) { return c.label; }).join(", ");
+      html += '<div class="pi-completeness-note">Still missing: ' + nm + '</div>';
+    } else {
+      html += '<div class="pi-completeness-note ok">All fields filled. Ready for the narrator.</div>';
+    }
+    el.modalCompleteness.innerHTML = html;
+  }
+
+  function openPhotoModal(photo) {
+    if (!el.modalBackdrop) return;
+    _modalPhoto = photo;
+
+    // Populate fields
+    if (el.modalImage)         el.modalImage.src = photo.media_url || photo.thumbnail_url || "";
+    if (el.modalDescription)   el.modalDescription.value   = photo.description    || "";
+    if (el.modalDateValue)     el.modalDateValue.value     = photo.date_value     || "";
+    if (el.modalDatePrecision) el.modalDatePrecision.value = photo.date_precision || "unknown";
+    if (el.modalLocationLabel) el.modalLocationLabel.value = photo.location_label || "";
+    if (el.modalLocationSource) el.modalLocationSource.value = photo.location_source || "unknown";
+    if (el.modalNarratorReady) el.modalNarratorReady.checked = !!photo.narrator_ready;
+
+    // Hints next to date/location labels — say where the value came from
+    var meta = photo.metadata_json || {};
+    if (el.modalDateHint) {
+      el.modalDateHint.textContent = meta.exif_captured_at
+        ? "(EXIF: " + meta.exif_captured_at + ")"
+        : "";
+    }
+    if (el.modalLocationHint) {
+      el.modalLocationHint.textContent = (photo.location_source === "exif_gps")
+        ? "(from phone GPS)"
+        : "";
+    }
+
+    // GPS coords (read-only)
+    if (el.modalGpsField && el.modalGpsValue) {
+      if (photo.latitude != null && photo.longitude != null) {
+        el.modalGpsField.hidden = false;
+        var url = "https://www.openstreetmap.org/?mlat=" + photo.latitude + "&mlon=" + photo.longitude + "#map=12/" + photo.latitude + "/" + photo.longitude;
+        el.modalGpsValue.innerHTML =
+          photo.latitude.toFixed(6) + ", " + photo.longitude.toFixed(6) +
+          ' &nbsp;<a href="' + url + '" target="_blank" rel="noopener">view on map</a>';
+      } else {
+        el.modalGpsField.hidden = true;
+        el.modalGpsValue.textContent = "";
+      }
+    }
+
+    // Raw EXIF (forensic)
+    if (el.modalExifPre) {
+      var raw = meta.exif || {};
+      var keys = Object.keys(raw);
+      if (keys.length) {
+        el.modalExifPre.textContent = JSON.stringify(raw, null, 2);
+      } else {
+        el.modalExifPre.textContent = "(no EXIF metadata in this file — typical for scanned prints, screenshots, or photos with EXIF stripped by social media uploads)";
+      }
+    }
+
+    _renderSourceAttribution(photo);
+    _renderCompleteness(photo);
+    _setModalStatus("");
+
+    el.modalBackdrop.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+
+  function closePhotoModal() {
+    if (!el.modalBackdrop) return;
+    el.modalBackdrop.hidden = true;
+    document.body.style.overflow = "";
+    _modalPhoto = null;
+    _setModalStatus("");
+  }
+
+  function savePhotoModal() {
+    if (!_modalPhoto || !el.modalSaveBtn) return;
+    var photoId = _modalPhoto.id;
+    var body = {
+      description:     (el.modalDescription.value     || "").trim() || null,
+      date_value:      (el.modalDateValue.value       || "").trim() || null,
+      date_precision:  el.modalDatePrecision.value    || "unknown",
+      location_label:  (el.modalLocationLabel.value   || "").trim() || null,
+      location_source: el.modalLocationSource.value   || "unknown",
+      narrator_ready:  !!el.modalNarratorReady.checked,
+      last_edited_by_user_id: getCuratorId(),
+    };
+
+    el.modalSaveBtn.disabled = true;
+    _setModalStatus("Saving…");
+    fetch(ORIGIN + "/api/photos/" + encodeURIComponent(photoId), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    .then(function (r) {
+      if (!r.ok) {
+        return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+      }
+      return r.json();
+    })
+    .then(function (updated) {
+      // Repopulate the modal in-place so source-attribution / completeness
+      // pills reflect the new state without closing.
+      if (updated && updated.id) {
+        _modalPhoto = updated;
+        _renderSourceAttribution(updated);
+        _renderCompleteness(updated);
+      }
+      _setModalStatus("Saved.", "ok");
+      refreshList();
+    })
+    .catch(function (e) {
+      _setModalStatus("Save failed: " + (e.message || e), "err");
+    })
+    .finally(function () { el.modalSaveBtn.disabled = false; });
+  }
+
+  function deletePhotoFromModal() {
+    if (!_modalPhoto) return;
+    if (!confirm("Soft-delete this photo? You can restore it from the database later, but the narrator will not see it.")) return;
+    var photoId = _modalPhoto.id;
+    if (el.modalDeleteBtn) el.modalDeleteBtn.disabled = true;
+    _setModalStatus("Deleting…");
+    fetch(ORIGIN + "/api/photos/" + encodeURIComponent(photoId), { method: "DELETE" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        closePhotoModal();
+        refreshList();
+      })
+      .catch(function (e) {
+        _setModalStatus("Delete failed: " + (e.message || e), "err");
+      })
+      .finally(function () { if (el.modalDeleteBtn) el.modalDeleteBtn.disabled = false; });
+  }
+
+  // ── Wire modal controls ─────────────────────────────────────
+  if (el.modalCloseBtn)  el.modalCloseBtn.addEventListener("click", closePhotoModal);
+  if (el.modalCancelBtn) el.modalCancelBtn.addEventListener("click", closePhotoModal);
+  if (el.modalSaveBtn)   el.modalSaveBtn.addEventListener("click", savePhotoModal);
+  if (el.modalDeleteBtn) el.modalDeleteBtn.addEventListener("click", deletePhotoFromModal);
+
+  // Close on backdrop click (but not when clicking inside the modal panel)
+  if (el.modalBackdrop) {
+    el.modalBackdrop.addEventListener("click", function (ev) {
+      if (ev.target === el.modalBackdrop) closePhotoModal();
+    });
+  }
+
+  // ESC closes modal
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && el.modalBackdrop && !el.modalBackdrop.hidden) {
+      closePhotoModal();
+    }
+  });
 
   // ── Bootstrap ────────────────────────────────────────────────
   loadNarrators().then(refreshList);
