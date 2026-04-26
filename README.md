@@ -46,6 +46,15 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 - WO-AUDIO-NARRATOR-ONLY-01 — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. Live build with operator in browser; 2.5–3 hours.
 - WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish; ship after first parent session.
 
+**Landed late 2026-04-25 night (post-BB-Walk 38/0 clean checkpoint):**
+
+- **WO-LORI-PHOTO-INTAKE-01 Phase 2 partial — EXIF auto-fill** (server). New `server/code/services/photo_intake/exif.py` (Pillow-backed, fail-soft DMS-decimal converter + JSON-safe raw EXIF dump). Wired into `routers/photos.py` upload handler behind `HORNELORE_PHOTO_INTAKE=1`. Curator-supplied date/location ALWAYS wins; EXIF only fills blanks. Raw EXIF tag map stamped into `metadata_json["exif"]` regardless. Log line `[photos][exif] auto-filled date,gps for photo_id=...`. Default-off; flag-flippable from `.env`.
+- **Multi-file batch upload** (UI). New "Quick Batch Upload" card on `photo-intake.html` above the existing single-photo form. Drag-and-drop or multi-pick, sequential upload (not parallel — protects backend), per-file thumbnail + status pill (queued / uploading / saved / duplicate / error), shared narrator + ready-flag across the batch.
+- **View / Edit modal (BUG-239)** — click any saved-photo thumbnail or "View / Edit" button. Shows the full image, source-attribution pills (date/location came from EXIF vs typed by curator vs MISSING), inline editing for description / date / location / ready flag (POSTs to existing PATCH endpoint), GPS coords + map link when EXIF GPS present, raw EXIF in collapsible details, completeness pills. Critical for old scanned prints arriving with no EXIF — operator can fill metadata after the fact.
+- **BUG-238** — narrator photo view now filters by `narrator_ready=true`. Without this, scanned-but-unvetted photos and in-progress curator entries leaked into the narrator room.
+- **Photo system test plan** — `docs/PHOTO-SYSTEM-TEST-PLAN.md` (8 manual smoke cases + automated EXIF parser test). Run automated: `python3 scripts/test_photo_exif.py` (3/3 PASS confirmed).
+- **BB Walk Test passing 38/0** — BUG-227/230/234/236/237 stack. Identity pipeline + scope hard-gate + askName parser fix all proven.
+
 **Landed overnight 2026-04-25 (test-narrator validation pending tomorrow):**
 
 - **BUG-208 / #219** — bio-builder-core.js cross-narrator contamination. **Code landed**: narrator-switch generation counter + 3-guard backend response check + persist guard + pre/post-fetch pid scope assertions in session-loop + 4 new BUG-208 harness checks under `session` category. **Awaiting live verify with test narrators tomorrow morning.** Report: `docs/reports/BUG-208_REPORT.md`.

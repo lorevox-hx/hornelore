@@ -30,9 +30,17 @@ Three-tab shell (Operator | Narrator Session | Media), narrator room, photos vie
 
 ### Companion-app open bugs
 
-- **#219 / Bug — bio-builder-core cross-narrator contamination** (filed, NOT FIXED). `GET /api/bio-builder/questionnaire?person_id=<corky>` returns Christopher Todd Horne's data. `[bb-drift] KEY MISMATCH` console logs hint at a localStorage / backend key mix between narrators. **P0 before parents touch the system** — every session pollutes the next without this fix.
+- **#219 / BUG-208 — bio-builder-core cross-narrator contamination** — **CODE LANDED 2026-04-25** (BUG-227/230/234/236/237 stack). BB Walk Test 38/0 PASS. Awaiting live test-narrator verification. Demote from P0 once that's banked.
 - **Cache-busting brittle** — `<script src="js/foo.js">` tags don't carry `?v=`. Hard-reload (Ctrl+Shift+R) is the workaround. P1.
 - **`lv80SwitchPerson` rebuilds `state.session` from scratch** — `hornelore1.0.html:4646`, two parallel branches. New session-scoped fields get DROPPED on narrator switch unless explicitly preserved (already bit #145 onboarding, #194 sessionStyle, #206 camera one-shot). Defer to a quiet-day refactor.
+
+### Photo system status (Phase 1 + Phase 2 partial)
+
+**Live and tested:** /api/photos router (gated by `HORNELORE_PHOTO_ENABLED`); EXIF auto-fill (gated by `HORNELORE_PHOTO_INTAKE`); single-photo + multi-file batch upload (`photo-intake.html`); view/edit modal for post-upload metadata edits (BUG-239 fix); narrator-room photos view filters by `narrator_ready=true` (BUG-238 fix). Automated EXIF parser test 3/3 PASS (`scripts/test_photo_exif.py`).
+
+**Test before parent demo:** Run all 8 cases in `docs/PHOTO-SYSTEM-TEST-PLAN.md` end-to-end. Especially Case 2 (no-EXIF graceful) and Case 3 (edit-after-upload via modal) — these are the two flows for parents' scanned childhood prints.
+
+**Phase 2 deferred (post-demo):** reverse geocoder (`geocode_real.py` — currently raw lat/lng only); conflict detector (curator EXIF vs narrator-derived facts); review queue UI; photo elicit / narrator-side memory write (`WO-LORI-PHOTO-ELICIT-01`).
 
 Full audit: `docs/reports/CODE-REVIEW-2026-04-25.md`.
 
