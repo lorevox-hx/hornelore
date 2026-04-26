@@ -382,6 +382,15 @@ function lvOpenMediaTool(tool) {
       window.open(`photo-elicit.html?narrator_id=${encodeURIComponent(pid)}`, "_blank", "noopener");
       break;
     }
+    // WO-MEDIA-ARCHIVE-01 — Document Archive lane (PDFs, scanned docs,
+    // genealogy outlines, handwritten notes, certificates, clippings).
+    // Distinct from Photo Intake which is image-only memory prompts;
+    // this surface accepts PDFs and is gated behind a separate flag
+    // (HORNELORE_MEDIA_ARCHIVE_ENABLED). Narrator is optional — many
+    // archive items aren't bound to a specific person at intake time.
+    case "document_archive":
+      window.open("media-archive.html", "_blank", "noopener");
+      break;
     default:
       console.warn("[lv-shell] unknown media tool:", tool);
   }

@@ -60,6 +60,7 @@ window.lvUiHealthCheck = (function () {
     { key: "memoir",     label: "Peek at Memoir",      fn: _check_peek_memoir    },
     { key: "media",      label: "Media Tab",           fn: _check_media_tab      },
     { key: "photos",     label: "Photos",              fn: _check_photos         },
+    { key: "media_archive", label: "Document Archive", fn: _check_media_archive  },
     { key: "archive",    label: "Archive",             fn: _check_archive        },
     { key: "session",    label: "Session Style",       fn: _check_session_style  },
     { key: "navigation", label: "Navigation Recovery", fn: _check_navigation     },
@@ -748,6 +749,90 @@ window.lvUiHealthCheck = (function () {
     } else {
       _push(cat, "narrator photo list reachable", STATUS.WARN,
         `status=${list.status} ${list.error || ""}`);
+    }
+  }
+
+  // ── Category: Document Archive (WO-MEDIA-ARCHIVE-01) ───────────
+  // Curator-side lane for PDFs / scanned documents / handwritten
+  // notes / genealogy outlines / letters / certificates / clippings.
+  // Distinct from Photo Intake (image-only memory prompts) and gated
+  // behind its own flag (HORNELORE_MEDIA_ARCHIVE_ENABLED).
+  //
+  // Three checks:
+  //   1. /api/media-archive/health route reachable (router mounted)
+  //   2. /ui/media-archive.html page reachable (curator page exists)
+  //   3. Operator launcher card present in Media tab (#lv80MediaArchiveBtn)
+  async function _check_media_archive() {
+    const cat = "media_archive";
+
+    // 1) Health probe — surfaces 404 (router not mounted) vs disabled vs on
+    const h = await _fetchJSON("/api/media-archive/health");
+    if (h.status === 404) {
+      _push(cat, "/api/media-archive/health installed", STATUS.NOT_INSTALLED,
+        "router not mounted in main.py — WO-MEDIA-ARCHIVE-01 not deployed on this stack");
+      return;
+    }
+    if (!h.ok || !h.body) {
+      _push(cat, "/api/media-archive/health reachable", STATUS.FAIL,
+        `status=${h.status} ${h.error || ""}`);
+      return;
+    }
+    const storageRoot = h.body.storage_root || "(none)";
+    _push(cat, "/api/media-archive/health reachable", STATUS.PASS,
+      `enabled=${h.body.enabled} storage=${storageRoot}`);
+
+    // Gate the rest behind enabled. When disabled, the LIST endpoint
+    // returns 404 by design (each handler self-guards), so probing it
+    // would just be noise.
+    if (!h.body.enabled) {
+      _push(cat, "media archive feature enabled", STATUS.DISABLED,
+        "set HORNELORE_MEDIA_ARCHIVE_ENABLED=1 in .env + restart stack");
+    } else {
+      _push(cat, "media archive feature enabled", STATUS.PASS, "");
+
+      // List endpoint reachable (no narrator filter — many archive
+      // items aren't bound to a person at intake time, e.g. a
+      // multi-family genealogy outline). 200 is the only PASS.
+      const list = await _fetchJSON("/api/media-archive");
+      if (list.ok && list.body) {
+        _push(cat, "archive list endpoint reachable", STATUS.PASS,
+          `${list.body.count || 0} item(s) total`);
+      } else {
+        _push(cat, "archive list endpoint reachable", STATUS.WARN,
+          `status=${list.status} ${list.error || ""}`);
+      }
+    }
+
+    // 2) Curator page reachable — the static-mount surface that
+    // serves /ui/media-archive.html. We use HEAD so we only check
+    // for 200 vs 404 without pulling the whole document.
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 1500);
+      const res = await fetch("/ui/media-archive.html", { method: "HEAD", signal: ctl.signal });
+      clearTimeout(t);
+      if (res.ok) {
+        _push(cat, "/ui/media-archive.html page reachable", STATUS.PASS,
+          `status=${res.status}`);
+      } else {
+        _push(cat, "/ui/media-archive.html page reachable", STATUS.FAIL,
+          `status=${res.status} — page missing or static mount broken`);
+      }
+    } catch (e) {
+      _push(cat, "/ui/media-archive.html page reachable", STATUS.WARN,
+        `fetch threw: ${e && e.message || e}`);
+    }
+
+    // 3) Launcher card present in Media tab. The button is added by
+    // hornelore1.0.html as part of the Media tab grid; if it's missing
+    // the operator can't reach the curator page from the shell.
+    const btn = document.getElementById("lv80MediaArchiveBtn");
+    if (btn) {
+      _push(cat, "Operator launcher card present (#lv80MediaArchiveBtn)", STATUS.PASS,
+        "Document Archive card visible in Media tab");
+    } else {
+      _push(cat, "Operator launcher card present (#lv80MediaArchiveBtn)", STATUS.FAIL,
+        "#lv80MediaArchiveBtn missing from Media tab — operator cannot launch curator page");
     }
   }
 

@@ -3349,6 +3349,19 @@
           <strong>Photo Session</strong>
           <span>Start a narrator-safe photo memory session.</span>
         </button>
+        <!-- WO-MEDIA-ARCHIVE-01 — separate Document Archive lane for
+             PDFs, scanned docs, handwritten notes, genealogy outlines,
+             letters, certificates, clippings. Distinct from the photo
+             intake/timeline/session triplet above; gated behind its
+             own flag (HORNELORE_MEDIA_ARCHIVE_ENABLED) — when off,
+             clicking opens a page that surfaces a clear "disabled"
+             message via /api/media-archive/health probe. -->
+        <button id="lv80MediaArchiveBtn" class="lv-media-launch-card" type="button"
+                onclick="lvOpenMediaTool('document_archive')">
+          <span class="lv-media-icon" aria-hidden="true">📄</span>
+          <strong>Document Archive</strong>
+          <span>Upload PDFs, handwritten notes, genealogy outlines, letters, certificates, scans.</span>
+        </button>
       </div>
 
       <p id="lvMediaDisabledNote" class="lv-operator-hint" hidden>Photo tools are not enabled for this run.</p>
