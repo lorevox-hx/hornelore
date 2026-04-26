@@ -140,7 +140,11 @@ def _parse_capture_dt(raw: str) -> Tuple[Optional[str], str]:
             return (None, "unknown")
         if not (1 <= di <= 31):
             return (None, "unknown")
-        return (f"{yi:04d}-{mi:02d}-{di:02d}", "day")
+        # BUG-PHOTO-PRECISION-DAY: DB CHECK constraint allows
+        # ('exact','month','year','decade','unknown') -- "day" is NOT in
+        # the enum. EXIF DateTimeOriginal carries down to the second so
+        # "exact" is the correct semantic match for a full date.
+        return (f"{yi:04d}-{mi:02d}-{di:02d}", "exact")
     except Exception:
         return (None, "unknown")
 

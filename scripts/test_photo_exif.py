@@ -102,8 +102,8 @@ def test_exif_date_roundtrip() -> None:
         _fail(name, f"captured_at = {result.get('captured_at')!r}, expected {expected_date!r}")
         return
 
-    if result.get("captured_at_precision") != "day":
-        _fail(name, f"captured_at_precision = {result.get('captured_at_precision')!r}, expected 'day'")
+    if result.get("captured_at_precision") != "exact":
+        _fail(name, f"captured_at_precision = {result.get('captured_at_precision')!r}, expected 'exact'")
         return
 
     # GPS should be absent on this fixture (we didn't write GPS)
@@ -113,6 +113,13 @@ def test_exif_date_roundtrip() -> None:
         return
 
     _pass(name, f"date={result['captured_at']} precision={result['captured_at_precision']}")
+    # NOTE: precision="exact" matches the DB CHECK constraint
+    # (DATE_PRECISIONS = exact|month|year|decade|unknown). EXIF
+    # DateTimeOriginal carries down to the second so 'exact' is
+    # semantically correct for any successful round-trip. Don't change
+    # this back to 'day' without also changing the DB CHECK constraint
+    # via a migration -- otherwise upload writes will fail with
+    # IntegrityError (BUG-PHOTO-PRECISION-DAY surfaced 2026-04-25).
 
 
 # ──────────────────────────────────────────────────────────────────
