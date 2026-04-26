@@ -389,11 +389,33 @@
         detail: "identityPhase=" + idPhaseAfter });
       if (!report.qf_redundant_question_asked) report.pass++; else report.fail++;
 
+      // BUG-235 FIX: QF walk needs ONE prime turn before answers land.
+      //
+      // Live evidence 2026-04-25T23:55: prior version sent 3 values but
+      // they shifted by one — preferredName got "First child", birthOrder
+      // got "morning", timeOfBirth never landed.
+      //
+      // Cause: on the FIRST narrator_turn after identity_complete,
+      // _routeQuestionnaireFirst runs with currentField=null. It can't
+      // save anything (no prior question). It just looks up next empty
+      // field and asks it (sets currentField). The harness's first send
+      // then gets dropped because no save fired this turn.
+      //
+      // Fix: send a prime turn with a non-identity-shaped string first
+      // (e.g. "ok") to let the walk arm currentField. Then the next 3
+      // sends land in the correct fields.
+      //
+      // The prime "ok" is benign — short, no identity signals, won't
+      // trigger BUG-227 rescue (no name, no first-person birth claim).
+      // It does NOT get saved (currentField was null when it dispatched).
+      try {
+        await window.lvSessionLoopOnTurn({ trigger: "narrator_turn", text: "ok" });
+        await _wait(200);
+      } catch (_) {}
+
       // Drive remaining personal fields through QF walk: preferredName, birthOrder, timeOfBirth.
-      // Each lvSessionLoopOnTurn dispatches a save of the previously-asked field.
-      // Sequence: send preferred → save preferred, asks birthOrder.
-      //           send birthOrder → save birthOrder, asks timeOfBirth.
-      //           send timeOfBirth → save timeOfBirth, handoff fires.
+      // After the prime turn above, each subsequent dispatch saves the
+      // previously-asked field then asks the next.
       const qfTurns = [
         { send: TEST_DATA.personal.preferredName,  expectAt: "personal.preferredName", expectContains: "Sarah" },
         { send: TEST_DATA.personal.birthOrder,     expectAt: "personal.birthOrder",    expectContains: "first" },

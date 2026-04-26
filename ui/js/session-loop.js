@@ -224,19 +224,43 @@
         typeof window._extractIdentityFieldsFromUtterance === "function") {
       try {
         const _identity = window._extractIdentityFieldsFromUtterance(event.text);
-        // BUG-230: require 2+ identity fields to fire rescue.
-        // Single-field hits are too eager — live evidence 2026-04-25T22:48:
-        // narrator answered preferredName="Sarah" during QF walk; the
-        // birthplace parser's last-resort branch matched "Sarah" as a
-        // place name (capital-led, no stop tokens), single-field rescue
-        // overwrote BB POB with "Sarah". An intro has multiple identity
-        // facts in one utterance ("My name is X, born in Y on Z"), not
-        // just one. Require 2+ to discriminate intro from field-answer.
-        const _fieldCount = (_identity ? 0 : 0)
-          + (_identity && _identity.name ? 1 : 0)
-          + (_identity && _identity.dob  ? 1 : 0)
-          + (_identity && _identity.pob  ? 1 : 0);
-        const _hasIdentitySignal = _fieldCount >= 2;
+        // BUG-230 + BUG-234: rescue requires SELF-INTRO signals, not just
+        // multi-field extraction.
+        // Live evidence 2026-04-25T22:48 (BUG-230): narrator answered
+        //   "Sarah" → birthplace parser matched fallback → single-field
+        //   rescue wrote pob=Sarah. Fixed by requiring 2+ fields.
+        // Live evidence 2026-04-25T23:55 (BUG-234): break case "My son
+        //   Michael was born in Denver in 1982" extracted dob+pob (2
+        //   fields, BUG-230 passed) → rescue overwrote real DOB+POB
+        //   with the SON's data. The 2-field guard is necessary but
+        //   not sufficient.
+        // True self-intro signal: either an explicit name pattern
+        // matched ("My name is X" / "I'm X" / "Call me X") OR a
+        // first-person birth claim ("I was born", "I'm born", "I am born").
+        // Third-person references ("my son was born", "she was born",
+        // "they grew up in") don't satisfy either and must not trigger.
+        const _hasName = !!(_identity && _identity.name);
+        const _firstPersonBirth = /\b(?:i|i'?m|i\s+was|i\s+am)\s+(?:was\s+)?born\b/i.test(event.text);
+        // BUG-234 hardening: even with first-person + dob/pob, the narrator
+        // may be CORRECTING themselves ("I think I was born in 1953 actually")
+        // or hedging ("maybe", "actually", "wait"). Per spec, conflicting
+        // identity claims must be flagged or ignored — NOT silently overwritten.
+        // For tonight, treat correction/hedging language as a hard block. The
+        // existing identity stands; operator can confirm-and-update via the
+        // BB Personal section if narrator's correction is real.
+        const _narratorCorrectingSelf = /\b(?:actually|wait|let\s+me\s+correct|i\s+meant|correction|i\s+was\s+wrong|hmm,?\s+(?:actually|wait))\b/i.test(event.text);
+        const _fieldCount = (_identity && _identity.name ? 1 : 0)
+          + (_identity && _identity.dob ? 1 : 0)
+          + (_identity && _identity.pob ? 1 : 0);
+        // Fire rescue only when:
+        //   (a) name pattern matched (proves it's a self-intro), AND >=1 other field, OR
+        //   (b) first-person birth claim AND >=1 of dob/pob (no name yet, but speaker
+        //       is clearly talking about themselves)
+        // AND narrator is not signaling self-correction.
+        const _hasIdentitySignal =
+          !_narratorCorrectingSelf &&
+          ((_hasName && _fieldCount >= 2) ||
+           (_firstPersonBirth && (_identity.dob || _identity.pob)));
         if (_hasIdentitySignal) {
           // Update state.profile.basics first — runtime71 reads from here.
           if (!state.profile) state.profile = { basics: {}, kinship: [], pets: [] };
