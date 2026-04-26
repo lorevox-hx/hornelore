@@ -131,6 +131,12 @@ class _PhotoPatch(BaseModel):
     location_source: Optional[str] = None
     narrator_ready: Optional[bool] = None
     needs_confirmation: Optional[bool] = None
+    # WO-PHOTO-PEOPLE-EDIT-01: when present (non-None), REPLACES the
+    # photo's people/events lists wholesale. Server diffs internally
+    # (delete_all + add_back). Empty list = wipe all. None = leave
+    # untouched (matches the existing field-level semantics).
+    people: Optional[List[Dict[str, Any]]] = None
+    events: Optional[List[Dict[str, Any]]] = None
     last_edited_by_user_id: str = Field(..., min_length=1)
 
 
@@ -613,35 +619,106 @@ def patch_photo(photo_id: str, body: _PhotoPatch) -> Dict[str, Any]:
     if not actor:
         raise HTTPException(status_code=400, detail="last_edited_by_user_id required")
 
+    # WO-PHOTO-PEOPLE-EDIT-01: pull people/events out of the field
+    # payload before passing to repository.patch_photo (which only
+    # knows about the photos table). We handle the join-table
+    # replace-all semantics inline below.
+    people_replace = payload.pop("people", None)
+    events_replace = payload.pop("events", None)
+
     _validate_enum("date_precision", payload.get("date_precision"), DATE_PRECISIONS)
     _validate_enum("location_source", payload.get("location_source"), LOCATION_SOURCES)
 
-    # Auto-derive needs_confirmation from location_source iff the caller
-    # didn't explicitly set it in this PATCH payload.
+    # Auto-derive needs_confirmation from location_source OR location_label
+    # iff the caller didn't explicitly set it. P1.3 (code review 2026-04-26):
+    # location_label edits should also retrigger the recalc, otherwise a
+    # curator typo-fixing manual edit can leave needs_confirmation stale
+    # at False (was set false by exif_gps auto-fill but the label has
+    # since been hand-edited and may not match the GPS anymore).
     if (
         "needs_confirmation" not in payload
-        and "location_source" in payload
+        and ("location_source" in payload or "location_label" in payload)
     ):
+        # Use the location_source from the patch if present, else from
+        # the existing row, so manual-label-only edits still recompute
+        # against the original source authority.
+        existing_row = photo_repo.get_photo(photo_id)
+        effective_source = payload.get("location_source")
+        if effective_source is None and existing_row:
+            effective_source = existing_row.get("location_source")
         payload["needs_confirmation"] = needs_confirmation_for_location(
-            payload.get("location_source")
+            effective_source
         )
 
-    if not payload:
-        # Nothing to update — still stamp last_edited_at via the repository
-        # by passing an empty patch, but that would be a no-op; return the
-        # current row unchanged instead.
-        row = photo_repo.get_photo(photo_id)
-        if row is None:
+    # Run the field patch first (if any field changed), then sync the
+    # join tables. We do this order so a 404 on the photo itself
+    # short-circuits before we touch photo_people/photo_events.
+    if payload:
+        updated = photo_repo.patch_photo(
+            photo_id=photo_id,
+            patch=payload,
+            actor_id=actor,
+        )
+        if updated is None:
             raise HTTPException(status_code=404, detail="photo not found")
-        return row
+    else:
+        # Verify the photo exists before mutating join tables.
+        updated = photo_repo.get_photo(photo_id)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="photo not found")
 
-    updated = photo_repo.patch_photo(
-        photo_id=photo_id,
-        patch=payload,
-        actor_id=actor,
-    )
-    if updated is None:
-        raise HTTPException(status_code=404, detail="photo not found")
+    # ---- Replace-all semantics for people/events --------------------
+    if people_replace is not None:
+        deleted_n = photo_repo.delete_all_photo_people(photo_id)
+        added_n = 0
+        for p in people_replace:
+            label = (p.get("person_label") or "").strip() if isinstance(p, dict) else ""
+            if not label:
+                continue
+            photo_repo.add_photo_person(
+                photo_id=photo_id,
+                person_label=label,
+                person_id=(p.get("person_id") if isinstance(p, dict) else None),
+                provenance=make_provenance(
+                    source_type="curator_input",
+                    source_authority="curator",
+                    source_actor_id=actor,
+                ),
+            )
+            added_n += 1
+        log.info(
+            "[photos][patch][people] photo_id=%s actor=%s deleted=%d added=%d",
+            photo_id, actor, deleted_n, added_n,
+        )
+
+    if events_replace is not None:
+        deleted_n = photo_repo.delete_all_photo_events(photo_id)
+        added_n = 0
+        for e in events_replace:
+            label = (e.get("event_label") or "").strip() if isinstance(e, dict) else ""
+            if not label:
+                continue
+            photo_repo.add_photo_event(
+                photo_id=photo_id,
+                event_label=label,
+                event_id=(e.get("event_id") if isinstance(e, dict) else None),
+                provenance=make_provenance(
+                    source_type="curator_input",
+                    source_authority="curator",
+                    source_actor_id=actor,
+                ),
+            )
+            added_n += 1
+        log.info(
+            "[photos][patch][events] photo_id=%s actor=%s deleted=%d added=%d",
+            photo_id, actor, deleted_n, added_n,
+        )
+
+    # Re-fetch with relations so the response reflects the join-table
+    # replacement that just happened.
+    if people_replace is not None or events_replace is not None:
+        full = photo_repo.get_photo(photo_id) or updated
+        return full
     return updated
 
 
