@@ -3061,6 +3061,22 @@
           <button id="wo10TranscriptBtn" popovertarget="wo10TranscriptPopover" title="View transcript and resume preview">
             📋 Transcript
           </button>
+          <!-- WO-PHOTO-ANCHOR-01: photo intake (operator-only). Opens
+               standalone curator page in new tab. Backend gated by
+               HORNELORE_PHOTO_ENABLED=1 — use scripts/start_all_photos_dev.sh
+               to launch the stack with photos enabled. -->
+          <button id="lv80PhotoIntakeBtn"
+                  type="button"
+                  title="Upload family photos with metadata for the active narrator (operator only)"
+                  onclick="window.open('photo-intake.html', '_blank', 'noopener')">
+            📷 Photo Intake
+          </button>
+          <button id="lv80PhotoTimelineBtn"
+                  type="button"
+                  title="Browse uploaded photos by year (read-only timeline view)"
+                  onclick="window.open('photo-timeline.html', '_blank', 'noopener')">
+            🖼 Photo Timeline
+          </button>
           <!-- WO-13 Phase 6: Review Queue drawer trigger -->
           <button id="wo13ReviewBtn" popovertarget="wo13ReviewPopover"
                   title="Review proposal rows (approve / reject / source-only)"
