@@ -85,9 +85,11 @@ DATA_DIR=/mnt/c/hornelore_data
 HORNELORE_PHOTO_ENABLED=1
 HORNELORE_PHOTO_INTAKE=1
 
-# Future: Media Archive lane (PDFs, scanned documents, genealogy outlines).
-# Uncomment ONCE WO-MEDIA-ARCHIVE-01 ships.
-# HORNELORE_MEDIA_ARCHIVE_ENABLED=1
+# Document Archive lane — WO-MEDIA-ARCHIVE-01 (LANDED 2026-04-26).
+# When 1, /api/media-archive/* serves live; when 0, every endpoint
+# returns 404 except /health (always reports {ok:true, enabled:bool}).
+# Curator page: /ui/media-archive.html (launchable from Media tab).
+HORNELORE_MEDIA_ARCHIVE_ENABLED=1
 
 # === EXTRACTOR LANE FLAGS (defaults safe) ===
 # These are off by default; the master eval baseline assumes default behavior.
@@ -108,7 +110,21 @@ Verify the .env loads correctly:
 ```bash
 cd /mnt/c/Users/chris/hornelore
 grep '^HORNELORE' .env
-# Expected to show at least: HORNELORE_PHOTO_ENABLED=1 and HORNELORE_PHOTO_INTAKE=1
+# Expected to show at least:
+#   HORNELORE_PHOTO_ENABLED=1
+#   HORNELORE_PHOTO_INTAKE=1
+#   HORNELORE_MEDIA_ARCHIVE_ENABLED=1
+```
+
+**Note on `.env` not riding git:** `.env` is gitignored (it carries the HuggingFace token), so `git pull` on a fresh laptop won't bring these flag additions. If you're rebuilding an existing laptop and the flags are missing, append them:
+```bash
+cat >> .env <<'EOF'
+
+HORNELORE_PHOTO_ENABLED=1
+HORNELORE_PHOTO_INTAKE=1
+HORNELORE_MEDIA_ARCHIVE_ENABLED=1
+EOF
+grep -n '^HORNELORE' .env
 ```
 
 ## 6. Data directory bootstrap
@@ -117,11 +133,12 @@ grep '^HORNELORE' .env
 mkdir -p /mnt/c/hornelore_data/db
 mkdir -p /mnt/c/hornelore_data/memory/archive/photos
 mkdir -p /mnt/c/hornelore_data/memory/archive/sessions
-# Future Media Archive (created automatically by WO-MEDIA-ARCHIVE-01 storage layer):
-# mkdir -p /mnt/c/hornelore_data/media/archive
+# Document Archive root (auto-created by services/media_archive/storage.py
+# on first upload, but creating it up-front avoids a one-time race).
+mkdir -p /mnt/c/hornelore_data/media/archive
 ```
 
-The DB schema initializes itself on first server start (per `server/code/api/db.py:init_db()` + `server/code/db/migrations/`).
+The DB schema initializes itself on first server start (per `server/code/api/db.py:init_db()` + `server/code/db/migrations/`). The migrations runner at `server/code/db/migrations_runner.py` auto-applies any new `NNNN_*.sql` file in `server/code/db/migrations/` exactly once (tracked in the `schema_migrations` table). On first boot after a `git pull` that includes new migration files, expect a `[migrations]` log line for each newly-applied file. **For WO-MEDIA-ARCHIVE-01 specifically, `0003_media_archive.sql` creates 4 tables (items + people + family_lines + links) with locked enums — applies automatically, no manual SQL needed.**
 
 ## 7. Desktop Hornelore folder (Windows side)
 
@@ -160,16 +177,29 @@ curl -s http://localhost:8000/api/ping | jq
 curl -s http://localhost:8000/api/photos/health | jq
 # Expected: {"ok":true,"enabled":true} for both
 
-# 2. Pillow loaded by uvicorn (the loud-warning check from P2.2)
+# 2. Document Archive surface live (WO-MEDIA-ARCHIVE-01)
+curl -s http://localhost:8000/api/media-archive/health | jq
+# Expected: {"ok":true,"enabled":true,"storage_root":"/mnt/c/hornelore_data/media/archive/..."}
+
+# 3. Pillow loaded by uvicorn (the loud-warning check from P2.2)
 grep '\[photos\]\[startup\]' /mnt/c/Users/chris/hornelore/.runtime/logs/api.log | tail -1
 # Expected: [photos][startup] Pillow available: version=12.2.0
+grep '\[media_archive\]\[startup\]' /mnt/c/Users/chris/hornelore/.runtime/logs/api.log | tail -3
+# Expected: 3 lines — Pillow available, pdf2image available (or NOT INSTALLED),
+# pypdf available (or NOT INSTALLED). Missing pdf2image/pypdf is non-fatal;
+# missing Pillow IS fatal for thumbnails.
 
-# 3. EXIF parser smoke (no live photos needed — synthesizes its own JPEG)
+# 4. Migration applied
+sqlite3 /mnt/c/hornelore_data/db/hornelore.sqlite3 \
+  "SELECT filename, applied_at FROM schema_migrations ORDER BY filename;"
+# Expected: at least 0003_media_archive.sql in the list with a timestamp.
+
+# 5. EXIF parser smoke (no live photos needed — synthesizes its own JPEG)
 .venv-gpu/bin/python3 scripts/test_photo_exif.py
 # Expected: OK 3/3
 ```
 
-If all three pass, the install is good. Open the UI:
+If all five pass, the install is good. Open the UI:
 
 ```
 http://localhost:8082/ui/hornelore1.0.html
@@ -185,6 +215,102 @@ http://localhost:8082/ui/hornelore1.0.html
 6. **Click "Save Photo"** → card appears in Saved Photos panel with a real thumbnail (not broken-image icon).
 
 If steps 5 and 6 work, the entire photo system end-to-end is verified.
+
+---
+
+## 11. Document Archive (WO-MEDIA-ARCHIVE-01) bring-up
+
+The Document Archive lane is a separate curator surface from Photo Intake. It accepts PDFs / scanned documents / handwritten notes / genealogy outlines / letters / certificates / clippings — anything that's source material rather than a memory-prompt photo. Photo Intake stays image-only; PDFs go here.
+
+Locked product rule: **Preserve first. Tag second. Transcribe / OCR third. Extract candidates only after that. NEVER auto-promote to truth.**
+
+### What you need installed
+
+All three are pinned in `requirements-gpu.txt` so a fresh `pip install -r requirements-gpu.txt` covers everything. If you're rebuilding an existing venv:
+
+```bash
+.venv-gpu/bin/pip install Pillow==12.2.0 pypdf==6.4.1 pdf2image==1.17.0
+```
+
+Roles:
+
+| Package | Required? | What breaks if missing |
+|---|---|---|
+| `Pillow==12.2.0` | YES | Image thumbnails fail silently; uploads still succeed but list shows broken-image icons |
+| `pypdf==6.4.1` | RECOMMENDED | PDF page-count detection becomes NULL (curator can't see "18 pgs" in the list) |
+| `pdf2image==1.17.0` | OPTIONAL | PDF first-page thumbnails fall back to inline SVG file-icon placeholder |
+| `poppler-utils` (apt) | OPTIONAL | pdf2image installs but produces no output; same fallback as above |
+
+Install poppler-utils for real PDF thumbnails:
+```bash
+sudo apt install -y poppler-utils
+```
+
+The startup self-check logs all four states loudly to api.log on uvicorn boot, so you can verify after restart:
+```bash
+grep '\[media_archive\]\[startup\]' /mnt/c/Users/chris/hornelore/.runtime/logs/api.log | tail -3
+```
+
+Expected good state:
+```
+[media_archive][startup] Pillow available: version=12.2.0
+[media_archive][startup] pdf2image available; PDF thumbnails enabled
+[media_archive][startup] pypdf available; PDF page-count detection enabled
+```
+
+### What gets created on first boot
+
+The migrations runner auto-applies `0003_media_archive.sql` once on first stack start after pull. Verify:
+
+```bash
+sqlite3 /mnt/c/hornelore_data/db/hornelore.sqlite3 \
+  ".tables" | tr ' ' '\n' | grep -i archive
+# Expected: media_archive_items, media_archive_people,
+#           media_archive_family_lines, media_archive_links
+```
+
+Storage root for uploaded files (auto-created on first upload, but pre-creating is harmless):
+```
+/mnt/c/hornelore_data/media/archive/
+├── people/<person_id>/documents/<item_id>/   (when narrator is set)
+├── family/<family_line>/documents/<item_id>/  (when family_line is set, no person)
+└── unattached/<item_id>/                      (when neither is set)
+```
+
+Each `<item_id>/` directory contains the original file, a `meta.json` mirror of the DB row, and a `thumb.jpg` (when Pillow + pdf2image succeed).
+
+### UI live verification (~2 min)
+
+1. **Operator tab → Media tab.** A new launcher card shows: **📄 Document Archive**.
+2. **Click Document Archive** → standalone curator page opens at `/ui/media-archive.html`.
+3. **Pick a narrator (optional)** OR leave blank — many archive items aren't bound to a specific person.
+4. **Drop or pick a PDF** (the Shong family genealogy is the canonical test fixture).
+5. **Required fields**: Title + Document type. Everything else is optional.
+6. **Click Save Archive Item** → status flips green to `"Saved · 18 pages · text: image_only_needs_ocr"` (page count requires `pypdf`; `text_status` is heuristic).
+7. **Item appears in Saved Archive Items** with a generic PDF placeholder thumbnail (or a real first-page render if `pdf2image` + `poppler-utils` are installed).
+8. **Click the thumbnail** → View / Edit modal opens with all metadata fields editable, plus **Open Original** button that opens the preserved PDF in a new tab.
+9. **Edit any field, click Save Changes** → modal updates in place; refresh the page and confirm metadata persisted.
+
+If steps 6 and 8 work, the Document Archive lane end-to-end is verified.
+
+### Operator launcher entry points
+
+Two ways to reach the curator page:
+
+- **From the shell:** Operator tab → Media tab → 📄 Document Archive
+- **Direct URL:** `http://localhost:8082/ui/media-archive.html`
+
+The shell route also runs a health probe that disables the launcher if `HORNELORE_MEDIA_ARCHIVE_ENABLED=0`.
+
+### Health-harness checks
+
+The Bug Panel UI health harness now includes a `Document Archive` category with 4 checks:
+- `/api/media-archive/health` reachable + enabled-flag readout
+- archive list endpoint returns 200 (when enabled)
+- `/ui/media-archive.html` page reachable
+- Operator launcher card present in the Media tab
+
+If any fail, the Bug Panel surfaces a FAIL row with the specific diagnostic.
 
 ---
 
@@ -296,11 +422,23 @@ The R10 has a feed roller that picks up dust quickly. Canon includes a cleaning 
 - Narrator-room photo lightbox (BUG-240) with full-screen view + caption + ESC close
 - Bug Panel: Reset Identity (BUG-228) + Purge Test Narrators (BUG-221B)
 
+**Document Archive (WO-MEDIA-ARCHIVE-01, landed 2026-04-26):**
+- Separate curator lane parallel to /api/photos for PDFs / scanned docs / genealogy outlines / handwritten notes / letters / certificates / clippings
+- POST /api/media-archive (multipart) with PDF + image + text MIME acceptance
+- GET /api/media-archive (filters: person_id, family_line, document_type, candidate_ready, include_deleted)
+- PATCH /api/media-archive/{id} with replace-all on people + family_lines + links
+- DELETE /api/media-archive/{id}?actor_id=… (soft-delete, original file preserved on disk)
+- GET /api/media-archive/{id}/file (serves original) + /thumb (Pillow + pdf2image when available, placeholder otherwise)
+- Curator page at /ui/media-archive.html with upload form + saved list + View/Edit modal
+- Operator launcher card in Media tab (📄 Document Archive)
+- 4 new health-harness checks (route, list, page, launcher card)
+- Locked product rule: archive-only default ON, candidate-ready opt-in, NEVER auto-promote to truth
+
 **Pending (queued for build):**
-- **WO-MEDIA-ARCHIVE-01** — separate Document Archive lane for PDFs / scanned documents / genealogy outlines / handwritten notes / certificates / clippings. Spec at `WO-MEDIA-ARCHIVE-01_Spec.md`. Build ETA: next session.
 - **WO-AUDIO-NARRATOR-ONLY-01 frontend** — per-turn webm capture via MediaRecorder, ~3 hrs live build with Chris in browser.
-- **WO-MEDIA-WATCHFOLDER-01** — auto-import from `C:\Users\chris\Hornelore Scans\` (post-MEDIA-ARCHIVE-01).
-- **WO-MEDIA-OCR-01** — Tesseract-based OCR for scanned documents (post-MEDIA-ARCHIVE-01).
+- **WO-MEDIA-WATCHFOLDER-01** — auto-import from `C:\Users\chris\Hornelore Scans\` straight into the Document Archive intake queue.
+- **WO-MEDIA-OCR-01** — Tesseract-based OCR for scanned documents in the Document Archive (text_status auto-promotes from `image_only_needs_ocr` → `ocr_partial`/`ocr_complete`).
+- **WO-MEDIA-ARCHIVE-CANDIDATES-01** — harvest items flagged `candidate_ready=true` and surface to Bio Builder review queue (no auto-promotion).
 
 ---
 
@@ -332,3 +470,4 @@ The branch is ahead of `main` because the parent-demo work has stayed on the aud
 | Date | What changed |
 |---|---|
 | 2026-04-26 | Initial laptop setup doc. Captures all current install requirements + the Canon R10 scanner setup + the bring-up pitfalls accumulated through 2026-04-26 night. |
+| 2026-04-26 (post-archive) | WO-MEDIA-ARCHIVE-01 landed. Added §11 Document Archive bring-up section (deps table, migration verification, UI smoke, health checks). Flipped `HORNELORE_MEDIA_ARCHIVE_ENABLED=1` from commented-future to active in §5. Updated §6 to pre-create the `media/archive/` directory + explain the migrations runner mechanic. Added curl + sqlite3 verification steps in §9. Added `pypdf==6.4.1` and `pdf2image==1.17.0` to requirements-gpu.txt for PDF page-count + first-page thumbnails (both fail-soft if missing). Moved WO-MEDIA-ARCHIVE-01 from Pending to Shipped inventory; minted WO-MEDIA-ARCHIVE-CANDIDATES-01 as a future lane for the candidate harvest workflow. |
