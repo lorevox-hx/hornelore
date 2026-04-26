@@ -97,6 +97,24 @@ def photo_enabled() -> bool:
     return _truthy(os.environ.get("HORNELORE_PHOTO_ENABLED"))
 
 
+def media_archive_enabled() -> bool:
+    """WO-MEDIA-ARCHIVE-01. When True, the ``/api/media-archive``
+    router serves live; when False, every endpoint returns 404 (the
+    router is mounted but each handler guards itself), so the
+    Document Archive surface stays invisible to the UI unless the
+    operator opts in.
+
+    This is the curator-side lane for PDFs / scanned documents /
+    handwritten notes / genealogy outlines / letters / certificates /
+    clippings — separate from Photo Intake which is for memory-prompt
+    images shown to narrators.
+
+    Default OFF. Flip via ``HORNELORE_MEDIA_ARCHIVE_ENABLED=1`` in
+    ``.env`` then cycle the stack.
+    """
+    return _truthy(os.environ.get("HORNELORE_MEDIA_ARCHIVE_ENABLED"))
+
+
 def photo_intake_enabled() -> bool:
     """WO-LORI-PHOTO-INTAKE-01 Phase 2 (partial). When True, the
     ``/api/photos`` upload handler runs EXIF extraction on each incoming
