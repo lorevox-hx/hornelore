@@ -83,6 +83,17 @@ ctranslate2==4.7.1
 python-docx==1.2.0
 lxml==6.0.2
 
+# ── Photo system (services/photo_intake/*, services/photos/*) ──────────────
+# Pillow drives BOTH thumbnail generation (services/photo_intake/thumbnail.py)
+# AND EXIF auto-fill (services/photo_intake/exif.py). Both modules fail-soft
+# on missing PIL — uploads succeed, thumbnails just come back as null +
+# EXIF returns empty-shape — which produces a working-looking system that
+# silently emits broken thumbnails. This bit us 2026-04-25 night and ate
+# ~90 minutes of diagnosis. See docs/PILLOW-VENV-INSTALL.md for the
+# diagnostic + verification path. Pinned to a recent version that
+# handles modern Pixel/Samsung JPEG EXIF blocks reliably.
+Pillow==12.2.0
+
 # ── Misc runtime deps pulled by the imports above ──────────────────────────
 numpy==2.4.2
 jinja2==3.1.6

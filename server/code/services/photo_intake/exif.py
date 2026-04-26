@@ -222,7 +222,19 @@ def extract_exif(source_path: str) -> Dict[str, Any]:
                 break
 
     # ---- GPS ----------------------------------------------------------
-    gps_out = {"latitude": None, "longitude": None, "source": "unknown"}
+    # P1.1 (code review 2026-04-26 night): distinguish "no GPS tag at
+    # all" (gps_present=False) from "GPS tag present but unparseable"
+    # (gps_present=True + lat/lng=None). Modal UI surfaces this so the
+    # curator sees "GPS data found but unreadable" instead of assuming
+    # the phone didn't capture metadata. Without this distinction the
+    # latter case is invisible — operator wastes time looking for the
+    # missing GPS that's actually corrupted.
+    gps_out = {
+        "latitude": None,
+        "longitude": None,
+        "source": "unknown",
+        "present_unparseable": False,
+    }
     gps_raw = tag_map.get("GPSInfo")
     if gps_raw:
         try:
@@ -243,7 +255,24 @@ def extract_exif(source_path: str) -> Dict[str, Any]:
                     "latitude": lat,
                     "longitude": lng,
                     "source": "exif_gps",
+                    "present_unparseable": False,
                 }
+            else:
+                # Out-of-range coordinates — tag was there but the data
+                # is junk. Flag for the modal pill.
+                gps_out["present_unparseable"] = True
+                log.info(
+                    "[exif] GPS coords out of range (lat=%s, lng=%s) — flagging unparseable",
+                    lat, lng,
+                )
+        else:
+            # GPSInfo block existed but DMS conversion failed for one
+            # or both axes (zero denominators / partial DMS triple /
+            # unsupported encoding).
+            gps_out["present_unparseable"] = True
+            log.info(
+                "[exif] GPSInfo block present but DMS-decimal conversion failed — flagging unparseable"
+            )
 
     # ---- Orientation --------------------------------------------------
     orientation_val = tag_map.get("Orientation")

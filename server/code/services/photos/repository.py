@@ -461,6 +461,35 @@ def add_photo_event(
     return _row_to_dict(row)
 
 
+# WO-PHOTO-PEOPLE-EDIT-01: hard-delete helpers for the people/events
+# join tables, used by the PATCH endpoint to implement replace-all
+# semantics for those lists. (The photos table itself is soft-deleted;
+# the join rows have no soft-delete flag and don't need one — losing
+# a person/event tag is recoverable by re-tagging via the modal.)
+def delete_all_photo_people(photo_id: str) -> int:
+    """Hard-delete every photo_people row for ``photo_id``. Returns the
+    deletion count for log/UX surface."""
+    con = _connect()
+    try:
+        cur = con.execute("DELETE FROM photo_people WHERE photo_id = ?;", (photo_id,))
+        con.commit()
+        return cur.rowcount or 0
+    finally:
+        con.close()
+
+
+def delete_all_photo_events(photo_id: str) -> int:
+    """Hard-delete every photo_events row for ``photo_id``. Returns the
+    deletion count for log/UX surface."""
+    con = _connect()
+    try:
+        cur = con.execute("DELETE FROM photo_events WHERE photo_id = ?;", (photo_id,))
+        con.commit()
+        return cur.rowcount or 0
+    finally:
+        con.close()
+
+
 # -----------------------------------------------------------------------------
 # Sessions / shows
 # -----------------------------------------------------------------------------
@@ -830,6 +859,8 @@ __all__ = [
     "soft_delete_photo",
     "add_photo_person",
     "add_photo_event",
+    "delete_all_photo_people",
+    "delete_all_photo_events",
     "create_photo_session",
     "get_photo_session",
     "record_photo_show",
