@@ -463,39 +463,59 @@ python3 scripts/preload_trainer.py --all
 
 ---
 
-## Key Differences from Lorevox
+## Relationship to Lorevox
 
-Hornelore is not a fork. It is a curated subset with a different product surface, and it has accumulated several features that have not been backported to Lorevox.
+Hornelore is not a fork or a peer of Lorevox. **Hornelore is the family-locked R&D crucible. Lorevox is the distilled public product.** Features prove themselves here against real older-adult narrators — Chris, Kent, Janice — and only the ones that earn it get promoted into Lorevox, generalized for arbitrary narrators, with all the Horne-specific scaffolding stripped out. The relationship is one-way and deliberate: lab → gold, by promotion, never by file-parity backport.
 
-**Inherited from the original WO-11 separation:**
+**What stays here forever (Hornelore-only by design):**
 
-- **Closed narrator universe** — Lorevox allows creating unlimited narrators. Hornelore is locked to three (plus two read-only trainers).
-- **Pre-seeded identity** — Lorevox interviews each narrator to establish identity. Hornelore loads identity from templates.
-- **No creation or deletion** — UI controls for adding and removing narrators are disabled.
-- **Separate data** — Hornelore uses its own database and filesystem. Running both products simultaneously is safe.
-- **Renamed shell** — `hornelore1.0.html` instead of `lori9.0.html`. Brand reads "Hornelore 1.0 — Horne Family Archive".
+- **Closed Horne narrator universe** — three named narrators plus two read-only trainer narrators (Shatner, Dolly). UI controls for adding or deleting narrators are removed; backend write guards block creation.
+- **Pre-seeded Horne identity** — narrators auto-seeded from JSON templates on first startup; identity phase bypassed for known narrators.
+- **Family templates** — `kent-james-horne.json`, `janice-josephine-horne.json`, `christopher-todd-horne.json`.
+- **Bug Panel as a dev surface** — operator-only debugging utilities (Reset Identity, Purge Test Narrators, BB Walk Test harness, Audio Preflight, Health Check, Export Current Session). Lab tooling, not product.
+- **Local family-specific flags, fixtures, and parent-session runbooks.**
+- **Separate data** — own database (`hornelore.sqlite3`) and filesystem (`/mnt/c/hornelore_data/`).
+- **Renamed shell** — `hornelore1.0.html` instead of the public Lorevox shell.
 
-**Added to Hornelore since the WO-11 split (candidates for Lorevox backport — see [Lorevox parity audit](#lorevox-parity-audit) section below):**
+**What was here first because of the WO-11 separation but can run in both places:**
 
-- **Four-layer truth pipeline** — WO-13 shadow archive → proposals → human review → promoted truth.
-- **Chronology Accordion** — WO-CR-01 / WO-CR-PACK-01 read-only left-side time ladder merging three lanes (world / personal / ghost) at request time. Never writes to the database; gives Lori provenance-tagged temporal context without creating a new truth layer.
-- **Three-tab UI shell** — WO-UI-SHELL-01 Operator / Narrator Session / Media split, with session-style picker driving Lori behavior.
-- **Narrator room** — WO-NARRATOR-ROOM-01 dedicated layout with view tabs, Take-a-break overlay, chat scroll stabilization.
-- **Cognitive Support Mode (WO-10C)** — six dementia-safe behavioral guarantees (protected silence at 120s/300s/600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts).
-- **Memory archive** — WO-ARCHIVE-AUDIO-01 per-narrator session storage, two-sided text transcript, narrator-only audio rule, per-session zip export.
-- **Per-turn audio capture (backend)** — WO-AUDIO-NARRATOR-ONLY-01 webm audio attachment endpoint.
-- **Photo system (Phase 1 + Phase 2 partial)** — WO-LORI-PHOTO-SHARED-01 + WO-LORI-PHOTO-INTAKE-01. Curator photo intake (single + batch), EXIF auto-fill, Nominatim reverse-geo + Plus Code + auto-description, View/Edit modal, narrator-room photo lightbox.
-- **Document Archive** — WO-MEDIA-ARCHIVE-01 separate curator lane for PDFs / scanned docs / handwritten notes / genealogy / letters / certificates / clippings. Mirror infrastructure to the photo system but with PDF MIME acceptance, page-count detection, OCR-ready text status, candidate-ready flag for future Bio Builder harvest.
-- **Operator UI Health Check** — WO-UI-TEST-LAB-01 15-category harness inside the Bug Panel with PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO statuses; <100ms full run.
-- **Bio Builder hardening** — BUG-208 + 5 follow-up bugs closed (cross-narrator contamination, generation guards, scope hard-gates, harness race fixes).
-- **Extractor lane (LOOP-01 R5h)** — locked baseline 70/104; SPANTAG / BINDING-01 / LORI-CONFIRM stack in flight. See `CLAUDE.md` changelog for the live trail.
+- Quality Harness (WO-QA-01 / WO-QA-02 / WO-QA-02B) — currently shaped to Hornelore's eval cadence; the harness *infrastructure* could promote, but the present form is lab-tuned.
+- Extractor lane improvements (WO-EX series) — too active to promote yet; locked baseline 70/104 on the master eval.
 
 ---
 
-## Lorevox parity audit
+## Lorevox promotion queue
 
-**Status: not started.** Several Hornelore features above (4-layer truth, photos, document archive, archive audio, narrator room, cognitive support mode, etc.) are candidates for backport to the parent Lorevox repo. A real audit needs file-by-file diff between the two repos and per-feature decisions about whether each one belongs in Lorevox at all (some — like closed narrator universe — are explicitly Hornelore-only by design; others — like the 4-layer truth pipeline — are general-purpose improvements that Lorevox would benefit from).
+This is the live distillation list — what's been proven in Hornelore and is ready to move into the public Lorevox product. The canonical version of the queue lives in the Lorevox README under "Hornelore Promotion Queue"; the abbreviated mirror below is for operator awareness while working in this repo.
 
-The audit lives in `docs/LOREVOX-PARITY-AUDIT.md` (TBD). It will not happen automatically — Lorevox is a separate repo at a separate path, with its own branching state and its own product posture.
+The queue is not automatic and not based on file-parity. Each candidate feature gets a deliberate decision: **promote** (generalize and move to Lorevox), **hold** (still in flux, keep iterating in Hornelore), or **Hornelore-only by design** (stays here, see above).
+
+**A. Proven — ready to promote**
+
+Validated against real narrators in this repo. Promotion requires removing Horne-family-specific assumptions and generalizing for arbitrary narrator universes.
+
+- **Four-layer truth pipeline (WO-13)** — shadow archive → proposals → human review → promoted truth. Already aligned with Lorevox's "Archive → History → Memoir" doctrine; this is the structural enforcement of "AI cannot promote claims without human review."
+- **Photo system** — curator photo intake (single + batch), EXIF auto-fill, Nominatim reverse-geocoding, Plus Code generator, View/Edit modal, narrator-room lightbox, dedupe-by-file-hash.
+- **Document Archive (WO-MEDIA-ARCHIVE-01)** — separate curator lane for PDFs / scanned docs / handwritten notes / genealogy outlines / letters / certificates / clippings. Locked product rule: preserve first, never auto-promote to truth.
+- **Memory Archive (WO-ARCHIVE-AUDIO-01)** — per-session two-sided text transcript, narrator-only audio capture rule, per-session zip export, per-turn metadata stamping.
+- **Per-turn audio capture (backend)** — webm audio attachment endpoint.
+- **Three-tab UI shell (WO-UI-SHELL-01)** — Operator / Narrator Session / Media split with session-style picker.
+- **Narrator room (WO-NARRATOR-ROOM-01)** — dedicated layout with view tabs (Memory River / Life Map / Photos / Peek at Memoir), Take-a-break overlay, chat scroll stabilization.
+- **Cognitive Support Model (WO-10C)** — six dementia-safe behavioral guarantees (protected silence 120s / 300s / 600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts). The parent-session test data lives here; the *model* — the older-adult pacing pattern — is the single strongest distillable artifact for OT/life-review use, and belongs in Lorevox.
+- **Bio Builder contamination hardening** — narrator-switch generation counter + 3-guard backend response check + scope hard-gates eliminating cross-narrator data leakage. Required before any multi-narrator product can ship safely.
+- **Operator UI Health Check (WO-UI-TEST-LAB-01)** — 15-category PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO grid with sub-100ms full run.
+- **Chronology Accordion (WO-CR)** — read-only left-side time ladder merging three lanes (world / personal / ghost) at request time. Provenance-tagged so Lori knows confirmed truth versus context. Source-of-truth-agnostic; generalizes cleanly.
+- **Soft transcript review cue + audio preflight check** — small but proven UX safeguards.
+
+**B. Hold — keep in Hornelore until stable**
+
+Still iterating in the lab; promotion blocked until they lock to a measurable acceptance threshold.
+
+- **Extractor lane (LOOP-01 R5h+)** — locked baseline 70/104 on the 104-case master eval; SPANTAG / BINDING-01 / LORI-CONFIRM stack in flight. See `CLAUDE.md` changelog for the live trail.
+- **Phase-aware question composer** — flag-gated, working but not locked.
+- **Photo Phase 2 ELICIT** — Lori-side narration over photos; spec ready, LLM prompts pending.
+- **Future Document Archive lanes** — WATCHFOLDER, OCR, ARCHIVE-CANDIDATES; scoped, not built.
+
+**C. Hornelore-only by design** — see "Relationship to Lorevox" section above.
 
 ---
