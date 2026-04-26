@@ -34,13 +34,24 @@ Three-tab shell (Operator | Narrator Session | Media), narrator room, photos vie
 - **Cache-busting brittle** — `<script src="js/foo.js">` tags don't carry `?v=`. Hard-reload (Ctrl+Shift+R) is the workaround. P1.
 - **`lv80SwitchPerson` rebuilds `state.session` from scratch** — `hornelore1.0.html:4646`, two parallel branches. New session-scoped fields get DROPPED on narrator switch unless explicitly preserved (already bit #145 onboarding, #194 sessionStyle, #206 camera one-shot). Defer to a quiet-day refactor.
 
-### Photo system status (Phase 1 + Phase 2 partial)
+### Photo system status (Phase 1 + Phase 2 partial — overnight 2026-04-26)
 
-**Live and tested:** /api/photos router (gated by `HORNELORE_PHOTO_ENABLED`); EXIF auto-fill (gated by `HORNELORE_PHOTO_INTAKE`); single-photo + multi-file batch upload (`photo-intake.html`); view/edit modal for post-upload metadata edits (BUG-239 fix); narrator-room photos view filters by `narrator_ready=true` (BUG-238 fix). Automated EXIF parser test 3/3 PASS (`scripts/test_photo_exif.py`).
+**Live and tested:**
+- `/api/photos` router (gated by `HORNELORE_PHOTO_ENABLED`)
+- EXIF auto-fill on upload (gated by `HORNELORE_PHOTO_INTAKE`) — `[photos][exif]` log line confirmed firing on real Pixel JPEGs
+- Single-photo + multi-file batch upload (`photo-intake.html`)
+- **NEW: Review File Info preview** (`POST /api/photos/preview`) — visualschedulebot-style flow: pick file → click Review → server reads EXIF + reverse-geocodes via Nominatim + computes Plus Code + builds auto-description → form prefills with "from EXIF" / "from phone GPS" pills; curator edits if needed → Save Photo to commit
+- View/Edit modal for post-upload metadata edits (BUG-239 fix)
+- Narrator-room photos view filters by `narrator_ready=true` (BUG-238 fix)
+- Automated EXIF parser test 4/4 PASS (`.venv-gpu/bin/python3 scripts/test_photo_exif.py /path/to/phone-photo.jpg`)
 
-**Test before parent demo:** Run all 8 cases in `docs/PHOTO-SYSTEM-TEST-PLAN.md` end-to-end. Especially Case 2 (no-EXIF graceful) and Case 3 (edit-after-upload via modal) — these are the two flows for parents' scanned childhood prints.
+**5 photo-system bugs closed overnight:** BUG-238 (narrator-ready filter), BUG-239 (post-upload edit UI), BUG-PHOTO-CORS-01 (CORS spec violation + relative-path fetches), BUG-PHOTO-LIST-500 (repository.py import depth), BUG-PHOTO-PRECISION-DAY ("day" not in DB CHECK constraint).
 
-**Phase 2 deferred (post-demo):** reverse geocoder (`geocode_real.py` — currently raw lat/lng only); conflict detector (curator EXIF vs narrator-derived facts); review queue UI; photo elicit / narrator-side memory write (`WO-LORI-PHOTO-ELICIT-01`).
+**Critical fresh-laptop note:** Pillow must be installed in the GPU venv (`.venv-gpu/bin/pip install Pillow`), otherwise thumbnail generation + EXIF parsing both silently fail-soft and you get broken-image thumbnails + empty metadata. Full doc: `docs/PILLOW-VENV-INSTALL.md`.
+
+**Test before parent demo:** Run all 8 cases in `docs/PHOTO-SYSTEM-TEST-PLAN.md` end-to-end. Especially Case 2 (no-EXIF graceful) and Case 3 (edit-after-upload via modal) — these are the two flows for parents' scanned childhood prints. Plus the new Review File Info flow on a fresh phone JPEG to verify the prefill UX.
+
+**Phase 2 deferred (post-demo):** Google Maps geocoder swap (Nominatim works for now); conflict detector (curator EXIF vs narrator-derived facts); review queue UI; photo elicit / narrator-side memory write (`WO-LORI-PHOTO-ELICIT-01`); people/event editing post-upload (currently single-photo form only — see WO-PHOTO-PEOPLE-EDIT-01); narrator-side photo lightbox (BUG-240).
 
 Full audit: `docs/reports/CODE-REVIEW-2026-04-25.md`.
 

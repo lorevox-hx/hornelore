@@ -169,6 +169,38 @@ Run all 8 cases. PASS = matches expected. FAIL = anything else.
 
 ---
 
+### Case 9 — Review File Info preview (visualschedulebot-style prefill)
+
+**Setup:** Same Lima photo (or any phone JPEG with EXIF date + GPS).
+
+**Steps:**
+1. Single-photo "Add a Photo" form
+2. Pick narrator from dropdown
+3. Choose file → **thumbnail preview appears below the file picker**
+4. Click the big blue **Review File Info** button
+5. Wait ~1-3 sec (Nominatim reverse-geocode round-trip)
+
+**Expected:**
+- Status reads `Found: date, GPS, city, Plus Code, 48 EXIF tags` (counts depend on file)
+- Description field auto-fills with sentence like `"This image is from Tuesday, April 21, 2026 at 2:10 PM at RWRJ+2V Watrous, NM, USA"` + small blue "auto-generated" pill next to label
+- Date field shows `2026-04-21`, precision dropdown set to `exact` + blue "from EXIF" pill
+- Location field shows `RWRJ+2V Watrous, NM, USA` + green "from phone GPS" pill, source dropdown set to `exif_gps`
+- All three fields are still editable — curator can override anything before clicking Save Photo
+
+**Then click Save Photo:**
+- Existing upload flow runs (upload-time EXIF auto-fill is now no-op because curator already supplied date/location)
+- Saved Photos card shows the auto-generated description as title
+
+**Why it matters:** This is the curator's primary path for ingesting phone photos with full metadata in one click. Matches Chris's existing visualschedulebot photo admin UX.
+
+**Failure modes:**
+- "Review failed: HTTP 500" → backend error, check `grep '\[photos\]\[preview\]' .runtime/logs/api.log`
+- Description fills but location is just `Watrous, NM, USA` (no Plus Code) → Plus Code generator failed silently; check Pillow installed
+- Description fills but no city, just GPS coords → Nominatim was unreachable; expected when offline; falls back gracefully
+- Pills don't appear → CSS hadn't loaded; hard-refresh
+
+---
+
 ### Case 8 — Edit cycle (round-trip persistence)
 
 **Steps:**
