@@ -78,6 +78,12 @@
     modalSaveBtn:         $("piModalSaveBtn"),
     modalDeleteBtn:       $("piModalDeleteBtn"),
     modalStatus:          $("piModalStatus"),
+
+    // WO-PHOTO-PEOPLE-EDIT-01: people + events editing in modal
+    modalPeopleList:      $("piModalPeopleList"),
+    modalEventsList:      $("piModalEventsList"),
+    modalAddPersonBtn:    $("piModalAddPersonBtn"),
+    modalAddEventBtn:     $("piModalAddEventBtn"),
   };
 
   function setStatus(msg, level) {
@@ -400,7 +406,13 @@
 
   function deletePhoto(photo) {
     if (!confirm("Soft-delete this photo? You can restore it manually later.")) return;
-    fetch(ORIGIN + "/api/photos/" + encodeURIComponent(photo.id), { method: "DELETE" })
+    // BUG-PHOTO-DELETE-ACTOR (overnight 2026-04-26): the backend
+    // DELETE endpoint requires ?actor_id=... — without it the
+    // request 422s. Pass the curator id from localStorage same as
+    // every other PATCH/POST in this file.
+    var url = ORIGIN + "/api/photos/" + encodeURIComponent(photo.id) +
+              "?actor_id=" + encodeURIComponent(getCuratorId());
+    fetch(url, { method: "DELETE" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         refreshList();
@@ -770,10 +782,17 @@
       bits.push('<span class="pi-source-pill missing">date · MISSING</span>');
     }
     var loc_src = photo && photo.location_source;
+    // P1.1: distinguish "GPS missing" from "GPS present but corrupted/
+    // unreadable" — the second case wastes operator time looking for
+    // metadata that's actually there but unparseable. Pill surfaces it.
+    var exif_gps_meta = (meta && meta.exif_gps) || {};
+    var gps_unparseable = !!exif_gps_meta.present_unparseable;
     if (loc_src === "exif_gps") {
       bits.push('<span class="pi-source-pill exif">location · GPS from EXIF</span>');
     } else if (photo && (photo.location_label || loc_src && loc_src !== "unknown")) {
       bits.push('<span class="pi-source-pill curator">location · typed by curator</span>');
+    } else if (gps_unparseable) {
+      bits.push('<span class="pi-source-pill missing" title="GPS metadata block was present in the EXIF but could not be parsed (zero-denominator DMS, partial triple, or out-of-range coords). The photo did record location data but it is unreadable. Type the location manually.">location · GPS UNREADABLE</span>');
     } else {
       bits.push('<span class="pi-source-pill missing">location · MISSING</span>');
     }
@@ -803,6 +822,66 @@
     el.modalCompleteness.innerHTML = html;
   }
 
+  // WO-PHOTO-PEOPLE-EDIT-01: build a removable row in the modal's
+  // people/events list. Mirrors the makePersonRow / makeEventRow
+  // pattern from the single-photo upload form so the UX is consistent.
+  function _makeModalPersonRow(initial) {
+    initial = initial || {};
+    var row = document.createElement("div");
+    row.className = "pi-people-row";
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "pi-modal-person-label";
+    inp.placeholder = "person name (e.g. Mom, Grandma Lou)";
+    inp.value = initial.person_label || initial.label || "";
+    var rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "pi-chip-btn";
+    rm.textContent = "Remove";
+    rm.addEventListener("click", function () { row.remove(); });
+    row.appendChild(inp);
+    row.appendChild(rm);
+    return row;
+  }
+  function _makeModalEventRow(initial) {
+    initial = initial || {};
+    var row = document.createElement("div");
+    row.className = "pi-events-row";
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "pi-modal-event-label";
+    inp.placeholder = "event (e.g. Easter 2026, hike at Watrous)";
+    inp.value = initial.event_label || initial.label || "";
+    var rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "pi-chip-btn";
+    rm.textContent = "Remove";
+    rm.addEventListener("click", function () { row.remove(); });
+    row.appendChild(inp);
+    row.appendChild(rm);
+    return row;
+  }
+  function _collectModalPeople() {
+    if (!el.modalPeopleList) return [];
+    var rows = el.modalPeopleList.querySelectorAll(".pi-modal-person-label");
+    var out = [];
+    rows.forEach(function (inp) {
+      var v = (inp.value || "").trim();
+      if (v) out.push({ person_label: v });
+    });
+    return out;
+  }
+  function _collectModalEvents() {
+    if (!el.modalEventsList) return [];
+    var rows = el.modalEventsList.querySelectorAll(".pi-modal-event-label");
+    var out = [];
+    rows.forEach(function (inp) {
+      var v = (inp.value || "").trim();
+      if (v) out.push({ event_label: v });
+    });
+    return out;
+  }
+
   function openPhotoModal(photo) {
     if (!el.modalBackdrop) return;
     _modalPhoto = photo;
@@ -815,6 +894,24 @@
     if (el.modalLocationLabel) el.modalLocationLabel.value = photo.location_label || "";
     if (el.modalLocationSource) el.modalLocationSource.value = photo.location_source || "unknown";
     if (el.modalNarratorReady) el.modalNarratorReady.checked = !!photo.narrator_ready;
+
+    // WO-PHOTO-PEOPLE-EDIT-01: populate people + events lists from the
+    // photo row. The list endpoint includes these as `people` and
+    // `events` arrays per get_photo's response shape.
+    if (el.modalPeopleList) {
+      el.modalPeopleList.innerHTML = "";
+      var people = (photo.people && Array.isArray(photo.people)) ? photo.people : [];
+      people.forEach(function (p) {
+        el.modalPeopleList.appendChild(_makeModalPersonRow(p));
+      });
+    }
+    if (el.modalEventsList) {
+      el.modalEventsList.innerHTML = "";
+      var events = (photo.events && Array.isArray(photo.events)) ? photo.events : [];
+      events.forEach(function (e) {
+        el.modalEventsList.appendChild(_makeModalEventRow(e));
+      });
+    }
 
     // Hints next to date/location labels — say where the value came from
     var meta = photo.metadata_json || {};
@@ -880,6 +977,11 @@
       location_label:  (el.modalLocationLabel.value   || "").trim() || null,
       location_source: el.modalLocationSource.value   || "unknown",
       narrator_ready:  !!el.modalNarratorReady.checked,
+      // WO-PHOTO-PEOPLE-EDIT-01: server uses replace-all semantics on
+      // these arrays. Empty array = wipe all. Always send so curator
+      // edits (add OR remove) round-trip correctly.
+      people:          _collectModalPeople(),
+      events:          _collectModalEvents(),
       last_edited_by_user_id: getCuratorId(),
     };
 
@@ -919,7 +1021,10 @@
     var photoId = _modalPhoto.id;
     if (el.modalDeleteBtn) el.modalDeleteBtn.disabled = true;
     _setModalStatus("Deleting…");
-    fetch(ORIGIN + "/api/photos/" + encodeURIComponent(photoId), { method: "DELETE" })
+    // BUG-PHOTO-DELETE-ACTOR: backend requires ?actor_id=... query.
+    var deleteUrl = ORIGIN + "/api/photos/" + encodeURIComponent(photoId) +
+                    "?actor_id=" + encodeURIComponent(getCuratorId());
+    fetch(deleteUrl, { method: "DELETE" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         closePhotoModal();
@@ -936,6 +1041,16 @@
   if (el.modalCancelBtn) el.modalCancelBtn.addEventListener("click", closePhotoModal);
   if (el.modalSaveBtn)   el.modalSaveBtn.addEventListener("click", savePhotoModal);
   if (el.modalDeleteBtn) el.modalDeleteBtn.addEventListener("click", deletePhotoFromModal);
+  if (el.modalAddPersonBtn) {
+    el.modalAddPersonBtn.addEventListener("click", function () {
+      if (el.modalPeopleList) el.modalPeopleList.appendChild(_makeModalPersonRow());
+    });
+  }
+  if (el.modalAddEventBtn) {
+    el.modalAddEventBtn.addEventListener("click", function () {
+      if (el.modalEventsList) el.modalEventsList.appendChild(_makeModalEventRow());
+    });
+  }
 
   // Close on backdrop click (but not when clicking inside the modal panel)
   if (el.modalBackdrop) {
