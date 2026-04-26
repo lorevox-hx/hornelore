@@ -48,6 +48,9 @@ from ...services.photos.provenance import make_provenance
 from ...services.photo_intake.dedupe import sha256_file
 from ...services.photo_intake.exif import extract_exif
 from ...services.photo_intake.storage import store_photo_file
+from ...services.photo_intake.geocode_real import reverse_geocode
+from ...services.photo_intake.plus_code import short_local_code
+from ...services.photo_intake.description_template import build_description
 from ...services.photo_elicit.selector import select_next_photo
 from ...services.photo_elicit.template_prompt import build_photo_prompt
 
@@ -171,6 +174,149 @@ def photos_health() -> Dict[str, Any]:
     # giving up any data. Returns enabled=True/False so the UI can decide
     # whether to render the photo surface at all.
     return {"ok": True, "enabled": flags.photo_enabled()}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/photos/preview   (Review File Info — read EXIF + geocode, no DB write)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/preview")
+async def preview_photo(
+    file: UploadFile = File(...),
+) -> JSONResponse:
+    """Read EXIF + reverse-geocode a photo WITHOUT saving it.
+
+    Mirrors the visualschedulebot "Review File Info" flow: pick file,
+    click Review, server returns prefilled values for the curator to
+    review/edit before committing via the regular POST /api/photos.
+
+    Gated by the same flag as the rest of the photo surface
+    (HORNELORE_PHOTO_ENABLED). EXIF extraction always runs (no flag);
+    reverse-geocode + Plus Code only run when GPS is present in EXIF.
+
+    Returns:
+        {
+          "captured_at": "YYYY-MM-DD" | None,
+          "captured_at_precision": "exact" | "unknown",
+          "captured_dt_full": "YYYY-MM-DD HH:MM:SS" | None,
+          "gps": {"latitude": float|None, "longitude": float|None, "source": "exif_gps"|"unknown"},
+          "plus_code": "RWRJ+2V" | None,
+          "address": {city, state, state_abbrev, country, country_code, address_line, provider},
+          "description": "This image is from ..." | "",
+          "raw_exif_keys": int,    # hint for the UI ("48 EXIF tags found")
+        }
+
+    Never writes to disk or DB. The temp file is created in /tmp and
+    deleted before returning.
+    """
+    _require_enabled()
+
+    mime = (file.content_type or "").lower()
+    if mime and not any(mime.startswith(p) for p in _ALLOWED_IMAGE_MIME_PREFIXES):
+        raise HTTPException(
+            status_code=415, detail=f"unsupported media type: {mime}"
+        )
+
+    # Stream upload to a temp file so EXIF reader has a real path.
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="photo_preview_", suffix=".bin")
+    try:
+        with os.fdopen(tmp_fd, "wb") as out:
+            while True:
+                chunk = await file.read(65536)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+        exif = extract_exif(tmp_path)
+    finally:
+        try:
+            if Path(tmp_path).exists():
+                Path(tmp_path).unlink()
+        except OSError:
+            pass
+
+    # Pull EXIF DateTimeOriginal in full ISO form for time-of-day display.
+    raw_exif = exif.get("raw_exif") or {}
+    captured_dt_full = None
+    for tag_name in ("DateTimeOriginal", "DateTimeDigitized", "DateTime"):
+        candidate = raw_exif.get(tag_name)
+        if candidate:
+            # EXIF format "YYYY:MM:DD HH:MM:SS" -> "YYYY-MM-DD HH:MM:SS"
+            try:
+                s = str(candidate).strip()
+                date_part, _, time_part = s.partition(" ")
+                date_norm = date_part.replace(":", "-")
+                if time_part:
+                    captured_dt_full = f"{date_norm} {time_part}"
+                else:
+                    captured_dt_full = date_norm
+                break
+            except Exception:
+                continue
+
+    gps = exif.get("gps") or {}
+    lat = gps.get("latitude")
+    lng = gps.get("longitude")
+
+    # Reverse-geocode + Plus Code (only when GPS present)
+    address: Dict[str, Any] = {
+        "city": None, "state": None, "state_abbrev": None,
+        "country": None, "country_code": None,
+        "address_line": None, "provider": None,
+    }
+    plus_code: Optional[str] = None
+    if lat is not None and lng is not None:
+        try:
+            geo = reverse_geocode(lat, lng)
+            address = {k: v for k, v in geo.items() if k != "raw"}
+        except Exception as exc:
+            log.info("[photos][preview] reverse_geocode failed: %s", exc)
+        try:
+            plus_code = short_local_code(lat, lng)
+        except Exception as exc:
+            log.info("[photos][preview] plus_code failed: %s", exc)
+
+    # Build the auto-description sentence
+    description = ""
+    try:
+        description = build_description(
+            captured_at=exif.get("captured_at"),
+            captured_dt_full=captured_dt_full,
+            plus_code=plus_code,
+            city=address.get("city"),
+            state_abbrev=address.get("state_abbrev") or address.get("state"),
+            country=address.get("country"),
+        )
+    except Exception as exc:
+        log.info("[photos][preview] build_description failed: %s", exc)
+
+    log.info(
+        "[photos][preview] file=%s exif_keys=%d gps=%s plus_code=%s city=%s",
+        file.filename or "(unnamed)",
+        len(raw_exif),
+        f"({lat:.4f},{lng:.4f})" if lat is not None and lng is not None else "none",
+        plus_code or "none",
+        address.get("city") or "none",
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "captured_at": exif.get("captured_at"),
+            "captured_at_precision": exif.get("captured_at_precision"),
+            "captured_dt_full": captured_dt_full,
+            "gps": {
+                "latitude": lat,
+                "longitude": lng,
+                "source": gps.get("source") or "unknown",
+            },
+            "plus_code": plus_code,
+            "address": address,
+            "description": description,
+            "raw_exif_keys": len(raw_exif),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
