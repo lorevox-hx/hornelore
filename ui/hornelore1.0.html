@@ -3968,11 +3968,19 @@
       <div style="margin-top:8px;">
         <div style="font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:2px;">BB Walk Test (30-field pipeline)</div>
         <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
-          Creates "Test Harness Sarah" narrator, drives identity intro through real
-          BUG-226/227 parser, populates personal + parents + siblings + spouse +
-          children + education via direct writes, runs 5 break cases (overwrite
-          guards), verifies persistence reload + projection propagation. Inline
-          report below — color-coded.
+          Creates a temporary "Test Harness Sarah" narrator, then waits up to
+          7 seconds for app state, Bio Builder state, and the active narrator
+          label to all settle on that test narrator (BUG-236 hard scope gate).
+          If real-narrator data (Walter, Chris, Janice, Kent, etc.) is detected
+          in the BB blob after the gate, the test ABORTS instead of validating
+          contaminated data.
+        </p>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Once scope is clean, drives the identity intro through the real
+          BUG-226/227 parser, populates personal + parents + siblings + spouse
+          + children + education via direct writes, runs 5 break cases
+          (overwrite guards), verifies persistence reload + projection
+          propagation. Inline report below — color-coded.
         </p>
         <div class="lv10d-bp-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
