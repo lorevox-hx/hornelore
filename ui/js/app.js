@@ -3202,28 +3202,24 @@ async function _advanceIdentityPhase(text){
     // Emotional-content guard: message looks like a statement, not a name
     const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken|never|always|sometimes|really|very|so much)\b/i;
 
-    // v7.4E — Structured name extraction: try "my [adj] name is X", "call me X",
-    // "I go by X" patterns BEFORE falling back to first-word extraction.
-    // This handles long sentences like "My special name is Chris or guch by my wife".
-    // We extract only the FIRST name after the pattern — before any "or/and/by/from".
-    const _namePatterns = [
-      /\bmy\s+(?:\w+\s+)*name\s+is\s+([A-Za-z][a-z'-]+)/i,     // "my name is X", "my special name is X"
-      /\bcall\s+me\s+([A-Za-z][a-z'-]+)/i,                       // "call me X"
-      /\bi(?:'m|\s+am)\s+(?:called\s+)?([A-Za-z][a-z'-]+)/i,    // "I'm X", "I am X", "I am called X"
-      /\bi\s+go\s+by\s+([A-Za-z][a-z'-]+)/i,                    // "I go by X"
-      /\byou\s+can\s+call\s+me\s+([A-Za-z][a-z'-]+)/i,          // "you can call me X"
-      /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?([A-Za-z][a-z'-]+)/i, // "preferred name is X"
-    ];
+    // BUG-237: use the shared multi-word _parseNameFromUtterance helper
+    // (BUG-231 fix, defined above) instead of an inline limited regex.
+    // Live evidence 2026-04-26T00:30: "My name is Test Harness Sarah Reed"
+    // captured only "Test" because the prior inline regex allowed at most
+    // [A-Za-z][a-z'-]+ (a single word). The shared helper handles 1-4
+    // capital-led words with case-sensitive boundary stops, and shares
+    // the _NOT_A_NAME / _EMOTIONAL_MARKERS guards so behavior is
+    // identical for normal names ("Walter", "Christopher", etc.) — just
+    // also captures multi-word names like "Test Harness Sarah Reed",
+    // "Janice Josephine Horne", "Christopher Todd Horne".
     let patternName = null;
     if (!_EMOTIONAL_MARKERS.test(text)) {
-      for (const pat of _namePatterns) {
-        const m = text.match(pat);
-        if (m && m[1] && !_NOT_A_NAME.has(m[1].toLowerCase()) && m[1].length >= 2) {
-          patternName = m[1];
-          // Capitalize first letter
-          patternName = patternName.charAt(0).toUpperCase() + patternName.slice(1);
-          break;
+      try {
+        if (typeof _parseNameFromUtterance === "function") {
+          patternName = _parseNameFromUtterance(text);
         }
+      } catch (e) {
+        console.warn("[identity] _parseNameFromUtterance threw:", e);
       }
     }
 
