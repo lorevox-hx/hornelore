@@ -222,6 +222,106 @@
     await _wait(800);
   }
 
+  /* ── BUG-236: narrator-scope hard gate ────────────────────────
+     Prior version waited 800ms after switch then assumed scope was
+     stable. Live evidence 2026-04-26T00:12: harness saved Walter's
+     data (fullName=Walter, DOB=1948-03-14, POB=Walter's narrative)
+     into Test Harness Sarah's BB blob because the multiple async
+     restore layers (BB backend, projection, profile, state snapshot)
+     hadn't all settled when identity onboarding kicked off.
+     Fix: explicit poll until state.person_id + bb.personId + active
+     label all settle on the test pid. Abort fast if they don't.
+  ─────────────────────────────────────────────────────────── */
+  async function _waitForTestNarratorScope(pid, displayName, timeoutMs) {
+    timeoutMs = timeoutMs || 7000;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const st = _state();
+      const bb = st && st.bioBuilder;
+      const stateOk = !!(st && st.person_id === pid);
+      const bbOk    = !!(bb && bb.personId === pid);
+      // Active label probe — try multiple DOM hooks since the topbar
+      // markup has shifted across WO-NARRATOR-ROOM-01 revisions.
+      let label = "";
+      try {
+        label =
+          (st && st.narratorUi && st.narratorUi.activeLabel) ||
+          (document.getElementById("lv80ActiveNarratorName") || {}).textContent ||
+          (document.getElementById("lv80ActiveNarratorCard") || {}).textContent ||
+          "";
+      } catch (_) {}
+      const labelOk = String(label).indexOf("Test Harness") >= 0;
+      if (stateOk && bbOk && labelOk) return true;
+      await _wait(150);
+    }
+    throw new Error(
+      "HARNESS ABORT: active narrator contamination — " +
+      "state.person_id/bioBuilder/label did not settle on test narrator " +
+      _short(pid) + " within " + timeoutMs + "ms");
+  }
+
+  /* ── BUG-236: explicit blank-out of test narrator runtime state ─
+     After scope settles, force-clear the test narrator's profile +
+     session + BB + projection so identity onboarding starts fresh.
+     Refuses to operate if state.person_id doesn't match the test pid
+     (defensive — never wipe a real narrator's state by accident).
+  ─────────────────────────────────────────────────────────── */
+  function _clearTestNarratorRuntimeState(pid) {
+    const st = _state();
+    if (!st || st.person_id !== pid) {
+      throw new Error("HARNESS ABORT: refusing to clear runtime state — " +
+        "state.person_id=" + _short(st && st.person_id) +
+        " != test pid=" + _short(pid));
+    }
+    st.profile = { basics: {}, kinship: [], pets: [] };
+    if (st.session) {
+      st.session.identityPhase   = null;
+      st.session.identityCapture = { name: null, dob: null, birthplace: null };
+      if (st.session.loop) {
+        st.session.loop.currentSection = null;
+        st.session.loop.currentField   = null;
+        st.session.loop.askedKeys      = [];
+        st.session.loop.savedKeys      = [];
+        st.session.loop.activeIntent   = null;
+      }
+    }
+    if (st.bioBuilder && st.bioBuilder.personId === pid) {
+      st.bioBuilder.questionnaire = {};
+    }
+    if (st.interviewProjection && st.interviewProjection.personId === pid) {
+      st.interviewProjection.fields             = {};
+      st.interviewProjection.pendingSuggestions = [];
+      st.interviewProjection.syncLog            = [];
+    }
+  }
+
+  /* ── BUG-236: real-narrator leak detector ──────────────────────
+     After scope-settle + clear, verify NO real-narrator data is
+     visible in the BB blob. Catches the case where backend restore
+     completed AFTER our blank-out and refilled the blob. The known
+     real-narrator names + birthdays are hardcoded — extend if other
+     real narrators are added later.
+  ─────────────────────────────────────────────────────────── */
+  function _assertNoRealNarratorLeak(pid) {
+    const qq = _readBlob();
+    const full = String(_readNested(qq, "personal.fullName") || "");
+    const dob  = String(_readNested(qq, "personal.dateOfBirth") || "");
+    const pob  = String(_readNested(qq, "personal.placeOfBirth") || "");
+    const REAL_NAMES = /\b(?:walter|chris|christopher|janice|kent|melanie|corky|jake|shatner|william)\b/i;
+    const REAL_DOBS  = ["1948-03-14", "1962-12-24", "1949-10-21"];
+    const leaked =
+      REAL_NAMES.test(full) ||
+      REAL_NAMES.test(pob)  ||
+      REAL_DOBS.indexOf(dob) >= 0;
+    if (leaked) {
+      throw new Error(
+        "HARNESS ABORT: real-narrator data present in test BB blob — " +
+        "fullName=" + JSON.stringify(full.slice(0, 40)) +
+        " dob=" + JSON.stringify(dob) +
+        " pob=" + JSON.stringify(pob.slice(0, 40)));
+    }
+  }
+
   async function _putBbBlob(pid, blob) {
     const url = (_api() && _api().BB_QQ_PUT) ? _api().BB_QQ_PUT : "/api/bio-builder/questionnaire";
     const r = await fetch(url, {
@@ -322,6 +422,53 @@
       origStubs = _installPromptStubs(buf);
       await _switchToNarrator(created.pid);
       if (verbose) console.log("[bb-walk] switched to", created.pid);
+
+      // BUG-236: hard scope gate. Wait until ALL of state.person_id +
+      // bb.personId + active narrator label settle on the test pid.
+      // Prior 800ms wait raced against multiple async restore layers
+      // and silently let the active real-narrator's data through.
+      try {
+        await _waitForTestNarratorScope(created.pid, created.displayName, 7000);
+        if (verbose) console.log("[bb-walk] BUG-236 scope gate passed for", _short(created.pid));
+      } catch (e) {
+        // Hard abort — refusing to validate any data while scope is
+        // contaminated. Surface the abort prominently in the report.
+        report.scope_violations++;
+        report.results.push({ section: "BUG-236.scope_gate", status: "FAIL",
+          detail: String(e && e.message || e) });
+        report.fail++;
+        throw e;  // bail out of the whole run
+      }
+
+      // BUG-236: explicit blank-out of test narrator runtime state.
+      // Clears profile / session / BB / projection scoped to the test
+      // pid so the identity onboarding starts genuinely fresh, not on
+      // top of any backend-restored stale data.
+      try {
+        _clearTestNarratorRuntimeState(created.pid);
+        if (verbose) console.log("[bb-walk] BUG-236 runtime state cleared for", _short(created.pid));
+      } catch (e) {
+        report.scope_violations++;
+        report.results.push({ section: "BUG-236.clear_state", status: "FAIL",
+          detail: String(e && e.message || e) });
+        report.fail++;
+        throw e;
+      }
+
+      // BUG-236: paranoid leak check. After clear, BB blob should NOT
+      // contain any real-narrator names or DOBs. If a backend GET
+      // landed AFTER our clear, we'd see real data resurrect — abort
+      // before validating any of it.
+      try {
+        _assertNoRealNarratorLeak(created.pid);
+        if (verbose) console.log("[bb-walk] BUG-236 leak check clean for", _short(created.pid));
+      } catch (e) {
+        report.scope_violations++;
+        report.results.push({ section: "BUG-236.leak_check", status: "FAIL",
+          detail: String(e && e.message || e) });
+        report.fail++;
+        throw e;
+      }
 
       // Scope check — bb.personId should match state.person_id
       const bb1 = _readBb();
