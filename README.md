@@ -23,9 +23,9 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 ---
 
-## Status as of 2026-04-25 (night)
+## Status as of 2026-04-26
 
-**Operating posture (locked Chris's late-evening directive):** **tomorrow is prep + debug only. Test narrators only (Corky + the seeded test set). NO real parent sessions.** Real parents (Mom + Dad) start in **~3 days**, gated by all 7 readiness gates GREEN in `docs/PARENT-SESSION-READINESS-CHECKLIST.md`. The 7 gates are: (1) no cross-narrator contamination, (2) text archive saves both sides, (3) narrator-only audio rule verified, (4) export zip verified, (5) UI Health Check clean, (6) test narrator session reviewable end-to-end from transcript + audio, (7) live parent-session checklist exists (which it now does).
+**Operating posture:** there is no demo. There is only ongoing work with the three real narrators (Christopher, Kent, Janice) plus the test set. Both curator surfaces (Photo Intake + Document Archive) are live by default — the `.env` file ships with all three feature flags ON (`HORNELORE_PHOTO_ENABLED=1`, `HORNELORE_PHOTO_INTAKE=1`, `HORNELORE_MEDIA_ARCHIVE_ENABLED=1`) so plain `bash scripts/start_all.sh` brings up the full stack with no wrapper scripts needed.
 
 **Shipped this week:**
 
@@ -41,12 +41,18 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 - WO-ARCHIVE-INTEGRATION-01 — Two-sided text transcript writer; every chat turn (narrator + Lori) lands in `transcript.jsonl` and `transcript.txt` under the archive
 - Multiple bug fixes: #145/#175/#190/#193 (camera class), #194 (sessionStyle persistence), #202 (Lori intro brand naming), #205 (Bug Panel in header), #206 (camera one-shot dropped), #207 (welcome-back collision)
 
-**Specced + ready to build (not yet shipped):**
+**Landed 2026-04-26 (Document Archive lane):**
 
-- WO-AUDIO-NARRATOR-ONLY-01 — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. Live build with operator in browser; 2.5–3 hours.
-- WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish; ship after first parent session.
+- **WO-MEDIA-ARCHIVE-01** — separate curator lane parallel to `/api/photos`. Stores PDFs / scanned documents / handwritten notes / genealogy outlines / letters / certificates / clippings — anything that's source material rather than a memory-prompt photo. **Locked product rule: Preserve first. Tag second. Transcribe / OCR third. Extract candidates only after that. NEVER auto-promote to truth.**
+  - Backend: 4 SQLite tables (`media_archive_items`, `_people`, `_family_lines`, `_links`) with locked enums (DOCUMENT_TYPES, TEXT_STATUSES, DATE_PRECISIONS, LINK_TYPES). Migration `0003_media_archive.sql` auto-applies on first boot via `migrations_runner.py`.
+  - Router: `/api/media-archive/*` (POST upload + multipart PDF/image/text MIMEs, GET list with filters, GET detail, PATCH with replace-all on people/family_lines/links arrays, DELETE soft-delete with `?actor_id`, GET file/thumb file-serving, /health).
+  - Services: `repository.py` (full CRUD), `storage.py` (per-narrator-or-family-or-unattached layout + meta.json mirror), `thumbnail.py` (Pillow + pdf2image best-effort), `text_probe.py` (pypdf-based page count + image-only detection).
+  - Frontend: `ui/media-archive.html` curator page (upload form + saved-list + View/Edit modal), `ui/js/media-archive.js`, `ui/css/media-archive.css`, all behind a 📄 Document Archive launcher card in the Operator → Media tab.
+  - 4 new health-harness checks under `media_archive` category (route reachable, list endpoint, page reachable, launcher card present).
+  - Default OFF in repo (`HORNELORE_MEDIA_ARCHIVE_ENABLED`); ON in local `.env` for active development. Dev wrapper at `scripts/start_all_media_archive_dev.sh` for ad-hoc opt-in runs.
+  - Spec: `WO-MEDIA-ARCHIVE-01_Spec.md`. Smoke fixture: 18-page Charlotte Graichen Shong family genealogy PDF.
 
-**Landed late 2026-04-25 / overnight 2026-04-26 (post-BB-Walk 38/0 clean checkpoint):**
+**Landed 2026-04-25 → 2026-04-26 (Photo system Phase 2 + URL resolution):**
 
 - **Photo system Phase 2 (partial) — EXIF auto-fill on upload** (server). New `server/code/services/photo_intake/exif.py` (Pillow-backed, fail-soft DMS-decimal converter + JSON-safe raw EXIF dump). Wired into `routers/photos.py` upload handler behind `HORNELORE_PHOTO_INTAKE=1`. Curator-supplied date/location ALWAYS wins; EXIF only fills blanks. Raw EXIF tag map stamped into `metadata_json["exif"]` regardless. Log line `[photos][exif] auto-filled date,gps for photo_id=...`. Default-off; flag-flippable from `.env`.
 - **Review File Info preview flow** (matches Chris's visualschedulebot photo admin UX). New `POST /api/photos/preview` endpoint reads EXIF + reverse-geocodes (Nominatim, no API key) + computes Plus Code locally + builds auto-description ("This image is from Tuesday, April 21, 2026 at 2:10 PM at RWRJ+2V Watrous, NM, USA") — all WITHOUT writing to DB. Frontend "Review File Info" button on the single-photo form prefills description/date/location for curator review before commit. Source-attribution pills next to each label show "from EXIF" / "from phone GPS". Three new services: `description_template.py`, `plus_code.py` (pure-Python Open Location Code encoder), `geocode_real.py` (stdlib urllib + Nominatim, fail-soft). Google Maps swap deferred to flag-gated alternative.
@@ -56,9 +62,19 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 - **BUG-PHOTO-CORS-01** — `main.py` CORSMiddleware was `allow_origins=["*"]` PLUS `allow_credentials=True`, which the CORS spec forbids (browsers refuse the wildcard). Plus two photo fetches in `app.js` used relative paths instead of the `ORIGIN` constant from `api.js`. Both fixed.
 - **BUG-PHOTO-LIST-500** — `repository.py` had `from ..api.db` (two dots) which resolved to `code.services.api` (doesn't exist). Should be three dots `from ...api.db`. Latent since Phase 1; only POST upload exercised the import path. Fixed.
 - **BUG-PHOTO-PRECISION-DAY** — `exif.py` returned `"day"` for date precision but the DB CHECK constraint allows only `('exact','month','year','decade','unknown')`. Vocabulary mismatch crashed every EXIF auto-fill upload after the file + thumbnail were already on disk. Fixed to `"exact"` (EXIF carries down to the second). Same fix in form dropdowns (single-photo + modal).
-- **`docs/PILLOW-VENV-INSTALL.md`** — fresh-laptop trap doc. Pillow must be installed in the GPU venv (`.venv-gpu/bin/pip install Pillow`), otherwise `thumbnail.py` and `exif.py` silently fail-soft and you get broken-image thumbnails + empty EXIF metadata with no log signal. ~90 minutes lost diagnosing this on 2026-04-25.
+- **BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT** — backend synthesizes image URLs as relative `/api/photos/{id}/thumb` and `/image`. Browser resolves against page origin (port 8082, UI server) instead of API origin (port 8000), 404'ing every thumbnail and full-image lookup. Fixed via new `_resolveApiUrl` helper in `photo-intake.js` and an inline ORIGIN-prepend in `app.js` at four spots: Saved Photos thumbnail, modal full image, narrator-room photo thumbnail, narrator-room lightbox. Same fix carried into `ui/js/media-archive.js` for the Document Archive surface.
+- **`docs/PILLOW-VENV-INSTALL.md`** — fresh-laptop trap doc. Pillow must be installed in the GPU venv (`.venv-gpu/bin/pip install Pillow`), otherwise `thumbnail.py` and `exif.py` silently fail-soft and you get broken-image thumbnails + empty EXIF metadata with no log signal. ~90 minutes lost diagnosing this on 2026-04-25. As of 2026-04-26, `Pillow==12.2.0`, `pypdf==6.4.1`, and `pdf2image==1.17.0` are pinned in `requirements-gpu.txt` so a fresh `pip install -r` covers everything.
+- **`docs/LAPTOP-SETUP-2026-04-26.md`** — full laptop bring-up doc. Section 11 covers WO-MEDIA-ARCHIVE-01 dependencies + first-boot verification + UI smoke. Updated post-archive to flip the `HORNELORE_MEDIA_ARCHIVE_ENABLED` flag from commented-future to active. Captures the `.env`-doesn't-ride-git rule with a heredoc append for laptop bring-up.
 - **Photo system test plan** — `docs/PHOTO-SYSTEM-TEST-PLAN.md` (8 manual smoke cases + automated EXIF parser test). Run automated: `.venv-gpu/bin/python3 scripts/test_photo_exif.py` (3/3 PASS confirmed; 4/4 with real-photo arg).
 - **BB Walk Test passing 38/0** — BUG-227/230/234/236/237 stack. Identity pipeline + scope hard-gate + askName parser fix all proven.
+
+**Specced + ready to build (not yet shipped):**
+
+- WO-AUDIO-NARRATOR-ONLY-01 frontend — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Backend already shipped (per-turn audio webm endpoint live). Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. Live build with operator in browser; 2.5–3 hours.
+- WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish.
+- WO-MEDIA-WATCHFOLDER-01 — auto-import from `C:\Users\chris\Hornelore Scans\` straight into Document Archive intake queue (post-MEDIA-ARCHIVE).
+- WO-MEDIA-OCR-01 — Tesseract-based OCR for scanned documents in the Document Archive (text_status auto-promotes from `image_only_needs_ocr` → `ocr_complete`).
+- WO-MEDIA-ARCHIVE-CANDIDATES-01 — harvest items flagged `candidate_ready=true` and surface to Bio Builder review queue (no auto-promotion; locked product rule).
 
 **Landed overnight 2026-04-25 (test-narrator validation pending tomorrow):**
 
@@ -132,8 +148,11 @@ Shadow Archive  →  Proposal Layer  →  Human Review  →  Promoted Truth
 |---|---|---|
 | Facts write freeze | `HORNELORE_TRUTH_V2=1` | Legacy `/api/facts/add` returns 410 Gone |
 | V2 profile read seam | `HORNELORE_TRUTH_V2_PROFILE=1` | `GET /api/profiles/{id}` reads from `family_truth_promoted` |
+| Photo router master | `HORNELORE_PHOTO_ENABLED=1` | `/api/photos/*` serves live; when off every endpoint 404s except `/health` |
+| Photo upload Phase 2 | `HORNELORE_PHOTO_INTAKE=1` | EXIF auto-fill + reverse geocoder run inside the upload handler. Independent of `HORNELORE_PHOTO_ENABLED`; uploads still work without it but the curator has to type date/location manually (Review File Info button still works regardless — it lives on a separate `/api/photos/preview` code path). |
+| Document Archive router | `HORNELORE_MEDIA_ARCHIVE_ENABLED=1` | `/api/media-archive/*` serves live; when off every endpoint 404s except `/health`. Curator page at `/ui/media-archive.html`. |
 
-Both flags are currently **ON** in `.env`. The profile read seam uses a hybrid strategy: promoted-truth values override `basics.*` for the 5 protected identity fields; all other promoted rows appear in a `basics.truth[]` sidecar array; unmapped fields (kinship, pets, culture, pronouns, etc.) pass through from legacy `profile_json`.
+All five flags are currently **ON** in `.env` for active development. The truth-v2 profile read seam uses a hybrid strategy: promoted-truth values override `basics.*` for the 5 protected identity fields; all other promoted rows appear in a `basics.truth[]` sidecar array; unmapped fields (kinship, pets, culture, pronouns, etc.) pass through from legacy `profile_json`. The photo and media-archive flags default OFF in the repo so the production stack stays opt-in; flipping them in `.env` is the pattern documented in `docs/LAPTOP-SETUP-2026-04-26.md`.
 
 ### Data Flow: Chat → Truth
 
@@ -402,6 +421,21 @@ python3 scripts/preload_trainer.py --all
 | WO-EX-DENSE-01 | Not specced | Dense-truth / large chunk extraction — **#1 extraction frontier** |
 | WO-QA-03 | Planned | TTS Option A — `--with-tts` flag for latency + GPU contention |
 | WO-14 | Deferred | TensorRT-LLM runtime swap (deferred pending Blackwell SM_120 maturity) |
+| WO-LORI-PHOTO-SHARED-01 | Complete | Photo authority layer — POST/GET/PATCH/DELETE `/api/photos/*`, multi-file batch upload, View/Edit modal, narrator-room lightbox, dedupe by file hash, soft-delete |
+| WO-LORI-PHOTO-INTAKE-01 (Phase 2 partial) | Shipped (flag-gated) | EXIF auto-fill + Nominatim reverse-geocoder + Plus Code generator + auto-description on upload; Review File Info preview button. `HORNELORE_PHOTO_INTAKE=1`. |
+| WO-LORI-PHOTO-ELICIT-01 (Phase 2) | Specced | Photo memory extraction profile, async scheduler, LLM prompts for Lori-side narration over photos in narrator room. Spec ready. |
+| WO-MEDIA-ARCHIVE-01 | Complete | Document Archive lane parallel to /api/photos. PDFs / scanned docs / handwritten notes / genealogy / letters / certificates / clippings. 4 SQLite tables, full router + curator page + 4 health checks + dev wrapper. Locked product rule: NEVER auto-promote to truth. |
+| WO-ARCHIVE-AUDIO-01 | Complete | Memory archive backend (per-narrator zip export, two-sided text transcript, narrator-only audio rule) at `/api/memory-archive/*` |
+| WO-AUDIO-NARRATOR-ONLY-01 (backend) | Complete | Per-turn webm audio capture endpoint; frontend MediaRecorder integration pending live build |
+| WO-UI-SHELL-01 | Complete | Three-tab shell (Operator / Narrator Session / Media); session-style picker (5 styles, persistent) |
+| WO-NARRATOR-ROOM-01 | Complete | Narrator-room layout: topbar + view tabs (Memory River / Life Map / Photos / Peek at Memoir) + chat column + context panel; Take-a-break overlay; chat scroll stabilization |
+| WO-UI-TEST-LAB-01 | Complete | Operator UI Health Check inside Bug Panel; 15 categories (added Document Archive); PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO |
+| WO-SESSION-STYLE-WIRING-01 | Complete | Operator session-style picker drives narrator behavior; questionnaire_first BYPASSES the v9 incomplete-narrator gate (Corky rule) |
+| WO-HORNELORE-SESSION-LOOP-01 | Complete | Post-identity orchestrator: one Bio Builder question at a time + sessionStyle routing + repeatable-section deferred-handoff |
+| WO-10C | Complete | Cognitive Support Mode — 6 dementia-safe behavioral guarantees (protected silence at 120s/300s/600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts) |
+| WO-MEDIA-WATCHFOLDER-01 | Planned | Auto-import from `C:\Users\chris\Hornelore Scans\` into Document Archive intake queue |
+| WO-MEDIA-OCR-01 | Planned | Tesseract OCR for scanned docs; promotes `text_status` from `image_only_needs_ocr` → `ocr_complete` |
+| WO-MEDIA-ARCHIVE-CANDIDATES-01 | Planned | Harvest items flagged `candidate_ready=true` and surface to Bio Builder review queue |
 
 ### WO-13 Phase Status
 
@@ -431,12 +465,37 @@ python3 scripts/preload_trainer.py --all
 
 ## Key Differences from Lorevox
 
-Hornelore is not a fork. It is a curated subset with a different product surface.
+Hornelore is not a fork. It is a curated subset with a different product surface, and it has accumulated several features that have not been backported to Lorevox.
+
+**Inherited from the original WO-11 separation:**
 
 - **Closed narrator universe** — Lorevox allows creating unlimited narrators. Hornelore is locked to three (plus two read-only trainers).
 - **Pre-seeded identity** — Lorevox interviews each narrator to establish identity. Hornelore loads identity from templates.
 - **No creation or deletion** — UI controls for adding and removing narrators are disabled.
 - **Separate data** — Hornelore uses its own database and filesystem. Running both products simultaneously is safe.
-- **Four-layer truth pipeline** — WO-13 adds shadow archive, proposals, review, and promoted truth layers that Lorevox does not have.
-- **Chronology Accordion** — WO-CR-01 / WO-CR-PACK-01 add a read-only left-side time ladder that merges three lanes (world / personal / ghost) at request time. Never writes to the database; gives Lori provenance-tagged temporal context without creating a new truth layer.
 - **Renamed shell** — `hornelore1.0.html` instead of `lori9.0.html`. Brand reads "Hornelore 1.0 — Horne Family Archive".
+
+**Added to Hornelore since the WO-11 split (candidates for Lorevox backport — see [Lorevox parity audit](#lorevox-parity-audit) section below):**
+
+- **Four-layer truth pipeline** — WO-13 shadow archive → proposals → human review → promoted truth.
+- **Chronology Accordion** — WO-CR-01 / WO-CR-PACK-01 read-only left-side time ladder merging three lanes (world / personal / ghost) at request time. Never writes to the database; gives Lori provenance-tagged temporal context without creating a new truth layer.
+- **Three-tab UI shell** — WO-UI-SHELL-01 Operator / Narrator Session / Media split, with session-style picker driving Lori behavior.
+- **Narrator room** — WO-NARRATOR-ROOM-01 dedicated layout with view tabs, Take-a-break overlay, chat scroll stabilization.
+- **Cognitive Support Mode (WO-10C)** — six dementia-safe behavioral guarantees (protected silence at 120s/300s/600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts).
+- **Memory archive** — WO-ARCHIVE-AUDIO-01 per-narrator session storage, two-sided text transcript, narrator-only audio rule, per-session zip export.
+- **Per-turn audio capture (backend)** — WO-AUDIO-NARRATOR-ONLY-01 webm audio attachment endpoint.
+- **Photo system (Phase 1 + Phase 2 partial)** — WO-LORI-PHOTO-SHARED-01 + WO-LORI-PHOTO-INTAKE-01. Curator photo intake (single + batch), EXIF auto-fill, Nominatim reverse-geo + Plus Code + auto-description, View/Edit modal, narrator-room photo lightbox.
+- **Document Archive** — WO-MEDIA-ARCHIVE-01 separate curator lane for PDFs / scanned docs / handwritten notes / genealogy / letters / certificates / clippings. Mirror infrastructure to the photo system but with PDF MIME acceptance, page-count detection, OCR-ready text status, candidate-ready flag for future Bio Builder harvest.
+- **Operator UI Health Check** — WO-UI-TEST-LAB-01 15-category harness inside the Bug Panel with PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO statuses; <100ms full run.
+- **Bio Builder hardening** — BUG-208 + 5 follow-up bugs closed (cross-narrator contamination, generation guards, scope hard-gates, harness race fixes).
+- **Extractor lane (LOOP-01 R5h)** — locked baseline 70/104; SPANTAG / BINDING-01 / LORI-CONFIRM stack in flight. See `CLAUDE.md` changelog for the live trail.
+
+---
+
+## Lorevox parity audit
+
+**Status: not started.** Several Hornelore features above (4-layer truth, photos, document archive, archive audio, narrator room, cognitive support mode, etc.) are candidates for backport to the parent Lorevox repo. A real audit needs file-by-file diff between the two repos and per-feature decisions about whether each one belongs in Lorevox at all (some — like closed narrator universe — are explicitly Hornelore-only by design; others — like the 4-layer truth pipeline — are general-purpose improvements that Lorevox would benefit from).
+
+The audit lives in `docs/LOREVOX-PARITY-AUDIT.md` (TBD). It will not happen automatically — Lorevox is a separate repo at a separate path, with its own branching state and its own product posture.
+
+---
