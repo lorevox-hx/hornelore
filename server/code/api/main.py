@@ -58,7 +58,16 @@ app = FastAPI(title="Lorevox API", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # BUG-PHOTO-CORS-01 (2026-04-25 night):
+    # MUST be False whenever allow_origins=["*"] -- the CORS spec explicitly
+    # forbids the wildcard combined with credentials, and modern browsers
+    # silently refuse the response. The companion-app and extractor lane
+    # do not actually use cross-origin cookies / HTTP auth (no
+    # withCredentials anywhere in our UI grep), so dropping credentials
+    # restores the wildcard semantics. If we ever wire cross-origin auth
+    # later, switch this to an explicit origins list (8082 + 8000) and
+    # flip back to True at the same time.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

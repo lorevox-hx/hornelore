@@ -400,7 +400,10 @@ async function _lvMediaPreflightOnce() {
   const note = document.getElementById("lvMediaDisabledNote");
   if (!note) return;
   try {
-    const res = await fetch("/api/photos/health", { method: "GET" });
+    // BUG-PHOTO-CORS-01: must use ORIGIN (port 8000) — page is served
+    // from port 8082 (hornelore-serve.py), so a bare relative path goes
+    // to the static UI server which doesn't have any /api/* routes.
+    const res = await fetch(ORIGIN + "/api/photos/health", { method: "GET" });
     let enabled = false;
     if (res.ok) {
       const j = await res.json();
@@ -577,7 +580,9 @@ async function _lvNarratorRenderPhotos() {
       // photos and in-progress curator entries leak into the narrator
       // room before metadata is reviewed. The repo-side list_photos
       // endpoint accepts the narrator_ready query param.
-      const res = await fetch(`/api/photos?narrator_id=${encodeURIComponent(pid)}&narrator_ready=true`);
+      // BUG-PHOTO-CORS-01: must use ORIGIN — see _lvMediaPreflightOnce
+      // above for the same fix in the Media-tab health probe.
+      const res = await fetch(`${ORIGIN}/api/photos?narrator_id=${encodeURIComponent(pid)}&narrator_ready=true`);
       if (res.status === 404) {
         _lvNarratorPhotos.error = "Photos are not enabled for this run.";
       } else if (res.ok) {
