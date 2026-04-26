@@ -36,7 +36,13 @@ logger = logging.getLogger(__name__)
 def _connect() -> sqlite3.Connection:
     # Defer the import so unit tests can monkeypatch DB_PATH before the
     # first repository call.
-    from ..api.db import _connect as legacy_connect  # type: ignore
+    # BUG-PHOTO-LIST-500 (2026-04-25 night): two-dot relative was wrong --
+    # this file lives at code.services.photos.repository, so `..api`
+    # resolves to code.services.api which doesn't exist. Need three dots
+    # to climb to code.api.db. Surfaced when the saved-photos list panel
+    # was first loaded -- POST upload path didn't exercise list_photos
+    # so this latent import bug shipped through Phase 1 unnoticed.
+    from ...api.db import _connect as legacy_connect  # type: ignore
 
     return legacy_connect()
 
