@@ -615,7 +615,11 @@ function _lvNarratorPaintPhotoSlot() {
   const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
   // BUG-240: prefer thumbnail_url for the inline view (faster paint),
   // but the lightbox uses media_url for the full-resolution photo.
-  const src   = photo.thumbnail_url || photo.url || photo.src || photo.photo_url || "";
+  // BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT (2026-04-26): /api/photos/
+  // URLs the backend returns are relative; resolve against API ORIGIN
+  // (port 8000) not the page origin (port 8082).
+  const _rawSrc = photo.thumbnail_url || photo.url || photo.src || photo.photo_url || "";
+  const src = (_rawSrc && _rawSrc.charAt(0) === "/") ? (ORIGIN + _rawSrc) : _rawSrc;
   // Composed caption: description first, then date + location for context.
   // Falls back to the legacy caption/filename/name fields if description
   // and the structured metadata are absent (e.g. pre-Phase-2 uploads).
@@ -663,7 +667,9 @@ function _lvNarratorOpenLightbox() {
   }
   // Prefer the full-resolution media_url; thumbnail is only ~400px which
   // looks pixelated on a 10" tablet. Fall back to whatever's available.
-  const fullSrc = photo.media_url || photo.url || photo.src || photo.photo_url || photo.thumbnail_url || "";
+  // BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT: prepend ORIGIN for /api/* paths.
+  const _rawFull = photo.media_url || photo.url || photo.src || photo.photo_url || photo.thumbnail_url || "";
+  const fullSrc = (_rawFull && _rawFull.charAt(0) === "/") ? (ORIGIN + _rawFull) : _rawFull;
   const caption = (photo.description && String(photo.description).trim())
     || photo.caption || photo.filename || photo.name || "";
   const subBits = [];

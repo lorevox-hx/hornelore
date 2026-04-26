@@ -17,6 +17,20 @@
   var LS_NARRATOR   = "pi_narrator_id_v1";
   var LS_CURATOR    = "pi_curator_user_id_v1";
 
+  // BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT (2026-04-26 morning):
+  // backend synthesizes /api/photos/{id}/thumb and /image as RELATIVE
+  // paths. The page is served from port 8082 (hornelore-serve.py) but
+  // the API lives on port 8000 (FastAPI). Without origin prefix the
+  // browser hits :8082 which 404s. Prepend ORIGIN when URL starts
+  // with / and isn't already absolute.
+  function _resolveApiUrl(u) {
+    if (!u) return "";
+    var s = String(u);
+    if (s.indexOf("http://") === 0 || s.indexOf("https://") === 0 || s.indexOf("data:") === 0 || s.indexOf("blob:") === 0) return s;
+    if (s.charAt(0) === "/") return ORIGIN + s;
+    return s;
+  }
+
   var $  = function (id) { return document.getElementById(id); };
   var el = {
     narrator:        $("piNarrator"),
@@ -374,7 +388,13 @@
       img.className = "pi-thumb pi-thumb-clickable";
       img.alt = "";
       img.title = "Click to view or edit";
-      img.src = p.thumbnail_url || p.media_url || "";
+      // BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT: backend synthesizes
+      // image URLs as /api/photos/{id}/thumb (relative). Browser resolves
+      // against the page origin (port 8082, UI server) instead of the
+      // API origin (port 8000). _resolveApiUrl prepends ORIGIN when the
+      // URL is relative. Same fix needed in 3 other spots (modal +
+      // narrator-room x 2).
+      img.src = _resolveApiUrl(p.thumbnail_url || p.media_url || "");
       img.addEventListener("click", function () { openPhotoModal(p); });
       row.appendChild(img);
 
@@ -1012,7 +1032,7 @@
     _modalPhoto = photo;
 
     // Populate fields
-    if (el.modalImage)         el.modalImage.src = photo.media_url || photo.thumbnail_url || "";
+    if (el.modalImage)         el.modalImage.src = _resolveApiUrl(photo.media_url || photo.thumbnail_url || "");
     if (el.modalDescription)   el.modalDescription.value   = photo.description    || "";
     if (el.modalDateValue)     el.modalDateValue.value     = photo.date_value     || "";
     if (el.modalDatePrecision) el.modalDatePrecision.value = photo.date_precision || "unknown";
