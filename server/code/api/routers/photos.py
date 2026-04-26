@@ -57,6 +57,52 @@ from ...services.photo_elicit.template_prompt import build_photo_prompt
 
 log = logging.getLogger("lorevox.photos")
 
+
+# P2.2 (code review 2026-04-26): loud startup check for Pillow.
+# Pillow is required for thumbnail generation + EXIF auto-fill, but
+# both modules fail-soft on missing PIL (catch ImportError, log at
+# WARN, return None / empty-shape). The combination produces a system
+# that LOOKS like it's working — uploads succeed, no errors in
+# api.log — but silently emits broken thumbnails and empty EXIF
+# metadata. This bit us 2026-04-25 night and ate ~90 minutes of
+# diagnosis time.
+#
+# This module-load check runs once at server boot and ensures the
+# operator sees a clear ERROR line at startup if Pillow isn't where
+# we need it. The check is intentionally NOT a fail-fast import —
+# we want the rest of the photo surface (upload, list, patch,
+# delete) to keep working even if thumbnails + EXIF are unavailable.
+def _startup_pillow_check() -> None:
+    try:
+        from PIL import Image  # type: ignore
+        version = getattr(Image, "__version__", None)
+        if version is None:
+            try:
+                from PIL import __version__ as version  # type: ignore
+            except Exception:
+                version = "unknown"
+        log.info("[photos][startup] Pillow available: version=%s", version)
+    except ImportError:
+        log.error(
+            "[photos][startup] PILLOW NOT INSTALLED in this Python environment. "
+            "Thumbnails + EXIF auto-fill will silently produce no output. "
+            "Fix: `.venv-gpu/bin/pip install Pillow` then restart uvicorn. "
+            "See docs/PILLOW-VENV-INSTALL.md for the full diagnosis."
+        )
+    except Exception as exc:
+        # Anything else is also worth logging loudly — Pillow installed
+        # but mis-configured is a real failure mode worth surfacing.
+        log.error(
+            "[photos][startup] Pillow import errored unexpectedly: %s. "
+            "Thumbnails + EXIF auto-fill may not work. "
+            "See docs/PILLOW-VENV-INSTALL.md.",
+            exc,
+        )
+
+
+_startup_pillow_check()
+
+
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
 
