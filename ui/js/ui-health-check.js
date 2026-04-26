@@ -158,10 +158,11 @@ window.lvUiHealthCheck = (function () {
       card ? STATUS.PASS : STATUS.FAIL,
       card ? "" : "#lv80ActiveNarratorCard missing");
 
-    // Operator-tab session style picker present
+    // Operator-tab session style picker present (4 styles since
+    // memory_exercise dropped 2026-04-25).
     const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
-    _push(cat, "session style picker has 5 options",
-      radios.length === 5 ? STATUS.PASS : STATUS.FAIL,
+    _push(cat, "session style picker has 4 options",
+      radios.length === 4 ? STATUS.PASS : STATUS.FAIL,
       `radio count=${radios.length}`);
 
     // No stale narrator pointer
@@ -954,13 +955,14 @@ window.lvUiHealthCheck = (function () {
       dispatch === "function" ? STATUS.PASS : STATUS.FAIL,
       `typeof=${dispatch} (session-style-router.js)`);
 
-    // 4. Router accessor exposes valid styles
+    // 4. Router accessor exposes valid styles (4 since memory_exercise
+    //    dropped 2026-04-25).
     const router = window.lvSessionStyleRouter;
-    if (router && Array.isArray(router.validStyles) && router.validStyles.length === 5) {
-      _push(cat, "router.validStyles enumerates all 5 styles", STATUS.PASS,
+    if (router && Array.isArray(router.validStyles) && router.validStyles.length === 4) {
+      _push(cat, "router.validStyles enumerates all 4 styles", STATUS.PASS,
         router.validStyles.join(","));
     } else {
-      _push(cat, "router.validStyles enumerates all 5 styles", STATUS.FAIL,
+      _push(cat, "router.validStyles enumerates all 4 styles", STATUS.FAIL,
         `validStyles=${JSON.stringify(router && router.validStyles)}`);
     }
 
