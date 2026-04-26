@@ -265,6 +265,19 @@
     </div>
   </div>
 
+  <!-- BUG-PHOTO-BATCH-THUMB: lightbox for batch-queue thumbnails.
+       Click a queued thumb (not yet uploaded) → quick fullscreen
+       preview of the local file. After upload, click goes to the
+       full View/Edit modal instead (handled in JS). -->
+  <div class="pi-batch-preview-overlay" id="piBatchPreviewLightbox" hidden
+       role="dialog" aria-modal="true" aria-label="Photo preview"
+       onclick="if (event.target === this) _closeBatchPreviewLightbox();">
+    <button type="button" class="pi-batch-preview-close"
+            onclick="_closeBatchPreviewLightbox()" aria-label="Close">×</button>
+    <img class="pi-batch-preview-img" alt=""/>
+    <div class="pi-batch-preview-caption"></div>
+  </div>
+
   <script src="js/photo-intake.js"></script>
 </body>
 </html>

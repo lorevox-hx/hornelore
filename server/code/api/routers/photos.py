@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .. import flags
@@ -212,7 +212,46 @@ def _validate_enum(name: str, value: Optional[str], allowed: tuple) -> None:
 
 def _photo_with_relations(photo_id: str) -> Optional[Dict[str, Any]]:
     photo = photo_repo.get_photo(photo_id)
+    return _attach_image_urls(photo) if photo else None
+
+
+# BUG-PHOTO-NULL-URLS (2026-04-26): every photo row was shipping with
+# media_url=null + thumbnail_url=null because nothing populates those
+# fields at create time and there was no static-mount serving the
+# DATA_DIR/photos directory. Result: thumbnails never appeared in
+# either the Saved Photos panel OR the View/Edit modal — operator
+# saw broken-image icons everywhere despite uploads succeeding and
+# files being on disk.
+#
+# Fix: synthesize the URLs from photo_id at response time (so we
+# don't need a DB migration for existing rows) + add two GET endpoints
+# that serve the files from disk via FastAPI FileResponse. Same
+# auth/flag gate as the rest of the photo surface.
+def _attach_image_urls(photo: Dict[str, Any]) -> Dict[str, Any]:
+    """Mutate photo dict in place to add media_url + thumbnail_url
+    derived from photo_id. Safe to call on already-populated rows
+    (curator-supplied URLs are preserved if non-null)."""
+    if not photo:
+        return photo
+    pid = photo.get("id")
+    if pid:
+        if not photo.get("media_url"):
+            photo["media_url"] = f"/api/photos/{pid}/image"
+        if not photo.get("thumbnail_url"):
+            photo["thumbnail_url"] = f"/api/photos/{pid}/thumb"
     return photo
+
+
+def _serve_file_response(path_str: Optional[str], detail: str = "file not found") -> FileResponse:
+    """Serve a file from disk with sane content-type detection. Raises
+    404 if the path is missing or the file isn't there.
+    """
+    if not path_str:
+        raise HTTPException(status_code=404, detail=detail)
+    p = Path(path_str)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail=detail)
+    return FileResponse(str(p))
 
 
 # ---------------------------------------------------------------------------
@@ -581,14 +620,61 @@ async def upload_photo(
 def list_photos(
     narrator_id: str = Query(...),
     narrator_ready: Optional[bool] = Query(None),
+    include_deleted: bool = Query(False),
 ) -> Dict[str, Any]:
+    """List photos for a narrator. Default excludes soft-deleted rows.
+
+    ``include_deleted=true`` surfaces soft-deleted rows for the DB
+    inspector (Bug Panel debug view). Used to verify what's actually
+    in the photos table when the operator can't tell if a delete
+    landed or not.
+    """
     _require_enabled()
     rows = photo_repo.list_photos(
         narrator_id=narrator_id,
         narrator_ready=narrator_ready,
-        deleted=False,
+        deleted=include_deleted,
     )
+    # BUG-PHOTO-NULL-URLS: synthesize image URLs at response time so
+    # the UI's existing thumbnail_url / media_url consumers have
+    # something to render. See _attach_image_urls comment above.
+    rows = [_attach_image_urls(r) for r in rows]
     return {"photos": rows, "count": len(rows)}
+
+
+# BUG-PHOTO-NULL-URLS — image serving endpoints (must be registered
+# AFTER the bare GET /api/photos route above; FastAPI matches longest
+# prefix first but explicit declaration order is the safest contract).
+
+
+@router.get("/{photo_id}/image")
+def serve_photo_image(photo_id: str) -> FileResponse:
+    """Serve the original photo file by id. Soft-deleted photos still
+    serve (operator may need the file for restore/audit even after
+    they soft-delete the row)."""
+    _require_enabled()
+    photo = photo_repo.get_photo(photo_id, deleted=True)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+    return _serve_file_response(photo.get("image_path"), "photo image file missing on disk")
+
+
+@router.get("/{photo_id}/thumb")
+def serve_photo_thumb(photo_id: str) -> FileResponse:
+    """Serve the 400px thumbnail by id. Falls back to the original
+    when the thumbnail isn't on disk (e.g. Pillow was missing at
+    upload time so thumbnail.py silently failed). The fallback is
+    slower for the UI but better UX than a broken-image icon.
+    """
+    _require_enabled()
+    photo = photo_repo.get_photo(photo_id, deleted=True)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+    thumb_path = photo.get("thumbnail_path")
+    if thumb_path and Path(thumb_path).is_file():
+        return FileResponse(thumb_path)
+    # Fallback to original
+    return _serve_file_response(photo.get("image_path"), "photo image file missing on disk")
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +688,8 @@ def get_photo(photo_id: str) -> Dict[str, Any]:
     row = photo_repo.get_photo(photo_id)
     if row is None:
         raise HTTPException(status_code=404, detail="photo not found")
-    return row
+    # BUG-PHOTO-NULL-URLS: synthesize image URLs at response time.
+    return _attach_image_urls(row)
 
 
 # ---------------------------------------------------------------------------

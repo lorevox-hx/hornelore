@@ -319,8 +319,49 @@
         var photos = Array.isArray(body) ? body : (body.photos || []);
         renderList(photos);
         setListStatus(photos.length ? (photos.length + " saved") : "No photos yet.");
+        // BUG-PHOTO-BATCH-STALE-AFTER-DELETE (2026-04-26): when the
+        // operator soft-deletes a saved photo from the Saved Photos
+        // panel (or from the View/Edit modal), the batch queue still
+        // shows the corresponding card with status="saved". Without
+        // a refresh signal the operator can't tell if the delete
+        // actually landed. Walk the batch items and mark any saved
+        // item whose photoId is no longer in the live list as
+        // "deleted-server-side" — visually fades the card + flips
+        // the pill so the operator gets feedback.
+        _pruneStaleBatchItems(photos);
       })
       .catch(function () { setListStatus("Could not load list.", "err"); });
+  }
+
+  function _pruneStaleBatchItems(livePhotos) {
+    if (!batchItems || !batchItems.length) return;
+    var liveIds = {};
+    (livePhotos || []).forEach(function (p) { if (p && p.id) liveIds[p.id] = true; });
+    var pruned = 0;
+    batchItems.forEach(function (item) {
+      if (item.status === "saved" && item.photoId && !liveIds[item.photoId]) {
+        // Server-side row is gone — mark as such, don't auto-remove
+        // from the queue (operator might want to see what was
+        // deleted). The Clear Queue button removes them in bulk.
+        item.status = "deleted_server";
+        if (item._pill) {
+          item._pill.className = "pi-batch-pill warn";
+          item._pill.textContent = "deleted";
+        }
+        if (item._meta) {
+          item._meta.textContent = "Photo was deleted from the saved list.";
+          item._meta.className = "pi-batch-meta warn";
+        }
+        if (item._row) {
+          item._row.style.opacity = "0.55";
+        }
+        pruned += 1;
+      }
+    });
+    if (pruned > 0) {
+      console.log("[photo-intake] pruned " + pruned +
+        " stale batch items (saved photos no longer in DB)");
+    }
   }
 
   function renderList(photos) {
@@ -474,13 +515,36 @@
     row.className = "pi-batch-row";
     row.dataset.id = item.id;
 
-    // Thumbnail (client-side preview via FileReader)
+    // Thumbnail (client-side preview via URL.createObjectURL).
+    //
+    // BUG-PHOTO-BATCH-THUMB (2026-04-26): switched from FileReader
+    // (readAsDataURL) to URL.createObjectURL because:
+    //   - FileReader generates a 7-13MB base64 string for typical
+    //     phone JPEGs (5-10MB); some browsers throttle data: URLs
+    //     that long, leaving thumb.src empty.
+    //   - createObjectURL hands the browser a blob: URL it can load
+    //     directly without base64 conversion. Faster, lower memory,
+    //     more reliable.
+    // We don't revoke the URL here — the browser garbage-collects on
+    // document unload, and our queue is short-lived (single batch).
     var thumb = document.createElement("img");
-    thumb.className = "pi-batch-thumb";
-    thumb.alt = "";
-    var reader = new FileReader();
-    reader.onload = function (ev) { thumb.src = ev.target.result; };
-    try { reader.readAsDataURL(item.file); } catch (e) { /* ignore */ }
+    thumb.className = "pi-batch-thumb pi-batch-thumb--clickable";
+    thumb.alt = item.file.name || "queued photo";
+    thumb.title = "Click to enlarge";
+    try { thumb.src = URL.createObjectURL(item.file); } catch (e) {
+      console.warn("[photo-intake] createObjectURL failed for " + item.file.name + ":", e);
+    }
+    // BUG-240 sibling for batch items: click thumb opens an overlay
+    // showing the full-size local preview. If the item has been
+    // uploaded (status==="saved" + photoId set), open the View/Edit
+    // modal instead so the curator can edit metadata.
+    thumb.addEventListener("click", function () {
+      if (item.status === "saved" && item.photoId) {
+        _openSavedPhotoModalById(item.photoId);
+      } else {
+        _openBatchPreviewLightbox(item);
+      }
+    });
     row.appendChild(thumb);
 
     // Body
@@ -743,6 +807,67 @@
 
   if (el.batchClear) {
     el.batchClear.addEventListener("click", _clearQueue);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // BATCH PREVIEW LIGHTBOX + SAVED-PHOTO MODAL HELPER
+  //
+  // Click a batch-queue thumbnail → if uploaded (status=saved),
+  // open the View/Edit modal for the saved row. If still queued,
+  // show a quick fullscreen preview of the local file.
+  // ═══════════════════════════════════════════════════════════════
+
+  function _openBatchPreviewLightbox(item) {
+    var overlay = document.getElementById("piBatchPreviewLightbox");
+    if (!overlay || !item || !item.file) return;
+    var img = overlay.querySelector(".pi-batch-preview-img");
+    var cap = overlay.querySelector(".pi-batch-preview-caption");
+    try {
+      if (img) img.src = URL.createObjectURL(item.file);
+    } catch (e) {
+      console.warn("[batch-preview] createObjectURL failed:", e);
+      return;
+    }
+    if (cap) {
+      cap.textContent = (item.file.name || "queued photo") +
+        " · " + _bytesPretty(item.file.size) +
+        " · status: " + item.status;
+    }
+    overlay.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+  function _closeBatchPreviewLightbox() {
+    var overlay = document.getElementById("piBatchPreviewLightbox");
+    if (!overlay) return;
+    overlay.hidden = true;
+    var img = overlay.querySelector(".pi-batch-preview-img");
+    if (img) img.src = "";  // free blob URL ref
+    document.body.style.overflow = "";
+  }
+  // Expose for inline onclick handlers in the HTML overlay
+  window._closeBatchPreviewLightbox = _closeBatchPreviewLightbox;
+
+  // Fetch a single photo by id and open the View/Edit modal with it.
+  // Used by batch-queue click-to-enlarge when the item is already
+  // uploaded — operator gets the full edit surface, not just a
+  // preview, on the row they just saved.
+  function _openSavedPhotoModalById(photoId) {
+    if (!photoId) return;
+    fetch(ORIGIN + "/api/photos/" + encodeURIComponent(photoId))
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (photo) {
+        if (photo && photo.id) {
+          openPhotoModal(photo);
+        } else {
+          alert("Photo not found server-side. It may have been deleted.");
+        }
+      })
+      .catch(function (e) {
+        alert("Could not load photo: " + (e.message || e));
+      });
   }
 
   // ═══════════════════════════════════════════════════════════════

@@ -836,12 +836,24 @@ def count_shows_for_narrator(narrator_id: str) -> int:
 def find_photo_by_hash(
     narrator_id: str, file_hash: str
 ) -> Optional[Dict[str, Any]]:
+    """Find an existing live photo by content hash for dedup.
+
+    BUG-PHOTO-DEDUP-IGNORES-SOFTDELETE (2026-04-26): originally this
+    query did NOT filter ``deleted_at IS NULL``, so a soft-deleted
+    photo with the same file hash blocked re-upload of the same file.
+    Operator workflow: delete a photo → try to upload it again →
+    "This photo is already saved for this narrator" with no obvious
+    way to recover other than hard-deleting from the DB. Now scoped
+    to live rows only, matching the rest of the soft-delete contract
+    (list_photos, get_photo, soft_delete_photo).
+    """
     con = _connect()
     try:
         row = con.execute(
             """
             SELECT * FROM photos
-             WHERE narrator_id = ? AND file_hash = ?;
+             WHERE narrator_id = ? AND file_hash = ?
+               AND deleted_at IS NULL;
             """,
             (narrator_id, file_hash),
         ).fetchone()
