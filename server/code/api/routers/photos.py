@@ -46,6 +46,7 @@ from ...services.photos.models import (
 from ...services.photos.confidence import needs_confirmation_for_location
 from ...services.photos.provenance import make_provenance
 from ...services.photo_intake.dedupe import sha256_file
+from ...services.photo_intake.exif import extract_exif
 from ...services.photo_intake.storage import store_photo_file
 from ...services.photo_elicit.selector import select_next_photo
 from ...services.photo_elicit.template_prompt import build_photo_prompt
@@ -257,6 +258,67 @@ async def upload_photo(
 
     derived_needs_confirmation = needs_confirmation_for_location(location_source)
 
+    # ---- WO-LORI-PHOTO-INTAKE-01 Phase 2: EXIF auto-fill -------------
+    # When HORNELORE_PHOTO_INTAKE=1, read EXIF from the stored image and
+    # use it ONLY to fill date / GPS fields the curator left blank.
+    # Curator-supplied values always win. The raw EXIF tag map is stamped
+    # into metadata_json regardless (forensic trail, non-authoritative).
+    effective_date_value = date_value
+    effective_date_precision = date_precision or "unknown"
+    effective_location_source = location_source or "unknown"
+    effective_latitude: Optional[float] = None
+    effective_longitude: Optional[float] = None
+    metadata_payload: Optional[Dict[str, Any]] = None
+    exif_used = []  # for log
+
+    if flags.photo_intake_enabled():
+        exif = extract_exif(stored["image_path"])
+
+        # Date: only fill if curator left date_value blank.
+        if not (date_value and date_value.strip()):
+            if exif.get("captured_at"):
+                effective_date_value = exif["captured_at"]
+                # Only override precision when curator left it default.
+                if effective_date_precision in (None, "", "unknown"):
+                    effective_date_precision = exif.get("captured_at_precision") or "day"
+                exif_used.append("date")
+
+        # GPS: only fill when curator did not specify a location_source
+        # (i.e. left it as 'unknown'). exif_gps is high-confidence per
+        # spec §7, so needs_confirmation flips to False.
+        gps = exif.get("gps") or {}
+        gps_lat = gps.get("latitude")
+        gps_lng = gps.get("longitude")
+        if (
+            gps_lat is not None
+            and gps_lng is not None
+            and (effective_location_source in (None, "", "unknown"))
+        ):
+            effective_latitude = gps_lat
+            effective_longitude = gps_lng
+            effective_location_source = "exif_gps"
+            derived_needs_confirmation = False
+            exif_used.append("gps")
+
+        # Always preserve the raw tag map for forensic review, even when
+        # nothing was auto-filled (curator may have typed values that
+        # disagree with EXIF — the conflict detector in Phase 2 full
+        # release will surface that).
+        metadata_payload = {
+            "exif": exif.get("raw_exif") or {},
+            "exif_orientation": exif.get("orientation"),
+            "exif_captured_at": exif.get("captured_at"),
+            "exif_gps": gps,
+        }
+
+        if exif_used:
+            log.info(
+                "[photos][exif] auto-filled %s for photo_id=%s narrator=%s",
+                ",".join(exif_used),
+                stored["photo_id"],
+                narrator_id,
+            )
+
     # Normalise empty Optional enum fields back to the repository defaults.
     row = photo_repo.create_photo(
         photo_id=stored["photo_id"],
@@ -266,12 +328,15 @@ async def upload_photo(
         image_path=stored["image_path"],
         thumbnail_path=stored.get("thumbnail_path"),
         description=description,
-        date_value=date_value,
-        date_precision=(date_precision or "unknown"),
+        date_value=effective_date_value,
+        date_precision=(effective_date_precision or "unknown"),
         location_label=location_label,
-        location_source=(location_source or "unknown"),
+        location_source=(effective_location_source or "unknown"),
+        latitude=effective_latitude,
+        longitude=effective_longitude,
         narrator_ready=ready_flag,
         needs_confirmation=derived_needs_confirmation,
+        metadata=metadata_payload,
     )
 
     # Attach curator-provided people / events (best-effort — each row

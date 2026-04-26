@@ -97,6 +97,24 @@ def photo_enabled() -> bool:
     return _truthy(os.environ.get("HORNELORE_PHOTO_ENABLED"))
 
 
+def photo_intake_enabled() -> bool:
+    """WO-LORI-PHOTO-INTAKE-01 Phase 2 (partial). When True, the
+    ``/api/photos`` upload handler runs EXIF extraction on each incoming
+    file and auto-fills date / GPS fields the curator left blank.
+
+    Curator-supplied values always win over EXIF (the handler only fills
+    when the form field was None or 'unknown'). The raw EXIF tag map is
+    stored in ``photos.metadata_json`` under the ``"exif"`` key for
+    forensic review regardless of whether any field was auto-filled.
+
+    Default OFF — uploads behave exactly like Phase 1 when this flag is
+    not set, so flipping it is fully reversible. Requires
+    ``HORNELORE_PHOTO_ENABLED`` to also be on (the upload handler is
+    gated behind ``_require_enabled()`` first).
+    """
+    return _truthy(os.environ.get("HORNELORE_PHOTO_INTAKE"))
+
+
 def archive_enabled() -> bool:
     """WO-ARCHIVE-AUDIO-01. When True, the ``/api/memory-archive`` router
     is mounted and serves live responses. When False, every endpoint under
