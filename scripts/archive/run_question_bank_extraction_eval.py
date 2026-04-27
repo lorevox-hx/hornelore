@@ -39,7 +39,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from failure_pack import build_failure_pack, render_failure_pack_console  # noqa: E402
 
 # ── Paths ───────────────────────────────────────────────────────────────────
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# 2026-04-25: script moved from scripts/ to scripts/archive/ — REPO_ROOT
+# needs three .parent calls now (file → archive/ → scripts/ → repo root).
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CASES_PATH = REPO_ROOT / "data" / "qa" / "question_bank_extraction_cases.json"
 REPORT_DIR = REPO_ROOT / "docs" / "reports"
 

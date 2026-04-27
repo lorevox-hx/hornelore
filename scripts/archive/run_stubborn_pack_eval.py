@@ -75,8 +75,10 @@ STUBBORN_CASES: List[str] = [
     "case_088",
 ]
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-EVAL_SCRIPT = REPO_ROOT / "scripts" / "run_question_bank_extraction_eval.py"
+# 2026-04-25: script moved from scripts/ to scripts/archive/ — REPO_ROOT
+# needs three .parent calls now, and EVAL_SCRIPT moved to scripts/archive/.
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+EVAL_SCRIPT = REPO_ROOT / "scripts" / "archive" / "run_question_bank_extraction_eval.py"
 API_LOG = REPO_ROOT / ".runtime" / "logs" / "api.log"
 REPORT_DIR = REPO_ROOT / "docs" / "reports"
 
