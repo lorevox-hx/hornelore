@@ -519,3 +519,19 @@ Still iterating in the lab; promotion blocked until they lock to a measurable ac
 **C. Hornelore-only by design** — see "Relationship to Lorevox" section above.
 
 ---
+
+## License
+
+Copyright (c) 2026 Chris (dev@lorevox.com). All rights reserved.
+
+Hornelore is governed by the same **Lorevox Source-Available Proprietary License (Version 1.1 — 2026)** as the public Lorevox product. Hornelore is the family-locked R&D crucible; it is not a separate license surface. The same restrictions apply: source-available for view and study; no commercial use, hosting for third parties, redistribution, or public forks; no use of prompts, schemas, or outputs for ML training; named brands (Lorevox, Lori, Hornelore) and expressive implementations are reserved.
+
+**Commercial, institutional, research, nonprofit, educational, clinical, archival, family-office, elder-care, SaaS, hosted, deployment, integration, white-label, or third-party use is available by separate written license.** Contact dev@lorevox.com to discuss terms.
+
+Third-party libraries and dependencies remain subject to their own licenses. End-user data — narrator records, family photos, scanned documents, transcripts, memoir drafts — is owned by the operator and narrator who created it; this License grants no claim over such content.
+
+Contributions are by invitation only and require full assignment of rights to the copyright holder.
+
+See [LICENSE](LICENSE) for complete terms. For permissions: dev@lorevox.com
+
+---
