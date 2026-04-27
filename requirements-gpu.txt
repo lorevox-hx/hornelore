@@ -83,6 +83,40 @@ ctranslate2==4.7.1
 python-docx==1.2.0
 lxml==6.0.2
 
+# ── Photo system (services/photo_intake/*, services/photos/*) ──────────────
+# Pillow drives BOTH thumbnail generation (services/photo_intake/thumbnail.py)
+# AND EXIF auto-fill (services/photo_intake/exif.py). Both modules fail-soft
+# on missing PIL — uploads succeed, thumbnails just come back as null +
+# EXIF returns empty-shape — which produces a working-looking system that
+# silently emits broken thumbnails. This bit us 2026-04-25 night and ate
+# ~90 minutes of diagnosis. See docs/PILLOW-VENV-INSTALL.md for the
+# diagnostic + verification path. Pinned to a recent version that
+# handles modern Pixel/Samsung JPEG EXIF blocks reliably.
+#
+# Pillow ALSO drives the Document Archive lane (WO-MEDIA-ARCHIVE-01)
+# for image-source items (scanned single-page docs, contact sheets,
+# etc.) — same import path, same fail-soft behavior.
+Pillow==12.2.0
+
+# ── Document Archive (services/media_archive/*) ────────────────────────────
+# pypdf — pure-Python PDF reader used for page_count detection on upload.
+# Failure mode if missing: services/media_archive/text_probe.py falls back
+# to page_count=NULL (visible in the curator list as missing pages-pill).
+# Functionality not blocked, just degraded. Cheap to install, no system deps.
+pypdf==6.4.1
+
+# pdf2image — wraps poppler-utils (system dep) to render PDF first page as
+# a JPEG thumbnail. Failure mode if poppler-utils missing: thumbnail step
+# raises inside services/media_archive/thumbnail.py, which is wrapped in a
+# try/except at the upload site, so the curator sees an inline SVG file-icon
+# placeholder instead of a real thumb. Install poppler-utils via:
+#   sudo apt install -y poppler-utils
+# (Ubuntu/WSL2). Without poppler-utils the pip install still succeeds; the
+# thumbnail just falls back to the placeholder, which is fine for working
+# triage workflows. PDF page-count detection (pypdf above) is independent
+# of poppler and works regardless.
+pdf2image==1.17.0
+
 # ── Misc runtime deps pulled by the imports above ──────────────────────────
 numpy==2.4.2
 jinja2==3.1.6

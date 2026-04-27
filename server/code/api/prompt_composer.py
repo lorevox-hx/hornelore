@@ -832,6 +832,19 @@ def compose_system_prompt(
                 f"Never confuse the speaker with yourself or with any other person named in the conversation."
             )
 
+        # WO-HORNELORE-SESSION-LOOP-01 — tier-2 session-style directive.
+        # Operator's chosen sessionStyle (clear_direct / memory_exercise /
+        # companion) emits a short directive via session-loop.js.  Empty
+        # / missing for warm_storytelling and questionnaire_first (those
+        # styles drive their own behavior; no addendum needed).
+        _style_directive = (runtime71.get("session_style_directive") or "").strip()
+        if _style_directive:
+            directive_lines.append(
+                f"  session_style_directive: {_style_directive}  "
+                f"# Operator-chosen tone for this session. Honor this directive "
+                f"throughout your replies."
+            )
+
         # Media Builder — narrator photo count
         media_count = int(runtime71.get("media_count") or 0)
         if media_count > 0:

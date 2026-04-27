@@ -36,7 +36,13 @@ logger = logging.getLogger(__name__)
 def _connect() -> sqlite3.Connection:
     # Defer the import so unit tests can monkeypatch DB_PATH before the
     # first repository call.
-    from ..api.db import _connect as legacy_connect  # type: ignore
+    # BUG-PHOTO-LIST-500 (2026-04-25 night): two-dot relative was wrong --
+    # this file lives at code.services.photos.repository, so `..api`
+    # resolves to code.services.api which doesn't exist. Need three dots
+    # to climb to code.api.db. Surfaced when the saved-photos list panel
+    # was first loaded -- POST upload path didn't exercise list_photos
+    # so this latent import bug shipped through Phase 1 unnoticed.
+    from ...api.db import _connect as legacy_connect  # type: ignore
 
     return legacy_connect()
 
@@ -455,6 +461,35 @@ def add_photo_event(
     return _row_to_dict(row)
 
 
+# WO-PHOTO-PEOPLE-EDIT-01: hard-delete helpers for the people/events
+# join tables, used by the PATCH endpoint to implement replace-all
+# semantics for those lists. (The photos table itself is soft-deleted;
+# the join rows have no soft-delete flag and don't need one — losing
+# a person/event tag is recoverable by re-tagging via the modal.)
+def delete_all_photo_people(photo_id: str) -> int:
+    """Hard-delete every photo_people row for ``photo_id``. Returns the
+    deletion count for log/UX surface."""
+    con = _connect()
+    try:
+        cur = con.execute("DELETE FROM photo_people WHERE photo_id = ?;", (photo_id,))
+        con.commit()
+        return cur.rowcount or 0
+    finally:
+        con.close()
+
+
+def delete_all_photo_events(photo_id: str) -> int:
+    """Hard-delete every photo_events row for ``photo_id``. Returns the
+    deletion count for log/UX surface."""
+    con = _connect()
+    try:
+        cur = con.execute("DELETE FROM photo_events WHERE photo_id = ?;", (photo_id,))
+        con.commit()
+        return cur.rowcount or 0
+    finally:
+        con.close()
+
+
 # -----------------------------------------------------------------------------
 # Sessions / shows
 # -----------------------------------------------------------------------------
@@ -801,12 +836,24 @@ def count_shows_for_narrator(narrator_id: str) -> int:
 def find_photo_by_hash(
     narrator_id: str, file_hash: str
 ) -> Optional[Dict[str, Any]]:
+    """Find an existing live photo by content hash for dedup.
+
+    BUG-PHOTO-DEDUP-IGNORES-SOFTDELETE (2026-04-26): originally this
+    query did NOT filter ``deleted_at IS NULL``, so a soft-deleted
+    photo with the same file hash blocked re-upload of the same file.
+    Operator workflow: delete a photo → try to upload it again →
+    "This photo is already saved for this narrator" with no obvious
+    way to recover other than hard-deleting from the DB. Now scoped
+    to live rows only, matching the rest of the soft-delete contract
+    (list_photos, get_photo, soft_delete_photo).
+    """
     con = _connect()
     try:
         row = con.execute(
             """
             SELECT * FROM photos
-             WHERE narrator_id = ? AND file_hash = ?;
+             WHERE narrator_id = ? AND file_hash = ?
+               AND deleted_at IS NULL;
             """,
             (narrator_id, file_hash),
         ).fetchone()
@@ -824,6 +871,8 @@ __all__ = [
     "soft_delete_photo",
     "add_photo_person",
     "add_photo_event",
+    "delete_all_photo_people",
+    "delete_all_photo_events",
     "create_photo_session",
     "get_photo_session",
     "record_photo_show",

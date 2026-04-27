@@ -40,11 +40,13 @@ When asked to run or re-run a master eval, emit exactly this block, rotating the
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
-./scripts/run_question_bank_extraction_eval.py --mode live \
+./scripts/archive/run_question_bank_extraction_eval.py --mode live \
   --api http://localhost:8000 \
   --output docs/reports/master_loop01_<SUFFIX>.json
 grep "\[extract\]\[turnscope\]" .runtime/logs/api.log | tail -40
 ```
+
+(Eval runner moved from `./scripts/` to `./scripts/archive/` on 2026-04-25 to keep the start/stop folder clean. See `scripts/archive/README.md`.)
 
 The eval script auto-writes `docs/reports/master_loop01_<SUFFIX>.console.txt` next to the JSON — no shell `| tee` needed (was silently producing 0-byte files under WSL pipe-buffer conditions; r4h's empty console triggered the fix on 2026-04-19).
 
@@ -58,7 +60,7 @@ When the master eval moves but we need to know why stubborn cases (the frozen fa
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
-HORNELORE_PROMPTSHRINK=1 ./scripts/run_stubborn_pack_eval.py \
+HORNELORE_PROMPTSHRINK=1 ./scripts/archive/run_stubborn_pack_eval.py \
   --tag <SUFFIX> \
   --runs 3 \
   --api http://localhost:8000 \

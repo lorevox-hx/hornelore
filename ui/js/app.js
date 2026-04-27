@@ -93,6 +93,17 @@ window._forceModelReady = _forceModelReady;
 /** Show/hide the warmup banner overlay. */
 function _setWarmupBanner(visible, message) {
   const banner = document.getElementById("lv80WarmupBanner");
+  // WO-UI-SHELL-01: mirror banner state to the Operator tab readiness card.
+  if (typeof lvUpdateOperatorReadiness === "function") {
+    if (visible) {
+      lvUpdateOperatorReadiness("pending",
+        message || "Lori is getting ready…",
+        "This can take a few minutes on first load.");
+    } else {
+      lvUpdateOperatorReadiness("ready", "Lori is ready.",
+        "You can hand her the session when you're set.");
+    }
+  }
   if (!banner) return;
   if (visible) {
     banner.querySelector(".warmup-msg").textContent = message || "Hornelore is warming up…";
@@ -181,10 +192,744 @@ function _onModelReady() {
   wo9DrainQueuedSystemPrompt();
   // v9: Startup neutrality — always open narrator selector on ready.
   console.log("[readiness] v9 — startup neutral. Opening narrator selector.");
+  // WO-UI-SHELL-01: paint readiness card green once warm.
+  if (typeof lvUpdateOperatorReadiness === "function") {
+    lvUpdateOperatorReadiness("ready", "Lori is ready.", "You can hand her the session when you're set.");
+  }
   setTimeout(() => {
     if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
   }, 400);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-UI-SHELL-01 — Three-tab shell wiring.
+   Operator | Narrator Session | Media.  Startup lands on Operator.
+   Session style is a state + persistence + label only concern in
+   Phase 1; WO-NARRATOR-ROOM-01 and a future prompt-composer WO will
+   route it into Lori's behavior.  Do NOT overload currentMode.
+═══════════════════════════════════════════════════════════════ */
+
+const LV_SESSION_STYLE_KEY = "hornelore_session_style_v1";
+// memory_exercise dropped 2026-04-25 — picker no-op, shelved.
+const LV_VALID_SESSION_STYLES = [
+  "questionnaire_first", "clear_direct", "warm_storytelling", "companion",
+];
+
+/** Read the current session style.  Defaults to warm_storytelling. */
+function getSessionStyle() {
+  return (state && state.session && state.session.sessionStyle) || "warm_storytelling";
+}
+window.getSessionStyle = getSessionStyle;
+
+/**
+ * Persist a session style selection.  Updates state.session.sessionStyle
+ * (NOT currentMode — those are different abstractions) and mirrors the
+ * choice to localStorage so it survives reload.
+ */
+function lvSetSessionStyle(value) {
+  if (!LV_VALID_SESSION_STYLES.includes(value)) {
+    console.warn("[lv-shell] ignored invalid session style:", value);
+    return;
+  }
+  if (!state.session) state.session = {};
+  state.session.sessionStyle = value;
+  try { localStorage.setItem(LV_SESSION_STYLE_KEY, value); } catch (_) {}
+  // Sync the radio group in case this was a programmatic call.
+  const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
+  radios.forEach(r => { r.checked = (r.value === value); });
+  console.log("[lv-shell] sessionStyle =", value);
+}
+window.lvSetSessionStyle = lvSetSessionStyle;
+
+/** Hydrate session style from localStorage (or default) and paint radios. */
+function _lvHydrateSessionStyle() {
+  let saved = null;
+  try { saved = localStorage.getItem(LV_SESSION_STYLE_KEY); } catch (_) {}
+  const value = (saved && LV_VALID_SESSION_STYLES.includes(saved)) ? saved : "warm_storytelling";
+  if (!state.session) state.session = {};
+  state.session.sessionStyle = value;
+  const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
+  radios.forEach(r => { r.checked = (r.value === value); });
+}
+
+/** Which tab is currently visible. */
+function lvShellGetActiveTab() {
+  const active = document.querySelector("#lvShellTabs .lv-shell-tab-active");
+  return active ? active.dataset.tab : "operator";
+}
+window.lvShellGetActiveTab = lvShellGetActiveTab;
+
+/**
+ * Switch to the named tab.  Safe to call before init (no-op if the DOM
+ * isn't present yet).  Updates aria-selected on both tab buttons and
+ * panel visibility via the .lv-shell-panel-active class.
+ */
+function lvShellShowTab(tabName) {
+  const nav = document.getElementById("lvShellTabs");
+  if (!nav) return;
+  const tabs   = nav.querySelectorAll(".lv-shell-tab");
+  const panels = document.querySelectorAll(".lv-shell-panel");
+  tabs.forEach(t => {
+    const isActive = t.dataset.tab === tabName;
+    t.classList.toggle("lv-shell-tab-active", isActive);
+    t.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+  panels.forEach(p => {
+    const isActive = p.id === `lv${tabName.charAt(0).toUpperCase()}${tabName.slice(1)}Tab` ||
+                     p.id === `lv${tabName === "narrator" ? "Narrator" : tabName === "operator" ? "Operator" : "Media"}Tab`;
+    p.classList.toggle("lv-shell-panel-active", isActive);
+  });
+  // Reflect on body for any CSS hooks.
+  try { document.body.setAttribute("data-shell-tab", tabName); } catch (_) {}
+  // Media tab preflight — single-shot probe for /api/photos so we can
+  // surface the "not enabled" hint without navigating away.
+  if (tabName === "media") _lvMediaPreflightOnce();
+  // Narrator room upkeep — repaint identity + controls on entry; start
+  // a light tick so mic/camera state stays synced while we're here.
+  if (tabName === "narrator") {
+    if (typeof _lvNarratorPaintIdentity === "function") _lvNarratorPaintIdentity();
+    if (typeof _lvNarratorPaintControls === "function") _lvNarratorPaintControls();
+    _lvNarratorStartPaintTick();
+    // Anchor to latest when entering (in case user was reading old messages).
+    setTimeout(() => { if (typeof lvNarratorScrollToBottom === "function") lvNarratorScrollToBottom(true); }, 60);
+  } else {
+    _lvNarratorStopPaintTick();
+  }
+}
+window.lvShellShowTab = lvShellShowTab;
+
+/** One-shot init — hydrate session style, land on Operator, install tab handlers. */
+function lvShellInitTabs() {
+  _lvHydrateSessionStyle();
+  lvShellShowTab("operator");
+  // Mirror warmup banner state to the readiness card on boot.
+  const banner = document.getElementById("lv80WarmupBanner");
+  if (banner && !banner.classList.contains("hidden")) {
+    const msg = banner.querySelector(".warmup-msg");
+    lvUpdateOperatorReadiness("pending",
+      (msg && msg.textContent) || "Lori is getting ready…",
+      "This can take a few minutes on first load.");
+  } else if (typeof isLlmReady === "function" && isLlmReady()) {
+    lvUpdateOperatorReadiness("ready", "Lori is ready.",
+      "You can hand her the session when you're set.");
+  }
+}
+window.lvShellInitTabs = lvShellInitTabs;
+
+/**
+ * Update the readiness card on the Operator tab.  Safe if the card
+ * isn't in the DOM (returns silently).
+ *   state: "pending" | "ready" | "error"
+ */
+function lvUpdateOperatorReadiness(readyState, label, sub) {
+  const card = document.getElementById("lvOperatorReadiness");
+  if (!card) return;
+  card.setAttribute("data-ready", readyState || "pending");
+  const lbl = document.getElementById("lvOperatorReadinessLabel");
+  const sbl = document.getElementById("lvOperatorReadinessSub");
+  if (lbl && label) lbl.textContent = label;
+  if (sbl && sub)   sbl.textContent = sub;
+  // Reflect on the Start button.
+  const btn = document.getElementById("lvOperatorStartBtn");
+  if (btn) btn.disabled = (readyState !== "ready");
+}
+window.lvUpdateOperatorReadiness = lvUpdateOperatorReadiness;
+
+/**
+ * Hand the session to Lori — switch to the Narrator tab and call the
+ * narrator-room init hook if WO-NARRATOR-ROOM-01 has installed one.
+ * Requires an active narrator; if none is set, nudge the operator to
+ * pick one first.
+ */
+function lvStartNarratorSession() {
+  const hint = document.getElementById("lvOperatorStartHint");
+  const hasNarrator = !!(state && state.person_id);
+  if (!hasNarrator) {
+    if (hint) { hint.hidden = false; hint.textContent = "Choose a narrator first."; }
+    // Also pop the switcher if it's available.
+    if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
+    return;
+  }
+  if (hint) hint.hidden = true;
+  lvShellShowTab("narrator");
+  if (typeof window.lvNarratorRoomInit === "function") {
+    try { window.lvNarratorRoomInit(); } catch (e) { console.warn("[lv-shell] lvNarratorRoomInit threw:", e); }
+  }
+}
+window.lvStartNarratorSession = lvStartNarratorSession;
+
+/**
+ * Media tab launchers.  Phase 1: open existing photo pages.  The
+ * Photo Session requires an active narrator so the elicit page can
+ * bind the right narrator_id.
+ */
+function lvOpenMediaTool(tool) {
+  const noteEl = document.getElementById("lvMediaDisabledNote");
+  switch (tool) {
+    case "photo_intake":
+      window.open("photo-intake.html", "_blank", "noopener");
+      break;
+    case "photo_timeline":
+      window.open("photo-timeline.html", "_blank", "noopener");
+      break;
+    case "photo_session": {
+      const pid = state && state.person_id;
+      if (!pid) {
+        if (noteEl) { noteEl.hidden = false; noteEl.textContent = "Choose a narrator before starting a photo session."; }
+        if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
+        return;
+      }
+      window.open(`photo-elicit.html?narrator_id=${encodeURIComponent(pid)}`, "_blank", "noopener");
+      break;
+    }
+    // WO-MEDIA-ARCHIVE-01 — Document Archive lane (PDFs, scanned docs,
+    // genealogy outlines, handwritten notes, certificates, clippings).
+    // Distinct from Photo Intake which is image-only memory prompts;
+    // this surface accepts PDFs and is gated behind a separate flag
+    // (HORNELORE_MEDIA_ARCHIVE_ENABLED). Narrator is optional — many
+    // archive items aren't bound to a specific person at intake time.
+    case "document_archive":
+      window.open("media-archive.html", "_blank", "noopener");
+      break;
+    default:
+      console.warn("[lv-shell] unknown media tool:", tool);
+  }
+}
+window.lvOpenMediaTool = lvOpenMediaTool;
+
+/** One-shot preflight for Media tab — hides the "not enabled" note
+    when HORNELORE_PHOTO_ENABLED is on, shows it when off.
+    Uses /api/photos/health which returns {ok, enabled} regardless of
+    the flag (the photo surface 404s the list/mutate routes when off,
+    but /health is intentionally flag-agnostic). */
+let _lvMediaPreflightDone = false;
+async function _lvMediaPreflightOnce() {
+  if (_lvMediaPreflightDone) return;
+  _lvMediaPreflightDone = true;
+  const note = document.getElementById("lvMediaDisabledNote");
+  if (!note) return;
+  try {
+    // BUG-PHOTO-CORS-01: must use ORIGIN (port 8000) — page is served
+    // from port 8082 (hornelore-serve.py), so a bare relative path goes
+    // to the static UI server which doesn't have any /api/* routes.
+    const res = await fetch(ORIGIN + "/api/photos/health", { method: "GET" });
+    let enabled = false;
+    if (res.ok) {
+      const j = await res.json();
+      enabled = !!(j && j.enabled);
+    }
+    if (enabled) { note.hidden = true; }
+    else { note.hidden = false; note.textContent = "Photo tools are not enabled for this run."; }
+  } catch (_) {
+    // Leave note hidden on network error — don't block the launcher cards.
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-NARRATOR-ROOM-01 — Narrator session room.
+   Topbar (identity + Mic/Camera/Pause/Break) → view tabs (Memory
+   River | Life Map | Photos | Peek at Memoir) → 3-column main.
+   Controls delegate to existing entry points (lv10dToggleMic,
+   lv10dToggleCamera, lv80TogglePauseListening); Take-a-break is a
+   new overlay.  Chat scroll uses FocusCanvas's existing _scrollToLatest.
+═══════════════════════════════════════════════════════════════ */
+
+const LV_NARRATOR_SESSION_STYLE_LABELS = {
+  questionnaire_first: "Questionnaire first",
+  clear_direct:        "Clear & direct",
+  warm_storytelling:   "Warm storytelling",
+  // memory_exercise dropped 2026-04-25 — kept as legacy fallback label
+  // for narrators with saved sessionStyle="memory_exercise" that haven't
+  // yet been redirected by session-style-router on next load.
+  memory_exercise:     "Warm storytelling",
+  companion:           "Companion",
+};
+
+/** Paint the topbar identity (narrator name + session style pill). */
+function _lvNarratorPaintIdentity() {
+  const nameEl  = document.getElementById("lvNarratorRoomName");
+  const styleEl = document.getElementById("lvNarratorRoomStyle");
+  if (nameEl) {
+    const header = document.getElementById("lv80ActiveNarratorName");
+    nameEl.textContent = (header && header.textContent) || "—";
+  }
+  if (styleEl) {
+    const v = (typeof getSessionStyle === "function") ? getSessionStyle() : "warm_storytelling";
+    styleEl.textContent = LV_NARRATOR_SESSION_STYLE_LABELS[v] || v;
+  }
+}
+window._lvNarratorPaintIdentity = _lvNarratorPaintIdentity;
+
+/** Return the current narrator view name. */
+function lvNarratorCurrentView() {
+  return (state && state.session && state.session.narratorView) || "river";
+}
+
+/** Switch narrator-room view. */
+function lvNarratorShowView(view) {
+  if (!["river", "map", "photos", "memoir"].includes(view)) return;
+  if (!state.session) state.session = {};
+  state.session.narratorView = view;
+  // Paint tab active state.
+  document.querySelectorAll(".lv-narrator-view-tab").forEach(t => {
+    const isActive = t.dataset.view === view;
+    t.classList.toggle("lv-narrator-view-tab-active", isActive);
+    t.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+  // Render view content.
+  switch (view) {
+    case "river":  _lvNarratorRenderRiver();  break;
+    case "map":    _lvNarratorRenderMap();    break;
+    case "photos": _lvNarratorRenderPhotos(); break;
+    case "memoir": _lvNarratorRenderMemoir(); break;
+  }
+}
+window.lvNarratorShowView = lvNarratorShowView;
+
+/* ── View renderers ──────────────────────────────────────────────
+   All renderers write into #lvNarratorViewHost.  Kawa + Life Map +
+   Memoir reuse existing popovers via a "Open full" CTA; Phase 1
+   minimal-slice per the WO's acceptable fallback. */
+
+function _lvNarratorRenderRiver() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  const segs = (state.kawa && Array.isArray(state.kawa.segmentList)) ? state.kawa.segmentList : [];
+  const activeId = state.kawa && state.kawa.activeSegmentId;
+  let body = `
+    <h3 class="lv-narrator-view-head">Memory River</h3>
+    <p class="lv-narrator-view-lede">Your life in the shape of a river — pick a stretch and tell Lori about it.</p>
+  `;
+  if (!segs.length) {
+    body += `<p class="lv-narrator-view-empty">Your river is still filling in. Keep talking — Lori is listening.</p>`;
+  } else {
+    body += `<div class="lv-narrator-segment-list" role="list">`;
+    segs.slice(0, 12).forEach((s) => {
+      const sid = s.segment_id || s.id || "";
+      const label = (s.anchor && (s.anchor.label || s.anchor.era)) || s.title || s.label || "Unnamed stretch";
+      const sub = (s.anchor && s.anchor.years) ? s.anchor.years :
+                  (s.anchor && s.anchor.age_range) ? `Age ${s.anchor.age_range}` : "";
+      const active = sid && activeId === sid ? " is-active" : "";
+      body += `<button type="button" role="listitem" class="lv-narrator-segment-row${active}"
+        onclick="_lvNarratorSelectSegment(${JSON.stringify(sid)})">
+        <span class="lv-narrator-segment-label">${_lvEscapeHtml(label)}</span>
+        ${sub ? `<span class="lv-narrator-segment-sub">${_lvEscapeHtml(sub)}</span>` : ""}
+      </button>`;
+    });
+    body += `</div>`;
+  }
+  body += `<button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('kawaRiverPopover')?.showPopover?.()">
+      Open full Memory River
+    </button>`;
+  host.innerHTML = body;
+}
+
+function _lvNarratorSelectSegment(sid) {
+  if (!state.kawa) state.kawa = {};
+  state.kawa.activeSegmentId = sid || null;
+  _lvNarratorRenderRiver();
+  // Signal downstream consumers (runtime / prompt composer) — best-effort.
+  try { window.dispatchEvent(new CustomEvent("lv-narrator-segment-change", { detail: { segment_id: sid } })); } catch (_) {}
+}
+window._lvNarratorSelectSegment = _lvNarratorSelectSegment;
+
+function _lvNarratorRenderMap() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Life Map</h3>
+    <p class="lv-narrator-view-lede">A picture of the places and eras in your life. Tap an era to tell Lori about that time.</p>
+    <button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('lifeMapPopover')?.showPopover?.()">
+      Open your Life Map
+    </button>
+    <p class="lv-narrator-view-empty" style="margin-top:12px;">Full map will live here in the next update (Phase 2).</p>
+  `;
+}
+
+function _lvNarratorRenderMemoir() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Peek at Memoir</h3>
+    <p class="lv-narrator-view-lede">Read what we have so far, in your own words.</p>
+    <button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('memoirScrollPopover')?.showPopover?.()">
+      Open your memoir
+    </button>
+  `;
+}
+
+/* Photos view — Phase 1 minimal slice: fetch, browse, stage memory.
+   Memory save requires a "show" context (POST /api/photos/shows/{show_id}/memory)
+   which is WO-LORI-PHOTO-ELICIT-01 Phase 2 territory; for now we
+   just stage locally with a clear note. */
+let _lvNarratorPhotos = { list: [], idx: 0, loaded: false, loading: false, error: null };
+
+async function _lvNarratorRenderPhotos() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Photos</h3>
+    <p class="lv-narrator-view-lede">One at a time. Tell Lori what you remember.</p>
+    <div id="lvNarratorPhotoSlot">Loading…</div>
+  `;
+  const pid = state && state.person_id;
+  if (!pid) {
+    document.getElementById("lvNarratorPhotoSlot").innerHTML =
+      `<p class="lv-narrator-view-empty">Choose a narrator on the Operator tab first.</p>`;
+    return;
+  }
+  if (!_lvNarratorPhotos.loaded && !_lvNarratorPhotos.loading) {
+    _lvNarratorPhotos.loading = true;
+    try {
+      // BUG-238: narrator MUST only see photos the curator marked
+      // narrator_ready=true. Without this filter, scanned-but-unvetted
+      // photos and in-progress curator entries leak into the narrator
+      // room before metadata is reviewed. The repo-side list_photos
+      // endpoint accepts the narrator_ready query param.
+      // BUG-PHOTO-CORS-01: must use ORIGIN — see _lvMediaPreflightOnce
+      // above for the same fix in the Media-tab health probe.
+      const res = await fetch(`${ORIGIN}/api/photos?narrator_id=${encodeURIComponent(pid)}&narrator_ready=true`);
+      if (res.status === 404) {
+        _lvNarratorPhotos.error = "Photos are not enabled for this run.";
+      } else if (res.ok) {
+        const j = await res.json();
+        _lvNarratorPhotos.list = Array.isArray(j && j.photos) ? j.photos : [];
+      } else {
+        _lvNarratorPhotos.error = `Could not load photos (status ${res.status}).`;
+      }
+    } catch (e) {
+      _lvNarratorPhotos.error = "Could not reach the photo server.";
+      console.warn("[lv-narrator] photos fetch failed:", e);
+    }
+    _lvNarratorPhotos.loading = false;
+    _lvNarratorPhotos.loaded = true;
+  }
+  _lvNarratorPaintPhotoSlot();
+}
+
+function _lvNarratorPaintPhotoSlot() {
+  const slot = document.getElementById("lvNarratorPhotoSlot");
+  if (!slot) return;
+  if (_lvNarratorPhotos.error) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty">${_lvEscapeHtml(_lvNarratorPhotos.error)}</p>`;
+    return;
+  }
+  if (!_lvNarratorPhotos.list.length) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty">No photos yet. Add photos from the Media tab → Photo Intake.</p>`;
+    return;
+  }
+  const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  // BUG-240: prefer thumbnail_url for the inline view (faster paint),
+  // but the lightbox uses media_url for the full-resolution photo.
+  // BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT (2026-04-26): /api/photos/
+  // URLs the backend returns are relative; resolve against API ORIGIN
+  // (port 8000) not the page origin (port 8082).
+  const _rawSrc = photo.thumbnail_url || photo.url || photo.src || photo.photo_url || "";
+  const src = (_rawSrc && _rawSrc.charAt(0) === "/") ? (ORIGIN + _rawSrc) : _rawSrc;
+  // Composed caption: description first, then date + location for context.
+  // Falls back to the legacy caption/filename/name fields if description
+  // and the structured metadata are absent (e.g. pre-Phase-2 uploads).
+  const captionParts = [];
+  if (photo.description && String(photo.description).trim()) captionParts.push(String(photo.description).trim());
+  else if (photo.caption || photo.filename || photo.name) captionParts.push(photo.caption || photo.filename || photo.name);
+  const caption = captionParts.join("");
+  const subBits = [];
+  if (photo.date_value) subBits.push(photo.date_value);
+  if (photo.location_label) subBits.push(photo.location_label);
+  const subline = subBits.join(" · ");
+  const year    = photo.year || (photo.taken_at ? String(photo.taken_at).slice(0,4) : "") || (photo.date_value ? String(photo.date_value).slice(0,4) : "");
+  slot.innerHTML = `
+    <div class="lv-narrator-photo-frame lv-narrator-photo-frame--clickable" onclick="_lvNarratorOpenLightbox()" title="Click to see this photo full size">
+      ${src ? `<img src="${_lvEscapeAttr(src)}" alt="${_lvEscapeAttr(caption)}" />` : `<span class="lv-narrator-view-empty">No image</span>`}
+    </div>
+    <div class="lv-narrator-photo-meta">${_lvEscapeHtml(caption)}${year ? ` · ${year}` : ""} <span style="color:#7a8bb0;">(${_lvNarratorPhotos.idx+1} of ${_lvNarratorPhotos.list.length})</span></div>
+    ${subline ? `<div class="lv-narrator-photo-subline">${_lvEscapeHtml(subline)}</div>` : ""}
+    <div class="lv-narrator-photo-nav">
+      <button type="button" onclick="_lvNarratorPhotoStep(-1)" ${_lvNarratorPhotos.idx === 0 ? "disabled" : ""}>‹ Previous</button>
+      <button type="button" onclick="_lvNarratorPhotoStep( 1)" ${_lvNarratorPhotos.idx >= _lvNarratorPhotos.list.length - 1 ? "disabled" : ""}>Next ›</button>
+    </div>
+    <textarea class="lv-narrator-photo-memory" id="lvNarratorPhotoMemory"
+      placeholder="Type what you remember about this picture…"
+      oninput="_lvNarratorStagePhotoMemory(this.value)"></textarea>
+    <p class="lv-narrator-photo-hint">Memory saving arrives with the photo-session flow; for now your notes stay in this browser.</p>
+  `;
+}
+
+/* BUG-240: full-screen photo lightbox for the narrator room.
+   Mom/Dad clicking the small thumbnail expands to a full-frame view
+   they can actually SEE. Critical for tablet sessions where the
+   inline view is otherwise too small to recognize faces.
+
+   Close paths: X button, backdrop click, Escape key.
+   Caption row shows description + date + location below the photo
+   so the narrator gets the curator's metadata at a glance. */
+function _lvNarratorOpenLightbox() {
+  const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  if (!photo) return;
+  const overlay = document.getElementById("lvNarratorLightbox");
+  if (!overlay) {
+    console.warn("[lv-narrator] lightbox host #lvNarratorLightbox not found in DOM");
+    return;
+  }
+  // Prefer the full-resolution media_url; thumbnail is only ~400px which
+  // looks pixelated on a 10" tablet. Fall back to whatever's available.
+  // BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT: prepend ORIGIN for /api/* paths.
+  const _rawFull = photo.media_url || photo.url || photo.src || photo.photo_url || photo.thumbnail_url || "";
+  const fullSrc = (_rawFull && _rawFull.charAt(0) === "/") ? (ORIGIN + _rawFull) : _rawFull;
+  const caption = (photo.description && String(photo.description).trim())
+    || photo.caption || photo.filename || photo.name || "";
+  const subBits = [];
+  if (photo.date_value) subBits.push(photo.date_value);
+  if (photo.location_label) subBits.push(photo.location_label);
+  const subline = subBits.join(" · ");
+
+  const img = overlay.querySelector(".lv-narrator-lightbox-img");
+  const cap = overlay.querySelector(".lv-narrator-lightbox-caption");
+  const sub = overlay.querySelector(".lv-narrator-lightbox-subline");
+  if (img) img.src = fullSrc;
+  if (img) img.alt = caption;
+  if (cap) cap.textContent = caption;
+  if (sub) sub.textContent = subline;
+
+  overlay.hidden = false;
+  // Suppress page scroll while lightbox is open so swipe doesn't drag
+  // the chat behind it.
+  document.body.style.overflow = "hidden";
+}
+window._lvNarratorOpenLightbox = _lvNarratorOpenLightbox;
+
+function _lvNarratorCloseLightbox() {
+  const overlay = document.getElementById("lvNarratorLightbox");
+  if (!overlay) return;
+  overlay.hidden = true;
+  const img = overlay.querySelector(".lv-narrator-lightbox-img");
+  if (img) img.src = "";  // free memory; full-res images can be 5+ MB
+  document.body.style.overflow = "";
+}
+window._lvNarratorCloseLightbox = _lvNarratorCloseLightbox;
+
+// ESC closes lightbox. Single global listener; cheap.
+document.addEventListener("keydown", function (ev) {
+  if (ev.key === "Escape") {
+    var overlay = document.getElementById("lvNarratorLightbox");
+    if (overlay && !overlay.hidden) {
+      _lvNarratorCloseLightbox();
+    }
+  }
+});
+
+function _lvNarratorPhotoStep(delta) {
+  const n = _lvNarratorPhotos.list.length;
+  if (!n) return;
+  _lvNarratorPhotos.idx = Math.max(0, Math.min(n - 1, _lvNarratorPhotos.idx + delta));
+  _lvNarratorPaintPhotoSlot();
+}
+window._lvNarratorPhotoStep = _lvNarratorPhotoStep;
+
+function _lvNarratorStagePhotoMemory(text) {
+  // Phase 1 stages locally and emits an event.  Phase 2 (ELICIT-01) will
+  // persist via POST /api/photos/shows/{show_id}/memory.
+  const photo = _lvNarratorPhotos.list[_lvNarratorPhotos.idx];
+  if (!photo) return;
+  photo._stagedMemory = text;
+  try { window.dispatchEvent(new CustomEvent("lv-narrator-photo-memory-staged", { detail: { photo_id: photo.id, text } })); } catch (_) {}
+}
+window._lvNarratorStagePhotoMemory = _lvNarratorStagePhotoMemory;
+
+function _lvEscapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function _lvEscapeAttr(s) { return _lvEscapeHtml(s); }
+
+/* ── Topbar controls — delegate to existing state machines ────── */
+
+/** Mic toggle → delegates to lv10dToggleMic.  After the call we paint
+    our button's data-on from state.inputState.micActive. */
+function lvNarratorToggleMic() {
+  if (typeof lv10dToggleMic === "function") { try { lv10dToggleMic(); } catch (e) { console.warn("[lv-narrator] mic toggle threw:", e); } }
+  // Paint asynchronously; the underlying flow may be async.
+  setTimeout(_lvNarratorPaintControls, 120);
+}
+window.lvNarratorToggleMic = lvNarratorToggleMic;
+
+/** Camera toggle → delegates to lv10dToggleCamera (which handles consent,
+    engine start, preview).  We just mirror state onto our button. */
+function lvNarratorToggleCamera() {
+  if (typeof lv10dToggleCamera === "function") { try { lv10dToggleCamera(); } catch (e) { console.warn("[lv-narrator] cam toggle threw:", e); } }
+  setTimeout(_lvNarratorPaintControls, 250);
+  // Camera flow can be async (consent modal); re-poll a few times.
+  setTimeout(_lvNarratorPaintControls, 1200);
+  setTimeout(_lvNarratorPaintControls, 3000);
+}
+window.lvNarratorToggleCamera = lvNarratorToggleCamera;
+
+/** Pause toggle → delegates to listening pause. */
+function lvNarratorTogglePause() {
+  if (typeof lv80TogglePauseListening === "function") {
+    try { lv80TogglePauseListening(); } catch (e) { console.warn("[lv-narrator] pause toggle threw:", e); }
+  }
+  setTimeout(_lvNarratorPaintControls, 80);
+}
+window.lvNarratorTogglePause = lvNarratorTogglePause;
+
+/** Paint Mic/Camera state dots + labels from global state.
+    Safe to call whenever — re-reads state each time. */
+function _lvNarratorPaintControls() {
+  const micBtn = document.getElementById("lvNarratorMicBtn");
+  const camBtn = document.getElementById("lvNarratorCamBtn");
+  const pauseBtn = document.getElementById("lvNarratorPauseBtn");
+  const micLabel = document.getElementById("lvNarratorMicLabel");
+  const camLabel = document.getElementById("lvNarratorCamLabel");
+  const pauseLabel = document.getElementById("lvNarratorPauseLabel");
+  const micOn = !!(state && state.inputState && state.inputState.micActive) ||
+                (typeof isRecording !== "undefined" && !!isRecording);
+  const camOn = !!(state && state.inputState && state.inputState.cameraActive) ||
+                (typeof cameraActive !== "undefined" && !!cameraActive);
+  const paused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
+  if (micBtn) micBtn.setAttribute("data-on", micOn ? "true" : "false");
+  if (camBtn) camBtn.setAttribute("data-on", camOn ? "true" : "false");
+  if (pauseBtn) pauseBtn.setAttribute("data-on", paused ? "true" : "false");
+  if (micLabel)   micLabel.textContent   = micOn ? "Mic on"    : "Mic";
+  if (camLabel)   camLabel.textContent   = camOn ? "Camera on" : "Camera";
+  if (pauseLabel) pauseLabel.textContent = paused ? "Resume"   : "Pause";
+  // Paint the context panel blocks to match.
+  const ctxCam = document.getElementById("lvNarratorCtxCamera");
+  const ctxCamBody = document.getElementById("lvNarratorCtxCameraBody");
+  const ctxMic = document.getElementById("lvNarratorCtxMic");
+  const ctxMicBody = document.getElementById("lvNarratorCtxMicBody");
+  if (ctxCam)     ctxCam.setAttribute("data-state", camOn ? "on" : "off");
+  if (ctxCamBody) ctxCamBody.textContent = camOn ? "On — Lori adjusts pacing from your expressions." : "Off — Lori won't see you.";
+  if (ctxMic)     ctxMic.setAttribute("data-state", micOn ? "on" : "off");
+  if (ctxMicBody) ctxMicBody.textContent = paused ? "Paused — tap Resume to keep talking." : (micOn ? "Listening." : "Off — type your answer.");
+}
+window._lvNarratorPaintControls = _lvNarratorPaintControls;
+
+/* ── WO-AUDIO-NARRATOR-ONLY-01: "Save my voice" toggle ────────────
+   Operator-facing flip in the narrator-room topbar.  Default ON.
+   When OFF, the audio recorder becomes a no-op (transcript still
+   flows; backend chat_ws still writes the text).  Persists in
+   state.session.recordVoice so it survives the rest of the session
+   (per-session, not per-narrator). */
+function lvNarratorSetRecordVoice(enabled) {
+  if (!state.session) state.session = {};
+  state.session.recordVoice = !!enabled;
+  console.log("[narrator-audio] state.session.recordVoice = " + state.session.recordVoice);
+  // Sync the checkbox visual (in case this was called programmatically
+  // rather than via the onchange handler).
+  const cb = document.getElementById("lvNarratorRecordVoice");
+  if (cb && cb.checked !== state.session.recordVoice) cb.checked = state.session.recordVoice;
+  // If toggled OFF mid-session, drop any in-progress segment without
+  // uploading.  If toggled ON, the next mic-arm will start fresh.
+  if (!state.session.recordVoice && typeof window.lvNarratorAudioRecorder === "object") {
+    try { window.lvNarratorAudioRecorder.cleanup && window.lvNarratorAudioRecorder.cleanup(); } catch (_) {}
+  }
+}
+window.lvNarratorSetRecordVoice = lvNarratorSetRecordVoice;
+
+/* ── Take a Break overlay ─────────────────────────────────────── */
+
+function lvNarratorStartBreak() {
+  if (!state.session) state.session = {};
+  state.session.breakActive = true;
+  state.session.micAutoRearm = false;   // stop auto-rearm during break
+  // Pause mic if active, so the overlay really is silent.
+  const micOn = !!(state.inputState && state.inputState.micActive);
+  const paused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
+  if (micOn && !paused && typeof lv80TogglePauseListening === "function") {
+    try { lv80TogglePauseListening(); } catch (_) {}
+  }
+  const overlay = document.getElementById("lvNarratorBreakOverlay");
+  if (overlay) { overlay.hidden = false; overlay.setAttribute("aria-hidden", "false"); }
+  _lvNarratorPaintControls();
+}
+window.lvNarratorStartBreak = lvNarratorStartBreak;
+
+function lvNarratorEndBreak() {
+  if (!state.session) state.session = {};
+  state.session.breakActive = false;
+  const overlay = document.getElementById("lvNarratorBreakOverlay");
+  if (overlay) { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); }
+  _lvNarratorPaintControls();
+}
+window.lvNarratorEndBreak = lvNarratorEndBreak;
+
+function lvNarratorReturnToOperator() {
+  lvNarratorEndBreak();
+  if (typeof lvShellShowTab === "function") lvShellShowTab("operator");
+}
+window.lvNarratorReturnToOperator = lvNarratorReturnToOperator;
+
+/* ── Chat scroll helpers (delegate to FocusCanvas's existing plumbing). ── */
+
+function lvNarratorIsNearBottom() {
+  const el = document.getElementById("crChatInner");
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= 40;
+}
+window.lvNarratorIsNearBottom = lvNarratorIsNearBottom;
+
+function lvNarratorScrollToBottom(force) {
+  const el = document.getElementById("crChatInner");
+  if (!el) return;
+  if (force || lvNarratorIsNearBottom()) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+window.lvNarratorScrollToBottom = lvNarratorScrollToBottom;
+
+function lvNarratorPauseAutoScroll()  { try { window._scrollPauseByUser = true;  } catch (_) {} }
+function lvNarratorResumeAutoScroll() {
+  try { window._scrollPauseByUser = false; } catch (_) {}
+  if (typeof window._scrollToLatest === "function") window._scrollToLatest();
+}
+window.lvNarratorPauseAutoScroll  = lvNarratorPauseAutoScroll;
+window.lvNarratorResumeAutoScroll = lvNarratorResumeAutoScroll;
+
+/* Lightweight paint tick — runs only while the narrator tab is active.
+   1.5s cadence; all it does is re-read state flags and toggle a few
+   data-attrs/textContent.  Cheap, but we still gate it by the tab. */
+let _lvNarratorPaintTickId = null;
+function _lvNarratorStartPaintTick() {
+  if (_lvNarratorPaintTickId != null) return;
+  _lvNarratorPaintTickId = setInterval(() => {
+    if (typeof _lvNarratorPaintControls === "function") _lvNarratorPaintControls();
+    if (typeof _lvNarratorPaintIdentity === "function") _lvNarratorPaintIdentity();
+  }, 1500);
+}
+function _lvNarratorStopPaintTick() {
+  if (_lvNarratorPaintTickId != null) { clearInterval(_lvNarratorPaintTickId); _lvNarratorPaintTickId = null; }
+}
+
+/** Room init — called by lvStartNarratorSession (WO-UI-SHELL-01).
+    Paints identity, loads default view, hydrates control state. */
+function lvNarratorRoomInit() {
+  _lvNarratorPaintIdentity();
+  _lvNarratorPaintControls();
+  // Kawa segments may already be preloaded; if not, kick off a refresh.
+  if (typeof kawaRefreshList === "function" &&
+      state.kawa && (!state.kawa.segmentList || !state.kawa.segmentList.length)) {
+    kawaRefreshList().catch(() => {}).finally(() => {
+      if (lvNarratorCurrentView() === "river") _lvNarratorRenderRiver();
+    });
+  }
+  lvNarratorShowView(lvNarratorCurrentView() || "river");
+  // Anchor chat at latest when entering the room.
+  setTimeout(() => lvNarratorScrollToBottom(true), 40);
+  // Reset photo cache on narrator change so the next "photos" view refetches.
+  const pid = state && state.person_id;
+  if (_lvNarratorPhotos._pid !== pid) {
+    _lvNarratorPhotos = { list: [], idx: 0, loaded: false, loading: false, error: null, _pid: pid };
+  }
+}
+window.lvNarratorRoomInit = lvNarratorRoomInit;
 
 /* ═══════════════════════════════════════════════════════════════
    INIT
@@ -203,6 +948,9 @@ window.onload = async () => {
   renderMemoirChapters();
   updateArchiveReadiness();
   update71RuntimeUI();   // v7.1 — paint runtime badges on first load
+  // WO-UI-SHELL-01: mount the three-tab shell.  Lands on Operator;
+  // hydrates session style from localStorage; mirrors warmup state.
+  if (typeof lvShellInitTabs === "function") lvShellInitTabs();
   // WO-KAWA-UI-01A: Pre-load river segments (non-blocking)
   if (typeof kawaRefreshList === "function") {
     kawaRefreshList().catch(e => console.warn("[kawa] initial load skipped:", e));
@@ -699,6 +1447,21 @@ function buildRuntime71() {
     visual_signals,
     /* v7.4D — assistant role for prompt routing */
     assistant_role:  getAssistantRole(),
+    /* WO-HORNELORE-SESSION-LOOP-01 — tier-2 session-style directive.
+       For clear_direct / memory_exercise / companion this is a short
+       string that prompt_composer appends to the directive block.  For
+       warm_storytelling and questionnaire_first this is empty (no
+       addendum — the questionnaire walk owns its own Lori prompts).
+       Backend gracefully ignores empty / missing values. */
+    session_style_directive: (function() {
+      try {
+        const style = (typeof getSessionStyle === "function") ? getSessionStyle() :
+          (state.session && state.session.sessionStyle) || "warm_storytelling";
+        return (typeof window._lvEmitStyleDirective === "function")
+          ? window._lvEmitStyleDirective(style) || ""
+          : "";
+      } catch (_) { return ""; }
+    })(),
     /* v7.4D Phase 6B — identity gating fields for prompt_composer.py */
     identity_complete: hasIdentityBasics74(),
     identity_phase:    getIdentityPhase74(),
@@ -2277,11 +3040,16 @@ function startIdentityOnboarding(){
   setAssistantRole("onboarding");
   // v7.4E — Tell Lori to briefly explain WHY she needs the three anchors before asking.
   // This sets expectations, builds trust, and gets more accurate answers.
+  // #202: Drop the "Hornelore" etymology lecture — that was the codebase
+  //       project name leaking into the user-facing chat.  User-facing
+  //       product is Lorevox; Lori is the assistant.  Keep the intro
+  //       simple and warm; if asked, Lori is part of Lorevox, no etymology.
   sendSystemPrompt(
     "[SYSTEM: Begin the identity onboarding sequence. " +
-    "Introduce yourself as Lori. " +
-    "You may briefly share what your name means — Hornelore: 'Horne' is the family name, " +
-    "'Lore' means stories and oral tradition, so Hornelore means the Horne family stories. Lori is your nickname from that. " +
+    "Introduce yourself simply as Lori. " +
+    "Do NOT explain where your name comes from. Do NOT mention 'Hornelore' " +
+    "or any name etymology.  If asked, you can say you're part of Lorevox " +
+    "in one short clause, but do not lecture about it.  " +
     "Explain that your purpose is to help them build a Life Archive — a lasting record of their life story " +
     "told in their own voice. " +
     "Then explain you need just three things to get started: their name, their date of birth, and where they were born. " +
@@ -2308,12 +3076,21 @@ function _parseDob(text){
   m = t.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
   if(m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`;
   // Month name forms: "December 24, 1962" / "24 December 1962"
+  // BUG-210: accept ordinal suffixes (1st, 2nd, 3rd, 4th, ...) between
+  // the day digit and the year separator.  Live evidence: Jake said
+  // "December 31st 1937" → was parsed as 1937-01-01 because the original
+  // regexes required digit then comma/whitespace, and "st" is letters.
   const MONTHS = {january:"01",february:"02",march:"03",april:"04",may:"05",
     june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
+  const ORDINAL = "(?:st|nd|rd|th)?";   // optional ordinal suffix
   const lower = t.toLowerCase();
   for(const [name,num] of Object.entries(MONTHS)){
-    const re1 = new RegExp(name+"\\s+(\\d{1,2})[,\\s]+(\\d{4})");
-    const re2 = new RegExp("(\\d{1,2})\\s+"+name+"[,\\s]+(\\d{4})");
+    // re1: "December 24th, 1962" / "december 24th 1962" / "december 24 1962"
+    const re1 = new RegExp(name+"\\s+(\\d{1,2})"+ORDINAL+"[,\\s]+(\\d{4})");
+    // re2: "24th of December, 1962" / "24th December 1962" / "the 24 December 1962"
+    // BUG-210 extension: accept optional "of" between day and month.
+    const re2 = new RegExp("(\\d{1,2})"+ORDINAL+"\\s+(?:of\\s+)?"+name+"[,\\s]+(\\d{4})");
+    // re3: month-and-year only ("December 1962") — day unknown, returns -01
     const re3 = new RegExp(name+"[,\\s]+(\\d{4})");
     let mm;
     if((mm=lower.match(re1))) return `${mm[2]}-${num}-${mm[1].padStart(2,"0")}`;
@@ -2327,6 +3104,178 @@ function _parseDob(text){
   m = t.match(/\b(19\d{2}|20[0-2]\d)\b/);
   if(m) return `${m[1]}-01-01`;
   return null;
+}
+
+/**
+ * BUG-226: Robust birthplace extractor for identity onboarding.
+ * Handles all four real input shapes seen in live sessions:
+ *   1. "I was born in Lima Peru December 20 1972"   (place before date, digits follow)
+ *   2. "I was born December 20 1972 in Lima Peru"   (place after date)
+ *   3. "I'm from Williston, North Dakota"           (no "born" trigger)
+ *   4. "Lima Peru" / "Mason City Iowa"              (just the place)
+ *
+ * Replaces the prior /\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i regex which
+ * failed on shape 1 because it required period or end-of-string immediately
+ * after the place — Melanie's input "born in Lima Peru December 20 1972"
+ * has digits following Peru, so the prior regex never matched and the
+ * state machine fell through to asking "where were you born?" on a fresh
+ * turn even though Lima Peru was already in the same utterance.
+ *
+ * Returns a clean place name string (e.g. "Lima Peru", "Williston, North Dakota")
+ * or null if no plausible place can be extracted.
+ */
+function _parseBirthplaceFromUtterance(text){
+  if (!text || typeof text !== "string") return null;
+  const t = text.trim();
+  if (t.length < 2 || t.length > 500) return null;
+
+  const MONTHS = "(?:january|february|march|april|may|june|july|august|september|october|november|december)";
+  // Stop tokens — terminate the place capture at the first occurrence of any:
+  //   - a digit (date)
+  //   - a sentence-end punctuation mark
+  //   - a month name (e.g. "Lima Peru December" → stop before December)
+  //   - a conjunction or pronoun starting the next clause
+  //   - "in" (already-consumed "born in"; second "in" is a date qualifier)
+  const STOP_RE = new RegExp(
+    "\\d|" +
+    "[.!?;:]|" +
+    "\\b(?:" + MONTHS + "|when|where|but|so|then|i|we|my|on|at|in|or|and)\\b",
+    "i"
+  );
+
+  // Trigger phrases — strong signal that a place name follows.
+  // Order matters: stronger triggers first.
+  const TRIGGERS = [
+    /\b(?:born|grew\s+up|raised|lived)\s+(?:in|at|near)\s+/i,
+    /\bhail(?:s|ed)?\s+from\s+/i,
+    /\bfrom\s+(?=[A-Z])/i,   // "from <Place>" — only if next word starts capital
+  ];
+
+  function _cleanPlace(raw){
+    if (!raw) return null;
+    let p = String(raw).trim();
+    // Trim trailing comma/period/space
+    p = p.replace(/[,.\s]+$/, "").trim();
+    if (p.length < 2 || p.length > 60) return null;
+    // Reject obvious non-places (articles, pronouns, common single-word replies)
+    if (/^(?:a|an|the|when|where|how|that|hello|yes|no|maybe|sure|okay|i)\b/i.test(p)) return null;
+    // Place must start with a letter (proper noun)
+    if (!/^[A-Za-z]/.test(p)) return null;
+    return p;
+  }
+
+  // Pass 1: try direct triggers
+  for (const trig of TRIGGERS) {
+    const m = t.match(trig);
+    if (!m) continue;
+    const start = m.index + m[0].length;
+    const tail = t.slice(start);
+    const stop = tail.match(STOP_RE);
+    const raw = stop ? tail.slice(0, stop.index) : tail;
+    const place = _cleanPlace(raw);
+    if (place) return place;
+  }
+
+  // Pass 2: "born <date> in <Place>" — date came first, "in" second
+  if (/\bborn\b/i.test(t)) {
+    const inIdx = t.search(/\bin\s+[A-Z]/);
+    if (inIdx >= 0) {
+      const tail = t.slice(inIdx + 3);  // skip "in "
+      const stop = tail.match(STOP_RE);
+      const raw = stop ? tail.slice(0, stop.index) : tail;
+      const place = _cleanPlace(raw);
+      if (place) return place;
+    }
+  }
+
+  // Pass 3 (last resort): the whole utterance IS the place name.
+  // Place-only replies look like proper nouns: every word starts with a
+  // capital (or punctuation like apostrophe/dash). "It was a long time ago"
+  // starts with capital "It" but contains lowercase words — those would
+  // be lowercased in a real place name only at proper-noun boundaries
+  // (which are rare; we accept "of"/"the" in "Land of the Free" if needed
+  // but for birthplace the "all capital-led" rule is safe).
+  if (t.length <= 60 && /^[A-Z]/.test(t) && !STOP_RE.test(t)) {
+    const allCapitalLed = t.split(/\s+/).every(function (w) {
+      return w.length === 0 || /^[A-Z]/.test(w) || /^[,'-]/.test(w);
+    });
+    if (allCapitalLed) return _cleanPlace(t);
+  }
+
+  return null;
+}
+
+/**
+ * BUG-227: Shared name extractor — pulls a plausible first/preferred
+ * name from intro patterns: "my name is X", "call me X", "I'm X",
+ * "I am X", "I go by X", "preferred name is X".
+ *
+ * Returns null if no name pattern matches OR if the matched word is
+ * a common pronoun/word/emotional content (handled by the same
+ * _NOT_A_NAME guard the askName handler uses).
+ *
+ * Used by both the identity onboarding state machine (askName) and
+ * the questionnaire_first walk (BUG-227) so a narrator's intro
+ * captures cleanly regardless of which path is active.
+ */
+function _parseNameFromUtterance(text){
+  if (!text || typeof text !== "string") return null;
+  const t = text.trim();
+  if (t.length < 2) return null;
+
+  const _NOT_A_NAME = new Set([
+    "that","it","i","the","a","an","this","there","here","yes","no","yeah","nope",
+    "okay","ok","well","so","hi","hello","hey","oh","ah","uh","um","my","mine",
+    "what","when","where","why","how","who","which","they","we","you","he","she",
+    "just","not","but","and","or","if","then","was","were","is","am","are",
+    "had","have","has","did","do","does","would","could","should","will","can",
+  ]);
+  const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken)\b/i;
+  if (_EMOTIONAL_MARKERS.test(t)) return null;
+
+  // BUG-231: split trigger detection (case-insensitive, /i) from name
+  // capture (case-sensitive). Earlier attempt used /i on the whole regex
+  // and the [A-Z] anchor degraded to [A-Za-z], so "my name is Sarah and i"
+  // captured "Sarah and" instead of stopping at the first lowercase word.
+  // Live evidence 2026-04-25T22:48: "My name is Test Harness Sarah Reed"
+  // captured only "Test" because the prior regex allowed at most "First Last".
+  // Real names range 1-4 capital-led words (Christopher Todd Horne / Janice
+  // Josephine Horne / Test Harness Sarah Reed). Capture 1-4 capital-led
+  // words AFTER the trigger position; stop at any lowercase-led word.
+  const _triggers = [
+    /\bmy\s+(?:\w+\s+)*name\s+is\s+/i,
+    /\bcall\s+me\s+/i,
+    /\bi(?:'m|\s+am)\s+(?:called\s+)?/i,
+    /\bi\s+go\s+by\s+/i,
+    /\byou\s+can\s+call\s+me\s+/i,
+    /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?/i,
+  ];
+  const _NAME_CAP = /^([A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,3})/;  // case-SENSITIVE: stops at lowercase word
+  for (const trig of _triggers) {
+    const m = t.match(trig);
+    if (!m) continue;
+    const tail = t.slice(m.index + m[0].length);
+    const nm = tail.match(_NAME_CAP);
+    if (!nm || !nm[1]) continue;
+    const cand = nm[1].trim();
+    const firstWord = cand.split(/\s+/)[0];
+    if (_NOT_A_NAME.has(firstWord.toLowerCase()) || firstWord.length < 2) continue;
+    return cand;
+  }
+  return null;
+}
+
+/**
+ * BUG-226: Bundle name + DOB + POB extraction so any identity-phase
+ * handler can use a single call site. Each field is independent — a
+ * partial extraction (e.g. just dob + pob) is still useful.
+ */
+function _extractIdentityFieldsFromUtterance(text){
+  return {
+    name: _parseNameFromUtterance(text),
+    dob: _parseDob(text),
+    pob: _parseBirthplaceFromUtterance(text),
+  };
 }
 
 /**
@@ -2352,28 +3301,24 @@ async function _advanceIdentityPhase(text){
     // Emotional-content guard: message looks like a statement, not a name
     const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken|never|always|sometimes|really|very|so much)\b/i;
 
-    // v7.4E — Structured name extraction: try "my [adj] name is X", "call me X",
-    // "I go by X" patterns BEFORE falling back to first-word extraction.
-    // This handles long sentences like "My special name is Chris or guch by my wife".
-    // We extract only the FIRST name after the pattern — before any "or/and/by/from".
-    const _namePatterns = [
-      /\bmy\s+(?:\w+\s+)*name\s+is\s+([A-Za-z][a-z'-]+)/i,     // "my name is X", "my special name is X"
-      /\bcall\s+me\s+([A-Za-z][a-z'-]+)/i,                       // "call me X"
-      /\bi(?:'m|\s+am)\s+(?:called\s+)?([A-Za-z][a-z'-]+)/i,    // "I'm X", "I am X", "I am called X"
-      /\bi\s+go\s+by\s+([A-Za-z][a-z'-]+)/i,                    // "I go by X"
-      /\byou\s+can\s+call\s+me\s+([A-Za-z][a-z'-]+)/i,          // "you can call me X"
-      /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?([A-Za-z][a-z'-]+)/i, // "preferred name is X"
-    ];
+    // BUG-237: use the shared multi-word _parseNameFromUtterance helper
+    // (BUG-231 fix, defined above) instead of an inline limited regex.
+    // Live evidence 2026-04-26T00:30: "My name is Test Harness Sarah Reed"
+    // captured only "Test" because the prior inline regex allowed at most
+    // [A-Za-z][a-z'-]+ (a single word). The shared helper handles 1-4
+    // capital-led words with case-sensitive boundary stops, and shares
+    // the _NOT_A_NAME / _EMOTIONAL_MARKERS guards so behavior is
+    // identical for normal names ("Walter", "Christopher", etc.) — just
+    // also captures multi-word names like "Test Harness Sarah Reed",
+    // "Janice Josephine Horne", "Christopher Todd Horne".
     let patternName = null;
     if (!_EMOTIONAL_MARKERS.test(text)) {
-      for (const pat of _namePatterns) {
-        const m = text.match(pat);
-        if (m && m[1] && !_NOT_A_NAME.has(m[1].toLowerCase()) && m[1].length >= 2) {
-          patternName = m[1];
-          // Capitalize first letter
-          patternName = patternName.charAt(0).toUpperCase() + patternName.slice(1);
-          break;
+      try {
+        if (typeof _parseNameFromUtterance === "function") {
+          patternName = _parseNameFromUtterance(text);
         }
+      } catch (e) {
+        console.warn("[identity] _parseNameFromUtterance threw:", e);
       }
     }
 
@@ -2413,12 +3358,24 @@ async function _advanceIdentityPhase(text){
     // v8.0 FIX: Update narrator header card immediately
     if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
 
-    // v9.0 FIX: Check if the user also provided DOB in the same message.
-    // e.g. "tom and i was born july 3 1942" — extract both, skip the DOB question.
+    // BUG-226: Mirror name into Bio Builder questionnaire.personal so BB
+    // shows what Lori already knows. Idempotent — only fills empty fields.
+    try {
+      if (typeof window.lvBbSyncIdentity === "function") {
+        window.lvBbSyncIdentity(state.profile.basics);
+      }
+    } catch (e) { console.warn("[bb-sync] askName/name-only threw:", e); }
+
+    // v9.0 FIX + BUG-226: Multi-field extraction from single answer.
+    // Live evidence (2026-04-25): Melanie said "My name is Melanie Zollner
+    // I was born in Lima Peru December 20 1972" and the prior code captured
+    // only name + DOB, missing POB because the embedded-POB regex required
+    // period/EOS after the place. Lori then re-asked birthplace — parent UX
+    // failure. New parser + skip-ahead control flow below.
     const _embeddedDob = _parseDob(text);
+    const _embeddedPob = _parseBirthplaceFromUtterance(text);
     if (_embeddedDob) {
       state.session.identityCapture.dob = _embeddedDob;
-      state.session.identityPhase = "askBirthplace";
       if(!state.profile) state.profile = {basics:{}, kinship:[], pets:[]};
       state.profile.basics.dob = _embeddedDob;
       if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
@@ -2427,11 +3384,46 @@ async function _advanceIdentityPhase(text){
         });
       }
       if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
-      // Check for embedded birthplace too: "born july 3 1942 in Rugby ND"
-      const _pobInName = text.match(/\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i);
-      if (_pobInName && _pobInName[1] && _pobInName[1].trim().length >= 3) {
-        state.session.identityCapture._embeddedPob = _pobInName[1].trim().replace(/[,.\s]+$/, "");
+
+      // BUG-226: SKIP-AHEAD — if POB also captured in same utterance,
+      // mark all three identity anchors complete in one shot and skip
+      // askBirthplace entirely. Lori must NOT ask for what's already given.
+      if (_embeddedPob) {
+        state.session.identityCapture.birthplace = _embeddedPob;
+        state.profile.basics.pob = _embeddedPob;
+        if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
+          LorevoxProjectionSync.projectValue("personal.placeOfBirth", _embeddedPob, {
+            source: "interview", turnId: "identity-pob", confidence: 0.85
+          });
+        }
+        if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
+
+        // Mirror to Bio Builder questionnaire.personal so BB shows what
+        // Lori already knows instead of asking again later.
+        try {
+          if (typeof window.lvBbSyncIdentity === "function") {
+            window.lvBbSyncIdentity(state.profile.basics);
+          }
+        } catch (e) { console.warn("[bb-sync] askName/skip-ahead threw:", e); }
+
+        console.log("[identity] BUG-226: name + DOB + POB extracted from single message:", name, _embeddedDob, _embeddedPob);
+        // Skip directly to person resolution — _resolveOrCreatePerson sets
+        // identityPhase = "complete" and dispatches the session-loop.
+        state.session.identityPhase = "resolving";
+        sendSystemPrompt(
+          `[SYSTEM: SPEAKER IDENTITY — The person is named "${name}", born ${_embeddedDob} in ${_embeddedPob}. ` +
+          `You are Lori, the interviewer. Use "${name}" when addressing the speaker. ` +
+          `These three anchors (name, date of birth, birthplace) were ALL captured from this one message. ` +
+          `Do NOT ask for any of them again — that would be a confidence-killing mistake. ` +
+          `Acknowledge them warmly in one or two sentences (use "${name}" once). ` +
+          `Then ask one open question that invites them to share an early memory or what kind of place ${_embeddedPob} was when they were growing up. One question only.]`
+        );
+        await _resolveOrCreatePerson();
+        return true;
       }
+
+      // Only name + DOB captured — proceed to askBirthplace as before.
+      state.session.identityPhase = "askBirthplace";
       console.log("[identity] Name + DOB extracted from single message:", name, _embeddedDob);
       sendSystemPrompt(
         `[SYSTEM: SPEAKER IDENTITY — The person is named "${name}", born ${_embeddedDob}. ` +
@@ -2440,6 +3432,13 @@ async function _advanceIdentityPhase(text){
         `Then ask where they were born — town, city, or region. One question only.]`
       );
       return true;
+    }
+
+    // BUG-226: name only (no DOB), but maybe POB was given anyway —
+    // capture it for use when askBirthplace fires later. Keeps the
+    // existing askDob → askBirthplace flow intact.
+    if (_embeddedPob) {
+      state.session.identityCapture._embeddedPob = _embeddedPob;
     }
 
     // No embedded DOB — ask for it separately
@@ -2458,7 +3457,6 @@ async function _advanceIdentityPhase(text){
   if(phase === "askDob"){
     const dob = _parseDob(text);
     state.session.identityCapture.dob = dob;  // may be null if unrecognised
-    state.session.identityPhase = "askBirthplace";
 
     // v8.0 FIX: Immediately project DOB into profile and projection state
     if (dob) {
@@ -2473,14 +3471,65 @@ async function _advanceIdentityPhase(text){
       if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
     }
 
-    // v8.0 FIX: Check if POB is embedded in the DOB answer (e.g. "born July 26 1943 in Dartford")
-    const _pobFromDob = text.match(/\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i);
-    if (_pobFromDob && _pobFromDob[1]) {
-      const embeddedPob = _pobFromDob[1].trim().replace(/[,.\s]+$/, "");
-      if (embeddedPob.length >= 3) {
-        state.session.identityCapture._embeddedPob = embeddedPob;
+    // BUG-226: Replace fragile /\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\.|$)/i regex
+    // with the new robust parser. Handles "born July 26 1943 in Dartford"
+    // AND "born in Lima Peru December 20 1972" AND "I was born in Williston
+    // North Dakota in 1949" — the previous regex required period or EOS
+    // immediately after the place, which failed on any utterance with
+    // trailing context.
+    const _embeddedPob = _parseBirthplaceFromUtterance(text);
+
+    // BUG-226: SKIP-AHEAD — if DOB + POB both captured in same answer,
+    // mark all three identity anchors complete (name was set in askName)
+    // and skip askBirthplace entirely. Prevents Lori from re-asking what
+    // the narrator just told her — parent UX failure mode.
+    if (dob && _embeddedPob) {
+      state.session.identityCapture.birthplace = _embeddedPob;
+      if(!state.profile) state.profile = {basics:{}, kinship:[], pets:[]};
+      state.profile.basics.pob = _embeddedPob;
+      if (typeof LorevoxProjectionSync !== "undefined" && state.interviewProjection) {
+        LorevoxProjectionSync.projectValue("personal.placeOfBirth", _embeddedPob, {
+          source: "interview", turnId: "identity-pob", confidence: 0.85
+        });
       }
+      if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
+
+      // BB sync — mirror to questionnaire.personal
+      try {
+        if (typeof window.lvBbSyncIdentity === "function") {
+          window.lvBbSyncIdentity(state.profile.basics);
+        }
+      } catch (e) { console.warn("[bb-sync] askDob/skip-ahead threw:", e); }
+
+      const name = state.session.identityCapture.name || state.profile.basics.preferred || "";
+      console.log("[identity] BUG-226: DOB + POB extracted from askDob answer:", dob, _embeddedPob);
+      state.session.identityPhase = "resolving";
+      sendSystemPrompt(
+        `[SYSTEM: The user just answered with their date of birth AND birthplace in one message: ` +
+        `born ${dob} in ${_embeddedPob}. ` +
+        `${name ? `Their name is "${name}". ` : ""}` +
+        `These three identity anchors are ALL captured. ` +
+        `Do NOT ask for any of them again. ` +
+        `Acknowledge them warmly in one or two sentences. ` +
+        `Then ask one open question that invites them to share an early memory or what kind of place ${_embeddedPob} was when they were growing up. One question only.]`
+      );
+      await _resolveOrCreatePerson();
+      return true;
     }
+
+    // Only DOB captured — store any embedded POB hint and proceed to askBirthplace.
+    state.session.identityPhase = "askBirthplace";
+    if (_embeddedPob) {
+      state.session.identityCapture._embeddedPob = _embeddedPob;
+    }
+
+    // BB sync — mirror DOB to questionnaire.personal
+    try {
+      if (dob && typeof window.lvBbSyncIdentity === "function") {
+        window.lvBbSyncIdentity(state.profile.basics);
+      }
+    } catch (e) { console.warn("[bb-sync] askDob threw:", e); }
+
     sendSystemPrompt(
       `[SYSTEM: The user gave their date of birth as "${text.trim()}". ` +
       `${dob ? "You have parsed it as "+dob+"." : "The date wasn't entirely clear but that's okay — continue."} ` +
@@ -2495,27 +3544,25 @@ async function _advanceIdentityPhase(text){
     // v8.0 FIX: Extract place from the answer instead of using the raw text.
     let birthplace = text.trim();
 
-    // BEST SOURCE: If the DOB answer already contained a place ("born in Dartford"),
-    // prefer that extracted value over anything in this answer.
+    // BEST SOURCE: If askName or askDob already extracted a place from
+    // an earlier utterance, prefer that — narrator may have repeated
+    // themselves or given a different (less precise) answer this turn.
     if (state.session.identityCapture._embeddedPob) {
       birthplace = state.session.identityCapture._embeddedPob;
     } else {
-      // Try structured extraction: "in X", "from X"
-      const _placePatterns = [
-        /\b(?:born|grew up|raised|from|lived)\s+(?:in|at|near)\s+([A-Z][a-zA-Z\s,]+?)(?:\.|,?\s+(?:and|my|I|we|the|where|when|\d))/i,
-      ];
-      for (const pat of _placePatterns) {
-        const m = text.match(pat);
-        if (m && m[1] && m[1].trim().length >= 3 && m[1].trim().length < 80) {
-          birthplace = m[1].trim().replace(/[,.\s]+$/, "");
-          break;
+      // BUG-226: use the canonical parser. Handles all four real input
+      // shapes (place before/after date, "from X", just the place name).
+      const parsed = _parseBirthplaceFromUtterance(text);
+      if (parsed) {
+        birthplace = parsed;
+      } else {
+        // Fallback: whole-text trim (used when the narrator just says
+        // "Lima, Peru" with no surrounding sentence — the parser's
+        // last-resort branch handles that, so this is for malformed input).
+        if (birthplace.length > 80) {
+          const firstClause = text.split(/[.!?,]/)[0].trim();
+          if (firstClause.length < 80) birthplace = firstClause;
         }
-      }
-
-      // If still a long narrative, truncate to first clause
-      if (birthplace.length > 80) {
-        const firstClause = text.split(/[.!?,]/)[0].trim();
-        if (firstClause.length < 80) birthplace = firstClause;
       }
     }
 
@@ -2531,6 +3578,14 @@ async function _advanceIdentityPhase(text){
     }
     // v8.0 FIX: Update narrator header card with POB
     if (typeof lv80UpdateActiveNarratorCard === "function") lv80UpdateActiveNarratorCard();
+
+    // BUG-226: Mirror identity to Bio Builder questionnaire.personal —
+    // all three anchors should now be in BB.
+    try {
+      if (typeof window.lvBbSyncIdentity === "function") {
+        window.lvBbSyncIdentity(state.profile.basics);
+      }
+    } catch (e) { console.warn("[bb-sync] askBirthplace threw:", e); }
 
     state.session.identityPhase = "resolving";
     // Create the person record now that we have the three anchors
@@ -2605,6 +3660,42 @@ async function _resolveOrCreatePerson(){
 
   state.session.identityPhase = "complete";
   setAssistantRole("interviewer");
+
+  // WO-HORNELORE-SESSION-LOOP-01: identity intake just finished.  Hand
+  // the steering wheel to the post-identity orchestrator so Lori has a
+  // defined next step (BB walk for questionnaire_first; tier-2 directive
+  // for clear_direct/memory_exercise/companion; no-op for warm_storytelling).
+  // Without this hook, the session dead-ends here a second time.
+  try {
+    if (typeof window.lvSessionLoopOnTurn === "function") {
+      window.lvSessionLoopOnTurn({ trigger: "identity_complete" });
+    }
+  } catch (e) {
+    console.warn("[session-loop] identity_complete dispatch threw:", e);
+  }
+
+  // WO-IDENTITY-TO-LIFEMAP-01: trigger Life Map + Chronology Accordion
+  // refresh so the just-captured DOB / POB / name immediately surface
+  // visible anchors. Life Map already builds 6 default era scaffolds
+  // (Early Childhood / School Years / Adolescence / Early Adulthood /
+  // Midlife / Later Life) from state.profile.basics.dob — those just
+  // need a render kick. Chronology Accordion fetches per-decade from
+  // backend (DOB-gated). Both helpers already exist and are called by
+  // narrator-switch flow (app.js:1935, html:4938); the fresh-onboarding
+  // path was the only gap. Two-call refresh — non-fatal if either
+  // throws.
+  try {
+    if (window.LorevoxLifeMap && typeof window.LorevoxLifeMap.render === "function") {
+      window.LorevoxLifeMap.render(true);
+      console.log("[identity] post-identity Life Map refresh fired");
+    }
+  } catch (e) { console.warn("[lifemap] post-identity render threw:", e); }
+  try {
+    if (typeof window.crInitAccordion === "function") {
+      window.crInitAccordion();
+      console.log("[identity] post-identity Chronology Accordion refresh fired");
+    }
+  } catch (e) { console.warn("[chronology] post-identity init threw:", e); }
 
   // v8.1: Mark this device as onboarded so future startups skip the welcome flow
   // and go straight to the narrator selector instead.
@@ -2751,6 +3842,54 @@ async function sendUserMessage(){
     // Not handled — fall through to normal chat path with IDENTITY MODE active.
   }
 
+  // WO-HORNELORE-SESSION-LOOP-01: per-turn dispatch.  Once identity is
+  // complete, every narrator turn pings the orchestrator so it can
+  // advance the questionnaire walk (questionnaire_first / clear_direct)
+  // OR refresh tier-2 directives (memory_exercise / companion).
+  // warm_storytelling is a no-op.  Idempotent — askedKeys ledger
+  // prevents duplicate field asks.
+  if (state.session?.identityPhase === "complete" &&
+      typeof window.lvSessionLoopOnTurn === "function") {
+    try {
+      window.lvSessionLoopOnTurn({ trigger: "narrator_turn", text });
+    } catch (e) {
+      console.warn("[session-loop] narrator_turn dispatch threw:", e);
+    }
+  }
+
+  // BUG-209: archive-writer narrator inline-call DISABLED.
+  // The backend chat_ws path already writes the narrator turn into the
+  // same memory archive.  Calling lvArchiveOnNarratorTurn here caused
+  // every turn to land twice in transcript.jsonl (once as `user` from
+  // chat_ws, once as `narrator` from archive-writer).  Confirmed via
+  // Chris's morning export 2026-04-25.  Backend WS is single source.
+  // The lvArchiveOnNarratorTurn hook remains callable for the
+  // future WO-AUDIO-NARRATOR-ONLY-01 audio-attachment flow if it
+  // needs a paired write — that's a deliberate manual path.
+  // To re-enable: remove this comment and uncomment the original block.
+  //
+  // if (typeof window.lvArchiveOnNarratorTurn === "function") {
+  //   try { window.lvArchiveOnNarratorTurn(text); } catch (_) {}
+  // }
+
+  // WO-AUDIO-NARRATOR-ONLY-01: stop in-progress audio segment + upload.
+  // Generate a client-side turn_id; backend stores audio under that id
+  // in audio/<turn_id>.webm regardless of whether the chat_ws transcript
+  // row eventually links it.  Operator can correlate by timestamp at
+  // review time.  A no-op if audio recorder isn't loaded or recordVoice
+  // is OFF or there's no live segment.
+  if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.stop) {
+    try {
+      const _audioTurnId = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : ("t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10));
+      // Fire-and-forget — don't block sendUserMessage on upload.
+      window.lvNarratorAudioRecorder.stop(_audioTurnId).catch((e) => {
+        console.warn("[narrator-audio] stop+upload threw:", e && e.message || e);
+      });
+    } catch (e) { console.warn("[narrator-audio] turn_id gen threw:", e); }
+  }
+
   // v7.4D — helper-mode detection. If the user appears to be asking how to use
   // the app, switch Lori to helper role for this turn. The role resets to
   // "interviewer" in onAssistantReply() after Lori's response lands.
@@ -2759,6 +3898,10 @@ async function sendUserMessage(){
   }
 
   if(!_bubbleAlreadyAdded){ setv("chatInput",""); appendBubble("user",text); }
+  // BUG-219: clear pre-mic draft snapshot now that the turn has been
+  // committed.  Next mic-arm will capture a fresh snapshot from a
+  // (typically empty) chatInput.
+  _wo8PreMicDraft = "";
   let systemInstruction="";
 
   if(state.interview.session_id&&state.interview.question_id){
@@ -3596,6 +4739,11 @@ async function drainTts(){
   // This prevents the STT engine from transcribing Lori's own voice.
   isLoriSpeaking=true;
   if(isRecording) stopRecording();
+  // WO-AUDIO-NARRATOR-ONLY-01: TTS gate ON.  Drops any in-progress
+  // narrator-audio segment without uploading (Lori-audio defense).
+  if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.gate) {
+    try { window.lvNarratorAudioRecorder.gate(true); } catch (e) { console.warn("[narrator-audio] gate(true) threw:", e); }
+  }
   // WO-MIC-UI-02A: Show WAIT state so narrator knows Lori has the floor.
   // stopRecording() sets MIC OFF, but we override to WAIT while Lori speaks.
   _setMicVisual("wait");
@@ -3704,6 +4852,11 @@ async function drainTts(){
     // stuck true permanently, silently suppressing all STT forever.
     isLoriSpeaking=false;
     ttsBusy=false;
+    // WO-AUDIO-NARRATOR-ONLY-01: TTS gate OFF.  Recorder will wait
+    // 700ms before clearing the gate (audible-but-flag-cleared edge).
+    if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.gate) {
+      try { window.lvNarratorAudioRecorder.gate(false); } catch (e) { console.warn("[narrator-audio] gate(false) threw:", e); }
+    }
     // WO-11E: Reset abort state and clear source ref
     _ttsAbortRequested = false;
     _ttsCurrentSource = null;
@@ -3903,11 +5056,31 @@ function startRecording(){
     return;
   }
   const r=_ensureRecognition(); if(!r) return;
+  // BUG-219: snapshot any text the narrator already typed BEFORE we
+  // start collecting STT chunks.  WO-8 voice-turn accumulator joins
+  // _wo8VoiceTurnChunks into chatInput; without a snapshot of the
+  // pre-mic draft, that overwrites typed text.  We prepend this
+  // snapshot when rendering the chunks.  Cleared on send / finalize.
+  try {
+    const _existingDraft = (typeof getv === "function" ? getv("chatInput") : "") || "";
+    // Only capture if there's something meaningful to preserve AND we're
+    // not already in a voice-turn (re-arm should not overwrite the snapshot).
+    if (_existingDraft.trim().length > 0 && !_wo8LongTurnMode && _wo8VoiceTurnChunks.length === 0) {
+      _wo8PreMicDraft = _existingDraft;
+      console.log("[BUG-219] pre-mic draft snapshot: " + JSON.stringify(_existingDraft.slice(0, 60)));
+    }
+  } catch (_) {}
   try{
     r.start(); isRecording=true;
     _setMicVisual(true);
     setLoriState("listening");
     console.log("[STT] recognition started");
+    // WO-AUDIO-NARRATOR-ONLY-01: arm audio segment alongside STT.
+    // Recorder gates itself on isLoriSpeaking and recordVoice toggle;
+    // a no-op when those are off.
+    if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.start) {
+      try { window.lvNarratorAudioRecorder.start(); } catch (e) { console.warn("[narrator-audio] start threw:", e); }
+    }
   }catch(e){
     console.error("[STT] start() failed:",e.message);
     // "already started" — just update state
@@ -4474,6 +5647,15 @@ let _wo8VoicePaused = false;
 let _wo8VoiceTurnChunks = [];  // accumulate speech chunks for the current turn
 let _wo8VoiceTurnStart = null;
 let _wo8LongTurnMode = false;  // true when narrator is in extended speech
+/* BUG-219: pre-mic typed draft preservation.
+   When the narrator types something then toggles the mic on, the WO-8
+   voice-turn accumulator was overwriting chatInput with chunks.join(" "),
+   wiping any text the narrator had typed.  Now we snapshot the existing
+   chatInput value at mic-arm time and prepend it to the chunks display.
+   Cleared on send or finalize.  Acceptance per BUG-219:
+     1. Type "My father was"  →  2. Click mic  →  3. Say "Kent Horne"
+     4. chatInput should read "My father was Kent Horne"  (not just "Kent Horne") */
+let _wo8PreMicDraft = "";
 
 /**
  * WO-8: Enhanced recognition result handler that accumulates speech
@@ -4530,8 +5712,12 @@ function _wo8HandleRecognitionResult(e) {
   if (!_wo8VoiceTurnStart) _wo8VoiceTurnStart = Date.now();
   _wo8LongTurnMode = true;
 
-  // Update the chat input with accumulated text
-  const fullText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  // Update the chat input with accumulated text.
+  // BUG-219: prepend any pre-mic typed draft so toggling the mic doesn't
+  // wipe what the narrator was already typing.  Single space separator.
+  const _chunkText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  const _draft = (_wo8PreMicDraft || "").trim();
+  const fullText = _draft ? (_draft + " " + _chunkText) : _chunkText;
   setv("chatInput", fullText);
 
   // WO-MIC-UI-02A: #wo8LiveTranscript was a competing visible surface that confused
@@ -4563,16 +5749,20 @@ function _wo8HandleRecognitionResult(e) {
 function _wo8FinalizeTurn() {
   if (!_wo8VoiceTurnChunks.length) return;
 
-  const fullText = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  // BUG-219: include any pre-mic typed draft as a prefix.
+  const _chunkTextFinal = _wo8VoiceTurnChunks.map(c => c.text).join(" ");
+  const _draftFinal = (_wo8PreMicDraft || "").trim();
+  const fullText = _draftFinal ? (_draftFinal + " " + _chunkTextFinal) : _chunkTextFinal;
   setv("chatInput", fullText);
 
   // Stop recording before sending
   if (isRecording) stopRecording();
 
-  // Reset turn state
+  // Reset turn state (including BUG-219 draft snapshot)
   _wo8VoiceTurnChunks = [];
   _wo8VoiceTurnStart = null;
   _wo8LongTurnMode = false;
+  _wo8PreMicDraft = "";
 
   // Clear live transcript
   const transcriptEl = document.getElementById("wo8LiveTranscript");
@@ -5309,6 +6499,10 @@ startRecording = function() {
   _wo8VoiceTurnStart = null;
   _wo8LongTurnMode = false;
   _wo8VoicePaused = false;
+  // BUG-219: clear pre-mic draft snapshot here so original startRecording's
+  // capture step has a clean slate.  Original captures the CURRENT chatInput
+  // value (whatever the narrator just typed) AFTER this reset.
+  _wo8PreMicDraft = "";
   _wo8OrigStartRecording();
   // Install enhanced handlers after recognition is created
   setTimeout(() => _wo8InstallEnhancedVoice(), 100);

@@ -1004,12 +1004,22 @@
       flex-shrink: 0;
       padding: 20px 24px 0;
       border-bottom: 1px solid rgba(20,184,166,0.15);
+      position: relative; /* anchor for #bbResetIdentityBtn (BUG-228) */
     }
     .bb-header h3 {
       margin: 0 0 2px;
       font-size: 16px;
       font-weight: 600;
       color: #e2e8f0;
+    }
+    /* BUG-228: Reset Identity button — top-right of BB popover header. */
+    #bbResetIdentityBtn {
+      position: absolute;
+      top: 18px;
+      right: 24px;
+    }
+    #bbResetIdentityBtn:hover {
+      background: rgba(127, 29, 29, 0.15) !important;
     }
     #bbSubtitle {
       font-size: 12px;
@@ -2860,7 +2870,10 @@
     </span>
 
     <div>
-      <!-- WO-10D: Persistent header input controls -->
+      <!-- WO-10D: Persistent header input controls.
+           WO-UI-SHELL-01: operator/debug launchers moved into the Operator tab
+           below; Mic + Cam remain in the header as persistent narrator controls.
+           Bug Panel lives on the Operator tab launcher grid. -->
       <div class="lv10d-header-controls" id="lv10dHeaderControls">
         <button class="lv10d-ctrl-btn" id="lv10dMicBtn" type="button"
                 onclick="lv10dToggleMic()" title="Toggle microphone">
@@ -2872,54 +2885,17 @@
           <span class="lv10d-dot" id="lv10dCamDot"></span>
           <span id="lv10dCamLabel">Cam</span>
         </button>
-        <button class="lv10d-ctrl-btn" id="lv10dBugBtn" type="button"
-                popovertarget="lv10dBugPanel" title="Open Bug Panel diagnostics">
-          <span>🔍</span>
-          <span>Bug Panel</span>
-        </button>
       </div>
 
-      <button id="lv80BioBuilderBtn" popovertarget="bioBuilderPopover" title="Capture and organize biographical material">
-        🧩 Bio Builder
+      <!-- #205: Bug Panel button back in header (was in Operator launcher
+           grid by WO-UI-SHELL-01, but operator needs it during Narrator
+           Session for live diagnostics). Always-visible across tabs. -->
+      <button class="lv10d-ctrl-btn" id="lv10dBugBtn" type="button"
+              popovertarget="lv10dBugPanel" title="Open Bug Panel diagnostics">
+        <span>🔍</span>
+        <span>Bug</span>
       </button>
-      <button id="lv80BioControlBtn"
-              popovertarget="bioControlCenterPopover"
-              title="Open Bio Builder control center"
-              class="dev-only hidden">
-        🛠 Control Center
-      </button>
-      <button id="lv80LifeMapBtn" popovertarget="lifeMapPopover" title="View your Life Map">
-        🗺 Life Map
-      </button>
-      <button id="lv80RiverBtn" popovertarget="kawaRiverPopover" title="View your Memory River">
-        🌊 Memory River
-      </button>
-      <button id="lv80PeekBtn" popovertarget="memoirScrollPopover" title="Read your story so far">
-        📖 Peek at Memoir
-      </button>
-      <button id="wo10TranscriptBtn" popovertarget="wo10TranscriptPopover" title="View transcript and resume preview">
-        📋 Transcript
-      </button>
-      <!-- WO-13 Phase 6: Review Queue drawer trigger -->
-      <button id="wo13ReviewBtn" popovertarget="wo13ReviewPopover"
-              title="Review proposal rows (approve / reject / source-only)"
-              onclick="if(typeof wo13OpenReviewDrawer==='function') setTimeout(wo13OpenReviewDrawer,0)">
-        🗂 Review
-      </button>
-      <button id="lv80OperatorBtn"
-              class="settings-btn dev-only hidden"
-              type="button"
-              popovertarget="lv80OperatorPopover"
-              title="Hornelore operator tools">
-        &#x1F6E0;
-      </button>
-      <button id="lv80TestLabBtn"
-              class="settings-btn dev-only hidden"
-              type="button"
-              popovertarget="testLabPopover"
-              title="WO-QA-01 Quality Harness (operator-only)">
-        &#x1F9EA;
-      </button>
+
       <button class="settings-btn" onclick="toggleSettings()" title="Settings">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -2929,6 +2905,281 @@
       </button>
     </div>
   </header>
+
+  <!-- ── WO-UI-SHELL-01: THREE-TAB SHELL ─────────────────────────
+       Operator | Narrator Session | Media.
+       Default: Operator.  Tabs act as a tablist switching which
+       .lv-shell-panel below is active.  Startup lands on Operator;
+       chat does not auto-begin.  Operator tools live in the Operator
+       tab only; the Narrator tab contains the conversation surface.
+  ────────────────────────────────────────────────────────────────-->
+  <nav id="lvShellTabs" class="lv-shell-tabs" role="tablist" aria-label="Hornelore workspace">
+    <button type="button" id="lvShellTabOperator" role="tab" data-tab="operator"
+            class="lv-shell-tab lv-shell-tab-active" aria-selected="true"
+            aria-controls="lvOperatorTab"
+            onclick="lvShellShowTab('operator')">Operator</button>
+    <button type="button" id="lvShellTabNarrator" role="tab" data-tab="narrator"
+            class="lv-shell-tab" aria-selected="false"
+            aria-controls="lvNarratorTab"
+            onclick="lvShellShowTab('narrator')">Narrator Session</button>
+    <button type="button" id="lvShellTabMedia" role="tab" data-tab="media"
+            class="lv-shell-tab" aria-selected="false"
+            aria-controls="lvMediaTab"
+            onclick="lvShellShowTab('media')">Media</button>
+  </nav>
+
+  <!-- ── OPERATOR TAB ──────────────────────────────────────────── -->
+  <section id="lvOperatorTab" class="lv-shell-panel lv-shell-panel-active"
+           role="tabpanel" aria-labelledby="lvShellTabOperator">
+    <div class="lv-operator-container">
+
+      <header class="lv-operator-intro">
+        <h2>Prepare the session</h2>
+        <p class="lv-operator-sub">Choose a narrator, pick a style, then hand the session to Lori.</p>
+      </header>
+
+      <!-- Readiness card — mirrors #lv80WarmupBanner state in an operator-visible surface -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Session readiness</h3>
+        <div id="lvOperatorReadiness" class="lv-readiness-card" data-ready="pending">
+          <span class="lv-readiness-dot" aria-hidden="true"></span>
+          <div class="lv-readiness-meta">
+            <div class="lv-readiness-label" id="lvOperatorReadinessLabel">Lori is getting ready…</div>
+            <div class="lv-readiness-sub" id="lvOperatorReadinessSub">This can take a few minutes on first load.</div>
+          </div>
+          <span id="lvSessionHealthPill" class="lv-session-health-pill" data-status="GREEN" title="Session monitor — auto-refresh every 30s">Session: GREEN</span>
+        </div>
+      </section>
+
+      <!-- WO-SESSION-HEALTH-MONITOR-01: calm operator-facing health view sitting
+           on top of the existing UI Health Check.  Bug Panel stays as the deep
+           diagnostic tool; this surface answers ONE question for the operator:
+           is this session GREEN / AMBER / RED?  Three buttons, no clutter. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Session Health</h3>
+        <div id="lvSessionHealthCard" class="lv-session-health-card" data-status="GREEN">
+          <div class="lv-session-health-meta">
+            <div class="lv-session-health-label" id="lvSessionHealthLabel">Ready</div>
+            <div class="lv-session-health-sub" id="lvSessionHealthSub">Click <strong>Ready for Session</strong> to run a full preflight.</div>
+            <div class="lv-session-health-ts" id="lvSessionHealthTs" style="font-size:11px;color:#94a3b8;margin-top:4px;">Last check: —</div>
+          </div>
+          <div class="lv-session-health-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+            <button class="lv-operator-start-btn" type="button" style="padding:8px 16px;font-size:14px;"
+                    onclick="window.lvSessionHealthMonitor && window.lvSessionHealthMonitor.runReadyCheck()">
+              Ready for Session
+            </button>
+            <button class="lv-operator-ghost-btn" type="button" style="padding:8px 16px;font-size:14px;"
+                    onclick="window.lvSessionHealthMonitor && window.lvSessionHealthMonitor.runWrapUp()">
+              Wrap Up Session
+            </button>
+            <button class="lv-operator-ghost-btn" type="button" style="padding:8px 16px;font-size:14px;"
+                    popovertarget="lv10dBugPanel">
+              Open Full Bug Panel
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Session style (WO-UI-SHELL-01): sets state.session.sessionStyle + localStorage.
+           Phase 1 is state + persistence + label only; prompt-composer wiring is deferred. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Session style</h3>
+        <p class="lv-operator-section-sub">Shapes how Lori opens the conversation. You can change this later.</p>
+        <div id="lvOperatorStyleGrid" class="lv-session-style-grid"
+             role="radiogroup" aria-label="Session style">
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="questionnaire_first"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Questionnaire First</strong>
+            <span>Start with the basics, step by step.</span>
+          </label>
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="clear_direct"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Clear &amp; Direct</strong>
+            <span>Short answers, one fact at a time.</span>
+          </label>
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="warm_storytelling" checked
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Warm Storytelling</strong>
+            <span>Tell it with detail, feeling, and scene.</span>
+          </label>
+          <!-- Memory Exercise picker option REMOVED 2026-04-25.
+               Was a no-op (prompt suffix only, no real routing).
+               Live test 2026-04-25T22:52: operator selected it,
+               Lori behavior didn't change. Chris's call: shelved
+               for distant future product work (see WO-MEMORY-LIFEMAP-CUES-01
+               draft archived in chatgpt-ideas notes).
+               The internal Lori posture-mode memory_exercise (fact-seed
+               flow, WO-10C cognitive support tier) is UNCHANGED — that's
+               a separate system in app.js _wsPosture handling. -->
+          <label class="lv-session-style-card">
+            <input type="radio" name="lvSessionStyle" value="companion"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Companion</strong>
+            <span>Social presence, no interview agenda.</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Primary action: hand session to Lori -->
+      <section class="lv-operator-section lv-operator-actions">
+        <button id="lvOperatorStartBtn" class="lv-operator-start-btn" type="button"
+                onclick="lvStartNarratorSession()">
+          Start Narrator Session
+        </button>
+        <button id="lvOperatorPhotoBtn" class="lv-operator-ghost-btn" type="button"
+                onclick="lvOpenMediaTool('photo_session')">
+          Start Photo Session
+        </button>
+        <p id="lvOperatorStartHint" class="lv-operator-hint" hidden>Choose a narrator first.</p>
+      </section>
+
+      <!-- Operator tools — launcher grid (moved from header). Popovertargets unchanged. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Operator tools</h3>
+        <div class="lv-launcher-grid">
+          <button id="lv80BioBuilderBtn" popovertarget="bioBuilderPopover" title="Capture and organize biographical material">
+            🧩 Bio Builder
+          </button>
+          <button id="lv80BioControlBtn"
+                  popovertarget="bioControlCenterPopover"
+                  title="Open Bio Builder control center"
+                  class="dev-only hidden">
+            🛠 Control Center
+          </button>
+          <button id="lv80LifeMapBtn" popovertarget="lifeMapPopover" title="View your Life Map">
+            🗺 Life Map
+          </button>
+          <button id="lv80RiverBtn" popovertarget="kawaRiverPopover" title="View your Memory River">
+            🌊 Memory River
+          </button>
+          <button id="lv80PeekBtn" popovertarget="memoirScrollPopover" title="Read your story so far">
+            📖 Peek at Memoir
+          </button>
+          <button id="wo10TranscriptBtn" popovertarget="wo10TranscriptPopover" title="View transcript and resume preview">
+            📋 Transcript
+          </button>
+          <!-- WO-PHOTO-ANCHOR-01: photo intake (operator-only). Opens
+               standalone curator page in new tab. Backend gated by
+               HORNELORE_PHOTO_ENABLED=1 — use scripts/start_all_photos_dev.sh
+               to launch the stack with photos enabled. -->
+          <button id="lv80PhotoIntakeBtn"
+                  type="button"
+                  title="Upload family photos with metadata for the active narrator (operator only)"
+                  onclick="window.open('photo-intake.html', '_blank', 'noopener')">
+            📷 Photo Intake
+          </button>
+          <button id="lv80PhotoTimelineBtn"
+                  type="button"
+                  title="Browse uploaded photos by year (read-only timeline view)"
+                  onclick="window.open('photo-timeline.html', '_blank', 'noopener')">
+            🖼 Photo Timeline
+          </button>
+          <!-- WO-13 Phase 6: Review Queue drawer trigger -->
+          <button id="wo13ReviewBtn" popovertarget="wo13ReviewPopover"
+                  title="Review proposal rows (approve / reject / source-only)"
+                  onclick="if(typeof wo13OpenReviewDrawer==='function') setTimeout(wo13OpenReviewDrawer,0)">
+            🗂 Review
+          </button>
+          <button id="lv80OperatorBtn"
+                  class="settings-btn dev-only hidden"
+                  type="button"
+                  popovertarget="lv80OperatorPopover"
+                  title="Hornelore operator tools">
+            &#x1F6E0;
+          </button>
+          <button id="lv80TestLabBtn"
+                  class="settings-btn dev-only hidden"
+                  type="button"
+                  popovertarget="testLabPopover"
+                  title="WO-QA-01 Quality Harness (operator-only)">
+            &#x1F9EA;
+          </button>
+        </div>
+      </section>
+
+    </div>
+  </section>
+
+  <!-- ── NARRATOR TAB — wraps existing chat surface.  WO-NARRATOR-ROOM-01
+       will flesh out the room layout (topbar, view tabs, conversation +
+       context panels).  For WO-UI-SHELL-01 this tab simply hosts the
+       existing chat shell verbatim so nothing breaks when switching. ── -->
+  <section id="lvNarratorTab" class="lv-shell-panel"
+           role="tabpanel" aria-labelledby="lvShellTabNarrator">
+
+  <!-- ── WO-NARRATOR-ROOM-01 — Narrator Session room ────────────
+       Wraps the existing chat shell (#lv80ChatWrap + voice bar +
+       capture bar + <footer>) inside a calm conversation-room layout:
+       topbar (identity + Mic/Camera/Pause/Take-a-break) → view tabs
+       (Memory River | Life Map | Photos | Peek at Memoir) →
+       three-column main (view-host | conversation | context-panel).
+       All operator tools live on the Operator tab; this room shows
+       only narrator-facing surfaces. ── -->
+  <div id="lvNarratorRoom">
+
+    <header class="lv-narrator-topbar">
+      <div class="lv-narrator-identity">
+        <span class="lv-narrator-eyebrow">Talking with Lori</span>
+        <strong id="lvNarratorRoomName">—</strong>
+        <span id="lvNarratorRoomStyle" class="lv-narrator-style-pill">Warm storytelling</span>
+      </div>
+
+      <div class="lv-narrator-controls">
+        <button id="lvNarratorMicBtn"   class="lv-narrator-ctrl" type="button"
+                onclick="lvNarratorToggleMic()"    title="Toggle microphone">
+          <span class="lv-narrator-ctrl-dot" data-state="off" aria-hidden="true"></span>
+          <span id="lvNarratorMicLabel">Mic</span>
+        </button>
+        <button id="lvNarratorCamBtn"   class="lv-narrator-ctrl" type="button"
+                onclick="lvNarratorToggleCamera()" title="Toggle camera (facial expression pacing)">
+          <span class="lv-narrator-ctrl-dot" data-state="off" aria-hidden="true"></span>
+          <span id="lvNarratorCamLabel">Camera</span>
+        </button>
+        <button id="lvNarratorPauseBtn" class="lv-narrator-ctrl" type="button"
+                onclick="lvNarratorTogglePause()"  title="Pause listening">
+          <span id="lvNarratorPauseLabel">Pause</span>
+        </button>
+        <button id="lvNarratorBreakBtn" class="lv-narrator-ctrl lv-narrator-break" type="button"
+                onclick="lvNarratorStartBreak()"   title="Take a break — pause the conversation">
+          Take a break
+        </button>
+        <!-- WO-AUDIO-NARRATOR-ONLY-01: Save my voice toggle.  Default ON.
+             Reads/writes state.session.recordVoice; recorder is a no-op
+             when OFF.  Lori-audio is NEVER captured regardless. -->
+        <label id="lvNarratorRecordVoiceWrap" class="lv-narrator-ctrl"
+               title="Save your voice as audio recordings during this session"
+               style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="lvNarratorRecordVoice" checked
+                 onchange="lvNarratorSetRecordVoice(this.checked)"
+                 style="cursor:pointer;">
+          <span id="lvNarratorRecordVoiceLabel">Save my voice</span>
+        </label>
+      </div>
+    </header>
+
+    <nav class="lv-narrator-view-tabs" role="tablist" aria-label="Narrator views">
+      <button type="button" data-view="river"  role="tab" aria-selected="true"
+              class="lv-narrator-view-tab lv-narrator-view-tab-active"
+              onclick="lvNarratorShowView('river')">Memory River</button>
+      <button type="button" data-view="map"    role="tab" aria-selected="false"
+              class="lv-narrator-view-tab"
+              onclick="lvNarratorShowView('map')">Life Map</button>
+      <button type="button" data-view="photos" role="tab" aria-selected="false"
+              class="lv-narrator-view-tab"
+              onclick="lvNarratorShowView('photos')">Photos</button>
+      <button type="button" data-view="memoir" role="tab" aria-selected="false"
+              class="lv-narrator-view-tab"
+              onclick="lvNarratorShowView('memoir')">Peek at Memoir</button>
+    </nav>
+
+    <div class="lv-narrator-main">
+      <aside id="lvNarratorViewHost" class="lv-narrator-view-host" role="tabpanel"
+             aria-label="Narrator view content"></aside>
+
+      <section id="lvNarratorConversation" class="lv-narrator-conversation">
 
   <!-- ── CHAT AREA ───────────────────────────────────────────── -->
   <main id="lv80ChatWrap">
@@ -3009,6 +3260,113 @@
       <button id="lv80SendBtn" onclick="sendUserMessage()">Send</button>
     </div>
   </footer>
+
+      </section><!-- /lvNarratorConversation -->
+
+      <aside id="lvNarratorContextPanel" class="lv-narrator-context-panel">
+        <div class="lv-narrator-ctx-header">
+          <span class="lv-narrator-ctx-label">Right now</span>
+        </div>
+        <div id="lvNarratorCtxCamera" class="lv-narrator-ctx-block" data-state="off">
+          <div class="lv-narrator-ctx-title">Camera</div>
+          <div class="lv-narrator-ctx-body" id="lvNarratorCtxCameraBody">Off — Lori won't see you.</div>
+        </div>
+        <div id="lvNarratorCtxMic" class="lv-narrator-ctx-block" data-state="off">
+          <div class="lv-narrator-ctx-title">Microphone</div>
+          <div class="lv-narrator-ctx-body" id="lvNarratorCtxMicBody">Off — type your answer.</div>
+        </div>
+        <div id="lvNarratorCtxMemoir" class="lv-narrator-ctx-block">
+          <div class="lv-narrator-ctx-title">Your story so far</div>
+          <div class="lv-narrator-ctx-body">
+            <button type="button" class="lv-narrator-ctx-cta"
+                    onclick="lvNarratorShowView('memoir')">
+              Peek at your memoir
+            </button>
+          </div>
+        </div>
+      </aside>
+
+    </div><!-- /lv-narrator-main -->
+  </div><!-- /lvNarratorRoom -->
+
+  <!-- WO-NARRATOR-ROOM-01 — Take a Break overlay.  Hidden unless the
+       narrator clicks Take a break; pauses listening + halts hands-free
+       rearm; Resume or Return to Operator exits. -->
+  <div id="lvNarratorBreakOverlay" class="lv-narrator-break-overlay" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="lvNarratorBreakTitle">
+    <div class="lv-narrator-break-card">
+      <h2 id="lvNarratorBreakTitle">Let's take a break.</h2>
+      <p>Your story is saved. We can come back whenever you are ready.</p>
+      <div class="lv-narrator-break-actions">
+        <button type="button" class="lv-operator-start-btn" onclick="lvNarratorEndBreak()">Resume</button>
+        <button type="button" class="lv-operator-ghost-btn" onclick="lvNarratorReturnToOperator()">Return to Operator</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BUG-240: full-screen photo lightbox for the narrator-room Photos
+       view. Mom/Dad clicks the small thumbnail and gets a real
+       photo-sized view with caption + date + location. Critical for
+       tablet sessions where the inline view is too small to
+       recognize faces. Close paths: X button, backdrop click, ESC
+       (handled in app.js). -->
+  <div id="lvNarratorLightbox" class="lv-narrator-lightbox" hidden aria-hidden="true"
+       role="dialog" aria-modal="true" aria-label="Photo full-size view"
+       onclick="if (event.target === this) _lvNarratorCloseLightbox();">
+    <button type="button" class="lv-narrator-lightbox-close"
+            onclick="_lvNarratorCloseLightbox()" aria-label="Close photo">×</button>
+    <img class="lv-narrator-lightbox-img" alt=""/>
+    <div class="lv-narrator-lightbox-meta">
+      <div class="lv-narrator-lightbox-caption"></div>
+      <div class="lv-narrator-lightbox-subline"></div>
+    </div>
+  </div>
+
+  </section><!-- /lvNarratorTab -->
+
+  <!-- ── MEDIA TAB — Phase 1 launcher surface.  Opens existing
+       photo pages; detailed room lives on WO-LORI-PHOTO lanes. ── -->
+  <section id="lvMediaTab" class="lv-shell-panel"
+           role="tabpanel" aria-labelledby="lvShellTabMedia">
+    <div class="lv-media-container">
+      <header class="lv-operator-intro">
+        <h2>Media</h2>
+        <p class="lv-operator-sub">Intake photos, review the photo timeline, or start a photo session with the active narrator.</p>
+      </header>
+
+      <div class="lv-media-launch-grid">
+        <button class="lv-media-launch-card" type="button" onclick="lvOpenMediaTool('photo_intake')">
+          <span class="lv-media-icon" aria-hidden="true">📥</span>
+          <strong>Photo Intake</strong>
+          <span>Upload and tag photos for this narrator.</span>
+        </button>
+        <button class="lv-media-launch-card" type="button" onclick="lvOpenMediaTool('photo_timeline')">
+          <span class="lv-media-icon" aria-hidden="true">🗓</span>
+          <strong>Photo Timeline</strong>
+          <span>Review photos by era on the life timeline.</span>
+        </button>
+        <button class="lv-media-launch-card" type="button" onclick="lvOpenMediaTool('photo_session')">
+          <span class="lv-media-icon" aria-hidden="true">📷</span>
+          <strong>Photo Session</strong>
+          <span>Start a narrator-safe photo memory session.</span>
+        </button>
+        <!-- WO-MEDIA-ARCHIVE-01 — separate Document Archive lane for
+             PDFs, scanned docs, handwritten notes, genealogy outlines,
+             letters, certificates, clippings. Distinct from the photo
+             intake/timeline/session triplet above; gated behind its
+             own flag (HORNELORE_MEDIA_ARCHIVE_ENABLED) — when off,
+             clicking opens a page that surfaces a clear "disabled"
+             message via /api/media-archive/health probe. -->
+        <button id="lv80MediaArchiveBtn" class="lv-media-launch-card" type="button"
+                onclick="lvOpenMediaTool('document_archive')">
+          <span class="lv-media-icon" aria-hidden="true">📄</span>
+          <strong>Document Archive</strong>
+          <span>Upload PDFs, handwritten notes, genealogy outlines, letters, certificates, scans.</span>
+        </button>
+      </div>
+
+      <p id="lvMediaDisabledNote" class="lv-operator-hint" hidden>Photo tools are not enabled for this run.</p>
+    </div>
+  </section>
 
   <!-- ── APP.JS COMPATIBILITY SHIMS ──────────────────────────────
        app.js accesses these elements directly without null guards.
@@ -3364,6 +3722,17 @@
     <div class="bb-header">
       <h3>🧩 Bio Builder</h3>
       <span id="bbSubtitle">Choose a narrator to begin</span>
+      <!-- BUG-228: Operator-accessible Reset Identity link.
+           Same handler as the Bug Panel button but always visible
+           inside the BB popover so it's reachable during normal flow
+           without diving into devtools. -->
+      <button id="bbResetIdentityBtn"
+              type="button"
+              title="Wipe this narrator's identity fields and re-fire identity onboarding. Memory archive, parents/siblings sections, other narrators preserved."
+              onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()"
+              style="font-size:11px;padding:.25rem .5rem;border:1px solid #7f1d1d;background:transparent;color:#f87171;border-radius:4px;cursor:pointer;">
+        ⟲ Reset Identity
+      </button>
       <div class="bb-tabs" role="tablist">
         <button id="bbTabCapture"       class="bb-tab bb-tab-active" data-tab="capture"
                 onclick="window.LorevoxBioBuilder._switchTab('capture')"
@@ -3632,6 +4001,88 @@
       <div class="lv10d-bp-subtitle">Live diagnostics — refreshes every 2s</div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════
+         OPERATOR TEST TOOLS — pinned at top for fast access.
+         These are the workflow buttons an operator reaches for during
+         a session. Diagnostic dumps + scope/state probes follow below.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div class="lv10d-bp-section" style="background:rgba(30,58,138,0.08);border-left:3px solid #60a5fa;padding-left:12px;">
+      <div class="lv10d-bp-section-title" style="color:#60a5fa;font-weight:600;">
+        🧪 OPERATOR TEST TOOLS
+      </div>
+
+      <!-- BB Walk Test Harness — programmatic 30-item pipeline test -->
+      <div style="margin-top:8px;">
+        <div style="font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:2px;">BB Walk Test (30-field pipeline)</div>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Creates a temporary "Test Harness Sarah" narrator, then waits up to
+          7 seconds for app state, Bio Builder state, and the active narrator
+          label to all settle on that test narrator (BUG-236 hard scope gate).
+          If real-narrator data (Walter, Chris, Janice, Kent, etc.) is detected
+          in the BB blob after the gate, the test ABORTS instead of validating
+          contaminated data.
+        </p>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Once scope is clean, drives the identity intro through the real
+          BUG-226/227 parser, populates personal + parents + siblings + spouse
+          + children + education via direct writes, runs 5 break cases
+          (overwrite guards), verifies persistence reload + projection
+          propagation. Inline report below — color-coded.
+        </p>
+        <div class="lv10d-bp-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
+                  onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true})">
+            Run BB Walk Test (verbose)
+          </button>
+          <button class="lv10d-bp-action-btn" style="background:#1e3a8a;color:#fff;"
+                  onclick="window.lvBbWalkTest && window.lvBbWalkTest({verbose:true, cleanup:true})">
+            Run + Clean Up
+          </button>
+        </div>
+        <div id="lv10dBpBbWalkStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+      </div>
+
+      <!-- Reset Identity for Current Narrator -->
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:2px;">⟲ Reset Identity for Current Narrator (BUG-228)</div>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Wipes bb.questionnaire.personal + state.profile.basics identity fields,
+          PATCHes backend person row to null DOB + place, re-fires identity
+          onboarding. Memory archive, other BB sections, other narrators
+          untouched. person_id stays the same. Use when polluted data carried
+          over from earlier test sessions.
+        </p>
+        <div class="lv10d-bp-actions">
+          <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                  onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()">
+            Reset Identity for Current Narrator
+          </button>
+        </div>
+        <div id="lv10dBpResetIdentityStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+      </div>
+
+      <!-- BUG-221B: Purge Test Narrators (nuclear, dev-only) -->
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:2px;">☢ Purge Test Narrators (BUG-221B)</div>
+        <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+          Walks the people list, soft-deletes any narrator whose display_name
+          isn't on the canonical 5-name whitelist (Kent Janice Christopher Horne
+          + Shatner / Parton trainers), wipes their localStorage keys. Photos +
+          memory archive on disk preserved. Use before parent sessions to
+          clean up dev pollution accumulated across days of testing
+          (Sarah Reed / Test Harness / temp narrators / etc.).
+          Shows a confirm dialog with the full purge list before any deletion.
+        </p>
+        <div class="lv10d-bp-actions">
+          <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                  onclick="window.lvBbPurgeTestNarrators && window.lvBbPurgeTestNarrators()">
+            Purge Test Narrators
+          </button>
+        </div>
+        <div id="lv10dBpPurgeTestStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+      </div>
+    </div>
+
     <!-- Session -->
     <div class="lv10d-bp-section">
       <div class="lv10d-bp-section-title">Session</div>
@@ -3761,6 +4212,22 @@
       </ul>
     </div>
 
+    <!-- WO-UI-TEST-LAB-01: UI Health Check (operator preflight) -->
+    <div class="lv10d-bp-section" id="lv10dBpUiHealth">
+      <div class="lv10d-bp-section-title">UI Health Check</div>
+      <div class="lv10d-bp-actions" style="flex-wrap:wrap;">
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runAll()">Run Full UI Check</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('camera')">Camera</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('switch')">Narrator Switch</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('scroll')">Chat Scroll</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.runCategory('archive')">Archive</button>
+        <button class="lv10d-bp-action-btn" onclick="window.lvUiHealthCheck && lvUiHealthCheck.copyReport()">Copy Report</button>
+      </div>
+      <div id="lv10dBpUiHealthResults" class="lv10d-bp-test-results">
+        <div class="lv10d-bp-test-empty">No results yet — click a Run button.</div>
+      </div>
+    </div>
+
     <!-- Actions -->
     <div class="lv10d-bp-section">
       <div class="lv10d-bp-section-title">Actions</div>
@@ -3770,6 +4237,63 @@
         <button class="lv10d-bp-action-btn" onclick="lv10dCopyDiag()">Copy Diagnostics</button>
       </div>
     </div>
+
+    <!-- WO-ARCHIVE-EXPORT-UX-01: one-click session export -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Archive Export</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Download a zip of this narrator's full archive: transcript.txt, transcript.jsonl, meta.json, audio/.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" onclick="lvExportCurrentSessionArchive && lvExportCurrentSessionArchive()">Export Current Session</button>
+      </div>
+      <div id="lv10dBpExportStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
+    <!-- WO-AUDIO-READY-CHECK-01: mic preflight before recording -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Audio Preflight</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Verify MediaRecorder API + secure context + mic permission before recording.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" onclick="(async () => { const r = await (window.lvAudioPreflight && window.lvAudioPreflight()); const el = document.getElementById('lv10dBpAudioPreflightStatus'); if (!el) return; if (!r) { el.textContent = '✗ preflight unavailable'; return; } el.textContent = (r.ready ? '✓ Mic ready' : '⚠ Mic NOT ready') + ' — ' + r.detail; })()">Run Audio Preflight</button>
+      </div>
+      <div id="lv10dBpAudioPreflightStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
+    <!-- WO-BB-RESET-UTILITY-01: dev-only Reset BB for active narrator -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Bio Builder (Dev Reset)</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Safety valve. Clears questionnaire + candidates + drafts ONLY for the active narrator.
+        Other narrators untouched. Cannot be undone.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" onclick="window.lvBbResetCurrentNarrator && window.lvBbResetCurrentNarrator()">Reset BB for Current Narrator</button>
+      </div>
+      <div id="lv10dBpBbResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
+    <!-- WO-DEEP-RESET: dev-only nuke for projection_family pollution -->
+    <div class="lv10d-bp-section">
+      <div class="lv10d-bp-section-title">Deep Reset (Projection + Family)</div>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
+        Bigger scope than Reset BB. Also wipes projection layer (the dirty
+        parents/family roster feeding runtime71), state.profile.kinship,
+        state.profile.pets, and backend projection blob. Identity (name/DOB/place),
+        memory archive (transcripts + audio), and other narrators untouched.
+        Cannot be undone.
+      </p>
+      <div class="lv10d-bp-actions">
+        <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
+                onclick="window.lvBbDeepResetCurrentNarrator && window.lvBbDeepResetCurrentNarrator()">
+          Deep Reset Projection for Current Narrator
+        </button>
+      </div>
+      <div id="lv10dBpDeepResetStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
+    </div>
+
   </div>
 
   <!-- ── SETTINGS POPOVER (Step 3) ───────────────────────────
@@ -4046,7 +4570,14 @@
 <script src="js/chronology-accordion.js"></script>
 <script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
+<script src="js/test-bb-walk.js"></script>
 <script src="js/emotion-pipeline-tests.js"></script>
+<script src="js/session-style-router.js"></script>
+<script src="js/session-loop.js"></script>
+<script src="js/archive-writer.js"></script>
+<script src="js/narrator-audio-recorder.js"></script>
+<script src="js/ui-health-check.js"></script>
+<script src="js/session-health-monitor.js"></script>
 
 <script>
 /* ── Auto-reset on startup ──────────────────────────────────────
@@ -4345,6 +4876,26 @@ async function lv80SwitchPerson(personId) {
     if (_sw && _sw.matches && _sw.matches(":popover-open")) _sw.hidePopover();
   } catch (_) {}
 
+  // #176 (WO-NARRATOR-ROOM-01 follow-up): stop the camera on every
+  // narrator change. Without this, Janice's camera stream + MediaPipe
+  // + preview carry into Kent (and into a freshly-created narrator),
+  // with no new consent pass for the new narrator. stopEmotionEngine
+  // handles the full cleanup: MediaStream tracks stopped, preview
+  // hidden, cameraActive=false, state.inputState.cameraActive=false,
+  // visual signals nulled. FacialConsent.reset() clears the session
+  // consent flags but preserves stored (localStorage) consent per the
+  // WO-02 family-friendly policy — so the next Cam click for the new
+  // narrator auto-passes consent (no re-overlay on a family machine)
+  // while still forcing a clean engine start. Covers both narrator
+  // switches and new-narrator creation (lv80NewPerson routes through
+  // this function via lv80ConfirmNarratorSwitch).
+  try {
+    if (typeof stopEmotionEngine === "function") stopEmotionEngine();
+    if (window.FacialConsent && typeof window.FacialConsent.reset === "function") {
+      window.FacialConsent.reset();
+    }
+  } catch (_) {}
+
   /* ── v9: GATED NARRATOR OPEN FLOW ────────────────────────── */
 
   // 1. Mark loading state
@@ -4417,6 +4968,14 @@ async function lv80SwitchPerson(personId) {
         complete: false, cameraForPacing: false, profilePhotoEnabled: false,
         questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
       },
+      // #194 (WO-UI-SHELL-01 follow-up): preserve sessionStyle so the
+      // narrator-room topbar paints the operator's chosen style label
+      // ("Questionnaire first" etc.) after a narrator switch.  Without
+      // this, the rebuild drops sessionStyle and getSessionStyle() falls
+      // back to "warm_storytelling" even when localStorage holds a
+      // different value the operator just selected.
+      sessionStyle: (state.session && state.session.sessionStyle)
+        || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling"),
     };
     setAssistantRole("interviewer");
     lv80RefreshCaptureBar();
@@ -4432,8 +4991,20 @@ async function lv80SwitchPerson(personId) {
     // user turns joined to this narrator via sessions.active_person_id.
     // A fresh narrator with zero user turns must NOT trigger a fake
     // "welcome back" greeting — it only pollutes the turns table.
+    //
+    // #207: SECOND gate — when sessionStyle is questionnaire_first, the
+    // session-loop owns Lori's next prompt (BB walk).  Firing the welcome-
+    // back here races the loop dispatch and Lori responds to whichever
+    // prompt was queued first — usually the welcome-back.  Skip welcome-
+    // back so the loop's structured-question prompt wins.  Same for the
+    // opener-greeting fallback below.
     const _wo13PriorUserTurns = Number((state.session && state.session.priorUserTurns) || 0);
-    if (_wo13PriorUserTurns > 0) {
+    const _ssIsQF = (state.session && state.session.sessionStyle) === "questionnaire_first";
+    if (_ssIsQF) {
+      console.log("[WO-13] questionnaire_first override — skipping welcome-back/opener so session-loop owns first prompt");
+      // WO-UI-HEALTH-CHECK-02: side-channel for harness observation.
+      try { window._lv80WelcomeBackSuppressedForQF = true; } catch (_) {}
+    } else if (_wo13PriorUserTurns > 0) {
       // WO-9: Use queue-safe sender to survive startup race
       wo9SendOrQueueSystemPrompt(
         `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
@@ -4457,8 +5028,21 @@ async function lv80SwitchPerson(personId) {
 
     state.narratorOpen.openStatus = "ready";
   } else {
-    // 5b. INCOMPLETE — do NOT auto-start onboarding. Show explicit UI.
-    state.narratorOpen.openStatus = "incomplete";
+    // 5b. INCOMPLETE — do NOT auto-start onboarding by default.
+    // WO-SESSION-STYLE-WIRING-01 / Slice 1 (Corky rule):
+    //   If the operator picked "Questionnaire First" as their session style,
+    //   we BYPASS the incomplete-narrator dead-end and route into the
+    //   questionnaire-first lane instead.  questionnaire-first IS the way
+    //   incomplete narrators become complete (identity intake first, then
+    //   Bio Builder section walk).  All other styles still get the
+    //   explicit incomplete UI so the operator deliberately fills basics.
+    const _ssStyle = (state.session && state.session.sessionStyle)
+      || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling");
+    if (_ssStyle === "questionnaire_first") {
+      state.narratorOpen.openStatus = "questionnaire_first";
+    } else {
+      state.narratorOpen.openStatus = "incomplete";
+    }
     state.narratorOpen.incompletePid = personId;
 
     state.session = {
@@ -4474,11 +5058,30 @@ async function lv80SwitchPerson(personId) {
         complete: false, cameraForPacing: false, profilePhotoEnabled: false,
         questionsAsked: false, profilePhotoCaptured: false, ttsPace: "normal",
       },
+      // #194: preserve sessionStyle — see READY path above.
+      sessionStyle: (state.session && state.session.sessionStyle)
+        || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling"),
     };
     lv80ResetCaptureBar();
 
-    // v9: Show incomplete narrator UI instead of auto-onboarding
-    lv80ShowIncompleteNarratorUi(personId);
+    // WO-SESSION-STYLE-WIRING-01 / Slice 1: questionnaire_first bypass.
+    // If the operator chose Questionnaire First, do NOT show the
+    // incomplete-narrator dead-end card.  The lvSessionStyleEnter call
+    // below (or the lvNarratorRoomInit hook in session-style-router.js)
+    // will kick off identity intake instead.  For all other styles,
+    // keep the explicit incomplete UI so the operator deliberately
+    // fills basics before opening the room.
+    if (state.narratorOpen.openStatus === "questionnaire_first") {
+      console.log("[v9-gate] questionnaire_first override — skipping incomplete UI for", personId);
+      // session-style-router.js owns the actual identity intake handoff.
+      // It runs from the lvNarratorRoomInit hook on the next room paint.
+      // Side-channel signal so the UI Health Check harness can verify
+      // the bypass landed without invoking lv80SwitchPerson (observation-only).
+      try { window._lv80QuestionnaireFirstBypassFired = true; } catch (_) {}
+    } else {
+      // v9: Show incomplete narrator UI instead of auto-onboarding
+      lv80ShowIncompleteNarratorUi(personId);
+    }
   }
 
   // 6. Clear loading state
@@ -4491,12 +5094,30 @@ async function lv80SwitchPerson(personId) {
   }
 
   // WO-CAM-FIX: Auto-start camera on narrator load if family defaults are on.
-  // Previously camera only started from interview.js _ivStartActual() (fresh section start)
-  // or lv80ToggleCam() (which had a session_id gate). Narrator-resume loads never
-  // triggered either path, so camera stayed off despite emotionAware=true, permCamOn=true.
+  //
+  // History:
+  //   - Original: fired on every narrator load (#190 surfaced the carry-
+  //     over class — Janice → Kent left Janice's stream alive).
+  //   - #190 fix: gated to FIRST narrator load of page session.
+  //   - #206 fix (now): the one-shot gate broke switch-away/switch-back
+  //     UX (Chris: "I have to manually turn camera back on"; expected the
+  //     stored consent to auto-restart the stream when returning to the
+  //     same narrator).
+  //
+  // Current safety stack (the gate is no longer load-bearing):
+  //   (a) stopEmotionEngine + FacialConsent.reset() at the TOP of
+  //       lv80SwitchPerson — kills the carry-over stream class outright.
+  //   (b) FacialConsent.revokeStored() in lv80NewPerson — brand-new
+  //       narrators get the full overlay before camera fires.
+  //   (c) Stored consent for existing narrators auto-passes (WO-02
+  //       family-friendly), so re-firing auto-start is friction-free.
+  //
+  // With (a)+(b)+(c) in place, dropping the page-session one-shot is
+  // safe: no carry-over (engine stopped on switch), no silent activation
+  // for new narrators (revoke fired), returning narrators auto-restart.
   if (state.narratorOpen.openStatus === "ready" && permCamOn && emotionAware && !cameraActive) {
     if (typeof startEmotionEngine === "function") {
-      console.log("[WO-CAM-FIX] Auto-starting camera for ready narrator (permCamOn + emotionAware)");
+      console.log("[WO-CAM-FIX] Auto-starting camera for ready narrator (permCamOn + emotionAware).");
       startEmotionEngine();
     }
   }
@@ -4618,6 +5239,19 @@ async function lv80NewPerson() {
     if (!resp.ok) { alert("Failed to create narrator: " + resp.status); return; }
     const data = await resp.json();
     const pid = data.person_id || data.person?.id;
+    // #190 follow-up: a brand-new narrator should hit the full facial
+    // expression consent overlay, not the family-friendly auto-pass.
+    // The WO-02 storage policy is "trusted family machine, don't re-ask
+    // for returning narrators" — a newly-created narrator isn't returning,
+    // they haven't consented yet. revokeStored() wipes the persisted
+    // consent so the next Cam click shows the overlay.  The subsequent
+    // lv80SwitchPerson still runs FacialConsent.reset() (clears session
+    // flags) and stopEmotionEngine() so the switch is clean either way.
+    try {
+      if (window.FacialConsent && typeof window.FacialConsent.revokeStored === "function") {
+        window.FacialConsent.revokeStored();
+      }
+    } catch (_) {}
     if (typeof refreshPeople === "function") await refreshPeople();
     lv80RenderNarratorCards();
     if (pid && typeof lv80ConfirmNarratorSwitch === "function") lv80ConfirmNarratorSwitch(pid);

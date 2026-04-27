@@ -58,7 +58,16 @@ app = FastAPI(title="Lorevox API", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # BUG-PHOTO-CORS-01 (2026-04-25 night):
+    # MUST be False whenever allow_origins=["*"] -- the CORS spec explicitly
+    # forbids the wildcard combined with credentials, and modern browsers
+    # silently refuse the response. The companion-app and extractor lane
+    # do not actually use cross-origin cookies / HTTP auth (no
+    # withCredentials anywhere in our UI grep), so dropping credentials
+    # restores the wildcard semantics. If we ever wire cross-origin auth
+    # later, switch this to an explicit origins list (8082 + 8000) and
+    # flip back to True at the same time.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -100,6 +109,8 @@ from .routers import (  # type: ignore
     test_lab,        # WO-QA-01 — Hornelore Quality Harness (operator-only)
     kawa,            # WO-KAWA-UI-01A — River View (Kawa meaning layer)
     photos,          # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer
+    memory_archive,  # WO-ARCHIVE-AUDIO-01 — durable transcript + narrator-audio archive
+    media_archive,   # WO-MEDIA-ARCHIVE-01 — Document Archive lane (PDFs, scanned docs, genealogy)
 )
 
 # Core Entity & State Routers
@@ -128,6 +139,8 @@ app.include_router(chronology_accordion.router)  # WO-CR-01 — Chronology Accor
 app.include_router(test_lab.router)               # WO-QA-01 — Quality Harness
 app.include_router(kawa.router)                   # WO-KAWA-UI-01A — River View
 app.include_router(photos.router)                 # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer (404s when HORNELORE_PHOTO_ENABLED=0)
+app.include_router(memory_archive.router)         # WO-ARCHIVE-AUDIO-01 — narrator-only audio + transcript archive (404s when HORNELORE_ARCHIVE_ENABLED=0)
+app.include_router(media_archive.router)          # WO-MEDIA-ARCHIVE-01 — Document Archive lane for PDFs / scans / genealogy (404s when HORNELORE_MEDIA_ARCHIVE_ENABLED=0)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)

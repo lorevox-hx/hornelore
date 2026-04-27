@@ -558,6 +558,21 @@
   function normalizePlaceInput(raw) {
     if (!raw) return "";
     var s = raw.trim();
+    // BUG-211: strip trailing STT fillers / dangling prepositions before
+    // running the state-name match.  Live evidence: Jake's pob came in
+    // as "Elbowoods on" because voice input captured a trailing
+    // preposition (probably " on a farm" cut off by STT).  Causes Lori
+    // to render "It's wonderful that you were born in Elbowoods on."
+    // — confusing for older-adult narrators.
+    var TRAILING_FILLERS = /\s+(on|in|at|of|the|a|an|and|or|but|um|uh|oh|so|like|just|with|by)$/i;
+    var TRAILING_PUNCT = /[\s,.;:!?\-]+$/;
+    s = s.replace(TRAILING_PUNCT, "");
+    // strip up to 2 trailing fillers in case STT dropped multiple
+    for (var k = 0; k < 2; k++) {
+      var stripped = s.replace(TRAILING_FILLERS, "");
+      if (stripped === s) break;
+      s = stripped.replace(TRAILING_PUNCT, "");
+    }
     var m, full;
     m = s.match(/^(.+?),\s*([A-Z]{2})$/i);
     if (m) { full = US_STATES[m[2].toUpperCase()]; if (full) return m[1].trim() + ", " + full; }
@@ -964,8 +979,22 @@
       container.innerHTML = _emptyStateHtml("No narrator selected", "Select a narrator to start the structured questionnaire.", []);
       return;
     }
-    // Phase 1.2: ensure canonical questionnaire state is loaded before any render
+    // BUG-220A: fail-closed scope guard. If bb.personId still points at
+    // the previous narrator (async race or missing _personChanged hop),
+    // refuse to paint stale data. Caller (_renderActiveTab) also guards
+    // this; belt-and-suspenders here protects any direct call paths
+    // (e.g., section-detail re-render after edit).
     var bb = _bb();
+    if (bb && bb.personId && bb.personId !== pid) {
+      console.warn("[bb-scope] questionnaire tab render blocked — bb.personId=" +
+        (bb.personId || "").slice(0, 8) + " active=" + pid.slice(0, 8));
+      container.innerHTML = _emptyStateHtml(
+        "Loading active narrator questionnaire…",
+        "Scope reconciling. If this persists, switch narrators again.",
+        []);
+      return;
+    }
+    // Phase 1.2: ensure canonical questionnaire state is loaded before any render
     if (bb && (!bb.questionnaire || Object.keys(bb.questionnaire).length === 0)) {
       _restoreQuestionnaire(pid);
     }

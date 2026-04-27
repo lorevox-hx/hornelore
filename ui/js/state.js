@@ -116,6 +116,70 @@ let state = {
     currentEra:  null,
     currentMode: "open",
 
+    /* WO-UI-SHELL-01 — operator-chosen session style.
+       Separate from currentMode (which is cognitive/runtime state).
+       Values: questionnaire_first | clear_direct | warm_storytelling
+               | memory_exercise   | companion
+       Persisted to localStorage under 'hornelore_session_style_v1' and
+       rehydrated by lvShellInitTabs on load.  Phase 1 = state + label
+       only; prompt-composer wiring is a later WO. */
+    sessionStyle: "warm_storytelling",
+
+    /* WO-HORNELORE-SESSION-LOOP-01 — post-identity orchestrator state.
+       After identityPhase becomes "complete", lvSessionLoopOnTurn drives
+       what Lori does next based on sessionStyle.  This substate tracks
+       the questionnaire walk progress so subsequent turns advance to
+       the next field instead of asking the same one twice.
+         currentSection: BB section id we're walking (e.g. "personal")
+         currentField:   field id we just asked the narrator about
+         askedKeys:      stable list of "<sectionId>.<fieldId>" strings
+                         we've already asked this session (capped at 60)
+         lastTrigger:    "identity_complete" | "narrator_turn" |
+                         "operator_skip" — diagnostic for the harness
+         lastAction:     last action the dispatcher chose, e.g.
+                         "ask_personal.preferredName" | "deferred:parents"
+                         | "fallback_warm_storytelling"
+         tellingStoryOnce: when narrator says "tell a story instead",
+                         we route ONE turn through warm_storytelling and
+                         resume the walk on the next narrator turn. */
+    loop: {
+      currentSection:    null,
+      currentField:      null,
+      askedKeys:         [],
+      /* WO-01B: stable list of "<sectionId>.<fieldId>" strings for fields
+         the loop has actually persisted to /api/bio-builder/questionnaire
+         this session.  Used by the harness to observe save activity and
+         to prevent double-PUT on idempotent re-dispatch. */
+      savedKeys:         [],
+      lastTrigger:       null,
+      lastAction:        null,
+      tellingStoryOnce:  false,
+    },
+
+    /* WO-NARRATOR-ROOM-01 — hands-free session scaffolding.
+       These are Phase-1 hooks for WO-STT-HANDSFREE-01.  The room
+       controls set them but the auto-rearm STT loop lives in a
+       later WO.
+         handsFree      : narrator has opted into hands-free mode
+         micAutoRearm   : after TTS ends, rearm mic without narrator tap
+         loriSpeaking   : Lori's TTS is currently playing (must suppress
+                          mic to avoid echo)  */
+    handsFree:    false,
+    micAutoRearm: false,
+    loriSpeaking: false,
+    /* WO-AUDIO-NARRATOR-ONLY-01: per-session "Save my voice" toggle.
+       Default true — capturing parents' audio is the whole point of
+       the data-acquisition pipeline.  Operator can flip OFF in the
+       narrator-room topbar OR Settings popover; recorder becomes a
+       no-op when false (transcript still flows).  Lori audio is
+       NEVER captured regardless of this flag. */
+    recordVoice:  true,
+    /* Current narrator-room view — "river" | "map" | "photos" | "memoir".
+       Defaults to "river" (Memory River). */
+    narratorView: "river",
+    /* Break overlay active (Take a break clicked).  Pauses auto-rearm. */
+    breakActive: false,
+
     /* WO-ARCH-07A — explicit turn routing */
     turnMode: "interview",      // interview | followup | memory_echo | correction | clarify | trainer
     lastTurnMode: null,         // previous completed mode for correction follow-through

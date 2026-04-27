@@ -97,6 +97,64 @@ def photo_enabled() -> bool:
     return _truthy(os.environ.get("HORNELORE_PHOTO_ENABLED"))
 
 
+def media_archive_enabled() -> bool:
+    """WO-MEDIA-ARCHIVE-01. When True, the ``/api/media-archive``
+    router serves live; when False, every endpoint returns 404 (the
+    router is mounted but each handler guards itself), so the
+    Document Archive surface stays invisible to the UI unless the
+    operator opts in.
+
+    This is the curator-side lane for PDFs / scanned documents /
+    handwritten notes / genealogy outlines / letters / certificates /
+    clippings — separate from Photo Intake which is for memory-prompt
+    images shown to narrators.
+
+    Default OFF. Flip via ``HORNELORE_MEDIA_ARCHIVE_ENABLED=1`` in
+    ``.env`` then cycle the stack.
+    """
+    return _truthy(os.environ.get("HORNELORE_MEDIA_ARCHIVE_ENABLED"))
+
+
+def photo_intake_enabled() -> bool:
+    """WO-LORI-PHOTO-INTAKE-01 Phase 2 (partial). When True, the
+    ``/api/photos`` upload handler runs EXIF extraction on each incoming
+    file and auto-fills date / GPS fields the curator left blank.
+
+    Curator-supplied values always win over EXIF (the handler only fills
+    when the form field was None or 'unknown'). The raw EXIF tag map is
+    stored in ``photos.metadata_json`` under the ``"exif"`` key for
+    forensic review regardless of whether any field was auto-filled.
+
+    Default OFF — uploads behave exactly like Phase 1 when this flag is
+    not set, so flipping it is fully reversible. Requires
+    ``HORNELORE_PHOTO_ENABLED`` to also be on (the upload handler is
+    gated behind ``_require_enabled()`` first).
+    """
+    return _truthy(os.environ.get("HORNELORE_PHOTO_INTAKE"))
+
+
+def archive_enabled() -> bool:
+    """WO-ARCHIVE-AUDIO-01. When True, the ``/api/memory-archive`` router
+    is mounted and serves live responses. When False, every endpoint under
+    the prefix returns 404 via _require_enabled so the surface is invisible
+    to the UI unless the operator opts in.
+
+    The archive itself is the durable home for two-sided transcripts and
+    narrator-only audio at:
+
+        DATA_DIR/memory/archive/people/<person_id>/sessions/<conv_id>/
+
+    Storage cap behavior is controlled by two sibling env vars:
+      - HORNELORE_ARCHIVE_MAX_MB_PER_PERSON  (default 500)
+      - HORNELORE_ARCHIVE_WARN_AT            (default 0.8)
+
+    Hard invariant: Lori / assistant audio uploads are rejected 400
+    inside the router regardless of flag state.  The flag only gates
+    mount; it does not relax role validation.
+    """
+    return _truthy(os.environ.get("HORNELORE_ARCHIVE_ENABLED"))
+
+
 def spantag_enabled() -> bool:
     """WO-EX-SPANTAG-01. When True, /api/extract-fields uses the two-pass
     SPANTAG extraction pipeline: Pass 1 emits a schema-blind NL tag

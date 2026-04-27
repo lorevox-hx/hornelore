@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Hornelore v4 — Authority Timeline + Dev Extraction Lab</title>
+<style>
+:root{
+  --bg:#0d1020; --panel:#12172b; --panel-2:#171d34; --panel-3:#0f1426;
+  --line:rgba(148,163,184,.18); --line-strong:rgba(148,163,184,.32);
+  --text:#e5e7eb; --muted:#94a3b8; --dim:#64748b;
+  --accent:#8b5cf6; --accent-2:#22c55e; --amber:#f59e0b; --rose:#fb7185;
+  --cyan:#22d3ee; --blue:#60a5fa;
+  /* Dev-lab "toned-down" palette */
+  --lab-bg:#0a0e1a; --lab-panel:#0f1424; --lab-line:rgba(148,163,184,.14);
+  --lab-text:#cbd5e1; --lab-muted:#64748b;
+  --lab-mono:'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  --shadow:0 18px 50px rgba(0,0,0,.36);
+  --left:340px; --right:300px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  color:var(--text);
+  background:radial-gradient(circle at 12% -10%, rgba(139,92,246,.20), transparent 36%),
+             radial-gradient(circle at 90% 8%, rgba(34,211,238,.10), transparent 30%),
+             linear-gradient(180deg,#0b0e1b,#111827);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow:hidden;
+}
+button,textarea,input,select{font:inherit}
+button{cursor:pointer}
+
+.app{height:100%;display:grid;grid-template-rows:60px 1fr;min-width:1280px}
+
+/* ── Top bar ── */
+.top{display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--line);background:rgba(13,16,32,.92);backdrop-filter:blur(14px);z-index:5}
+.brand{display:flex;align-items:center;gap:12px;min-width:380px}
+.crest{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;font-weight:900;background:linear-gradient(135deg,#7c3aed,#22d3ee);box-shadow:0 0 0 1px rgba(255,255,255,.10), 0 12px 32px rgba(139,92,246,.22)}
+.brand strong{display:block;font-size:15px}
+.brand span{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+
+.shell-tabs{display:flex;gap:6px;background:rgba(15,23,42,.55);border:1px solid var(--line);border-radius:999px;padding:4px}
+.shell-tab{border:0;border-radius:999px;background:transparent;color:var(--muted);padding:7px 14px;font-size:12.5px;transition:.16s ease}
+.shell-tab.active{color:#fff;background:rgba(139,92,246,.22);box-shadow:inset 0 0 0 1px rgba(139,92,246,.34)}
+
+.top-actions{display:flex;align-items:center;gap:8px;min-width:380px;justify-content:flex-end}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:rgba(15,23,42,.62);color:var(--muted);border-radius:999px;padding:6px 11px;font-size:11.5px}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--accent-2)}
+.btn{border:1px solid var(--line);background:rgba(15,23,42,.62);color:var(--muted);border-radius:11px;padding:8px 12px;font-size:12px}
+.btn:hover{background:rgba(15,23,42,.85);color:var(--text)}
+.btn.primary{border:0;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-weight:700}
+
+/* ── Three-column shell ── */
+.workspace{min-height:0;display:grid;grid-template-columns:var(--left) 1fr var(--right);height:calc(100% - 0px)}
+.left,.right{min-height:0;display:grid;grid-template-rows:auto 1fr;background:rgba(9,13,25,.55);overflow:hidden}
+.left{border-right:1px solid var(--line)}
+.right{border-left:1px solid var(--line)}
+
+.rail-head{height:54px;padding:0 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.rail-head h3{margin:0;font-size:13px;letter-spacing:.02em}
+.rail-head .sub{display:block;color:var(--muted);font-size:10.5px;margin-top:2px}
+.rail-scroll{min-height:0;overflow:auto;padding:12px}
+
+/* ── Accordion timeline (LEFT) ── */
+.year{border:1px solid var(--line);background:rgba(15,23,42,.50);border-radius:14px;overflow:hidden;margin-bottom:9px}
+.year-btn{width:100%;border:0;background:transparent;color:var(--text);display:grid;grid-template-columns:50px 1fr auto;gap:8px;align-items:center;text-align:left;padding:10px}
+.year-num{font-weight:900;color:#fef3c7}
+.year-label strong{display:block;font-size:12.5px}
+.year-label span{display:block;font-size:10.5px;color:var(--muted);margin-top:2px}
+.year-chev{color:var(--dim)}
+.year-content{display:none;border-top:1px solid var(--line);padding:9px 10px 11px}
+.year.open .year-content{display:block}
+.year.active{border-color:rgba(34,197,94,.42);background:rgba(34,197,94,.06)}
+
+.bucket{padding:7px 0;border-bottom:1px dashed rgba(148,163,184,.15)}
+.bucket:last-child{border-bottom:0}
+.bucket-title{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.precision{border:1px solid rgba(148,163,184,.22);border-radius:999px;color:var(--dim);font-size:9px;padding:1px 6px}
+
+.anchor{display:flex;gap:8px;background:rgba(2,6,23,.30);border-radius:11px;padding:8px;margin:5px 0}
+.icon{width:22px;height:22px;flex:0 0 22px;border-radius:7px;display:grid;place-items:center;font-size:10.5px;background:rgba(34,197,94,.13);color:#86efac}
+.anchor.world .icon{background:rgba(96,165,250,.13);color:#93c5fd}
+.anchor.ghost .icon{background:rgba(245,158,11,.13);color:#fcd34d}
+.anchor.candidate .icon{background:rgba(251,113,133,.14);color:#fda4af}
+.anchor strong{display:block;font-size:11.5px}
+.anchor .meta{display:block;font-size:10px;color:var(--muted);line-height:1.35;margin-top:1px}
+
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.mini{width:42px;height:38px;border:1px solid rgba(255,255,255,.13);border-radius:9px;background:linear-gradient(135deg,rgba(96,165,250,.36),rgba(245,158,11,.24));color:#fff;font-size:9px;font-weight:900;display:grid;place-items:center;position:relative;overflow:hidden}
+.mini.doc{background:linear-gradient(135deg,rgba(34,197,94,.28),rgba(139,92,246,.22))}
+.mini::after{content:attr(data-label);position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);font-size:8px;padding:1px;text-align:center}
+
+.unplaced{margin-top:14px;padding:10px;border:1px dashed rgba(252,211,77,.32);border-radius:12px;background:rgba(252,211,77,.04)}
+.unplaced .label{font-size:10.5px;color:#fcd34d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+
+/* ── Center stage ── */
+.center{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto 1fr;background:rgba(17,24,39,.20)}
+.session{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:rgba(15,23,42,.28)}
+.person{display:flex;align-items:center;gap:11px}
+.avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:900;color:#1f2937;background:linear-gradient(135deg,#fde68a,#f59e0b 65%,#92400e)}
+.person strong{display:block;font-size:14px}
+.person span{display:block;color:var(--muted);font-size:11.5px;margin-top:1px}
+.session .right-side{display:flex;align-items:center;gap:8px}
+.style-pill{border:1px solid var(--line);background:rgba(15,23,42,.55);color:var(--muted);border-radius:999px;padding:6px 11px;font-size:11.5px}
+.style-pill.active{color:#dcfce7;border-color:rgba(34,197,94,.40);background:rgba(34,197,94,.10)}
+
+.main-tabs{display:flex;gap:4px;padding:8px 18px;border-bottom:1px solid var(--line);background:rgba(13,16,32,.40);overflow-x:auto}
+.main-tab{border:1px solid var(--line);background:rgba(15,23,42,.55);color:var(--muted);border-radius:11px;padding:7px 12px;font-size:12px;white-space:nowrap}
+.main-tab.active{color:#dcfce7;border-color:rgba(34,197,94,.42);background:rgba(34,197,94,.10)}
+.main-tab.dev{border-color:rgba(148,163,184,.28);color:var(--muted);background:rgba(15,23,42,.40);font-family:var(--lab-mono);font-size:11px;letter-spacing:.04em}
+.main-tab.dev.active{color:#cbd5e1;border-color:rgba(148,163,184,.42);background:rgba(15,23,42,.75)}
+.main-tab.dev::before{content:"⚙ ";color:var(--dim)}
+
+.panel{min-height:0;overflow:auto;padding:18px}
+.panel.hidden{display:none}
+
+/* ── Conversation tab ── */
+.chat{display:flex;justify-content:center}
+.chat-inner{width:min(820px,100%);display:flex;flex-direction:column;gap:12px;padding-bottom:84px}
+.bubble{max-width:80%;border:1px solid var(--line);padding:13px 15px;border-radius:18px;line-height:1.5;font-size:13.5px;background:rgba(139,92,246,.10);border-color:rgba(139,92,246,.28);border-bottom-left-radius:6px}
+.bubble.user{align-self:flex-end;background:rgba(34,197,94,.10);border-color:rgba(34,197,94,.27);border-bottom-right-radius:6px;border-bottom-left-radius:18px}
+.cue{align-self:center;color:var(--muted);font-size:11.5px;border:1px dashed rgba(148,163,184,.32);border-radius:999px;padding:6px 11px;background:rgba(15,23,42,.32)}
+
+.composer{position:absolute;left:calc(var(--left) + 18px);right:calc(var(--right) + 18px);bottom:14px;border-top:0;background:rgba(9,13,25,.85);padding:11px 14px;display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:end;border:1px solid var(--line);border-radius:16px;backdrop-filter:blur(8px)}
+.round{width:40px;height:40px;border-radius:999px;border:1px solid var(--line);background:rgba(15,23,42,.75);color:var(--muted)}
+textarea{min-height:40px;resize:none;outline:none;border:1px solid var(--line);border-radius:13px;background:rgba(15,23,42,.72);color:var(--text);padding:10px 13px;font-size:13.5px}
+
+/* ── Life Map tab ── */
+.map{position:relative;min-height:520px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:radial-gradient(circle at 50% 45%,rgba(139,92,246,.16),transparent 38%),rgba(15,23,42,.42)}
+.map-title{position:absolute;left:14px;top:14px}
+.map-title strong{font-size:13px}
+.map-title span{display:block;color:var(--muted);font-size:10.5px;margin-top:2px}
+.node{position:absolute;border:1px solid rgba(148,163,184,.32);background:rgba(17,24,39,.92);border-radius:14px;padding:9px 11px;min-width:108px;text-align:center;font-size:11.5px;box-shadow:0 14px 36px rgba(0,0,0,.28)}
+.node.active{border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.10);color:#dcfce7}
+.node.root{left:50%;top:42%;transform:translate(-50%,-50%);border-color:rgba(139,92,246,.55);background:rgba(139,92,246,.20)}
+.node.n1{left:12%;top:18%}
+.node.n2{right:11%;top:19%}
+.node.n3{left:11%;bottom:20%}
+.node.n4{right:11%;bottom:19%}
+
+/* ── Photos / Documents tabs ── */
+.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.media-card{border:1px solid var(--line);background:rgba(15,23,42,.50);border-radius:13px;overflow:hidden}
+.media-thumb{height:130px;background:linear-gradient(135deg,rgba(96,165,250,.32),rgba(245,158,11,.22));display:grid;place-items:center;font-weight:900;color:#fff}
+.media-thumb.doc{background:linear-gradient(135deg,rgba(34,197,94,.28),rgba(139,92,246,.22))}
+.media-meta{padding:9px 11px;font-size:11.5px}
+.media-meta strong{display:block;font-size:12.5px;margin-bottom:3px}
+.media-meta .auth{display:inline-block;font-size:10px;padding:1px 6px;border-radius:999px;color:#86efac;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.30);margin-top:6px}
+.media-meta .auth.curator{color:#93c5fd;background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.30)}
+
+/* ══════════════════════════════════════════════════════════════
+   EXTRACTION LAB tab — toned-down dev surface
+   No warm bubbles. Less ornament. Monospace evidence.
+   Color = authority/confidence, not decoration.
+   ══════════════════════════════════════════════════════════════ */
+.lab{background:var(--lab-bg);border:1px solid var(--lab-line);border-radius:14px;color:var(--lab-text);padding:14px;font-size:12.5px}
+.lab-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:11px;border-bottom:1px solid var(--lab-line)}
+.lab-head h3{margin:0;font-size:13.5px;color:var(--text);letter-spacing:.01em}
+.lab-head .sub{color:var(--lab-muted);font-size:11px;display:block;margin-top:2px}
+.lab-toggles{display:flex;gap:6px;font-family:var(--lab-mono)}
+.lab-toggle{border:1px solid var(--lab-line);background:transparent;color:var(--lab-muted);border-radius:8px;padding:5px 9px;font-size:11px}
+.lab-toggle.active{color:var(--lab-text);border-color:rgba(148,163,184,.38);background:rgba(15,23,42,.55)}
+
+.lab-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.lab-card{border:1px solid var(--lab-line);background:var(--lab-panel);border-radius:11px;padding:12px}
+.lab-card h4{margin:0 0 8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--lab-muted);font-weight:600}
+
+/* Document with span markers @@evidence## */
+.doc-text{font-family:var(--lab-mono);font-size:12.5px;line-height:1.65;color:var(--lab-text);background:rgba(2,6,23,.40);border:1px solid var(--lab-line);border-radius:8px;padding:11px 13px;white-space:pre-wrap}
+.span-place{background:rgba(96,165,250,.16);border-bottom:1px solid rgba(96,165,250,.55);padding:1px 3px;border-radius:3px}
+.span-time{background:rgba(245,158,11,.14);border-bottom:1px solid rgba(245,158,11,.50);padding:1px 3px;border-radius:3px}
+.span-person{background:rgba(34,197,94,.14);border-bottom:1px solid rgba(34,197,94,.55);padding:1px 3px;border-radius:3px}
+.span-uncertainty{background:rgba(251,113,133,.14);border-bottom:1px solid rgba(251,113,133,.55);padding:1px 3px;border-radius:3px}
+.span-marker-on{font-family:var(--lab-mono);color:var(--lab-muted);font-size:11px;background:rgba(15,23,42,.50);border:1px solid var(--lab-line);border-radius:5px;padding:1px 4px}
+
+.span-legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px;font-family:var(--lab-mono);font-size:10.5px}
+.span-key{display:inline-flex;align-items:center;gap:5px;color:var(--lab-muted)}
+.span-key::before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px}
+.span-key.place::before{background:rgba(96,165,250,.50)}
+.span-key.time::before{background:rgba(245,158,11,.50)}
+.span-key.person::before{background:rgba(34,197,94,.50)}
+.span-key.uncertainty::before{background:rgba(251,113,133,.50)}
+
+/* Element JSON view */
+.element{font-family:var(--lab-mono);font-size:11.5px;background:rgba(2,6,23,.50);border:1px solid var(--lab-line);border-radius:8px;padding:11px 13px;line-height:1.55;white-space:pre-wrap;color:var(--lab-text)}
+.json-key{color:#93c5fd}
+.json-string{color:#86efac}
+.json-num{color:#fcd34d}
+.json-bool{color:#fda4af}
+
+/* Proposal cards */
+.proposal{border:1px solid var(--lab-line);border-radius:10px;background:rgba(2,6,23,.30);padding:11px;margin-bottom:9px}
+.proposal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.proposal-title{font-size:12.5px;color:var(--lab-text);font-weight:600}
+.proposal-conf{font-family:var(--lab-mono);font-size:10.5px;color:var(--lab-muted);border:1px solid var(--lab-line);border-radius:999px;padding:1px 7px}
+.proposal-conf.high{color:#86efac;border-color:rgba(34,197,94,.45)}
+.proposal-conf.med{color:#fcd34d;border-color:rgba(245,158,11,.42)}
+.proposal-conf.low{color:#fda4af;border-color:rgba(251,113,133,.42)}
+.proposal-body{font-size:11.5px;color:var(--lab-muted);line-height:1.5;margin-bottom:9px}
+.proposal-body .field{font-family:var(--lab-mono);color:#93c5fd}
+.proposal-actions{display:flex;gap:6px;flex-wrap:wrap}
+.lab-action{border:1px solid var(--lab-line);background:rgba(15,23,42,.55);color:var(--lab-text);border-radius:8px;padding:5px 10px;font-size:11px;font-family:var(--lab-mono)}
+.lab-action.approve{border-color:rgba(34,197,94,.40);color:#86efac}
+.lab-action.reject{border-color:rgba(251,113,133,.40);color:#fda4af}
+.lab-action.suggest{border-color:rgba(245,158,11,.42);color:#fcd34d}
+
+.authority-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:14px;font-family:var(--lab-mono);font-size:10px}
+.auth-tier{border:1px solid var(--lab-line);background:rgba(2,6,23,.35);border-radius:7px;padding:6px 8px;color:var(--lab-muted);text-align:center}
+.auth-tier.target{color:var(--lab-text);border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.06)}
+.auth-tier .num{display:block;color:var(--dim);font-size:9px;margin-bottom:2px}
+
+/* ── Right rail (Life Map mini + context) ── */
+.lm-mini{padding:0 12px}
+.lm-pill{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:rgba(15,23,42,.55);border-radius:11px;padding:9px 11px;margin-bottom:7px;cursor:pointer;font-size:12px;color:var(--muted)}
+.lm-pill.active{color:#dcfce7;border-color:rgba(34,197,94,.42);background:rgba(34,197,94,.10)}
+.lm-pill .marker{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.lm-pill.active .marker{background:var(--accent-2)}
+
+.context-head{padding:14px 12px 8px;border-top:1px solid var(--line);margin-top:8px}
+.context-head h4{margin:0;font-size:12px;letter-spacing:.05em;color:var(--text)}
+.context-head .sub{color:var(--muted);font-size:10.5px;margin-top:2px}
+.context-block{padding:11px 12px;font-size:11.5px;line-height:1.5;color:var(--muted)}
+.context-block code{font-family:var(--lab-mono);font-size:10.5px;color:#cbd5e1;background:rgba(2,6,23,.40);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+
+/* ── Peek at Memoir popout (Shatner pattern, paper feel) ── */
+.memoir-launch{position:fixed;right:22px;bottom:22px;z-index:14;border:0;border-radius:999px;padding:11px 16px;background:linear-gradient(135deg,#f59e0b,#92400e);color:#fff;font-weight:800;box-shadow:0 16px 44px rgba(245,158,11,.24)}
+.memoir-launch::before{content:"📖 ";}
+
+.memoir-overlay{position:fixed;inset:0;background:rgba(0,0,0,.50);display:none;z-index:15;align-items:center;justify-content:center;padding:24px}
+.memoir-overlay.open{display:flex}
+.memoir-panel{width:min(680px,calc(100vw - 60px));max-height:78vh;border:1px solid rgba(120,53,15,.22);border-radius:20px;overflow:hidden;background:#f7f1e7;color:#2b2117;box-shadow:0 30px 90px rgba(0,0,0,.55);display:grid;grid-template-rows:auto 1fr auto}
+.memoir-head{padding:13px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(120,53,15,.15);background:#fff7ed}
+.memoir-head strong{font-family:Georgia,serif;font-size:15px}
+.memoir-head .close{border:0;background:transparent;color:#7c2d12;font-size:22px;line-height:1;cursor:pointer}
+.memoir-body{padding:24px 30px;overflow:auto;line-height:1.7;font-family:Georgia,serif}
+.memoir-body h1,.memoir-body h2{color:#4a2c17;margin-top:14px}
+.memoir-body h1{font-size:22px;margin-top:0}
+.memoir-body h2{font-size:17px;margin-top:24px}
+.memoir-body p{font-size:15px}
+.field{background:rgba(245,158,11,.24);border-bottom:1px dashed #92400e;border-radius:3px;padding:1px 4px;cursor:pointer}
+.field.editing{background:rgba(245,158,11,.45);outline:1px solid #92400e}
+.memoir-foot{padding:11px 16px;border-top:1px solid rgba(120,53,15,.15);background:#fff7ed;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.paper-btn{border:1px solid rgba(120,53,15,.22);background:#fff;color:#7c2d12;border-radius:999px;padding:7px 13px;font-size:12px;font-weight:700;font-family:Georgia,serif}
+.paper-btn.primary{background:#7c2d12;color:#fff;border-color:#7c2d12}
+.memoir-foot .hint{flex:1;font-size:11.5px;color:#7c2d12;font-family:Georgia,serif;font-style:italic}
+
+/* ── Misc / collapse ── */
+.collapsed-rail{--left:80px}
+.collapsed-rail .year-label,.collapsed-rail .rail-head .sub,.collapsed-rail .rail-head h3,.collapsed-rail .year-content,.collapsed-rail .unplaced{display:none}
+.collapsed-rail .year-btn{grid-template-columns:1fr;text-align:center;padding:10px 4px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ────────── TOP BAR ────────── -->
+<header class="top">
+  <div class="brand">
+    <div class="crest">H</div>
+    <div>
+      <strong>Hornelore <span style="color:var(--muted);font-weight:600">v4 mockup</span></strong>
+      <span>Authority timeline rail · memoir correction flow · dev extraction lab</span>
+    </div>
+  </div>
+  <nav class="shell-tabs" aria-label="Shell tabs">
+    <button class="shell-tab">Operator</button>
+    <button class="shell-tab active">Narrator Session</button>
+    <button class="shell-tab">Media</button>
+  </nav>
+  <div class="top-actions">
+    <span class="pill"><span class="dot"></span> API ready</span>
+    <span class="pill">Truth V2 on</span>
+    <button class="btn">UI Health Check</button>
+  </div>
+</header>
+
+<!-- ────────── 3-COLUMN WORKSPACE ────────── -->
+<main class="workspace" id="workspace">
+
+  <!-- ── LEFT: Accordion Timeline ── -->
+  <aside class="left">
+    <div class="rail-head">
+      <div>
+        <h3>Accordion Timeline</h3>
+        <span class="sub">authority-aware life record</span>
+      </div>
+      <button class="btn" id="collapseTimeline" title="Collapse rail">‹‹</button>
+    </div>
+    <div class="rail-scroll">
+
+      <div class="year open active" data-focus="Birth anchor · 1939">
+        <button class="year-btn">
+          <span class="year-num">1939</span>
+          <span class="year-label"><strong>Birth anchor</strong><span>identity · Spokane</span></span>
+          <span class="year-chev">⌄</span>
+        </button>
+        <div class="year-content">
+          <div class="bucket">
+            <div class="bucket-title">September 30 <span class="precision">exact</span></div>
+            <div class="anchor"><span class="icon">✓</span><span><strong>Born in Spokane, Washington</strong><span class="meta">human-entered protected identity</span></span></div>
+            <div class="thumbs"><button class="mini doc" data-label="CERT">PDF</button></div>
+          </div>
+          <div class="bucket">
+            <div class="bucket-title">World context</div>
+            <div class="anchor world"><span class="icon">W</span><span><strong>WW II begins</strong><span class="meta">context only</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="year open" data-focus="Formative Years · 1952">
+        <button class="year-btn">
+          <span class="year-num">1952</span>
+          <span class="year-label"><strong>School years</strong><span>photo cue</span></span>
+          <span class="year-chev">⌄</span>
+        </button>
+        <div class="year-content">
+          <div class="bucket">
+            <div class="bucket-title">Year only <span class="precision">year</span></div>
+            <div class="anchor"><span class="icon">P</span><span><strong>School portrait</strong><span class="meta">curator entered · month/day unknown</span></span></div>
+            <div class="thumbs"><button class="mini" data-label="1952">IMG</button></div>
+          </div>
+          <div class="bucket">
+            <div class="bucket-title">Prompt</div>
+            <div class="anchor ghost"><span class="icon">?</span><span><strong>What teacher comes back?</strong><span class="meta">question shaping only</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="year" data-focus="Spring 1956">
+        <button class="year-btn">
+          <span class="year-num">1956</span>
+          <span class="year-label"><strong>Letter from Spokane</strong><span>season precision</span></span>
+          <span class="year-chev">›</span>
+        </button>
+        <div class="year-content">
+          <div class="bucket">
+            <div class="bucket-title">Spring <span class="precision">season</span></div>
+            <div class="anchor"><span class="icon">D</span><span><strong>Letter from Spokane</strong><span class="meta">Spring 1956 — not fake April 1</span></span></div>
+            <div class="thumbs"><button class="mini doc" data-label="1956">DOC</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="year" data-focus="Summer 1978">
+        <button class="year-btn">
+          <span class="year-num">1978</span>
+          <span class="year-label"><strong>Family picnic</strong><span>summer photo bucket</span></span>
+          <span class="year-chev">›</span>
+        </button>
+        <div class="year-content">
+          <div class="bucket">
+            <div class="bucket-title">Summer <span class="precision">season</span></div>
+            <div class="anchor"><span class="icon">P</span><span><strong>Family picnic</strong><span class="meta">people + place curator-entered</span></span></div>
+            <div class="thumbs"><button class="mini" data-label="PIC">IMG</button><button class="mini" data-label="PIC">IMG</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="year" data-focus="Lori candidate">
+        <button class="year-btn">
+          <span class="year-num">1962</span>
+          <span class="year-label"><strong>"I think we moved"</strong><span>uncertain candidate</span></span>
+          <span class="year-chev">›</span>
+        </button>
+        <div class="year-content">
+          <div class="bucket">
+            <div class="bucket-title">Year (uncertain) <span class="precision">unknown</span></div>
+            <div class="anchor candidate"><span class="icon">!</span><span><strong>Possible move</strong><span class="meta">interview candidate · awaiting review</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="unplaced">
+        <div class="label">Unplaced media (3)</div>
+        <div class="thumbs">
+          <button class="mini" data-label="?">IMG</button>
+          <button class="mini doc" data-label="?">DOC</button>
+          <button class="mini" data-label="?">IMG</button>
+        </div>
+        <p style="font-size:10.5px;color:var(--muted);margin:7px 0 0">Drop into a year/season bucket to anchor.</p>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ── CENTER: Stage ── -->
+  <section class="center" style="position:relative">
+    <div class="session">
+      <div class="person">
+        <div class="avatar">J</div>
+        <div>
+          <strong>Janice Josephine Horne</strong>
+          <span>Active focus: <span id="activeFocus">Formative Years · 1952</span></span>
+        </div>
+      </div>
+      <div class="right-side">
+        <button class="style-pill">Questionnaire First</button>
+        <button class="style-pill active">Life Story</button>
+        <button class="style-pill">Companion</button>
+      </div>
+    </div>
+
+    <nav class="main-tabs" id="mainTabs">
+      <button class="main-tab active" data-tab="conv">Conversation</button>
+      <button class="main-tab" data-tab="map">Life Map</button>
+      <button class="main-tab" data-tab="photos">Photos</button>
+      <button class="main-tab" data-tab="docs">Documents</button>
+      <button class="main-tab" data-tab="memoir-stub">Peek at Memoir</button>
+      <button class="main-tab dev" data-tab="lab">Extraction Lab</button>
+    </nav>
+
+    <!-- ──── Conversation panel ──── -->
+    <div class="panel" id="panel-conv">
+      <div class="chat">
+        <div class="chat-inner">
+          <div class="cue">Timeline focus: 1952 school years · Lori receives this as context only</div>
+          <div class="bubble">I'm looking at the school-years part of your timeline. There's a school portrait around 1952, but no exact month. When you see that period, what comes back first — a classroom, a teacher, or the route to school?</div>
+          <div class="bubble user">I remember the feeling of the neighborhood more than one classroom. The streets and the way we moved through town.</div>
+          <div class="bubble">That's helpful. I'll keep that as an interview memory candidate, not confirmed truth yet. We can attach it to the school-years section of the memoir if it feels right after review.</div>
+          <div class="cue">Authority: profile + curator media + 1 unapproved interview note</div>
+        </div>
+      </div>
+      <div class="composer">
+        <button class="round" title="Mic">🎙</button>
+        <textarea placeholder="Tell Lori what you remember…"></textarea>
+        <button class="btn">Type</button>
+        <button class="btn primary">Send</button>
+      </div>
+    </div>
+
+    <!-- ──── Life Map panel ──── -->
+    <div class="panel hidden" id="panel-map">
+      <div class="map">
+        <div class="map-title"><strong>Janice Life Story</strong><span>timeline-derived navigator</span></div>
+        <button class="node root">Janice</button>
+        <button class="node n1">Birth & Family</button>
+        <button class="node n2 active">Formative Years</button>
+        <button class="node n3">Crossroads</button>
+        <button class="node n4">Legacy</button>
+      </div>
+      <p style="margin-top:14px;font-size:12px;color:var(--muted);text-align:center">Click a period to shift active focus. Life Map is a helper, not a truth source.</p>
+    </div>
+
+    <!-- ──── Photos panel ──── -->
+    <div class="panel hidden" id="panel-photos">
+      <div class="media-grid">
+        <div class="media-card"><div class="media-thumb">IMG</div><div class="media-meta"><strong>School portrait</strong>1952 · Spokane<br/><span class="auth curator">curator entered</span></div></div>
+        <div class="media-card"><div class="media-thumb">IMG</div><div class="media-meta"><strong>Family picnic</strong>Summer 1978 · ND<br/><span class="auth curator">curator entered</span></div></div>
+        <div class="media-card"><div class="media-thumb">IMG</div><div class="media-meta"><strong>Wedding portrait</strong>June 1962 · Spokane<br/><span class="auth">approved truth</span></div></div>
+        <div class="media-card"><div class="media-thumb">IMG</div><div class="media-meta"><strong>Untitled</strong>date unknown<br/><span class="auth curator">unplaced</span></div></div>
+      </div>
+    </div>
+
+    <!-- ──── Documents panel ──── -->
+    <div class="panel hidden" id="panel-docs">
+      <div class="media-grid">
+        <div class="media-card"><div class="media-thumb doc">PDF</div><div class="media-meta"><strong>Birth certificate</strong>1939-09-30<br/><span class="auth">protected identity</span></div></div>
+        <div class="media-card"><div class="media-thumb doc">DOC</div><div class="media-meta"><strong>Letter from Spokane</strong>Spring 1956<br/><span class="auth curator">curator entered</span></div></div>
+        <div class="media-card"><div class="media-thumb doc">PDF</div><div class="media-meta"><strong>Shong genealogy outline</strong>compiled by C. Graichen<br/><span class="auth curator">archive only</span></div></div>
+      </div>
+    </div>
+
+    <!-- ──── Peek at Memoir stub (full reading is the popout) ──── -->
+    <div class="panel hidden" id="panel-memoir-stub">
+      <div style="text-align:center;padding:60px 20px">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:18px">Peek at Memoir opens as a paper-feel popout you can read in full and edit inline.</p>
+        <button class="btn primary" onclick="openMemoir()">Open Memoir</button>
+        <p style="font-size:11.5px;color:var(--dim);margin-top:24px;max-width:520px;margin-left:auto;margin-right:auto">Cosmetic edits save as memoir prose. Factual corrections (DOB, names, dates, places) route through the canonical authority path and re-render Timeline · Life Map · Photos · Bio Builder · Lori runtime context.</p>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════
+         EXTRACTION LAB tab — toned-down dev surface
+         ════════════════════════════════════════════════════════ -->
+    <div class="panel hidden" id="panel-lab">
+      <div class="lab">
+        <div class="lab-head">
+          <div>
+            <h3>Extraction Lab — dev view</h3>
+            <span class="sub">Live extraction pipeline · Document → Span → Element → Overtext → Proposal · Read-only candidates until human review</span>
+          </div>
+          <div class="lab-toggles">
+            <button class="lab-toggle active">spans</button>
+            <button class="lab-toggle active">elements</button>
+            <button class="lab-toggle active">overtext</button>
+            <button class="lab-toggle">raw json</button>
+            <button class="lab-toggle">trace</button>
+          </div>
+        </div>
+
+        <!-- Document with span markers -->
+        <div class="lab-card" style="margin-bottom:14px">
+          <h4>Document — last narrator turn (with @@span## markers)</h4>
+          <div class="doc-text">Turn 042: <span class="span-marker-on">@@residence##</span> We lived in <span class="span-place">Germany</span> <span class="span-time">when the boys were small</span> — <span class="span-person">Vincent</span> was born there. <span class="span-uncertainty">I think it was around 1962</span>.</div>
+          <div class="span-legend">
+            <span class="span-key place">place</span>
+            <span class="span-key time">time_context</span>
+            <span class="span-key person">related_person</span>
+            <span class="span-key uncertainty">uncertainty_marker</span>
+          </div>
+        </div>
+
+        <!-- Element-level: side-by-side -->
+        <div class="lab-row">
+          <div class="lab-card">
+            <h4>Element 1 — residence_event</h4>
+            <pre class="element">{
+  "<span class="json-key">element_id</span>":   "<span class="json-string">el_001</span>",
+  "<span class="json-key">type</span>":         "<span class="json-string">residence_event</span>",
+  "<span class="json-key">spans</span>": [
+    {"role":"<span class="json-string">place</span>",
+     "text":"<span class="json-string">Germany</span>"},
+    {"role":"<span class="json-string">time_context</span>",
+     "text":"<span class="json-string">when the boys were small</span>"},
+    {"role":"<span class="json-string">related_person</span>",
+     "text":"<span class="json-string">Vincent</span>"}
+  ],
+  "<span class="json-key">overtext</span>": {
+    "review_note":"<span class="json-string">Place explicit. Time approx. Vincent's birth-in-Germany implied.</span>",
+    "uncertainty_markers":[
+      "<span class="json-string">when the boys were small</span>"
+    ],
+    "needs_human_review": <span class="json-bool">true</span>
+  },
+  "<span class="json-key">confidence</span>":   <span class="json-num">0.78</span>,
+  "<span class="json-key">assessor</span>":     "<span class="json-string">lori_extractor_r6</span>"
+}</pre>
+          </div>
+
+          <div class="lab-card">
+            <h4>Element 2 — uncertain_claim (date)</h4>
+            <pre class="element">{
+  "<span class="json-key">element_id</span>":   "<span class="json-string">el_002</span>",
+  "<span class="json-key">type</span>":         "<span class="json-string">uncertain_claim</span>",
+  "<span class="json-key">spans</span>": [
+    {"role":"<span class="json-string">date_guess</span>",
+     "text":"<span class="json-string">1962</span>"},
+    {"role":"<span class="json-string">hedge</span>",
+     "text":"<span class="json-string">I think</span>"}
+  ],
+  "<span class="json-key">overtext</span>": {
+    "review_note":"<span class="json-string">Hedge preserved. Do not promote as locked truth.</span>",
+    "uncertainty_markers":["<span class="json-string">I think</span>"],
+    "needs_human_review": <span class="json-bool">true</span>
+  },
+  "<span class="json-key">confidence</span>":   <span class="json-num">0.42</span>,
+  "<span class="json-key">assessor</span>":     "<span class="json-string">lori_extractor_r6</span>"
+}</pre>
+          </div>
+        </div>
+
+        <!-- Proposals routed from elements -->
+        <div class="lab-card" style="margin-bottom:14px">
+          <h4>Proposals derived — review-only, no truth write yet</h4>
+
+          <div class="proposal">
+            <div class="proposal-head">
+              <span class="proposal-title">residence.place ← "Germany"</span>
+              <span class="proposal-conf high">conf 0.78</span>
+            </div>
+            <div class="proposal-body">From el_001 / role=<span class="field">place</span>. Element type <span class="field">residence_event</span> firewalls this from leaking into <span class="field">personal.placeOfBirth</span>. Operator decision: promote to residence row, OR re-route to siblings.{Vincent}.placeOfBirth, OR both (multi-target).</div>
+            <div class="proposal-actions">
+              <button class="lab-action approve">approve → residence.place</button>
+              <button class="lab-action approve">approve → siblings.Vincent.placeOfBirth</button>
+              <button class="lab-action suggest">route to suggestions</button>
+              <button class="lab-action reject">reject</button>
+            </div>
+          </div>
+
+          <div class="proposal">
+            <div class="proposal-head">
+              <span class="proposal-title">[uncertain] residence.dateRange ← "~1962"</span>
+              <span class="proposal-conf low">conf 0.42</span>
+            </div>
+            <div class="proposal-body">From el_002. Hedge <span class="field">"I think"</span> preserved as uncertainty marker. Recommended: hold as candidate, ask Lori to confirm in next turn, or route to suggestions only.</div>
+            <div class="proposal-actions">
+              <button class="lab-action suggest">hold as suggestion</button>
+              <button class="lab-action approve">approve as approximate</button>
+              <button class="lab-action reject">reject</button>
+            </div>
+          </div>
+
+          <div class="proposal">
+            <div class="proposal-head">
+              <span class="proposal-title">siblings.{Vincent}.firstName ← "Vincent"</span>
+              <span class="proposal-conf med">conf 0.62</span>
+            </div>
+            <div class="proposal-body">From el_001 / role=<span class="field">related_person</span>. Older-brother qualifier preserved in element. Vincent does not appear in current promoted-truth siblings list — this would be a new sibling row.</div>
+            <div class="proposal-actions">
+              <button class="lab-action approve">approve new sibling</button>
+              <button class="lab-action suggest">route to suggestions</button>
+              <button class="lab-action reject">reject (already known)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Authority strip: where this would land -->
+        <div>
+          <h4 style="margin:0 0 8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--lab-muted);font-weight:600">Authority ladder · where promoted material lands</h4>
+          <div class="authority-strip">
+            <div class="auth-tier"><span class="num">1</span>human correction</div>
+            <div class="auth-tier"><span class="num">2</span>intake / questionnaire</div>
+            <div class="auth-tier"><span class="num">3</span>curated media</div>
+            <div class="auth-tier target"><span class="num">4</span>approved Lori proposal</div>
+            <div class="auth-tier"><span class="num">5</span>raw transcript</div>
+            <div class="auth-tier"><span class="num">6</span>AI candidate</div>
+            <div class="auth-tier"><span class="num">7-8</span>world / ghost</div>
+          </div>
+          <p style="margin:9px 0 0;font-size:11px;color:var(--lab-muted);font-family:var(--lab-mono)">approve here → tier 4 → re-renders Timeline / Life Map / Bio Builder / runtime · only Mode B in Peek at Memoir reaches tier 1</p>
+        </div>
+
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ── RIGHT: Life Map mini + context ── -->
+  <aside class="right">
+    <div class="rail-head">
+      <div>
+        <h3>Life Map</h3>
+        <span class="sub">helper · click to shift active period</span>
+      </div>
+    </div>
+    <div style="overflow:auto;min-height:0">
+      <div class="lm-mini">
+        <div class="lm-pill"><span class="marker"></span> The Legend Begins · 1939</div>
+        <div class="lm-pill active"><span class="marker"></span> Formative Years · 1940–1957</div>
+        <div class="lm-pill"><span class="marker"></span> Crossroads · 1958–1970</div>
+        <div class="lm-pill"><span class="marker"></span> Peaks &amp; Valleys · 1971–1999</div>
+        <div class="lm-pill"><span class="marker"></span> Current Horizon · 2000+</div>
+        <div class="lm-pill"><span class="marker"></span> The Compass · legacy</div>
+      </div>
+
+      <div class="context-head">
+        <h4>Lori runtime context</h4>
+        <span class="sub">read-only · authority-tagged</span>
+      </div>
+      <div class="context-block">
+        <code>chronology_context.active_period = formative_years</code><br/>
+        <code>chronology_context.active_year = 1948</code><br/>
+        <code>media_count = 3</code><br/>
+        <code>can_assert = [human_corrected, promoted_truth]</code>
+      </div>
+    </div>
+  </aside>
+
+</main>
+
+<!-- ────────── Memoir popout ────────── -->
+<button class="memoir-launch" onclick="openMemoir()">Peek at Memoir</button>
+
+<div class="memoir-overlay" id="memoirOverlay">
+  <div class="memoir-panel">
+    <div class="memoir-head">
+      <strong>Janice Josephine Horne — Peek at Memoir</strong>
+      <button class="close" onclick="closeMemoir()">×</button>
+    </div>
+    <div class="memoir-body">
+      <h1>The Legend Begins</h1>
+      <p><strong>Janice Josephine Horne</strong> was born on <span class="field" id="dobField">September 30, 1939</span> in <span class="field">Spokane, Washington</span>. This field is protected identity data; a human can correct it here and the correction routes back through Hornelore.</p>
+      <h2>Formative Years</h2>
+      <p>Her early story gathers around family, neighborhood, and the physical places that shaped childhood memory. The timeline keeps photos, documents, and interview candidates near the right years without forcing false precision.</p>
+      <h2>The correction path (worked example)</h2>
+      <p>If the displayed DOB above were wrong — say <span class="field">September 30, 1939</span> versus the operator's intake of <span class="field">August 30, 1939</span> — clicking the field opens an inline edit. Saving as <em>factual correction</em> routes the change to <code>family_truth_promoted</code> with <code>source: "memoir_human_edit"</code> and re-renders Timeline · Life Map · Photos · Bio Builder · Lori runtime context.</p>
+    </div>
+    <div class="memoir-foot">
+      <span class="hint">Cosmetic edit = wording only · Factual edit = canonical correction</span>
+      <button class="paper-btn">Save wording only</button>
+      <button class="paper-btn primary">Save factual correction</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Tab switching
+document.querySelectorAll('.main-tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.main-tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+  const target = document.getElementById('panel-' + t.dataset.tab);
+  if (target) target.classList.remove('hidden');
+}));
+
+// Accordion expand/collapse
+document.querySelectorAll('.year-btn').forEach(btn => btn.addEventListener('click', () => {
+  const y = btn.closest('.year');
+  const open = y.classList.toggle('open');
+  btn.querySelector('.year-chev').textContent = open ? '⌄' : '›';
+  document.getElementById('activeFocus').textContent = y.dataset.focus || '—';
+  document.querySelectorAll('.year').forEach(x => x.classList.remove('active'));
+  y.classList.add('active');
+}));
+
+// Rail collapse
+document.getElementById('collapseTimeline').addEventListener('click', () => {
+  const ws = document.getElementById('workspace');
+  ws.classList.toggle('collapsed-rail');
+  const collapsed = ws.classList.contains('collapsed-rail');
+  document.getElementById('collapseTimeline').textContent = collapsed ? '››' : '‹‹';
+  document.documentElement.style.setProperty('--left', collapsed ? '80px' : '340px');
+});
+
+// Memoir popout
+function openMemoir() { document.getElementById('memoirOverlay').classList.add('open'); }
+function closeMemoir() { document.getElementById('memoirOverlay').classList.remove('open'); }
+
+// Lab toggles (visual only — no real wiring in mockup)
+document.querySelectorAll('.lab-toggle').forEach(t => t.addEventListener('click', () => t.classList.toggle('active')));
+</script>
+</body>
+</html>
