@@ -278,6 +278,48 @@ The ladder appears automatically for any narrator with a DOB; the backend return
 
 ---
 
+## Local-first AI commitment
+
+Every model used inside Hornelore (and by extension, Lorevox) runs on the narrator's machine. This is a standing architectural commitment, not a default we plan to revisit later under cost pressure.
+
+**What this means concretely:**
+
+- **STT runs locally** — Whisper variants, on-device. The transcript of an older adult talking about her mother never leaves the family's hardware.
+- **LLM extraction runs locally** — Llama 3.1 8B Instruct (4-bit) today on the GPU specified in `.env`; future swaps (Hermes 3, Qwen, etc.) stay local.
+- **Facial signal runs locally** — MediaPipe FaceMesh in the browser. The system never ships video, raw landmarks, or raw emotion vectors anywhere; only derived `affect_state` + confidence + duration leave the camera-preview boundary.
+- **Acoustic features run locally** — pitch, pause, speaking-rate analysis is planned via librosa / webrtcvad in-process (see `WO-AFFECT-ANCHOR-01_Spec.md`). No audio is sent to a hosted analysis service.
+- **TTS runs locally** — Coqui VITS on port 8001.
+- **No external API calls for any modality** — including facial recognition, speech-to-text, and emotion inference. Reverse-geocoding for photo EXIF uses Nominatim (a public OSM endpoint, not an authenticated cloud API), and that single network exit is the only one in the system; everything narrator-touching stays on the device.
+
+The reason is the user. Hornelore is built for older-adult narrators in life-review settings — including narrators with possible cognitive decline. The product crosses into territory (medical, legal, emotional, family) where families need to be able to say truthfully that the recording, the face, the voice, the inferred emotion, and the extracted truth all stayed on their machine. Hosted-API economics can't be allowed to erode that contract over time.
+
+### Future model exploration (the modular promise)
+
+The architecture is deliberately modular so that as **better local models** appear and as **consumer hardware advances** (more VRAM, faster CPUs, on-device NPUs), we can swap upstream signal extractors without rewiring downstream consumers.
+
+| Layer | Today (local) | Future (still local) |
+|---|---|---|
+| STT | Whisper large-v3 | Whisper successors, distilled / quantized faster variants |
+| Extraction LLM | Llama 3.1 8B Instruct (4-bit) | Hermes 3, Qwen, larger open-weights as VRAM allows |
+| Facial affect | MediaPipe FaceMesh + rule-based labels | Learned visual emotion models when open-weight options mature |
+| Acoustic | librosa / webrtcvad (planned) | More specialized open-source prosody models |
+| Joint speech-text | Not used | Open-weight latent speech-text models when they exist (see `docs/research/papers/22526_Latent_Speech_Text_Trans.pdf`) |
+| TTS | Coqui VITS | Newer open-source voice synthesis, voice-cloning for narrator playback |
+
+The fusion layer's contract is what stays stable. Only the upstream extractors get swapped. `WO-AFFECT-ANCHOR-01_Spec.md` is the canonical reference for how this is structured.
+
+### Contribution invitation
+
+This is the kind of work that benefits from people who care about it.
+
+If you've built a better local STT, a better open-weight emotion model, a better acoustic-feature extractor, a better quantized LLM for the extraction task, or work in the broader open-weight / local-AI space and want to plug it into a real older-adult life-review system, that conversation is welcome.
+
+The standing rule for any contribution touching the model layer: **it must run locally on the narrator's machine.** No hosted APIs, no "we just call this one cloud endpoint" exceptions, no telemetry phoning home. If a swap can't satisfy that, it doesn't go in.
+
+Code contributions go through the license terms below (assignment-based, by invitation). Research contributions, model recommendations, benchmark contributions against the 104-case eval bench, and parent-session methodology feedback don't require code commits — open a thread at dev@lorevox.com.
+
+---
+
 ## Quick Start
 
 1. Start all services (Windows Terminal):
