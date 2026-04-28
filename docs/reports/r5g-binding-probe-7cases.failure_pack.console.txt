@@ -1,0 +1,38 @@
+==============================================================================
+  FAILURE PACK — eval_tag=(untagged)
+==============================================================================
+  total: 7   passed: 3   failed: 4
+
+  Failure categories:
+    schema_gap                         2   [case_005, case_075]
+    llm_hallucination                  1   [case_065]
+    defensible_alt_credit              1   [case_087]
+
+  By narrator (failures):
+    christopher-todd-horne             3
+    janice-josephine-horne             1
+
+  By phase (failures):
+    developmental_foundations          3
+    early_adulthood                    1
+
+  By era (failures):
+    school_years                       3
+    early_adulthood                    1
+
+  By score bucket (failures):
+    0.00         1
+    0.01-0.24    0
+    0.25-0.49    1
+    0.50-0.69    2
+    0.70+        0
+
+  Hallucination prefix rollup:
+
+  must_not_write violations: 0
+
+  Cross-axis highlights (biggest cell per grid):
+    narrator×phase           christopher-todd-horne×developmental_foundations             failed=2
+    category×narrator        schema_gap×christopher-todd-horne                            failed=1
+
+==============================================================================
