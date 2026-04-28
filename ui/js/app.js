@@ -561,6 +561,173 @@ function _lvNarratorRenderMemoir() {
   `;
 }
 
+/* ─── WO-INTERVIEW-MODE-01 Phase 1 ──────────────────────────────────
+   Interview Mode: full-screen 3-column view for real narrator sessions.
+   Operator chrome (shell tabs, view tabs, Bug Panel buttons) hides via
+   body.lv-interview-mode-active CSS. Chat / mic / camera state machines
+   keep running unchanged underneath.
+
+   Era data: pulls from state.timeline.spine.periods (life eras with
+   start_year/end_year/label) + state.timeline.memories (year-tagged
+   items) — same data source the Life Map uses, multi-schema defensive.
+
+   Phase 1 NOT-doing:
+   - Lori composer awareness of activeFocusEra (SESSION-AWARENESS Phase 2)
+   - Auto-enter after identity_complete (operator stays in control)
+   - Hands-free / silence ladder behavior (SESSION-AWARENESS Phase 4)
+*/
+
+function _lvInterviewYearOf(m) {
+  if (!m) return null;
+  const raw = m.year       != null ? m.year
+            : m.start_year != null ? m.start_year
+            : m.ts         != null ? m.ts
+            : m.date       != null ? m.date
+            : m.when       != null ? m.when
+            : null;
+  if (raw == null) return null;
+  if (typeof raw === "number" && isFinite(raw)) return raw;
+  const match = String(raw).match(/\b(18|19|20)\d{2}\b/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+function _lvInterviewPeriods() {
+  if (typeof state === "undefined") return [];
+  const periods = (state.timeline && state.timeline.spine && Array.isArray(state.timeline.spine.periods))
+    ? state.timeline.spine.periods : [];
+  return periods.filter(p => p && typeof p.label === "string" && p.label.trim() !== "");
+}
+
+function _lvInterviewMemoriesForPeriod(period) {
+  if (typeof state === "undefined") return [];
+  const memories = (state.timeline && Array.isArray(state.timeline.memories))
+    ? state.timeline.memories : [];
+  const start = Number(period.start_year);
+  const end   = period.end_year != null ? Number(period.end_year) : null;
+  if (!isFinite(start)) return [];
+  return memories.filter(m => {
+    const yr = _lvInterviewYearOf(m);
+    if (yr == null) return false;
+    if (end == null) return yr >= start;
+    return yr >= start && yr <= end;
+  });
+}
+
+function _lvInterviewRenderTimeline() {
+  const host = document.getElementById("lvInterviewTimeline");
+  if (!host) return;
+  const periods = _lvInterviewPeriods();
+  const activeId = (state.session && state.session.activeFocusEra) || null;
+
+  let body = `<h3 class="lv-interview-timeline-head">Timeline (Era)</h3>`;
+
+  if (!periods.length) {
+    body += `<p class="lv-interview-timeline-empty">Lori is listening. As you tell her about times in your life, eras will appear here.</p>`;
+  } else {
+    periods.forEach((p) => {
+      const eid = "era:" + p.label;
+      const active = (activeId === eid) ? " is-active" : "";
+      const memories = _lvInterviewMemoriesForPeriod(p);
+      const range = (p.start_year && p.end_year) ? (p.start_year + " – " + p.end_year)
+                  : (p.start_year ? (p.start_year + " – present") : "");
+      body += `<div class="lv-interview-timeline-era${active}"
+                    onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
+        <div class="lv-interview-timeline-era-title">${_lvEscapeHtml(p.label)}</div>
+        ${range ? `<div style="font-size:11px;color:#94a3b8;">${_lvEscapeHtml(range)}</div>` : ""}`;
+      memories.slice(0, 6).forEach((m) => {
+        const yr = _lvInterviewYearOf(m);
+        const title = m.title || m.label || m.name ||
+          (m.description ? String(m.description).slice(0, 48) : "Memory");
+        body += `<div class="lv-interview-timeline-marker">${yr ? _lvEscapeHtml(yr + "") + " - " : ""}${_lvEscapeHtml(title)}</div>`;
+      });
+      body += `</div>`;
+    });
+  }
+
+  host.innerHTML = body;
+}
+
+function _lvInterviewRenderLifeMap() {
+  const host = document.getElementById("lvInterviewLifeMap");
+  if (!host) return;
+  const periods = _lvInterviewPeriods();
+  const activeId = (state.session && state.session.activeFocusEra) || null;
+
+  let body = `<h3 class="lv-interview-lifemap-head">Life Map</h3>`;
+  if (!periods.length) {
+    body += `<p class="lv-interview-timeline-empty" style="padding:0 4px;">No eras yet.</p>`;
+  } else {
+    periods.forEach((p) => {
+      const eid = "era:" + p.label;
+      const active = (activeId === eid) ? " is-active" : "";
+      body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
+                       onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
+        ${_lvEscapeHtml(p.label)}
+      </button>`;
+    });
+  }
+
+  body += `<h3 class="lv-interview-lifemap-today-head">Today</h3>
+    <div class="lv-interview-lifemap-today">Today</div>`;
+
+  host.innerHTML = body;
+}
+
+function _lvInterviewActiveFocusLabel(eraId) {
+  if (!eraId) return "—";
+  const periods = _lvInterviewPeriods();
+  const p = periods.find(x => ("era:" + x.label) === eraId);
+  return p ? p.label : "—";
+}
+
+function _lvInterviewSelectEra(eid) {
+  if (!state.session) state.session = {};
+  state.session.activeFocusEra = eid || null;
+  // Re-render both columns to update the active highlight.
+  _lvInterviewRenderTimeline();
+  _lvInterviewRenderLifeMap();
+  // Update Active Focus header.
+  const valEl = document.getElementById("lvInterviewActiveFocusValue");
+  if (valEl) valEl.textContent = _lvInterviewActiveFocusLabel(eid);
+  // Signal downstream consumers — composer / Lori prompt can pick up this focus.
+  try {
+    window.dispatchEvent(new CustomEvent("lv-interview-focus-change",
+      { detail: { era_id: eid, era_label: _lvInterviewActiveFocusLabel(eid) } }));
+  } catch (_) {}
+}
+window._lvInterviewSelectEra = _lvInterviewSelectEra;
+
+function lvEnterInterviewMode() {
+  document.body.classList.add("lv-interview-mode-active");
+  // Make hidden=false so CSS display rules can take over.
+  ["lvInterviewTimeline", "lvInterviewLifeMap", "lvInterviewActiveFocus", "lvInterviewPeekFloater"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.removeAttribute("hidden");
+  });
+  // Initial render of both columns.
+  _lvInterviewRenderTimeline();
+  _lvInterviewRenderLifeMap();
+  // Set Active Focus from current state (if any) or default.
+  const valEl = document.getElementById("lvInterviewActiveFocusValue");
+  if (valEl) valEl.textContent = _lvInterviewActiveFocusLabel(state.session && state.session.activeFocusEra);
+  // If on the operator tab, switch to narrator session so the chat is visible.
+  if (typeof window.lvShellShowTab === "function") {
+    try { window.lvShellShowTab("narrator"); } catch (_) {}
+  }
+  console.info("[lv-interview] entered");
+}
+window.lvEnterInterviewMode = lvEnterInterviewMode;
+
+function lvExitInterviewMode() {
+  document.body.classList.remove("lv-interview-mode-active");
+  ["lvInterviewTimeline", "lvInterviewLifeMap", "lvInterviewActiveFocus", "lvInterviewPeekFloater"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.setAttribute("hidden", "");
+  });
+  console.info("[lv-interview] exited");
+}
+window.lvExitInterviewMode = lvExitInterviewMode;
+
 /* Photos view — Phase 1 minimal slice: fetch, browse, stage memory.
    Memory save requires a "show" context (POST /api/photos/shows/{show_id}/memory)
    which is WO-LORI-PHOTO-ELICIT-01 Phase 2 territory; for now we

@@ -2980,6 +2980,24 @@
         </div>
       </section>
 
+      <!-- WO-INTERVIEW-MODE-01 Phase 1: dedicated 3-column interview view for
+           real narrator sessions. Enter when setup is complete (camera ready,
+           narrator chosen, session style selected). The narrator-room
+           operator chrome (shell tabs, view tabs, Bug Panel, etc.) is hidden
+           by CSS while in interview mode; chat / mic / camera state machine
+           keeps running unchanged. Exit returns to the operator view. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Interview mode</h3>
+        <p class="lv-operator-section-sub">A focused 3-column view for the narrator: timeline on the left, conversation in the middle, life map on the right. Use this for real interview sessions.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button class="lv-operator-start-btn" type="button" id="lvInterviewEnterBtn"
+                  style="padding:8px 16px;font-size:14px;"
+                  onclick="lvEnterInterviewMode()">
+            Enter Interview Mode
+          </button>
+        </div>
+      </section>
+
       <!-- Session style (WO-UI-SHELL-01): sets state.session.sessionStyle + localStorage.
            Phase 1 is state + persistence + label only; prompt-composer wiring is deferred. -->
       <section class="lv-operator-section">
@@ -3175,9 +3193,43 @@
               onclick="lvNarratorShowView('memoir')">Peek at Memoir</button>
     </nav>
 
+    <!-- WO-INTERVIEW-MODE-01 Phase 1: Active Focus header. Replaces the
+         view-tab strip when in interview mode. Format mirrors the mockup:
+         "Active Focus: <era> · <topic>". Click on an era in the Life Map
+         column updates this. -->
+    <header id="lvInterviewActiveFocus" class="lv-interview-active-focus" hidden>
+      <span class="lv-interview-active-focus-label">Active Focus:</span>
+      <span class="lv-interview-active-focus-value" id="lvInterviewActiveFocusValue">—</span>
+      <button type="button" id="lvInterviewExitBtn" class="lv-interview-exit-btn"
+              onclick="lvExitInterviewMode()" aria-label="Exit interview mode">
+        Exit
+      </button>
+    </header>
+
+    <!-- WO-INTERVIEW-MODE-01 Phase 1: Peek-at-Memoir floater (bottom-right).
+         Mirrors the mockup's floating yellow card. Click opens the existing
+         memoir popover. Hidden unless body.lv-interview-mode-active. -->
+    <aside id="lvInterviewPeekFloater" class="lv-interview-peek-floater" hidden
+           role="complementary" aria-label="Peek at memoir">
+      <div class="lv-interview-peek-floater-title">Peek at Memoir</div>
+      <div class="lv-interview-peek-floater-body" id="lvInterviewPeekFloaterBody">"Your story will appear here as you tell it…"</div>
+      <button type="button" class="lv-interview-peek-floater-btn"
+              onclick="document.getElementById('memoirScrollPopover')?.showPopover?.()">
+        Open memoir
+      </button>
+    </aside>
+
     <div class="lv-narrator-main">
       <aside id="lvNarratorViewHost" class="lv-narrator-view-host" role="tabpanel"
              aria-label="Narrator view content"></aside>
+
+      <!-- WO-INTERVIEW-MODE-01 Phase 1: Timeline column (LEFT). Era-grouped
+           list of life periods + their year-marker memories. Hidden unless
+           body.lv-interview-mode-active is on. Populated by
+           lvInterviewRenderTimeline() from state.timeline.spine.periods +
+           state.timeline.memories — same data source as Life Map. -->
+      <aside id="lvInterviewTimeline" class="lv-interview-timeline" hidden
+             aria-label="Interview timeline"></aside>
 
       <section id="lvNarratorConversation" class="lv-narrator-conversation">
 
@@ -3285,6 +3337,15 @@
           </div>
         </div>
       </aside>
+
+      <!-- WO-INTERVIEW-MODE-01 Phase 1: Life Map column (RIGHT). Era buttons
+           + Today anchor at the bottom. Hidden unless body.lv-interview-mode-active
+           is on. Populated by lvInterviewRenderLifeMap(). Click on an era
+           button sets state.session.activeFocusEra and dispatches
+           lv-interview-focus-change so the Active Focus header + center
+           column stay in sync. -->
+      <aside id="lvInterviewLifeMap" class="lv-interview-lifemap" hidden
+             aria-label="Interview life map"></aside>
 
     </div><!-- /lv-narrator-main -->
   </div><!-- /lvNarratorRoom -->
