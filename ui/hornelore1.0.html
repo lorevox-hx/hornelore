@@ -4580,6 +4580,15 @@
      runs AFTER it completes — identical pattern to lori7.5.html.
 ──────────────────────────────────────────────────────────────-->
 <script src="js/state.js"></script>
+<!-- WO-CANONICAL-LIFE-SPINE-01 — Canonical Life Spine taxonomy.
+     Single source of truth for life-period buckets across Timeline,
+     Life Map, Peek at Memoir, Lori prompts, and TXT/DOCX export.
+     No dependencies; exposes window.LorevoxEras with LV_ERAS data +
+     normalization helpers (legacyKeyToEraId, eraIdFromAge, etc.).
+     Backend mirror: server/code/api/lv_eras.py.
+     Must load BEFORE timeline-ui.js / interview.js / life-map.js /
+     projection-map.js / app.js — all of which read era_id values. -->
+<script src="js/lv-eras.js"></script>
 <!-- WO-STT-LIVE-02 (#99) — STT-agnostic transcript safety layer.
      Must load AFTER state.js (uses state.lastTranscript) and BEFORE
      interview.js / app.js (both consume window.TranscriptGuard). -->
