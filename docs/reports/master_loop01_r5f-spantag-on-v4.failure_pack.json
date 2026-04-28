@@ -1,0 +1,708 @@
+{
+  "_wo": "WO-EX-FAILURE-PACK-01",
+  "eval_tag": "r5f-spantag-on-v4",
+  "generated_from": {
+    "_wo": "WO-QB-MASTER-EVAL-01",
+    "_generated": "2026-04-28T01:58:45",
+    "mode": "live"
+  },
+  "total_cases": 104,
+  "passed": 32,
+  "failed": 72,
+  "failure_categories": {
+    "field_path_mismatch": {
+      "count": 45,
+      "cases": [
+        "case_001",
+        "case_003",
+        "case_004",
+        "case_005",
+        "case_006",
+        "case_008",
+        "case_009",
+        "case_010",
+        "case_012",
+        "case_013",
+        "case_014",
+        "case_020",
+        "case_021",
+        "case_022",
+        "case_023",
+        "case_025",
+        "case_027",
+        "case_028",
+        "case_029",
+        "case_030",
+        "case_031",
+        "case_032",
+        "case_033",
+        "case_034",
+        "case_035",
+        "case_037",
+        "case_039",
+        "case_040",
+        "case_044",
+        "case_046",
+        "case_047",
+        "case_048",
+        "case_049",
+        "case_050",
+        "case_051",
+        "case_052",
+        "case_058",
+        "case_059",
+        "case_060",
+        "case_062",
+        "case_063",
+        "case_067",
+        "case_068",
+        "case_076",
+        "case_087"
+      ]
+    },
+    "schema_gap": {
+      "count": 39,
+      "cases": [
+        "case_002",
+        "case_006",
+        "case_013",
+        "case_014",
+        "case_015",
+        "case_018",
+        "case_021",
+        "case_023",
+        "case_024",
+        "case_025",
+        "case_031",
+        "case_032",
+        "case_033",
+        "case_036",
+        "case_037",
+        "case_039",
+        "case_040",
+        "case_041",
+        "case_042",
+        "case_043",
+        "case_044",
+        "case_045",
+        "case_046",
+        "case_047",
+        "case_053",
+        "case_057",
+        "case_059",
+        "case_060",
+        "case_061",
+        "case_065",
+        "case_066",
+        "case_069",
+        "case_070",
+        "case_075",
+        "case_077",
+        "case_078",
+        "case_080",
+        "case_088",
+        "case_104"
+      ]
+    },
+    "llm_hallucination": {
+      "count": 7,
+      "cases": [
+        "case_024",
+        "case_033",
+        "case_041",
+        "case_043",
+        "case_053",
+        "case_069",
+        "case_075"
+      ]
+    },
+    "guard_false_positive": {
+      "count": 2,
+      "cases": [
+        "case_034",
+        "case_098"
+      ]
+    },
+    "noise_leakage": {
+      "count": 1,
+      "cases": [
+        "case_078"
+      ]
+    }
+  },
+  "by_narrator": {
+    "christopher-todd-horne": {
+      "failed": 30,
+      "cases": [
+        "case_001",
+        "case_002",
+        "case_003",
+        "case_004",
+        "case_005",
+        "case_006",
+        "case_008",
+        "case_009",
+        "case_010",
+        "case_032",
+        "case_034",
+        "case_036",
+        "case_040",
+        "case_042",
+        "case_043",
+        "case_045",
+        "case_047",
+        "case_051",
+        "case_053",
+        "case_057",
+        "case_060",
+        "case_065",
+        "case_067",
+        "case_070",
+        "case_076",
+        "case_079",
+        "case_084",
+        "case_087",
+        "case_098",
+        "case_104"
+      ]
+    },
+    "kent-james-horne": {
+      "failed": 19,
+      "cases": [
+        "case_012",
+        "case_013",
+        "case_014",
+        "case_015",
+        "case_018",
+        "case_020",
+        "case_033",
+        "case_037",
+        "case_044",
+        "case_048",
+        "case_050",
+        "case_052",
+        "case_059",
+        "case_062",
+        "case_068",
+        "case_077",
+        "case_080",
+        "case_083",
+        "case_103"
+      ]
+    },
+    "janice-josephine-horne": {
+      "failed": 23,
+      "cases": [
+        "case_021",
+        "case_022",
+        "case_023",
+        "case_024",
+        "case_025",
+        "case_027",
+        "case_028",
+        "case_029",
+        "case_030",
+        "case_031",
+        "case_035",
+        "case_039",
+        "case_041",
+        "case_046",
+        "case_049",
+        "case_058",
+        "case_061",
+        "case_063",
+        "case_066",
+        "case_069",
+        "case_075",
+        "case_078",
+        "case_088"
+      ]
+    }
+  },
+  "by_phase": {
+    "developmental_foundations": {
+      "failed": 33,
+      "cases": [
+        "case_001",
+        "case_002",
+        "case_008",
+        "case_010",
+        "case_014",
+        "case_021",
+        "case_022",
+        "case_024",
+        "case_025",
+        "case_028",
+        "case_029",
+        "case_031",
+        "case_032",
+        "case_033",
+        "case_035",
+        "case_039",
+        "case_041",
+        "case_042",
+        "case_045",
+        "case_046",
+        "case_047",
+        "case_049",
+        "case_063",
+        "case_065",
+        "case_066",
+        "case_068",
+        "case_075",
+        "case_077",
+        "case_079",
+        "case_080",
+        "case_083",
+        "case_087",
+        "case_088"
+      ]
+    },
+    "transitional_adolescence": {
+      "failed": 5,
+      "cases": [
+        "case_003",
+        "case_020",
+        "case_052",
+        "case_059",
+        "case_069"
+      ]
+    },
+    "early_adulthood": {
+      "failed": 16,
+      "cases": [
+        "case_004",
+        "case_005",
+        "case_009",
+        "case_012",
+        "case_013",
+        "case_023",
+        "case_027",
+        "case_030",
+        "case_034",
+        "case_044",
+        "case_048",
+        "case_050",
+        "case_067",
+        "case_078",
+        "case_098",
+        "case_103"
+      ]
+    },
+    "legacy_reflection": {
+      "failed": 4,
+      "cases": [
+        "case_006",
+        "case_036",
+        "case_051",
+        "case_104"
+      ]
+    },
+    "midlife": {
+      "failed": 8,
+      "cases": [
+        "case_015",
+        "case_018",
+        "case_037",
+        "case_040",
+        "case_043",
+        "case_070",
+        "case_076",
+        "case_084"
+      ]
+    },
+    "childhood_origins": {
+      "failed": 3,
+      "cases": [
+        "case_053",
+        "case_057",
+        "case_058"
+      ]
+    },
+    "middle_adulthood": {
+      "failed": 2,
+      "cases": [
+        "case_060",
+        "case_061"
+      ]
+    },
+    "later_adulthood": {
+      "failed": 1,
+      "cases": [
+        "case_062"
+      ]
+    }
+  },
+  "by_era": {
+    "school_years": {
+      "failed": 33,
+      "cases": [
+        "case_001",
+        "case_002",
+        "case_008",
+        "case_010",
+        "case_014",
+        "case_021",
+        "case_022",
+        "case_024",
+        "case_025",
+        "case_028",
+        "case_029",
+        "case_031",
+        "case_032",
+        "case_033",
+        "case_035",
+        "case_039",
+        "case_041",
+        "case_042",
+        "case_045",
+        "case_046",
+        "case_047",
+        "case_049",
+        "case_063",
+        "case_065",
+        "case_066",
+        "case_068",
+        "case_075",
+        "case_077",
+        "case_079",
+        "case_080",
+        "case_083",
+        "case_087",
+        "case_088"
+      ]
+    },
+    "adolescence": {
+      "failed": 5,
+      "cases": [
+        "case_003",
+        "case_020",
+        "case_052",
+        "case_059",
+        "case_069"
+      ]
+    },
+    "early_adulthood": {
+      "failed": 16,
+      "cases": [
+        "case_004",
+        "case_005",
+        "case_009",
+        "case_012",
+        "case_013",
+        "case_023",
+        "case_027",
+        "case_030",
+        "case_034",
+        "case_044",
+        "case_048",
+        "case_050",
+        "case_067",
+        "case_078",
+        "case_098",
+        "case_103"
+      ]
+    },
+    "later_life": {
+      "failed": 5,
+      "cases": [
+        "case_006",
+        "case_036",
+        "case_051",
+        "case_062",
+        "case_104"
+      ]
+    },
+    "midlife": {
+      "failed": 10,
+      "cases": [
+        "case_015",
+        "case_018",
+        "case_037",
+        "case_040",
+        "case_043",
+        "case_060",
+        "case_061",
+        "case_070",
+        "case_076",
+        "case_084"
+      ]
+    },
+    "early_childhood": {
+      "failed": 3,
+      "cases": [
+        "case_053",
+        "case_057",
+        "case_058"
+      ]
+    }
+  },
+  "by_score_bucket": {
+    "0.00": {
+      "count": 46,
+      "cases": [
+        "case_003",
+        "case_004",
+        "case_005",
+        "case_006",
+        "case_008",
+        "case_009",
+        "case_010",
+        "case_013",
+        "case_014",
+        "case_015",
+        "case_018",
+        "case_020",
+        "case_022",
+        "case_024",
+        "case_025",
+        "case_027",
+        "case_028",
+        "case_029",
+        "case_030",
+        "case_031",
+        "case_032",
+        "case_033",
+        "case_034",
+        "case_036",
+        "case_037",
+        "case_039",
+        "case_040",
+        "case_041",
+        "case_043",
+        "case_046",
+        "case_047",
+        "case_049",
+        "case_051",
+        "case_052",
+        "case_059",
+        "case_061",
+        "case_063",
+        "case_065",
+        "case_067",
+        "case_068",
+        "case_069",
+        "case_075",
+        "case_078",
+        "case_087",
+        "case_088",
+        "case_104"
+      ]
+    },
+    "0.01-0.24": {
+      "count": 1,
+      "cases": [
+        "case_079"
+      ]
+    },
+    "0.25-0.49": {
+      "count": 6,
+      "cases": [
+        "case_002",
+        "case_023",
+        "case_044",
+        "case_053",
+        "case_060",
+        "case_062"
+      ]
+    },
+    "0.50-0.69": {
+      "count": 18,
+      "cases": [
+        "case_001",
+        "case_012",
+        "case_021",
+        "case_035",
+        "case_042",
+        "case_045",
+        "case_048",
+        "case_050",
+        "case_057",
+        "case_058",
+        "case_066",
+        "case_070",
+        "case_076",
+        "case_077",
+        "case_080",
+        "case_083",
+        "case_084",
+        "case_103"
+      ]
+    },
+    "0.70+": {
+      "count": 1,
+      "cases": [
+        "case_098"
+      ]
+    }
+  },
+  "hallucination_prefix_rollup": {
+    "family": {
+      "offenders": 39,
+      "case_count": 9,
+      "cases": [
+        "case_005",
+        "case_008",
+        "case_013",
+        "case_028",
+        "case_030",
+        "case_034",
+        "case_035",
+        "case_062",
+        "case_067"
+      ]
+    },
+    "grandparents": {
+      "offenders": 9,
+      "case_count": 2,
+      "cases": [
+        "case_032",
+        "case_065"
+      ]
+    },
+    "parents": {
+      "offenders": 5,
+      "case_count": 1,
+      "cases": [
+        "case_068"
+      ]
+    },
+    "shong_family": {
+      "offenders": 5,
+      "case_count": 1,
+      "cases": [
+        "case_087"
+      ]
+    },
+    "education": {
+      "offenders": 5,
+      "case_count": 3,
+      "cases": [
+        "case_067",
+        "case_075",
+        "case_104"
+      ]
+    },
+    "community": {
+      "offenders": 5,
+      "case_count": 1,
+      "cases": [
+        "case_039"
+      ]
+    },
+    "pets": {
+      "offenders": 5,
+      "case_count": 1,
+      "cases": [
+        "case_041"
+      ]
+    },
+    "personal": {
+      "offenders": 5,
+      "case_count": 1,
+      "cases": [
+        "case_049"
+      ]
+    },
+    "childhood_fears_and_comforts": {
+      "offenders": 3,
+      "case_count": 1,
+      "cases": [
+        "case_029"
+      ]
+    },
+    "military": {
+      "offenders": 3,
+      "case_count": 1,
+      "cases": [
+        "case_033"
+      ]
+    },
+    "career": {
+      "offenders": 2,
+      "case_count": 2,
+      "cases": [
+        "case_067",
+        "case_104"
+      ]
+    },
+    "laterYears": {
+      "offenders": 2,
+      "case_count": 1,
+      "cases": [
+        "case_104"
+      ]
+    },
+    "ancestry": {
+      "offenders": 2,
+      "case_count": 1,
+      "cases": [
+        "case_028"
+      ]
+    },
+    "mother": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_075"
+      ]
+    },
+    "work": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_075"
+      ]
+    },
+    "residence": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_075"
+      ]
+    },
+    "earlyMemories": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_029"
+      ]
+    },
+    "locations": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_033"
+      ]
+    }
+  },
+  "must_not_write": {
+    "count": 2,
+    "cases": [
+      {
+        "case_id": "case_034",
+        "offenders": [
+          "military.branch"
+        ]
+      },
+      {
+        "case_id": "case_098",
+        "offenders": [
+          "military.branch"
+        ]
+      }
+    ]
+  },
+  "cross_axis_highlights": [
+    {
+      "axis": "narrator×phase",
+      "row": "janice-josephine-horne×developmental_foundations",
+      "failed": 16
+    },
+    {
+      "axis": "category×narrator",
+      "row": "field_path_mismatch×christopher-todd-horne",
+      "failed": 17
+    }
+  ]
+}
