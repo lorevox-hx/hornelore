@@ -44,6 +44,7 @@ Attention cue + adaptive silence ladder. Doesn't block first parent sessions. Sc
 
 ### Parallel cleanup (do not block main sequence)
 
+- **WO-EX-EVAL-WRAPPER-01** — single-command extractor eval workflow. Spec authored 2026-04-27. Eliminates the 6-step manual ritual for SPANTAG / BINDING-01 evals (refusal-on-failure gates for .env flip + stack restart + warmup probe + flag verification + inline post-eval summary). 3–5 hours implementation. Build before the next BINDING-01 eval cycle.
 - **WO-EX-FIELD-CARDINALITY-01** — deferred separate lane per Architecture Spec v1 §7.3. Opens only if BINDING-01's minimal scalar guard proves insufficient.
 - **#142 WO-EX-DISCIPLINE-01** — run-report header. Live and working (visible in r5h-postpatch eval).
 - **#141 WO-EX-FAILURE-PACK-01** — cluster JSON sidecar. Live and working.
@@ -72,7 +73,7 @@ Three WOs gate parent sessions. They land in this order; Phase 0/1 of each is th
 | # | WO | Status | Land before parents | Notes |
 |---|---|---|---|---|
 | 1 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 1 | Spec landed | YES — CRITICAL | Wire existing `safety.py:scan_answer()` into `chat_ws.py` between user_text receipt (~L199) and `compose_system_prompt` (L208). Currently zero deterministic safety on chat path. Per parity audit: this is the highest-acuity gap. |
-| 2 | **WO-LORI-SESSION-AWARENESS-01** Phase 1 | Spec landed | YES — chat_ws import-fix hotfix | One-line import: `from api.prompt_composer` → `from ..prompt_composer`. Memory echo currently crashes / surfaces "API/offline" language. Plus Peek-at-Memoir consultation (NOTE: Peek-at-Memoir backend may be missing — see parity audit Risk #2). |
+| 2 | **WO-LORI-SESSION-AWARENESS-01** Phase 1 | **Import-fix LANDED 2026-04-27 evening** (chat_ws.py L163, L180, L181). Peek-at-Memoir consultation + warm composer remain. | YES | Three broken late imports (`from api.X` → `from ..X`) fixed and AST-verified. Eval-safe (chat_ws not exercised by extraction eval). Peek-at-Memoir backend may not exist — see parity audit Risk #2; verify before Peek consultation work. |
 | 3 | **WO-LORI-SESSION-AWARENESS-01** Phase 2 | Spec landed | YES — interview discipline | LORI_INTERVIEW_DISCIPLINE system prompt block + runtime filter with intent-aware tiers (memory_echo 100w/1q, interview_question 55w/1q, attention_cue 25w/0–1q, repair 30w/1q, safety 200w/0q exempt). Two-layer defense. |
 | 4 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 3 | Spec landed | YES — operator surface | Bug Panel real-time banner + between-session digest. Pattern fires today but operator gets no signal. Highest-leverage new work. |
 | 5 | **WO-LORI-SAFETY-INTEGRATION-01** Phases 2, 4–9 | Spec landed | YES — most | LLM second-layer classifier (Phase 2), IDEATION/DISTRESSED prompt block additive to ACUTE rule (Phase 4), composer/WO-10C/memory-echo/family_truth integration (Phase 5), Friendship Line resource (Phase 6), LV_ENABLE_SAFETY cleanup (Phase 7), red-team pack (Phase 8), operator runbook + onboarding consent (Phase 9, NON-NEGOTIABLE). |

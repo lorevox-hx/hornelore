@@ -160,7 +160,7 @@ async def ws_chat(ws: WebSocket):
         # WO-ARCH-07A — explicit mode routing before LLM generation
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
         if turn_mode == "memory_echo":
-            from api.prompt_composer import compose_memory_echo
+            from ..prompt_composer import compose_memory_echo
             assistant_text = compose_memory_echo(
                 text=user_text,
                 runtime=runtime71,
@@ -177,8 +177,8 @@ async def ws_chat(ws: WebSocket):
             await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "memory_echo"})
             return
         if turn_mode == "correction":
-            from api.prompt_composer import compose_correction_ack
-            from api.memory_echo import parse_correction_rule_based
+            from ..prompt_composer import compose_correction_ack
+            from ..memory_echo import parse_correction_rule_based
             parsed = parse_correction_rule_based(user_text)
             logger.info("[chat_ws][WO-ARCH-07A] correction turn for conv=%s parsed=%s", conv_id, parsed)
 
