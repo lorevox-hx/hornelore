@@ -278,6 +278,43 @@ The ladder appears automatically for any narrator with a DOB; the backend return
 
 ---
 
+## Architecture status (as of 2026-04-27 evening)
+
+**Active baseline:** extractor lane locked at `r5h` (70/104, v3=41/62, v2=35/62, mnw=2). Parent sessions ~3 days out, gated by the Lori-behavior lane.
+
+The repo runs three parallel lanes with separate posture and acceptance criteria. Understand which lane any code change sits in before reading the changelog.
+
+### Lane 1 — Extractor (regression-gated)
+
+Synthetic eval bench: 104 cases, locked at 70/104. Climbs only when extractor architecture earns it via gated patches.
+
+- **Active baseline:** `r5h-postpatch` confirmed = `r5h` (byte-stable)
+- **Top of queue:** `WO-EX-BINDING-01` — binding-layer fix delivered inside SPANTAG Pass 2 prompt (PATCH 1–5)
+- **SPANTAG state:** OFF (`HORNELORE_SPANTAG=0`). Default-on REJECTED at v3 attempt due to binding-layer field-path hallucination (-39 cases). Stays off until BINDING-01 lands binding-hallucination containment.
+- Detail: `MASTER_WORK_ORDER_CHECKLIST.md` Lane 1, `CLAUDE.md` changelog, `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`
+
+### Lane 2 — Lori behavior (parent-session-gated)
+
+In-session listener behavior. Three pre-parent-session blockers.
+
+- **`WO-LORI-SAFETY-INTEGRATION-01`** — wires existing `safety.py` pattern detector into the chat WebSocket path (currently zero deterministic safety on chat); adds operator notification surface (highest-leverage new work — pattern fires today but operator gets no signal); LLM second-layer for indirect ideation; IDEATION/DISTRESSED prompt block additive to existing ACUTE SAFETY RULE; Friendship Line resource extension. Companion not clinician — no scoring, no diagnostic profile, no longitudinal report. Red-team gate with zero false negatives on suicidal_ideation. Operator runbook + onboarding consent disclosure non-negotiable before parent sessions.
+- **`WO-LORI-SESSION-AWARENESS-01`** Phase 1 — memory echo crash fix (one-line `chat_ws.py` import: `from api.prompt_composer` → `from ..prompt_composer`) + Peek-at-Memoir consultation + warm grounded composer.
+- **`WO-LORI-SESSION-AWARENESS-01`** Phase 2 — interview discipline composer guard. ≤55 words / 1 question / 1 atomic ask / no menu / no nag with intent-aware tiers (memory_echo 100w, interview_question 55w, attention_cue 25w, safety 200w exempt). Two-layer defense: system prompt block + runtime filter.
+
+### Lane 3 — MediaPipe / session awareness (post-parent-session polish)
+
+Not parent-session blockers. Spec parked, design stable.
+
+- **`WO-LORI-SESSION-AWARENESS-01`** Phase 3 — MediaPipe attention cue. Passive-waiting detector requires all 4 inputs (gaze_forward + low_movement + no_speech_intent + post_tts_silence). Tiered cue types. Veto rule: `engaged`/`reflective` blocks cue under WO-10C 120s mark.
+- **`WO-LORI-SESSION-AWARENESS-01`** Phase 4 — Adaptive Narrator Silence Ladder. Per-narrator × prompt_weight rolling window with 25s hard floor. Pacing FIT not measurement; no surface, no trend, no clinical scoring.
+- **`WO-AFFECT-ANCHOR-01`** (PARKED) — multimodal affect anchoring via shared-clock fusion (Whisper word-timestamps + MediaPipe + light acoustic features + optional Tier 2 video). Blocked by BINDING-01 + parent-session readiness.
+
+### Startup expectations
+
+**Cold boot is ~4 minutes. This is normal, not a bug.** HTTP listener up at ~60–70 seconds; LLM weights + extractor warmup continue another 2–3 minutes. A `curl /` health check is NOT sufficient — it only proves the socket is listening. Don't run an eval against a "warm" stack until the discipline-header warmup probe shows roundtrip <30s. Eval harness has a 300s timeout per case to absorb cold-start latency on the first case.
+
+---
+
 ## Local-first AI commitment
 
 Every model used inside Hornelore (and by extension, Lorevox) runs on the narrator's machine. This is a standing architectural commitment, not a default we plan to revisit later under cost pressure.

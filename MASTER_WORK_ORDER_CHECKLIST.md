@@ -1,91 +1,157 @@
-# Master Work Order Checklist — LOOP-01 R4 cleanup
+# Master Work Order Checklist
 
-**As of:** 2026-04-19
-**Baseline:** r4h post-TURNSCOPE close. 53/104 pass, v3 32/62, must_not_write 0%.
-**Next physical action:** Chris runs **r4i** live eval. Everything else is blocked on that or on #81 signoff.
+**As of:** 2026-04-27 (evening)
+**Active baseline:** `r5h-postpatch` confirmed = `r5h` (70/104, v3=41/62, v2=35/62, mnw=2)
+**SPANTAG state:** OFF (`HORNELORE_SPANTAG=0`). Do not flip until BINDING-01 lands.
+**Parent sessions:** ~3 days out. Pre-parent-session blockers must land first.
 
 ---
 
-## Phase A — close #67 (case_011 date un-normalisation)
+## Three lanes, separate posture
 
-Code + tests + report all in-tree. Needs eval confirmation.
+The repo runs three parallel lanes. They touch different code paths and get worked in parallel without blocking each other.
 
-- [x] Three-edit fix to `server/code/api/routers/extract.py` (suffix set + holiday map + regex).
-- [x] `tests/test_extract_holiday_normalisation.py` — 40 tests, 5 classes, green.
-- [x] `docs/reports/WO-EX-PATCH-H-DATEFIELD-01_REPORT.md` — root cause + expected r4i deltas.
-- [ ] **#84 — Chris runs r4i eval.** Standard block from `CLAUDE.md`. Output: `docs/reports/master_loop01_r4i.json`.
-- [ ] Verify case_011 flips 0.50 → 1.00; topline 53 → 54/104; must_not_write stays 0%; no regressions on case_094/060/062/null_clarify suite.
-- [ ] Watch case_012 and case_020 as noise controls. If they flip back to pass, confirms r4g→r4h drift was stochastic.
-- [ ] **#85 — Commit #67** (extract.py + test file + WO report as one change). Only after eval passes.
-- [ ] Tick last two boxes in `WO-EX-PATCH-H-DATEFIELD-01_REPORT.md` closeout checklist.
-- [ ] Update `CLAUDE.md` current-phase block to move past #67.
+### Lane 1 — Extractor (regression-gated)
 
-## Phase B — close out #68 (case_053 wrong-entity)
+Synthetic eval bench: 104 cases, locked at 70/104. Climbs only when the extractor architecture earns it. Frozen baseline is `r5h`.
 
-Disposition written. Needs a re-check after r4i.
+### Lane 2 — Lori behavior (parent-session-gated)
 
-- [x] `docs/reports/WO-CASE-053-DISPOSITION.md` — defer to R5 Pillar 2, three tactical fixes explicitly rejected.
-- [ ] After r4i lands: re-check case_053. Two outcomes to handle:
-  - **Still fails same way** → disposition stands; no code change; mark #68 deferred-to-R5 and move on.
-  - **Flips to pass** → verify with a tighter adversarial case (word order reversed) before counting the win. R5 Pillar 2 still needs to land regardless.
+In-session listener behavior: safety responsiveness, interview discipline, memory echo grounding, attention awareness. Three pre-parent-session blockers in this lane.
 
-## Phase C — #81 WO-EX-PROMPTSHRINK-01
+### Lane 3 — MediaPipe / session awareness (post-parent-session polish)
 
-Spec drafted. Blocked on Chris signoff before any code lands.
+Attention cue + adaptive silence ladder. Doesn't block first parent sessions. Scoped, parked behind Lane 2 closure.
 
-- [x] `WO-EX-PROMPTSHRINK-01_Spec.md` — three workstreams (A: catalog scoping, B: few-shot prune, C: structured catalog presentation), ablation plan, measurement plan.
-- [ ] **#86 — Chris signoff on 4 open questions** in the spec:
-  - [ ] (1) Always-on-core list scope: identity-only, or include common relational roots?
-  - [ ] (2) Branch-sibling inclusion rule: full branch, or just sibling-of-target?
-  - [ ] (3) `extractPriority=None` fallback: full catalog, or phase-based scoping?
-  - [ ] (4) Ablation ordering: A-first (as drafted) or B-first?
-- [ ] Implement Workstream A — `_scope_catalog_for_targets()` + wire into `_build_extraction_prompt`. Eval `r4j-a`.
-- [ ] Implement Workstream B — audit api.log for few-shot usage, prune 33 → ~18–22, archive dropped few-shots as commented block. Eval `r4j-ab`.
-- [ ] Implement Workstream C — per-branch structured catalog presentation. Eval `r4j-abc`.
-- [ ] Final WO report `docs/reports/WO-EX-PROMPTSHRINK-01_REPORT.md` with 4-way comparison table (r4i → r4j-a → r4j-ab → r4j-abc).
+---
 
-## Phase D — #63 should_pass drift audit
+## Lane 1 — Extractor (active baseline `r5h` locked)
 
-Parallel to #81. Low-churn, can be started any time after r4i lands.
+### Active sequence
 
-- [ ] Grep `docs/reports/master_loop01_*.json` for cases where `should_pass` prediction diverges from actual pass across runs.
-- [ ] Retag `guard_false_positive` category → `scope_escape` now that #72 is closed.
-- [ ] Short audit doc in `docs/reports/` if patterns emerge.
+| # | WO | Status | Eval tag | Notes |
+|---|---|---|---|---|
+| 1 | **WO-EX-BINDING-01** | TOP OF QUEUE | `r5g-binding` (planned) | Binding-layer fix. Delivered inside SPANTAG Pass 2 prompt via PATCH 1–5 (Type C binding rules + negative examples + childhood_moves tie-break + minimal scalar guard for `personal.placeOfBirth` + `[extract][BINDING-01]` log marker). Unblocks SPANTAG re-enable. |
+| 2 | **#144 WO-SCHEMA-ANCESTOR-EXPAND-01** | Lane 1 trial annotated | `r5h` (banked) | Lane 1 (`alt_defensible_paths` for case_033 + case_039) landed scorer-side; Lane 2 schema expansion gated behind Lane 1 evidence. |
+| 3 | **#97 WO-EX-VALUE-ALT-CREDIT-01** | Spec landed | (planned) | Value-axis alt-credit under ≥0.5 fuzzy gate. Targets case_087 ancestry value drift. |
+| 4 | SPANTAG re-enable evaluation | **GATED — do not run until BINDING-01 lands** | `r5g-binding`, then later | After BINDING-01: cycle stack with `HORNELORE_SPANTAG=1` exported in server env (`SPANTAG_PASS1_MAX_NEW=1024`, `SPANTAG_PASS2_MAX_NEW=1536` already in `.env`); rerun master eval; judge by Type A/B/C, not general gate. |
 
-## Phase E — freeze post-R4 baseline + #82 memo
+### Locked decisions
 
-Blocked on #67, #68 disposition, #81, #63 all resolved.
+- `r5h` is the regression net. Climbing past 70/104 happens via real parent-session data once it accrues, not synthetic patching alone.
+- SPANTAG default-off until BINDING-01 lands. Three patches from commit e579ed0 (value-coerce wrapper at extract.py:7006, HF_HUB_OFFLINE init at api.py:50, `.env` revert) are dormant when SPANTAG=0; they prove their value the moment SPANTAG re-enables.
+- Two known `must_not_write` offenders are pre-r5e1 carryover (case_035 faith turn `education.schooling`, case_093 spouse-detail `education.higherEducation`); both are WO-LORI-CONFIRM-01 targets. Don't chase them in Lane 1 patches.
 
-- [ ] Confirm master eval pass rate + per-axis scores are stable across 3 consecutive runs.
-- [ ] Declare baseline frozen in `CLAUDE.md` changelog.
-- [ ] **#82 — Write post-R4 memo + R5.5 citation-grounding spec.** Memo includes:
-  - [ ] Per-axis R2/R3/R3b/R4 deltas with keep/rollback calls.
-  - [ ] Case_053 + case_068 + case_088 as R5 Pillar 2 reference suite.
-  - [ ] Related-work paragraph: Kiwi-LLaMA (Hu et al., JAMIA 2026) + KORIE (Kasem et al., Mathematics 2026).
-  - [ ] Hermes 3 A/B hypothesis as a model-swap candidate — evidence from KORIE (Qwen2.5-3B tying Llama-3.1-8B at 25% F1) that newer-instruction-tuning closes ground.
-- [ ] R5.5 citation-grounding spec, consuming the span-tag primitive queued in Phase F.
+### Parallel cleanup (do not block main sequence)
 
-## Phase F — R5.5 execution (after freeze)
+- **WO-EX-FIELD-CARDINALITY-01** — deferred separate lane per Architecture Spec v1 §7.3. Opens only if BINDING-01's minimal scalar guard proves insufficient.
+- **#142 WO-EX-DISCIPLINE-01** — run-report header. Live and working (visible in r5h-postpatch eval).
+- **#141 WO-EX-FAILURE-PACK-01** — cluster JSON sidecar. Live and working.
+- **WO-LORI-CONFIRM-01** — parked. v1 = 3-field pilot (`personal.birthOrder`, `siblings.birthOrder`, `parents.relation`). dateRange v1.1 reactivation unlocked by #111 corpus expansion (cg_019, cg_020, cg_021).
 
-Not in active queue. Stub landed so the idea doesn't rot.
+### Standard eval block (when invoked)
 
-- [x] `WO-EX-SPANTAG-01_Spec.md` stub — deferred, parked for R5.5. Framed as provenance primitive, not hallucination cure. Four open questions inside.
-- [ ] After #81 ships: revisit SPANTAG stub's open questions (class naming, catalog interaction, emission shape, scorer path).
-- [ ] Decide: ship span-tag output contract as the R5.5 primitive, or stick with JSON + an offset-map sidecar.
+```bash
+cd /mnt/c/Users/chris/hornelore
+./scripts/archive/run_question_bank_extraction_eval.py --mode live \
+  --api http://localhost:8000 \
+  --output docs/reports/master_loop01_<SUFFIX>.json
+grep "\[extract\]\[turnscope\]" .runtime/logs/api.log | tail -40
+```
 
-## Deferred / backlog
+Suffix rotates per-eval. Standard post-eval audit block per CLAUDE.md.
 
-- [ ] **#35** — V4 eval scope (log density + intent-class + topic-shift axes). Not R4 scope. Revisit post-freeze.
-- [ ] **WO-EX-NORMALIZE-EXPAND-01** (unwritten) — extend Patch H's write-time normalization pattern to phone/address/other format-sensitive fields. Low-priority cleanup, not an R4 blocker. KORIE §4.3.4 supports the pattern.
+---
+
+## Lane 2 — Lori behavior (pre-parent-session blockers)
+
+Three WOs gate parent sessions. They land in this order; Phase 0/1 of each is the urgent slice.
+
+### Active sequence
+
+| # | WO | Status | Land before parents | Notes |
+|---|---|---|---|---|
+| 1 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 1 | Spec landed | YES — CRITICAL | Wire existing `safety.py:scan_answer()` into `chat_ws.py` between user_text receipt (~L199) and `compose_system_prompt` (L208). Currently zero deterministic safety on chat path. Per parity audit: this is the highest-acuity gap. |
+| 2 | **WO-LORI-SESSION-AWARENESS-01** Phase 1 | Spec landed | YES — chat_ws import-fix hotfix | One-line import: `from api.prompt_composer` → `from ..prompt_composer`. Memory echo currently crashes / surfaces "API/offline" language. Plus Peek-at-Memoir consultation (NOTE: Peek-at-Memoir backend may be missing — see parity audit Risk #2). |
+| 3 | **WO-LORI-SESSION-AWARENESS-01** Phase 2 | Spec landed | YES — interview discipline | LORI_INTERVIEW_DISCIPLINE system prompt block + runtime filter with intent-aware tiers (memory_echo 100w/1q, interview_question 55w/1q, attention_cue 25w/0–1q, repair 30w/1q, safety 200w/0q exempt). Two-layer defense. |
+| 4 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 3 | Spec landed | YES — operator surface | Bug Panel real-time banner + between-session digest. Pattern fires today but operator gets no signal. Highest-leverage new work. |
+| 5 | **WO-LORI-SAFETY-INTEGRATION-01** Phases 2, 4–9 | Spec landed | YES — most | LLM second-layer classifier (Phase 2), IDEATION/DISTRESSED prompt block additive to ACUTE rule (Phase 4), composer/WO-10C/memory-echo/family_truth integration (Phase 5), Friendship Line resource (Phase 6), LV_ENABLE_SAFETY cleanup (Phase 7), red-team pack (Phase 8), operator runbook + onboarding consent (Phase 9, NON-NEGOTIABLE). |
+| 6 | **WO-LORI-RESPONSE-HARNESS-01** | Spec authoring this batch | NO — first iteration after parents start | Response-quality test harness. Bug Panel + Test Lab. Answers "Did Lori respond like a good interviewer?" (orthogonal to extraction evals). |
+
+### Acceptance gates (per WO)
+
+- **WO-LORI-SAFETY-INTEGRATION-01** — zero false negatives on suicidal_ideation across both chat AND interview paths; operator runbook in place; onboarding consent disclosure shipped
+- **WO-LORI-SESSION-AWARENESS-01** Phase 1 — memory echo answers warmly without crashing; Peek-at-Memoir consulted when available
+- **WO-LORI-SESSION-AWARENESS-01** Phase 2 — 30-turn dev session with zero `[lori][discipline] violation=` log entries (or all violations cleanly trimmed by filter); reference shapes preserved (memory echo not over-trimmed; soft invitation not blocked)
+
+### Pre-parent-session blocker checklist
+
+Use `docs/PARENT-SESSION-READINESS-CHECKLIST.md` as the canonical 7-gate list. The Lori-behavior items above are the new pre-parent additions to that checklist:
+
+- [ ] Memory echo import hotfix landed + regression test
+- [ ] LORI_INTERVIEW_DISCIPLINE prompt block + runtime filter live
+- [ ] Safety scan wired into `chat_ws.py`
+- [ ] Operator notification surface live (Bug Panel banner + digest)
+- [ ] LLM safety second-layer live
+- [ ] IDEATION/DISTRESSED prompt block additive to ACUTE
+- [ ] Friendship Line resource added
+- [ ] Red-team pack passes (zero false negative on suicidal_ideation)
+- [ ] Operator runbook written
+- [ ] Onboarding consent disclosure language added
+
+---
+
+## Lane 3 — MediaPipe / session awareness (post-parent-session polish)
+
+Not parent-session blockers. Spec parked, design stable.
+
+| # | WO | Status | Notes |
+|---|---|---|---|
+| 1 | **WO-LORI-SESSION-AWARENESS-01** Phase 3 | Spec landed | MediaPipe attention cue. Requires all 4 inputs (gaze_forward + low_movement + no_speech_intent + post_tts_silence) for `passive_waiting`. Tiered cue types (silent indicator → affirmation → soft offer → break offer). Veto rule: `engaged`/`reflective` blocks cue under WO-10C 120s mark. Per parity audit Missing #8: visual signals not currently routed to backend — wiring needed. |
+| 2 | **WO-LORI-SESSION-AWARENESS-01** Phase 4 | Spec landed | Adaptive Narrator Silence Ladder. Per-narrator × prompt_weight rolling window (last 30 turns), p75/p90/p95 → tier1/tier2/tier3 with 25s hard floor. Cold-start <10 turns falls back to WO-10C 120s/300s/600s. Pacing FIT not measurement; no surface, no trend, no clinical scoring. |
+| 3 | **WO-AFFECT-ANCHOR-01** | Spec landed (PARKED) | Multimodal affect anchoring via shared-clock fusion (Whisper word-timestamps + MediaPipe + light acoustic features + optional Tier 2 video). Blocked by BINDING-01 + parent-session readiness. |
+
+---
+
+## Open spec / unbuilt items (low priority backlog)
+
+- **#171 WO-LORI-PHOTO-SHARED-01 acceptance tests** — schema/provenance/confidence/dedupe/geocode-null/template_prompt/selector/API vertical
+- **#172 WO-LORI-PHOTO-INTAKE-01 Phase 2** — EXIF + real geocoder + conflict detector + review queue + flag
+- **#173 WO-LORI-PHOTO-ELICIT-01 Phase 2** — photo_memory extraction profile + async scheduler + LLM prompts + flag
+- **#246 WO-FACEMESH-01** — `face_mesh.binarypb` 404 + SIMD WASM crash loop
+- **#35 V4 eval scope** — log density + intent-class + topic-shift axes (post-freeze)
+- **WO-EX-NORMALIZE-EXPAND-01** (unwritten) — extend Patch H pattern to phone/address/format-sensitive fields
+- **WO-EVAL-MULTITURN-01** — parked spec for multi-turn harness to validate WO-LORI-CONFIRM-01
+
+---
+
+## Closed (last 14 days, abbreviated)
+
+| Item | Outcome |
+|---|---|
+| `r5h-postpatch` eval | Confirmed `r5h` baseline preserved (70/104). Three e579ed0 patches dormant + clean when SPANTAG=0. |
+| **SPANTAG default-on REJECTED** at v3 attempt | Net -39 cases. Field-path hallucination cluster confirmed as binding-layer issue. SPANTAG demoted to evidence pipeline; BINDING-01 promoted to top. |
+| #95 SECTION-EFFECT Phase 3 | PARKED. Type A/B/C question typology LOCKED. Bumper sticker: "Extraction is semantics-driven, but errors are binding-driven." |
+| #141 WO-EX-FAILURE-PACK-01 | Cluster JSON sidecar wired into master eval. |
+| #142 WO-EX-DISCIPLINE-01 | Run-report header live. Confirmed working in r5h-postpatch. |
+| WO-EX-SPANTAG-01 Commit 3 | Pipeline wired default-off. Pass 2 controlled-prior carries section + target_path only (era/pass/mode dropped per Q1=NO). |
+| WO-MEDIA-ARCHIVE-01 | Document Archive lane shipped (PDFs / scanned docs / handwritten notes / genealogy / letters / certificates / clippings). |
+| WO-LORI-PHOTO-* (PHASE 1 + Phase 2 partial) | Photo intake, EXIF auto-fill, Review File Info preview, batch upload, View/Edit modal, narrator-room lightbox, dedupe-by-file-hash. |
+| WO-NARRATOR-ROOM-01 | Three-tab shell, narrator room layout, Take-a-break overlay, chat scroll stabilization. |
+| WO-ARCHIVE-AUDIO-01 | Memory archive backend (per-narrator zip export, two-sided text transcript, narrator-only audio rule). |
+| WO-AUDIO-NARRATOR-ONLY-01 | Per-turn audio capture (backend + frontend MediaRecorder). |
 
 ---
 
 ## Standing reminders
 
 - Chris runs / stops the API himself. Don't include `start_all.sh` or `stop_all.sh` in command blocks.
-- Every eval that follows a code change must report the standard post-eval audit block from `CLAUDE.md`.
-- Each WO must report the audit block before being called done.
+- Cold boot is ~4 minutes (HTTP listener ~60–70s; LLM weights + extractor warmup another 2–3 min). This is normal, not a bug. Eval harness must wait for warmup or first cases time out.
+- Every eval that follows a code change must report the standard post-eval audit block (in CLAUDE.md).
+- Each WO must report the audit block before being called done (extractor lane); Lori-behavior lane uses its own acceptance gate per WO.
 - When three agents (Claude/Gemini/ChatGPT) converge, act — don't re-argue.
+- Sandbox can't run git. Commit blocks must be handed to Chris as copy-paste from `/mnt/c/Users/chris/hornelore`.
+- Banned vocabulary in Lori-behavior WOs is structural (not stylistic). Pull requests against any Lori-behavior phase introducing scoring/classification/drift-tracking get rejected on the values clause alone.
 
 ---
 
@@ -93,10 +159,17 @@ Not in active queue. Stub landed so the idea doesn't rot.
 
 | Kind | Path |
 |---|---|
-| Active spec: #81 | `WO-EX-PROMPTSHRINK-01_Spec.md` |
-| Parked stub: R5.5 | `WO-EX-SPANTAG-01_Spec.md` |
-| Report: #67 | `docs/reports/WO-EX-PATCH-H-DATEFIELD-01_REPORT.md` |
-| Memo: #68 | `docs/reports/WO-CASE-053-DISPOSITION.md` |
-| Report: #72 (closed) | `docs/reports/WO-EX-TURNSCOPE-01_REPORT.md` |
-| Tests: #67 | `tests/test_extract_holiday_normalisation.py` |
-| CLAUDE.md | `CLAUDE.md` |
+| Canonical extractor architecture | `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md` |
+| Active extractor spec | `WO-EX-BINDING-01_Spec.md` |
+| Parent-session readiness gates | `docs/PARENT-SESSION-READINESS-CHECKLIST.md` |
+| Parity audit (this batch) | `docs/reports/HORNELORE_PARITY_AUDIT_2026-04-27.md` |
+| Lori behavior — safety | `WO-LORI-SAFETY-INTEGRATION-01_Spec.md` |
+| Lori behavior — session awareness | `WO-LORI-SESSION-AWARENESS-01_Spec.md` |
+| Lori behavior — response harness | `WO-LORI-RESPONSE-HARNESS-01_Spec.md` (this batch) |
+| Multimodal affect (parked) | `WO-AFFECT-ANCHOR-01_Spec.md` |
+| Eval bank | `data/qa/question_bank_extraction_cases.json` (104 master) + `data/qa/question_bank_generational_cases.json` (24 canon-grounded) |
+| Latest eval | `docs/reports/master_loop01_r5h-postpatch.json` (+ `.console.txt` + `.failure_pack.json`) |
+| Extract router | `server/code/api/routers/extract.py` |
+| Safety detector | `server/code/api/safety.py` |
+| Prompt composer | `server/code/api/prompt_composer.py` (ACUTE SAFETY RULE at L108–193) |
+| CLAUDE.md | `CLAUDE.md` (read first every session) |

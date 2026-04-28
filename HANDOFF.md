@@ -6,7 +6,145 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
-## Current state (as of 2026-04-25 night — test-narrator-only prep posture)
+## Daily handoff — 2026-04-27 (evening, end of session)
+
+**TL;DR for tomorrow morning:** baseline `r5h` confirmed and locked; SPANTAG stays OFF until BINDING-01 lands; three new Lori-behavior WO specs authored (SAFETY-INTEGRATION, SESSION-AWARENESS, RESPONSE-HARNESS) and parity audit completed; do NOT restart the stack overnight; first morning task is to commit the docs batch and then start either BINDING-01 (extractor lane top) or the SAFETY-INTEGRATION Phase 1 chat-path hook (Lori lane top, parent-session blocker). Pick the one you want to ship first; both are real next moves.
+
+### What was proven today
+
+1. **`r5h-postpatch` eval ran clean.** 70/104, v3=41/62, v2=35/62, mnw=2 — byte-identical topline to `r5h` baseline. Three e579ed0 patches (value-coerce wrapper, HF_HUB_OFFLINE init, `.env` SPANTAG=0 revert) are dormant when SPANTAG is off; their value will only show when SPANTAG re-enables under BINDING-01. parse_success_rate 95.2%, truncation_rate 0.0%, fallback 4.8%. Discipline header + warmup probe + scorer/case-bank versions all working cleanly. Report: `docs/reports/master_loop01_r5h-postpatch.json` + `.console.txt` + `.failure_pack.json`.
+2. **`r5h` is the locked baseline.** Active extractor sequence stays: BINDING-01 → SCHEMA-ANCESTOR-EXPAND → VALUE-ALT-CREDIT → SPANTAG re-enable evaluation. SPANTAG default-on remains REJECTED until BINDING-01 lands binding-hallucination containment.
+3. **Parity audit shipped.** `docs/reports/HORNELORE_PARITY_AUDIT_2026-04-27.md`. Top finding: safety detection is wired in `interview.py:269-307` but NOT in `chat_ws.py` — chat path has zero deterministic safety today. This is the highest-acuity gap before parent sessions. Full audit categorizes findings as RISKY / DUPLICATED / MISSING / WIRED / STALE.
+4. **Three Lori-behavior WO specs authored, all uncommitted:**
+   - `WO-LORI-SAFETY-INTEGRATION-01_Spec.md` (renamed from SAFETY-01 after audit revealed substantial existing safety infrastructure — original WO accidentally proposed rebuilding what exists; revised WO scopes the actual gaps)
+   - `WO-LORI-SESSION-AWARENESS-01_Spec.md` (Phase 2 absorbs ChatGPT's runtime filter + LORI_INTERVIEW_DISCIPLINE block with intent-aware tiers + two regex pushbacks)
+   - `WO-LORI-RESPONSE-HARNESS-01_Spec.md` (response-quality test harness; orthogonal to extraction evals)
+5. **README updated** with Local-first AI commitment section between Data Isolation and Quick Start; CLAUDE.md changelog entry documenting all of today's work; MASTER_WORK_ORDER_CHECKLIST.md fully refreshed with three-lane structure.
+
+### Current `.env` expectation
+
+```
+HORNELORE_SPANTAG=0           ← critical — do NOT flip until BINDING-01 lands
+HORNELORE_NARRATIVE=0         (default; in-tree behind flag)
+HORNELORE_ATTRIB_BOUNDARY=0   (default)
+HORNELORE_PROMPTSHRINK=0      (measured, not adopted)
+HORNELORE_SILENT_DEBUG=0      (default; verbose mode for silent-output instrumentation)
+HORNELORE_INTAKE_MINIMAL=0    (default)
+SPANTAG_PASS1_MAX_NEW=1024    (cap stays for when SPANTAG re-enables)
+SPANTAG_PASS2_MAX_NEW=1536    (same)
+HORNELORE_PHOTO_ENABLED=1     (Photo Intake live)
+HORNELORE_PHOTO_INTAKE=1      (EXIF auto-fill on)
+HORNELORE_MEDIA_ARCHIVE_ENABLED=1
+LV_ENABLE_SAFETY=1            (vestigial — never read; cleanup item in SAFETY-INTEGRATION Phase 7)
+HORNELORE_TRUTH_V2=1
+HORNELORE_TRUTH_V2_PROFILE=1
+HORNELORE_ARCHIVE_ENABLED=1
+```
+
+**Do not flip SPANTAG to 1 until BINDING-01 has landed.** SPANTAG default-on at v3 attempt produced -39 cases (31/104 vs 70 baseline) due to binding-layer field-path hallucination. Re-enabling without binding fix wastes an eval cycle. The audit confirmed: this is binding-driven, not SPANTAG-mechanical.
+
+### Current git state expectation
+
+After tonight's commit (Chris ran the commit block at session end):
+
+- Working tree clean
+- Branch `main` ahead of origin by N commits (push if you want them shared)
+- HEAD is the docs batch commit titled "docs: author Lori-behavior lane WOs (SAFETY-INTEGRATION + SESSION-AWARENESS + AFFECT-ANCHOR)"
+- Note: this section was authored before the commit landed — when reading the next morning, run `git log --oneline -5` to confirm the actual SHA
+
+### Next morning commands
+
+Pick ONE of these to start with:
+
+**Option A — Start BINDING-01 (extractor lane top):**
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+cat WO-EX-BINDING-01_Spec.md           # refresh on PATCH 1–5 scope
+git status                              # confirm clean tree
+# Then begin the binding-rule edits in extract.py per the spec.
+# When ready to test:
+#   1. Cycle stack (Chris owns this — do not include start_all.sh in agent blocks)
+#   2. Wait full 4-min warmup
+#   3. With HORNELORE_SPANTAG=1 exported in server env (BINDING-01 ships behind SPANTAG):
+#      ./scripts/archive/run_question_bank_extraction_eval.py --mode live \
+#        --api http://localhost:8000 \
+#        --output docs/reports/master_loop01_r5g-binding.json
+#   4. Standard post-eval audit block per CLAUDE.md
+```
+
+**Option B — Start SAFETY-INTEGRATION Phase 1 (Lori lane, parent-session blocker):**
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+cat WO-LORI-SAFETY-INTEGRATION-01_Spec.md      # refresh on Phase 1 chat-path hook
+cat docs/reports/HORNELORE_PARITY_AUDIT_2026-04-27.md   # context on why this is critical
+git status                                      # confirm clean tree
+# Edit server/code/api/routers/chat_ws.py to add safety hook between
+# user_text receipt (~L199) and compose_system_prompt (L208).
+# Reference pattern from interview.py:269-307.
+# Run unit tests + smoke test on chat path.
+# This is the highest-acuity parent-session blocker per the audit.
+```
+
+**Option C — Memory echo import hotfix only (smallest possible Phase 1 slice):**
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+# One-line fix in server/code/api/routers/chat_ws.py:
+#   OLD: from api.prompt_composer import compose_memory_echo
+#   NEW: from ..prompt_composer import compose_memory_echo
+# Add regression test asserting "what do you know about me?" doesn't crash
+# and doesn't surface "API/offline" language.
+# Then restart API:
+pkill -f "uvicorn.*8000" || true
+bash ./scripts/start_api_visible.sh
+# Test in UI with: "What do you know about me?"
+```
+
+Recommend **C first** (one-line fix, immediate parent-session-blocker resolution), **then B** (full chat-path safety wiring), **then A** (BINDING-01 — the bigger extractor lane work). The two Lori-lane items do not block BINDING-01 work in the extractor lane.
+
+### Known risks (overnight + tomorrow)
+
+- **`LV_ENABLE_SAFETY` flag is vestigial** — defined in `.env` but never read by any code. Cleanup happens in SAFETY-INTEGRATION Phase 7 (Option A: wire it as kill-switch). Until then, the flag's existence is misleading.
+- **SSE chat path uses bare one-liner system prompt** — `api.py` SSE fallback path has hardcoded `'You are Lorevox, a warm oral historian...'` instead of calling `compose_system_prompt()`. Stripped-down prompt missing safety rules. Per parity audit DUPLICATED #5. Low-priority but should converge eventually.
+- **Two "next question" algorithms in `interview.py`** — phase-aware vs sequential, parallel gated by flag. Per parity audit DUPLICATED #6. Document as temporary dual-path.
+- **Peek-at-Memoir backend may not exist** — `compose_memory_echo()` is in `prompt_composer.py:542` but no router serves `/api/peek-at-memoir`. Per parity audit RISKY #2. SAFETY-INTEGRATION Phase 1 may need to defer Peek-at-Memoir consultation if backend isn't there; profile + promoted truth + session transcript still work.
+- **MediaPipe visual signals NOT routed to backend** — `emotion.js` emits affect_state locally but doesn't send `visualSignals` to chat_ws. Per parity audit MISSING #8. Means SESSION-AWARENESS Phase 3 (MediaPipe attention cue) needs additional wiring work; not critical for first parent sessions.
+- **Cold boot ~4 minutes** — HTTP listener up at ~60–70s, but LLM weights + extractor warmup continue another 2–3 min. A `curl /` health check is NOT sufficient. Don't run an eval against a "warm" stack until the discipline-header warmup probe shows roundtrip <30s.
+- **WSL mount-write asymmetry** — Edit tool can succeed without Windows filesystem syncing immediately. If a code change isn't appearing on Chris's side, paste a Python heredoc to apply directly.
+
+### Files changed this session (uncommitted before tonight's commit; committed after)
+
+```
+NEW:
+  WO-LORI-SAFETY-INTEGRATION-01_Spec.md
+  WO-LORI-SESSION-AWARENESS-01_Spec.md
+  WO-LORI-RESPONSE-HARNESS-01_Spec.md          (this overnight batch)
+  WO-AFFECT-ANCHOR-01_Spec.md
+  docs/reports/HORNELORE_PARITY_AUDIT_2026-04-27.md  (this overnight batch)
+
+MODIFIED:
+  README.md                                    (Local-first AI commitment + architecture status sections)
+  CLAUDE.md                                    (2026-04-27 evening changelog entry)
+  MASTER_WORK_ORDER_CHECKLIST.md               (full rewrite; three-lane structure)
+  HANDOFF.md                                   (this section replaces the 2026-04-25 "Current state" block)
+
+DELETED before commit:
+  WO-LORI-SAFETY-01_Spec.md                    (superseded by WO-LORI-SAFETY-INTEGRATION-01)
+```
+
+### Read-first pointers
+
+- `CLAUDE.md` — read every session, top of file points at canonical extractor architecture spec
+- `MASTER_WORK_ORDER_CHECKLIST.md` — three-lane structure, current active sequence per lane
+- `docs/reports/HORNELORE_PARITY_AUDIT_2026-04-27.md` — categorized gap report
+- `docs/PARENT-SESSION-READINESS-CHECKLIST.md` — 7-gate parent-session blocker list (Lori-behavior items are new additions)
+- `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md` — canonical for any extractor-lane work
+
+---
+
+## Original "Current state" block (preserved for reference, dated 2026-04-25)
 
 **Locked posture (Chris's late-evening directive):** **tomorrow is prep + debug only with test narrators (Corky and the existing test set), NOT live parent sessions. Real parents move out by ~3 days, gated by the 7-point readiness checklist.**
 
