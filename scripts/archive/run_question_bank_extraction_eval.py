@@ -1022,8 +1022,14 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
         try:
             t0 = time.time()
             # WO-EX-CLAIMS-01: compound answers (multiple children, etc.) can take
-            # 30-45s on the 8B model with 384-token cap. Use 90s to avoid timeouts.
-            resp = requests.post(endpoint, json=payload, timeout=90)
+            # SPANTAG (2-pass) doubles per-case latency vs single-pass.
+            # Pass 1 at 1024-token cap: 30-80s on long inputs.
+            # Pass 2 at 1536-token cap: 30-100s on dense outputs.
+            # Combined worst case observed: ~150-180s; 99th-pct projection
+            # higher with bumped caps. 300s gives true headroom — a timeout
+            # at this length signals an actual server problem, not a long case.
+            # 2026-04-27: 90 → 180 (case_005/006 timeout) → 300 (cap-aware).
+            resp = requests.post(endpoint, json=payload, timeout=300)
             elapsed = time.time() - t0
 
             if resp.status_code == 200:

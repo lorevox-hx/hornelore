@@ -7003,14 +7003,75 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             if _is_twopass_rules_only:
                 _item_method = "twopass_rules"
 
-            result_items.append(ExtractedItem(
-                fieldPath=item["fieldPath"],
-                value=item["value"],
-                writeMode=write_mode,
-                confidence=item["confidence"],
-                source="backend_extract",
-                extractionMethod=_item_method,
-            ))
+            # 2026-04-27: SPANTAG Pass 2 occasionally returns non-string values
+            # (bool, int, list) which crash Pydantic ExtractedItem.value: str
+            # validation and bubble up as ASGI 500 (root cause of 6 HTTP 500s
+            # in r5f-spantag-on-v3 eval). Defensive coercion here; the
+            # principled fix (split list values into N items, surface bool
+            # sentinels via no_writes channel, etc.) belongs in BINDING-01.
+            _raw_value = item.get("value")
+            if _raw_value is None:
+                logger.warning(
+                    "[extract][value-coerce] dropping item with None value: fieldPath=%s",
+                    item.get("fieldPath"),
+                )
+                continue
+            if isinstance(_raw_value, bool):
+                _coerced_value = "yes" if _raw_value else "no"
+                logger.info(
+                    "[extract][value-coerce] bool→str: fieldPath=%s raw=%s coerced=%r",
+                    item.get("fieldPath"), _raw_value, _coerced_value,
+                )
+            elif isinstance(_raw_value, (int, float)):
+                _coerced_value = str(_raw_value)
+                logger.info(
+                    "[extract][value-coerce] %s→str: fieldPath=%s raw=%s",
+                    type(_raw_value).__name__, item.get("fieldPath"), _raw_value,
+                )
+            elif isinstance(_raw_value, list):
+                _coerced_value = ", ".join(str(v) for v in _raw_value)
+                logger.warning(
+                    "[extract][value-coerce] list→str: fieldPath=%s raw=%r coerced=%r"
+                    " (BINDING-01 should split into N items)",
+                    item.get("fieldPath"), _raw_value, _coerced_value,
+                )
+            elif isinstance(_raw_value, dict):
+                try:
+                    _coerced_value = json.dumps(_raw_value, ensure_ascii=False)
+                except Exception:
+                    _coerced_value = str(_raw_value)
+                logger.warning(
+                    "[extract][value-coerce] dict→str: fieldPath=%s raw=%r",
+                    item.get("fieldPath"), _raw_value,
+                )
+            elif isinstance(_raw_value, str):
+                _coerced_value = _raw_value
+            else:
+                _coerced_value = str(_raw_value)
+                logger.warning(
+                    "[extract][value-coerce] unexpected type %s→str: fieldPath=%s raw=%r",
+                    type(_raw_value).__name__, item.get("fieldPath"), _raw_value,
+                )
+
+            try:
+                result_items.append(ExtractedItem(
+                    fieldPath=item["fieldPath"],
+                    value=_coerced_value,
+                    writeMode=write_mode,
+                    confidence=item["confidence"],
+                    source="backend_extract",
+                    extractionMethod=_item_method,
+                ))
+            except Exception as _ei_err:
+                # Belt-and-suspenders: any other Pydantic surprise → log + skip
+                # rather than 500. Prevents a single bad item from killing the
+                # whole response.
+                logger.error(
+                    "[extract][value-coerce] ExtractedItem construction failed: "
+                    "fieldPath=%s value=%r err=%s — item dropped",
+                    item.get("fieldPath"), _coerced_value, _ei_err,
+                )
+                continue
 
         # Group repeatable fields — FIX-4: preserve _repeatableGroup as repeatableGroup
         # WO-EX-CLAIMS-01: pass answer for position-aware entity grouping

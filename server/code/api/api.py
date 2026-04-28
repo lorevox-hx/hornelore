@@ -48,6 +48,18 @@ MODEL_PATH = (os.getenv("MODEL_PATH", "") or "").strip()
 HF_HOME = (os.getenv("HF_HOME", "") or "").strip()
 # ----------------------------------------
 
+# 2026-04-27: Force HF cache offline mode when MODEL_PATH is a local directory.
+# Without this, transformers' cached_files() invokes try_to_load_from_cache(repo_id),
+# which calls validate_repo_id() on the local path and raises HFValidationError
+# ("Repo id must be in the form 'repo_name' or 'namespace/repo_name'") because
+# /mnt/c/models/... contains slashes. local_files_only=True on from_pretrained
+# is not enough on its own — the cache lookup runs first.
+# Setting these env vars at module init forces transformers to skip the cache
+# validation path entirely. Defensive; primarily fixes /api/warmup endpoint.
+if MODEL_PATH and ("/" in MODEL_PATH or "\\" in MODEL_PATH):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 BASE_MODEL_ID = os.getenv("BASE_MODEL_ID", os.getenv("MODEL_ID", "meta-llama/Meta-Llama-3.1-8B-Instruct"))
 MODEL_ID = os.getenv("MODEL_ID", BASE_MODEL_ID)
 LORA_ADAPTER_ID = (os.getenv("LORA_ADAPTER_ID", "") or "").strip()

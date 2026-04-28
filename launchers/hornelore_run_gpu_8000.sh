@@ -81,5 +81,6 @@ echo "[launcher] STT_MODEL=$STT_MODEL  STT_GPU=$STT_GPU"
 echo "[launcher] WO-10M caps: chat=$MAX_NEW_TOKENS_CHAT extract=$MAX_NEW_TOKENS_EXTRACT summary=$MAX_NEW_TOKENS_SUMMARY"
 echo "[launcher] WO-10M VRAM guard: enabled=$VRAM_GUARD_ENABLED base=${VRAM_GUARD_BASE_MB}MB per_token=${VRAM_GUARD_PER_TOKEN_MB}MB"
 echo "[launcher] WO-10M allocator: PYTORCH_CUDA_ALLOC_CONF=$PYTORCH_CUDA_ALLOC_CONF"
+echo "[launcher] SPANTAG: enabled=${HORNELORE_SPANTAG:-0} pass1_max_new=${SPANTAG_PASS1_MAX_NEW:-512} pass2_max_new=${SPANTAG_PASS2_MAX_NEW:-1024} narrative=${HORNELORE_NARRATIVE:-0}"
 
 python -m uvicorn code.api.main:app --host "$HOST" --port "$PORT"
