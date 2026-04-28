@@ -1,0 +1,165 @@
+{
+  "_wo": "WO-EX-FAILURE-PACK-01",
+  "eval_tag": null,
+  "generated_from": {
+    "_wo": "WO-QB-MASTER-EVAL-01",
+    "_generated": "2026-04-28T07:56:16",
+    "mode": "live"
+  },
+  "total_cases": 7,
+  "passed": 2,
+  "failed": 5,
+  "failure_categories": {
+    "schema_gap": {
+      "count": 3,
+      "cases": [
+        "case_018",
+        "case_075",
+        "case_087"
+      ]
+    },
+    "llm_hallucination": {
+      "count": 1,
+      "cases": [
+        "case_065"
+      ]
+    },
+    "field_path_mismatch": {
+      "count": 1,
+      "cases": [
+        "case_082"
+      ]
+    },
+    "noise_leakage": {
+      "count": 1,
+      "cases": [
+        "case_082"
+      ]
+    }
+  },
+  "by_narrator": {
+    "kent-james-horne": {
+      "failed": 1,
+      "cases": [
+        "case_018"
+      ]
+    },
+    "christopher-todd-horne": {
+      "failed": 2,
+      "cases": [
+        "case_065",
+        "case_087"
+      ]
+    },
+    "janice-josephine-horne": {
+      "failed": 2,
+      "cases": [
+        "case_075",
+        "case_082"
+      ]
+    }
+  },
+  "by_phase": {
+    "midlife": {
+      "failed": 1,
+      "cases": [
+        "case_018"
+      ]
+    },
+    "developmental_foundations": {
+      "failed": 4,
+      "cases": [
+        "case_065",
+        "case_075",
+        "case_082",
+        "case_087"
+      ]
+    }
+  },
+  "by_era": {
+    "midlife": {
+      "failed": 1,
+      "cases": [
+        "case_018"
+      ]
+    },
+    "school_years": {
+      "failed": 4,
+      "cases": [
+        "case_065",
+        "case_075",
+        "case_082",
+        "case_087"
+      ]
+    }
+  },
+  "by_score_bucket": {
+    "0.00": {
+      "count": 2,
+      "cases": [
+        "case_018",
+        "case_075"
+      ]
+    },
+    "0.01-0.24": {
+      "count": 0,
+      "cases": []
+    },
+    "0.25-0.49": {
+      "count": 1,
+      "cases": [
+        "case_082"
+      ]
+    },
+    "0.50-0.69": {
+      "count": 2,
+      "cases": [
+        "case_065",
+        "case_087"
+      ]
+    },
+    "0.70+": {
+      "count": 0,
+      "cases": []
+    }
+  },
+  "hallucination_prefix_rollup": {
+    "siblings": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_082"
+      ]
+    },
+    "parents": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_082"
+      ]
+    },
+    "family": {
+      "offenders": 1,
+      "case_count": 1,
+      "cases": [
+        "case_018"
+      ]
+    }
+  },
+  "must_not_write": {
+    "count": 0,
+    "cases": []
+  },
+  "cross_axis_highlights": [
+    {
+      "axis": "narrator×phase",
+      "row": "christopher-todd-horne×developmental_foundations",
+      "failed": 2
+    },
+    {
+      "axis": "category×narrator",
+      "row": "schema_gap×kent-james-horne",
+      "failed": 1
+    }
+  ]
+}
