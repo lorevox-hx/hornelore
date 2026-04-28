@@ -58,6 +58,17 @@ def _connect() -> sqlite3.Connection:
     con.execute("PRAGMA synchronous=NORMAL;")
     con.execute("PRAGMA temp_store=MEMORY;")
     con.execute("PRAGMA foreign_keys=ON;")
+    # WO-LORI-SAFETY-INTEGRATION-01 Phase 1 follow-up — busy_timeout was 0
+    # (the SQLite default), which caused "database is locked" errors when the
+    # safety persist block (save_segment_flag + increment_session_turn +
+    # set_session_softened) raced with archive_append_event during a chat
+    # turn. Surfaced live in the 2026-04-28 19:40 chat smoke test: three
+    # turns errored with "Chat backend error: database is locked", one of
+    # which was the very first triggering safety message — a critical
+    # failure mode (no safety response on a triggering turn). 5000ms gives
+    # WAL-serialized writers enough time to queue cleanly without affecting
+    # the latency of well-behaved single-writer turns.
+    con.execute("PRAGMA busy_timeout=5000;")
     return con
 
 
