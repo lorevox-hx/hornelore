@@ -3505,6 +3505,185 @@ def _spantag_extract_balanced_object_for(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# WO-EX-BINDING-01 — SPANTAG binding pre-normalizer
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Context: r5f-spantag-on-v4 (32/104) showed SPANTAG mechanically working
+# (parse_success_rate=98.1%, http_500=0 after value-coerce patch) but
+# field_path_mismatch=45 + schema_gap=39 dominated failures. SPANTAG bypasses
+# _validate_item — which already has a comprehensive _FIELD_ALIASES dict
+# (~200+ entries) and EXTRACTABLE_FIELDS whitelist. Routing SPANTAG output
+# through _validate_item unlocks that infrastructure.
+#
+# This pre-normalizer handles the gaps _validate_item does NOT cover:
+#   1. Dotted-index paths (children.0.firstName)  — _validate_item strips [N]
+#      but not .N.
+#   2. Ordinal-name patterns (second_name, third_name) — model is enumerating
+#      multiple entities; proper list expansion is BINDING-02 scope. Reject + log.
+#   3. Over-nested paths on shallow branches (grandparents.ancestry.father.name,
+#      community.member.person.name, pets.owner.family_member.X) — semantic
+#      remap belongs in BINDING-02. Reject + log.
+#   4. Invented namespace roots (shong_family.*, narrator-family-name prefixes)
+#      — semantic mapping requires knowing which narrator's family. BINDING-02.
+#      Reject + log.
+#   5. A few specific aliases NOT in _FIELD_ALIASES (family.brother.firstName,
+#      community.organization.name, pets.pet_type) observed in v4 failure pack.
+#
+# Discipline: prefer reject+log over lossy remap. Do not silently coerce
+# semantically different facts to raise the score.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Aliases observed in r5f-spantag-on-v4 failure pack that are NOT yet in
+# _FIELD_ALIASES (case-by-case, conservative). Any new entry MUST preserve
+# semantic meaning — no DOB→marriageDate-style mappings.
+_SPANTAG_EXTRA_ALIASES: Dict[str, str] = {
+    # case_008 — narrator has a brother; family.brother.X → siblings.X
+    "family.brother.firstName": "siblings.firstName",
+    "family.brother.middleName": "siblings.middleName",
+    "family.brother.lastName": "siblings.lastName",
+    "family.brother.placeOfBirth": "siblings.birthPlace",
+    "family.sister.firstName": "siblings.firstName",
+    "family.sister.middleName": "siblings.middleName",
+    "family.sister.lastName": "siblings.lastName",
+    "family.sister.placeOfBirth": "siblings.birthPlace",
+    # case_039 — community subfields
+    "community.organization.name": "community.organization",
+    "community.member.role": "community.role",
+    # case_041 — pets variants
+    "pets.pet_type": "pets.species",
+    # case_005 / case_030 — children list-suffix variants observed in failure
+    # pack ([N] stripped by _validate_item; .N. stripped by us first; remaining
+    # bare children.X needs the family. prefix)
+    "children.firstName": "family.children.firstName",
+    "children.lastName": "family.children.lastName",
+    "children.dateOfBirth": "family.children.dateOfBirth",
+    "children.birthDate": "family.children.dateOfBirth",
+    "children.placeOfBirth": "family.children.placeOfBirth",
+    "children.birthPlace": "family.children.placeOfBirth",
+    "children.relation": "family.children.relation",
+}
+
+# Patterns that signal the LLM enumerated multiple entities (children, siblings)
+# using ordinal naming. Proper list expansion is BINDING-02 scope; for now we
+# reject so we don't silently collapse N entities into 1.
+_SPANTAG_ORDINAL_REJECT_RE = re.compile(
+    r"\.(second_name|third_name|fourth_name|fifth_name|first_birthday|second_birthday|third_birthday|last_birthday)$",
+    re.IGNORECASE,
+)
+
+# Branches where >2 dots after root signal invented over-nesting (model kept
+# nesting until "felt complete"). Reject; canonical schema is shallow.
+# Note: we DO NOT collapse to a parent path because that loses the entity
+# identity (e.g. ancestry.father.name → ancestry would lose father vs mother).
+_SPANTAG_OVERNEST_PREFIXES: tuple = (
+    "grandparents.ancestry.",
+    "greatGrandparents.ancestry.",
+    "parents.notableLifeEvents.",
+    "parents.spouse.",
+    "parents.parent.",  # narrator's grandparent through parent — handled by existing alias only at one level
+    "community.member.",
+    "community.organization.",  # except .name handled by alias above
+    "pets.owner.",
+    "pets.pet.",
+    "education.school.",
+    "education.career.",
+    "marriage.",  # marriage.X → use family.marriageDate / family.marriagePlace canonical
+)
+
+# Invented namespace prefixes — narrator-family-surname appended as a section
+# (e.g. shong_family.*, horne_family.*, parton_family.*). Hard reject; semantic
+# remap to the appropriate canonical branch needs knowledge of which narrator's
+# family the prefix refers to.
+_SPANTAG_INVENTED_NAMESPACE_RE = re.compile(
+    r"^[a-z][a-z]+_(family|line|ancestry|history|tree)(\.|$)",
+    re.IGNORECASE,
+)
+
+# Specific invented roots seen in v4 failure pack that aren't covered by the
+# _family suffix pattern. These are NOT in EXTRACTABLE_FIELDS so _validate_item
+# would reject them anyway; rejecting here gives a clean [binding][reject]
+# log entry for diagnostic attribution.
+_SPANTAG_INVENTED_ROOTS: set = {
+    "birthplaces",
+    "locations",
+    "ancestors",  # case_065 etc. — semantic remap to greatGrandparents is BINDING-02
+    "marriage",   # NOT a root — marriage.X handled by alias to family.marriageDate
+    "work",       # NOT a root — work.X aliased to occupation in _FIELD_ALIASES; reject if alias doesn't match
+}
+
+
+def _spantag_strip_dotted_indices(path: str) -> str:
+    """Convert children.0.firstName → children.firstName.
+
+    _validate_item already strips bracket-indices ([N]); this handles the
+    dotted form. We only strip .N. between two non-numeric segments to avoid
+    eating legitimate numeric values that might appear elsewhere.
+    """
+    if not path:
+        return path
+    return re.sub(r"\.(\d+)(?=\.)", "", path)
+
+
+def _spantag_pre_normalize(
+    field_path: str,
+) -> tuple[Optional[str], str]:
+    """SPANTAG binding pre-normalizer.
+
+    Returns (normalized_path, reason).
+        normalized_path == None  → caller skips item (with [binding][reject] log)
+        reason describes the action for the log marker
+
+    Pipeline:
+      1. Strip dotted indices         (children.0.firstName → children.firstName)
+      2. Reject ordinal-name patterns (second_name etc.)
+      3. Reject invented namespaces   (shong_family.*)
+      4. Reject specific invented roots (birthplaces, ancestors, …)
+      5. Apply SPANTAG-extra aliases  (family.brother.* → siblings.*, etc.)
+      6. Reject over-nested paths     (grandparents.ancestry.father.name etc.)
+      7. Pass through unchanged       → _validate_item will handle the rest
+    """
+    if not field_path or not isinstance(field_path, str):
+        return None, "empty"
+
+    original = field_path.strip()
+    path = original
+
+    # Step 1: dotted-index strip
+    path = _spantag_strip_dotted_indices(path)
+
+    # Step 2: ordinal-name reject (do not silently collapse multiple entities
+    # into one field; BINDING-02 will handle proper list expansion)
+    if _SPANTAG_ORDINAL_REJECT_RE.search(path):
+        return None, "ordinal_name_pattern"
+
+    # Step 3: invented namespace reject (e.g. shong_family.grandparents.X)
+    if _SPANTAG_INVENTED_NAMESPACE_RE.match(path):
+        return None, "invented_namespace"
+
+    # Step 4: specific invented root reject — only when not coverable by alias
+    root = path.split(".", 1)[0]
+    if root in _SPANTAG_INVENTED_ROOTS and path not in _SPANTAG_EXTRA_ALIASES:
+        return None, f"invented_root:{root}"
+
+    # Step 5: SPANTAG-extra alias (specific patterns observed in v4 failure
+    # pack, not yet in _FIELD_ALIASES). Apply BEFORE over-nest reject so
+    # community.organization.name (3 dots, would over-nest-reject) gets its
+    # alias hit first.
+    if path in _SPANTAG_EXTRA_ALIASES:
+        return _SPANTAG_EXTRA_ALIASES[path], "spantag_extra_alias"
+
+    # Step 6: over-nested reject — semantic remap to canonical schema belongs
+    # in BINDING-02. Reject + log; do not collapse to lossy parent path.
+    for prefix in _SPANTAG_OVERNEST_PREFIXES:
+        if path.startswith(prefix):
+            # depth = number of dots; reject if > prefix.count(".")
+            return None, f"overnest:{prefix.rstrip('.')}"
+
+    # Step 7: pass through — _validate_item / _FIELD_ALIASES will do the rest
+    return path, "passthrough" if path == original else "dotted_index_stripped"
+
+
 def _down_project_spantag_writes(writes: List[Dict[str, Any]]) -> List[dict]:
     """Project SPANTAG Pass 2 writes into legacy extractor-item shape.
 
@@ -3516,12 +3695,67 @@ def _down_project_spantag_writes(writes: List[Dict[str, Any]]) -> List[dict]:
     surfacer (UI, scorer audit) can read them without the rails choking.
     """
     items: List[dict] = []
+
+    # WO-EX-BINDING-01 metrics — counted per-call, logged in summary line.
+    binding_metrics: Dict[str, int] = {
+        "input": 0,
+        "remap": 0,
+        "reject_overnest": 0,
+        "reject_invented_namespace": 0,
+        "reject_invented_root": 0,
+        "reject_ordinal": 0,
+        "reject_empty": 0,
+        "validate_drop": 0,
+        "passthrough": 0,
+    }
+
     for w in writes:
-        field_path = w.get("fieldPath")
-        if not isinstance(field_path, str) or not field_path.strip():
+        binding_metrics["input"] += 1
+
+        original_field_path = w.get("fieldPath")
+        if not isinstance(original_field_path, str) or not original_field_path.strip():
+            binding_metrics["reject_empty"] += 1
             continue
         if "value" not in w:
+            binding_metrics["reject_empty"] += 1
             continue
+
+        original_field_path = original_field_path.strip()
+
+        # WO-EX-BINDING-01 PATCH 1+2 — pre-normalize SPANTAG path before the
+        # legacy _validate_item alias machinery sees it.
+        normalized_path, bind_reason = _spantag_pre_normalize(original_field_path)
+
+        if normalized_path is None:
+            # Bucket the rejection into a metric counter for the summary line.
+            if bind_reason == "ordinal_name_pattern":
+                binding_metrics["reject_ordinal"] += 1
+            elif bind_reason == "invented_namespace":
+                binding_metrics["reject_invented_namespace"] += 1
+            elif bind_reason.startswith("invented_root"):
+                binding_metrics["reject_invented_root"] += 1
+            elif bind_reason.startswith("overnest"):
+                binding_metrics["reject_overnest"] += 1
+            else:
+                binding_metrics["reject_empty"] += 1
+            logger.info(
+                "[extract][binding][reject] original=%r reason=%s value=%r",
+                original_field_path,
+                bind_reason,
+                str(w.get("value"))[:60],
+            )
+            continue
+
+        if normalized_path != original_field_path:
+            binding_metrics["remap"] += 1
+            logger.info(
+                "[extract][binding][remap] original=%r normalized=%r reason=%s",
+                original_field_path,
+                normalized_path,
+                bind_reason,
+            )
+        else:
+            binding_metrics["passthrough"] += 1
 
         # Default confidence mirrors singlepass items; priority-driven
         # adjustments are minimal (secondary writes are still emitted at
@@ -3536,7 +3770,7 @@ def _down_project_spantag_writes(writes: List[Dict[str, Any]]) -> List[dict]:
             conf = 1.0
 
         item: Dict[str, Any] = {
-            "fieldPath": field_path.strip(),
+            "fieldPath": normalized_path,
             "value": w["value"],
             "confidence": conf,
         }
@@ -3555,7 +3789,69 @@ def _down_project_spantag_writes(writes: List[Dict[str, Any]]) -> List[dict]:
         if w.get("alt_path_section_driven") is True:
             item["_spantag_alt_path_section_driven"] = True
 
-        items.append(item)
+        # WO-EX-BINDING-01 — record the binding origin for downstream audit
+        item["_binding_original_path"] = original_field_path
+        item["_binding_reason"] = bind_reason
+
+        # WO-EX-BINDING-01 PATCH 3 — route SPANTAG items through _validate_item
+        # so they benefit from the existing comprehensive _FIELD_ALIASES dict
+        # and EXTRACTABLE_FIELDS schema whitelist. Preserves SPANTAG metadata
+        # by merging back after validation rewrites the canonical keys.
+        try:
+            validated = _validate_item(item)
+        except Exception as exc:  # pragma: no cover — defensive
+            binding_metrics["validate_drop"] += 1
+            logger.warning(
+                "[extract][binding][validate_error] fieldPath=%r error=%s",
+                normalized_path,
+                exc,
+            )
+            continue
+
+        if validated is None:
+            binding_metrics["validate_drop"] += 1
+            logger.info(
+                "[extract][binding][drop_after_validate] fieldPath=%r value=%r",
+                normalized_path,
+                str(item.get("value"))[:60],
+            )
+            continue
+
+        # _validate_item returns a fresh dict with normalized keys (fieldPath,
+        # value, confidence). Merge SPANTAG/binding metadata back so downstream
+        # consumers (scorer audit, future surfacers) keep the provenance.
+        for meta_key in (
+            "_spantag_priority",
+            "_spantag_source_span",
+            "_spantag_source_tag_ids",
+            "_spantag_disagreement_reason",
+            "_spantag_alt_path_section_driven",
+            "_binding_original_path",
+            "_binding_reason",
+        ):
+            if meta_key in item and meta_key not in validated:
+                validated[meta_key] = item[meta_key]
+
+        items.append(validated)
+
+    # WO-EX-BINDING-01 PATCH 4 — single-line metrics summary for one-grep audit.
+    logger.info(
+        "[extract][binding][metrics] input=%d emitted=%d "
+        "remap=%d passthrough=%d "
+        "reject_overnest=%d reject_invented_namespace=%d reject_invented_root=%d "
+        "reject_ordinal=%d reject_empty=%d "
+        "validate_drop=%d",
+        binding_metrics["input"],
+        len(items),
+        binding_metrics["remap"],
+        binding_metrics["passthrough"],
+        binding_metrics["reject_overnest"],
+        binding_metrics["reject_invented_namespace"],
+        binding_metrics["reject_invented_root"],
+        binding_metrics["reject_ordinal"],
+        binding_metrics["reject_empty"],
+        binding_metrics["validate_drop"],
+    )
 
     return items
 
