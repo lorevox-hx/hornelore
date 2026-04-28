@@ -3591,12 +3591,19 @@ _SPANTAG_OVERNEST_PREFIXES: tuple = (
     "marriage.",  # marriage.X → use family.marriageDate / family.marriagePlace canonical
 )
 
-# Invented namespace prefixes — narrator-family-surname appended as a section
-# (e.g. shong_family.*, horne_family.*, parton_family.*). Hard reject; semantic
-# remap to the appropriate canonical branch needs knowledge of which narrator's
-# family the prefix refers to.
+# Invented namespace prefixes — narrator-family-surname or narrator-relation
+# appended as a section (e.g. shong_family.*, horne_family.*, mother_stories.*,
+# father_memories.*). Hard reject; semantic remap to the appropriate canonical
+# branch (parents.X, grandparents.X) needs narrator-context awareness — that's
+# BINDING-02 scope. Reject + log here so the metrics counter attributes
+# cleanly instead of these falling through to validate_drop.
+#
+# 2026-04-28 micro-patch: extended to catch *_stories / *_memories observed in
+# r5g-binding probe (case_075 emitted 8 paths under mother_stories.* — all
+# previously falling through to validate_drop because regex only caught
+# family|line|ancestry|history|tree suffixes).
 _SPANTAG_INVENTED_NAMESPACE_RE = re.compile(
-    r"^[a-z][a-z]+_(family|line|ancestry|history|tree)(\.|$)",
+    r"^[a-z][a-z]+_(family|line|ancestry|history|tree|stories|memories)(\.|$)",
     re.IGNORECASE,
 )
 
@@ -4179,6 +4186,20 @@ def _validate_item(item: Any) -> Optional[dict]:
             "family.occupation": "parents.occupation",
             "family.sibling": "siblings.relation",
             "family.brother": "siblings.relation", "family.sister": "siblings.relation",
+            # WO-EX-BINDING-01 micro-patch (2026-04-28) — aliases observed in
+            # r5g-binding-probe-7cases.json validate_drop log entries. All add
+            # canonical destinations for 3-segment family.brother/sister/children
+            # paths the LLM emits but that the existing _FIELD_ALIASES table
+            # only covered at 2 segments.
+            "family.brother.name":           "siblings.firstName",
+            "family.brother.relation":       "siblings.relation",
+            "family.sister.name":            "siblings.firstName",
+            "family.sister.relation":        "siblings.relation",
+            "family.children.birthDate":     "family.children.dateOfBirth",
+            "family.children.birthLocation": "family.children.placeOfBirth",
+            "family.children.birthplace":    "family.children.placeOfBirth",
+            "family.children.birthPlace":    "family.children.placeOfBirth",
+            "child.name":                    "family.children.firstName",
             # WO-EX-SCHEMA-01 — aliases for new field families
             "children.firstName": "family.children.firstName",
             "children.lastName": "family.children.lastName",
