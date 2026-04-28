@@ -462,12 +462,12 @@ window._lvNarratorPaintIdentity = _lvNarratorPaintIdentity;
 
 /** Return the current narrator view name. */
 function lvNarratorCurrentView() {
-  return (state && state.session && state.session.narratorView) || "river";
+  return (state && state.session && state.session.narratorView) || "map";
 }
 
 /** Switch narrator-room view. */
 function lvNarratorShowView(view) {
-  if (!["river", "map", "photos", "memoir"].includes(view)) return;
+  if (!["map", "photos", "memoir"].includes(view)) return;
   if (!state.session) state.session = {};
   state.session.narratorView = view;
   // Paint tab active state.
@@ -478,7 +478,6 @@ function lvNarratorShowView(view) {
   });
   // Render view content.
   switch (view) {
-    case "river":  _lvNarratorRenderRiver();  break;
     case "map":    _lvNarratorRenderMap();    break;
     case "photos": _lvNarratorRenderPhotos(); break;
     case "memoir": _lvNarratorRenderMemoir(); break;
@@ -487,52 +486,10 @@ function lvNarratorShowView(view) {
 window.lvNarratorShowView = lvNarratorShowView;
 
 /* ── View renderers ──────────────────────────────────────────────
-   All renderers write into #lvNarratorViewHost.  Kawa + Life Map +
-   Memoir reuse existing popovers via a "Open full" CTA; Phase 1
-   minimal-slice per the WO's acceptable fallback. */
-
-function _lvNarratorRenderRiver() {
-  const host = document.getElementById("lvNarratorViewHost");
-  if (!host) return;
-  const segs = (state.kawa && Array.isArray(state.kawa.segmentList)) ? state.kawa.segmentList : [];
-  const activeId = state.kawa && state.kawa.activeSegmentId;
-  let body = `
-    <h3 class="lv-narrator-view-head">Memory River</h3>
-    <p class="lv-narrator-view-lede">Your life in the shape of a river — pick a stretch and tell Lori about it.</p>
-  `;
-  if (!segs.length) {
-    body += `<p class="lv-narrator-view-empty">Your river is still filling in. Keep talking — Lori is listening.</p>`;
-  } else {
-    body += `<div class="lv-narrator-segment-list" role="list">`;
-    segs.slice(0, 12).forEach((s) => {
-      const sid = s.segment_id || s.id || "";
-      const label = (s.anchor && (s.anchor.label || s.anchor.era)) || s.title || s.label || "Unnamed stretch";
-      const sub = (s.anchor && s.anchor.years) ? s.anchor.years :
-                  (s.anchor && s.anchor.age_range) ? `Age ${s.anchor.age_range}` : "";
-      const active = sid && activeId === sid ? " is-active" : "";
-      body += `<button type="button" role="listitem" class="lv-narrator-segment-row${active}"
-        onclick="_lvNarratorSelectSegment(${JSON.stringify(sid)})">
-        <span class="lv-narrator-segment-label">${_lvEscapeHtml(label)}</span>
-        ${sub ? `<span class="lv-narrator-segment-sub">${_lvEscapeHtml(sub)}</span>` : ""}
-      </button>`;
-    });
-    body += `</div>`;
-  }
-  body += `<button type="button" class="lv-narrator-view-cta"
-      onclick="document.getElementById('kawaRiverPopover')?.showPopover?.()">
-      Open full Memory River
-    </button>`;
-  host.innerHTML = body;
-}
-
-function _lvNarratorSelectSegment(sid) {
-  if (!state.kawa) state.kawa = {};
-  state.kawa.activeSegmentId = sid || null;
-  _lvNarratorRenderRiver();
-  // Signal downstream consumers (runtime / prompt composer) — best-effort.
-  try { window.dispatchEvent(new CustomEvent("lv-narrator-segment-change", { detail: { segment_id: sid } })); } catch (_) {}
-}
-window._lvNarratorSelectSegment = _lvNarratorSelectSegment;
+   All renderers write into #lvNarratorViewHost.  Life Map + Memoir
+   reuse existing popovers via a "Open full" CTA. The chronology
+   accordion (#crAccordionCol) on the LEFT side of the chat is the
+   primary timeline surface — Memory River was removed. */
 
 function _lvNarratorRenderMap() {
   const host = document.getElementById("lvNarratorViewHost");
@@ -598,77 +555,58 @@ function _lvInterviewPeriods() {
   return periods.filter(p => p && typeof p.label === "string" && p.label.trim() !== "");
 }
 
-function _lvInterviewMemoriesForPeriod(period) {
-  if (typeof state === "undefined") return [];
-  const memories = (state.timeline && Array.isArray(state.timeline.memories))
-    ? state.timeline.memories : [];
-  const start = Number(period.start_year);
-  const end   = period.end_year != null ? Number(period.end_year) : null;
-  if (!isFinite(start)) return [];
-  return memories.filter(m => {
-    const yr = _lvInterviewYearOf(m);
-    if (yr == null) return false;
-    if (end == null) return yr >= start;
-    return yr >= start && yr <= end;
-  });
-}
-
-function _lvInterviewRenderTimeline() {
-  const host = document.getElementById("lvInterviewTimeline");
-  if (!host) return;
-  const periods = _lvInterviewPeriods();
-  const activeId = (state.session && state.session.activeFocusEra) || null;
-
-  let body = `<h3 class="lv-interview-timeline-head">Timeline (Era)</h3>`;
-
-  if (!periods.length) {
-    body += `<p class="lv-interview-timeline-empty">Lori is listening. As you tell her about times in your life, eras will appear here.</p>`;
-  } else {
-    periods.forEach((p) => {
-      const eid = "era:" + p.label;
-      const active = (activeId === eid) ? " is-active" : "";
-      const memories = _lvInterviewMemoriesForPeriod(p);
-      const range = (p.start_year && p.end_year) ? (p.start_year + " – " + p.end_year)
-                  : (p.start_year ? (p.start_year + " – present") : "");
-      body += `<div class="lv-interview-timeline-era${active}"
-                    onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
-        <div class="lv-interview-timeline-era-title">${_lvEscapeHtml(p.label)}</div>
-        ${range ? `<div style="font-size:11px;color:#94a3b8;">${_lvEscapeHtml(range)}</div>` : ""}`;
-      memories.slice(0, 6).forEach((m) => {
-        const yr = _lvInterviewYearOf(m);
-        const title = m.title || m.label || m.name ||
-          (m.description ? String(m.description).slice(0, 48) : "Memory");
-        body += `<div class="lv-interview-timeline-marker">${yr ? _lvEscapeHtml(yr + "") + " - " : ""}${_lvEscapeHtml(title)}</div>`;
-      });
-      body += `</div>`;
-    });
-  }
-
-  host.innerHTML = body;
-}
-
 function _lvInterviewRenderLifeMap() {
   const host = document.getElementById("lvInterviewLifeMap");
   if (!host) return;
   const periods = _lvInterviewPeriods();
   const activeId = (state.session && state.session.activeFocusEra) || null;
 
-  let body = `<h3 class="lv-interview-lifemap-head">Life Map</h3>`;
-  if (!periods.length) {
-    body += `<p class="lv-interview-timeline-empty" style="padding:0 4px;">No eras yet.</p>`;
-  } else {
-    periods.forEach((p) => {
-      const eid = "era:" + p.label;
-      const active = (activeId === eid) ? " is-active" : "";
-      body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
-                       onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
-        ${_lvEscapeHtml(p.label)}
-      </button>`;
-    });
-  }
+  // Default era buckets when narrator's spine.periods isn't populated yet.
+  // Matches the era-axis architecture mockup so the column is never empty
+  // even on a fresh narrator. Real periods overlay these labels when they
+  // arrive in state.timeline.spine.periods.
+  const defaultEras = [
+    "Earliest Years",
+    "Early School Years",
+    "Adolescence",
+    "Coming of Age",
+    "Building Years",
+    "Later Years",
+  ];
+  const eraLabels = periods.length ? periods.map(p => p.label) : defaultEras;
 
+  let body = `<h3 class="lv-interview-lifemap-head">Life Map</h3>`;
+  eraLabels.forEach((label) => {
+    const eid = "era:" + label;
+    const active = (activeId === eid) ? " is-active" : "";
+    body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
+                     onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
+      ${_lvEscapeHtml(label)}
+    </button>`;
+  });
+
+  // Today anchor — clickable, fires the same focus event as the era buttons.
+  // Phase 1 leaves the downstream consumer free to use eraId="era:today" as
+  // a present-day focus hint for the composer.
+  const todayActive = (activeId === "era:today") ? " is-active" : "";
   body += `<h3 class="lv-interview-lifemap-today-head">Today</h3>
-    <div class="lv-interview-lifemap-today">Today</div>`;
+    <button type="button" class="lv-interview-lifemap-era-btn${todayActive}"
+            onclick="_lvInterviewSelectEra('era:today')">
+      Today
+    </button>`;
+
+  // Inline Peek-at-Memoir card — replaces the bottom-right floater.
+  // Sits below the Life Map column so the right-side surface in both
+  // narrator-session and interview-mode views matches Chris's mockup
+  // (Life Map era buttons + Today + Peek card stacked vertically).
+  body += `<div class="lv-interview-peek-inline">
+    <div class="lv-interview-peek-floater-title">Peek at Memoir</div>
+    <div class="lv-interview-peek-floater-body" id="lvInterviewPeekFloaterBody">"Your story will appear here as you tell it…"</div>
+    <button type="button" class="lv-interview-peek-floater-btn"
+            onclick="document.getElementById('memoirScrollPopover')?.showPopover?.()">
+      Open memoir
+    </button>
+  </div>`;
 
   host.innerHTML = body;
 }
@@ -683,8 +621,8 @@ function _lvInterviewActiveFocusLabel(eraId) {
 function _lvInterviewSelectEra(eid) {
   if (!state.session) state.session = {};
   state.session.activeFocusEra = eid || null;
-  // Re-render both columns to update the active highlight.
-  _lvInterviewRenderTimeline();
+  // Re-render life-map column to update the active highlight (timeline
+  // is now the chronology accordion which manages its own highlights).
   _lvInterviewRenderLifeMap();
   // Update Active Focus header.
   const valEl = document.getElementById("lvInterviewActiveFocusValue");
@@ -700,12 +638,13 @@ window._lvInterviewSelectEra = _lvInterviewSelectEra;
 function lvEnterInterviewMode() {
   document.body.classList.add("lv-interview-mode-active");
   // Make hidden=false so CSS display rules can take over.
-  ["lvInterviewTimeline", "lvInterviewLifeMap", "lvInterviewActiveFocus", "lvInterviewPeekFloater"].forEach((id) => {
+  // (Timeline column is the chronology accordion, which is always visible
+  //  via CSS now — no need to toggle its hidden attribute here.)
+  ["lvInterviewLifeMap", "lvInterviewActiveFocus", "lvInterviewPeekFloater"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.removeAttribute("hidden");
   });
-  // Initial render of both columns.
-  _lvInterviewRenderTimeline();
+  // Initial render of life-map column.
   _lvInterviewRenderLifeMap();
   // Set Active Focus from current state (if any) or default.
   const valEl = document.getElementById("lvInterviewActiveFocusValue");
@@ -720,7 +659,7 @@ window.lvEnterInterviewMode = lvEnterInterviewMode;
 
 function lvExitInterviewMode() {
   document.body.classList.remove("lv-interview-mode-active");
-  ["lvInterviewTimeline", "lvInterviewLifeMap", "lvInterviewActiveFocus", "lvInterviewPeekFloater"].forEach((id) => {
+  ["lvInterviewLifeMap", "lvInterviewActiveFocus", "lvInterviewPeekFloater"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.setAttribute("hidden", "");
   });
@@ -1080,14 +1019,18 @@ function _lvNarratorStopPaintTick() {
 function lvNarratorRoomInit() {
   _lvNarratorPaintIdentity();
   _lvNarratorPaintControls();
-  // Kawa segments may already be preloaded; if not, kick off a refresh.
+  // (Memory River removed — chronology accordion is the timeline surface.
+  //  Kawa segments are still loaded for the popover, but no view-tab depends
+  //  on them anymore.)
   if (typeof kawaRefreshList === "function" &&
       state.kawa && (!state.kawa.segmentList || !state.kawa.segmentList.length)) {
-    kawaRefreshList().catch(() => {}).finally(() => {
-      if (lvNarratorCurrentView() === "river") _lvNarratorRenderRiver();
-    });
+    kawaRefreshList().catch(() => {});
   }
-  lvNarratorShowView(lvNarratorCurrentView() || "river");
+  lvNarratorShowView(lvNarratorCurrentView() || "map");
+  // WO-INTERVIEW-MODE-01 Phase 2 — render the Life Map column on the right.
+  // Always visible in narrator room (both regular session view AND interview
+  // mode), so this fires on every room init.
+  if (typeof _lvInterviewRenderLifeMap === "function") _lvInterviewRenderLifeMap();
   // Anchor chat at latest when entering the room.
   setTimeout(() => lvNarratorScrollToBottom(true), 40);
   // Reset photo cache on narrator change so the next "photos" view refetches.

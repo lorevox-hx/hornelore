@@ -1001,9 +1001,10 @@ mark.fragment-fact {
   .lv-narrator-view-host { flex-basis: 200px; min-width: 180px; padding: 14px 12px; }
 }
 
-/* Inside the narrator room the chronology accordion column is hidden;
-   Memory River (view-host) is the narrator-facing timeline surface. */
-#lvNarratorRoom #crAccordionCol { display: none !important; }
+/* The chronology accordion is the timeline surface on the LEFT side of
+   the narrator room AND in interview mode. Memory River was previously
+   the timeline surface but is removed (single source of truth). */
+/* (Previous rule that hid #crAccordionCol in narrator room is removed.) */
 
 /* ── Context panel blocks ──────────────────────────────────────── */
 .lv-narrator-ctx-header {
@@ -1448,22 +1449,40 @@ mark.fragment-fact {
      - memoir cream     #fef3c7                      Peek floater bg
    ─────────────────────────────────────────────────────────────────────── */
 
-/* Hide operator chrome when interview mode is active. */
-body.lv-interview-mode-active #lvShellTabs,
-body.lv-interview-mode-active .lv-narrator-view-tabs,
-body.lv-interview-mode-active #lvNarratorViewHost,
-body.lv-interview-mode-active #lvNarratorContextPanel {
+/* WO-INTERVIEW-MODE-01 Phase 2: unified narrator-room layout.
+   The view-host (Memory River / Life Map / Photos / Peek tabs) and the
+   Right Now context-panel are deprecated. Both narrator-session view
+   AND interview mode now share the same 3-column layout: chronology
+   accordion (LEFT) + chat (CENTER) + Life Map column (RIGHT, with
+   Today + inline Peek-at-Memoir card). The body.lv-interview-mode-active
+   class only toggles operator-shell-tab visibility + the Active Focus
+   header on top of chat. */
+
+/* The view-host tabs strip and tab-host content panel are hidden in
+   the narrator room ALWAYS. The Life Map column on the right replaces
+   them. */
+.lv-narrator-view-tabs,
+#lvNarratorViewHost,
+#lvNarratorContextPanel {
   display: none !important;
 }
 
-/* Reveal the interview-mode columns. */
-body.lv-interview-mode-active #lvInterviewTimeline,
-body.lv-interview-mode-active #lvInterviewLifeMap,
-body.lv-interview-mode-active #lvInterviewActiveFocus,
-body.lv-interview-mode-active #lvInterviewPeekFloater {
+/* The Life Map column on the right is visible ALWAYS in the narrator
+   room. Same for the chronology accordion on the left (already visible
+   per the rule we removed earlier). */
+#lvInterviewLifeMap {
   display: flex !important;
 }
-body.lv-interview-mode-active #lvInterviewActiveFocus { display: flex !important; }
+
+/* Operator shell tabs hide only when interview mode is on. */
+body.lv-interview-mode-active #lvShellTabs {
+  display: none !important;
+}
+
+/* Active Focus header shows only in interview mode. */
+body.lv-interview-mode-active #lvInterviewActiveFocus {
+  display: flex !important;
+}
 
 /* Timeline column (LEFT) — era-grouped list. Width matches the
    view-host so the layout doesn't jump on enter/exit. */
@@ -1528,9 +1547,10 @@ body.lv-interview-mode-active #lvInterviewActiveFocus { display: flex !important
   line-height: 1.5;
 }
 
-/* Life Map column (RIGHT). */
+/* Life Map column (RIGHT). Always visible in narrator room (Phase 2
+   unified layout). */
 .lv-interview-lifemap {
-  display: none;
+  display: flex;
   flex-direction: column;
   flex: 0 0 280px;
   max-width: 320px;
@@ -1630,11 +1650,33 @@ body.lv-interview-mode-active #lvInterviewActiveFocus { display: flex !important
   border-color: #fbbf24;
 }
 
-/* Peek-at-Memoir floater — fixed bottom-right when interview mode is on. */
+/* Peek-at-Memoir card — INLINE inside the Life Map column (RIGHT)
+   in Phase 2. Was previously a fixed-positioned floater; moved into
+   the column so the right-side surface matches the mockup
+   (Life Map + Today + Peek stacked vertically). The old floater
+   element (#lvInterviewPeekFloater) is no longer used. */
+.lv-interview-peek-inline {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: #fef3c7;
+  color: #1e293b;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Legacy fixed-position floater rules (kept for back-compat in case any
+   existing JS or CSS still references the old #lvInterviewPeekFloater
+   element — it stays hidden by display:none below, since the inline
+   card replaces it). */
 .lv-interview-peek-floater {
-  display: none;
+  display: none !important;
   position: fixed;
-  bottom: 80px;          /* clears the bottom controls bar */
+  bottom: 80px;
   right: 18px;
   width: 280px;
   flex-direction: column;

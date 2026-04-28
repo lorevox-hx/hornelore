@@ -3179,11 +3179,8 @@
     </header>
 
     <nav class="lv-narrator-view-tabs" role="tablist" aria-label="Narrator views">
-      <button type="button" data-view="river"  role="tab" aria-selected="true"
+      <button type="button" data-view="map"    role="tab" aria-selected="true"
               class="lv-narrator-view-tab lv-narrator-view-tab-active"
-              onclick="lvNarratorShowView('river')">Memory River</button>
-      <button type="button" data-view="map"    role="tab" aria-selected="false"
-              class="lv-narrator-view-tab"
               onclick="lvNarratorShowView('map')">Life Map</button>
       <button type="button" data-view="photos" role="tab" aria-selected="false"
               class="lv-narrator-view-tab"
@@ -3223,13 +3220,11 @@
       <aside id="lvNarratorViewHost" class="lv-narrator-view-host" role="tabpanel"
              aria-label="Narrator view content"></aside>
 
-      <!-- WO-INTERVIEW-MODE-01 Phase 1: Timeline column (LEFT). Era-grouped
-           list of life periods + their year-marker memories. Hidden unless
-           body.lv-interview-mode-active is on. Populated by
-           lvInterviewRenderTimeline() from state.timeline.spine.periods +
-           state.timeline.memories — same data source as Life Map. -->
-      <aside id="lvInterviewTimeline" class="lv-interview-timeline" hidden
-             aria-label="Interview timeline"></aside>
+      <!-- WO-INTERVIEW-MODE-01 Phase 1: LEFT column in interview mode is
+           the existing chronology accordion (#crAccordionCol inside the
+           chat layout) — no separate timeline element. Memory River was
+           removed; the accordion is the single timeline surface. -->
+
 
       <section id="lvNarratorConversation" class="lv-narrator-conversation">
 
@@ -3338,14 +3333,15 @@
         </div>
       </aside>
 
-      <!-- WO-INTERVIEW-MODE-01 Phase 1: Life Map column (RIGHT). Era buttons
-           + Today anchor at the bottom. Hidden unless body.lv-interview-mode-active
-           is on. Populated by lvInterviewRenderLifeMap(). Click on an era
-           button sets state.session.activeFocusEra and dispatches
+      <!-- WO-INTERVIEW-MODE-01 Phase 2: Life Map column (RIGHT). Era buttons
+           + Today anchor + inline Peek-at-Memoir card. ALWAYS visible in
+           the narrator room (Phase 2 unified layout). Populated by
+           _lvInterviewRenderLifeMap(). Click on an era button or Today
+           sets state.session.activeFocusEra and dispatches
            lv-interview-focus-change so the Active Focus header + center
            column stay in sync. -->
-      <aside id="lvInterviewLifeMap" class="lv-interview-lifemap" hidden
-             aria-label="Interview life map"></aside>
+      <aside id="lvInterviewLifeMap" class="lv-interview-lifemap"
+             aria-label="Life map"></aside>
 
     </div><!-- /lv-narrator-main -->
   </div><!-- /lvNarratorRoom -->
