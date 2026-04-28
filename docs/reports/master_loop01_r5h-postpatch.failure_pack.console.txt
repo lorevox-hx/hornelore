@@ -1,0 +1,62 @@
+==============================================================================
+  FAILURE PACK — eval_tag=r5h-postpatch
+==============================================================================
+  total: 104   passed: 70   failed: 34
+
+  Failure categories:
+    schema_gap                        14   [case_002, case_024, case_028, case_033, case_039, case_044...]
+    llm_hallucination                 13   [case_002, case_014, case_024, case_027, case_037, case_042...]
+    field_path_mismatch                7   [case_014, case_020, case_035, case_044, case_048, case_058...]
+    defensible_alt_credit              3   [case_033, case_039, case_087]
+    noise_leakage                      3   [case_078, case_093, case_104]
+    guard_false_positive               2   [case_035, case_093]
+    defensible_alt_value_credit        1   [case_033]
+
+  By narrator (failures):
+    janice-josephine-horne            12
+    christopher-todd-horne            11
+    kent-james-horne                  11
+
+  By phase (failures):
+    developmental_foundations         19
+    midlife                            5
+    early_adulthood                    4
+    transitional_adolescence           3
+    childhood_origins                  1
+    middle_adulthood                   1
+    legacy_reflection                  1
+
+  By era (failures):
+    school_years                      19
+    midlife                            6
+    early_adulthood                    4
+    adolescence                        3
+    early_childhood                    1
+    later_life                         1
+
+  By score bucket (failures):
+    0.00         8
+    0.01-0.24    0
+    0.25-0.49    6
+    0.50-0.69   19
+    0.70+        1
+
+  Hallucination prefix rollup:
+    parents                  offenders= 11  cases= 5
+    family                   offenders= 10  cases= 5
+    siblings                 offenders=  7  cases= 3
+    greatGrandparents        offenders=  5  cases= 1
+    education                offenders=  5  cases= 2
+    grandparents             offenders=  4  cases= 2
+    laterYears               offenders=  2  cases= 1
+    residence                offenders=  1  cases= 1
+
+  must_not_write violations: 2
+    case_035       education.schooling
+    case_093       education.higherEducation
+
+  Cross-axis highlights (biggest cell per grid):
+    narrator×phase           christopher-todd-horne×developmental_foundations             failed=7
+    category×narrator        schema_gap×janice-josephine-horne                            failed=8
+
+==============================================================================
