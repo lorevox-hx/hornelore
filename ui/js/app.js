@@ -467,7 +467,7 @@ function lvNarratorCurrentView() {
 
 /** Switch narrator-room view. */
 function lvNarratorShowView(view) {
-  if (!["river", "map", "photos", "memoir"].includes(view)) return;
+  if (!["river", "map", "era", "photos", "memoir"].includes(view)) return;
   if (!state.session) state.session = {};
   state.session.narratorView = view;
   // Paint tab active state.
@@ -480,6 +480,7 @@ function lvNarratorShowView(view) {
   switch (view) {
     case "river":  _lvNarratorRenderRiver();  break;
     case "map":    _lvNarratorRenderMap();    break;
+    case "era":    _lvNarratorRenderEra();    break;
     case "photos": _lvNarratorRenderPhotos(); break;
     case "memoir": _lvNarratorRenderMemoir(); break;
   }
@@ -547,6 +548,183 @@ function _lvNarratorRenderMap() {
     <p class="lv-narrator-view-empty" style="margin-top:12px;">Full map will live here in the next update (Phase 2).</p>
   `;
 }
+
+/* ─── Era view (Phase 1) ────────────────────────────────────────────
+   Sparse chronological timeline that shares the Life Map's data
+   source (state.timeline.spine.periods + state.timeline.memories).
+   No fixed buckets — populates as dates/months/years are mentioned in
+   conversation, sorted oldest → newest with "Today" anchored at the
+   bottom. Click on a row dispatches lv-narrator-era-change so any
+   listener (Life Map, Lori composer) can sync to that focus.
+   Phase 2 will mint a dedicated era-timeline popover; Phase 1 reuses
+   the Life Map popover via the same "Open full" CTA pattern. */
+
+function _lvNarratorEraEntries() {
+  // Pull the same memory shape Life Map uses, with multi-schema
+  // defensive year extraction (matches life-map.js _yearFromMemory).
+  if (typeof state === "undefined") return [];
+  const memories = (state.timeline && Array.isArray(state.timeline.memories))
+    ? state.timeline.memories : [];
+  const periods = (state.timeline && state.timeline.spine && Array.isArray(state.timeline.spine.periods))
+    ? state.timeline.spine.periods : [];
+
+  const entries = [];
+
+  // Memories — prefer specific date over period.
+  for (let i = 0; i < memories.length; i++) {
+    const m = memories[i];
+    if (!m) continue;
+    const yr = _lvEraYearOf(m);
+    if (yr == null) continue;  // Skip undated for Phase 1; can surface "Undated" group later.
+    const mo = _lvEraMonthOf(m);
+    const title = m.title || m.label || m.name ||
+      (m.description ? String(m.description).slice(0, 60) : null) ||
+      "Memory";
+    entries.push({
+      kind:  "memory",
+      year:  yr,
+      month: mo,                                  // 1..12 or null
+      label: String(title),
+      sub:   m.period_label || m.era || null,
+      id:    m.id || ("mem:" + i),
+      sort:  yr * 100 + (mo || 0),                // year-major, month within
+    });
+  }
+
+  // Periods — use start_year as anchor; treats each period as a single point.
+  for (let i = 0; i < periods.length; i++) {
+    const p = periods[i];
+    if (!p || typeof p.label !== "string" || !p.label.trim()) continue;
+    const start = Number(p.start_year);
+    if (!isFinite(start)) continue;
+    const end = (p.end_year != null && isFinite(Number(p.end_year))) ? Number(p.end_year) : null;
+    entries.push({
+      kind:  "period",
+      year:  start,
+      month: null,
+      label: String(p.label),
+      sub:   end ? (start + " – " + end) : (start + " – present"),
+      id:    "period:" + p.label,
+      sort:  start * 100,                          // periods anchor at month 0 of their start year
+    });
+  }
+
+  // Stable sort oldest → newest. Ties keep insertion order, period rows
+  // tend to come after memories of the same year-month due to push order
+  // above (which is what we want — the period frames the memory).
+  entries.sort((a, b) => a.sort - b.sort);
+  return entries;
+}
+
+function _lvEraYearOf(m) {
+  // Mirrors life-map.js _yearFromMemory exactly so the two views stay aligned.
+  if (!m) return null;
+  const raw = m.year       != null ? m.year
+            : m.start_year != null ? m.start_year
+            : m.ts         != null ? m.ts
+            : m.date       != null ? m.date
+            : m.when       != null ? m.when
+            : null;
+  if (raw == null) return null;
+  if (typeof raw === "number" && isFinite(raw)) return raw;
+  const s = String(raw);
+  const match = s.match(/\b(18|19|20)\d{2}\b/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+function _lvEraMonthOf(m) {
+  // Best-effort month extraction. Looks at m.month, then tries to parse
+  // ISO-ish dates from m.date / m.ts / m.when. Returns 1..12 or null.
+  if (!m) return null;
+  if (typeof m.month === "number" && m.month >= 1 && m.month <= 12) return m.month;
+  if (typeof m.month === "string") {
+    const mn = parseInt(m.month, 10);
+    if (mn >= 1 && mn <= 12) return mn;
+  }
+  // Look for YYYY-MM or Month YYYY patterns in any date-ish field.
+  const candidates = [m.date, m.ts, m.when, m.start_date].filter(v => typeof v === "string");
+  for (const s of candidates) {
+    const iso = s.match(/\b\d{4}-(\d{2})\b/);
+    if (iso) {
+      const mn = parseInt(iso[1], 10);
+      if (mn >= 1 && mn <= 12) return mn;
+    }
+    const named = s.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/i);
+    if (named) {
+      const idx = ["january","february","march","april","may","june","july","august","september","october","november","december"]
+        .indexOf(named[1].toLowerCase());
+      if (idx >= 0) return idx + 1;
+    }
+  }
+  return null;
+}
+
+function _lvEraMonthName(mo) {
+  if (!mo) return "";
+  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return names[mo - 1] || "";
+}
+
+function _lvNarratorRenderEra() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  const entries = _lvNarratorEraEntries();
+  const activeId = (state.session && state.session.activeEraEntryId) || null;
+
+  let body = `
+    <h3 class="lv-narrator-view-head">Era</h3>
+    <p class="lv-narrator-view-lede">Your life on a timeline. Dates and months fill in as you tell Lori about them.</p>
+  `;
+
+  if (!entries.length) {
+    body += `<p class="lv-narrator-view-empty">Lori is listening — your timeline will fill in as you tell her about times in your life.</p>`;
+  } else {
+    body += `<div class="lv-narrator-segment-list" role="list">`;
+    entries.forEach((e) => {
+      const monthLabel = e.month ? (_lvEraMonthName(e.month) + " ") : "";
+      const dateLabel = monthLabel + e.year;
+      const active = (e.id && activeId === e.id) ? " is-active" : "";
+      const subPart = e.sub ? `<span class="lv-narrator-segment-sub">${_lvEscapeHtml(e.sub)}</span>` : "";
+      body += `<button type="button" role="listitem" class="lv-narrator-segment-row${active}"
+        onclick="_lvNarratorSelectEraEntry(${JSON.stringify(e.id)})">
+        <span class="lv-narrator-segment-label">${_lvEscapeHtml(dateLabel)} · ${_lvEscapeHtml(e.label)}</span>
+        ${subPart}
+      </button>`;
+    });
+    body += `</div>`;
+  }
+
+  // "Today" anchor row — always shown so the present is visible at the
+  // bottom of the timeline regardless of how empty the rest is.
+  const todayLabel = (() => {
+    const d = new Date();
+    return _lvEraMonthName(d.getMonth() + 1) + " " + d.getFullYear() + " · Today";
+  })();
+  body += `<div class="lv-narrator-segment-list" role="list" style="margin-top:8px;">
+    <div class="lv-narrator-segment-row" style="opacity:0.7; cursor:default;">
+      <span class="lv-narrator-segment-label">${_lvEscapeHtml(todayLabel)}</span>
+    </div>
+  </div>`;
+
+  body += `<button type="button" class="lv-narrator-view-cta"
+      onclick="document.getElementById('lifeMapPopover')?.showPopover?.()">
+      Open full Life Map
+    </button>`;
+
+  host.innerHTML = body;
+}
+
+function _lvNarratorSelectEraEntry(eid) {
+  if (!state.session) state.session = {};
+  state.session.activeEraEntryId = eid || null;
+  _lvNarratorRenderEra();
+  // Signal downstream consumers — Life Map can listen for this and pan
+  // to the same date; the prompt composer can pick up the focus context.
+  try {
+    window.dispatchEvent(new CustomEvent("lv-narrator-era-change", { detail: { entry_id: eid } }));
+  } catch (_) {}
+}
+window._lvNarratorSelectEraEntry = _lvNarratorSelectEraEntry;
 
 function _lvNarratorRenderMemoir() {
   const host = document.getElementById("lvNarratorViewHost");
