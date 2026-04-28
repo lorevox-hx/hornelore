@@ -33,7 +33,14 @@ _REP_PENALTY_DEFAULT = float(os.getenv("REPETITION_PENALTY_DEFAULT", "1.1"))
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from transformers import TextIteratorStreamer, StoppingCriteriaList
 
-from ..db import export_turns, persist_turn_transaction, clear_turns
+from ..db import (
+    export_turns,
+    persist_turn_transaction,
+    clear_turns,
+    save_segment_flag,
+    increment_session_turn,
+    set_session_softened,
+)
 import torch
 from ..api import _load_model, _apply_chat_template, StopOnEvent, _normalize_role, MAX_CONTEXT_WINDOW
 from ..prompt_composer import compose_system_prompt
@@ -41,6 +48,17 @@ from ..archive import (
     ensure_session as archive_ensure_session,
     append_event as archive_append_event,
     rebuild_txt as archive_rebuild_txt,
+)
+# WO-LORI-SAFETY-INTEGRATION-01 Phase 1 — chat-path safety hook.
+# Mirrors interview.py:269-307 pattern. scan_answer() is the existing
+# pattern detector (50+ regexes, 7 categories, 0.70 threshold, false-positive
+# guards). Phase 1 wires it; Phases 2-4 layer LLM second-layer + operator
+# surface + warm-first prompt block on top.
+from ..safety import (
+    scan_answer,
+    build_segment_flags,
+    get_resources_for_category,
+    set_softened,
 )
 
 router = APIRouter(prefix="/api/chat", tags=["chat-ws"])
@@ -51,6 +69,32 @@ async def _ws_send(ws: WebSocket, obj: Dict[str, Any]) -> None:
         await ws.send_text(json.dumps(obj, ensure_ascii=False))
     except Exception:
         pass
+
+
+async def _safety_notify_operator(
+    *,
+    conv_id: str,
+    category: Optional[str],
+    confidence: float,
+    matched_phrase: Optional[str],
+    turn_excerpt: str,
+) -> None:
+    """WO-LORI-SAFETY-INTEGRATION-01 Phase 1 stub — operator notification.
+
+    Phase 3 will replace this body with a Bug Panel banner broadcast +
+    between-session digest append (see WO §3a/§3b). Phase 1 just needs the
+    call site wired so a working safety event can be emitted end-to-end.
+    Logging at WARNING level so the event surfaces in api.log immediately;
+    operator can grep `[chat_ws][safety][notify]` until Phase 3 lands.
+    """
+    logger.warning(
+        "[chat_ws][safety][notify] conv=%s category=%s confidence=%.2f matched=%r excerpt=%r",
+        conv_id,
+        category or "?",
+        confidence,
+        (matched_phrase or "")[:60],
+        (turn_excerpt or "")[:200],
+    )
 
 
 @router.websocket("/ws")
@@ -148,6 +192,86 @@ async def ws_chat(ws: WebSocket):
                 content=user_text,
                 meta={"ws": True},
             )
+
+        # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 1: chat-path safety scan ─────
+        # Mirrors interview.py:269-307. Runs BEFORE turn_mode dispatch so a
+        # triggered turn cannot be silently routed through memory_echo or
+        # correction composers (which are deterministic and not safety-aware).
+        # On trigger: persist segment flag, set softened mode, emit WS event
+        # for the existing UI overlay (safety-ui.js), notify operator, force
+        # turn_mode to "interview" so the LLM path runs and the ACUTE SAFETY
+        # RULE in prompt_composer.py:108-193 fires. We do NOT short-circuit
+        # the response — Lori still produces a turn, but under safety-side
+        # prompt guidance.
+        if user_text and user_text.strip():
+            try:
+                _safety_result = scan_answer(user_text)
+            except Exception as _safety_exc:
+                logger.warning("[chat_ws][safety] scan failed: %s", _safety_exc)
+                _safety_result = None
+
+            if _safety_result and _safety_result.triggered:
+                logger.warning(
+                    "[chat_ws][safety] triggered conv=%s category=%s confidence=%.2f",
+                    conv_id,
+                    _safety_result.category,
+                    _safety_result.confidence,
+                )
+
+                # Persist segment flag (chat path: question_id=None, section_id=None).
+                try:
+                    _flags = build_segment_flags(_safety_result)
+                    save_segment_flag(
+                        session_id=conv_id,
+                        question_id=None,
+                        section_id=None,
+                        sensitive=_flags.sensitive,
+                        sensitive_category=_flags.sensitive_category or "",
+                        excluded_from_memoir=_flags.excluded_from_memoir,
+                        private=_flags.private,
+                    )
+                except Exception as _seg_exc:
+                    logger.warning("[chat_ws][safety] segment_flag persist failed: %s", _seg_exc)
+
+                # Set softened mode (in-memory + DB), mirroring interview.py.
+                try:
+                    _current_turn = increment_session_turn(conv_id)
+                    set_softened(conv_id, _current_turn)
+                    set_session_softened(conv_id, _current_turn)
+                except Exception as _soft_exc:
+                    logger.warning("[chat_ws][safety] softened persist failed: %s", _soft_exc)
+
+                # Emit safety event to UI for overlay rendering (existing
+                # ui/js/safety-ui.js handler picks this up).
+                try:
+                    await _ws_send(ws, {
+                        "type": "safety_triggered",
+                        "category": _safety_result.category,
+                        "confidence": _safety_result.confidence,
+                        "resources": get_resources_for_category(_safety_result.category),
+                    })
+                except Exception:
+                    pass
+
+                # Notify operator (Phase 1 stub; Phase 3 builds the surface).
+                try:
+                    await _safety_notify_operator(
+                        conv_id=conv_id,
+                        category=_safety_result.category,
+                        confidence=_safety_result.confidence,
+                        matched_phrase=_safety_result.matched_phrase,
+                        turn_excerpt=user_text[:200],
+                    )
+                except Exception as _notify_exc:
+                    logger.warning("[chat_ws][safety] notify failed: %s", _notify_exc)
+
+                # Force turn_mode → "interview" so the LLM path runs and the
+                # ACUTE SAFETY RULE prompt fires. Without this override, a
+                # safety-triggered turn that happened to be flagged as
+                # memory_echo or correction by the UI would skip the LLM
+                # entirely and just echo the distress content back.
+                params["turn_mode"] = "interview"
+        # ── End safety scan ──────────────────────────────────────────────────
 
         # Load once per process (api.py caches globals)
         model, tok = _load_model()
