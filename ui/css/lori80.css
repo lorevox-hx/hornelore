@@ -1631,6 +1631,88 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
   cursor: default;
 }
 
+/* WO-CANONICAL-LIFE-SPINE-01 Step 7: Life Map click confirmation
+   popover. Centered modal with backdrop. Continue/Cancel buttons.
+   The popover is built dynamically and removed on close — no
+   persistent DOM. */
+.lv-interview-confirm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+  animation: lvInterviewConfirmFade 120ms ease-out;
+}
+@keyframes lvInterviewConfirmFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.lv-interview-confirm-modal {
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+  padding: 28px 28px 22px 28px;
+  max-width: 440px;
+  width: calc(100% - 32px);
+  font-family: 'Georgia', 'Times New Roman', serif;
+}
+.lv-interview-confirm-heading {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin: 0 0 6px 0;
+}
+.lv-interview-confirm-era {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 14px 0;
+  letter-spacing: 0.01em;
+}
+.lv-interview-confirm-body {
+  font-size: 15px;
+  line-height: 1.55;
+  color: #334155;
+  margin: 0 0 22px 0;
+  font-style: italic;
+}
+.lv-interview-confirm-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.lv-interview-confirm-btn {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 20px;
+  border-radius: 9px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 100ms ease, border-color 100ms ease;
+}
+.lv-interview-confirm-cancel {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+.lv-interview-confirm-cancel:hover {
+  background: #e2e8f0;
+}
+.lv-interview-confirm-continue {
+  background: #6366f1;
+  color: #ffffff;
+}
+.lv-interview-confirm-continue:hover {
+  background: #4f46e5;
+}
+.lv-interview-confirm-continue:focus-visible,
+.lv-interview-confirm-cancel:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
 /* Active Focus header — sits where the view-tab strip used to be. */
 .lv-interview-active-focus {
   display: none;

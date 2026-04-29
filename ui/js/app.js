@@ -589,18 +589,25 @@ function _lvInterviewRenderLifeMap() {
   let body = `<h3 class="lv-interview-lifemap-head">Life Map</h3>`;
   eraIds.forEach((eid) => {
     const active = (activeId === eid) ? " is-active" : "";
+    // WO-CANONICAL-LIFE-SPINE-01 Step 7: route through the confirmation
+    // popover so a click doesn't silently move Lori. Continue → commit;
+    // Cancel → no state change. _lvInterviewConfirmEra delegates to
+    // _lvInterviewSelectEra on Continue, preserving the canonical-only
+    // write boundary.
     body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
-                     onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
+                     onclick="_lvInterviewConfirmEra(${JSON.stringify(eid)})">
       ${_lvEscapeHtml(_warm(eid))}
     </button>`;
   });
 
   // Today anchor — clickable, fires the same focus event as the era buttons.
-  // Stores the canonical era_id "today" (no era: prefix) on click.
+  // Stores the canonical era_id "today" (no era: prefix) on click. Today
+  // also routes through the confirmation popover (Step 7) so the
+  // present-life bucket can't be selected accidentally either.
   const todayActive = (activeId === "today") ? " is-active" : "";
   body += `<h3 class="lv-interview-lifemap-today-head">Today</h3>
     <button type="button" class="lv-interview-lifemap-era-btn${todayActive}"
-            onclick="_lvInterviewSelectEra('today')">
+            onclick="_lvInterviewConfirmEra('today')">
       Today
     </button>`;
 
@@ -655,6 +662,103 @@ function _lvInterviewSelectEra(eid) {
   } catch (_) {}
 }
 window._lvInterviewSelectEra = _lvInterviewSelectEra;
+
+/**
+ * WO-CANONICAL-LIFE-SPINE-01 Step 7: Life Map click confirmation.
+ * Wraps the era-select action in a small confirmation popover so a
+ * click doesn't silently move Lori. Renders:
+ *
+ *   Lori will now ask about: <warm label>
+ *
+ *   <loriFocus text>
+ *
+ *   [Cancel]  [Continue]
+ *
+ * Continue → calls _lvInterviewSelectEra(eraId) (which canonicalizes
+ * + writes activeFocusEra + dispatches lv-interview-focus-change).
+ * Cancel → no state change, popover closes.
+ *
+ * Canonicalizes eraId at the boundary so stray legacy/era:prefix/
+ * label inputs from any caller still resolve to a bare canonical
+ * era_id before the popover renders.
+ */
+function _lvInterviewConfirmEra(eid) {
+  const canonical = (typeof _canonicalEra === "function") ? _canonicalEra(eid) : eid;
+  if (!canonical) return;
+
+  const E = window.LorevoxEras || {};
+  const warmLabel = (typeof E.eraIdToWarmLabel === "function") ? (E.eraIdToWarmLabel(canonical) || canonical) : canonical;
+  const focus     = (typeof E.eraIdToLoriFocus === "function") ? (E.eraIdToLoriFocus(canonical) || "") : "";
+
+  // Build the popover dynamically — single-shot, removed on close.
+  // No persistent DOM bloat. Backdrop click + Esc both cancel.
+  const overlay = document.createElement("div");
+  overlay.className = "lv-interview-confirm-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "lvInterviewConfirmHeading");
+
+  const modal = document.createElement("div");
+  modal.className = "lv-interview-confirm-modal";
+
+  const heading = document.createElement("div");
+  heading.id = "lvInterviewConfirmHeading";
+  heading.className = "lv-interview-confirm-heading";
+  heading.textContent = "Lori will now ask about:";
+
+  const eraName = document.createElement("div");
+  eraName.className = "lv-interview-confirm-era";
+  eraName.textContent = warmLabel;
+
+  const focusBody = document.createElement("p");
+  focusBody.className = "lv-interview-confirm-body";
+  focusBody.textContent = focus
+    ? focus.charAt(0).toUpperCase() + focus.slice(1) + "."
+    : "Lori will gently shift the conversation to this part of your story.";
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "lv-interview-confirm-btn-row";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "lv-interview-confirm-btn lv-interview-confirm-cancel";
+  cancelBtn.textContent = "Cancel";
+
+  const continueBtn = document.createElement("button");
+  continueBtn.type = "button";
+  continueBtn.className = "lv-interview-confirm-btn lv-interview-confirm-continue";
+  continueBtn.textContent = "Continue";
+
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(continueBtn);
+  modal.appendChild(heading);
+  modal.appendChild(eraName);
+  modal.appendChild(focusBody);
+  modal.appendChild(btnRow);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // Close handlers — only Continue commits state.
+  function close(commit) {
+    document.removeEventListener("keydown", onKey);
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (commit) _lvInterviewSelectEra(canonical);
+  }
+  function onKey(e) {
+    if (e.key === "Escape") { e.preventDefault(); close(false); }
+    else if (e.key === "Enter") { e.preventDefault(); close(true); }
+  }
+
+  cancelBtn.addEventListener("click", () => close(false));
+  continueBtn.addEventListener("click", () => close(true));
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(false); });
+  document.addEventListener("keydown", onKey);
+
+  // Focus Continue by default so Enter commits, Esc cancels —
+  // standard accessibility default for a confirmation dialog.
+  setTimeout(() => continueBtn.focus(), 0);
+}
+window._lvInterviewConfirmEra = _lvInterviewConfirmEra;
 
 function lvEnterInterviewMode() {
   document.body.classList.add("lv-interview-mode-active");
