@@ -551,59 +551,155 @@ def compose_memory_echo(
 ) -> str:
     """Build a deterministic structured read-back from current runtime state.
 
-    This is the smallest viable Memory Echo — reads from runtime71 fields
-    that the UI already sends. No LLM call. No hallucination possible.
+    This is the Memory Echo composer — reads from runtime71 fields that the
+    UI already sends. No LLM call. No hallucination possible.
+
+    WO-LORI-SESSION-AWARENESS-01 Phase 1a improvement (2026-04-29):
+    - Surfaces speaker_name in the Identity body (was only in heading).
+    - Renders explicit "(not on record yet)" per missing field instead of
+      silent omission, so narrator can SEE the gap by name. Closes the
+      "Lori said 'uncertain' for facts I just told her" trust gap that
+      surfaced in the 2026-04-28 Christopher live test.
+    - Added profile_seed surface — when buildRuntime71 threads through any
+      of childhood_home / parents_work / heritage / education / military
+      / career / partner / children / life_stage, those render too. (Path
+      exists for when the upstream wiring lands per Phase 1b.)
+    - Family section: shows count when projection has entries but no names
+      ("I see 2 parents on file but no names yet"), preserving the trust
+      signal even before extraction surfaces specific values.
+    - Footer line names the data sources used so the narrator knows where
+      what's-known came from. Transparency over confidence.
+
+    Phase 1b (deferred to WO-LORI-SESSION-AWARENESS-01 Phase 1 proper):
+    - New read path into Peek-at-Memoir scaffold + the structured memoir
+      sections (so children, spouse, education, places all appear from
+      the canonical 7-section memoir spine when populated).
+    - Full Bio Builder questionnaire enrichment of runtime71 (the data
+      exists at /api/bio-builder/questionnaire but isn't threaded today).
+    - 4-source priority: profile / promoted truth / session transcript /
+      Peek-at-Memoir scaffold.
     """
     runtime = runtime or {}
 
-    speaker_name = runtime.get("speaker_name") or "you"
+    speaker_name = (runtime.get("speaker_name") or "").strip() or "you"
     dob = runtime.get("dob") or None
     pob = runtime.get("pob") or None
     projection_family = runtime.get("projection_family") or {}
+    profile_seed = runtime.get("profile_seed") or {}
 
     parents = projection_family.get("parents") or []
     siblings = projection_family.get("siblings") or []
+
+    # Track which sources contributed so we can name them in the footer.
+    sources_used = []
+    if dob or pob or speaker_name != "you":
+        sources_used.append("profile")
+    if parents or siblings:
+        sources_used.append("interview projection")
+    seed_has_value = any((profile_seed.get(k) or "").strip() for k in profile_seed
+                        if isinstance(profile_seed.get(k), str))
+    if seed_has_value:
+        sources_used.append("session notes")
 
     lines = [
         f"What I know about {speaker_name} so far:",
         "",
         "Identity",
-        _fmt_line("Date of birth", dob),
-        _fmt_line("Place of birth", pob),
-        "",
-        "Confidence",
-        "- Confirmed facts come from profile or direct correction.",
-        "- Working drafts come from interview projection and may still need correction.",
+    ]
+
+    # Speaker name surfaced in body (not just heading) when known and not
+    # the generic "you" fallback — narrator should see their own name
+    # echoed back, not just the prompt phrasing.
+    if speaker_name and speaker_name != "you":
+        lines.append(f"- Name: {speaker_name}")
+    else:
+        lines.append("- Name: (not on record yet)")
+    lines.append(_fmt_line_explicit("Date of birth", dob))
+    lines.append(_fmt_line_explicit("Place of birth", pob))
+
+    lines.extend([
         "",
         "Family",
-    ]
+    ])
 
     if parents:
         for p in parents:
             label = (p.get("relation") or "Parent").strip() or "Parent"
-            name = (p.get("name") or "").strip() or "unknown"
+            name = (p.get("name") or "").strip()
             occ = (p.get("occupation") or "").strip()
             extra = f" ({occ})" if occ else ""
-            lines.append(f"- {label}: {name}{extra}")
+            if name:
+                lines.append(f"- {label}: {name}{extra}")
+            else:
+                # Projection has the slot but no name yet — say so explicitly.
+                lines.append(f"- {label}: (on file, name not yet captured){extra}")
     else:
-        lines.append("- Parents: uncertain")
+        lines.append("- Parents: (none on record yet)")
 
     if siblings:
         for s in siblings:
             label = (s.get("relation") or "Sibling").strip() or "Sibling"
-            name = (s.get("name") or "").strip() or "unknown"
-            lines.append(f"- {label}: {name}")
+            name = (s.get("name") or "").strip()
+            if name:
+                lines.append(f"- {label}: {name}")
+            else:
+                lines.append(f"- {label}: (on file, name not yet captured)")
     else:
-        lines.append("- Siblings: uncertain")
+        lines.append("- Siblings: (none on record yet)")
+
+    # WO-LORI-SESSION-AWARENESS-01 Phase 1a — render any profile_seed
+    # values that are populated. The seed is part of runtime71 today
+    # (visible in [Lori 7.1] runtime71 log lines) but most fields are
+    # null in current builds. When upstream wiring (Phase 1b) starts
+    # populating them, the read path is already here.
+    seed_lines = []
+    seed_labels = {
+        "childhood_home": "Childhood home",
+        "parents_work": "Parents' work",
+        "heritage": "Heritage",
+        "education": "Education",
+        "military": "Military service",
+        "career": "Career",
+        "partner": "Partner",
+        "children": "Children",
+        "life_stage": "Life stage",
+    }
+    for key, label in seed_labels.items():
+        val = profile_seed.get(key)
+        if isinstance(val, str) and val.strip():
+            seed_lines.append(f"- {label}: {val.strip()}")
+        elif isinstance(val, list) and val:
+            seed_lines.append(f"- {label}: {', '.join(str(x) for x in val if x)}")
+
+    if seed_lines:
+        lines.extend(["", "Notes from our conversation"])
+        lines.extend(seed_lines)
 
     lines.extend([
         "",
         "What I'm less sure about",
-        "- Some family, work, and timeline details are still working drafts unless you correct or confirm them.",
+        "- Anything marked '(not on record yet)' or '(name not yet captured)' — say it and I'll keep it as a working draft until you confirm.",
+        "- Working drafts come from our conversation. Confirmed facts come from your profile.",
         "",
-        "You can correct anything that is wrong, missing, or too vague. One correction at a time works best."
     ])
+
+    if sources_used:
+        lines.append(f"(Based on: {', '.join(sources_used)}.)")
+    else:
+        lines.append("(I don't have anything on record for you yet — would you like to start with your name?)")
+
+    lines.append("")
+    lines.append("You can correct anything that is wrong, missing, or too vague. One correction at a time works best.")
     return "\n".join(lines)
+
+
+def _fmt_line_explicit(label: str, value: Any) -> str:
+    """Like _fmt_line but always emits the label with explicit '(not on record yet)'
+    when the value is empty — so the narrator sees the gap rather than silent omission.
+    Used by the WO-LORI-SESSION-AWARENESS-01 Phase 1a memory-echo upgrade."""
+    if value is None or value == "":
+        return f"- {label}: (not on record yet)"
+    return f"- {label}: {value}"
 
 
 def compose_correction_ack(
