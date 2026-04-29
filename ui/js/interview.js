@@ -15,10 +15,18 @@ function renderRoadmap(){
   const periods = getCurrentLifePeriods();
 
   if(periods.length){
-    // v7.1 path — render life period spine
+    // v7.1 path — render life period spine.
+    // WO-CANONICAL-LIFE-SPINE-01 Step 3c: compare and write canonical
+    // era_id, never the period label. p.era_id is preferred when the
+    // backing spine row carries it; otherwise we route p.label through
+    // _canonicalEra() so transitional or warm-label inputs still
+    // normalize to a bare canonical id before reaching state.
     const currentEra = getCurrentEra();
     periods.forEach(p=>{
-      const isActive = currentEra === p.label;
+      const eraId = (typeof _canonicalEra === "function")
+        ? _canonicalEra(p.era_id || p.label)
+        : (p.era_id || p.label);
+      const isActive = currentEra === eraId;
       const d=document.createElement("div");
       d.className="roadmap-item"+(isActive?" active-section":"");
       const yearRange = p.start_year
@@ -27,11 +35,11 @@ function renderRoadmap(){
       d.innerHTML=`
         <span class="rm-label truncate">
           <span class="rm-emoji">◌</span>
-          ${esc(prettyEra(p.label))}
+          ${esc(prettyEra(eraId))}
           ${yearRange?`<span style="color:#475569;font-size:9px;margin-left:4px">${yearRange}</span>`:""}
         </span>`;
       d.onclick=()=>{
-        setEra(p.label);
+        setEra(eraId);
         if(interviewMode==="chronological") setPass("pass2a");
         update71RuntimeUI();
         renderRoadmap();
@@ -40,8 +48,13 @@ function renderRoadmap(){
       };
       w.appendChild(d);
     });
-    // default to first era if none selected
-    if(!getCurrentEra() && periods[0]) setEra(periods[0].label);
+    // default to first era if none selected — write canonical id
+    if(!getCurrentEra() && periods[0]) {
+      const firstEraId = (typeof _canonicalEra === "function")
+        ? _canonicalEra(periods[0].era_id || periods[0].label)
+        : (periods[0].era_id || periods[0].label);
+      setEra(firstEraId);
+    }
     update71RuntimeUI();
     return;
   }
@@ -64,7 +77,15 @@ function renderRoadmap(){
 }
 
 /* ── v7.1 era label prettifier ───────────────────────────────── */
+/* WO-CANONICAL-LIFE-SPINE-01 Step 3c: prefer the canonical warm label
+   from window.LorevoxEras (handles legacy keys, "era:" prefix, memoir
+   titles, slug variants, AND the Today bucket which underscore→space
+   title-casing wouldn't render correctly). Fall back to the legacy
+   prettifier when lv-eras.js hasn't loaded yet. */
 function prettyEra(v){
+  if (window.LorevoxEras && typeof window.LorevoxEras.eraIdToWarmLabel === "function") {
+    return window.LorevoxEras.eraIdToWarmLabel(v);
+  }
   return v ? String(v).replaceAll("_"," ").replace(/\b\w/g, m=>m.toUpperCase()) : "";
 }
 
@@ -133,12 +154,13 @@ function updateContextTriggers(){
     const era  = getCurrentEra();
     const mode = getCurrentMode();
     const ERA_PROMPTS = {
-      early_childhood:  ["Think about home life — the kitchen, bedroom, yard, or street.", "Who was in the household then?", "Does this memory feel closer to home, neighborhood, or family?"],
-      school_years:     ["Does this connect more to school, home, or neighborhood life?", "What teacher, class, or school routine comes back first?", "Were you still living in the same place then?"],
+      earliest_years:   ["Think about home life — the kitchen, bedroom, yard, or street.", "Who was in the household then?", "Does this memory feel closer to home, neighborhood, or family?"],
+      early_school_years: ["Does this connect more to school, home, or neighborhood life?", "What teacher, class, or school routine comes back first?", "Were you still living in the same place then?"],
       adolescence:      ["Does this feel like school years or the start of independence?", "What music, friendships, or places anchor that period?", "Were you still living at home then?"],
-      early_adulthood:  ["Were you on your own by then, or still closely tied to home?", "Was work, school, marriage, or moving the biggest change?", "What city or place defines that period most?"],
-      midlife:          ["Does this connect more to work, caregiving, or family routines?", "Who depended on you most during that time?", "What did a normal day feel like then?"],
-      later_life:       ["Does this feel tied to home, health, family, or reflection?", "What became more important to you during this chapter?", "What place best holds that period in memory?"],
+      coming_of_age:    ["Were you on your own by then, or still closely tied to home?", "Was work, school, marriage, or moving the biggest change?", "What city or place defines that period most?"],
+      building_years:   ["Does this connect more to work, caregiving, or family routines?", "Who depended on you most during that time?", "What did a normal day feel like then?"],
+      later_years:      ["Does this feel tied to home, health, family, or reflection?", "What became more important to you during this chapter?", "What place best holds that period in memory?"],
+      today:            ["What does life look like right now?", "Who are the people you see or think about most these days?", "What routines, hopes, worries, or unfinished stories matter now?"],
     };
     const prompts = ERA_PROMPTS[era] || ["Lori can use age, place, and family anchors to guide this era gently."];
     const modeHint = mode === "recognition"
@@ -320,13 +342,13 @@ function lv80DetectThinZones(era) {
 
   // Define memoir zone → questionnaire section mapping with depth checks
   var zones = [
-    { id: "early_childhood", label: "Early Childhood", sections: ["earlyMemories"], fields: ["firstMemory", "favoriteToy", "significantEvent"] },
+    { id: "earliest_years", label: "Early Childhood", sections: ["earlyMemories"], fields: ["firstMemory", "favoriteToy", "significantEvent"] },
     { id: "formative_family", label: "Family & Roots", sections: ["parents", "grandparents", "siblings"], repeatable: true,
       hookFields: { parents: ["occupation", "notableLifeEvents"], grandparents: ["memorableStories", "culturalBackground"], siblings: ["sharedExperiences", "memories", "uniqueCharacteristics"] } },
     { id: "education_career", label: "Education & Career", sections: ["education"], fields: ["schooling", "higherEducation", "earlyCareer", "careerProgression"] },
     { id: "relationships", label: "Relationships", sections: ["spouse", "marriage", "children"], repeatable: true,
       hookFields: { spouse: ["narrative"], marriage: ["proposalStory", "weddingDetails"], children: ["narrative"] } },
-    { id: "later_life", label: "Later Years", sections: ["laterYears"], fields: ["retirement", "lifeLessons", "adviceForFutureGenerations"] },
+    { id: "later_years", label: "Later Years", sections: ["laterYears"], fields: ["retirement", "lifeLessons", "adviceForFutureGenerations"] },
     { id: "identity", label: "Identity & Interests", sections: ["hobbies"], fields: ["hobbies", "personalChallenges", "worldEvents", "travel"] },
   ];
 
@@ -368,17 +390,24 @@ function lv80DetectThinZones(era) {
     }
   }
 
-  // If era is specified, prioritize zones that match it
+  // If era is specified, prioritize zones that match it.
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3c: keys are canonical era_ids;
+  // values are zone ids (era-aligned ones share a name with their
+  // era_id, thematic ones — formative_family / education_career /
+  // relationships / identity — are orthogonal). Today maps to identity
+  // (forward-looking sense of self) + later_years (continuing themes).
   if (era) {
+    var eraId = (typeof _canonicalEra === "function") ? _canonicalEra(era) : era;
     var eraZoneMap = {
-      "early_childhood": ["early_childhood", "formative_family"],
-      "school_years": ["formative_family", "education_career"],
-      "adolescence": ["education_career", "identity"],
-      "early_adulthood": ["education_career", "relationships"],
-      "midlife": ["relationships", "identity"],
-      "later_life": ["later_life", "identity"]
+      "earliest_years":     ["earliest_years", "formative_family"],
+      "early_school_years": ["formative_family", "education_career"],
+      "adolescence":        ["education_career", "identity"],
+      "coming_of_age":      ["education_career", "relationships"],
+      "building_years":     ["relationships", "identity"],
+      "later_years":        ["later_years", "identity"],
+      "today":              ["identity", "later_years"]
     };
-    var preferred = eraZoneMap[era] || [];
+    var preferred = eraZoneMap[eraId] || [];
     thinZones.sort(function (a, b) {
       var aP = preferred.indexOf(a.id) >= 0 ? 0 : 1;
       var bP = preferred.indexOf(b.id) >= 0 ? 0 : 1;
@@ -661,14 +690,23 @@ function _getNextProjectionQuestion(era, pass) {
 function _getNextRepeatableQuestion(era, projFields, bbQQ) {
   if (typeof LorevoxProjectionMap === "undefined") return null;
 
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3c: canonicalize both the incoming
+  // era AND the template's eraTags before comparing, so a stale legacy
+  // tag in projection-map.js (or any future drift) doesn't silently
+  // skip valid questions. After 3b projection-map.js eraTags are
+  // already canonical, but the wrapper keeps the comparison robust.
+  var eraId = (typeof _canonicalEra === "function") ? _canonicalEra(era) : era;
   var repeatableSections = ["parents", "grandparents", "siblings"];
   for (var i = 0; i < repeatableSections.length; i++) {
     var section = repeatableSections[i];
     var tpl = LorevoxProjectionMap.REPEATABLE_TEMPLATES[section];
     if (!tpl) continue;
 
-    // Check era relevance
-    if (era && tpl.eraTags.indexOf(era) < 0) continue;
+    // Check era relevance — canonicalize tags before comparing
+    var tags = (tpl.eraTags || []).map(function (t) {
+      return (typeof _canonicalEra === "function") ? _canonicalEra(t) : t;
+    });
+    if (eraId && tags.indexOf(eraId) < 0) continue;
 
     // Check if section has any entries in BB yet
     var entries = bbQQ[section];
@@ -766,13 +804,15 @@ function _buildDraftContextHint(era){
 }
 
 function _timelinePassPrompt(era, mode){
+  era = (typeof _canonicalEra === "function") ? _canonicalEra(era) : era;
   const base = {
-    early_childhood:  "Let's begin near the beginning. What do you know about the place where you were born, and where you lived when you were very young?",
-    school_years:     "Thinking about your school years, what town, school, or neighborhood feels most connected to that time?",
-    adolescence:      "As you got older, what changed most in your life during those years — school, friends, family, work, or where you lived?",
-    early_adulthood:  "What do you think of as the beginning of your adult life? Where were you living then?",
-    midlife:          "What responsibilities, jobs, or family roles shaped your middle adult years the most?",
-    later_life:       "What major transitions stand out most from your later adult years?",
+    earliest_years:     "Let's begin near the beginning. What do you know about the place where you were born, and where you lived when you were very young?",
+    early_school_years: "Thinking about your early school years, what town, school, teacher, or neighborhood feels most connected to that time?",
+    adolescence:        "As you moved into your teen years, what changed most — school, friends, family, work, or where you lived?",
+    coming_of_age:      "What do you think of as the beginning of your adult life? Where were you living then?",
+    building_years:     "What responsibilities, jobs, family roles, or community ties shaped your building years the most?",
+    later_years:        "What major transitions stand out most from your later years?",
+    today:              "What does life look like for you today — your routines, the people you see most, hopes, or things still on your mind?",
   }[era] || "Let's continue building the life timeline.";
 
   if(mode==="recognition") return base + " You can answer with whichever option feels closest, even if you're not sure.";
@@ -782,13 +822,15 @@ function _timelinePassPrompt(era, mode){
 }
 
 function _depthPassPrompt(era, mode, name){
+  era = (typeof _canonicalEra === "function") ? _canonicalEra(era) : era;
   const base = {
-    early_childhood:  "When you picture your earliest home, what room, smell, or sound comes back first?",
-    school_years:     "What is one vivid memory from your school years that still feels close to you now?",
-    adolescence:      "When you think about your teenage years, what place, person, or feeling stands out most clearly?",
-    early_adulthood:  "What moment made early adult life start to feel real to you?",
-    midlife:          "What scene best captures what those middle years felt like day to day?",
-    later_life:       "Looking back on later life, what moments feel the most meaningful now?",
+    earliest_years:     "When you picture your earliest home, what room, smell, sound, person, or place comes back first?",
+    early_school_years: "What is one vivid memory from your early school years that still feels close to you now?",
+    adolescence:        "When you think about adolescence, what place, person, friendship, or feeling stands out most clearly?",
+    coming_of_age:      "What moment made adult life start to feel real to you?",
+    building_years:     "What scene best captures what those building years felt like day to day?",
+    later_years:        "Looking back on later years, what moments feel most meaningful now?",
+    today:              "What part of life today would you most want your family to understand?",
   }[era] || `Let's deepen the story around ${name}'s life.`;
 
   if(mode==="recognition") return base + " If it helps, you can start with a place, a person, or a routine.";
