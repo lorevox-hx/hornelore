@@ -1,0 +1,161 @@
+/* WO-LORI-SAFETY-INTEGRATION-01 Phase 3b — Bug Panel safety banner styles.
+ *
+ * Operator-only surface. NEVER narrator-visible. Tone: alert but not
+ * alarmist; the banner exists so the operator notices, not so it
+ * shouts. Dark-amber palette so it stands out against the Bug Panel's
+ * dark blue + gray operator chrome without being a red panic strip.
+ */
+
+#lv10dBpSafetyBanners {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.safety-banner-empty {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+  padding: 6px 10px;
+  border-left: 2px solid #334155;
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: 3px;
+}
+
+.safety-banner-gate-off {
+  color: #94a3b8;
+  font-style: normal;
+  border-left-color: #475569;
+}
+
+.safety-banner-gate-off code {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 10.5px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 1px 4px;
+  border-radius: 2px;
+  color: #cbd5e1;
+}
+
+.safety-banner-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fbbf24;
+  letter-spacing: 0.02em;
+  padding: 4px 0 6px 0;
+  border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+.safety-banner-card {
+  background: linear-gradient(
+    180deg,
+    rgba(120, 53, 15, 0.18) 0%,
+    rgba(69, 26, 3, 0.25) 100%
+  );
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  color: #fef3c7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.safety-banner-card-row1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.safety-banner-category {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fef08a;
+  text-transform: lowercase;
+  background: rgba(120, 53, 15, 0.45);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  letter-spacing: 0.02em;
+}
+
+.safety-banner-time {
+  font-size: 10.5px;
+  color: #fbbf24;
+  font-style: italic;
+  cursor: help;
+}
+
+.safety-banner-matched {
+  font-size: 11px;
+  color: #fde68a;
+}
+
+.safety-banner-matched em {
+  font-style: italic;
+  color: #fef3c7;
+  background: rgba(120, 53, 15, 0.3);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.safety-banner-excerpt {
+  font-size: 11.5px;
+  color: #fef3c7;
+  line-height: 1.45;
+  padding: 4px 8px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 3px;
+  border-left: 2px solid rgba(251, 191, 36, 0.5);
+  font-style: italic;
+}
+
+.safety-banner-card-row2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(251, 191, 36, 0.15);
+}
+
+.safety-banner-meta {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 10px;
+  color: #fbbf24;
+  opacity: 0.8;
+}
+
+.safety-banner-ack-btn {
+  background: #b45309;
+  color: #fef3c7;
+  border: 1px solid #d97706;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.06s ease;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+}
+
+.safety-banner-ack-btn:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.safety-banner-ack-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.safety-banner-ack-btn:disabled {
+  background: rgba(180, 83, 9, 0.5);
+  color: rgba(254, 243, 199, 0.6);
+  cursor: wait;
+}

@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/layout.css">
   <link rel="stylesheet" href="css/safety.css">
+  <link rel="stylesheet" href="css/safety-banner.css">
   <link rel="stylesheet" href="css/affect.css">
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -4059,6 +4060,22 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-LORI-SAFETY-INTEGRATION-01 Phase 3b — Safety event banner.
+         Polls /api/operator/safety-events on a 30s timer + on Bug
+         Panel open. Renders unacknowledged events as amber cards
+         with category, matched phrase, excerpt, and Acknowledge button.
+         When the backend gate (HORNELORE_OPERATOR_SAFETY_EVENTS=1) is
+         off, this surface stays empty + shows a quiet "feature off"
+         note — no errors. NEVER narrator-visible (Bug Panel is
+         operator-only). See ui/js/safety-banner.js + ui/css/safety-banner.css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpSafetyBanners">
+      <div class="safety-banner-empty">
+        Loading safety event status…
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          OPERATOR TEST TOOLS — pinned at top for fast access.
          These are the workflow buttons an operator reaches for during
          a session. Diagnostic dumps + scope/state probes follow below.
@@ -4598,6 +4615,7 @@
 <script src="js/api.js"></script>
 <script src="js/tabs.js"></script>
 <script src="js/safety-ui.js"></script>
+<script src="js/safety-banner.js"></script>
 <script src="js/permissions.js"></script>
 <script src="js/emotion.js"></script>
 <script src="js/facial-consent.js"></script>
