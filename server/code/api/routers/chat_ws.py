@@ -562,6 +562,29 @@ async def ws_chat(ws: WebSocket):
 
         final_text = "".join(reply_parts).strip()
 
+        # WO-LORI-ACTIVE-LISTENING-01 Layer 2 — runtime discipline filter.
+        # Default-OFF (env flag HORNELORE_INTERVIEW_DISCIPLINE=1 to enable).
+        # Layer 1 (the LORI_INTERVIEW_DISCIPLINE block in compose_system_prompt)
+        # is the primary defense. This is the safety net for when the LLM
+        # drifts past 1 question. Trims after streaming completes so the
+        # PERSISTED record + the final 'done' event carry the cleaned text;
+        # the streaming deltas the user already saw are not re-sent.
+        # Memory_echo / correction turns return earlier (above) so they
+        # bypass this filter by construction.
+        try:
+            from ..prompt_composer import _trim_to_one_question, _discipline_filter_enabled
+            if _discipline_filter_enabled() and final_text:
+                _trimmed, _was_trimmed, _reason = _trim_to_one_question(final_text)
+                if _was_trimmed:
+                    logger.info(
+                        "[lori][discipline] trim-to-one-q conv=%s reason=%s before_len=%d after_len=%d",
+                        conv_id, _reason, len(final_text), len(_trimmed),
+                    )
+                    final_text = _trimmed
+        except Exception as _disc_exc:
+            # Filter is a safety net — never let it kill a turn.
+            logger.warning("[lori][discipline] filter raised, passing through: %s", _disc_exc)
+
         # Phase G: fail-closed — only persist if generation completed cleanly
         if ev.is_set():
             logger.warning("[chat-ws] Turn cancelled/disconnected — skipping persistence (fail-closed)")

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import db
 from .lv_eras import (
@@ -726,6 +727,185 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     return seed
 
 
+# ── WO-LORI-ACTIVE-LISTENING-01 + WO-LORI-SESSION-AWARENESS-01 Phase 2 ─────
+#
+# Two-layer interview-discipline defense:
+#
+#   Layer 1 (primary, default-on):  LORI_INTERVIEW_DISCIPLINE system-prompt
+#     block injected into compose_system_prompt() for standard-interviewer
+#     turns. Tells the LLM up front: max 1 question, no compound/nested,
+#     no menu offers, direct-answer-first, reflect ONE concrete detail.
+#
+#   Layer 2 (safety net, default-off env flag):  _trim_to_one_question()
+#     runtime filter wired in chat_ws.py post-LLM path. Catches LLM drifts
+#     past 1 question by keeping the first question and dropping the rest
+#     with a "we can come back to that" bridge.
+#
+# Memory echo is exempt — it's a deterministic structured readback that
+# bypasses the LLM entirely (chat_ws memory_echo branch returns before
+# LLM generation), so it's not subject to LORI_INTERVIEW_DISCIPLINE.
+#
+# Per Chris's locked scope:  word cap = 55 for ordinary interview turns,
+# memory_echo turns may run longer (structured readback, narrator asked
+# for it, bypasses this filter entirely).
+
+LORI_INTERVIEW_DISCIPLINE = """\
+INTERVIEW DISCIPLINE — STRICT
+
+You are an oral-history interviewer, not a questionnaire menu.
+
+For ordinary narrator turns:
+- Maximum 55 words.
+- Ask at most ONE question per turn.
+- Ask at most ONE actual thing — no compound, double-barreled, or nested.
+- Do not stack follow-ups (no "and also", "and what about", "and how").
+- Do not offer menus such as "or we could...", "would you rather...",
+  or "which path would you like...".
+- Do not summarize the whole life story unless the narrator explicitly
+  asks for a summary.
+- After a long disclosure: reflect ONE specific concrete detail from
+  what they said, then ask ONE follow-up.
+- If the narrator seems unsure, simplify the question instead of
+  adding choices.
+- If the narrator asks you a direct question, answer it FIRST. Then
+  one short follow-up if appropriate.
+
+Preferred shape:
+1. One brief reflection anchored to the narrator's own words.
+2. One concrete focused question.
+3. Stop.
+"""
+
+
+# Compound-question detector — fires inside a single question segment
+# when a wh-word leads, a linker ("and"/"or"/"also"/"plus") follows,
+# then a second wh-word OR a second question stem appears before the
+# next '?'. Catches the classic English compound pattern with ONE
+# question mark:
+#   "What was X, and where were Y?"           ← wh + and + wh
+#   "What was X, and did Y feel the same?"    ← wh + and + auxiliary
+# Per ChatGPT's pushback, bare "and how" without a wh-following structure
+# does NOT count — the structure must include a real second question stem.
+# Auxiliary verbs that start a question (do/does/did/is/are/was/were/
+# will/would/can/could/should) qualify as the second stem.
+_COMPOUND_QUESTION_RX = re.compile(
+    r"\b(what|when|where|who|why|how|which)\b"
+    r"[^?]*?"
+    r"\b(?:and|or|also|plus|maybe|perhaps)\b"
+    r"\s+"
+    r"\b(what|when|where|who|why|how|which|do|does|did|is|are|was|were|will|would|can|could|should|has|have|had)\b"
+    r"[^?]*?\?",
+    re.IGNORECASE,
+)
+
+# Menu-offer detector — refined per Chris's pushback against blanket
+# "would you like to" matching. Three precise patterns:
+#   1. "would you like to ... or ..."  (genuine menu)
+#   2. "would you rather ..."          (always menu)
+#   3. "or we could ..."               (always menu)
+#   4. "which path ..."                (always menu)
+# Bare "would you like to ..." without an "or" clause is a legitimate
+# soft invitation and must NOT trip the filter.
+_MENU_OFFER_RX = re.compile(
+    r"\b(?:"
+    r"would\s+you\s+like\s+to\s+.{0,80}\bor\b"
+    r"|"
+    r"would\s+you\s+rather"
+    r"|"
+    r"which\s+path"
+    r"|"
+    r"or\s+we\s+could"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _discipline_filter_enabled() -> bool:
+    """Layer 2 runtime filter is OFF by default. Enable with
+    `HORNELORE_INTERVIEW_DISCIPLINE=1` once Layer 1 (the prompt block)
+    has been observed for a session and we know whether the LLM still
+    drifts past one question. Conservative rollout per spec — Layer 1
+    does the real work; Layer 2 is a safety net for LLM stochasticity."""
+    return os.getenv("HORNELORE_INTERVIEW_DISCIPLINE", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _split_into_questions(text: str) -> List[str]:
+    """Split text into segments at each '?'. Each segment includes its
+    trailing '?'. Trailing prose after the last '?' is preserved as a
+    final no-question segment."""
+    if not text:
+        return []
+    parts = re.split(r"(?<=\?)\s+", text, maxsplit=10)
+    return [p for p in parts if p and p.strip()]
+
+
+def _trim_to_one_question(text: str) -> Tuple[str, bool, str]:
+    """Return (trimmed_text, was_trimmed, reason).
+
+    Keeps the first question segment + drops subsequent ones with a
+    short bridge. If text is single-question and contains no menu-offer
+    phrases, return unchanged with was_trimmed=False.
+
+    Detection priority:
+      1. Compound-question pattern (?...and/or/also...?) → trim
+      2. Menu-offer phrase → trim (drop the menu clause + leave the
+         lead question intact)
+      3. Multiple question marks → trim to first
+      4. Otherwise → pass through
+
+    Returns a 3-tuple so the caller can log [filter][trim-to-one-q]
+    with the reason. Memory echo callers should NOT invoke this — it
+    bypasses the LLM and is exempt by design.
+    """
+    if not text or not text.strip():
+        return text, False, "empty"
+
+    qmark_count = text.count("?")
+
+    # Quick pass-through: zero ? AND no menu-offer phrase AND no
+    # compound-pattern wh-then-linker-then-stem. A single ? CAN be
+    # compound ("What is X, and where is Y?") so the qmark check
+    # alone is not enough.
+    if (
+        qmark_count == 0
+        and not _MENU_OFFER_RX.search(text)
+        and not _COMPOUND_QUESTION_RX.search(text)
+    ):
+        return text, False, "pass"
+
+    reason = ""
+    if _COMPOUND_QUESTION_RX.search(text):
+        reason = "compound"
+    elif _MENU_OFFER_RX.search(text):
+        reason = "menu_offer"
+    elif qmark_count > 1:
+        reason = "multi_question"
+    else:
+        return text, False, "pass"
+
+    segments = _split_into_questions(text)
+    if not segments:
+        return text, False, "pass"
+
+    # Keep the first question segment. If menu_offer hit and there's
+    # only one ? (e.g. "Would you rather A or B?"), strip the menu
+    # clause but keep the question shape.
+    head = segments[0]
+
+    # Bridge phrase added when we drop additional questions; keeps the
+    # turn warm + signals the operator can come back to the rest later.
+    bridge = " (We can come back to the rest in a moment.)"
+
+    if reason == "menu_offer" and qmark_count == 1:
+        # Single question with menu structure — replace the menu form
+        # with a simpler open-ended ask. Heuristic only; the prompt
+        # block is the real defense.
+        return head, True, "menu_offer_single"
+
+    # Multi-question or compound: keep first segment + bridge.
+    return head + bridge, True, reason
+
+
 def compose_memory_echo(
     text: str,
     runtime: Optional[Dict[str, Any]] = None,
@@ -1256,6 +1436,18 @@ def compose_system_prompt(
             return "\n\n".join([p for p in parts if p.strip()]).strip()
 
         # ── Standard interview directives (only when role = "interviewer") ────
+
+        # WO-LORI-ACTIVE-LISTENING-01 — interview discipline (Layer 1).
+        # Inject the LORI_INTERVIEW_DISCIPLINE block at the head of every
+        # standard-interviewer turn (both identity-collection and post-
+        # identity). Helper / onboarding role overrides have already
+        # returned early above, so this only lands on the real interview
+        # path. Memory_echo turns bypass compose_system_prompt entirely
+        # via the chat_ws memory_echo branch (deterministic readback,
+        # not subject to discipline since the narrator explicitly asked
+        # for a structured summary).
+        directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
+        directive_lines.append("")
 
         # v7.4D Phase 6B — Identity mode gate.
         # If identity is not yet complete, replace the normal pass directives with a
