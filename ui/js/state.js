@@ -108,7 +108,12 @@ let state = {
   /* ── v7.1 Session runtime ────────────────────────────────────
      Drives pass engine and prompt routing.
      currentPass : 'pass1' | 'pass2a' | 'pass2b'
-     currentEra  : 'early_childhood' | 'school_years' | … | null
+     currentEra  : canonical era_id from window.LorevoxEras, one of
+                   'earliest_years' | 'early_school_years' | 'adolescence'
+                 | 'coming_of_age' | 'building_years' | 'later_years'
+                 | 'today' | null
+                   (today is a separate current-life bucket — never
+                   derived from age, always selected explicitly)
      currentMode : 'open' | 'recognition' | 'grounding' | 'light' | 'alongside'
   ─────────────────────────────────────────────────────────────── */
   session: {
@@ -519,5 +524,18 @@ function setCognitiveSupportMode(on) { if (state.session) state.session.cognitiv
 
 /* ── v7.1 — Pass / era / mode setters ──────────────────────── */
 function setPass(p)  { if (state.session) state.session.currentPass = p; }
-function setEra(e)   { if (state.session) state.session.currentEra  = e; }
+/* WO-CANONICAL-LIFE-SPINE-01 — setEra() canonicalizes any incoming
+   era identifier to a canonical era_id before writing to state. This
+   defends against legacy v7.1 keys ("early_childhood"), "era:" -prefixed
+   transitional values ("era:Today"), warm labels ("Earliest Years"),
+   memoir titles ("The Legend Begins"), and slug variants. The store
+   never holds a non-canonical era value. */
+function setEra(e) {
+  if (!state.session) return;
+  if (e == null) { state.session.currentEra = null; return; }
+  var canonical = (window.LorevoxEras && typeof window.LorevoxEras.legacyKeyToEraId === "function")
+    ? window.LorevoxEras.legacyKeyToEraId(e)
+    : e;
+  state.session.currentEra = canonical;
+}
 function setMode(m)  { if (state.session) state.session.currentMode = m; }
