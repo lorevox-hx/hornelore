@@ -19,7 +19,9 @@
 #   - Reports source path, destination path, and size
 #
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+# BUG-FIX: scripts/archive/ moved out of scripts/ (2026-04-25); common.sh
+# stayed in scripts/, so the relative source needs ../ to climb back up.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
 # ── Resolve DATA_DIR ─────────────────────────────────────────────────────────
 if [[ -f "$ROOT_DIR/.env" ]]; then

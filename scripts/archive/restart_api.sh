@@ -7,7 +7,9 @@
 # Usage:
 #   bash scripts/restart_api.sh
 set -euo pipefail
-source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+# BUG-FIX: scripts/archive/ moved out of scripts/ (2026-04-25); common.sh
+# stayed in scripts/, so the relative source needs ../ to climb back up.
+source "$(cd "$(dirname "$0")/.." && pwd)/common.sh"
 
 printf '\n=== Restarting Hornelore API ===\n\n'
 

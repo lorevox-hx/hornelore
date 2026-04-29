@@ -6,8 +6,10 @@
 # ─────────────────────────────────────────────────────────────────
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-source "$SCRIPT_DIR/common.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# BUG-FIX: scripts/archive/ moved out of scripts/ (2026-04-25); common.sh
+# stayed in scripts/, so SCRIPT_DIR/common.sh is wrong. Source via parent.
+source "$(cd "$SCRIPT_DIR/.." && pwd)/common.sh"
 
 PASS=0; FAIL=0; SKIP=0; TOTAL=0
 RESULTS=()
