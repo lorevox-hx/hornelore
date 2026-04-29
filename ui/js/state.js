@@ -511,7 +511,20 @@ function getCurrentLifePeriods() {
 }
 
 function getCurrentPass()  { return state.session?.currentPass  || "pass1"; }
-function getCurrentEra()   { return state.session?.currentEra   || null;    }
+/* WO-CANONICAL-LIFE-SPINE-01 — getCurrentEra() canonicalizes on read and
+   repairs state.session.currentEra in place if it finds a legacy value.
+   Defends against any old saved state or direct currentEra writes that
+   bypassed setEra(). The store is self-healing: a stale legacy key
+   ("early_childhood") or transitional form ("era:Today") encountered
+   on read becomes its canonical era_id ("earliest_years" / "today")
+   for both the return value and the persisted state. */
+function getCurrentEra() {
+  var era = state.session?.currentEra || null;
+  if (!era) return null;
+  var canonical = _canonicalEra(era);
+  if (canonical !== era && state.session) state.session.currentEra = canonical;
+  return canonical;
+}
 function getCurrentMode()  { return state.session?.currentMode  || "open";  }
 
 /* v7.4D — Assistant role getters/setters */
@@ -524,6 +537,68 @@ function setCognitiveSupportMode(on) { if (state.session) state.session.cognitiv
 
 /* ── v7.1 — Pass / era / mode setters ──────────────────────── */
 function setPass(p)  { if (state.session) state.session.currentPass = p; }
+
+/* WO-CANONICAL-LIFE-SPINE-01 — _fallbackCanonicalEra(e) is a local
+   normalizer used when window.LorevoxEras isn't loaded yet. state.js
+   loads BEFORE lv-eras.js in hornelore1.0.html, so any setEra() call
+   that fires during early bootstrap (or from code that runs before
+   the lv-eras IIFE has executed) would otherwise persist a raw legacy
+   value. This fallback strips the transitional "era:" prefix and
+   maps the most common legacy v7.1 keys, warm labels, memoir titles,
+   and underscore/space variants to canonical era_ids. Note: keys are
+   lower-cased and underscore/hyphen-flattened before lookup, so
+   "Earliest_Years" / "EARLIEST YEARS" / "earliest-years" all hit the
+   same map entry. */
+function _fallbackCanonicalEra(e) {
+  if (e == null) return null;
+  var raw = String(e).trim();
+  if (!raw) return null;
+  if (raw.toLowerCase().indexOf("era:") === 0) raw = raw.slice(4).trim();
+  if (!raw) return null;
+  var key = raw.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  var map = {
+    "earliest years":      "earliest_years",
+    "early childhood":     "earliest_years",
+    "the legend begins":   "earliest_years",
+
+    "early school years":  "early_school_years",
+    "school years":        "early_school_years",
+    "formative years":     "early_school_years",
+
+    "adolescence":         "adolescence",
+
+    "coming of age":       "coming_of_age",
+    "early adulthood":     "coming_of_age",
+    "crossroads":          "coming_of_age",
+
+    "building years":      "building_years",
+    "midlife":             "building_years",
+    "peaks & valleys":     "building_years",
+    "peaks and valleys":   "building_years",
+
+    "later years":         "later_years",
+    "later life":          "later_years",
+    "the compass":         "later_years",
+
+    "today":               "today",
+    "current horizon":     "today"
+  };
+  return map[key] || raw;
+}
+
+/* WO-CANONICAL-LIFE-SPINE-01 — _canonicalEra(e) is the single boundary
+   helper: prefer the lv-eras.js authoritative normalizer when loaded;
+   otherwise fall back to the local map. Both setEra() and
+   getCurrentEra() route through this so the store never holds a
+   non-canonical era value, regardless of bootstrap order. */
+function _canonicalEra(e) {
+  if (e == null) return null;
+  if (window.LorevoxEras && typeof window.LorevoxEras.legacyKeyToEraId === "function") {
+    return window.LorevoxEras.legacyKeyToEraId(e);
+  }
+  return _fallbackCanonicalEra(e);
+}
+
 /* WO-CANONICAL-LIFE-SPINE-01 — setEra() canonicalizes any incoming
    era identifier to a canonical era_id before writing to state. This
    defends against legacy v7.1 keys ("early_childhood"), "era:" -prefixed
@@ -532,10 +607,6 @@ function setPass(p)  { if (state.session) state.session.currentPass = p; }
    never holds a non-canonical era value. */
 function setEra(e) {
   if (!state.session) return;
-  if (e == null) { state.session.currentEra = null; return; }
-  var canonical = (window.LorevoxEras && typeof window.LorevoxEras.legacyKeyToEraId === "function")
-    ? window.LorevoxEras.legacyKeyToEraId(e)
-    : e;
-  state.session.currentEra = canonical;
+  state.session.currentEra = _canonicalEra(e);
 }
 function setMode(m)  { if (state.session) state.session.currentMode = m; }
