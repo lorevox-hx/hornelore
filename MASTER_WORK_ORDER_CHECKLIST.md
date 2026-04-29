@@ -1,9 +1,9 @@
 # Master Work Order Checklist
 
-**As of:** 2026-04-29 (overnight)
-**Active baseline:** `r5h-postpatch` confirmed = `r5h` (70/104, v3=41/62, v2=35/62, mnw=2) — unchanged
-**SPANTAG state:** OFF (`HORNELORE_SPANTAG=0`). Do not flip until BINDING-01 lands.
-**Parent sessions:** ~2 days out. Canonical-life-spine + BUG-312 protected_identity gate landed today; pre-laptop-migration backup intact. Pre-parent-session blockers in Lane 2 still ahead.
+**As of:** 2026-04-29 (afternoon)
+**Active baseline:** `r5h` (70/104, v3=41/62, v2=35/62, mnw=2) — verified preserved at `r5h-restore` (`66f41ae`) and `r5h-postpatch`.
+**SPANTAG state:** OFF (`HORNELORE_SPANTAG=0`). BINDING-01 PATCH 1-4 + micro-patch in-tree (`42accc9` / `3f3deba`); default-off after `r5g-binding-on-v1` master REJECTED (`c547ddb`). Both flags gated for next iteration cycle.
+**Parent sessions:** ~2 days out. Canonical-life-spine + BUG-312 protected_identity gate + BUG-EX-PLACE-LASTNAME-01 + chat_ws scan_answer default-safe fallback all landed. SAFETY-INTEGRATION-01 Phase 1 chat-path hook ALREADY LANDED (`8aab2c2`) — Phase 2/3 are the new pre-parent-session work.
 
 ---
 
@@ -31,10 +31,11 @@ Attention cue + adaptive silence ladder. Doesn't block first parent sessions. Sc
 
 | # | WO | Status | Eval tag | Notes |
 |---|---|---|---|---|
-| 1 | **WO-EX-BINDING-01** | TOP OF QUEUE | `r5g-binding` (planned) | Binding-layer fix. Delivered inside SPANTAG Pass 2 prompt via PATCH 1–5 (Type C binding rules + negative examples + childhood_moves tie-break + minimal scalar guard for `personal.placeOfBirth` + `[extract][BINDING-01]` log marker). Unblocks SPANTAG re-enable. |
-| 2 | **#144 WO-SCHEMA-ANCESTOR-EXPAND-01** | Lane 1 trial annotated | `r5h` (banked) | Lane 1 (`alt_defensible_paths` for case_033 + case_039) landed scorer-side; Lane 2 schema expansion gated behind Lane 1 evidence. |
-| 3 | **#97 WO-EX-VALUE-ALT-CREDIT-01** | Spec landed | (planned) | Value-axis alt-credit under ≥0.5 fuzzy gate. Targets case_087 ancestry value drift. |
-| 4 | SPANTAG re-enable evaluation | **GATED — do not run until BINDING-01 lands** | `r5g-binding`, then later | After BINDING-01: cycle stack with `HORNELORE_SPANTAG=1` exported in server env (`SPANTAG_PASS1_MAX_NEW=1024`, `SPANTAG_PASS2_MAX_NEW=1536` already in `.env`); rerun master eval; judge by Type A/B/C, not general gate. |
+| 1 | **BUG-EX-PLACE-LASTNAME-01** | LANDED 2026-04-29 (`9b9e557`) | `r5h-place-guard` (queued #323) | Deterministic post-LLM guard at `extract.py` drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions. 6 new fixtures `case_105–110`. Smoke 15/15. Ships independent of SPANTAG. |
+| 2 | **WO-EX-BINDING-01** | **PATCH 1-4 LANDED + iterating.** PATCH 1-4 (`42accc9`) + micro-patch (`3f3deba`); `r5g-binding-on-v1` master REJECTED (`c547ddb`). | `r5g-binding-on-v1` (banked), next iteration TBD | Binding-layer fix. SPANTAG Pass 2 binding pre-normalizer + `_validate_item` re-entry + 9 `_FIELD_ALIASES` from r5g probe. Default-OFF after rejection at default-on. Probes `r5g-binding-probe-7cases` (3/7 primary 3/3) + v2/v3 confirmed micro-patch was real. Next move: additional binding rules / second eval cycle / scope re-evaluation. |
+| 3 | **#144 WO-SCHEMA-ANCESTOR-EXPAND-01** | Lane 1 trial annotated | `r5h` (banked) | Lane 1 (`alt_defensible_paths` for case_033 + case_039) landed scorer-side; Lane 2 schema expansion gated behind Lane 1 evidence. |
+| 4 | **#97 WO-EX-VALUE-ALT-CREDIT-01** | Spec landed | (planned) | Value-axis alt-credit under ≥0.5 fuzzy gate. Targets case_087 ancestry value drift. |
+| 5 | SPANTAG re-enable evaluation | **GATED — paired with BINDING-01 second iteration cycle** | next BINDING tag | After next BINDING iteration: cycle stack with `HORNELORE_SPANTAG=1` exported in server env (`SPANTAG_PASS1_MAX_NEW=1024`, `SPANTAG_PASS2_MAX_NEW=1536` already in `.env`); rerun master eval; judge by Type A/B/C, not general gate. |
 
 ### Locked decisions
 
@@ -73,12 +74,13 @@ Three WOs gate parent sessions. They land in this order; Phase 0/1 of each is th
 
 | # | WO | Status | Land before parents | Notes |
 |---|---|---|---|---|
-| 1 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 1 | Spec landed | YES — CRITICAL | Wire existing `safety.py:scan_answer()` into `chat_ws.py` between user_text receipt (~L199) and `compose_system_prompt` (L208). Currently zero deterministic safety on chat path. Per parity audit: this is the highest-acuity gap. |
+| 1 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 1 | **LANDED** (`8aab2c2`) + **default-safe fallback hardening LANDED 2026-04-29** (chat_ws.py L206-228) | DONE | Chat-path scan_answer hook live. Mirrors interview.py:269-307. Persists segment flag + softened mode + WS overlay event + operator notify + forces turn_mode=interview. 2026-04-29 hardening: when scan_answer raises, force turn_mode=interview anyway + emit `[chat_ws][safety][default-safe]` log marker. Stress-test #325 pending. |
 | 2 | **WO-LORI-SESSION-AWARENESS-01** Phase 1 | **Import-fix LANDED 2026-04-27 evening** (chat_ws.py L163, L180, L181). Peek-at-Memoir consultation + warm composer remain. | YES | Three broken late imports (`from api.X` → `from ..X`) fixed and AST-verified. Eval-safe (chat_ws not exercised by extraction eval). Peek-at-Memoir backend may not exist — see parity audit Risk #2; verify before Peek consultation work. |
 | 3 | **WO-LORI-SESSION-AWARENESS-01** Phase 2 + **WO-LORI-ACTIVE-LISTENING-01** | Specs landed (ACTIVE-LISTENING new 2026-04-29) — **land both together** | YES — interview discipline | ACTIVE-LISTENING is the discipline-rules + filter implementation for SESSION-AWARENESS Phase 2. LORI_INTERVIEW_DISCIPLINE system prompt block + runtime filter with intent-aware tiers (memory_echo 100w/1q, interview_question 55w/1q, attention_cue 25w/0–1q, repair 30w/1q, safety 200w/0q exempt). Two-layer defense (prompt block default-on; `_trim_to_one_question` runtime filter behind env flag). Six new metrics ride existing WO-LORI-RESPONSE-HARNESS-01 Test Type A. |
-| 4 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 3 | Spec landed | YES — operator surface | Bug Panel real-time banner + between-session digest. Pattern fires today but operator gets no signal. Highest-leverage new work. |
-| 5 | **WO-LORI-SAFETY-INTEGRATION-01** Phases 2, 4–9 | Spec landed | YES — most | LLM second-layer classifier (Phase 2), IDEATION/DISTRESSED prompt block additive to ACUTE rule (Phase 4), composer/WO-10C/memory-echo/family_truth integration (Phase 5), Friendship Line resource (Phase 6), LV_ENABLE_SAFETY cleanup (Phase 7), red-team pack (Phase 8), operator runbook + onboarding consent (Phase 9, NON-NEGOTIABLE). |
-| 6 | **WO-LORI-RESPONSE-HARNESS-01** | Spec authoring this batch | NO — first iteration after parents start | Response-quality test harness. Bug Panel + Test Lab. Answers "Did Lori respond like a good interviewer?" (orthogonal to extraction evals). |
+| 4 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 3 | Spec landed | YES — operator surface | Bug Panel real-time banner + between-session digest. Pattern fires today but operator gets no signal. Highest-leverage new work — Phase 1 already landed so this is the actual top SAFETY priority now. |
+| 5 | **WO-LORI-SAFETY-INTEGRATION-01** Phase 2 | Spec landed | YES — additive | LLM second-layer classifier (catches indirect ideation pattern misses Phase 1's regex doesn't). |
+| 6 | **WO-LORI-SAFETY-INTEGRATION-01** Phases 4–9 | Spec landed | YES — most | IDEATION/DISTRESSED prompt block additive to ACUTE rule (Phase 4), composer/WO-10C/memory-echo/family_truth integration (Phase 5), Friendship Line resource (Phase 6), LV_ENABLE_SAFETY cleanup (Phase 7), red-team pack (Phase 8), operator runbook + onboarding consent (Phase 9, NON-NEGOTIABLE). |
+| 7 | **WO-LORI-RESPONSE-HARNESS-01** | Spec landed | NO — first iteration after parents start | Response-quality test harness. Bug Panel + Test Lab. Answers "Did Lori respond like a good interviewer?" (orthogonal to extraction evals). |
 
 ### Acceptance gates (per WO)
 
@@ -131,6 +133,13 @@ Not parent-session blockers. Spec parked, design stable.
 
 | Item | Outcome |
 |---|---|
+| **BUG-EX-PLACE-LASTNAME-01** (2026-04-29 afternoon, `9b9e557`) | Deterministic post-LLM regex guard at extract.py drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions. 6 new fixtures `case_105–110`. Smoke 15/15. Master pack 104 → 110. r5h-place-guard eval queued (#323). |
+| **scan_answer() default-safe fallback** (2026-04-29 afternoon, chat_ws.py L206-228) | When scan_answer raises, force turn_mode='interview' so ACUTE SAFETY RULE in prompt fires + emit `[chat_ws][safety][default-safe]` log marker. Closes silent-skip gap surfaced by code review. ~17 lines. AST parse green. |
+| **WO-LORI-SAFETY-INTEGRATION-01 Phase 1** (`8aab2c2`) | Chat-path scan_answer hook live in chat_ws.py L196-274. Mirrors interview.py:269-307. Persists segment flag + softened mode + WS overlay event + operator notify + forces turn_mode=interview. Doc surfaced 2026-04-29 — was already shipped before this session opened; master checklist had not been refreshed. |
+| **db.py PRAGMA busy_timeout=5000** (`8023501`) | Fixes safety-hook lock contention surfaced after SAFETY-INTEGRATION-01 Phase 1 landed. Already active. |
+| **WO-INTERVIEW-MODE-01 Phase 1** (`f1e0612`) + narrator-room unified 3-column (`bc02b32`) | Focused 3-column interview view; Memory River removed from narrator room. |
+| **r5h-restore master eval** (`66f41ae`) | SPANTAG flag fix verified; 70/104 baseline preserved at the post-BINDING-01-rejection state. |
+| **WO-EX-BINDING-01 PATCH 1-4 + micro-patch** (`42accc9` / `3f3deba`) | SPANTAG Pass 2 binding pre-normalizer + `_validate_item` re-entry + 9 `_FIELD_ALIASES`. Probed against 7 cases (3/7 primary 3/3) at `8564840`; v2/v3 (`2ec7de5`) confirmed micro-patch real, not stochasticity. Default-on master `r5g-binding-on-v1` REJECTED (`c547ddb`). Code in-tree behind `HORNELORE_SPANTAG=1` flag, default-off; iteration cycle TBD. |
 | **WO-CANONICAL-LIFE-SPINE-01 Steps 3a-fix → 8** (2026-04-29) | Eight atomic commits migrating frontend + backend from legacy era keys to canonical 7-bucket era_ids (earliest_years / early_school_years / adolescence / coming_of_age / building_years / later_years / today) with self-healing read/write. Live-verified on Christopher Horne narrator. Memoir Peek shows 7 sections with warm heading + literary subtitle; Life Map renders 7 buttons routed through Step 7 confirm popover; Step 8 TXT export uses `data-era-id` selectors. |
 | **BUG-312 protected_identity gate** (2026-04-29) | `ui/js/projection-sync.js` L91-130. Protected fields require trusted source for ANY write, not just overwrites. Fixes BUG-309 DOB regression upstream. Closed task #309 completed-via-#312. |
 | **Pre-laptop-migration backup** (2026-04-28T23:40) | `/mnt/c/hornelore_data/backups/2026-04-28_2340_before-laptop-migration-canonical-reset/`. SQLite integrity OK; WAL checkpoint clean. |
