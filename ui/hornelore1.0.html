@@ -6983,6 +6983,39 @@ function _memoirBuildTxtContent() {
       }
       lines.push("");
     }
+
+  } else if (_memoirState === "structured") {
+    // WO-CANONICAL-LIFE-SPINE-01 Step 8: structured memoir export.
+    // Walks .memoir-section[data-era-id] (stamped by Step 6's
+    // lv80RenderStructuredMemoirPreview) and emits each section's warm
+    // canonical heading + literary subtitle + real items. Placeholder
+    // paragraphs are excluded — they're framing text, not narrator
+    // content. Sections with no real items still get their heading
+    // emitted as "(no entries yet)" so the export matches the visible
+    // 7-section structure of Peek at Memoir.
+    const sections = Array.from(content?.querySelectorAll(".memoir-section[data-era-id]") || []);
+    if (!sections.length) {
+      // Fallback: pre-Step-6 memoir without era_id stamps.
+      const flatHeadings = Array.from(content?.querySelectorAll(".memoir-section-heading") || [])
+        .map(h => h.textContent.trim()).filter(Boolean);
+      flatHeadings.forEach(h => { lines.push(h); lines.push(""); });
+    } else {
+      for (const sec of sections) {
+        const sHeading  = sec.querySelector(".memoir-section-heading")?.textContent?.trim() || "";
+        const sSubtitle = sec.querySelector(".memoir-section-subtitle")?.textContent?.trim() || "";
+        const realItems = Array.from(sec.querySelectorAll("p:not(.memoir-placeholder)"))
+          .map(p => p.textContent.trim()).filter(Boolean);
+        if (sHeading) lines.push(sHeading);
+        if (sSubtitle && sSubtitle !== sHeading) lines.push(sSubtitle);
+        lines.push("");
+        if (realItems.length) {
+          realItems.forEach(it => lines.push(`- ${it}`));
+        } else {
+          lines.push("(no entries yet)");
+        }
+        lines.push("");
+      }
+    }
   }
 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
