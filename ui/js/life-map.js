@@ -43,28 +43,67 @@
   function _safeText(v) { return String(v || "").trim(); }
 
   /* ── Era label prettifier ────────────────────────────────── */
+  /* WO-CANONICAL-LIFE-SPINE-01 — delegate to window.LorevoxEras when
+     present; the helper resolves canonical era_ids, legacy v7.1 keys,
+     "era:"-prefixed transitional values, warm labels, and memoir titles
+     all to the same warm display label. Fallback to local title-case
+     prettifier if the canonical helper isn't loaded yet. */
   function _prettyEra(v) {
+    if (window.LorevoxEras && typeof window.LorevoxEras.eraIdToWarmLabel === "function") {
+      var label = window.LorevoxEras.eraIdToWarmLabel(v);
+      if (label) return label;
+    }
     if (typeof prettyEra === "function") return prettyEra(v);
     return _safeText(v)
       .replace(/_/g, " ")
       .replace(/\b\w/g, function (m) { return m.toUpperCase(); });
   }
 
-  /* ── Default 6-period life-arc scaffold ──────────────────── */
+  /* ── Default life-arc scaffold ──────────────────────────── */
   /* Used when a narrator is selected but no spine periods exist yet.
      Keeps Life Map from ever appearing empty — the user always sees
      a meaningful narrative structure they can click into.
 
+     WO-CANONICAL-LIFE-SPINE-01: derived at module-init from
+     window.LorevoxEras.LV_ERAS so the historical 6 buckets always
+     match the canonical taxonomy. Today is intentionally excluded
+     from this scaffold — it has null age offsets (today is a current-
+     life bucket selected explicitly, not derived from DOB) and is
+     surfaced separately by the renderer.
+
+     Fallback list mirrors LV_ERAS for the case where lv-eras.js
+     somehow hasn't loaded yet (defensive — script tag should
+     already place it before life-map.js).
+
      If DOB is available the scaffold computes approximate year ranges;
-     otherwise the periods render with labels only (no dates).          */
-  var _DEFAULT_ERA_DEFS = [
-    { label: "early_childhood",  title: "Early Childhood",  offsetStart: 0,  offsetEnd: 5   },
-    { label: "school_years",     title: "School Years",     offsetStart: 6,  offsetEnd: 12  },
-    { label: "adolescence",      title: "Adolescence",      offsetStart: 13, offsetEnd: 17  },
-    { label: "early_adulthood",  title: "Early Adulthood",  offsetStart: 18, offsetEnd: 30  },
-    { label: "midlife",          title: "Midlife",          offsetStart: 31, offsetEnd: 59  },
-    { label: "later_life",       title: "Later Life",       offsetStart: 60, offsetEnd: null }
-  ];
+     otherwise the periods render with labels only (no dates). */
+  var _DEFAULT_ERA_DEFS = (function () {
+    var rows = (window.LorevoxEras && Array.isArray(window.LorevoxEras.LV_ERAS))
+      ? window.LorevoxEras.LV_ERAS
+      : null;
+    if (rows) {
+      // Historical periods only — exclude today (null age range).
+      return rows
+        .filter(function (e) { return e.era_id !== "today" && e.ageStart != null; })
+        .map(function (e) {
+          return {
+            label:       e.era_id,                        // canonical era_id (was old key)
+            title:       e.label,                         // warm label (was old display title)
+            offsetStart: e.ageStart,
+            offsetEnd:   e.ageEnd,
+          };
+        });
+    }
+    // Defensive fallback if lv-eras.js hasn't loaded.
+    return [
+      { label: "earliest_years",     title: "Earliest Years",     offsetStart: 0,  offsetEnd: 5   },
+      { label: "early_school_years", title: "Early School Years", offsetStart: 6,  offsetEnd: 12  },
+      { label: "adolescence",        title: "Adolescence",        offsetStart: 13, offsetEnd: 17  },
+      { label: "coming_of_age",      title: "Coming of Age",      offsetStart: 18, offsetEnd: 30  },
+      { label: "building_years",     title: "Building Years",     offsetStart: 31, offsetEnd: 59  },
+      { label: "later_years",        title: "Later Years",        offsetStart: 60, offsetEnd: null },
+    ];
+  })();
 
   function _buildDefaultLifePeriods() {
     var birthYear = _getBirthYear();

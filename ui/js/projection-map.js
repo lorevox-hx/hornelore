@@ -80,7 +80,7 @@
     "personal.timeOfBirth": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       conversational: "Do you happen to know what time of day you were born?",
       memoirClass: "background", questionKind: "fact", memoirWeight: 2,
       skipIfPreloaded: true
@@ -89,7 +89,7 @@
       writeMode: "prefill_if_blank",
       protectedIdentity: true,
       priority: 1,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       conversational: "Where were you born — what city and state, or country?",
       extractionHint: "Narrator's birthplace city/state/country. Extract only the location the narrator explicitly states as their own birthplace, not third-party locations.",
       inputHelper: "normalizePlace",
@@ -101,7 +101,7 @@
       writeMode: "prefill_if_blank",
       protectedIdentity: true,
       priority: 2,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       conversational: "Were you the first child, or did you have older siblings?",
       memoirClass: "background", questionKind: "fact", memoirWeight: 2,
       skipIfPreloaded: true, confirmOnlyIfMissing: true,
@@ -121,7 +121,7 @@
     "earlyMemories.firstMemory": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       conversational: "What is the earliest memory you can recall? Even a small fragment — a place, a sound, a feeling?",
       memoirClass: "hook", questionKind: "sensory", memoirWeight: 9,
       hookPrompt: "You mentioned your earliest memory: \"{value}\". Can you close your eyes and go back there for a moment — what do you see, smell, or hear?"
@@ -129,7 +129,7 @@
     "earlyMemories.favoriteToy": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       conversational: "Was there a favorite toy, blanket, or object you were attached to as a young child?",
       memoirClass: "hook", questionKind: "sensory", memoirWeight: 6,
       hookPrompt: "You mentioned {value}. What made it special — can you picture it? Where would you keep it?"
@@ -137,7 +137,7 @@
     "earlyMemories.significantEvent": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       conversational: "Was there a significant event from your early childhood — something the family talked about, or that you remember feeling strongly?",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 8,
       hookPrompt: "You mentioned: \"{value}\". What do you think that event meant for you — did it change something, or does it just stay with you?"
@@ -147,7 +147,7 @@
     "education.schooling": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["school_years"],
+      eraTags: ["early_school_years"],
       conversational: "Tell me about your schooling — where did you go to school, and what was it like?",
       memoirClass: "hook", questionKind: "sensory", memoirWeight: 7,
       hookPrompt: "You went to school at {value}. What do you remember most about it — a teacher, a friend, the walk to school, the feeling of the place?"
@@ -155,7 +155,7 @@
     "education.higherEducation": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["school_years", "early_adulthood"],
+      eraTags: ["early_school_years", "coming_of_age"],
       conversational: "Did you go on to college or any other education after high school? What was that experience like?",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 7,
       hookPrompt: "You studied at {value}. Was there a moment during that time that opened a door for you — or closed one?"
@@ -163,7 +163,7 @@
     "education.earlyCareer": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["early_adulthood"],
+      eraTags: ["coming_of_age"],
       conversational: "What was your first real job or the beginning of your career?",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 8,
       hookPrompt: "Your early career was in {value}. What was that first day like — or the moment you realized this was going to be your path?"
@@ -171,7 +171,7 @@
     "education.careerProgression": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["early_adulthood", "midlife"],
+      eraTags: ["coming_of_age", "building_years"],
       conversational: "How did your career develop over the years? Were there turning points or big changes?",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 8,
       hookPrompt: "Your career involved {value}. Was there a moment when things shifted — a decision, a risk, a change you didn't expect?"
@@ -179,7 +179,7 @@
     "education.communityInvolvement": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["midlife", "later_life"],
+      eraTags: ["building_years", "later_years"],
       conversational: "Were you involved in your community — church, volunteering, clubs, or organizations?",
       memoirClass: "thin_zone", questionKind: "meaning", memoirWeight: 5,
       hookPrompt: "You were involved in {value}. What drew you to that — and what did it give you?"
@@ -187,7 +187,7 @@
     "education.mentorship": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["midlife", "later_life"],
+      eraTags: ["building_years", "later_years"],
       conversational: "Was there someone who mentored you, or someone you mentored?",
       memoirClass: "hook", questionKind: "relationship", memoirWeight: 7,
       hookPrompt: "You mentioned a mentor: {value}. What did they teach you that you still carry — not just skills, but something about how to live?"
@@ -197,7 +197,7 @@
     "laterYears.retirement": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["later_life"],
+      eraTags: ["later_years"],
       conversational: "What was retirement like for you? Was it a welcome change or a difficult transition?",
       extractionHint: "Narrator's retirement status or experience. Extract what the narrator says about their own retirement, including if they say they never retired.",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 9,
@@ -206,7 +206,7 @@
     "laterYears.lifeLessons": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["later_life"],
+      eraTags: ["later_years"],
       conversational: "Looking back, what are the most important lessons life has taught you?",
       memoirClass: "hook", questionKind: "reflection", memoirWeight: 9,
       hookPrompt: "You've said: \"{value}\". Was there a single moment when that lesson became real — not just words, but felt?"
@@ -214,7 +214,7 @@
     "laterYears.adviceForFutureGenerations": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["later_life"],
+      eraTags: ["later_years"],
       conversational: "If you could pass along one piece of advice to future generations, what would it be?",
       memoirClass: "hook", questionKind: "reflection", memoirWeight: 8,
       hookPrompt: "You've shared: \"{value}\". What in your life taught you that — was there a moment that made it clear?"
@@ -224,7 +224,7 @@
     "hobbies.hobbies": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["school_years", "adolescence", "early_adulthood", "midlife", "later_life"],
+      eraTags: ["early_school_years", "adolescence", "coming_of_age", "building_years", "later_years"],
       conversational: "What hobbies or interests have been important to you over the years?",
       memoirClass: "thin_zone", questionKind: "sensory", memoirWeight: 5,
       hookPrompt: "You enjoy {value}. When did that start — and what does it feel like when you're doing it?"
@@ -232,7 +232,7 @@
     "hobbies.worldEvents": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["school_years", "adolescence", "early_adulthood", "midlife"],
+      eraTags: ["early_school_years", "adolescence", "coming_of_age", "building_years"],
       conversational: "Were there world events — a war, a political moment, a cultural shift — that shaped your life in some way?",
       memoirClass: "hook", questionKind: "meaning", memoirWeight: 7,
       hookPrompt: "You mentioned {value}. Where were you when that happened — and how did it change the way you saw things?"
@@ -240,7 +240,7 @@
     "hobbies.personalChallenges": {
       writeMode: "suggest_only",
       priority: 3,
-      eraTags: ["adolescence", "early_adulthood", "midlife", "later_life"],
+      eraTags: ["adolescence", "coming_of_age", "building_years", "later_years"],
       conversational: "What personal challenges or hardships have you faced? How did you get through them?",
       memoirClass: "hook", questionKind: "turning_point", memoirWeight: 9,
       hookPrompt: "You've faced: {value}. What got you through — was there a moment when you knew you'd make it?"
@@ -248,7 +248,7 @@
     "hobbies.travel": {
       writeMode: "suggest_only",
       priority: 4,
-      eraTags: ["early_adulthood", "midlife", "later_life"],
+      eraTags: ["coming_of_age", "building_years", "later_years"],
       conversational: "Have you traveled to places that left a strong impression on you?",
       memoirClass: "hook", questionKind: "sensory", memoirWeight: 6,
       hookPrompt: "You traveled to {value}. What do you still see when you think of that place — a view, a meal, a feeling?"
@@ -258,7 +258,7 @@
     "additionalNotes.unfinishedDreams": {
       writeMode: "suggest_only",
       priority: 5,
-      eraTags: ["later_life"],
+      eraTags: ["later_years"],
       conversational: "Is there a dream or goal you still carry with you — something unfinished?",
       memoirClass: "hook", questionKind: "reflection", memoirWeight: 8,
       hookPrompt: "You mentioned: \"{value}\". What would it mean to you if that could still happen?"
@@ -266,7 +266,7 @@
     "additionalNotes.messagesForFutureGenerations": {
       writeMode: "suggest_only",
       priority: 5,
-      eraTags: ["later_life"],
+      eraTags: ["later_years"],
       conversational: "Is there a message you'd like to leave for the people who come after you?",
       memoirClass: "hook", questionKind: "reflection", memoirWeight: 8,
       hookPrompt: "You've shared: \"{value}\". Who do you most hope hears that — and why them?"
@@ -293,7 +293,7 @@
       writeMode: "candidate_only",
       candidateType: "people",
       priority: 2,
-      eraTags: ["early_childhood", "school_years"],
+      eraTags: ["earliest_years", "early_school_years"],
       fields: {
         relation:          { conversational: "Was {ref} your mother, father, stepparent, or another role?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
         firstName:         { conversational: "What was {ref}'s first name?", extractionHint: "The first name of this parent/parental figure as stated by the narrator. Extract only the name explicitly given.", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
@@ -314,7 +314,7 @@
       writeMode: "candidate_only",
       candidateType: "people",
       priority: 3,
-      eraTags: ["early_childhood"],
+      eraTags: ["earliest_years"],
       fields: {
         firstName:          { conversational: "What was your {ordinal} grandparent's first name?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
         lastName:           { conversational: "What was their last name?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
@@ -330,7 +330,7 @@
       writeMode: "candidate_only",
       candidateType: "people",
       priority: 2,
-      eraTags: ["early_childhood", "school_years", "adolescence"],
+      eraTags: ["earliest_years", "early_school_years", "adolescence"],
       fields: {
         relation:              { conversational: "Was this a brother, sister, or another kind of sibling?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
         firstName:             { conversational: "What was their first name?", memoirClass: "background", memoirWeight: 1, skipIfPreloaded: true },
@@ -426,7 +426,7 @@
    * Skips fields that are already filled (in projection or BB questionnaire).
    * Returns array of { path, config } objects.
    *
-   * @param {string} era - Current life era (e.g. "early_childhood")
+   * @param {string} era - Current life era (e.g. "earliest_years")
    * @param {object} projectionFields - state.interviewProjection.fields
    * @param {object} bbQuestionnaire - state.bioBuilder.questionnaire
    * @param {object} [opts] - { limit: number, includeIdentity: bool }
