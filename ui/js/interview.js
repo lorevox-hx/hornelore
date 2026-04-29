@@ -1266,13 +1266,22 @@ function _extractAndProjectMultiField(answerText, turnId) {
     // Pure plumbing — backend only logs these at INFO. Reads from the
     // same state.session fields the runtime71 composer uses.
     var _sess = (state && state.session) || {};
+    // WO-CANONICAL-LIFE-SPINE-01 Step 3d: route current_era through
+    // getCurrentEra() so the extraction payload always carries a
+    // canonical era_id. Reading _sess.currentEra directly would
+    // bypass getCurrentEra()'s self-repair on read, so a stale
+    // legacy value persisted from before 3a hardening could leak
+    // into runtime71 / extraction logs / backend routing.
+    var _currentEraCanonical = (typeof getCurrentEra === "function")
+      ? getCurrentEra()
+      : (_sess.currentEra || null);
     var payload = {
       person_id: state.person_id,
       session_id: state.interview.session_id || null,
       answer: chunk,
       current_section: targetSection || null,
       current_target_path: targetPath || null,
-      current_era:  _sess.currentEra  || null,
+      current_era:  _currentEraCanonical,
       current_pass: _sess.currentPass || null,
       current_mode: _sess.currentMode || null
     };

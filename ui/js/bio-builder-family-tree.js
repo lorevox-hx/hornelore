@@ -62,24 +62,32 @@
 
   var FT_VIEW_MODES = ["cards", "graph", "scaffold"];
 
-  // v6: Era-role relevance map — which roles are most relevant to which eras
+  // v6: Era-role relevance map — which roles are most relevant to which eras.
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3d: keys migrated to canonical era_ids;
+  // today bucket added (forward-looking present-life: parents/siblings
+  // mostly faded, spouse/children/grandchildren most present).
   var ERA_ROLE_RELEVANCE = {
-    early_childhood:  { parent: 1.0, sibling: 0.8, grandparent: 0.9, guardian: 0.9, chosen_family: 0.3, spouse: 0.0, child: 0.0 },
-    school_years:     { parent: 0.8, sibling: 0.9, grandparent: 0.6, guardian: 0.7, chosen_family: 0.4, spouse: 0.0, child: 0.0 },
-    adolescence:      { parent: 0.6, sibling: 0.8, grandparent: 0.4, guardian: 0.5, chosen_family: 0.5, spouse: 0.1, child: 0.0 },
-    early_adulthood:  { parent: 0.4, sibling: 0.5, grandparent: 0.3, guardian: 0.2, chosen_family: 0.6, spouse: 0.9, child: 0.5 },
-    midlife:          { parent: 0.3, sibling: 0.4, grandparent: 0.1, guardian: 0.1, chosen_family: 0.5, spouse: 0.9, child: 0.9 },
-    later_life:       { parent: 0.2, sibling: 0.3, grandparent: 0.0, guardian: 0.0, chosen_family: 0.5, spouse: 0.7, child: 0.8, grandchild: 0.9 }
+    earliest_years:     { parent: 1.0, sibling: 0.8, grandparent: 0.9, guardian: 0.9, chosen_family: 0.3, spouse: 0.0, child: 0.0 },
+    early_school_years: { parent: 0.8, sibling: 0.9, grandparent: 0.6, guardian: 0.7, chosen_family: 0.4, spouse: 0.0, child: 0.0 },
+    adolescence:        { parent: 0.6, sibling: 0.8, grandparent: 0.4, guardian: 0.5, chosen_family: 0.5, spouse: 0.1, child: 0.0 },
+    coming_of_age:      { parent: 0.4, sibling: 0.5, grandparent: 0.3, guardian: 0.2, chosen_family: 0.6, spouse: 0.9, child: 0.5 },
+    building_years:     { parent: 0.3, sibling: 0.4, grandparent: 0.1, guardian: 0.1, chosen_family: 0.5, spouse: 0.9, child: 0.9 },
+    later_years:        { parent: 0.2, sibling: 0.3, grandparent: 0.0, guardian: 0.0, chosen_family: 0.5, spouse: 0.7, child: 0.8, grandchild: 0.9 },
+    today:              { parent: 0.1, sibling: 0.3, grandparent: 0.0, guardian: 0.0, chosen_family: 0.6, spouse: 0.8, child: 0.8, grandchild: 0.9 }
   };
 
-  // v6: Era-theme relevance keywords
+  // v6: Era-theme relevance keywords.
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3d: keys migrated to canonical era_ids;
+  // today bucket added (current routines, ongoing relationships, hopes,
+  // unfinished stories — Dementia UK life-story template framing).
   var ERA_THEME_KEYWORDS = {
-    early_childhood:  ["home","family","childhood","birth","beginning","first","mother","father","house","yard","kitchen","play"],
-    school_years:     ["school","education","teacher","class","learn","friend","grade","study","read","sport"],
-    adolescence:      ["teen","independence","identity","rebel","music","friendship","dating","high school","growth"],
-    early_adulthood:  ["career","college","marriage","wedding","move","job","apartment","independence","travel","ambition"],
-    midlife:          ["career","work","responsibility","children","mortgage","promotion","stability","routine","caregiving","community"],
-    later_life:       ["retire","legacy","loss","grandchild","health","reflection","wisdom","downsize","memory","faith","grief","gratitude"]
+    earliest_years:     ["home","family","childhood","birth","beginning","first","mother","father","house","yard","kitchen","play"],
+    early_school_years: ["school","education","teacher","class","learn","friend","grade","study","read","sport"],
+    adolescence:        ["teen","independence","identity","rebel","music","friendship","dating","high school","growth"],
+    coming_of_age:      ["career","college","marriage","wedding","move","job","apartment","independence","travel","ambition"],
+    building_years:     ["career","work","responsibility","children","mortgage","promotion","stability","routine","caregiving","community"],
+    later_years:        ["retire","legacy","loss","grandchild","health","reflection","wisdom","downsize","memory","faith","grief","gratitude"],
+    today:              ["today","now","routine","current","daily","this week","still","these days","right now","ongoing","unfinished","hope","worry"]
   };
 
   /* ═══════════════════════════════════════════════════════════════
@@ -1430,7 +1438,13 @@
     var ft = _ftDraft(pid);
     if (!ft) return null;
 
-    if (!era) {
+    // WO-CANONICAL-LIFE-SPINE-01 Step 3d: canonicalize incoming era at
+    // the boundary so callers can pass legacy keys, "era:"-prefixed
+    // values, warm labels, or memoir titles and still get the right
+    // bucket. This protects against any caller that bypassed setEra().
+    var eraId = (typeof _canonicalEra === "function") ? _canonicalEra(era) : era;
+
+    if (!eraId) {
       var items = [];
       ft.nodes.forEach(function (n) {
         if (n.role === "narrator") return;
@@ -1440,14 +1454,23 @@
     }
 
     var primary = [], secondary = [], global = [];
-    var roleWeights = ERA_ROLE_RELEVANCE[era] || {};
+    var roleWeights = ERA_ROLE_RELEVANCE[eraId] || {};
 
     ft.nodes.forEach(function (n) {
       if (n.role === "narrator") return;
       var item = { type: "ft_person", node: n, label: n.displayName || n.preferredName || n.label || "", role: n.role || "other" };
 
+      // WO-CANONICAL-LIFE-SPINE-01 Step 3d: canonicalize saved
+      // n.eraRelevance entries before comparing — protects older
+      // saved draft nodes whose eraRelevance arrays still hold legacy
+      // keys ("early_childhood", etc.). Without this, an older draft's
+      // [ "early_childhood" ] tag would fail to match the canonical
+      // current eraId "earliest_years".
       if (n.eraRelevance && n.eraRelevance.length > 0) {
-        if (n.eraRelevance.indexOf(era) >= 0) { item.score = n.eraWeight || 0.9; primary.push(item); return; }
+        var tags = n.eraRelevance.map(function (t) {
+          return (typeof _canonicalEra === "function") ? _canonicalEra(t) : t;
+        });
+        if (tags.indexOf(eraId) >= 0) { item.score = n.eraWeight || 0.9; primary.push(item); return; }
       }
 
       var roleScore = roleWeights[n.role] != null ? roleWeights[n.role] : 0.3;
@@ -1461,7 +1484,7 @@
     primary.sort(byScore);
     secondary.sort(byScore);
 
-    return { primary: primary, secondary: secondary, global: global, era: era };
+    return { primary: primary, secondary: secondary, global: global, era: eraId };
   }
 
   /* ═══════════════════════════════════════════════════════════════

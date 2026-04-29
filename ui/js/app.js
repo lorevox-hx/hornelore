@@ -561,37 +561,46 @@ function _lvInterviewRenderLifeMap() {
   const periods = _lvInterviewPeriods();
   const activeId = (state.session && state.session.activeFocusEra) || null;
 
-  // Default era buckets when narrator's spine.periods isn't populated yet.
-  // Matches the era-axis architecture mockup so the column is never empty
-  // even on a fresh narrator. Real periods overlay these labels when they
-  // arrive in state.timeline.spine.periods.
-  const defaultEras = [
-    "Earliest Years",
-    "Early School Years",
-    "Adolescence",
-    "Coming of Age",
-    "Building Years",
-    "Later Years",
-  ];
-  const eraLabels = periods.length ? periods.map(p => p.label) : defaultEras;
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3d: activeFocusEra now stores bare
+  // canonical era_id strings (earliest_years, …, today) instead of
+  // "era:Label" composites. The button keys are canonical era_ids; the
+  // display label comes from window.LorevoxEras.eraIdToWarmLabel(). Keeps
+  // the Life Map column rendering when state.timeline.spine.periods isn't
+  // populated yet (fresh narrator) — defaults derive from LV_ERAS itself
+  // so the spine taxonomy lives in exactly one place.
+  const defaultEraIds = (window.LorevoxEras && Array.isArray(window.LorevoxEras.LV_ERAS))
+    ? window.LorevoxEras.LV_ERAS
+        .filter(e => e.era_id !== "today")
+        .map(e => e.era_id)
+    : ["earliest_years", "early_school_years", "adolescence",
+       "coming_of_age", "building_years", "later_years"];
+
+  // Period.label/era_id is canonical after Step 3d's initTimelineSpine
+  // migration; canonicalize defensively for any stale cached spine.
+  const _toEraId = (v) => (typeof _canonicalEra === "function") ? _canonicalEra(v) : v;
+  const eraIds = periods.length
+    ? periods.map(p => _toEraId(p.era_id || p.label)).filter(Boolean)
+    : defaultEraIds;
+
+  const _warm = (eid) => (window.LorevoxEras && typeof window.LorevoxEras.eraIdToWarmLabel === "function")
+    ? window.LorevoxEras.eraIdToWarmLabel(eid)
+    : eid;
 
   let body = `<h3 class="lv-interview-lifemap-head">Life Map</h3>`;
-  eraLabels.forEach((label) => {
-    const eid = "era:" + label;
+  eraIds.forEach((eid) => {
     const active = (activeId === eid) ? " is-active" : "";
     body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
                      onclick="_lvInterviewSelectEra(${JSON.stringify(eid)})">
-      ${_lvEscapeHtml(label)}
+      ${_lvEscapeHtml(_warm(eid))}
     </button>`;
   });
 
   // Today anchor — clickable, fires the same focus event as the era buttons.
-  // Phase 1 leaves the downstream consumer free to use eraId="era:today" as
-  // a present-day focus hint for the composer.
-  const todayActive = (activeId === "era:today") ? " is-active" : "";
+  // Stores the canonical era_id "today" (no era: prefix) on click.
+  const todayActive = (activeId === "today") ? " is-active" : "";
   body += `<h3 class="lv-interview-lifemap-today-head">Today</h3>
     <button type="button" class="lv-interview-lifemap-era-btn${todayActive}"
-            onclick="_lvInterviewSelectEra('era:today')">
+            onclick="_lvInterviewSelectEra('today')">
       Today
     </button>`;
 
@@ -613,24 +622,36 @@ function _lvInterviewRenderLifeMap() {
 
 function _lvInterviewActiveFocusLabel(eraId) {
   if (!eraId) return "—";
-  const periods = _lvInterviewPeriods();
-  const p = periods.find(x => ("era:" + x.label) === eraId);
-  return p ? p.label : "—";
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3d: eraId is now a bare canonical
+  // era_id ("earliest_years", "today", etc.). Render via the canonical
+  // warm-label map so today gets "Today", earliest_years gets "Earliest
+  // Years", etc. — no more "era:" + label string-matching.
+  if (window.LorevoxEras && typeof window.LorevoxEras.eraIdToWarmLabel === "function") {
+    return window.LorevoxEras.eraIdToWarmLabel(eraId) || "—";
+  }
+  return eraId;
 }
 
 function _lvInterviewSelectEra(eid) {
   if (!state.session) state.session = {};
-  state.session.activeFocusEra = eid || null;
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3d: canonicalize at the boundary so
+  // any stray legacy or "era:"-prefixed input from an older bookmarked
+  // page or external caller still lands as a bare canonical era_id in
+  // state.session.activeFocusEra.
+  const canonical = (typeof _canonicalEra === "function") ? _canonicalEra(eid) : eid;
+  state.session.activeFocusEra = canonical || null;
   // Re-render life-map column to update the active highlight (timeline
   // is now the chronology accordion which manages its own highlights).
   _lvInterviewRenderLifeMap();
-  // Update Active Focus header.
+  // Update Active Focus header — render the canonical id, not raw input.
   const valEl = document.getElementById("lvInterviewActiveFocusValue");
-  if (valEl) valEl.textContent = _lvInterviewActiveFocusLabel(eid);
-  // Signal downstream consumers — composer / Lori prompt can pick up this focus.
+  if (valEl) valEl.textContent = _lvInterviewActiveFocusLabel(canonical);
+  // Signal downstream consumers — composer / Lori prompt can pick up
+  // this focus. Emit the canonical era_id so listeners always receive
+  // a clean bare key (composer / SESSION-AWARENESS Phase 2 lane).
   try {
     window.dispatchEvent(new CustomEvent("lv-interview-focus-change",
-      { detail: { era_id: eid, era_label: _lvInterviewActiveFocusLabel(eid) } }));
+      { detail: { era_id: canonical, era_label: _lvInterviewActiveFocusLabel(canonical) } }));
   } catch (_) {}
 }
 window._lvInterviewSelectEra = _lvInterviewSelectEra;
@@ -1967,7 +1988,13 @@ async function loadPerson(pid){
     state.timeline.spine    = _cachedSpine;
     state.timeline.seedReady = true;
     if (!state.session.currentEra && _cachedSpine.periods?.length) {
-      setEra(_cachedSpine.periods[0].label);
+      // WO-CANONICAL-LIFE-SPINE-01 Step 3d: prefer era_id (set by
+      // initTimelineSpine after 3d); fall back to label for cached
+      // spines from before this migration. setEra() canonicalizes
+      // via state.js _canonicalEra so a stale legacy label like
+      // "early_childhood" still becomes "earliest_years".
+      const p0 = _cachedSpine.periods[0];
+      setEra(p0.era_id || p0.label);
     }
     if (state.session.currentPass === "pass1") setPass("pass2a");
   }
@@ -5249,24 +5276,50 @@ function _setMicVisual(active){
    v7.1 — TIMELINE SPINE INITIALIZER
    Called from saveProfile() when DOB + birthplace are present.
    Builds the life-period scaffold from date of birth.
-═══════════════════════════════════════════════════════════════ */
-const TIMELINE_ORDER = [
-  "early_childhood",
-  "school_years",
-  "adolescence",
-  "early_adulthood",
-  "midlife",
-  "later_life",
-];
 
-const ERA_AGE_MAP = {
-  early_childhood:  { start: 0,  end: 5  },
-  school_years:     { start: 6,  end: 12 },
-  adolescence:      { start: 13, end: 18 },
-  early_adulthood:  { start: 19, end: 30 },
-  midlife:          { start: 31, end: 55 },
-  later_life:       { start: 56, end: null },
-};
+   WO-CANONICAL-LIFE-SPINE-01 Step 3d: TIMELINE_ORDER and ERA_AGE_MAP
+   are now derived from the canonical lv-eras.js registry at module
+   init time, so the historical-era taxonomy lives in exactly one
+   place. Each period stamps BOTH era_id (canonical machine key) and
+   label (also canonical) so renderRoadmap and any other p.label
+   reader gets canonical strings. The "today" bucket from LV_ERAS is
+   filtered out — Today is a current-life bucket selected explicitly
+   by the narrator/operator, not derived from birth-year math (matches
+   eraIdFromAge in lv-eras.js).
+
+   Defensive fallback array preserves the original 6-row scaffold
+   byte-stable when lv-eras.js hasn't loaded yet.
+═══════════════════════════════════════════════════════════════ */
+const _CANONICAL_HISTORICAL_ERAS = (function () {
+  var rows = (window.LorevoxEras && Array.isArray(window.LorevoxEras.LV_ERAS))
+    ? window.LorevoxEras.LV_ERAS
+    : null;
+  if (rows) {
+    return rows
+      .filter(function (e) { return e.era_id !== "today" && e.ageStart != null; })
+      .map(function (e) {
+        return { era_id: e.era_id, ageStart: e.ageStart, ageEnd: e.ageEnd };
+      });
+  }
+  return [
+    { era_id: "earliest_years",     ageStart: 0,  ageEnd: 5    },
+    { era_id: "early_school_years", ageStart: 6,  ageEnd: 12   },
+    { era_id: "adolescence",        ageStart: 13, ageEnd: 17   },
+    { era_id: "coming_of_age",      ageStart: 18, ageEnd: 30   },
+    { era_id: "building_years",     ageStart: 31, ageEnd: 59   },
+    { era_id: "later_years",        ageStart: 60, ageEnd: null },
+  ];
+})();
+
+const TIMELINE_ORDER = _CANONICAL_HISTORICAL_ERAS.map(function (e) { return e.era_id; });
+
+const ERA_AGE_MAP = (function () {
+  var m = {};
+  _CANONICAL_HISTORICAL_ERAS.forEach(function (e) {
+    m[e.era_id] = { start: e.ageStart, end: e.ageEnd };
+  });
+  return m;
+})();
 
 function initTimelineSpine() {
   const b = state.profile?.basics || {};
@@ -5274,16 +5327,21 @@ function initTimelineSpine() {
   const birthYear = parseInt(String(b.dob).slice(0, 4), 10);
   if (Number.isNaN(birthYear)) return;
 
-  const periods = TIMELINE_ORDER.map(label => {
-    const ages = ERA_AGE_MAP[label];
+  const periods = TIMELINE_ORDER.map(eraId => {
+    const ages = ERA_AGE_MAP[eraId];
     return {
-      label,
+      // Both fields hold the canonical era_id. era_id is the explicit
+      // machine key; label is preserved for backward-compat with any
+      // caller still reading period.label (renderRoadmap canonicalizes
+      // p.era_id || p.label so either works).
+      era_id: eraId,
+      label:  eraId,
       start_year: birthYear + ages.start,
       end_year:   ages.end !== null ? birthYear + ages.end : null,
       is_approximate: true,
-      places: label === "early_childhood" ? [b.pob] : [],
+      places: eraId === "earliest_years" ? [b.pob] : [],
       people: [],
-      notes:  label === "early_childhood" ? [`Born in ${b.pob}`] : [],
+      notes:  eraId === "earliest_years" ? [`Born in ${b.pob}`] : [],
     };
   });
 
@@ -5293,7 +5351,7 @@ function initTimelineSpine() {
 
   // Advance pass engine to Pass 2A and default to first era
   setPass("pass2a");
-  if (!getCurrentEra()) setEra(periods[0].label);
+  if (!getCurrentEra()) setEra(periods[0].era_id);
   setMode("open");
 
   // Sync UI

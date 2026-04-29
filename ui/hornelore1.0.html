@@ -6774,15 +6774,24 @@ function _truncate(s, max) {
 ──────────────────────────────────────────────────────────────────────────── */
 
 function lv80MapCaptureTypeToMemoirSection(memoryType, era) {
-  // Era-based routing for memories
+  // WO-CANONICAL-LIFE-SPINE-01 Step 3d: canonicalize the incoming era
+  // at the boundary so callers can pass legacy keys, "era:"-prefixed
+  // values, warm labels, or memoir titles and still route correctly.
+  // Then look up via canonical era_id keys. Memoir-section values
+  // (formative_years, crossroads, peaks_and_valleys, current_horizon,
+  // the_compass, the_legend_begins) are a SEPARATE taxonomy from
+  // era_ids and stay unchanged.
+  const eraId = (window.LorevoxEras && typeof window.LorevoxEras.legacyKeyToEraId === "function")
+    ? window.LorevoxEras.legacyKeyToEraId(era)
+    : era;
   const eraMap = {
-    "early_childhood": "formative_years",
-    "school_years":    "formative_years",
-    "young_adult":     "crossroads",
-    "career_family":   "peaks_and_valleys",
-    "middle_years":    "peaks_and_valleys",
-    "later_years":     "current_horizon",
-    "present":         "current_horizon"
+    "earliest_years":     "formative_years",
+    "early_school_years": "formative_years",
+    "adolescence":        "crossroads",
+    "coming_of_age":      "crossroads",
+    "building_years":     "peaks_and_valleys",
+    "later_years":        "current_horizon",
+    "today":              "current_horizon"
   };
 
   // Type-based routing takes priority for non-memory types
@@ -6796,8 +6805,8 @@ function lv80MapCaptureTypeToMemoirSection(memoryType, era) {
   if (memoryType && memoryType !== "memory" && typeMap[memoryType]) {
     return typeMap[memoryType];
   }
-  if (era && eraMap[era]) {
-    return eraMap[era];
+  if (eraId && eraMap[eraId]) {
+    return eraMap[eraId];
   }
   return "peaks_and_valleys"; // default bucket
 }
