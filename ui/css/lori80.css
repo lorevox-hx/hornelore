@@ -183,6 +183,22 @@ mark.new-fact { background: #fef08a; padding: 2px 4px; border-radius: 4px; color
   font-size: 14px; color: #334155; line-height: 1.6;
   margin: 0 0 6px 0; padding: 0;
 }
+/* WO-CANONICAL-LIFE-SPINE-01 Step 6: literary subtitle + always-7 placeholder.
+   Subtitle ("The Legend Begins") appears UNDER the warm heading
+   ("Earliest Years"), styled small/italic so the warm label remains
+   the structural anchor. Placeholder sections look visibly temporary
+   (extra-muted left border + lighter heading) so narrators understand
+   the section will fill in as they share. */
+.memoir-section-subtitle {
+  font-size: 12px; font-style: italic; color: #94a3b8;
+  letter-spacing: 0.04em; margin: -6px 0 10px 0; padding: 0;
+}
+.memoir-structured.memoir-placeholder-section {
+  border-left-color: #cbd5e1;
+}
+.memoir-structured.memoir-placeholder-section .memoir-section-heading {
+  color: #94a3b8;
+}
 
 .scroll-action-btn {
   background: #6366f1; color: white; border: none; padding: 8px 16px;

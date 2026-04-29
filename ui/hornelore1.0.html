@@ -6562,23 +6562,56 @@ function lv80HasStructuredMemoirData() {
   return false;
 }
 
-// ── Section renderers — each returns { label, items[] } or null ──
+// ── Section renderers ─────────────────────────────────────────────
+// WO-CANONICAL-LIFE-SPINE-01 Step 6: each renderer ALWAYS returns a
+// section object — never null. Shape:
+//   { era_id, warmLabel, memoirTitle, items, isPlaceholder }
+// When the narrator hasn't shared anything in a section yet, items is
+// a single-entry placeholder array drawn from the era's loriFocus
+// (the canonical per-era prompt anchor) and isPlaceholder=true so the
+// renderer can style it as temporary. Real content replaces the
+// placeholder as the narrator talks.
+
+/**
+ * Wrap raw items[] in the canonical section envelope. Pulls warm label
+ * + memoir literary subtitle from window.LorevoxEras (the canonical
+ * spine registry), so headings and subtitles always match the
+ * authoritative taxonomy. Empty items[] → placeholder drawn from
+ * the era's loriFocus.
+ */
+function _lv80MakeSection(eraId, items) {
+  const E = window.LorevoxEras;
+  const warmLabel   = (E && E.eraIdToWarmLabel)   ? (E.eraIdToWarmLabel(eraId)   || eraId) : eraId;
+  const memoirTitle = (E && E.eraIdToMemoirTitle) ? (E.eraIdToMemoirTitle(eraId) || "")    : "";
+  const loriFocus   = (E && E.eraIdToLoriFocus)   ? (E.eraIdToLoriFocus(eraId)   || "")    : "";
+  const real = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (real.length > 0) {
+    return { era_id: eraId, warmLabel, memoirTitle, items: real, isPlaceholder: false };
+  }
+  // Always-7 placeholder: friendly framing of what this section will
+  // hold once the narrator shares it. Drawn from canonical loriFocus.
+  const placeholderText = loriFocus
+    ? `Lori will gather this section as you talk — ${loriFocus}.`
+    : "Lori will gather this section as you talk.";
+  return { era_id: eraId, warmLabel, memoirTitle, items: [placeholderText], isPlaceholder: true };
+}
 
 function lv80RenderLegend() {
   const b = lv80GetNarratorBasics();
-  if (!b.fullName) return null;
   const items = [];
-  const nameStr = b.preferredName && b.preferredName !== b.fullName
-    ? `${b.fullName}, known as ${b.preferredName}`
-    : b.fullName;
-  let origin = "";
-  if (b.dob && b.pob) origin = `Born ${_formatDate(b.dob)} in ${b.pob}`;
-  else if (b.dob) origin = `Born ${_formatDate(b.dob)}`;
-  else if (b.pob) origin = `Born in ${b.pob}`;
-  if (origin) items.push(`${nameStr}. ${origin}.`);
-  else items.push(`${nameStr}.`);
-  if (b.birthOrder) items.push(`Birth order: ${b.birthOrder}.`);
-  return items.length ? { label: "The Legend Begins", items } : null;
+  if (b.fullName) {
+    const nameStr = b.preferredName && b.preferredName !== b.fullName
+      ? `${b.fullName}, known as ${b.preferredName}`
+      : b.fullName;
+    let origin = "";
+    if (b.dob && b.pob) origin = `Born ${_formatDate(b.dob)} in ${b.pob}`;
+    else if (b.dob) origin = `Born ${_formatDate(b.dob)}`;
+    else if (b.pob) origin = `Born in ${b.pob}`;
+    if (origin) items.push(`${nameStr}. ${origin}.`);
+    else items.push(`${nameStr}.`);
+    if (b.birthOrder) items.push(`Birth order: ${b.birthOrder}.`);
+  }
+  return _lv80MakeSection("earliest_years", items);
 }
 
 function lv80RenderFormativeYears() {
@@ -6617,7 +6650,29 @@ function lv80RenderFormativeYears() {
   if (em.firstMemory) items.push(`First memory: ${_truncate(em.firstMemory, 120)}`);
   if (em.favoriteToy) items.push(`Favorite toy: ${_truncate(em.favoriteToy, 80)}`);
   if (em.significantEvent) items.push(`Significant early event: ${_truncate(em.significantEvent, 120)}`);
-  return items.length ? { label: "Formative Years", items } : null;
+  return _lv80MakeSection("early_school_years", items);
+}
+
+// WO-CANONICAL-LIFE-SPINE-01 Step 6: NEW renderer for the adolescence
+// bucket — the spine's seventh section. Pulls from education.schooling
+// (later school years), education.higherEducation (late teen→college
+// transition), and hobbies.worldEvents (formative cultural moments).
+// Falls through to the canonical placeholder when the narrator hasn't
+// shared adolescence-anchored content yet.
+function lv80RenderAdolescence() {
+  const qq = lv80GetQuestionnaire();
+  const items = [];
+  const ed = qq.education || {};
+  // Later school years content also surfaces in adolescence — keep
+  // both sections honest by referring to the same source. Adolescence
+  // surfaces the LATE-teen pivot (high school + entry to higher ed).
+  if (ed.schooling && /high school|secondary|teen|adolescen/i.test(ed.schooling)) {
+    items.push(`School (teen years): ${_truncate(ed.schooling, 120)}`);
+  }
+  if (ed.higherEducation) items.push(`First steps after school: ${_truncate(ed.higherEducation, 120)}`);
+  const hobbies = qq.hobbies || {};
+  if (hobbies.worldEvents) items.push(`Formative cultural moments: ${_truncate(hobbies.worldEvents, 120)}`);
+  return _lv80MakeSection("adolescence", items);
 }
 
 function lv80RenderCrossroads() {
@@ -6644,7 +6699,7 @@ function lv80RenderCrossroads() {
     if (m.proposalStory) items.push(`Proposal: ${_truncate(m.proposalStory, 120)}`);
     if (m.weddingDetails) items.push(`Wedding: ${_truncate(m.weddingDetails, 120)}`);
   }
-  return items.length ? { label: "Crossroads", items } : null;
+  return _lv80MakeSection("coming_of_age", items);
 }
 
 function lv80RenderPeaksAndValleys() {
@@ -6665,7 +6720,7 @@ function lv80RenderPeaksAndValleys() {
   const hobbies = qq.hobbies || {};
   if (hobbies.personalChallenges) items.push(`Challenges: ${_truncate(hobbies.personalChallenges, 120)}`);
   if (hobbies.worldEvents) items.push(`World events: ${_truncate(hobbies.worldEvents, 120)}`);
-  return items.length ? { label: "Peaks & Valleys", items } : null;
+  return _lv80MakeSection("building_years", items);
 }
 
 function lv80RenderCurrentHorizon() {
@@ -6685,7 +6740,7 @@ function lv80RenderCurrentHorizon() {
   const hobbies = qq.hobbies || {};
   if (hobbies.hobbies) items.push(`Hobbies: ${_truncate(hobbies.hobbies, 100)}`);
   if (hobbies.travel) items.push(`Travel: ${_truncate(hobbies.travel, 100)}`);
-  return items.length ? { label: "Current Horizon", items } : null;
+  return _lv80MakeSection("today", items);
 }
 
 function lv80RenderCompass() {
@@ -6703,23 +6758,37 @@ function lv80RenderCompass() {
   for (const p of pets) {
     if (p.name) items.push(`Pet: ${p.name}${p.species ? ` (${p.species})` : ""}`);
   }
-  return items.length ? { label: "The Compass", items } : null;
+  return _lv80MakeSection("later_years", items);
 }
 
-// Build all memoir sections from structured data
+// Build all memoir sections from structured data.
+// WO-CANONICAL-LIFE-SPINE-01 Step 6: always returns 7 sections in
+// canonical era order — earliest_years through today, with Today
+// LAST per the spine taxonomy. lv80RenderAdolescence is the seventh
+// renderer added in Step 6 (was missing from the original 6-section
+// memoir). Each renderer always returns an object (never null), so
+// the .filter(Boolean) is gone — the array length is always 7.
 function lv80BuildMemoirSections() {
-  const renderers = [
-    lv80RenderLegend,
-    lv80RenderFormativeYears,
-    lv80RenderCrossroads,
-    lv80RenderPeaksAndValleys,
-    lv80RenderCurrentHorizon,
-    lv80RenderCompass
+  return [
+    lv80RenderLegend(),          // earliest_years      / The Legend Begins
+    lv80RenderFormativeYears(),  // early_school_years  / Formative Years
+    lv80RenderAdolescence(),     // adolescence         / Adolescence
+    lv80RenderCrossroads(),      // coming_of_age       / Crossroads
+    lv80RenderPeaksAndValleys(), // building_years      / Peaks & Valleys
+    lv80RenderCompass(),         // later_years         / The Compass
+    lv80RenderCurrentHorizon(),  // today               / Current Horizon
   ];
-  return renderers.map(fn => fn()).filter(Boolean);
 }
 
-// Render the structured memoir preview into the DOM
+// Render the structured memoir preview into the DOM.
+// WO-CANONICAL-LIFE-SPINE-01 Step 6: always renders all 7 sections
+// (no early-null exit), with the warm heading (canonical era warm
+// label, e.g. "Earliest Years") as the structural h4 and the literary
+// memoir title (e.g. "The Legend Begins") as a subtitle underneath.
+// Placeholders carry the memoir-placeholder class so CSS can style
+// them as visibly temporary (italic/dim) — they're replaced with real
+// content as the narrator shares it. dataset.section is the canonical
+// era_id for any downstream code that wants to bind by era.
 function lv80RenderStructuredMemoirPreview() {
   const content = document.getElementById("memoirScrollContent");
   if (!content) return;
@@ -6730,23 +6799,37 @@ function lv80RenderStructuredMemoirPreview() {
   content.innerHTML = "";
   for (const sec of sections) {
     const sectionEl = document.createElement("section");
-    sectionEl.className = "memoir-section memoir-structured";
-    sectionEl.dataset.section = sec.label.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    sectionEl.className = "memoir-section memoir-structured" + (sec.isPlaceholder ? " memoir-placeholder-section" : "");
+    sectionEl.dataset.section = sec.era_id;
+    sectionEl.dataset.eraId   = sec.era_id;
 
+    // Warm canonical heading ("Earliest Years")
     const h4 = document.createElement("h4");
     h4.className = "memoir-section-heading";
-    h4.textContent = sec.label;
+    h4.textContent = sec.warmLabel;
     sectionEl.appendChild(h4);
+
+    // Literary subtitle ("The Legend Begins") — only shown when it
+    // adds information beyond the warm label. For Adolescence both
+    // strings are identical ("Adolescence") and a duplicate subtitle
+    // would just look like a typo, so we suppress it in that case.
+    if (sec.memoirTitle && sec.memoirTitle !== sec.warmLabel) {
+      const sub = document.createElement("div");
+      sub.className = "memoir-section-subtitle";
+      sub.textContent = sec.memoirTitle;
+      sectionEl.appendChild(sub);
+    }
 
     for (const item of sec.items) {
       const p = document.createElement("p");
-      p.className = "memoir-structured-item";
+      p.className = "memoir-structured-item" + (sec.isPlaceholder ? " memoir-placeholder" : "");
       p.textContent = item;
       sectionEl.appendChild(p);
     }
     content.appendChild(sectionEl);
   }
-  console.log(`[memoir] Rendered structured preview: ${sections.length} sections from questionnaire/profile data.`);
+  const realCount = sections.filter(s => !s.isPlaceholder).length;
+  console.log(`[memoir] Rendered structured preview: 7 sections (${realCount} with content, ${7 - realCount} placeholder).`);
 }
 
 // ── Helpers ──
