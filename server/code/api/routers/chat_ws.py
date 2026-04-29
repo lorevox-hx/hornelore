@@ -304,7 +304,32 @@ async def ws_chat(ws: WebSocket):
         # WO-ARCH-07A — explicit mode routing before LLM generation
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
         if turn_mode == "memory_echo":
-            from ..prompt_composer import compose_memory_echo
+            from ..prompt_composer import compose_memory_echo, _build_profile_seed
+
+            # WO-LORI-SESSION-AWARENESS-01 Phase 1b: server-side profile_seed
+            # data wiring. UI may already populate runtime71["profile_seed"]
+            # via buildRuntime71 (preferred — sees Bio Builder questionnaire
+            # + projection state in real time). Server fills the gap when
+            # UI didn't (or sent only a subset). Server source: profile_json
+            # blob in profiles DB, hydrated from templates at preload time.
+            ui_seed = runtime71.get("profile_seed") if isinstance(runtime71.get("profile_seed"), dict) else {}
+            server_seed = _build_profile_seed(person_id) if person_id else {}
+            # UI takes precedence per-bucket (real-time signal), server fills
+            # only the buckets UI didn't populate.
+            merged_seed = dict(server_seed)
+            merged_seed.update({k: v for k, v in (ui_seed or {}).items() if v})
+            if merged_seed:
+                runtime71 = dict(runtime71)
+                runtime71["profile_seed"] = merged_seed
+                logger.info(
+                    "[chat_ws][memory-echo] profile_seed sources: ui=%d server=%d merged=%d conv=%s person=%s",
+                    len([k for k, v in (ui_seed or {}).items() if v]),
+                    len(server_seed),
+                    len(merged_seed),
+                    conv_id,
+                    person_id or "(none)",
+                )
+
             assistant_text = compose_memory_echo(
                 text=user_text,
                 runtime=runtime71,
