@@ -38,6 +38,33 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from failure_pack import build_failure_pack, render_failure_pack_console  # noqa: E402
 
+# 2026-04-29: canonical era mapping for the by_era / by_era_x_pass breakdowns.
+# Legacy keys (school_years, midlife, etc.) get mapped to canonical era_ids
+# (early_school_years, building_years, etc.) so the eval summary lines up
+# with the rest of the system. Best-effort import — eval still runs if the
+# server module isn't on sys.path (e.g. when invoked from outside repo).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "server" / "code"))
+try:
+    from api.lv_eras import legacy_key_to_era_id  # noqa: E402
+except Exception:
+    legacy_key_to_era_id = None  # type: ignore
+
+
+def _canonical_eval_era(raw: Any) -> str:
+    """Canonicalize an era value for eval reporting. Returns the canonical
+    era_id when possible; falls back to "(unset)" for None/empty and to
+    str(raw) when the legacy mapper isn't available or doesn't recognize
+    the value. Used by by_era / by_era_x_pass breakdowns so the report
+    lines up with the canonical 7-bucket spine."""
+    if raw is None or str(raw).strip() == "":
+        return "(unset)"
+    s = str(raw).strip()
+    if legacy_key_to_era_id is not None:
+        mapped = legacy_key_to_era_id(s)
+        if mapped:
+            return mapped
+    return s
+
 # ── Paths ───────────────────────────────────────────────────────────────────
 # 2026-04-25: script moved from scripts/ to scripts/archive/ — REPO_ROOT
 # needs three .parent calls now (file → archive/ → scripts/ → repo root).
@@ -1441,10 +1468,23 @@ def generate_report(results: List[dict], mode: str) -> dict:
             all_failures[fc] = all_failures.get(fc, 0) + 1
 
     # ── Helper: build a grouped breakdown ────────────────────────────────
+    # 2026-04-29: explicit-None handling. r.get(key, default) returns the
+    # default ONLY when the key is missing — explicit None values pass
+    # through and break the {key:{width}s} formatter in _print_breakdown.
+    # Coalesce here so the printer never sees None.
+    # Era keys also get canonicalized to canonical era_ids via
+    # _canonical_eval_era so the breakdown matches the rest of the system.
     def _breakdown(key: str, default: str = "unknown") -> dict:
+        is_era = key == "current_era"
         groups: Dict[str, dict] = {}
         for r in results:
-            val = r.get(key, default)
+            raw = r.get(key)
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                val = default
+            elif is_era:
+                val = _canonical_eval_era(raw)
+            else:
+                val = raw
             if val not in groups:
                 groups[val] = {"total": 0, "passed": 0, "failed": 0, "avg_score": 0.0}
             groups[val]["total"] += 1
@@ -1791,10 +1831,18 @@ def generate_report(results: List[dict], mode: str) -> dict:
 
 
 def _print_breakdown(title: str, data: dict, width: int = 25):
-    """Print a grouped breakdown section."""
+    """Print a grouped breakdown section.
+
+    2026-04-29: defensive None / non-string key handling. Earlier code
+    used `{key:{width}s}` which fails with TypeError on a None key. The
+    fix in `_breakdown` should prevent None keys, but defending here too
+    means a single bad row in any future upstream dict can't crash the
+    whole summary printer (and lose the JSON write that follows).
+    """
     print(f"  {title}:")
     for key, d in data.items():
-        print(f"    {key:{width}s}  {d['passed']}/{d['total']} passed  (avg {d['avg_score']:.3f})")
+        label = "(unset)" if key is None else str(key)
+        print(f"    {label:{width}s}  {d['passed']}/{d['total']} passed  (avg {d['avg_score']:.3f})")
     print()
 
 
@@ -2203,11 +2251,37 @@ def main():
     # scoring code never reads this.
     report["run_metadata"] = _discipline_header
 
-    # Print summary FIRST — stdout survives even if file write crashes.
-    # Also tee into an in-memory buffer so we can write a .console.txt
-    # companion file that doesn't depend on shell `2>&1 | tee` (which has
-    # silently failed under WSL pipe-buffering conditions — r4h's 0-byte
-    # console was the trigger for adding this).
+    # 2026-04-29: write the master JSON BEFORE print_summary. r5h-place-guard's
+    # printer crashed at the by_era breakdown (None key) and the JSON was
+    # never written, losing 110 cases of work. Defensive ordering: persist
+    # the report immediately after generate_report() so future printer bugs
+    # never destroy completed eval data. Console.txt and failure_pack still
+    # land after the printer (they depend on the printed buffer + summary).
+    try:
+        report_json = json.dumps(report, indent=2, ensure_ascii=False, default=str)
+        fd, tmp_path = tempfile.mkstemp(
+            suffix=".json.tmp", dir=str(output_path.parent)
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(report_json)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(output_path))
+            print(f"Report pre-written to {output_path} ({len(report_json):,} bytes) — survives printer errors", file=sys.stderr)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        print(f"WARNING: Failed to pre-write report to {output_path}: {e}",
+              file=sys.stderr)
+        print("  (Will retry after print_summary.)", file=sys.stderr)
+
+    # Print summary — stdout + console.txt buffer. If this crashes, the
+    # JSON is already on disk above (2026-04-29 ordering fix).
     _console_buffer = io.StringIO()
     # WO-EX-DISCIPLINE-01 (#142): discipline header leads the .console.txt.
     # Written directly into the buffer (not through _Tee) because it was
@@ -2226,35 +2300,19 @@ def main():
                 try: st.flush()
                 except Exception: pass
     _tee = _Tee(sys.stdout, _console_buffer)
-    with contextlib.redirect_stdout(_tee):
-        print_summary(report)
-
-    # Write report — atomic temp-file-then-rename to prevent truncation.
-    # output_path and REPORT_DIR were resolved earlier (pre-eval) for
-    # discipline-header eval_tag derivation; reuse that resolved path here.
     try:
-        report_json = json.dumps(report, indent=2, ensure_ascii=False, default=str)
-        fd, tmp_path = tempfile.mkstemp(
-            suffix=".json.tmp", dir=str(output_path.parent)
+        with contextlib.redirect_stdout(_tee):
+            print_summary(report)
+    except Exception as _print_exc:
+        # Belt-and-suspenders: a printer crash must not abort the run.
+        # JSON is already on disk; log the error but proceed to console
+        # + failure_pack writes so the operator gets every artifact we can.
+        print(
+            f"WARNING: print_summary crashed: {_print_exc}\n"
+            f"  Report JSON is already on disk at {output_path}.\n"
+            f"  Console summary may be partial.",
+            file=sys.stderr,
         )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(report_json)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, str(output_path))
-            print(f"Report written to {output_path} ({len(report_json):,} bytes)")
-        except Exception:
-            # Clean up temp file on failure
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-    except Exception as e:
-        print(f"WARNING: Failed to write report to {output_path}: {e}",
-              file=sys.stderr)
-        print("  (Console summary above is still valid.)", file=sys.stderr)
 
     # Write console companion (<output>.console.txt). This guarantees the
     # human-readable summary survives even if `| tee` is dropped or stdout
