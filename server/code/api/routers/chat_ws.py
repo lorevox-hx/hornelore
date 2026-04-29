@@ -204,11 +204,31 @@ async def ws_chat(ws: WebSocket):
         # the response — Lori still produces a turn, but under safety-side
         # prompt guidance.
         if user_text and user_text.strip():
+            _safety_scan_failed = False
             try:
                 _safety_result = scan_answer(user_text)
             except Exception as _safety_exc:
                 logger.warning("[chat_ws][safety] scan failed: %s", _safety_exc)
                 _safety_result = None
+                _safety_scan_failed = True
+
+            # Default-safe fallback: when scan_answer raises, the deterministic
+            # cascade below is skipped (no segment flag / no softened mode /
+            # no UI overlay / no operator notify). The LLM-side ACUTE SAFETY
+            # RULE in prompt_composer.py:108-193 still fires regardless, but
+            # only the interview/LLM turn_mode actually consults the system
+            # prompt. So on scan failure we force turn_mode='interview' to
+            # guarantee the LLM path runs (memory_echo / correction composers
+            # would skip the LLM entirely and echo distress content back).
+            # Operators see [chat_ws][safety][default-safe] so they know the
+            # deterministic layer had to fall back. Closes the silent-skip
+            # gap surfaced by 2026-04-29 code review.
+            if _safety_scan_failed:
+                logger.warning(
+                    "[chat_ws][safety][default-safe] forcing turn_mode=interview after scan_answer failure conv=%s",
+                    conv_id,
+                )
+                params["turn_mode"] = "interview"
 
             if _safety_result and _safety_result.triggered:
                 logger.warning(
