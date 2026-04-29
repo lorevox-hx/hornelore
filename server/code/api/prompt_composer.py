@@ -19,6 +19,11 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 from . import db
+from .lv_eras import (
+    era_id_to_lori_focus,
+    era_id_to_warm_label,
+    legacy_key_to_era_id,
+)
 from .memory_echo import parse_correction_rule_based
 
 logger = logging.getLogger(__name__)
@@ -719,7 +724,14 @@ def compose_system_prompt(
         parts.append(_identity_grounding_rules_block(runtime71))
 
         current_pass   = runtime71.get("current_pass", "pass1") or "pass1"
-        current_era    = runtime71.get("current_era") or "not yet set"
+        # WO-CANONICAL-LIFE-SPINE-01 Step 4: normalize current_era at the
+        # backend boundary. Frontend after Step 3 emits canonical era_ids,
+        # but legacy_key_to_era_id() also defends against any external
+        # caller still sending early_childhood / "era:Today" / warm
+        # labels. Falls through to "not yet set" when the runtime71
+        # block omits the field entirely.
+        _raw_era       = runtime71.get("current_era")
+        current_era    = (legacy_key_to_era_id(_raw_era) or "not yet set") if _raw_era else "not yet set"
         current_mode   = runtime71.get("current_mode", "open") or "open"
         affect_state   = runtime71.get("affect_state", "neutral") or "neutral"
         fatigue_score  = int(runtime71.get("fatigue_score", 0) or 0)
@@ -1067,11 +1079,26 @@ def compose_system_prompt(
                     "    that comes in the interview passes."
                 )
             elif current_pass == "pass2a":
-                era_label = current_era.replace("_", " ").title() if current_era != "not yet set" else "this period"
+                # WO-CANONICAL-LIFE-SPINE-01 Step 4: render the warm label
+                # via the canonical map (era_id_to_warm_label) so Today
+                # gets "Today" not "Today" → title-cased weirdness, and
+                # canonical era_ids like "earliest_years" become "Earliest
+                # Years" through the authoritative lv_eras taxonomy. The
+                # legacy underscore→title fallback covered most cases by
+                # accident but skipped the Today bucket entirely.
+                era_label = era_id_to_warm_label(current_era) if current_era != "not yet set" else "this period"
+                if not era_label:
+                    era_label = "this period"
+                # Add lori_focus context — the canonical per-era prompt
+                # anchor (birth/first home for Earliest Years; current
+                # life/routines/people for Today; etc.) so Lori frames
+                # the open question through the spine's own taxonomy.
+                era_focus = era_id_to_lori_focus(current_era) if current_era != "not yet set" else ""
+                _focus_line = f" Anchor it in: {era_focus}.\n" if era_focus else "\n"
                 directive_lines.append(
                     f"DIRECTIVE: You are in Pass 2A — Chronological Timeline Walk.\n"
                     f"Current era: {era_label}.\n"
-                    "Ask ONE open, place-anchored question about this period. "
+                    f"Ask ONE open, place-anchored question about this period.{_focus_line}"
                     "Invite the narrator to remember where they lived, who was around them, or what daily life felt like.\n"
                     "DO NOT ask about a specific moment or single scene — keep it broad.\n"
                     "DO NOT use 'do you remember a time when' — ask about place and daily life.\n"
@@ -1079,11 +1106,15 @@ def compose_system_prompt(
                     f"Example: 'What do you remember about where you were living during your {era_label}?'"
                 )
             elif current_pass == "pass2b":
-                era_label = current_era.replace("_", " ").title() if current_era != "not yet set" else "this period"
+                era_label = era_id_to_warm_label(current_era) if current_era != "not yet set" else "this period"
+                if not era_label:
+                    era_label = "this period"
+                era_focus = era_id_to_lori_focus(current_era) if current_era != "not yet set" else ""
+                _focus_line = f" The era's anchor is: {era_focus}.\n" if era_focus else "\n"
                 directive_lines.append(
                     f"DIRECTIVE: You are in Pass 2B — Narrative Depth.\n"
                     f"Current era: {era_label}.\n"
-                    "Ask ONE question that invites a specific scene or memory — a room, a sound, a face, a smell, a feeling.\n"
+                    f"Ask ONE question that invites a specific scene or memory — a room, a sound, a face, a smell, a feeling.{_focus_line}"
                     "Help the narrator move from general summary into a specific moment.\n"
                     "DO NOT ask a broad timeline question.\n"
                     "DO NOT ask more than one question.\n"

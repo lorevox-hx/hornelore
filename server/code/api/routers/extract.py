@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..lv_eras import legacy_key_to_era_id
+
 logger = logging.getLogger("lorevox.extract")
 
 router = APIRouter(prefix="/api", tags=["extract"])
@@ -57,9 +59,17 @@ class ExtractFieldsRequest(BaseModel):
     # threaded from interview runtime into the extraction payload.
     # Pure plumbing — logged at INFO via the existing [extract] lines
     # so Phase 3 causal-matrix work can attribute outcome to stage.
-    # No extractor-behavior change. Valid value spaces per ui/js/state.js:
+    # No extractor-behavior change.
+    #
+    # WO-CANONICAL-LIFE-SPINE-01 Step 4: current_era values are canonical
+    # era_ids after frontend Step 3. Backend defensively normalizes any
+    # legacy or transitional input via legacy_key_to_era_id() at request
+    # entry, so logs and downstream routing always carry a canonical key.
+    # Valid value spaces:
     #   current_pass : "pass1" | "pass2a" | "pass2b"
-    #   current_era  : "early_childhood" | "school_years" | ... | None
+    #   current_era  : "earliest_years" | "early_school_years" |
+    #                  "adolescence" | "coming_of_age" |
+    #                  "building_years" | "later_years" | "today" | None
     #   current_mode : "open" | "recognition" | "grounding" | "light" | "alongside"
     current_era: Optional[str] = None
     current_pass: Optional[str] = None
@@ -4733,8 +4743,14 @@ _PARENT_OCCUPATION = re.compile(
 # return True here (is_birth_relevant_phase), which meant discussing any
 # kindergarten-era memory re-opened the birth-field spigot. Phase is now
 # advisory at the router level only and does NOT relax this guard.
+# WO-CANONICAL-LIFE-SPINE-01 Step 4: this set guards section names
+# (birth-context routing), NOT canonical era_ids. The strings here are
+# section-tag heuristics. Including BOTH the legacy "early_childhood"
+# AND the canonical "earliest_years" so this guard fires whichever
+# convention any caller (or any persisted state) uses.
 _BIRTH_CONTEXT_SECTIONS = {
-    "early_childhood",
+    "early_childhood",       # legacy v7.1 section tag — kept for back-compat
+    "earliest_years",        # canonical era_id — Step 4 forward-compat
     "earliest_memories",
     "personal",
     "personal_information",
@@ -7162,6 +7178,19 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     answer = (req.answer or "").strip()
     if not answer:
         return ExtractFieldsResponse(items=[], method="fallback")
+
+    # WO-CANONICAL-LIFE-SPINE-01 Step 4: normalize current_era at the
+    # backend boundary. Frontend after Step 3 emits canonical era_ids,
+    # but legacy_key_to_era_id() also defends against any external
+    # caller still sending early_childhood / "era:Today" / warm labels
+    # / memoir titles. After this point every read of req.current_era
+    # returns either a canonical era_id or None — log lines + downstream
+    # routing always carry a canonical key.
+    if req.current_era:
+        _normalized_era = legacy_key_to_era_id(req.current_era)
+        if _normalized_era != req.current_era:
+            logger.info("[extract][era-normalize] %r -> %r", req.current_era, _normalized_era)
+        req.current_era = _normalized_era
 
     # Try LLM extraction first
     # WO-EX-SECTION-EFFECT-01 Phase 2 (#93): log life-map stage fields

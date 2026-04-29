@@ -31,13 +31,26 @@ from .school import (
 # CATALOGS map by tuple (callable, uses_facts). Keeps simple catalogs
 # unchanged while family and future facts-consuming catalogs get the
 # narrator-facts channel they need.
+#
+# WO-CANONICAL-LIFE-SPINE-01 Step 4: keys migrated to canonical era_ids
+# matching server/code/api/lv_eras.py and ui/js/lv-eras.js. The
+# sub-module FILE NAMES (early_adulthood.py, later_life.py, midlife.py)
+# are intentionally LEFT unchanged because:
+#   1. Renaming files would ripple through any import statement that
+#      pulls these directly (low blast radius today, but unverified).
+#   2. The catalog keys are the public surface — they appear in logs
+#      and any caller that iterates CATALOGS. The file names are
+#      implementation detail.
+# A future cleanup WO can rename the files in lockstep with their
+# import sites if desired; this is not a blocker for the canonical
+# spine round-trip.
 CATALOGS: Dict[str, tuple[Callable[..., List[Dict[str, Any]]], bool]] = {
-    "school_years":     (derive_school_spine, False),
-    "adolescence":      (derive_adolescence_spine, False),
-    "early_adulthood":  (derive_early_adulthood_spine, False),
-    "midlife":          (derive_midlife_spine, False),
-    "later_life":       (derive_later_life_spine, False),
-    "family":           (derive_family_spine, True),
+    "early_school_years": (derive_school_spine, False),
+    "adolescence":        (derive_adolescence_spine, False),
+    "coming_of_age":      (derive_early_adulthood_spine, False),
+    "building_years":     (derive_midlife_spine, False),
+    "later_years":        (derive_later_life_spine, False),
+    "family":             (derive_family_spine, True),
 }
 
 

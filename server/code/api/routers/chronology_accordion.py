@@ -28,29 +28,27 @@ from ..db import (
 )
 from ..flags import truth_v2_enabled
 from ..life_spine import derive_life_spine
+from ..lv_eras import LV_ERAS, legacy_key_to_era_id
 
 logger = logging.getLogger("chronology_accordion")
 
 router = APIRouter(prefix="/api", tags=["chronology"])
 
 # ─── ERA / AGE MAP ────────────────────────────────────────────────
-# Must mirror TIMELINE_ORDER + ERA_AGE_MAP in app.js exactly.
+# WO-CANONICAL-LIFE-SPINE-01 Step 4: TIMELINE_ORDER and ERA_AGE_MAP are
+# now derived from the canonical lv_eras.LV_ERAS registry — same source
+# the frontend reads from window.LorevoxEras.LV_ERAS, so the spine
+# taxonomy lives in exactly one place. Today is filtered out of the
+# age-derived scaffold (selected explicitly, never age-derived).
 TIMELINE_ORDER = [
-    "early_childhood",
-    "school_years",
-    "adolescence",
-    "early_adulthood",
-    "midlife",
-    "later_life",
+    e["era_id"] for e in LV_ERAS
+    if e["era_id"] != "today" and e.get("ageStart") is not None
 ]
 
 ERA_AGE_MAP = {
-    "early_childhood":  {"start": 0,  "end": 5},
-    "school_years":     {"start": 6,  "end": 12},
-    "adolescence":      {"start": 13, "end": 18},
-    "early_adulthood":  {"start": 19, "end": 30},
-    "midlife":          {"start": 31, "end": 55},
-    "later_life":       {"start": 56, "end": None},
+    e["era_id"]: {"start": e["ageStart"], "end": e["ageEnd"]}
+    for e in LV_ERAS
+    if e["era_id"] != "today" and e.get("ageStart") is not None
 }
 
 # ─── HISTORICAL SEED (loaded once, cached) ────────────────────────
@@ -104,14 +102,16 @@ def build_scaffold_periods(birth_year: int) -> List[Dict[str, Any]]:
 def year_to_era(year: int, periods: List[Dict[str, Any]]) -> Optional[str]:
     """Map a calendar year to an era label using the periods list.
 
-    If year falls after the last period's start (later_life with end=None),
-    it maps to later_life.  Years before birth return None.
+    If year falls after the last period's start (later_years with
+    end=None), it maps to later_years.  Years before birth return None.
+    Returns canonical era_id strings after WO-CANONICAL-LIFE-SPINE-01
+    Step 4 (was legacy keys before the migration).
     """
     for p in periods:
         start = p["start_year"]
         end = p.get("end_year")
         if end is None:
-            # later_life — open-ended
+            # later_years — open-ended
             if year >= start:
                 return p["label"]
         else:
@@ -470,13 +470,19 @@ def project_personal_anchors(
 # ─── LANE C: GHOST PROMPTS ───────────────────────────────────────
 # One ghost per life-stage band, placed at midpoint year.
 
+# WO-CANONICAL-LIFE-SPINE-01 Step 4: keys migrated to canonical era_ids.
+# Today bucket is intentionally absent from this map — Today ghost
+# prompts are not tied to a specific calendar year (they would otherwise
+# get placed at a midpoint that doesn't make sense for "right now"). If
+# a future WO wants Today ghosts on the chronology, they'd anchor at
+# current_year, not at era midpoint.
 _GHOST_TEMPLATES = {
-    "early_childhood":  "What's your earliest memory from childhood?",
-    "school_years":     "What was school like for you growing up?",
-    "adolescence":      "What were your teenage years like?",
-    "early_adulthood":  "What was life like when you were first on your own?",
-    "midlife":          "What stands out about your middle years?",
-    "later_life":       "What has this chapter of life been like for you?",
+    "earliest_years":     "What's your earliest memory from childhood?",
+    "early_school_years": "What was school like for you growing up?",
+    "adolescence":        "What were your teenage years like?",
+    "coming_of_age":      "What was life like when you were first on your own?",
+    "building_years":     "What stands out about your building years?",
+    "later_years":        "What has this chapter of life been like for you?",
 }
 
 
@@ -497,7 +503,7 @@ def build_band_ghosts(
             era_counts[era] = era_counts.get(era, 0) + 1
 
     items = []
-    current_year = 2026  # cap for later_life
+    current_year = 2026  # cap for later_years (open-ended period end)
 
     for p in periods:
         label = p["label"]
@@ -542,7 +548,7 @@ def group_by_decade(
           "years": [
             {
               "year": 1940,
-              "era": "early_childhood",
+              "era": "earliest_years",
               "items": [ ... ]
             },
             ...
