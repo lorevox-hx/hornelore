@@ -19,12 +19,17 @@ This clause is the structural constraint, not a tone preference. Pull requests a
 
 ## Banned vocabulary
 
-The following terms must not appear anywhere in code, comments, log lines, UI strings, prompts, schema field names, eval reports, or downstream documentation produced by this WO:
+The following terms must not appear anywhere in **new or modified** code, comments, log lines, UI strings, prompts, schema field names, eval reports, or downstream documentation produced by this WO:
 
 ```
 cognitive decline    MCI    dementia    diagnostic    severity    clinical signal
 drift score          impairment           CDTD              decline detector
 ```
+
+**Scope clarification:** the ban applies to output **introduced by this WO**. Pre-existing legacy references in unrelated code paths (e.g. older cognitive-support code from WO-10C, comments in modules this WO doesn't touch) are out of scope — a global grep that surfaces them is not a build failure. However:
+- Do **not** expand, surface, or copy legacy banned terms forward into any file this WO modifies.
+- If you are touching a file that has legacy banned terms in unrelated lines, leave them alone unless the operator instructs otherwise — migrating them risks behavior change outside this WO's scope.
+- If you must touch the legacy line itself, migrate it to the rhythm/pace/listener vocabulary below.
 
 Allowed framing — use these instead:
 
@@ -83,7 +88,13 @@ The three problems share a surface (Lori's composer) and a gold standard (warm, 
 
 6. Composer discipline rules (universal across all three response paths —
    memory echo, interview question, attention cue):
-   - max 55 words
+   - intent-aware word caps:
+     * `memory_echo`: max 100 words (structured readback; narrator asked
+       for it). The Phase 1 reference example is ~75 words and correct.
+     * `interview_question`: max 55 words (default ordinary turn)
+     * `attention_cue`: max 25 words (cue may be statement-only)
+     * `repair` / `clarify`: max 30 words
+     * `safety`: exempt — owned by WO-LORI-SAFETY-INTEGRATION-01
    - max 1 question mark
    - max 1 atomic ask
    - reflect one concrete detail before asking
@@ -143,22 +154,33 @@ from ..prompt_composer import compose_memory_echo
 
 Add regression test that posts *"what do you know about me?"* through the chat WS path and asserts (a) no exception, (b) no `"API"` / `"offline"` / `"undefined"` substring in response, (c) response goes through `compose_memory_echo` (logged marker).
 
-**1b. Memory-echo composer consults Peek-at-Memoir + answers warmly.**
+**1b-minimum. Memory-echo composer answers warmly from profile + runtime data.** *(Parent-session blocker — must land before Kent/Janice.)*
 
 When a turn classifies as `memory_echo` intent, Lori must consult:
 
-1. Profile facts (`/api/profiles/{id}` — already wired)
-2. Promoted truth (`family_truth_promoted`)
-3. Session transcript (recent turns from current `conv_id`)
-4. Peek-at-Memoir scaffold/draft (NEW read path needed — `chat_ws` does not currently access this; small read-only accessor required)
+1. Profile facts (`profile_json` blob via `db.get_profile(person_id)` — implemented as `_build_profile_seed()` in `prompt_composer.py`)
+2. `runtime71` payload from the UI (`speaker_name`, `dob`, `pob`, `projection_family`, optional UI-side `profile_seed`)
+3. Parents / siblings / children / partner where present in the runtime or profile blob
 
-Then produce a warm grounded answer that obeys the composer discipline rules (Phase 2). Reference style:
+Then produce a warm grounded answer that obeys the composer discipline rules (Phase 2). The answer must NOT contain "API" / "offline" / "undefined" / dict-stringified garbage. List values render through `_label_item` (preferredName / fullName / "First Last" composite / relation fallback). Reference style:
 
 > *"Here's what I'm beginning to understand about you, Chris. You were born in Williston, North Dakota, grew up with Kent and Janice as central figures, and Bismarck became an important school-years anchor. I also know family, your work as an occupational therapist, your children, and your later marriage to Melanie are major threads in your story. What part of that feels most important for me to understand more deeply?"*
 
 What this answer does right: warm first-person voicing; grounded in facts Lori actually has; organized but not sterile; one gentle invitation at the end, not a stack of questions; no "let me query the database" register.
 
-Files touched: `server/code/api/routers/chat_ws.py`, `server/code/prompt_composer.py`, possibly a small `services/memoir_peek.py` accessor if Peek-at-Memoir doesn't already expose a clean read path to chat.
+Files touched (1b-minimum): `server/code/api/routers/chat_ws.py`, `server/code/api/prompt_composer.py`.
+
+**1c. Promoted truth + session transcript + Peek-at-Memoir read accessor.** *(Post-parent-session enrichment. Defer if Peek-at-Memoir doesn't expose a clean read path — fall back to 1b-minimum sources only.)*
+
+Once Phase 1b-minimum is live and verified with Christopher / Kent / Janice, extend the consultation set to:
+
+5. Promoted truth (`family_truth_promoted`) — additional confirmed facts that aren't in the template/profile blob
+6. Recent session transcript (current `conv_id` turns, structured only — never raw memoir prose treated as fact)
+7. Peek-at-Memoir scaffold/draft (NEW read path — `chat_ws` does not currently access this; small read-only accessor required at `services/memoir_peek.py`)
+
+**Stop condition for 1c:** if the Peek-at-Memoir read path is expensive (LLM call, slow DB join, etc.), fall back to 1b-minimum sources only. Don't block parent-session readiness on the accessor.
+
+Files touched (1c): same two files as 1b-minimum, plus `services/memoir_peek.py` if the accessor lands.
 
 ---
 
@@ -463,7 +485,7 @@ Test-lab scenarios that exercise the acceptance rule. Run as part of `WO-UI-TEST
 
 | Scenario | Setup | Expected | Fail condition |
 |---|---|---|---|
-| Memory echo basic | Narrator types *"what do you know about me?"* | Warm grounded answer ≤55w, 1 question mark, references real profile facts, ends with one invitation | Crash, "API/offline" language, database-dump tone, multiple questions |
+| Memory echo basic | Narrator types *"what do you know about me?"* | Warm grounded answer ≤100w (`memory_echo` intent cap), ≤1 question mark, references real profile facts, ends with one invitation | Crash, "API/offline" language, database-dump tone, multiple questions |
 | Memory echo with Peek | Narrator types same with Peek-at-Memoir scaffold present | Answer references content from Peek-at-Memoir alongside profile | Peek content ignored |
 | Deep thinker, camera engaged | Narrator silent 90s after Lori prompt; MediaPipe state = `engaged` | No cue fires before WO-10C's 120s mark | Cue fires early |
 | Passive waiter, camera passive | Narrator silent 30s after Lori prompt; MediaPipe state = `passive_waiting` (all 4 inputs confirmed) | Tier 0 silent indicator at 25–30s, Tier 1 spoken cue at 60–90s | No cue, or cue stacks questions, or cue uses banned vocabulary |
@@ -471,7 +493,7 @@ Test-lab scenarios that exercise the acceptance rule. Run as part of `WO-UI-TEST
 | Narrator starts speaking mid-cue-decision | `mic_activity` detected during cue dispatch | Cue suppressed; Lori does not speak | Lori interrupts |
 | Long silence, all paths | Narrator silent 600s | Break offer fires, warm | "Are you still there?" or any nag |
 | Cooldown | Cue fires; narrator silent another 60s | No second cue (in 90s cooldown) | Cue stacks |
-| Composer discipline universal | Run full session, 30 turns | Zero `[lori][discipline] violation=` entries in logs | Any violation |
+| Composer discipline universal | Run full session, 30 turns | Zero **untrimmed** violations reaching the narrator. Layer 2 trim logs (`[lori][discipline] trim-to-one-q`) are warnings, not failures — the filter doing its job is acceptable. Each trim log must include `before_len` / `after_len` / `reason`. **Repeated trim logs on the same code path** become a Layer 1 prompt-composer bug to investigate. | Untrimmed compound/nested/menu reaches narrator |
 | `face_missing` not treated as waiting | Narrator out of frame for 60s | No cue fires (`face_missing` ≠ `passive_waiting`) | Cue fires |
 | Cold-start narrator | New narrator, < 10 turns of data | Falls back to WO-10C 120s/300s/600s | Adaptive ladder activates with insufficient data |
 | Window-fit narrator | Narrator with 30 turns banked, p75 gap = 35s | Tier 1 fires at ~40s when MediaPipe confirms passive | Tier 1 fires at default 60s instead of fitted 40s |
@@ -506,7 +528,7 @@ Test-lab scenarios that exercise the acceptance rule. Run as part of `WO-UI-TEST
 | MediaPipe false positive on `passive_waiting` — narrator actually thinking | Veto rule: `engaged` / `reflective` blocks cue under WO-10C's 120s mark; uncertainty defaults to long ladder |
 | Adaptive window feels surveilly even though it isn't surfaced | Narrator-visible disclosure in onboarding: *"Lori notices the rhythm of how you talk so she can be a better listener with you."* No more, no less. |
 | Operator pressure to surface pacing data later | Values clause is the rejection ground. Cite it in PR comments. |
-| Lori cue composer drift from Phase 2 discipline | Same enforcement point; zero discipline violations on Phase 5 30-turn run is the gate |
+| Lori cue composer drift from Phase 2 discipline | Same enforcement point; **zero untrimmed violations reaching the narrator** on Phase 5 30-turn run is the gate (Layer 2 trim logs are acceptable; see acceptance row above) |
 
 ---
 
@@ -532,7 +554,7 @@ NEW:
 
 MODIFIED:
   server/code/api/routers/chat_ws.py        (import fix + memory_echo route + cue dispatch)
-  server/code/prompt_composer.py            (Peek-at-Memoir consultation + discipline guard)
+  server/code/api/prompt_composer.py        (Peek-at-Memoir consultation + discipline guard)
   ui/js/emotion.js                          (passive_waiting detector)
   ui/js/state.js                            (visualSignals + attention_state + pacing mirror)
   ui/js/archive-writer.js                   (extend timestamp emission)
