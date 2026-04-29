@@ -630,27 +630,61 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         return {}
 
     seed: Dict[str, Any] = {}
+
+    # Phase 1b shape compat (2026-04-29 review): profile_json may be
+    # template-shaped (`personal`/`parents`/`spouse`/`children`/`education`)
+    # OR basics-shaped (`basics.dob`/`basics.pob`/`basics.placeOfBirth`)
+    # OR a hybrid coming from the promotion/profile pipeline. Read both
+    # so the readback works regardless of which writer hydrated the row.
     personal = root.get("personal") or {}
+    basics = root.get("basics") or {}
     parents = root.get("parents") or []
-    spouse = root.get("spouse") or {}
+    kinship = root.get("kinship") or []
+    spouse = root.get("spouse")
     children = root.get("children") or []
     education = root.get("education") or {}
     military = root.get("military") or {}
     community = root.get("community") or {}
 
-    # childhood_home — placeOfBirth
-    pob = (personal.get("placeOfBirth") or "").strip() if isinstance(personal.get("placeOfBirth"), str) else ""
+    def _first_str(*vals: Any) -> str:
+        """Return first non-empty stripped string from a sequence of
+        candidate values. Coerces None / non-strings to empty."""
+        for v in vals:
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return ""
+
+    # childhood_home — placeOfBirth (template) or basics.pob/placeOfBirth
+    pob = _first_str(
+        personal.get("placeOfBirth"),
+        personal.get("place_of_birth"),
+        basics.get("placeOfBirth"),
+        basics.get("place_of_birth"),
+        basics.get("pob"),
+    )
     if pob:
         seed["childhood_home"] = pob
 
-    # parents_work — parents[].occupation
+    # parents_work — parents[].occupation. Try both `parents` (template
+    # shape) and `kinship` (promoted/profile shape with role-tagged
+    # entries). Each entry is a dict with first/preferred name + occupation.
+    parents_source: List[Any] = []
     if isinstance(parents, list):
+        parents_source.extend(parents)
+    if isinstance(kinship, list):
+        for k in kinship:
+            if not isinstance(k, dict):
+                continue
+            role = _first_str(k.get("relation"), k.get("role")).lower()
+            if role in ("mother", "father", "parent"):
+                parents_source.append(k)
+    if parents_source:
         parts = []
-        for p in parents:
+        for p in parents_source:
             if not isinstance(p, dict):
                 continue
-            name = (p.get("firstName") or p.get("preferredName") or "").strip()
-            occ = (p.get("occupation") or "").strip()
+            name = _first_str(p.get("firstName"), p.get("preferredName"), p.get("first_name"))
+            occ = _first_str(p.get("occupation"), p.get("work"), p.get("job"))
             if name and occ:
                 parts.append(f"{name} — {occ}")
             elif occ:
@@ -658,15 +692,17 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         if parts:
             seed["parents_work"] = "; ".join(parts)
 
-    # heritage — personal.culture (overloaded; Phase 3 will refactor)
-    culture = (personal.get("culture") or "").strip() if isinstance(personal.get("culture"), str) else ""
+    # heritage — personal.culture / basics.culture (overloaded; Schema-
+    # Diversity Phase 3 will split into raceEthnicity[] / religiousAffiliation
+    # / culturalAffiliations[] / spiritualBackground per the schema WO).
+    culture = _first_str(personal.get("culture"), basics.get("culture"))
     if culture:
         seed["heritage"] = culture
 
     # education — schooling + higherEducation
     edu_parts = []
-    schooling = (education.get("schooling") or "").strip() if isinstance(education.get("schooling"), str) else ""
-    higher = (education.get("higherEducation") or "").strip() if isinstance(education.get("higherEducation"), str) else ""
+    schooling = _first_str(education.get("schooling"), basics.get("schooling"))
+    higher = _first_str(education.get("higherEducation"), basics.get("higherEducation"))
     if schooling:
         edu_parts.append(schooling)
     if higher and higher != schooling:
@@ -676,21 +712,35 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
 
     # military — pull a single summary string if any military.* field is set
     if isinstance(military, dict):
-        for key in ("summary", "branch", "service", "yearsActive", "rank"):
-            val = (military.get(key) or "").strip() if isinstance(military.get(key), str) else ""
-            if val:
-                seed["military"] = val
-                break
+        mil = _first_str(
+            military.get("summary"),
+            military.get("branch"),
+            military.get("service"),
+            military.get("yearsActive"),
+            military.get("rank"),
+        )
+        if mil:
+            seed["military"] = mil
 
-    # career — education.careerProgression OR community.role
-    career = (education.get("careerProgression") or "").strip() if isinstance(education.get("careerProgression"), str) else ""
-    if not career and isinstance(community, dict):
-        career = (community.get("role") or "").strip() if isinstance(community.get("role"), str) else ""
+    # career — education.careerProgression OR community.role OR basics.career
+    career = _first_str(
+        education.get("careerProgression"),
+        community.get("role") if isinstance(community, dict) else None,
+        basics.get("career"),
+        basics.get("occupation"),
+    )
     if career:
         seed["career"] = career
 
-    # partner — spouse.preferredName / fullName / "First Last"
-    if isinstance(spouse, dict):
+    # partner — spouse can be a singular dict OR an array of spouse dicts
+    # (donald-trump.json / elena-rivera-quinn.json / jane-goodall.json
+    # already exercise the array form; Schema-Diversity Phase 2 will land
+    # the array adapter for the rest of the templates).
+    if isinstance(spouse, list) and spouse:
+        partner_labels = [lbl for lbl in (_label_item(s) for s in spouse) if lbl]
+        if partner_labels:
+            seed["partner"] = partner_labels
+    elif isinstance(spouse, dict):
         partner = _label_item(spouse)
         if partner:
             seed["partner"] = partner
@@ -702,7 +752,12 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
             seed["children"] = labels
 
     # life_stage — coarse bucket from DOB age (no PII leak; only category)
-    dob = (personal.get("dateOfBirth") or "").strip() if isinstance(personal.get("dateOfBirth"), str) else ""
+    dob = _first_str(
+        personal.get("dateOfBirth"),
+        personal.get("date_of_birth"),
+        basics.get("dateOfBirth"),
+        basics.get("dob"),
+    )
     if dob and len(dob) >= 4 and dob[:4].isdigit():
         try:
             from datetime import datetime
@@ -958,9 +1013,21 @@ def compose_memory_echo(
         sources_used.append("profile")
     if parents or siblings:
         sources_used.append("interview projection")
-    seed_has_value = any((profile_seed.get(k) or "").strip() for k in profile_seed
-                        if isinstance(profile_seed.get(k), str))
-    if seed_has_value:
+    # 2026-04-29 review fix: source detection now covers list + dict
+    # values too, not only strings. Without this, a Phase 1b seed where
+    # the only populated bucket is `children: ["Gretchen", "Amelia"]`
+    # would fail to add "session notes" to the footer even though the
+    # children line clearly rendered.
+    def _seed_has_value(seed: Dict[str, Any]) -> bool:
+        for v in (seed or {}).values():
+            if isinstance(v, str) and v.strip():
+                return True
+            if isinstance(v, list) and any(_label_item(x) for x in v):
+                return True
+            if isinstance(v, dict) and _label_item(v):
+                return True
+        return False
+    if _seed_has_value(profile_seed):
         sources_used.append("session notes")
 
     lines = [

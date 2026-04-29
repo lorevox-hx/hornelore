@@ -3251,10 +3251,13 @@ def save_safety_event(
     new event id. Called from chat_ws._safety_notify_operator on every
     Phase 1 safety scan that fires.
 
-    Stores at most 200 chars of turn_excerpt (the chat_ws caller
-    already truncates) and 60 chars of matched_phrase. Never raises —
-    persistence failure is logged in caller and the chat turn proceeds.
+    Stores at most 200 chars of turn_excerpt and 60 chars of
+    matched_phrase. May raise sqlite errors;
+    chat_ws._safety_notify_operator catches and logs so the chat turn
+    still proceeds. (Defensive init_db() call here so the helper works
+    even on a fresh environment that hasn't initialized the schema yet.)
     """
+    init_db()
     con = _connect()
     try:
         now = _now_iso()
@@ -3300,6 +3303,7 @@ def list_safety_events(
     person_id / category / matched_phrase / turn_excerpt / created_at /
     acknowledged_at / acknowledged_by.
     """
+    init_db()
     limit = max(1, min(int(limit or 50), 200))
     where_clauses: List[str] = []
     params: List[Any] = []
@@ -3331,15 +3335,16 @@ def list_safety_events(
 def acknowledge_safety_event(event_id: str, acknowledged_by: Optional[str] = None) -> bool:
     """Mark a safety event as seen-by-operator. Idempotent — re-acking
     a previously-acked event is a no-op (preserves first-ack time)."""
+    init_db()
     con = _connect()
     try:
         now = _now_iso()
-        con.execute(
+        cur = con.execute(
             "UPDATE safety_events SET acknowledged_at=?, acknowledged_by=? "
             "WHERE id=? AND acknowledged_at IS NULL;",
             (now, (acknowledged_by or "")[:60], event_id),
         )
-        changed = con.total_changes
+        changed = cur.rowcount
         con.commit()
         return changed > 0
     finally:
@@ -3350,6 +3355,7 @@ def count_unacked_safety_events(person_id: Optional[str] = None) -> int:
     """Lightweight count for the Bug Panel polling badge. Operator UI
     polls this on a 30s timer; only fetches the full event list when
     the count is non-zero."""
+    init_db()
     con = _connect()
     try:
         if person_id:
@@ -3376,6 +3382,7 @@ def safety_events_digest(
     Just "what fired, in which session, how often." Operator can
     drill into the full event list via list_safety_events.
     """
+    init_db()
     con = _connect()
     try:
         where_clauses: List[str] = []

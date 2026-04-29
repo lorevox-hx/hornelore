@@ -283,11 +283,17 @@ async def ws_chat(ws: WebSocket):
 
                 # Emit safety event to UI for overlay rendering (existing
                 # ui/js/safety-ui.js handler picks this up).
+                #
+                # 2026-04-29: removed `confidence` from the payload per
+                # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 "no scores / no
+                # severity / no trends" posture. Confidence remains in
+                # api.log [chat_ws][safety][notify] WARNING line for
+                # operator/dev debugging only. Narrator-side UI never
+                # sees a score-like value over the wire.
                 try:
                     await _ws_send(ws, {
                         "type": "safety_triggered",
                         "category": _safety_result.category,
-                        "confidence": _safety_result.confidence,
                         "resources": get_resources_for_category(_safety_result.category),
                     })
                 except Exception:
@@ -315,16 +321,19 @@ async def ws_chat(ws: WebSocket):
                 params["turn_mode"] = "interview"
         # ── End safety scan ──────────────────────────────────────────────────
 
-        # Load once per process (api.py caches globals)
-        model, tok = _load_model()
-
-        # Build prompt from DB history + user turn (with unified system prompt)
-        history = export_turns(conv_id)
-        # v7.1: extract runtime context forwarded from UI on every start_turn
+        # WO-ARCH-07A — explicit mode routing BEFORE model load.
+        #
+        # 2026-04-29 ordering fix: deterministic turn modes (memory_echo /
+        # correction) must NOT depend on _load_model() succeeding. Memory
+        # echo is the trust-behavior fallback for "what do you know about
+        # me?" — if the LLM is cold, slow, wedged, or under VRAM pressure,
+        # this branch must still answer warmly and immediately. Same for
+        # correction acknowledgments. Both compose deterministically with
+        # no LLM call. Loading the model first defeats the whole purpose
+        # of having a no-LLM fallback path.
         runtime71: Dict[str, Any] = params.get("runtime71") or {}
-
-        # WO-ARCH-07A — explicit mode routing before LLM generation
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
+
         if turn_mode == "memory_echo":
             from ..prompt_composer import compose_memory_echo, _build_profile_seed
 
@@ -395,6 +404,13 @@ async def ws_chat(ws: WebSocket):
             await _ws_send(ws, {"type": "token", "delta": assistant_text})
             await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "correction"})
             return
+
+        # ── LLM-path setup — only reached for turn_mode='interview' ─────────
+        # Deterministic turn modes (memory_echo, correction) returned above
+        # without touching the model, so a cold/slow/wedged LLM never blocks
+        # the trust-behavior fallback path.
+        model, tok = _load_model()
+        history = export_turns(conv_id)
 
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
 
@@ -569,6 +585,19 @@ async def ws_chat(ws: WebSocket):
             except StopIteration:
                 return None
 
+        # WO-LORI-ACTIVE-LISTENING-01 Layer 2 — discipline filter mode gate.
+        # 2026-04-29 fix: when the flag is on, BUFFER chunks silently instead
+        # of streaming them. Otherwise the narrator already saw the bad
+        # multi-question response before the post-stream trim runs — the
+        # filter would only protect persistence, not visible behavior.
+        # Buffer-then-send sacrifices token-by-token UX for parent-session
+        # safety. Off-by-default; opt in via HORNELORE_INTERVIEW_DISCIPLINE=1.
+        try:
+            from ..prompt_composer import _discipline_filter_enabled
+            _buffer_mode = _discipline_filter_enabled()
+        except Exception:
+            _buffer_mode = False
+
         while True:
             if ev.is_set():
                 break
@@ -580,22 +609,17 @@ async def ws_chat(ws: WebSocket):
                 continue
 
             reply_parts.append(chunk)
-            await _ws_send(ws, {"type": "token", "delta": chunk})
+            if not _buffer_mode:
+                await _ws_send(ws, {"type": "token", "delta": chunk})
 
         final_text = "".join(reply_parts).strip()
 
-        # WO-LORI-ACTIVE-LISTENING-01 Layer 2 — runtime discipline filter.
-        # Default-OFF (env flag HORNELORE_INTERVIEW_DISCIPLINE=1 to enable).
-        # Layer 1 (the LORI_INTERVIEW_DISCIPLINE block in compose_system_prompt)
-        # is the primary defense. This is the safety net for when the LLM
-        # drifts past 1 question. Trims after streaming completes so the
-        # PERSISTED record + the final 'done' event carry the cleaned text;
-        # the streaming deltas the user already saw are not re-sent.
+        # WO-LORI-ACTIVE-LISTENING-01 Layer 2 — apply trim filter on full text.
         # Memory_echo / correction turns return earlier (above) so they
         # bypass this filter by construction.
         try:
-            from ..prompt_composer import _trim_to_one_question, _discipline_filter_enabled
-            if _discipline_filter_enabled() and final_text:
+            from ..prompt_composer import _trim_to_one_question
+            if _buffer_mode and final_text:
                 _trimmed, _was_trimmed, _reason = _trim_to_one_question(final_text)
                 if _was_trimmed:
                     logger.info(
@@ -603,9 +627,16 @@ async def ws_chat(ws: WebSocket):
                         conv_id, _reason, len(final_text), len(_trimmed),
                     )
                     final_text = _trimmed
+                # Buffer mode: emit the cleaned text as a single delta so
+                # the client UI gets the same shape it expects (token + done).
+                await _ws_send(ws, {"type": "token", "delta": final_text})
         except Exception as _disc_exc:
-            # Filter is a safety net — never let it kill a turn.
+            # Filter is a safety net — never let it kill a turn. If trim
+            # raised in buffer mode, send the untrimmed text so the narrator
+            # still sees an answer.
             logger.warning("[lori][discipline] filter raised, passing through: %s", _disc_exc)
+            if _buffer_mode and final_text:
+                await _ws_send(ws, {"type": "token", "delta": final_text})
 
         # Phase G: fail-closed — only persist if generation completed cleanly
         if ev.is_set():

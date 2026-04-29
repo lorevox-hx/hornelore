@@ -69,12 +69,16 @@ def _require_operator_safety_enabled() -> None:
 
 
 def _sanitize_event(row: dict) -> dict:
-    """Belt-and-suspenders excerpt clamp at the route boundary. The DB
-    layer already truncates `turn_excerpt` to 200 chars on insert, but
-    enforce here too so the operator surface contract holds even if a
-    future writer bypasses the DB helper. Trailing ellipsis on truncate
-    so the operator can see the row was cut."""
+    """Belt-and-suspenders text clamp at the route boundary. The DB
+    layer already truncates `matched_phrase` to 60 chars and
+    `turn_excerpt` to 200 chars on insert, but enforce here too so the
+    operator surface contract holds even if a future writer bypasses
+    the DB helper. Trailing ellipsis on truncate so the operator can
+    see the row was cut."""
     out = dict(row or {})
+    phrase = str(out.get("matched_phrase") or "")
+    if len(phrase) > 60:
+        out["matched_phrase"] = phrase[:60].rstrip() + "…"
     excerpt = str(out.get("turn_excerpt") or "")
     if len(excerpt) > 200:
         out["turn_excerpt"] = excerpt[:200].rstrip() + "…"
