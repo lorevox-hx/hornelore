@@ -1095,32 +1095,74 @@ def compose_system_prompt(
                 # the open question through the spine's own taxonomy.
                 era_focus = era_id_to_lori_focus(current_era) if current_era != "not yet set" else ""
                 _focus_line = f" Anchor it in: {era_focus}.\n" if era_focus else "\n"
-                directive_lines.append(
-                    f"DIRECTIVE: You are in Pass 2A — Chronological Timeline Walk.\n"
-                    f"Current era: {era_label}.\n"
-                    f"Ask ONE open, place-anchored question about this period.{_focus_line}"
-                    "Invite the narrator to remember where they lived, who was around them, or what daily life felt like.\n"
-                    "DO NOT ask about a specific moment or single scene — keep it broad.\n"
-                    "DO NOT use 'do you remember a time when' — ask about place and daily life.\n"
-                    "DO NOT ask more than one question.\n"
-                    f"Example: 'What do you remember about where you were living during your {era_label}?'"
-                )
+                if current_era == "today":
+                    # WO-CANONICAL-LIFE-SPINE-01 Step 5: Today is the
+                    # current-life bucket, not a historical period —
+                    # forward-looking, present-tense framing. The past-
+                    # tense "what do you remember about where you were
+                    # living" template is wrong here. Lori asks about
+                    # current life as it is right now.
+                    directive_lines.append(
+                        f"DIRECTIVE: You are in Pass 2A — Current Horizon (Today).\n"
+                        f"Current era: Today.\n"
+                        f"Ask ONE open, present-tense question about current life.{_focus_line}"
+                        "Invite the narrator to share where they live now, who they see most, "
+                        "what their days look like, or what's on their mind these days.\n"
+                        "DO NOT ask in past tense — Today is the present. No 'do you remember' / 'what was it like'.\n"
+                        "DO NOT ask about a specific moment — keep it broad and current.\n"
+                        "DO NOT ask more than one question.\n"
+                        "Example: 'What does life look like for you these days — where are you, who do you see most, what does a normal day feel like?'"
+                    )
+                else:
+                    directive_lines.append(
+                        f"DIRECTIVE: You are in Pass 2A — Chronological Timeline Walk.\n"
+                        f"Current era: {era_label}.\n"
+                        f"Ask ONE open, place-anchored question about this period.{_focus_line}"
+                        "Invite the narrator to remember where they lived, who was around them, or what daily life felt like.\n"
+                        "DO NOT ask about a specific moment or single scene — keep it broad.\n"
+                        "DO NOT use 'do you remember a time when' — ask about place and daily life.\n"
+                        "DO NOT ask more than one question.\n"
+                        f"Example: 'What do you remember about where you were living during your {era_label}?'"
+                    )
             elif current_pass == "pass2b":
                 era_label = era_id_to_warm_label(current_era) if current_era != "not yet set" else "this period"
                 if not era_label:
                     era_label = "this period"
                 era_focus = era_id_to_lori_focus(current_era) if current_era != "not yet set" else ""
                 _focus_line = f" The era's anchor is: {era_focus}.\n" if era_focus else "\n"
-                directive_lines.append(
-                    f"DIRECTIVE: You are in Pass 2B — Narrative Depth.\n"
-                    f"Current era: {era_label}.\n"
-                    f"Ask ONE question that invites a specific scene or memory — a room, a sound, a face, a smell, a feeling.{_focus_line}"
-                    "Help the narrator move from general summary into a specific moment.\n"
-                    "DO NOT ask a broad timeline question.\n"
-                    "DO NOT ask more than one question.\n"
-                    "Examples: 'Can you walk me through one specific moment from that time?' "
-                    "or 'When you picture that period, what do you see?'"
-                )
+                if current_era == "today":
+                    # WO-CANONICAL-LIFE-SPINE-01 Step 5: Today depth-pass
+                    # invites a present scene, not a remembered one.
+                    # Forward-looking + unfinished-story framing matches
+                    # Dementia UK life-story templates and Reminiscence
+                    # research on what older narrators want preserved
+                    # about the present.
+                    directive_lines.append(
+                        f"DIRECTIVE: You are in Pass 2B — Current Horizon Depth.\n"
+                        f"Current era: Today.\n"
+                        f"Ask ONE present-tense question that invites a specific scene from current life — "
+                        f"a room they spend time in, a person they see often, a routine that matters now, "
+                        f"or an unfinished story that still pulls at them.{_focus_line}"
+                        "Help the narrator move from general 'these days' into a specific moment of right now.\n"
+                        "DO NOT ask in past tense — Today is the present.\n"
+                        "DO NOT ask a broad timeline question.\n"
+                        "DO NOT ask more than one question.\n"
+                        "Examples: 'What part of life today would you most want your family to understand?' "
+                        "or 'When you picture a normal day right now, what room or person comes first?'"
+                    )
+                    # Skip the historical-era pass2b directive below
+                    pass  # explicit no-op for clarity
+                else:
+                    directive_lines.append(
+                        f"DIRECTIVE: You are in Pass 2B — Narrative Depth.\n"
+                        f"Current era: {era_label}.\n"
+                        f"Ask ONE question that invites a specific scene or memory — a room, a sound, a face, a smell, a feeling.{_focus_line}"
+                        "Help the narrator move from general summary into a specific moment.\n"
+                        "DO NOT ask a broad timeline question.\n"
+                        "DO NOT ask more than one question.\n"
+                        "Examples: 'Can you walk me through one specific moment from that time?' "
+                        "or 'When you picture that period, what do you see?'"
+                    )
 
         # Mode modifier — applies in any non-identity state
         if current_mode == "recognition":

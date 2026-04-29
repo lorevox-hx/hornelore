@@ -529,6 +529,23 @@ def build_band_ghosts(
             "source": "life_stage_template",
         })
 
+    # WO-CANONICAL-LIFE-SPINE-01 Step 5: append a Today ghost at
+    # current_year. Today is the present-life bucket — anchored
+    # explicitly to the calendar year, NEVER derived from birth-year
+    # math (per the canonical-spine lock: today is selected, never
+    # age-derived). Suppress if Today already has personal anchors
+    # (same 2+ rule as historical bands). Today's prompt text is
+    # forward-looking and present-tense, matching prompt_composer's
+    # Pass 2A Today branch.
+    if era_counts.get("today", 0) < 2:
+        items.append({
+            "year": current_year,
+            "label": "What does life look like for you today — your routines, the people you see most, what's on your mind?",
+            "lane": "ghost",
+            "era": "today",
+            "source": "life_stage_template",
+        })
+
     return items
 
 
