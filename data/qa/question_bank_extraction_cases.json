@@ -7286,6 +7286,300 @@
         "motif_detection": true,
         "spatial_precision": false
       }
+    },
+    {
+      "id": "case_105",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "birthplace_detail",
+      "questionBankAnchor": "Where was your father born?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Where was your father born?",
+      "narratorReply": "My dad was born in Stanley.",
+      "expectedFields": {
+        "parents.birthPlace": "Stanley"
+      },
+      "forbiddenFields": [
+        "parents.lastName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        },
+        "parents.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-01: 'in Stanley' must not bind to lastName"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture: prepositional place phrase 'born in {value}' must route to birthPlace, never to lastName. Guard fires when (a) field ends in .lastName/.maidenName/.middleName, (b) value follows a place preposition in source text, (c) no explicit name evidence present.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_106",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "birthplace_detail",
+      "questionBankAnchor": "Where was your mother born?",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Where was your mother born?",
+      "narratorReply": "My mom was born in Spokane.",
+      "expectedFields": {
+        "parents.birthPlace": "Spokane"
+      },
+      "forbiddenFields": [
+        "parents.lastName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Spokane"
+        },
+        "parents.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-01: 'in Spokane' must not bind to lastName"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture: same pattern as case_105 with a different place token. Validates the guard generalizes across place values.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_107",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName",
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "My father was Kent Horne. He was born in Stanley.",
+      "expectedFields": {
+        "parents.firstName": "Kent",
+        "parents.lastName": "Horne",
+        "parents.birthPlace": "Stanley"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Kent"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne"
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture: real surname (Horne) must SURVIVE the guard because 'Horne' does not appear after a place preposition; only 'Stanley' would match the place-prep regex, and Stanley should bind to birthPlace not lastName. Validates the guard does not friendly-fire on legitimate surnames.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_108",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "questionBankAnchor": "Tell me about your mother.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName",
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your mother.",
+      "narratorReply": "My mother was Janice Zarr. She was born in Spokane.",
+      "expectedFields": {
+        "parents.firstName": "Janice",
+        "parents.lastName": "Zarr",
+        "parents.birthPlace": "Spokane"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "life_history",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Janice"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Zarr"
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Spokane"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture: companion to case_107 with mother and a different surname (Zarr). Validates that the guard correctly distinguishes the surname from the place token in the same utterance.",
+      "style_bucket": "life_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_109",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "early_caregivers",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.lastName"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "My dad's last name was Stanley.",
+      "expectedFields": {
+        "parents.lastName": "Stanley"
+      },
+      "forbiddenFields": [
+        "parents.birthPlace"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        },
+        "parents.birthPlace": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-01: explicit name evidence ('last name was Stanley') means the guard MUST NOT fire even though the value is also a place name"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 negative-case fixture: locks the explicit-name-evidence escape in _has_explicit_last_name_evidence. When the source says 'last name was Stanley', the guard must NOT drop the lastName candidate even though Stanley is also a place name. This protects the legitimate surname-Stanley pattern.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": false
+      }
+    },
+    {
+      "id": "case_110",
+      "narratorId": "christopher-todd-horne",
+      "phase": "building_years",
+      "subTopic": "spouse",
+      "questionBankAnchor": "Tell me about your spouse.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "spouse.firstName"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your spouse.",
+      "narratorReply": "My husband Kent was born in Stanley.",
+      "expectedFields": {
+        "spouse.firstName": "Kent"
+      },
+      "forbiddenFields": [
+        "spouse.lastName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "spouse.firstName": {
+          "zone": "must_extract",
+          "expected": "Kent"
+        },
+        "spouse.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-01: 'in Stanley' must not bind to spouse.lastName either — guard generalizes across all .lastName paths"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture for the spouse path. Validates that the guard generalizes across all guarded suffixes (.lastName / .maidenName / .middleName) regardless of section.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
     }
   ]
 }

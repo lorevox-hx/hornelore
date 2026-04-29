@@ -7076,6 +7076,131 @@ def _apply_age_math_filter(
     return surviving
 
 
+# ── BUG-EX-PLACE-LASTNAME-01: place-as-name binding guard ───────────────────
+#
+# Drops .lastName / .maidenName / .middleName candidates whose value appears
+# in the source text only as part of a place-prepositional phrase
+# ("born in X" / "in X" / "from X" / "moved to X" etc.) with no explicit
+# name evidence ("last name was X" / "surname X" / "maiden name was X").
+#
+# Deterministic post-LLM guard. Lives in the same accepted-item loop family
+# as the value-coerce wrapper at extract_fields(). Ships independently of
+# SPANTAG (no env flag) — safe by construction because the guard only fires
+# when ALL THREE are true:
+#   (a) fieldPath ends with .lastName / .maidenName / .middleName
+#   (b) source text contains value AFTER a place-preposition
+#   (c) source text contains NO explicit name marker for value
+#
+# Rationale: 2026-04-28 live test surfaced "in Stanley" → parents.lastName
+# and "in Spokane" → parents.lastName binding errors (Type C binding-layer
+# failure per Architecture Spec v1). BINDING-01 PATCH 1–5 is prompt-side
+# (SPANTAG Pass 2); this is post-LLM regex cleanup, ships now without
+# waiting for SPANTAG re-enable.
+
+_PLACE_PREP_PHRASES = (
+    r"born\s+in",
+    r"born\s+at",
+    r"born\s+near",
+    r"lived\s+in",
+    r"grew\s+up\s+in",
+    r"moved\s+to",
+    r"raised\s+in",
+    r"from",
+    r"in",
+    r"at",
+    r"near",
+    r"outside\s+of",
+    r"outside",
+    r"around",
+)
+
+_PLACE_PREP_ALTERNATION = r"|".join(_PLACE_PREP_PHRASES)
+
+_NAME_EVIDENCE_PHRASES = (
+    r"last\s+name",
+    r"surname",
+    r"maiden\s+name",
+    r"middle\s+name",
+    r"family\s+name",
+)
+
+_NAME_EVIDENCE_ALTERNATION = r"|".join(_NAME_EVIDENCE_PHRASES)
+
+_PLACE_GUARDED_FIELD_SUFFIXES = (".lastName", ".maidenName", ".middleName")
+
+
+def _looks_like_place_phrase_for_value(text: str, value: str) -> bool:
+    """Return True if value appears in text after a place-preposition.
+
+    Used by _drop_place_as_lastname to detect bindings like
+    "born in Stanley" → parents.lastName=Stanley.
+    """
+    if not text or not value:
+        return False
+    v = re.escape(str(value).strip())
+    if not v:
+        return False
+    pattern = r"\b(?:" + _PLACE_PREP_ALTERNATION + r")\s+" + v + r"\b"
+    try:
+        return bool(re.search(pattern, text, re.IGNORECASE))
+    except re.error:
+        return False
+
+
+def _has_explicit_last_name_evidence(text: str, value: str) -> bool:
+    """Return True if the source text says "last name was {value}" or
+    similar (surname / maiden name / middle name / family name variants)."""
+    if not text or not value:
+        return False
+    v = re.escape(str(value).strip())
+    if not v:
+        return False
+    # Allow optional copula ("was" / "is" / ":") and an optional "of {prefix}"
+    # genitive chain between the marker and the value
+    # ("his last name was Stanley", "the maiden name of my mother is Schaaf").
+    pattern = (
+        r"\b(?:" + _NAME_EVIDENCE_ALTERNATION + r")"
+        + r"(?:\s+of\s+\w+(?:\s+\w+)?)?"
+        + r"\s*(?:was|is|:)?\s*"
+        + v
+        + r"\b"
+    )
+    try:
+        return bool(re.search(pattern, text, re.IGNORECASE))
+    except re.error:
+        return False
+
+
+def _drop_place_as_lastname(item: Dict[str, Any], source_text: str) -> bool:
+    """Return True if this item is a misbound place-as-name and should
+    be dropped from the accepted-items list.
+
+    Three required conditions:
+      1. fieldPath ends in .lastName / .maidenName / .middleName
+      2. source text does NOT contain explicit name evidence for value
+      3. source text DOES contain value in a place-prep phrase
+    All three required → drop. Otherwise keep.
+    """
+    field = item.get("fieldPath") or ""
+    if not field.endswith(_PLACE_GUARDED_FIELD_SUFFIXES):
+        return False
+    raw_value = item.get("value")
+    if not isinstance(raw_value, str):
+        return False
+    value = raw_value.strip()
+    if not value:
+        return False
+    if _has_explicit_last_name_evidence(source_text, value):
+        return False
+    if not _looks_like_place_phrase_for_value(source_text, value):
+        return False
+    logger.info(
+        "[extract][place-lastname-guard] drop fieldPath=%s value=%r reason=prepositional_place_phrase",
+        field, value,
+    )
+    return True
+
+
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
 def _apply_transcript_safety_layer(
@@ -7331,6 +7456,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         # Add writeMode from our schema
         result_items = []
         for item in llm_items:
+            # BUG-EX-PLACE-LASTNAME-01: drop misbound place-as-name candidates
+            # ("born in Stanley" → parents.lastName=Stanley etc.) before any
+            # other processing. See _drop_place_as_lastname() for the three
+            # required conditions.
+            if _drop_place_as_lastname(item, answer or ""):
+                continue
+
             meta = EXTRACTABLE_FIELDS.get(item["fieldPath"], {})
             write_mode = meta.get("writeMode", "suggest_only")
 
