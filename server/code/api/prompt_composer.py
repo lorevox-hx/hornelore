@@ -544,6 +544,188 @@ def _fmt_line(label: str, value) -> str:
     return f"- {label}: {v}" if v else f"- {label}: unknown"
 
 
+# WO-LORI-SESSION-AWARENESS-01 Phase 1b: hardened list/object rendering for
+# profile_seed values. The earlier Phase 1a path used naive str(x) which
+# produces "Children: {'name': 'Emma'}, 42" garbage when items are dicts.
+# This helper extracts a clean human-readable label from common name-field
+# shapes (preferredName / fullName / firstName+middleName+lastName / relation)
+# and falls back to str() for scalars.
+
+def _label_item(x: Any) -> str:
+    """Return a clean display label for a profile_seed list item.
+
+    Dict shape (children[], parents[], siblings[]):
+        prefer preferredName → fullName → "First Middle Last" composite
+        → relation. Returns "" if nothing usable.
+    Scalar shape:
+        return str(x).strip().
+    """
+    if isinstance(x, dict):
+        for key in ("preferredName", "fullName"):
+            v = (x.get(key) or "").strip()
+            if v:
+                return v
+        # Coalesce None → "" before str-coerce so {"lastName": None} doesn't
+        # leak the literal "None" into composite name strings.
+        parts = []
+        for k in ("firstName", "middleName", "lastName"):
+            raw = x.get(k)
+            if raw is None:
+                continue
+            piece = str(raw).strip()
+            if piece:
+                parts.append(piece)
+        composite = " ".join(parts).strip()
+        if composite:
+            return composite
+        relation = (x.get("relation") or "").strip()
+        return relation or ""
+    if x is None:
+        return ""
+    return str(x).strip()
+
+
+def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
+    """Assemble the 9-bucket profile_seed dict from a narrator's profile_json.
+
+    Reads from the narrator's `profiles.profile_json` row (templates hydrate
+    here at preload time per `narrator-preload.js`). Returns an empty dict
+    on any failure — caller treats missing buckets as "(not on record yet)"
+    in the readback. Never raises.
+
+    Bucket priority per WO-LORI-SESSION-AWARENESS-01 Phase 1b directive:
+      1. profile_json (template/profile, canonical) — implemented here
+      2. Bio Builder questionnaire state — folded into profile_json by
+         the questionnaire endpoint already; if it lands separately later,
+         add a second source here
+      3. promoted truth — already merged into profile_json by promotion path
+      4. session transcript — only structured (not free-form memoir text)
+
+    Buckets:
+      childhood_home → personal.placeOfBirth
+      parents_work   → parents[].occupation joined
+      heritage       → personal.culture (raw — Schema-Diversity Phase 3 will
+                       split into raceEthnicity[] / religiousAffiliation /
+                       culturalAffiliations[] / spiritualBackground)
+      education      → education.schooling / .higherEducation joined
+      military       → military.* (most templates lack this)
+      career         → education.careerProgression OR community.role
+      partner        → spouse.preferredName / fullName / "First Last"
+      children       → children[] mapped via _label_item
+      life_stage     → derived from current era / DOB-age (rough bucket)
+    """
+    if not person_id:
+        return {}
+    try:
+        from .db import get_profile
+        prof = get_profile(person_id) or {}
+        blob = prof.get("profile_json") or {}
+        # profile_json may be {profile: {...}} or flat {...}
+        root = blob.get("profile") if isinstance(blob.get("profile"), dict) else blob
+        if not isinstance(root, dict):
+            return {}
+    except Exception as exc:
+        logger.warning("[memory-echo][profile-seed] profile read failed for %s: %s", person_id, exc)
+        return {}
+
+    seed: Dict[str, Any] = {}
+    personal = root.get("personal") or {}
+    parents = root.get("parents") or []
+    spouse = root.get("spouse") or {}
+    children = root.get("children") or []
+    education = root.get("education") or {}
+    military = root.get("military") or {}
+    community = root.get("community") or {}
+
+    # childhood_home — placeOfBirth
+    pob = (personal.get("placeOfBirth") or "").strip() if isinstance(personal.get("placeOfBirth"), str) else ""
+    if pob:
+        seed["childhood_home"] = pob
+
+    # parents_work — parents[].occupation
+    if isinstance(parents, list):
+        parts = []
+        for p in parents:
+            if not isinstance(p, dict):
+                continue
+            name = (p.get("firstName") or p.get("preferredName") or "").strip()
+            occ = (p.get("occupation") or "").strip()
+            if name and occ:
+                parts.append(f"{name} — {occ}")
+            elif occ:
+                parts.append(occ)
+        if parts:
+            seed["parents_work"] = "; ".join(parts)
+
+    # heritage — personal.culture (overloaded; Phase 3 will refactor)
+    culture = (personal.get("culture") or "").strip() if isinstance(personal.get("culture"), str) else ""
+    if culture:
+        seed["heritage"] = culture
+
+    # education — schooling + higherEducation
+    edu_parts = []
+    schooling = (education.get("schooling") or "").strip() if isinstance(education.get("schooling"), str) else ""
+    higher = (education.get("higherEducation") or "").strip() if isinstance(education.get("higherEducation"), str) else ""
+    if schooling:
+        edu_parts.append(schooling)
+    if higher and higher != schooling:
+        edu_parts.append(higher)
+    if edu_parts:
+        seed["education"] = "; ".join(edu_parts)
+
+    # military — pull a single summary string if any military.* field is set
+    if isinstance(military, dict):
+        for key in ("summary", "branch", "service", "yearsActive", "rank"):
+            val = (military.get(key) or "").strip() if isinstance(military.get(key), str) else ""
+            if val:
+                seed["military"] = val
+                break
+
+    # career — education.careerProgression OR community.role
+    career = (education.get("careerProgression") or "").strip() if isinstance(education.get("careerProgression"), str) else ""
+    if not career and isinstance(community, dict):
+        career = (community.get("role") or "").strip() if isinstance(community.get("role"), str) else ""
+    if career:
+        seed["career"] = career
+
+    # partner — spouse.preferredName / fullName / "First Last"
+    if isinstance(spouse, dict):
+        partner = _label_item(spouse)
+        if partner:
+            seed["partner"] = partner
+
+    # children — list of clean labels via _label_item
+    if isinstance(children, list) and children:
+        labels = [lbl for lbl in (_label_item(c) for c in children) if lbl]
+        if labels:
+            seed["children"] = labels
+
+    # life_stage — coarse bucket from DOB age (no PII leak; only category)
+    dob = (personal.get("dateOfBirth") or "").strip() if isinstance(personal.get("dateOfBirth"), str) else ""
+    if dob and len(dob) >= 4 and dob[:4].isdigit():
+        try:
+            from datetime import datetime
+            birth_year = int(dob[:4])
+            current_year = datetime.utcnow().year
+            age = current_year - birth_year
+            if age < 18:
+                seed["life_stage"] = "young (under 18)"
+            elif age < 30:
+                seed["life_stage"] = "early adulthood"
+            elif age < 50:
+                seed["life_stage"] = "building years"
+            elif age < 65:
+                seed["life_stage"] = "later career"
+            elif age < 80:
+                seed["life_stage"] = "elder / retirement years"
+            else:
+                seed["life_stage"] = "senior elder"
+        except Exception:
+            pass
+
+    return seed
+
+
 def compose_memory_echo(
     text: str,
     runtime: Optional[Dict[str, Any]] = None,
@@ -669,7 +851,14 @@ def compose_memory_echo(
         if isinstance(val, str) and val.strip():
             seed_lines.append(f"- {label}: {val.strip()}")
         elif isinstance(val, list) and val:
-            seed_lines.append(f"- {label}: {', '.join(str(x) for x in val if x)}")
+            # Phase 1b list/object rendering: use _label_item so dicts (e.g.
+            # children[] = [{firstName: 'Gretchen', ...}, ...]) render as
+            # clean human names instead of {'firstName': 'Gretchen', ...}.
+            items = [lbl for lbl in (_label_item(x) for x in val) if lbl]
+            if items:
+                seed_lines.append(f"- {label}: {', '.join(items)}")
+            else:
+                seed_lines.append(f"- {label}: (incomplete)")
 
     if seed_lines:
         lines.extend(["", "Notes from our conversation"])
