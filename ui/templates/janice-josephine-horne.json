@@ -145,6 +145,14 @@
 
   "pets": [
     {
+      "name": "",
+      "species": "Pig",
+      "breed": "",
+      "birthDate": "",
+      "adoptionDate": "",
+      "notes": "Childhood pet pig — Janice mentioned having a pet pig as a girl. Name + period to be confirmed."
+    },
+    {
       "name": "Grey",
       "species": "Horse",
       "breed": "",

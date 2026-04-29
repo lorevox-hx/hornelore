@@ -170,6 +170,7 @@
 
   "children": [
     {
+      "relation": "biological",
       "firstName": "Gretchen",
       "middleName": "Jo",
       "lastName": "Horne",
@@ -177,6 +178,7 @@
       "narrative": "Lives in Austin, TX; experienced major life challenges in 2024; attends ACA meetings"
     },
     {
+      "relation": "biological",
       "firstName": "Amelia",
       "middleName": "Fay",
       "lastName": "Horne",
@@ -184,11 +186,20 @@
       "narrative": "MSW; lived in multiple states including NM, CO, HI; works in social services"
     },
     {
+      "relation": "biological",
       "firstName": "Cole",
       "middleName": "Harber",
       "lastName": "Horne",
       "birthDate": "2002-04-10",
       "narrative": "Works in medical billing; studies computer science; interests in AI, cybersecurity, and accounting"
+    },
+    {
+      "relation": "stepchild",
+      "firstName": "",
+      "middleName": "",
+      "lastName": "",
+      "birthDate": "",
+      "narrative": "Stepchildren from Melanie's previous relationship — names + DOBs to be confirmed by operator. Phase 1.5 placeholder."
     }
   ],
 
@@ -216,6 +227,46 @@
       "birthDate": "1964-01-12",
       "adoptionDate": "1965-01-12",
       "notes": "Family dog growing up"
+    },
+    {
+      "name": "",
+      "species": "Dog",
+      "breed": "",
+      "birthDate": "",
+      "adoptionDate": "",
+      "notes": "Lifetime: multiple dogs over the years. Names + periods to be confirmed by operator. Phase 1.5 placeholder."
+    },
+    {
+      "name": "",
+      "species": "Cat",
+      "breed": "",
+      "birthDate": "",
+      "adoptionDate": "",
+      "notes": "Lifetime: multiple cats over the years. Names + periods to be confirmed by operator. Phase 1.5 placeholder."
+    },
+    {
+      "name": "",
+      "species": "Fish",
+      "breed": "",
+      "birthDate": "",
+      "adoptionDate": "",
+      "notes": "Aquarium fish at some point in life. Details to be confirmed. Phase 1.5 placeholder."
+    },
+    {
+      "name": "",
+      "species": "Snake",
+      "breed": "",
+      "birthDate": "",
+      "adoptionDate": "",
+      "notes": "Snake as a pet at some point. Species + period to be confirmed. Phase 1.5 placeholder."
+    },
+    {
+      "name": "",
+      "species": "Frog",
+      "breed": "",
+      "birthDate": "",
+      "adoptionDate": "",
+      "notes": "Frog as a pet at some point. Period to be confirmed. Phase 1.5 placeholder."
     }
   ],
 
