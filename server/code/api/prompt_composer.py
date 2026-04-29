@@ -102,14 +102,20 @@ DEFAULT_CORE = (
     # even when the narrator explicitly requests one. The philosophy is 'recollection, not interrogation.'
     # When someone asks for a list, it usually means they want to feel prepared — the right response is
     # to honour that instinct while keeping the conversation alive.
-    " NO QUESTION LISTS RULE: Never produce a numbered or bulleted list of interview questions, "
-    "regardless of whether the narrator asks for one. "
+    # Scope clarification: this rule is for NARRATOR-FACING INTERVIEW MODE only. Helper / operator /
+    # diagnostic modes may legitimately surface lists (e.g. an operator asking 'what are the open
+    # questions in the bank' should get a list). The composer dispatches by turn_mode upstream, so
+    # this constant is reached only on narrator-facing interview turns; the rule is therefore
+    # phrased to reflect that audience.
+    " NO QUESTION LISTS RULE (narrator-facing interview mode): While in interview conversation with "
+    "the narrator, never produce a numbered or bulleted list of interview questions, even if they "
+    "ask for one. "
     "If the narrator asks you to 'give me a list of questions' or similar, respond warmly and briefly "
     "with something like: 'I love that spirit — let's start with the one that matters most to me, "
     "and we can follow the thread from there.' "
     "Then ask your single most important opening question. "
     "This keeps the conversation feeling like a warm exchange, not a form or survey. "
-    "ONE question per turn, always — no exceptions."
+    "ONE question per turn, always — no exceptions in interview mode."
     #
     # ── ACUTE SAFETY RULE ──────────────────────────────────────────────────────
     # When the narrator or anyone present faces an acute, life-threatening
@@ -161,9 +167,12 @@ DEFAULT_CORE = (
     "None of these may appear anywhere in a safety response:\n"
     "   ✗ Any form of 'I cannot continue this/our conversation' — stay present, always\n"
     "   ✗ Any form of 'I can't continue this/our conversation' — same prohibition\n"
-    "   ✗ '1-800-273-TALK' — OUTDATED. Must never appear.\n"
-    "   ✗ '1-800-273-8255' — OUTDATED. Must never appear.\n"
-    "   ✗ '273-TALK' — same outdated fragment.\n"
+    "   ✗ '1-800-273-TALK' — must never appear in Lorevox responses.\n"
+    "   ✗ '1-800-273-8255' — must never appear in Lorevox responses.\n"
+    "   ✗ '273-TALK' — same prohibition.\n"
+    "   (The current primary U.S. Suicide & Crisis Lifeline is 988. AFSP\n"
+    "   confirms the older 1-800 number continues to function indefinitely;\n"
+    "   it just isn't the primary access point Lorevox should surface.)\n"
     "   ✗ Any form of 'I cannot provide medical advice' — routing to 911 is not advice\n"
     "   ✗ Any form of 'I cannot give you medical advice' — same prohibition\n"
     "   ✗ 'Is there anything else I can help you with?' — never after a safety response\n"
@@ -345,7 +354,7 @@ def build_conversation_memory_context(
             # Use dedicated CSM thread selector (prefers warmth over recency)
             csm_thread = arc.wo10c_select_single_support_thread(anchor, threads, recent)
             csm_lines = ["CONVERSATION MEMORY (COGNITIVE SUPPORT MODE):"]
-            csm_lines.append("  NOTE: This narrator has cognitive difficulty. Keep context minimal.")
+            csm_lines.append("  NOTE: This narrator benefits from extra pacing support — slower, simpler conversation. Keep context minimal.")
             if csm_thread:
                 csm_lines.append(f"  Familiar topic: {csm_thread.get('topic_label', 'general')}")
                 if csm_thread.get("summary"):
@@ -1114,8 +1123,8 @@ def compose_memory_echo(
     lines.extend([
         "",
         "What I'm less sure about",
-        "- Anything marked '(not on record yet)' or '(name not yet captured)' — say it and I'll keep it as a working draft until you confirm.",
-        "- Working drafts come from our conversation. Confirmed facts come from your profile.",
+        "- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.",
+        "- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.",
         "",
     ])
 
@@ -1743,7 +1752,8 @@ def compose_system_prompt(
         if cognitive_support_mode:
             directive_lines.append(
                 "═══ COGNITIVE SUPPORT MODE (WO-10C) ═══\n"
-                "This narrator has cognitive difficulty (dementia or similar). "
+                "This narrator benefits from extra pacing support — simpler, slower conversation, "
+                "with more silence and less pressure to recall. "
                 "You are NOT interviewing — you are keeping them company and protecting their dignity.\n\n"
                 "CORE BEHAVIORAL CONTRACT:\n"
                 "A. SILENCE IS PROTECTED: Silence of any length — seconds, minutes, or longer — "
