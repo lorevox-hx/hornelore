@@ -1,9 +1,9 @@
 # Master Work Order Checklist
 
-**As of:** 2026-04-29 (afternoon)
+**As of:** 2026-04-29 (evening)
 **Active baseline:** `r5h` (70/104, v3=41/62, v2=35/62, mnw=2) — verified preserved at `r5h-restore` (`66f41ae`) and `r5h-postpatch`.
 **SPANTAG state:** OFF (`HORNELORE_SPANTAG=0`). BINDING-01 PATCH 1-4 + micro-patch in-tree (`42accc9` / `3f3deba`); default-off after `r5g-binding-on-v1` master REJECTED (`c547ddb`). Both flags gated for next iteration cycle.
-**Parent sessions:** ~2 days out. Canonical-life-spine + BUG-312 protected_identity gate + BUG-EX-PLACE-LASTNAME-01 + chat_ws scan_answer default-safe fallback all landed. SAFETY-INTEGRATION-01 Phase 1 chat-path hook ALREADY LANDED (`8aab2c2`) — Phase 2/3 are the new pre-parent-session work.
+**Parent sessions:** ~2 days out. Canonical-life-spine + BUG-312 protected_identity gate + BUG-EX-PLACE-LASTNAME-01 + chat_ws scan_answer default-safe fallback all landed. SAFETY-INTEGRATION-01 Phase 1 chat-path hook ALREADY LANDED (`8aab2c2`) — Phase 2/3 are the new pre-parent-session work. **Evening 2026-04-29:** WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 (read-only operator cockpit) + prompt_composer warmth/legacy-language cleanup landed. Eval-script printer fix (`4ac71f0`) unblocks r5h-place-guard re-run.
 
 ---
 
@@ -31,7 +31,7 @@ Attention cue + adaptive silence ladder. Doesn't block first parent sessions. Sc
 
 | # | WO | Status | Eval tag | Notes |
 |---|---|---|---|---|
-| 1 | **BUG-EX-PLACE-LASTNAME-01** | LANDED 2026-04-29 (`9b9e557`) | `r5h-place-guard` (queued #323) | Deterministic post-LLM guard at `extract.py` drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions. 6 new fixtures `case_105–110`. Smoke 15/15. Ships independent of SPANTAG. |
+| 1 | **BUG-EX-PLACE-LASTNAME-01** | LANDED 2026-04-29 (`9b9e557`) | `r5h-place-guard` re-run unblocked by eval-script printer fix `4ac71f0` (#323) | Deterministic post-LLM guard at `extract.py` drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions. 6 new fixtures `case_105–110`. Smoke 15/15. Ships independent of SPANTAG. First eval run completed 110 cases cleanly (75/110, mnw 1.2%) but lost the report to a printer crash; re-run pending. |
 | 2 | **WO-EX-BINDING-01** | **PATCH 1-4 LANDED + iterating.** PATCH 1-4 (`42accc9`) + micro-patch (`3f3deba`); `r5g-binding-on-v1` master REJECTED (`c547ddb`). | `r5g-binding-on-v1` (banked), next iteration TBD | Binding-layer fix. SPANTAG Pass 2 binding pre-normalizer + `_validate_item` re-entry + 9 `_FIELD_ALIASES` from r5g probe. Default-OFF after rejection at default-on. Probes `r5g-binding-probe-7cases` (3/7 primary 3/3) + v2/v3 confirmed micro-patch was real. Next move: additional binding rules / second eval cycle / scope re-evaluation. |
 | 3 | **#144 WO-SCHEMA-ANCESTOR-EXPAND-01** | Lane 1 trial annotated | `r5h` (banked) | Lane 1 (`alt_defensible_paths` for case_033 + case_039) landed scorer-side; Lane 2 schema expansion gated behind Lane 1 evidence. |
 | 4 | **#97 WO-EX-VALUE-ALT-CREDIT-01** | Spec landed | (planned) | Value-axis alt-credit under ≥0.5 fuzzy gate. Targets case_087 ancestry value drift. |
@@ -133,6 +133,9 @@ Not parent-session blockers. Spec parked, design stable.
 
 | Item | Outcome |
 |---|---|
+| **WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1** (2026-04-29 evening, #332) | Read-only Bug Panel Eval Harness cockpit. New `server/code/api/routers/operator_eval_harness.py` + `ui/js/bug-panel-eval.js` + `ui/css/bug-panel-eval.css`. 4-card surface (Extractor / Lori Behavior / Safety / Story Surface) backed by `/api/operator/eval-harness/{summary,reports,report/{name},log-tail}`. `HORNELORE_OPERATOR_EVAL_HARNESS=0` default-off gate → 404. Smoke-tested against `r5h-restore` (PASS, 70/104, mnw 1.2%, age 0.89d). Phase 2 (run buttons) parked. |
+| **prompt_composer warmth + legacy-language cleanup** (2026-04-29 evening, #330) | Four narrator-facing string edits: 273-TALK no-go softened with 988/AFSP context; memory-echo "What I'm less sure about" reworded warmer for elder narrators; NO QUESTION LISTS RULE narrowed to narrator-facing interview mode only; WO-10C "cognitive difficulty (dementia or similar)" replaced with "benefits from extra pacing support" framing per SESSION-AWARENESS-01 banned-vocab spec. AST parse green. |
+| **Eval-script printer crash fix** (2026-04-29 evening, `4ac71f0`) | r5h-place-guard initial run completed 110 cases (75/110 pass, 1.2% mnw) but crashed in `print_summary._print_breakdown("By era")` from `None` keys + mixed legacy era names. Three patches: `_canonical_eval_era()` helper using `legacy_key_to_era_id`, None-safe `_breakdown` + `_print_breakdown`, JSON write moved BEFORE printer (so future printer crashes never lose reports). `print_summary` itself wrapped in try/except. |
 | **BUG-EX-PLACE-LASTNAME-01** (2026-04-29 afternoon, `9b9e557`) | Deterministic post-LLM regex guard at extract.py drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions. 6 new fixtures `case_105–110`. Smoke 15/15. Master pack 104 → 110. r5h-place-guard eval queued (#323). |
 | **scan_answer() default-safe fallback** (2026-04-29 afternoon, chat_ws.py L206-228) | When scan_answer raises, force turn_mode='interview' so ACUTE SAFETY RULE in prompt fires + emit `[chat_ws][safety][default-safe]` log marker. Closes silent-skip gap surfaced by code review. ~17 lines. AST parse green. |
 | **WO-LORI-SAFETY-INTEGRATION-01 Phase 1** (`8aab2c2`) | Chat-path scan_answer hook live in chat_ws.py L196-274. Mirrors interview.py:269-307. Persists segment flag + softened mode + WS overlay event + operator notify + forces turn_mode=interview. Doc surfaced 2026-04-29 — was already shipped before this session opened; master checklist had not been refreshed. |

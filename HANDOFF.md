@@ -6,6 +6,45 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
+## Daily handoff — 2026-04-29 (evening, end of day)
+
+**TL;DR for tomorrow morning:** Today's afternoon + evening landed three workstreams that move parent-session readiness materially forward: (1) **BUG-EX-PLACE-LASTNAME-01** post-LLM regex guard at `extract.py` (`9b9e557`) drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions — fixes the live "in Stanley" / "in Spokane" → parents.lastName binding error from the 2026-04-28 1000-word test; six new eval fixtures `case_105–110` master pack 104→110; smoke 15/15. (2) **`scan_answer()` default-safe fallback** in `chat_ws.py` L206-228 closes a silent-skip gap surfaced by code review — when scan_answer raises, force `turn_mode=interview` so the ACUTE SAFETY RULE in the system prompt fires + emit `[chat_ws][safety][default-safe]` log marker. (3) **WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1** — read-only operator cockpit in the Bug Panel with 4 status cards (Extractor / Lori Behavior / Safety / Story Surface) backed by `/api/operator/eval-harness/*` endpoints, gated behind `HORNELORE_OPERATOR_EVAL_HARNESS=0` default-off (404 when off). Smoke-tested against `r5h-restore` (PASS, 70/104, mnw 1.2%, age 0.89d). Phase 2 (run buttons) parked. Plus **eval-script printer fix** (`4ac71f0`) unblocks the r5h-place-guard re-run that was lost to a `_print_breakdown("By era")` crash on `None` keys + mixed legacy era names — JSON write now happens BEFORE printer so future printer crashes never lose reports. Plus **prompt_composer warmth + legacy-language cleanup** (#330): four narrator-facing string edits aligning with SESSION-AWARENESS-01 banned-vocab spec (273-TALK softened with 988/AFSP context; memory-echo "What I'm less sure about" warmer for elders; NO QUESTION LISTS RULE narrowed to interview mode; "cognitive difficulty (dementia or similar)" → "benefits from extra pacing support"). Active baseline `r5h` (70/104 v3=41/62 v2=35/62 mnw=2) unchanged; SPANTAG=0 default; BINDING-01 in-tree behind PATCH 1-4 + micro-patch, default-off pending next iteration. **Tree clean post all evening commits.** First morning task: run `r5h-place-guard` eval to confirm BUG-EX-PLACE-LASTNAME-01 lands clean (now that the printer crash is fixed) + cycle stack with `HORNELORE_OPERATOR_EVAL_HARNESS=1` to live-verify the Bug Panel cockpit + Reset Identity for Kent / Janice / Christopher (UI clicks per #318) + live re-test "what do you know about me?" after Phase 1a memory_echo (#319).
+
+### What landed during the day (afternoon batch — Chris's commits)
+
+1. **BUG-EX-PLACE-LASTNAME-01** (`9b9e557`) — `server/code/api/routers/extract.py` (+125 lines) + `data/qa/question_bank_extraction_cases.json` (+301 lines, 6 new fixtures). Helpers `_PLACE_PREP_PHRASES`, `_NAME_EVIDENCE_PHRASES`, `_PLACE_GUARDED_FIELD_SUFFIXES`, `_looks_like_place_phrase_for_value`, `_has_explicit_last_name_evidence`, `_drop_place_as_lastname` sit before `_apply_transcript_safety_layer`. Three required conditions: (a) fieldPath ends in `.lastName`/`.maidenName`/`.middleName`, (b) source text contains value AFTER a place-preposition, (c) no explicit name marker. case_109 negative locks the explicit-name-evidence escape; case_110 generalizes to spouse path.
+2. **`scan_answer()` default-safe fallback** — `chat_ws.py` L206-228. New `_safety_scan_failed` flag set in the except handler; new conditional block forces `params["turn_mode"]="interview"` + emits `[chat_ws][safety][default-safe]` WARNING log marker. Memory_echo / correction composers cannot be selected on a scan-failure turn anymore. ~17 lines; AST parse green.
+
+### What landed during the day (evening batch — Chris's commits)
+
+1. **Eval-script printer crash fix** (`4ac71f0`) — `scripts/archive/run_question_bank_extraction_eval.py`. Three patches: `_canonical_eval_era()` helper using `legacy_key_to_era_id`, None-safe `_breakdown` + `_print_breakdown`, JSON write moved BEFORE `print_summary` (so future printer crashes never lose reports). `print_summary` itself wrapped in try/except.
+2. **WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1** — read-only operator cockpit in Bug Panel. New `server/code/api/routers/operator_eval_harness.py` + `ui/js/bug-panel-eval.js` + `ui/css/bug-panel-eval.css`; wiring through `server/code/api/main.py` + `ui/hornelore1.0.html`; `.env.example` adds `HORNELORE_OPERATOR_EVAL_HARNESS=0` gate. 4 endpoints `/api/operator/eval-harness/{summary,reports,report/{name},log-tail}`. Status taxonomy PASS/WARN/FAIL/MISSING/STALE/READY. Polls 60s + Bug Panel open + window focus + visibilitychange. Smoke-tested against real reports.
+3. **prompt_composer warmth + legacy-language cleanup** (#330) — `server/code/api/prompt_composer.py`. Four narrator-facing string edits: 273-TALK no-go softened with 988/AFSP context; memory-echo "What I'm less sure about" reworded warmer for elder narrators; NO QUESTION LISTS RULE narrowed from universal to narrator-facing interview mode only (composer dispatches by `turn_mode` upstream); WO-10C cognitive-support framing aligned with SESSION-AWARENESS-01 banned-vocab spec — "cognitive difficulty (dementia or similar)" replaced with "benefits from extra pacing support" in CSM thread description (~L351) + main directive block (~L1748). AST parse green.
+
+### Pending parent-session blockers (unchanged from afternoon)
+
+- **#318** Reset Identity for Kent / Janice / Christopher (UI clicks per narrator)
+- **#319** Live re-test "what do you know about me?" after compose_memory_echo Phase 1a
+- **#323** Run `r5h-place-guard` eval to confirm BUG-EX-PLACE-LASTNAME-01 lands clean (now unblocked by `4ac71f0`)
+- **#325** Stress-test `scan_answer()` with pathological inputs (long rambling answer, Unicode-heavy, mixed STT garbage, control characters)
+
+### What's open for next session
+
+- Run `r5h-place-guard` eval — patched eval-script writes JSON before printer now, so the report survives even if the printer crashes again. Standard eval block from CLAUDE.md.
+- Live-verify Bug Panel Eval Harness — flip `HORNELORE_OPERATOR_EVAL_HARNESS=1` in `.env`, restart stack, open Bug Panel, confirm 4 cards render with `r5h-restore` Extractor card showing PASS / 70/104 / mnw 1.2% / age <1d.
+- Operator UI tasks — Reset Identity per narrator (#318), live re-test "what do you know about me?" memory echo (#319).
+- BINDING-01 next iteration cycle — additional binding rules / prompt experiments / second eval cycle. Sequenced behind WO-EX-EVAL-WRAPPER-01 if Chris wants the single-command workflow first.
+- Phase 1 template port decision (#320) — 26 files from `/mnt/lorevox/ui/templates/`. Pure file copies, ~1-2 hrs once Chris approves.
+
+### Stack state
+
+- Tree clean post all 3 evening commits (Bug Panel Eval Harness + prompt_composer + eval-script fix banked).
+- Active baseline `r5h` 70/104 v3=41/62 v2=35/62 mnw=2 — unchanged.
+- SPANTAG=0 default. BINDING-01 in-tree behind PATCH 1-4 (`42accc9`) + micro-patch (`3f3deba`); default-off.
+- Stack was NOT cycled in the evening (Chris's call). To pick up `HORNELORE_OPERATOR_EVAL_HARNESS=1` or test the Bug Panel cockpit live, cycle the stack first.
+
+---
+
 ## Daily handoff — 2026-04-29 (overnight, end of session)
 
 **TL;DR for tomorrow morning:** WO-CANONICAL-LIFE-SPINE-01 landed end-to-end (Steps 3a-fix → 8); BUG-312 protected_identity gate landed (also fixes BUG-309 DOB regression upstream); pre-laptop-migration backup at `/mnt/c/hornelore_data/backups/2026-04-28_2340_before-laptop-migration-canonical-reset/` is intact (SQLite integrity OK); BUG-311 reclassified as extractor span-binding (BINDING-01 lane, not chunking); WO-SCHEMA-DIVERSITY-RESTORE-01 spec authored + Phase 1.5 enrichment landed on Janice + Christopher templates; WO-LORI-ACTIVE-LISTENING-01 spec authored as the discipline-rules + filter implementation for SESSION-AWARENESS-01 Phase 2; Lorevox parity audit doc inventories the 23+ templates Hornelore can pull from for Phase 1 port. **The overnight workspace files are uncommitted** — first morning task is the commit batch below. The active baseline (`r5h` 70/104 v3=41/62 v2=35/62 mnw=2) is unchanged; SPANTAG stays OFF until BINDING-01 lands. Stack was NOT restarted overnight.
