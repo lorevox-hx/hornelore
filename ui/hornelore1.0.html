@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="css/layout.css">
   <link rel="stylesheet" href="css/safety.css">
   <link rel="stylesheet" href="css/safety-banner.css">
+  <link rel="stylesheet" href="css/bug-panel-eval.css">
   <link rel="stylesheet" href="css/affect.css">
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -4060,6 +4061,23 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only Eval cockpit.
+         Polls /api/operator/eval-harness/summary on Bug Panel open
+         + 60s timer + window focus + visibilitychange. Renders 4
+         status cards: Extractor / Lori Behavior / Safety / Story
+         Surfaces. Each card shows PASS/WARN/FAIL/MISSING/STALE,
+         pass rate, git sha, last run time, top failures, with
+         Refresh + Copy run cmd buttons. Recent eval crashes from
+         api.log surface as a banner above the cards. Backend
+         gate: HORNELORE_OPERATOR_EVAL_HARNESS=1; off → quiet
+         "feature disabled" placeholder. NEVER narrator-visible.
+         See ui/js/bug-panel-eval.js + ui/css/bug-panel-eval.css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpEvalHarness">
+      <div class="eval-empty">Loading eval harness status…</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-LORI-SAFETY-INTEGRATION-01 Phase 3b — Safety event banner.
          Polls /api/operator/safety-events on a 30s timer + on Bug
          Panel open. Renders unacknowledged events as amber cards
@@ -4616,6 +4634,7 @@
 <script src="js/tabs.js"></script>
 <script src="js/safety-ui.js"></script>
 <script src="js/safety-banner.js"></script>
+<script src="js/bug-panel-eval.js"></script>
 <script src="js/permissions.js"></script>
 <script src="js/emotion.js"></script>
 <script src="js/facial-consent.js"></script>

@@ -112,6 +112,7 @@ from .routers import (  # type: ignore
     memory_archive,  # WO-ARCHIVE-AUDIO-01 — durable transcript + narrator-audio archive
     media_archive,   # WO-MEDIA-ARCHIVE-01 — Document Archive lane (PDFs, scanned docs, genealogy)
     safety_events,   # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface
+    operator_eval_harness,  # WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only eval cockpit
 )
 
 # Core Entity & State Routers
@@ -143,6 +144,7 @@ app.include_router(photos.router)                 # WO-LORI-PHOTO-SHARED-01 — 
 app.include_router(memory_archive.router)         # WO-ARCHIVE-AUDIO-01 — narrator-only audio + transcript archive (404s when HORNELORE_ARCHIVE_ENABLED=0)
 app.include_router(media_archive.router)          # WO-MEDIA-ARCHIVE-01 — Document Archive lane for PDFs / scans / genealogy (404s when HORNELORE_MEDIA_ARCHIVE_ENABLED=0)
 app.include_router(safety_events.router)           # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface (Bug Panel banner + digest)
+app.include_router(operator_eval_harness.router)   # WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only eval cockpit (HORNELORE_OPERATOR_EVAL_HARNESS=1 to enable)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)
