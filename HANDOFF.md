@@ -6,6 +6,108 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
+## Daily handoff — 2026-04-29 (overnight, end of session)
+
+**TL;DR for tomorrow morning:** WO-CANONICAL-LIFE-SPINE-01 landed end-to-end (Steps 3a-fix → 8); BUG-312 protected_identity gate landed (also fixes BUG-309 DOB regression upstream); pre-laptop-migration backup at `/mnt/c/hornelore_data/backups/2026-04-28_2340_before-laptop-migration-canonical-reset/` is intact (SQLite integrity OK); BUG-311 reclassified as extractor span-binding (BINDING-01 lane, not chunking); WO-SCHEMA-DIVERSITY-RESTORE-01 spec authored + Phase 1.5 enrichment landed on Janice + Christopher templates; WO-LORI-ACTIVE-LISTENING-01 spec authored as the discipline-rules + filter implementation for SESSION-AWARENESS-01 Phase 2; Lorevox parity audit doc inventories the 23+ templates Hornelore can pull from for Phase 1 port. **The overnight workspace files are uncommitted** — first morning task is the commit batch below. The active baseline (`r5h` 70/104 v3=41/62 v2=35/62 mnw=2) is unchanged; SPANTAG stays OFF until BINDING-01 lands. Stack was NOT restarted overnight.
+
+### What landed during the day (Chris's commits)
+
+1. **WO-CANONICAL-LIFE-SPINE-01 Steps 3a-fix → 8** — eight atomic commits migrating frontend + backend from legacy era keys to canonical 7-bucket era_ids (`earliest_years`, `early_school_years`, `adolescence`, `coming_of_age`, `building_years`, `later_years`, `today`) with self-healing read/write. Live-verified on Christopher Horne narrator + 1000-word test sample: 7 era_ids load, Life Map renders 7 buttons routed through Step 7 confirm popover, Memoir Peek shows 7 sections with warm heading + literary subtitle, backend `[extract][era-normalize]` boundary fires.
+2. **BUG-312 protected_identity gate** — `ui/js/projection-sync.js` L91-130. Protected fields (`fullName`/`dateOfBirth`/`placeOfBirth`/`preferredName`/`birthOrder`) require trusted source for ANY write, not just overwrites. Fixes BUG-309 DOB regression upstream (extracted "January 1, 2026" Type C binding error now routes to `suggest_only` instead of overwriting Christopher's preload `1962-12-24`). Marked task #309 completed-via-#312.
+3. **Archive script `common.sh` path fix** — `scripts/archive/{backup_lorevox_data,restore_lorevox_data,restart_api,test_stack_health}.sh` now `source ../common.sh` (climb to scripts/). Confirmed working — Chris ran the backup successfully after fix.
+4. **Pre-laptop-migration backup** at `/mnt/c/hornelore_data/backups/2026-04-28_2340_before-laptop-migration-canonical-reset/`. SQLite integrity check OK; WAL checkpoint clean.
+5. **WO-SCHEMA-DIVERSITY-RESTORE-01_Spec.md** — three-phase plan (template port + array-shape normalization + sensitive identity capture).
+6. **`compose_memory_echo` Phase 1a improvement** — `server/code/api/prompt_composer.py`. Surfaces `speaker_name` in body, renders explicit "(not on record yet)" markers, adds profile_seed surface, adds source citation footer. Awaits stack restart for live re-test of "what do you know about me?".
+
+### What landed overnight (uncommitted — first morning task is the commit batch)
+
+1. **`WO-LORI-ACTIVE-LISTENING-01_Spec.md`** — one-question interview discipline + active reflection. Two-layer defense: `LORI_INTERVIEW_DISCIPLINE` system-prompt block (primary) + `_trim_to_one_question` runtime filter (safety net, default-off env flag). Six new eval metrics ride existing `WO-LORI-RESPONSE-HARNESS-01` Test Type A (`question_count`, `nested_question_count`, `word_count`, `direct_answer_first`, `active_reflection_present`, `menu_offer_count`). Companion to `WO-LORI-SESSION-AWARENESS-01` Phase 2; **land both together**.
+2. **Phase 1.5 template enrichment**:
+   - `ui/templates/janice-josephine-horne.json`: added childhood pet pig (name + period blank, narrator-confirmed). Inserted before existing Grey/Spot/Ivan entries.
+   - `ui/templates/christopher-todd-horne.json`: added 5 lifetime pets placeholders (Dog, Cat, Fish, Snake, Frog with empty names) + stepchildren placeholder entry (Melanie's previous-relationship children, names + DOBs blank) + `relation: "biological"` annotation on existing 3 children (Gretchen, Amelia, Cole).
+   - All entries explicitly noted "to be confirmed by operator" per ChatGPT's "don't let vague memories become over-specific facts" rule.
+3. **`docs/reports/BUG-311_INVESTIGATION_2026-04-29.md`** — Reclassifies BUG-311 from "Lori-text leakage" to "extractor span-binding hallucination". Root cause traced to `ui/js/test-harness.js:65-98` — the 1000-word "clean" SAMPLES dict is verbatim narrator-side text (Lori never authored it). The extracted noise spans ARE in the narrator's own answer. Belongs in WO-EX-BINDING-01 (#152) Type C lane. No code changes; investigation-only.
+4. **`docs/reports/LOREVOX_TEMPLATE_PARITY_2026-04-29.md`** — Inventories 17 named diverse narrators + 9 doppleganger validation files in `/mnt/lorevox/ui/templates/` vs Hornelore's 6 templates. Schema permissively accepts both singular dict and array shapes for spouse/marriage but only `donald-trump.json` + `elena-rivera-quinn.json` + `jane-goodall.json` + 3 dopplegangers exercise the array form. Five different marriage-link styles found. Six sensitive identity fields NEVER BUILT in either codebase (genderIdentity, sexualOrientation, religiousAffiliation, spiritualBackground, culturalAffiliations[], raceEthnicity[]). Cross-references WO-SCHEMA-DIVERSITY-RESTORE-01 phase plan.
+5. **`docs/reports/CODE_REVIEW_2026-04-29.md`** — 60% parent-session readiness; 8 risk-rated regressions; flags one CRITICAL edge case in memory_echo Phase 1a list-rendering at `prompt_composer.py` L671-672 (currently dead code — Phase 1b deferred); Pydantic field-assignment fragility note in `extract.py` L7193; clean assessment of BUG-312 + era canonicalization triple-layer defense.
+6. **`CLAUDE.md`** — changelog entry for today's work appended.
+7. **`HANDOFF.md`** — this entry.
+
+### Suggested commit batch (paste from `/mnt/c/Users/chris/hornelore`)
+
+The overnight files are uncommitted and grouped by lane — code isolated from docs per CLAUDE.md hygiene gate. Recommended order (one commit per group):
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+git status   # confirm what's uncommitted
+
+# Commit 1 — Phase 1.5 template enrichment (data, no code)
+git add ui/templates/janice-josephine-horne.json ui/templates/christopher-todd-horne.json
+git commit -m "data: phase 1.5 template enrichment — Janice pet pig + Christopher lifetime pets/stepchildren placeholders"
+
+# Commit 2 — Lori-behavior spec
+git add WO-LORI-ACTIVE-LISTENING-01_Spec.md
+git commit -m "docs: WO-LORI-ACTIVE-LISTENING-01 spec — one-question discipline + active reflection (companion to SESSION-AWARENESS Phase 2)"
+
+# Commit 3 — Investigation + parity audit + code review (docs)
+git add docs/reports/BUG-311_INVESTIGATION_2026-04-29.md \
+        docs/reports/LOREVOX_TEMPLATE_PARITY_2026-04-29.md \
+        docs/reports/CODE_REVIEW_2026-04-29.md
+git commit -m "docs: BUG-311 reclassification + Lorevox parity audit + 2026-04-29 code review"
+
+# Commit 4 — meta (CLAUDE.md + HANDOFF.md)
+git add CLAUDE.md HANDOFF.md
+git commit -m "docs: CLAUDE.md changelog + HANDOFF.md entry for 2026-04-29"
+
+git log --oneline -6   # confirm
+```
+
+### Tasks queued for Chris's morning attention
+
+1. **Reset Identity for Kent / Janice / Christopher** in the UI (per the canonical-reset workflow — needs UI clicks per narrator). Backup is in place; safe to do.
+2. **Live re-test "what do you know about me?"** after stack restart — verifies compose_memory_echo Phase 1a improvements (speaker_name, "(not on record yet)" markers, profile_seed surface, source citation footer).
+3. **Decide whether to execute Phase 1 template port** (26 files: 17 named diverse + 9 dopplegangers + manifest from `/mnt/lorevox/ui/templates/`). Skipped from overnight default batch pending Chris approval — ChatGPT's analysis flagged this as the "diverse population coverage" recovery. Estimated 1-2 hrs (pure file copies + JSON parse smoke).
+4. **BUG-310 binding investigation** (place→lastName binding) — skipped from overnight default batch (touches LLM prompt; prefer Chris review). Lives in WO-EX-BINDING-01 lane with BUG-311 evidence as additional fixture.
+
+### Next major moves (pick one)
+
+**Option A — BINDING-01 (extractor lane top):** Same as 2026-04-27 — refresh on PATCH 1–5, then begin the binding-rule edits in extract.py. SPANTAG re-enables behind this. Now has fresh evidence from BUG-311 investigation (test-harness.js:65-98 sample produces 5 binding-hallucination candidates per 1000-word run) — the extractor-span-binding lane has a new fixture.
+
+**Option B — SESSION-AWARENESS-01 Phase 2 + ACTIVE-LISTENING-01 (Lori lane, parent-session blocker):** Land both together (ACTIVE-LISTENING is the implementation spec for SESSION-AWARENESS Phase 2). Adds `LORI_INTERVIEW_DISCIPLINE` constant to `prompt_composer.py` after `session_style_directive`, plus `_trim_to_one_question` helper wired into `chat_ws.py` post-LLM-response path with `[filter][trim-to-one-q]` log marker. Default-off env flag for the runtime filter; prompt-discipline Layer 1 default-on. Extends `WO-LORI-RESPONSE-HARNESS-01` Test Type A scoring with 6 new metrics. Estimated 0.5–1 day.
+
+**Option C — SAFETY-INTEGRATION-01 Phase 1 (Lori lane, highest acuity gap):** Wire `safety.py` into `chat_ws.py` per the parity audit. Reference pattern from `interview.py:269-307`. Currently chat path has zero deterministic safety. This is the highest-acuity parent-session blocker.
+
+**Option D — Phase 2 array-shape normalization** (WO-SCHEMA-DIVERSITY-RESTORE-01 phase 2): adapter accepts spouse: {} and spouse: [] both; same for marriage; internal runtime always operates on array. Touches projection-sync, projection-map, bio-builder-family-tree, hornelore.html memoir, extract.py, prompt_composer. Estimated 1 day. Required before Hornelore can ingest Lorevox's diverse-shape templates without surprises.
+
+### Current `.env` expectation (unchanged from 2026-04-27)
+
+```
+HORNELORE_SPANTAG=0           ← critical — do NOT flip until BINDING-01 lands
+HORNELORE_NARRATIVE=0
+HORNELORE_ATTRIB_BOUNDARY=0
+HORNELORE_PROMPTSHRINK=0
+HORNELORE_SILENT_DEBUG=0
+HORNELORE_INTAKE_MINIMAL=0
+SPANTAG_PASS1_MAX_NEW=1024
+SPANTAG_PASS2_MAX_NEW=1536
+HORNELORE_PHOTO_ENABLED=1
+HORNELORE_PHOTO_INTAKE=1
+HORNELORE_MEDIA_ARCHIVE_ENABLED=1
+LV_ENABLE_SAFETY=1            (still vestigial — SAFETY-INTEGRATION Phase 7 cleanup)
+HORNELORE_TRUTH_V2=1
+HORNELORE_TRUTH_V2_PROFILE=1
+HORNELORE_ARCHIVE_ENABLED=1
+```
+
+### Backup location reminder
+
+```
+/mnt/c/hornelore_data/backups/2026-04-28_2340_before-laptop-migration-canonical-reset/
+```
+
+Contains: `narrators.db` (post-WAL-checkpoint), `templates/`, `audit_logs/`, plus the integrity-check pass receipt. Survives the laptop migration. Restore via `scripts/archive/restore_lorevox_data.sh` (path-fixed).
+
+---
+
 ## Daily handoff — 2026-04-27 (evening, end of session)
 
 **TL;DR for tomorrow morning:** baseline `r5h` confirmed and locked; SPANTAG stays OFF until BINDING-01 lands; three new Lori-behavior WO specs authored (SAFETY-INTEGRATION, SESSION-AWARENESS, RESPONSE-HARNESS) and parity audit completed; do NOT restart the stack overnight; first morning task is to commit the docs batch and then start either BINDING-01 (extractor lane top) or the SAFETY-INTEGRATION Phase 1 chat-path hook (Lori lane top, parent-session blocker). Pick the one you want to ship first; both are real next moves.
