@@ -780,6 +780,41 @@ def init_db() -> None:
     )
 
     # -----------------------------
+    # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface.
+    # Persists every safety trigger as a discrete event for the operator
+    # Bug Panel banner + between-session digest. Distinct from segment_flags
+    # (which tracks memoir-inclusion lifecycle of sensitive answers); this
+    # is the operator-awareness ledger.
+    #
+    # Per the spec: never narrator-visible, no scores, no severity ranks,
+    # no longitudinal trends. Operator gets a flat list of "what fired,
+    # when, and the matched phrase + 200-char excerpt for context".
+    # acknowledged_at is set when the operator dismisses the banner.
+    # -----------------------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS safety_events (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          person_id TEXT,
+          category TEXT NOT NULL DEFAULT '',
+          matched_phrase TEXT,
+          turn_excerpt TEXT,
+          created_at TEXT NOT NULL,
+          acknowledged_at TEXT,
+          acknowledged_by TEXT
+        );
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_safety_events_session ON safety_events(session_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_safety_events_person ON safety_events(person_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_safety_events_created ON safety_events(created_at);")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_safety_events_unacked "
+        "ON safety_events(acknowledged_at) WHERE acknowledged_at IS NULL;"
+    )
+
+    # -----------------------------
     # Affect events  (Track B — Emotion Signal)
     # Derived affect state events from browser MediaPipe pipeline
     # Never stores raw landmarks or raw emotion labels
@@ -3199,6 +3234,202 @@ def delete_segment_flag_by_question(session_id: str, question_id: str) -> bool:
     con.commit()
     con.close()
     return changed > 0
+
+
+# =============================================================================
+# WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — Safety Events (operator surface)
+# =============================================================================
+
+def save_safety_event(
+    session_id: str,
+    person_id: Optional[str],
+    category: str,
+    matched_phrase: Optional[str],
+    turn_excerpt: Optional[str],
+) -> str:
+    """Persist a safety trigger as an operator-review event. Returns the
+    new event id. Called from chat_ws._safety_notify_operator on every
+    Phase 1 safety scan that fires.
+
+    Stores at most 200 chars of turn_excerpt (the chat_ws caller
+    already truncates) and 60 chars of matched_phrase. Never raises —
+    persistence failure is logged in caller and the chat turn proceeds.
+    """
+    con = _connect()
+    try:
+        now = _now_iso()
+        event_id = _uuid()
+        con.execute(
+            """
+            INSERT INTO safety_events
+              (id, session_id, person_id, category, matched_phrase,
+               turn_excerpt, created_at, acknowledged_at, acknowledged_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL);
+            """,
+            (
+                event_id,
+                session_id,
+                person_id,
+                (category or ""),
+                (matched_phrase or "")[:60] if matched_phrase else None,
+                (turn_excerpt or "")[:200] if turn_excerpt else None,
+                now,
+            ),
+        )
+        con.commit()
+        return event_id
+    finally:
+        con.close()
+
+
+def list_safety_events(
+    person_id: Optional[str] = None,
+    since_iso: Optional[str] = None,
+    unacked_only: bool = False,
+    limit: int = 50,
+) -> List[Dict]:
+    """Return safety events for the operator review surface.
+
+    Filters:
+      person_id      — restrict to one narrator
+      since_iso      — only events with created_at > since_iso
+      unacked_only   — only events without acknowledged_at
+      limit          — cap result count (default 50, max 200)
+
+    Returns most recent first. Each row is a dict with id / session_id /
+    person_id / category / matched_phrase / turn_excerpt / created_at /
+    acknowledged_at / acknowledged_by.
+    """
+    limit = max(1, min(int(limit or 50), 200))
+    where_clauses: List[str] = []
+    params: List[Any] = []
+    if person_id:
+        where_clauses.append("person_id = ?")
+        params.append(person_id)
+    if since_iso:
+        where_clauses.append("created_at > ?")
+        params.append(since_iso)
+    if unacked_only:
+        where_clauses.append("acknowledged_at IS NULL")
+    where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    sql = (
+        "SELECT id, session_id, person_id, category, matched_phrase, "
+        "turn_excerpt, created_at, acknowledged_at, acknowledged_by "
+        "FROM safety_events"
+        + where_sql
+        + " ORDER BY created_at DESC LIMIT ?;"
+    )
+    params.append(limit)
+    con = _connect()
+    try:
+        rows = con.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+def acknowledge_safety_event(event_id: str, acknowledged_by: Optional[str] = None) -> bool:
+    """Mark a safety event as seen-by-operator. Idempotent — re-acking
+    a previously-acked event is a no-op (preserves first-ack time)."""
+    con = _connect()
+    try:
+        now = _now_iso()
+        con.execute(
+            "UPDATE safety_events SET acknowledged_at=?, acknowledged_by=? "
+            "WHERE id=? AND acknowledged_at IS NULL;",
+            (now, (acknowledged_by or "")[:60], event_id),
+        )
+        changed = con.total_changes
+        con.commit()
+        return changed > 0
+    finally:
+        con.close()
+
+
+def count_unacked_safety_events(person_id: Optional[str] = None) -> int:
+    """Lightweight count for the Bug Panel polling badge. Operator UI
+    polls this on a 30s timer; only fetches the full event list when
+    the count is non-zero."""
+    con = _connect()
+    try:
+        if person_id:
+            row = con.execute(
+                "SELECT COUNT(*) AS n FROM safety_events "
+                "WHERE acknowledged_at IS NULL AND person_id=?;",
+                (person_id,),
+            ).fetchone()
+        else:
+            row = con.execute(
+                "SELECT COUNT(*) AS n FROM safety_events WHERE acknowledged_at IS NULL;"
+            ).fetchone()
+        return int(row["n"] or 0) if row else 0
+    finally:
+        con.close()
+
+
+def safety_events_digest(
+    since_iso: Optional[str] = None,
+    person_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Between-session digest: flat counts by narrator + by category.
+    Per spec: NO scores, NO severity ranks, NO longitudinal trends.
+    Just "what fired, in which session, how often." Operator can
+    drill into the full event list via list_safety_events.
+    """
+    con = _connect()
+    try:
+        where_clauses: List[str] = []
+        params: List[Any] = []
+        if since_iso:
+            where_clauses.append("created_at > ?")
+            params.append(since_iso)
+        if person_id:
+            where_clauses.append("person_id = ?")
+            params.append(person_id)
+        where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        # Per-category counts
+        cat_rows = con.execute(
+            "SELECT category, COUNT(*) AS n FROM safety_events"
+            + where_sql
+            + " GROUP BY category;",
+            tuple(params),
+        ).fetchall()
+        by_category = {(r["category"] or "uncategorized"): int(r["n"]) for r in cat_rows}
+
+        # Per-narrator counts
+        nar_rows = con.execute(
+            "SELECT person_id, COUNT(*) AS n FROM safety_events"
+            + where_sql
+            + " GROUP BY person_id;",
+            tuple(params),
+        ).fetchall()
+        by_narrator = {(r["person_id"] or "unknown"): int(r["n"]) for r in nar_rows}
+
+        total_row = con.execute(
+            "SELECT COUNT(*) AS n FROM safety_events" + where_sql + ";",
+            tuple(params),
+        ).fetchone()
+        total = int(total_row["n"] or 0) if total_row else 0
+
+        unacked_row = con.execute(
+            "SELECT COUNT(*) AS n FROM safety_events"
+            + (where_sql + " AND " if where_sql else " WHERE ")
+            + "acknowledged_at IS NULL;",
+            tuple(params),
+        ).fetchone()
+        unacked = int(unacked_row["n"] or 0) if unacked_row else 0
+
+        return {
+            "since": since_iso,
+            "person_id": person_id,
+            "total": total,
+            "unacknowledged": unacked,
+            "by_category": by_category,
+            "by_narrator": by_narrator,
+        }
+    finally:
+        con.close()
 
 
 # =============================================================================

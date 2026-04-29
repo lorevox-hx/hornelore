@@ -78,23 +78,43 @@ async def _safety_notify_operator(
     confidence: float,
     matched_phrase: Optional[str],
     turn_excerpt: str,
+    person_id: Optional[str] = None,
 ) -> None:
-    """WO-LORI-SAFETY-INTEGRATION-01 Phase 1 stub — operator notification.
+    """WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification.
 
-    Phase 3 will replace this body with a Bug Panel banner broadcast +
-    between-session digest append (see WO §3a/§3b). Phase 1 just needs the
-    call site wired so a working safety event can be emitted end-to-end.
-    Logging at WARNING level so the event surfaces in api.log immediately;
-    operator can grep `[chat_ws][safety][notify]` until Phase 3 lands.
+    Persists each safety trigger to the safety_events table so the
+    operator's Bug Panel banner / between-session digest can surface
+    them. Always logs to api.log too (the existing grep audit trail
+    stays intact). Persistence failure is logged but never raised — a
+    chat turn must complete even if the operator surface DB write fails.
+
+    Per the spec: this surface is operator-only. NEVER narrator-visible,
+    no scores, no severity, no trends. The DB row carries category +
+    matched_phrase + 200-char excerpt — enough context for the operator
+    to assess "should I check on the narrator?" without leaking signal
+    back to the narrator session.
     """
     logger.warning(
-        "[chat_ws][safety][notify] conv=%s category=%s confidence=%.2f matched=%r excerpt=%r",
+        "[chat_ws][safety][notify] conv=%s person=%s category=%s confidence=%.2f matched=%r excerpt=%r",
         conv_id,
+        person_id or "(none)",
         category or "?",
         confidence,
         (matched_phrase or "")[:60],
         (turn_excerpt or "")[:200],
     )
+    try:
+        from ..db import save_safety_event
+        event_id = save_safety_event(
+            session_id=conv_id,
+            person_id=person_id,
+            category=category or "",
+            matched_phrase=matched_phrase,
+            turn_excerpt=turn_excerpt,
+        )
+        logger.info("[chat_ws][safety][persist] event_id=%s conv=%s", event_id, conv_id)
+    except Exception as _persist_exc:
+        logger.error("[chat_ws][safety][persist] save_safety_event failed: %s", _persist_exc)
 
 
 @router.websocket("/ws")
@@ -273,7 +293,8 @@ async def ws_chat(ws: WebSocket):
                 except Exception:
                     pass
 
-                # Notify operator (Phase 1 stub; Phase 3 builds the surface).
+                # Phase 3 — persist to safety_events table + log. Operator
+                # Bug Panel polls the digest endpoint and surfaces a banner.
                 try:
                     await _safety_notify_operator(
                         conv_id=conv_id,
@@ -281,6 +302,7 @@ async def ws_chat(ws: WebSocket):
                         confidence=_safety_result.confidence,
                         matched_phrase=_safety_result.matched_phrase,
                         turn_excerpt=user_text[:200],
+                        person_id=person_id,
                     )
                 except Exception as _notify_exc:
                     logger.warning("[chat_ws][safety] notify failed: %s", _notify_exc)
