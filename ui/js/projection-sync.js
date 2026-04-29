@@ -89,19 +89,40 @@
     }
 
     // ── Phase G: PROTECTED IDENTITY CHECK ──
-    // Protected identity fields (fullName, DOB, placeOfBirth, etc.) cannot be
-    // overwritten by non-human sources once they have a value.
+    // Protected identity fields (fullName, DOB, placeOfBirth, etc.) can ONLY
+    // be written by trusted sources (human_edit / preload / profile_hydrate).
+    // Any untrusted source (interview / backend_extract / projection /
+    // backend_correction) ALWAYS routes through suggest_only — even on the
+    // first write to a blank field.
+    //
+    // BUG-312 (2026-04-28): the prior gate only fired when existing.value
+    // was already populated. That meant the FIRST extraction to a blank
+    // protected field could write garbage directly (e.g. fullName=
+    // "I asked you so what can you tell me about me..."), and the
+    // overwrite-protection then locked the garbage in place. Result was
+    // polluted identity fields surfaced in the Bio Builder questionnaire
+    // and in Lori's "What I know about you" reply.
+    //
+    // The narrator's full name, DOB, and birthplace are too high-stakes
+    // to come from chat extraction directly under any circumstance — they
+    // must originate at intake (operator-entered preload or human_edit)
+    // or be explicitly approved by the operator via the Shadow Review
+    // candidates queue.
     var PM = window.LorevoxProjectionMap;
     if (PM && PM.isProtectedIdentity && PM.isProtectedIdentity(fieldPath)) {
-      if (existing && existing.value && source !== "human_edit") {
-        if (value !== existing.value) {
-          _logSync(fieldPath, "blocked_protected_identity", existing.value, value);
-          // Route to suggestion instead of direct write
-          _syncSuggestOnly(fieldPath, value, confidence);
-          console.warn("[projection-sync] ⛔ Protected identity conflict: " + fieldPath +
-            " current=" + existing.value + " proposed=" + value + " source=" + source);
-          return false;
-        }
+      if (!_isTrustedSource(source)) {
+        _logSync(fieldPath, "blocked_protected_identity", existing && existing.value, value);
+        // Route to suggestion instead of direct write — operator approves
+        // via Shadow Review.
+        _syncSuggestOnly(fieldPath, value, confidence);
+        console.warn("[projection-sync] ⛔ Protected identity write from untrusted source — routed to candidates: " +
+          fieldPath + " value=" + JSON.stringify(value).slice(0, 80) + " source=" + source);
+        return false;
+      }
+      // Trusted source path — log overwrites for audit.
+      if (existing && existing.value && value !== existing.value) {
+        console.info("[projection-sync] protected identity overwrite by trusted source " + source + ": " +
+          fieldPath + " " + JSON.stringify(existing.value).slice(0, 60) + " -> " + JSON.stringify(value).slice(0, 60));
       }
     }
 
