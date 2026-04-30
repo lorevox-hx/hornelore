@@ -115,6 +115,7 @@ from .routers import (  # type: ignore
     operator_eval_harness,  # WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only eval cockpit
     operator_stack_dashboard,  # WO-OPERATOR-RESOURCE-DASHBOARD-01 — live stack gauges
     operator_story_review,   # WO-LORI-STORY-CAPTURE-01 Phase 1B — minimal story-candidate review surface
+    operator_harness,        # WO-LORI-HARNESS-01 — golfball harness HTTP shim over /api/chat/ws
 )
 
 # Core Entity & State Routers
@@ -149,6 +150,7 @@ app.include_router(safety_events.router)           # WO-LORI-SAFETY-INTEGRATION-
 app.include_router(operator_eval_harness.router)   # WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only eval cockpit (HORNELORE_OPERATOR_EVAL_HARNESS=1 to enable)
 app.include_router(operator_stack_dashboard.router) # WO-OPERATOR-RESOURCE-DASHBOARD-01 — live stack/resource cockpit (HORNELORE_OPERATOR_STACK_DASHBOARD=1 to enable)
 app.include_router(operator_story_review.router)  # WO-LORI-STORY-CAPTURE-01 Phase 1B — story-candidate review surface (HORNELORE_OPERATOR_STORY_REVIEW=1 to enable)
+app.include_router(operator_harness.router)        # WO-LORI-HARNESS-01 — golfball harness HTTP shim (HORNELORE_OPERATOR_HARNESS=1 to enable)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)
