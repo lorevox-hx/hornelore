@@ -82,11 +82,17 @@ def _borderline_anchor_count() -> int:
 # ("in the kitchen", "at school", "to the barn"). "Kitchen was tidy"
 # is a state predicate about an object and does NOT fire.
 _PLACE_NOUNS_BARE = {
-    "hospital", "church", "factory", "plant", "mill",
-    "fairgrounds",
+    "hospital", "church", "factory", "fairgrounds",
 }
 
+# `plant` and `mill` were originally Tier 1 but a 2026-04-30 reviewer
+# caught them overfiring on bare predicate uses ("The plant died.",
+# "They mill around.") because both nouns also act as common nouns
+# ("a houseplant") and as verbs ("mill around"). Demoted to Tier 2 —
+# they only count as place anchors with a place preposition
+# ("at the plant", "to the mill", "near the aluminum plant").
 _PLACE_NOUNS_PREP_REQUIRED = {
+    "plant", "mill",
     "farm", "ranch", "shop", "store",
     "kitchen", "yard", "porch",
     "river", "lake", "park",
@@ -102,14 +108,16 @@ _PLACE_NOUN_BARE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Tier 2 must be preceded by a place preposition (optionally with an
-# article / possessive / common adjective in between). Keeps "in the
-# kitchen" but drops bare "kitchen".
+# Tier 2 must be preceded by a place preposition. Optional determiner
+# (the / a / my / etc.) followed by 0–2 lowercase adjective tokens
+# before the noun ("at the aluminum plant", "in the small white
+# kitchen"). The adjective slot is bounded at 2 to keep "at home with
+# my plant" from sneaking in via greedy consumption.
 _PLACE_NOUN_PREP_RE = re.compile(
     r"\b(?:in|at|to|from|near|outside|inside|behind|by|around|through|"
     r"over|across|beside|past|toward|towards)\s+"
-    r"(?:the\s+|a\s+|an\s+|my\s+|our\s+|her\s+|his\s+|their\s+|"
-    r"old\s+|new\s+|big\s+|small\s+|little\s+)*"
+    r"(?:(?:the|a|an|my|our|her|his|their)\s+)?"
+    r"(?:[a-z]+\s+){0,2}"
     r"(?:" + "|".join(sorted(_PLACE_NOUNS_PREP_REQUIRED)) + r")\b",
     re.IGNORECASE,
 )

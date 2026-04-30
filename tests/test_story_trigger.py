@@ -182,6 +182,55 @@ class FalsePositiveResistanceTest(unittest.TestCase):
             story_trigger.count_scene_anchors("Factory was loud."), 1
         )
 
+    # plant / mill demotion (2026-04-30 reviewer round 2): both were
+    # originally Tier 1 BARE but overfired on bare predicate uses,
+    # because each noun is also a common noun (houseplant) or a verb
+    # ("mill around"). Demoted to Tier 2 — locked in below.
+
+    def test_plant_as_living_thing_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("The plant died."), 0
+        )
+
+    def test_plant_as_object_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("I watered the plant."), 0
+        )
+
+    def test_mill_as_action_no_place_anchor(self):
+        # "mill around" — verb usage, no preposition before "mill".
+        self.assertEqual(
+            story_trigger.count_scene_anchors("They mill around."), 0
+        )
+
+    def test_mill_as_verb_with_object_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("We mill flour at home."), 0
+        )
+
+    def test_at_the_plant_DOES_fire_place(self):
+        # Same noun WITH a place preposition fires correctly.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Dad worked at the plant."),
+            1,  # place via prep; "Dad" alone (no "my") doesn't fire person
+        )
+
+    def test_at_the_aluminum_plant_DOES_fire_place(self):
+        # The Janice canonical phrase — "aluminum plant" with adjective
+        # between determiner and noun must still fire as place anchor
+        # (this is the regression risk introduced by demoting "plant"
+        # from Tier 1; the prep regex was widened to a 0–2 token
+        # adjective slot so this still hits).
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Dad worked at the aluminum plant."),
+            1,
+        )
+
+    def test_to_the_mill_DOES_fire_place(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("We walked to the mill."), 1
+        )
+
 
 class HasSceneAnchorTest(unittest.TestCase):
     def test_predicate_matches_count(self):
