@@ -112,6 +112,76 @@ class FalsePositiveResistanceTest(unittest.TestCase):
                 f"unexpected anchor on bare answer: {short_answer!r}",
             )
 
+    # 2026-04-30 reviewer caught the docstring's stated intent diverging
+    # from the implementation: "School was hard" was firing as a place
+    # anchor even though the comment said it shouldn't. These lock the
+    # tier-2 (preposition-required) common-noun behavior.
+
+    def test_bare_school_no_place_anchor(self):
+        # State predicate about an experience, not a location.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("School was hard."), 0
+        )
+
+    def test_bare_home_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Home was quiet."), 0
+        )
+
+    def test_bare_kitchen_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Kitchen was tidy."), 0
+        )
+
+    def test_bare_yard_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Yard needs mowing."), 0
+        )
+
+    def test_bare_library_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Library is closed."), 0
+        )
+
+    def test_in_school_DOES_fire_place(self):
+        # The same noun WITH a place preposition is legitimate — narrator
+        # is locating the memory in school, not commenting on it.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("We were in school then."), 1
+        )
+
+    def test_at_the_kitchen_table_DOES_fire_place(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("We sat at the kitchen table."),
+            1,
+        )
+
+    def test_to_the_barn_DOES_fire_place(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Dad walked to the barn."),
+            1,  # place via prep, "Dad" alone (no "my") doesn't fire person
+        )
+
+    def test_implant_does_not_match_plant(self):
+        # The pre-fix substring approach matched "plant" inside "implant"
+        # and "mill" inside "million". Word-boundary regex prevents that.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("She got an implant."), 0
+        )
+
+    def test_million_does_not_match_mill(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("That cost a million dollars."),
+            0,
+        )
+
+    def test_factory_bare_DOES_fire_place(self):
+        # Tier 1 institutional/industrial nouns DO fire on bare mention —
+        # "Factory was loud" reads as locational, not state-predicate.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Factory was loud."), 1
+        )
+
 
 class HasSceneAnchorTest(unittest.TestCase):
     def test_predicate_matches_count(self):

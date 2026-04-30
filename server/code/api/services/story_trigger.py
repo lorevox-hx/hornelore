@@ -69,18 +69,50 @@ def _borderline_anchor_count() -> int:
 # Each dimension that fires contributes 1 to the anchor count. Total
 # range is 0–3 per turn.
 
-# Place words that survive the false-positive test ("home" / "school"
-# get caught by the proper-noun matcher when they appear with a real
-# place; we don't want them to fire on bare references like "school
-# was hard").
-_PLACE_NOUNS = {
-    "hospital", "church", "farm", "ranch",
-    "factory", "plant", "mill", "shop", "store",
+# Place words split into two tiers to keep bare-reference false positives
+# out (a 2026-04-30 reviewer caught "School was hard" / "Kitchen was tidy"
+# firing as place anchors against the docstring's stated intent — bug was
+# real, fixed before 3b banks):
+#
+# Tier 1 (BARE): institutional / industrial nouns whose bare mention is
+# overwhelmingly locational. "Hospital was crowded" reads as place.
+#
+# Tier 2 (PREP_REQUIRED): common nouns that ALSO denote places. These
+# only count as place anchors when preceded by a place preposition
+# ("in the kitchen", "at school", "to the barn"). "Kitchen was tidy"
+# is a state predicate about an object and does NOT fire.
+_PLACE_NOUNS_BARE = {
+    "hospital", "church", "factory", "plant", "mill",
+    "fairgrounds",
+}
+
+_PLACE_NOUNS_PREP_REQUIRED = {
+    "farm", "ranch", "shop", "store",
     "kitchen", "yard", "porch",
-    "river", "lake", "park", "fairgrounds",
+    "river", "lake", "park",
     "neighborhood", "town", "village", "city", "county",
     "school", "library", "barn", "garage", "alley",
 }
+
+# Word-boundary match (the previous substring approach matched "plant"
+# inside "implant" and "mill" inside "million" — silently correct on
+# the canonical Janice text but a real risk elsewhere).
+_PLACE_NOUN_BARE_RE = re.compile(
+    r"\b(?:" + "|".join(sorted(_PLACE_NOUNS_BARE)) + r")\b",
+    re.IGNORECASE,
+)
+
+# Tier 2 must be preceded by a place preposition (optionally with an
+# article / possessive / common adjective in between). Keeps "in the
+# kitchen" but drops bare "kitchen".
+_PLACE_NOUN_PREP_RE = re.compile(
+    r"\b(?:in|at|to|from|near|outside|inside|behind|by|around|through|"
+    r"over|across|beside|past|toward|towards)\s+"
+    r"(?:the\s+|a\s+|an\s+|my\s+|our\s+|her\s+|his\s+|their\s+|"
+    r"old\s+|new\s+|big\s+|small\s+|little\s+)*"
+    r"(?:" + "|".join(sorted(_PLACE_NOUNS_PREP_REQUIRED)) + r")\b",
+    re.IGNORECASE,
+)
 
 # Relative-time phrasing — these are the elder-narrator markers that
 # place a memory without forcing precision. Multi-word patterns must
@@ -125,9 +157,17 @@ _PROPER_NOUN_MULTI_WORD = re.compile(
 
 
 def _matches_place(text: str) -> bool:
-    """Does this text contain a place reference?"""
-    lower = text.lower()
-    if any(p in lower for p in _PLACE_NOUNS):
+    """Does this text contain a place reference?
+
+    Order matters for clarity, not correctness — any single hit fires:
+      1. Tier 1 institutional / industrial noun (bare mention OK)
+      2. Tier 2 common-noun place word PRECEDED by a place preposition
+      3. Proper noun after a place preposition ("in Spokane")
+      4. Multi-word capitalized run ("Grand Forks", "North Dakota")
+    """
+    if _PLACE_NOUN_BARE_RE.search(text):
+        return True
+    if _PLACE_NOUN_PREP_RE.search(text):
         return True
     if _PROPER_NOUN_PLACE_AFTER_PREP.search(text):
         return True
