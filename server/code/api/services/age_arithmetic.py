@@ -36,7 +36,7 @@ early_school_years; the operator review queue resolves the ambiguity
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional, Tuple
 
 
@@ -165,7 +165,10 @@ def parse_dob(dob_value: Optional[str]) -> Optional[date]:
     try:
         if len(s) == 4 and s.isdigit():
             year = int(s)
-            if 1850 <= year <= datetime.utcnow().year:
+            # Patch G (2026-04-30 polish): datetime.utcnow() is deprecated
+            # in Python 3.12+. timezone.utc works on 3.10+ which is the
+            # project floor; UTC sentinel from datetime stdlib is 3.11+.
+            if 1850 <= year <= datetime.now(timezone.utc).year:
                 return date(year, 1, 1)
     except ValueError:
         pass

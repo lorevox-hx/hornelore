@@ -60,6 +60,14 @@ import uuid
 from datetime import date
 from typing import Any, Dict, List, Optional
 
+# Patch C (2026-04-30 polish): soft cap on transcript length stored per
+# story_candidate row. Cheap operability guard — STT failure modes can
+# produce runaway outputs; we don't want a single corrupt row to blow up
+# the operator review list_unreviewed query later. 50KB is roughly 5–10
+# minutes of dense narrator speech transcribed; far over a normal turn.
+MAX_TRANSCRIPT_BYTES = 50_000
+_TRUNCATION_MARKER = " [...truncated]"
+
 # Allowed project-internal imports:
 #   - server.code.api.db (sibling module — accessor functions only;
 #     does NOT route through extract.py)
@@ -105,6 +113,20 @@ def preserve_turn(
     if not transcript or not transcript.strip():
         raise ValueError("transcript must be a non-empty string")
 
+    # Patch C (2026-04-30 polish): truncate runaway transcripts BEFORE
+    # any DB activity. Defensive against STT misbehavior — see module
+    # constants for sizing rationale.
+    if len(transcript) > MAX_TRANSCRIPT_BYTES:
+        logger.warning(
+            "[preserve] transcript truncated narrator=%s "
+            "original_bytes=%d cap=%d",
+            narrator_id, len(transcript), MAX_TRANSCRIPT_BYTES,
+        )
+        # Keep the head of the transcript (most likely contains the
+        # narrative anchor); append a sentinel so a downstream reader
+        # knows the row is partial.
+        transcript = transcript[:MAX_TRANSCRIPT_BYTES] + _TRUNCATION_MARKER
+
     # WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b — idempotency.
     # chat_ws may re-fire preservation on reconnect/retry; if the
     # narrator already has a candidate for this turn_id, return the
@@ -117,11 +139,21 @@ def preserve_turn(
         existing = _db.story_candidate_get_by_turn(narrator_id, turn_id)
         if existing is not None:
             existing_id = existing.get("id")
-            logger.info(
-                "[preserve] dedupe-skip narrator=%s turn_id=%s existing=%s",
-                narrator_id, turn_id, existing_id,
+            # Patch D (2026-04-30 polish): only short-circuit on a real
+            # candidate id. If the row is structurally broken (no id),
+            # fall through to a fresh insert and log loudly so the
+            # operator can investigate the orphan row.
+            if existing_id:
+                logger.info(
+                    "[preserve] dedupe-skip narrator=%s turn_id=%s existing=%s",
+                    narrator_id, turn_id, existing_id,
+                )
+                return existing_id
+            logger.warning(
+                "[preserve] existing row found for narrator=%s turn_id=%s "
+                "but id is missing/falsy — falling through to fresh insert",
+                narrator_id, turn_id,
             )
-            return existing_id  # type: ignore[return-value]
 
     candidate_id = str(uuid.uuid4())
 

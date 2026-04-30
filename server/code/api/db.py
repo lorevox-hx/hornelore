@@ -1000,7 +1000,62 @@ def init_db() -> None:
         con.close()
         raise
 
+    # Patch B (2026-04-30 polish): post-migration schema-drift sanity
+    # check. Catches the case where an operator hand-created a table
+    # with a different shape and the CREATE TABLE IF NOT EXISTS in the
+    # migration silently did nothing — INSERTs would later crash with
+    # cryptic "no such column" errors. We log a clear ERROR at boot
+    # rather than crash so the operator sees the drift before any user
+    # request comes in. Add new tables to _CRITICAL_SCHEMA below as new
+    # WOs land.
+    try:
+        _assert_critical_schemas(con)
+    except Exception:
+        # Never crash boot on the drift check itself. The check is
+        # informational; the cryptic INSERT-time error is the
+        # backstop.
+        logger.exception("Schema-drift check failed (non-fatal)")
+
     con.close()
+
+
+# Patch B (2026-04-30 polish) — schema-drift sanity table.
+# Maps table name → set of column names that must be present for the
+# accessor functions to work. Subset of full schema is fine; we only
+# verify columns the INSERT statements reference.
+_CRITICAL_SCHEMA: Dict[str, set] = {
+    "story_candidates": {
+        "id", "narrator_id", "transcript", "audio_clip_path",
+        "audio_duration_sec", "word_count", "trigger_reason",
+        "scene_anchor_count", "era_candidates", "age_bucket",
+        "estimated_year_low", "estimated_year_high", "confidence",
+        "scene_anchors", "extraction_status", "extracted_fields",
+        "review_status", "review_notes", "reviewed_at", "reviewed_by",
+        "session_id", "conversation_id", "turn_id", "created_at",
+    },
+}
+
+
+def _assert_critical_schemas(con: sqlite3.Connection) -> None:
+    """Verify each critical table has at least the columns the
+    accessor INSERTs reference. Logs ERROR on drift; does NOT raise."""
+    for table_name, expected_cols in _CRITICAL_SCHEMA.items():
+        cur = con.execute(f"PRAGMA table_info({table_name});")
+        actual_cols = {row[1] for row in cur.fetchall()}
+        if not actual_cols:
+            # Table doesn't exist yet — migration didn't apply or
+            # was deferred. Migration runner already logs that.
+            continue
+        missing = expected_cols - actual_cols
+        if missing:
+            logger.error(
+                "[init_db] schema drift on %s: missing columns %s "
+                "(actual=%s) — INSERTs will fail with cryptic errors. "
+                "Inspect the live table or re-run migrations.",
+                table_name,
+                sorted(missing),
+                sorted(actual_cols),
+            )
 
 
 # -----------------------------------------------------------------------------

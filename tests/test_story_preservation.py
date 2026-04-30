@@ -179,6 +179,48 @@ class PreserveTurnTest(_TempDbCase):
                 trigger_reason="full_threshold",
             )
 
+    def test_oversized_transcript_truncated_with_marker(self):
+        # Patch C (2026-04-30 polish): a runaway STT output must NOT be
+        # written to story_candidates verbatim. preserve_turn truncates
+        # at MAX_TRANSCRIPT_BYTES and appends a marker so a downstream
+        # reader can see the row is partial.
+        from api.services import story_preservation
+
+        oversize = "x" * (story_preservation.MAX_TRANSCRIPT_BYTES + 1000)
+        cid = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript=oversize,
+            trigger_reason="full_threshold",
+        )
+        row = story_preservation.get_candidate(cid)
+        self.assertIsNotNone(row)
+        assert row is not None  # narrow for type checker
+        # Transcript was truncated and the marker is present.
+        self.assertLess(
+            len(row["transcript"]),
+            len(oversize),
+            "transcript was not truncated",
+        )
+        self.assertTrue(
+            row["transcript"].endswith(story_preservation._TRUNCATION_MARKER),
+            "truncation marker missing from stored transcript",
+        )
+
+    def test_under_cap_transcript_passes_through(self):
+        # Cap shouldn't fire on normal-sized turns.
+        from api.services import story_preservation
+
+        normal = "My dad worked nights at the aluminum plant."
+        cid = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript=normal,
+            trigger_reason="full_threshold",
+        )
+        row = story_preservation.get_candidate(cid)
+        self.assertIsNotNone(row)
+        assert row is not None  # narrow for type checker
+        self.assertEqual(row["transcript"], normal)
+
     def test_invalid_trigger_reason_rejected(self):
         from api.services import story_preservation
 
@@ -258,6 +300,42 @@ class TurnIdIdempotencyTest(_TempDbCase):
             trigger_reason="full_threshold",
         )
         self.assertNotEqual(cid_first, cid_second)
+
+    def test_corrupt_existing_row_falls_through_to_fresh_insert(self):
+        # Patch D (2026-04-30 polish): if a row exists for the
+        # (narrator, turn_id) pair but its `id` is falsy (only
+        # possible via direct SQL or schema corruption), preserve_turn
+        # must NOT return None — it must fall through to a fresh
+        # insert and log a WARNING. We seed a row with id='' (passes
+        # NOT NULL but is falsy in Python) to exercise the path.
+        from api.services import story_preservation
+
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute(
+                """
+                INSERT INTO story_candidates (
+                    id, narrator_id, transcript, trigger_reason, turn_id,
+                    confidence, era_candidates, scene_anchors, extracted_fields
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                ("", "kent", "corrupt sentinel", "full_threshold",
+                 "turn-corrupt-1", "low", "[]", "[]", "{}"),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        # preserve_turn should NOT return "" — it should fall through
+        # and write a fresh row with a real UUID.
+        new_id = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="real story here.",
+            trigger_reason="full_threshold",
+            turn_id="turn-corrupt-1",
+        )
+        self.assertTrue(new_id)  # non-empty UUID
+        self.assertNotEqual(new_id, "")
 
     def test_same_turn_id_different_narrator_writes_new(self):
         # turn_id alone isn't unique — only (narrator_id, turn_id) is.

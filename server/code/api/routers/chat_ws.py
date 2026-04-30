@@ -217,10 +217,21 @@ async def ws_chat(ws: WebSocket):
         #                       trigger != None AND person_id present
         #   preserve raises   → [story-trigger][CRITICAL] log,
         #                       session continues, no rethrow
+        # Patch A (2026-04-30 polish): skip SYSTEM_* in-band directives.
+        # ui/js/session-loop.js emits [SYSTEM_QF: ...] and [SYSTEM: ...]
+        # messages as user-role WS payloads to feed Lori in-band guidance;
+        # those are not narrator-authored content and must not be classified.
+        # Without this guard, a directive that happens to mention a relative,
+        # a place noun, AND a time phrase would write a false-positive
+        # story_candidate row.
+        _ut_lstrip = (user_text or "").lstrip()
+        _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
+
         if (
             os.getenv("HORNELORE_STORY_CAPTURE", "0") in ("1", "true", "True")
             and user_text
             and user_text.strip()
+            and not _is_system_directive
         ):
             try:
                 from ..services import story_trigger as _story_trigger
@@ -262,7 +273,10 @@ async def ws_chat(ws: WebSocket):
                         # turn_id threads through for application-level
                         # idempotency in preserve_turn (chat_ws may
                         # re-fire on reconnect/retry).
-                        _turn_id = params.get("turn_id") or None
+                        # Patch E (2026-04-30 polish): normalize whitespace
+                        # so a sloppy "  " from the UI cleanly becomes None
+                        # rather than a sentinel that won't match any row.
+                        _turn_id = (params.get("turn_id") or "").strip() or None
                         try:
                             _candidate_id = _story_preservation.preserve_turn(
                                 narrator_id=person_id,
