@@ -4637,6 +4637,23 @@ def graph_replace_full(narrator_id: str, persons: List[Dict[str, Any]], relation
 # any fresh DB without code changes here. These accessor stubs are the
 # Python surface that the router and the preservation service will use.
 
+_VALID_TRIGGER_REASONS = ("full_threshold", "borderline_scene_anchor", "manual")
+_VALID_CONFIDENCE = ("low", "medium", "high")
+_VALID_EXTRACTION_STATUS = ("pending", "partial", "complete", "failed")
+_VALID_REVIEW_STATUS = ("unreviewed", "in_review", "promoted", "discarded", "memoir_only")
+
+
+def _row_to_story_candidate(row: sqlite3.Row) -> Dict[str, Any]:
+    """Inflate a story_candidates row to a Dict, hydrating JSON columns
+    back into native Python lists/dicts. Centralizes the shape so callers
+    don't all re-implement it."""
+    d = dict(row)
+    d["era_candidates"] = _json_load(d.get("era_candidates"), [])
+    d["scene_anchors"] = _json_load(d.get("scene_anchors"), [])
+    d["extracted_fields"] = _json_load(d.get("extracted_fields"), {})
+    return d
+
+
 def story_candidate_insert(
     candidate_id: str,
     narrator_id: str,
@@ -4660,23 +4677,72 @@ def story_candidate_insert(
     """Insert a story_candidate row (Path 1 / preservation). Returns the
     candidate id on success.
 
-    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
-    """
-    raise RuntimeError(
-        "story_candidate_insert not implemented until "
-        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
-    )
+    Validates trigger_reason and confidence enums to fail loud if the
+    caller passes something the schema doesn't recognize."""
+    if trigger_reason not in _VALID_TRIGGER_REASONS:
+        raise ValueError(
+            f"trigger_reason must be one of {_VALID_TRIGGER_REASONS}, got {trigger_reason!r}"
+        )
+    if confidence not in _VALID_CONFIDENCE:
+        raise ValueError(
+            f"confidence must be one of {_VALID_CONFIDENCE}, got {confidence!r}"
+        )
+    if not transcript or not transcript.strip():
+        raise ValueError("transcript must be a non-empty string")
+    if not narrator_id:
+        raise ValueError("narrator_id required")
+
+    con = _connect()
+    try:
+        con.execute(
+            """
+            INSERT INTO story_candidates (
+                id, narrator_id, session_id, conversation_id, turn_id,
+                transcript, audio_clip_path, audio_duration_sec, word_count,
+                trigger_reason, scene_anchor_count,
+                era_candidates, age_bucket,
+                estimated_year_low, estimated_year_high, confidence,
+                scene_anchors,
+                extraction_status, extracted_fields,
+                review_status
+            ) VALUES (
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?,
+                'pending', '{}',
+                'unreviewed'
+            );
+            """,
+            (
+                candidate_id, narrator_id, session_id, conversation_id, turn_id,
+                transcript, audio_clip_path, audio_duration_sec, word_count,
+                trigger_reason, int(scene_anchor_count),
+                _json_dump(era_candidates or []), age_bucket,
+                estimated_year_low, estimated_year_high, confidence,
+                _json_dump(scene_anchors or []),
+            ),
+        )
+        con.commit()
+        return candidate_id
+    finally:
+        con.close()
 
 
 def story_candidate_get(candidate_id: str) -> Optional[Dict[str, Any]]:
-    """Single-row fetch by id. Returns None if not found.
-
-    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
-    """
-    raise RuntimeError(
-        "story_candidate_get not implemented until "
-        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
-    )
+    """Single-row fetch by id. Returns None if not found."""
+    con = _connect()
+    try:
+        cur = con.execute(
+            "SELECT * FROM story_candidates WHERE id = ?;",
+            (candidate_id,),
+        )
+        row = cur.fetchone()
+        return _row_to_story_candidate(row) if row is not None else None
+    finally:
+        con.close()
 
 
 def story_candidate_list_unreviewed(
@@ -4684,14 +4750,35 @@ def story_candidate_list_unreviewed(
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
     """List candidates with review_status='unreviewed', newest first.
-    Optional narrator_id filter.
-
-    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
-    """
-    raise RuntimeError(
-        "story_candidate_list_unreviewed not implemented until "
-        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
-    )
+    Optional narrator_id filter."""
+    if limit <= 0:
+        return []
+    limit = min(int(limit), 500)  # hard cap so a runaway caller can't pull the table
+    con = _connect()
+    try:
+        if narrator_id:
+            cur = con.execute(
+                """
+                SELECT * FROM story_candidates
+                WHERE review_status = 'unreviewed' AND narrator_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?;
+                """,
+                (narrator_id, limit),
+            )
+        else:
+            cur = con.execute(
+                """
+                SELECT * FROM story_candidates
+                WHERE review_status = 'unreviewed'
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?;
+                """,
+                (limit,),
+            )
+        return [_row_to_story_candidate(r) for r in cur.fetchall()]
+    finally:
+        con.close()
 
 
 def story_candidate_update_placement(
@@ -4708,12 +4795,47 @@ def story_candidate_update_placement(
     and the narrator answers. Does NOT touch extracted_fields or
     review_* columns — those are owned by their respective lanes.
 
-    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
-    """
-    raise RuntimeError(
-        "story_candidate_update_placement not implemented until "
-        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
-    )
+    Only the supplied fields are written; passing None for a field
+    leaves the existing value alone."""
+    if confidence is not None and confidence not in _VALID_CONFIDENCE:
+        raise ValueError(
+            f"confidence must be one of {_VALID_CONFIDENCE}, got {confidence!r}"
+        )
+
+    sets: List[str] = []
+    params: List[Any] = []
+    if age_bucket is not None:
+        sets.append("age_bucket = ?")
+        params.append(age_bucket)
+    if era_candidates is not None:
+        sets.append("era_candidates = ?")
+        params.append(_json_dump(era_candidates))
+    if estimated_year_low is not None:
+        sets.append("estimated_year_low = ?")
+        params.append(int(estimated_year_low))
+    if estimated_year_high is not None:
+        sets.append("estimated_year_high = ?")
+        params.append(int(estimated_year_high))
+    if confidence is not None:
+        sets.append("confidence = ?")
+        params.append(confidence)
+    if scene_anchors is not None:
+        sets.append("scene_anchors = ?")
+        params.append(_json_dump(scene_anchors))
+
+    if not sets:
+        return  # nothing to update
+
+    params.append(candidate_id)
+    con = _connect()
+    try:
+        con.execute(
+            f"UPDATE story_candidates SET {', '.join(sets)} WHERE id = ?;",
+            params,
+        )
+        con.commit()
+    finally:
+        con.close()
 
 
 def story_candidate_update_extraction(
@@ -4726,12 +4848,28 @@ def story_candidate_update_extraction(
     accessor is what the extractor calls to record what it found, so
     preservation never depends on extraction's success.
 
-    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
-    """
-    raise RuntimeError(
-        "story_candidate_update_extraction not implemented until "
-        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
-    )
+    Note: this function is db-side only — it does NOT import the
+    extractor. The extractor imports this. That direction is allowed."""
+    if extraction_status not in _VALID_EXTRACTION_STATUS:
+        raise ValueError(
+            f"extraction_status must be one of {_VALID_EXTRACTION_STATUS}, "
+            f"got {extraction_status!r}"
+        )
+
+    fields_json = _json_dump(extracted_fields or {})
+    con = _connect()
+    try:
+        con.execute(
+            """
+            UPDATE story_candidates
+            SET extraction_status = ?, extracted_fields = ?
+            WHERE id = ?;
+            """,
+            (extraction_status, fields_json, candidate_id),
+        )
+        con.commit()
+    finally:
+        con.close()
 
 
 def story_candidate_update_review(
@@ -4742,11 +4880,26 @@ def story_candidate_update_review(
     reviewed_by: Optional[str] = None,
 ) -> None:
     """Operator review actions: promote / refine / discard / memoir_only.
-    Sets reviewed_at = CURRENT_TIMESTAMP server-side.
+    Sets reviewed_at = CURRENT_TIMESTAMP server-side."""
+    if review_status not in _VALID_REVIEW_STATUS:
+        raise ValueError(
+            f"review_status must be one of {_VALID_REVIEW_STATUS}, "
+            f"got {review_status!r}"
+        )
 
-    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
-    """
-    raise RuntimeError(
-        "story_candidate_update_review not implemented until "
-        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
-    )
+    con = _connect()
+    try:
+        con.execute(
+            """
+            UPDATE story_candidates
+            SET review_status = ?,
+                review_notes = ?,
+                reviewed_by = ?,
+                reviewed_at = CURRENT_TIMESTAMP
+            WHERE id = ?;
+            """,
+            (review_status, review_notes, reviewed_by, candidate_id),
+        )
+        con.commit()
+    finally:
+        con.close()
