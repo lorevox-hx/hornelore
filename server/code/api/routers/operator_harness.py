@@ -223,6 +223,7 @@ async def _run_turn_via_internal_ws(
     session_id: str,
     turn_mode: str,
     turn_id: str,
+    session_style: str,
     timeout_seconds: int,
 ) -> Dict[str, Any]:
     """Open an internal WebSocket to /api/chat/ws on the same server,
@@ -294,6 +295,12 @@ async def _run_turn_via_internal_ws(
                 errors.append("session_not_verified")
             else:
                 # Step 2: start_turn
+                # session_style threads into params + a minimal
+                # runtime71 carrier so prompt_composer (L1393) can read
+                # `runtime71.session_style_directive`. Without this, all
+                # style probes would run with the same effective style
+                # and the harness would falsely declare modes as
+                # "eyecandy" when really we just never toggled them.
                 await ws.send(json.dumps({
                     "type": "start_turn",
                     "session_id": session_id,
@@ -302,6 +309,10 @@ async def _run_turn_via_internal_ws(
                     "params": {
                         "person_id": person_id,
                         "turn_id": turn_id,
+                        "session_style": session_style,
+                        "runtime71": {
+                            "session_style_directive": session_style,
+                        },
                     },
                 }))
 
@@ -394,6 +405,7 @@ async def harness_interview_turn(
         session_id=session_id,
         turn_mode=req.turn_mode,
         turn_id=turn_id,
+        session_style=req.session_style,
         timeout_seconds=req.timeout_seconds,
     )
 

@@ -60,6 +60,15 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("Missing dependency: pip install websockets") from exc
 
+# Style-diff extension lives in the same dir; import lazily so the rest
+# of the harness still works if the module is missing.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from golfball_style_diff import run_style_diff_block  # type: ignore
+    _STYLE_DIFF_AVAILABLE = True
+except Exception:
+    _STYLE_DIFF_AVAILABLE = False
+
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -139,6 +148,7 @@ class HarnessReport:
     db_lock_events_final: int
     db_checks: Dict[str, Any]
     media_checks: Dict[str, Any]
+    style_diff_checks: Dict[str, Any]
     cleanup: Dict[str, Any]
     passed: bool
 
@@ -715,6 +725,35 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
     db_checks = db_snapshot(args.db, person_id)
     media_checks = media_snapshot(args.api, args.db)
 
+    # ── Style-diff probe block ──────────────────────────────────────────
+    # Answers the eyecandy question: does session_style change Lori's
+    # behavior or is it just UI label state? Hits the same operator
+    # harness HTTP endpoint, runs the same prompt under all 4 styles,
+    # asserts cross-style differentiation. Skipped if the operator
+    # harness flag is off (would 404).
+    style_diff_checks: Dict[str, Any] = {
+        "ok": True, "skipped": True,
+        "reason": "skipped (--no-style-diff or module unavailable)",
+    }
+    if args.style_diff and _STYLE_DIFF_AVAILABLE:
+        print(f"\n[golfball] running style-diff probe block...")
+        try:
+            style_diff_checks = run_style_diff_block(
+                api=args.api,
+                person_id=person_id,
+                session_id_prefix=f"{conv_id}-style",
+                delay_seconds=max(3.0, min(args.delay_between_turns, 8.0)),
+                turn_timeout_seconds=args.turn_timeout,
+            )
+            sd_status = "PASS" if style_diff_checks.get("ok") else "FAIL"
+            print(f"[golfball] style-diff {sd_status}")
+        except Exception as exc:
+            style_diff_checks = {
+                "ok": False, "skipped": False,
+                "error": f"style_diff_failed: {exc!r}",
+            }
+            print(f"[golfball] style-diff ERROR: {exc!r}")
+
     cleanup_info: Dict[str, Any] = {"performed": False}
     if synthetic and args.cleanup:
         print(f"\n[golfball] cleanup: deleting synthetic narrator rows...")
@@ -726,6 +765,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         all(t.passed for t in turn_results)
         and lock_final == lock_baseline
         and len(turn_results) == len(GOLFBALL_TURNS)
+        and bool(style_diff_checks.get("ok"))
     )
 
     return HarnessReport(
@@ -741,6 +781,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         db_lock_events_final=lock_final,
         db_checks=db_checks,
         media_checks=media_checks,
+        style_diff_checks=style_diff_checks,
         cleanup=cleanup_info,
         passed=passed,
     )
@@ -796,6 +837,37 @@ def print_summary(report: HarnessReport) -> None:
             payload = report.health[k].get("payload")
             print(f"  - {k}: {payload}")
 
+    sd = report.style_diff_checks or {}
+    if not sd.get("skipped"):
+        print()
+        print("style-diff:")
+        sd_ok = "PASS" if sd.get("ok") else "FAIL"
+        print(f"  overall:        {sd_ok}")
+        cm = sd.get("cross_style_metrics", {})
+        print(f"  similarity:     "
+              f"clear_vs_warm={cm.get('clear_vs_warm_similarity', 0):.2f} "
+              f"(must be < {sd.get('thresholds', {}).get('clear_vs_warm_similarity_must_be_below')})")
+        print(f"  word delta:     "
+              f"warm_minus_clear={cm.get('clear_vs_warm_word_delta', 0)} "
+              f"(min {sd.get('thresholds', {}).get('clear_vs_warm_word_delta_min')})")
+        print(f"  scene delta:    "
+              f"warm_minus_clear={cm.get('warm_minus_clear_scene_score', 0)} "
+              f"(min {sd.get('thresholds', {}).get('warm_scene_score_must_exceed_clear_by_at_least')})")
+        for row in sd.get("results", []):
+            m = row.get("metrics", {})
+            flag = "PASS" if row.get("passed") else "FAIL"
+            print(f"  {flag} {row.get('style')}: "
+                  f"words={m.get('word_count')} "
+                  f"q={m.get('question_count')} "
+                  f"scene={m.get('scene_score')} "
+                  f"direct={m.get('direct_score')} "
+                  f"qform={m.get('questionnaire_score')} "
+                  f"agenda={m.get('agenda_score')}")
+            for f in row.get("failures", []):
+                print(f"       - {f}")
+        for f in sd.get("cross_style_failures", []):
+            print(f"  CROSS-STYLE FAIL: {f}")
+
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -824,6 +896,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--no-cleanup", dest="cleanup", action="store_false",
                    default=True,
                    help="Skip cleanup of synthetic narrator rows.")
+    p.add_argument("--no-style-diff", dest="style_diff", action="store_false",
+                   default=True,
+                   help="Skip the style-diff probe block. Default: on.")
     return p.parse_args(argv)
 
 
