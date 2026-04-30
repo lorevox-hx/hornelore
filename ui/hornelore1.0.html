@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="css/safety-banner.css">
   <link rel="stylesheet" href="css/bug-panel-eval.css">
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
+  <link rel="stylesheet" href="css/bug-panel-story-review.css">
   <link rel="stylesheet" href="css/affect.css">
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -4079,6 +4080,21 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-LORI-STORY-CAPTURE-01 Phase 1B — Story Candidates list
+         Read-only operator review surface. Shows unreviewed
+         story_candidate rows newest-first with narrator + trigger
+         + first 200 chars of transcript + scene-anchor count +
+         confidence + era_candidates. Optional narrator filter and
+         manual Refresh button. Backend gate:
+         HORNELORE_OPERATOR_STORY_REVIEW=1; off → quiet "feature
+         disabled" placeholder. NEVER narrator-visible.
+         See ui/js/bug-panel-story-review.js + .css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpStoryReview">
+      <div class="story-empty">Loading story candidates…</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-OPERATOR-RESOURCE-DASHBOARD-01 — Stack Dashboard.
          Live car-dashboard-style gauges for services, system, GPU,
          capture state, archive writes, and eval progress. Polls
@@ -4653,6 +4669,7 @@
 <script src="js/safety-banner.js"></script>
 <script src="js/bug-panel-eval.js"></script>
 <script src="js/bug-panel-dashboard.js"></script>
+<script src="js/bug-panel-story-review.js"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js"></script>
 <script src="js/permissions.js"></script>
 <script src="js/emotion.js"></script>

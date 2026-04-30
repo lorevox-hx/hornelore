@@ -1,0 +1,207 @@
+/* WO-LORI-STORY-CAPTURE-01 Phase 1B — Bug Panel story-candidates list.
+   Read-only operator surface; matches the Bug Panel dark-chrome aesthetic
+   used by bug-panel-eval.css and bug-panel-dashboard.css. */
+
+#lv10dBpStoryReview {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  color: #e8eaed;
+  background: #1a1d21;
+  border: 1px solid #2c3138;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+/* Section header */
+#lv10dBpStoryReview .story-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #2c3138;
+  padding-bottom: 6px;
+}
+#lv10dBpStoryReview .story-section-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #f5d97a;
+  letter-spacing: 0.02em;
+}
+#lv10dBpStoryReview .story-section-count {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #9aa0a6;
+}
+
+/* Controls (filter + refresh) */
+#lv10dBpStoryReview .story-controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+#lv10dBpStoryReview .story-filter-input {
+  flex: 1;
+  background: #0d0f12;
+  color: #e8eaed;
+  border: 1px solid #2c3138;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+#lv10dBpStoryReview .story-filter-input:focus {
+  outline: none;
+  border-color: #5e8bff;
+}
+#lv10dBpStoryReview .story-refresh-btn {
+  background: #2c3138;
+  color: #e8eaed;
+  border: 1px solid #3a414a;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#lv10dBpStoryReview .story-refresh-btn:hover {
+  background: #3a414a;
+  border-color: #5e8bff;
+}
+
+/* List + rows */
+#lv10dBpStoryReview .story-list {
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid #2c3138;
+  border-radius: 4px;
+  background: #14171b;
+}
+#lv10dBpStoryReview .story-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid #22262c;
+}
+#lv10dBpStoryReview .story-row:last-child {
+  border-bottom: none;
+}
+#lv10dBpStoryReview .story-row:hover {
+  background: #1c2026;
+}
+
+/* Row internals */
+#lv10dBpStoryReview .story-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+#lv10dBpStoryReview .story-narrator {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #b8d4f0;
+  cursor: help;
+}
+#lv10dBpStoryReview .story-time {
+  font-size: 10px;
+  color: #6c757d;
+}
+#lv10dBpStoryReview .story-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+#lv10dBpStoryReview .story-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: #9aa0a6;
+  background: #0d0f12;
+  border: 1px solid #2c3138;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+#lv10dBpStoryReview .story-preview {
+  font-size: 12px;
+  color: #d8dbde;
+  line-height: 1.4;
+  font-style: italic;
+  border-left: 2px solid #3a414a;
+  padding-left: 8px;
+  margin-top: 4px;
+}
+
+/* Trigger badges */
+#lv10dBpStoryReview .story-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+}
+#lv10dBpStoryReview .story-badge-full {
+  background: #1f3320;
+  color: #7ed987;
+  border-color: #2d5a32;
+}
+#lv10dBpStoryReview .story-badge-borderline {
+  background: #2d2615;
+  color: #f5d97a;
+  border-color: #5a4a1d;
+}
+#lv10dBpStoryReview .story-badge-other {
+  background: #1a1d21;
+  color: #9aa0a6;
+  border-color: #2c3138;
+}
+
+/* Confidence pill */
+#lv10dBpStoryReview .story-conf {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  border-radius: 3px;
+  padding: 1px 5px;
+  border: 1px solid #2c3138;
+}
+#lv10dBpStoryReview .story-conf-high {
+  color: #7ed987;
+  background: #14241a;
+}
+#lv10dBpStoryReview .story-conf-medium {
+  color: #f5d97a;
+  background: #251f10;
+}
+#lv10dBpStoryReview .story-conf-low {
+  color: #c0c4ca;
+  background: #14171b;
+}
+#lv10dBpStoryReview .story-conf-unknown {
+  color: #6c757d;
+  background: #14171b;
+}
+
+/* Empty / error / fetched-at */
+#lv10dBpStoryReview .story-empty {
+  padding: 16px 8px;
+  font-size: 11px;
+  color: #9aa0a6;
+  text-align: center;
+  font-style: italic;
+}
+#lv10dBpStoryReview .story-error {
+  padding: 8px;
+  font-size: 11px;
+  color: #ff8a80;
+  background: #2a1517;
+  border: 1px solid #5a1f24;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+#lv10dBpStoryReview .story-fetched-at {
+  font-size: 10px;
+  color: #6c757d;
+  text-align: right;
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

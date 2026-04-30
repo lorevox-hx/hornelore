@@ -114,6 +114,7 @@ from .routers import (  # type: ignore
     safety_events,   # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface
     operator_eval_harness,  # WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only eval cockpit
     operator_stack_dashboard,  # WO-OPERATOR-RESOURCE-DASHBOARD-01 — live stack gauges
+    operator_story_review,   # WO-LORI-STORY-CAPTURE-01 Phase 1B — minimal story-candidate review surface
 )
 
 # Core Entity & State Routers
@@ -147,6 +148,7 @@ app.include_router(media_archive.router)          # WO-MEDIA-ARCHIVE-01 — Docu
 app.include_router(safety_events.router)           # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface (Bug Panel banner + digest)
 app.include_router(operator_eval_harness.router)   # WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only eval cockpit (HORNELORE_OPERATOR_EVAL_HARNESS=1 to enable)
 app.include_router(operator_stack_dashboard.router) # WO-OPERATOR-RESOURCE-DASHBOARD-01 — live stack/resource cockpit (HORNELORE_OPERATOR_STACK_DASHBOARD=1 to enable)
+app.include_router(operator_story_review.router)  # WO-LORI-STORY-CAPTURE-01 Phase 1B — story-candidate review surface (HORNELORE_OPERATOR_STORY_REVIEW=1 to enable)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)
