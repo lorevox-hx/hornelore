@@ -16,9 +16,14 @@
 
   const POLL_INTERVAL_MS = 60 * 1000;
   const SUMMARY_ENDPOINT = "/api/operator/eval-harness/summary";
+  // WO-OPERATOR-DASHBOARD-MERGE-01: dual-poll the stack dashboard's
+  // build_summary() so the cockpit can flag eval validity from
+  // infrastructure signals (connection_refused / OOM / stale extract).
+  const SYSTEM_STATUS_ENDPOINT = "/api/operator/stack-dashboard/system-status";
 
   let _timer = null;
   let _gateDisabledLogged = false;
+  let _systemGateDisabledLogged = false;
 
   const STATUS_LABELS = {
     pass: "PASS",
@@ -57,6 +62,176 @@
   function _pct(x) {
     if (x == null || isNaN(x)) return "—";
     return (Number(x) * 100).toFixed(1) + "%";
+  }
+
+  // ── WO-OPERATOR-DASHBOARD-MERGE-01 helpers ─────────────────────────────
+  // The cockpit takes the stack-dashboard payload and folds its top-level
+  // status / services / resources / eval blocks above the existing four
+  // eval-harness cards. Helpers below stay defensive: a missing dashboard
+  // payload (404, network blip) just renders empty strings, never crashes.
+
+  function _statusLabel(s) {
+    if (s == null || s === "") return "UNKNOWN";
+    return String(s).toUpperCase();
+  }
+
+  function _statusClass(s) {
+    const v = String(s == null ? "unknown" : s).toLowerCase();
+    if (v === "ok" || v === "warm" || v === "writing" || v === "ready"
+        || v === "active" || v === "speaking" || v === "running") return "pass";
+    if (v === "warn" || v === "slow" || v === "stale" || v === "cold"
+        || v === "idle_recent" || v === "unknown") return "warn";
+    if (v === "fail" || v === "down" || v === "error") return "fail";
+    if (v === "disabled" || v === "off" || v === "idle"
+        || v === "unavailable" || v === "missing") return "stale";
+    return "warn";
+  }
+
+  function _num1(x, suffix) {
+    if (x == null || isNaN(Number(x))) return "—";
+    return `${Number(x).toFixed(1)}${suffix || ""}`;
+  }
+
+  function _serviceMetric(svc) {
+    if (!svc) return "—";
+    if (svc.latency_ms != null) return `${Math.round(Number(svc.latency_ms))} ms`;
+    if (svc.vram_free_mb != null) return `${Math.round(Number(svc.vram_free_mb))} MB free`;
+    return svc.error || "—";
+  }
+
+  // EVAL VALIDITY: the most important fix in this WO. If the dashboard
+  // saw a connection_refused event during the most recent extraction
+  // window, the eval result is INVALID regardless of pass/fail topline.
+  // This is the signal that would have caught r5h-place-guard's API
+  // shutdown at case_089 instead of letting "70/110 schema_gap" mislead
+  // the operator.
+  function _evalInvalidReason(system) {
+    const ev = (system && system.eval) || {};
+    const warnings = (system && system.warnings) || [];
+    const connCount = Number(ev.connection_refused_count_rolling || 0);
+    const lastConnAge = ev.last_connection_refused_age_sec;
+    const lastExtractAge = ev.last_extract_age_sec;
+    const apiWarn = warnings.find((w) =>
+      String(w.category || "").toLowerCase() === "api" &&
+      String(w.message || "").toLowerCase().includes("connection refused"));
+
+    // Strongest signal: an API connection-refused event landed within the
+    // same window as the last extractor activity (i.e., during the run).
+    if (connCount > 0 && lastConnAge != null && lastExtractAge != null
+        && Number(lastConnAge) <= Number(lastExtractAge) + 60) {
+      return `API connection refused during run (${connCount} rolling log hit${connCount === 1 ? "" : "s"})`;
+    }
+    if (connCount > 0) {
+      return `Recent connection-refused events in api.log: ${connCount}`;
+    }
+    if (apiWarn && apiWarn.message) return apiWarn.message;
+    return "";
+  }
+
+  function _renderSystemStatus(system) {
+    if (!system) return "";
+    const status = system.status || "unknown";
+    const warnings = system.warnings || [];
+    const warnLines = warnings.slice(0, 4).map((w) => `
+      <div class="eval-system-warning">
+        <strong>${_esc(w.category || "system")}:</strong> ${_esc(w.message || "")}
+      </div>`).join("");
+    return `
+      <div class="eval-system-strip eval-system-${_statusClass(status)}">
+        <div>
+          <div class="eval-system-eyebrow">System Status</div>
+          <div class="eval-system-title">${_esc(_statusLabel(status))}</div>
+        </div>
+        <div class="eval-system-warnings">
+          ${warnLines || '<div class="eval-system-warning muted">No current system warnings.</div>'}
+        </div>
+      </div>`;
+  }
+
+  function _renderServiceRow(system) {
+    if (!system || !system.services) return "";
+    const s = system.services || {};
+    const items = [
+      ["API 8000", s.api],
+      ["UI", s.ui],
+      ["TTS 8001", s.tts],
+      ["LLM", s.llm],
+    ];
+    return `
+      <div class="eval-service-row">
+        ${items.map(([label, svc]) => {
+          const st = (svc && svc.status) || "unknown";
+          return `
+            <div class="eval-service-card eval-service-${_statusClass(st)}">
+              <div class="eval-service-label">${_esc(label)}</div>
+              <div class="eval-service-status">${_esc(_statusLabel(st))}</div>
+              <div class="eval-service-metric">${_esc(_serviceMetric(svc))}</div>
+            </div>`;
+        }).join("")}
+      </div>`;
+  }
+
+  function _renderResourceRow(system) {
+    if (!system) return "";
+    const sys = system.system || {};
+    const gpu = system.gpu || {};
+    const arch = system.archive || {};
+    const cap = system.capture || {};
+    const camStatus = (cap.camera && cap.camera.status) || "unknown";
+    const micStatus = (cap.microphone && cap.microphone.status) || "unknown";
+    const archStatus = arch.status || "unknown";
+    return `
+      <div class="eval-resource-row">
+        <div class="eval-resource-card eval-resource-${_statusClass((sys.cpu_percent != null && sys.cpu_percent >= 95) ? "fail" : (sys.cpu_percent >= 80 ? "warn" : "ok"))}">
+          <div class="eval-resource-label">CPU</div>
+          <div class="eval-resource-value">${_esc(_num1(sys.cpu_percent, "%"))}</div>
+        </div>
+        <div class="eval-resource-card eval-resource-${_statusClass((sys.memory_percent != null && sys.memory_percent >= 95) ? "fail" : (sys.memory_percent >= 80 ? "warn" : "ok"))}">
+          <div class="eval-resource-label">RAM</div>
+          <div class="eval-resource-value">${_esc(_num1(sys.memory_percent, "%"))}</div>
+        </div>
+        <div class="eval-resource-card eval-resource-${_statusClass(gpu.status || "unknown")}">
+          <div class="eval-resource-label">VRAM Free</div>
+          <div class="eval-resource-value">${gpu.vram_free_mb != null ? `${Math.round(gpu.vram_free_mb)} MB` : "—"}</div>
+        </div>
+        <div class="eval-resource-card eval-resource-${_statusClass(archStatus)}">
+          <div class="eval-resource-label">Archive</div>
+          <div class="eval-resource-value">${_esc(_statusLabel(archStatus))}</div>
+        </div>
+        <div class="eval-resource-card eval-resource-${_statusClass(micStatus)}">
+          <div class="eval-resource-label">Mic</div>
+          <div class="eval-resource-value">${_esc(_statusLabel(micStatus))}</div>
+        </div>
+        <div class="eval-resource-card eval-resource-${_statusClass(camStatus)}">
+          <div class="eval-resource-label">Camera</div>
+          <div class="eval-resource-value">${_esc(_statusLabel(camStatus))}</div>
+        </div>
+      </div>`;
+  }
+
+  function _renderEvalValidity(system) {
+    if (!system || !system.eval) return "";
+    const reason = _evalInvalidReason(system);
+    const ev = system.eval || {};
+    const latest = ev.latest_report || {};
+    const cls = reason ? "fail" : _statusClass(ev.status || "idle");
+    const titleText = reason ? "INVALID" : _statusLabel(ev.status || "IDLE");
+    const detail = reason
+      ? _esc(reason)
+      : `Last extractor activity: ${ev.last_extract_age_sec != null ? `${Math.round(ev.last_extract_age_sec)}s ago` : "—"}`;
+    const latestLine = latest.report_name
+      ? `<br><code>${_esc(latest.report_name)}</code>`
+      : "";
+    return `
+      <div class="eval-validity-strip eval-validity-${cls}">
+        <div>
+          <div class="eval-system-eyebrow">Eval Validity</div>
+          <div class="eval-system-title">${_esc(titleText)}</div>
+        </div>
+        <div class="eval-validity-detail">
+          ${detail}${latestLine}
+        </div>
+      </div>`;
   }
 
   function _renderExtractorCard(card) {
@@ -216,14 +391,22 @@
     `;
   }
 
-  function _render(payload) {
+  // WO-OPERATOR-DASHBOARD-MERGE-01: signature now takes systemPayload
+  // (from /api/operator/stack-dashboard/system-status). When systemPayload
+  // is null, the cockpit health rows are simply omitted — eval cards
+  // still render. When eval payload is null but systemPayload is present,
+  // the system rows render alone (cards block stays empty). Either gate
+  // can be off and the cockpit still produces useful output.
+  function _render(payload, systemPayload) {
     const mount = document.getElementById("lv10dBpEvalHarness");
     if (!mount) return;
-    if (!payload || !payload.cards) {
+    if ((!payload || !payload.cards) && !systemPayload) {
       mount.innerHTML = `<div class="eval-empty">Eval Harness data unavailable.</div>`;
       return;
     }
-    const cardsHtml = payload.cards.map((card) => {
+
+    const cards = (payload && Array.isArray(payload.cards)) ? payload.cards : [];
+    const cardsHtml = cards.map((card) => {
       switch (card.lane) {
         case "extractor": return _renderExtractorCard(card);
         case "lori_behavior": return _renderBehaviorCard(card);
@@ -232,13 +415,25 @@
         default: return "";
       }
     }).join("");
-    const generatedAt = payload.generated_at ? `as of ${_relTime(payload.generated_at)}` : "";
+
+    // Prefer the eval payload's timestamp when available; fall back to
+    // the system payload so the header always shows a freshness signal.
+    const ts = (payload && payload.generated_at) || (systemPayload && systemPayload.generated_at) || "";
+    const generatedAt = ts ? `as of ${_relTime(ts)}` : "";
+    const headerTitle = systemPayload
+      ? "Operator Cockpit — system + eval truth surface"
+      : "Eval Harness — read-only cockpit";
+
     mount.innerHTML = `
       <div class="eval-harness-header">
-        <span>Eval Harness — read-only cockpit</span>
+        <span>${_esc(headerTitle)}</span>
         <span class="eval-harness-generated">${_esc(generatedAt)}</span>
       </div>
-      ${_renderCrash(payload.recent_crash)}
+      ${_renderSystemStatus(systemPayload)}
+      ${_renderServiceRow(systemPayload)}
+      ${_renderResourceRow(systemPayload)}
+      ${_renderEvalValidity(systemPayload)}
+      ${_renderCrash(payload && payload.recent_crash)}
       <div class="eval-cards">${cardsHtml}</div>
     `;
     mount.querySelectorAll('[data-action="refresh"]').forEach((btn) => {
@@ -268,36 +463,79 @@
   async function _poll() {
     const mount = document.getElementById("lv10dBpEvalHarness");
     if (!mount) return;
+
+    // WO-OPERATOR-DASHBOARD-MERGE-01: dual-fetch eval + system status.
+    // Either may 404 independently. Cockpit degrades gracefully — if eval
+    // gate is off and system gate is on, only system surfaces render; if
+    // system gate is off and eval gate is on, only eval cards render; if
+    // both are off, the existing eval-only "feature disabled" placeholder
+    // stays the source of truth.
+    let evalPayload = null;
+    let evalGateOff = false;
+    let systemPayload = null;
+
     try {
-      const resp = await fetch(SUMMARY_ENDPOINT, {
+      const evalResp = await fetch(SUMMARY_ENDPOINT, {
         method: "GET",
         headers: { "Accept": "application/json" },
       });
-      if (resp.status === 404) {
+      if (evalResp.status === 404) {
+        evalGateOff = true;
         if (!_gateDisabledLogged) {
           console.log(
             "[eval-harness] /api/operator/eval-harness/summary returns 404 — set HORNELORE_OPERATOR_EVAL_HARNESS=1 in .env + restart stack to enable."
           );
           _gateDisabledLogged = true;
         }
-        mount.innerHTML = `
-          <div class="eval-empty eval-empty-gate-off">
-            Eval Harness disabled (HORNELORE_OPERATOR_EVAL_HARNESS=0).
-            Set to 1 in <code>.env</code> + restart stack to enable.
-          </div>
-        `;
-        return;
+      } else if (evalResp.ok) {
+        evalPayload = await evalResp.json();
+        _gateDisabledLogged = false;
+      } else {
+        console.warn("[eval-harness] summary fetch failed:", evalResp.status);
       }
-      if (!resp.ok) {
-        console.warn("[eval-harness] summary fetch failed:", resp.status);
-        return;
-      }
-      const data = await resp.json();
-      _gateDisabledLogged = false;
-      _render(data);
     } catch (e) {
       console.warn("[eval-harness] poll error:", e);
     }
+
+    try {
+      const sysResp = await fetch(SYSTEM_STATUS_ENDPOINT, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+      });
+      if (sysResp.status === 404) {
+        if (!_systemGateDisabledLogged) {
+          console.log(
+            "[eval-harness] /api/operator/stack-dashboard/system-status returns 404 — set HORNELORE_OPERATOR_STACK_DASHBOARD=1 in .env + restart stack to enable cockpit health rows."
+          );
+          _systemGateDisabledLogged = true;
+        }
+      } else if (sysResp.ok) {
+        systemPayload = await sysResp.json();
+        _systemGateDisabledLogged = false;
+      } else {
+        console.warn("[eval-harness] system-status fetch failed:", sysResp.status);
+      }
+    } catch (e) {
+      console.warn("[eval-harness] system-status poll error:", e);
+    }
+
+    // If BOTH gates are off, keep the legacy "feature disabled" placeholder.
+    if (evalGateOff && !systemPayload) {
+      mount.innerHTML = `
+        <div class="eval-empty eval-empty-gate-off">
+          Eval Harness disabled (HORNELORE_OPERATOR_EVAL_HARNESS=0).
+          Set to 1 in <code>.env</code> + restart stack to enable.
+        </div>
+      `;
+      return;
+    }
+
+    if (!evalPayload && !systemPayload) {
+      mount.innerHTML = `<div class="eval-empty">Eval Harness data unavailable.</div>`;
+      return;
+    }
+
+    _render(evalPayload || { cards: {} }, systemPayload);
   }
 
   function _start() {

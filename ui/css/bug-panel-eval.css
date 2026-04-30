@@ -333,3 +333,200 @@
   background: transparent;
   padding: 0;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   WO-OPERATOR-DASHBOARD-MERGE-01 — unified operator cockpit
+   System status strip, service row, resource row, and eval validity
+   strip rendered above the existing four eval cards. Status palette
+   matches the eval-card chrome (.eval-card-pass/-warn/-fail/-stale)
+   so the cockpit reads as one cohesive surface.
+   ════════════════════════════════════════════════════════════════════ */
+
+.eval-system-strip,
+.eval-validity-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  border-radius: 5px;
+  border: 1px solid rgba(148,163,184,0.18);
+  background: rgba(15,23,42,0.6);
+  border-left: 3px solid #475569;
+}
+
+.eval-system-pass,
+.eval-validity-pass {
+  border-left-color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.30);
+  background: linear-gradient(180deg, rgba(20, 83, 45, 0.18) 0%, rgba(15, 46, 25, 0.25) 100%);
+}
+
+.eval-system-warn,
+.eval-validity-warn {
+  border-left-color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.30);
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.15) 0%, rgba(69, 26, 3, 0.22) 100%);
+}
+
+.eval-system-fail,
+.eval-validity-fail {
+  border-left-color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.40);
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.20) 0%, rgba(69, 10, 10, 0.30) 100%);
+}
+
+.eval-system-stale,
+.eval-validity-stale {
+  border-left-color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.5);
+  opacity: 0.85;
+}
+
+.eval-system-eyebrow {
+  font-size: 9.5px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.eval-system-title {
+  margin-top: 2px;
+  font-size: 16px;
+  color: #e2e8f0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.eval-validity-fail .eval-system-title {
+  color: #fecaca;
+}
+
+.eval-system-warnings,
+.eval-validity-detail {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.eval-system-warning {
+  margin: 1px 0;
+}
+
+.eval-system-warning.muted {
+  color: #64748b;
+  font-style: italic;
+}
+
+.eval-system-warning strong {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+  color: #94a3b8;
+}
+
+.eval-validity-detail code {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 10px;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.eval-service-row,
+.eval-resource-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.eval-resource-row {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.eval-service-card,
+.eval-resource-card {
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  border-left: 3px solid #475569;
+  border-radius: 4px;
+  padding: 6px 9px;
+  background: rgba(15, 23, 42, 0.5);
+  min-height: 44px;
+}
+
+.eval-service-pass,
+.eval-resource-pass {
+  border-left-color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.30);
+  background: linear-gradient(180deg, rgba(20, 83, 45, 0.15) 0%, rgba(15, 46, 25, 0.20) 100%);
+}
+
+.eval-service-warn,
+.eval-resource-warn {
+  border-left-color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.30);
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.12) 0%, rgba(69, 26, 3, 0.18) 100%);
+}
+
+.eval-service-fail,
+.eval-resource-fail {
+  border-left-color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.18) 0%, rgba(69, 10, 10, 0.25) 100%);
+}
+
+.eval-service-stale,
+.eval-resource-stale {
+  border-left-color: #94a3b8;
+  opacity: 0.85;
+}
+
+.eval-service-label,
+.eval-resource-label {
+  font-size: 9.5px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.eval-service-status,
+.eval-resource-value {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.eval-service-metric {
+  margin-top: 1px;
+  font-size: 10px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .eval-service-row,
+  .eval-resource-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .eval-system-strip,
+  .eval-validity-strip {
+    flex-direction: column;
+  }
+  .eval-system-warnings,
+  .eval-validity-detail {
+    text-align: left;
+  }
+}

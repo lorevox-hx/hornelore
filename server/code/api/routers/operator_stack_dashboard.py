@@ -141,6 +141,28 @@ def summary(person_id: Optional[str] = Query(default=None, max_length=64)):
     _require_enabled()
     try:
         return stack_monitor.build_summary(person_id=person_id)
+    except Exception as e:  # type: ignore[unreachable]
+        # Diagnostic infrastructure must never 500 — return a degraded
+        # payload that the UI can still render.
+        logger.exception("[stack-dashboard] summary failed")
+        return {
+            "generated_at": stack_monitor._utc_now(),
+            "status": "fail",
+            "_error": f"summary build failed: {e}",
+            "warnings": [{"category": "dashboard", "message": str(e)}],
+        }
+
+
+@router.get("/system-status")
+def system_status(person_id: Optional[str] = Query(default=None, max_length=64)):
+    """WO-OPERATOR-DASHBOARD-MERGE-01 — compatibility alias for the unified
+    operator cockpit. The Bug Panel eval-harness merge fetches this so the
+    cockpit can surface system health alongside eval status. Returns the
+    same payload as /summary; kept as a separate route so the cockpit can
+    swap endpoints later without churn."""
+    _require_enabled()
+    try:
+        return stack_monitor.build_summary(person_id=person_id)
     except Exception as e:
         # Diagnostic infrastructure must never 500 — return a degraded
         # payload that the UI can still render.
