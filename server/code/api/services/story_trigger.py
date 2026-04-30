@@ -137,6 +137,12 @@ _RELATIVE_TIME_PATTERNS = (
     re.compile(r"\b(?:as|when) a (?:child|kid|girl|boy|teenager)\b", re.IGNORECASE),
     re.compile(r"\bone (?:summer|winter|spring|fall|day|night|morning|evening)\b", re.IGNORECASE),
     re.compile(r"\b(?:in|during) (?:the |my )?(?:summer|winter|spring|fall|war|childhood)\b", re.IGNORECASE),
+    # 2026-04-30 polish: live narrator turn "He walked because gas was so
+    # expensive because of the war" should anchor in time. The existing
+    # "during/in the war" pattern misses "because of the war" / "due to
+    # the war" / "since the war" — common phrasings for elder narrators
+    # locating a memory by historical era.
+    re.compile(r"\b(?:because|due to|since) (?:of )?(?:the |that |my )?(?:war|depression|drought|flu|epidemic)\b", re.IGNORECASE),
 )
 
 # Person-relation phrasing — narrators referencing the people who
@@ -153,11 +159,33 @@ _PERSON_RELATION_PATTERNS = (
     re.compile(r"\bmy (?:son|daughter|kids?|children)\b", re.IGNORECASE),
 )
 
+# 2026-04-30 polish: bare-capital relation usage. English convention is
+# that family-relation nouns capitalize when used AS A PROPER NOUN
+# referring to a specific person (the speaker's actual mother/father):
+# "Dad walked nights at the plant" vs "every dad walked nights." The
+# capitalized form is conventional narrator shorthand for "my dad" and
+# narrators frequently use it without the possessive. Case-sensitive
+# regex (no IGNORECASE) so we only fire on the proper-noun form, which
+# protects against false positives like "MOM" in caps-lock or "pop" in
+# the verb sense. Word boundary at start prevents matching "Madame".
+_BARE_CAPITAL_RELATION_RE = re.compile(
+    r"\b(?:Dad|Mom|Mama|Mother|Father|Papa|Pop|Mommy|Daddy|"
+    r"Grandma|Grandpa|Granny|Nana|Gramps|Granddad)\b"
+)
+
 # Proper-noun place pattern: capitalized word(s) that look like a place
 # name. Conservative — must be either after a place preposition (in/at/from)
 # OR a multi-word capitalized run ("Grand Forks", "North Dakota").
+#
+# 2026-04-30 polish: use inline (?i:...) flag so the PREP is matched
+# case-insensitively while the noun still REQUIRES a capital. This is
+# what makes the lowercase-input fallback in _matches_place work —
+# "in spokane" → text.title() → "In Spokane" still matches because
+# "In" matches the case-insensitive prep, "Spokane" matches the
+# capital noun. Without the inline flag, title-casing "in" → "In"
+# breaks the existing regex.
 _PROPER_NOUN_PLACE_AFTER_PREP = re.compile(
-    r"\b(?:in|at|from|to|near|outside) ([A-Z][a-zA-Z]+(?:[ \-][A-Z][a-zA-Z]+)*)",
+    r"\b(?i:in|at|from|to|near|outside)\s+([A-Z][a-zA-Z]+(?:[ \-][A-Z][a-zA-Z]+)*)",
 )
 _PROPER_NOUN_MULTI_WORD = re.compile(
     r"\b([A-Z][a-zA-Z]+)\s+([A-Z][a-zA-Z]+)\b",
@@ -172,6 +200,12 @@ def _matches_place(text: str) -> bool:
       2. Tier 2 common-noun place word PRECEDED by a place preposition
       3. Proper noun after a place preposition ("in Spokane")
       4. Multi-word capitalized run ("Grand Forks", "North Dakota")
+
+    2026-04-30 polish: STT output and quick narrator typing often produce
+    all-lowercase text ("in spokane" instead of "in Spokane"). When the
+    incoming text contains NO uppercase at all, we retry the proper-noun
+    matchers against title-cased text. The "no uppercase anywhere"
+    condition keeps mixed-case narrator typing from being modified.
     """
     if _PLACE_NOUN_BARE_RE.search(text):
         return True
@@ -181,6 +215,16 @@ def _matches_place(text: str) -> bool:
         return True
     if _PROPER_NOUN_MULTI_WORD.search(text):
         return True
+
+    # All-lowercase fallback for STT-style input.
+    if text and text == text.lower():
+        title = text.title()
+        if _PROPER_NOUN_PLACE_AFTER_PREP.search(title):
+            return True
+        # Note: skip _PROPER_NOUN_MULTI_WORD on title-case fallback —
+        # title-casing every word would make "every dad worked" read
+        # as a multi-word proper noun. The prep-anchored variant is
+        # specific enough.
     return False
 
 
@@ -190,8 +234,21 @@ def _matches_relative_time(text: str) -> bool:
 
 
 def _matches_person_relation(text: str) -> bool:
-    """Does this text reference a family/role person?"""
-    return any(pat.search(text) for pat in _PERSON_RELATION_PATTERNS)
+    """Does this text reference a family/role person?
+
+    Two pattern families:
+      1. "my X" patterns (case-insensitive) — narrator explicitly names
+         the relation with a possessive.
+      2. Bare-capital relation noun (case-sensitive) — narrator uses
+         the relation as a proper noun referring to their own parent
+         ("Dad walked nights", "Mom sang in the choir"). 2026-04-30
+         polish addition.
+    """
+    if any(pat.search(text) for pat in _PERSON_RELATION_PATTERNS):
+        return True
+    if _BARE_CAPITAL_RELATION_RE.search(text):
+        return True
+    return False
 
 
 def count_scene_anchors(text: str) -> int:

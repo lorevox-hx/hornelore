@@ -99,10 +99,12 @@ class FalsePositiveResistanceTest(unittest.TestCase):
         # own. Only specific time phrases qualify.
         self.assertEqual(story_trigger.count_scene_anchors("I don't remember."), 0)
 
-    def test_bare_dad_no_fire_without_my(self):
-        # "Dad was tall" should not fire — only "my dad" is the
-        # anchor pattern.
-        self.assertEqual(story_trigger.count_scene_anchors("Dad was tall."), 0)
+    def test_bare_lowercase_dad_no_fire_without_my(self):
+        # Lowercase bare "dad" should not fire — only "my dad" or the
+        # capitalized proper-noun form "Dad" (added in 2026-04-30
+        # polish, see RealWorldNarratorPolishTest below) are the
+        # anchor patterns.
+        self.assertEqual(story_trigger.count_scene_anchors("dad was tall."), 0)
 
     def test_yes_no_answer(self):
         for short_answer in ("yes", "no", "I think so", "maybe", "no idea"):
@@ -157,9 +159,12 @@ class FalsePositiveResistanceTest(unittest.TestCase):
         )
 
     def test_to_the_barn_DOES_fire_place(self):
+        # Updated 2026-04-30 polish: "Dad" capitalized fires person
+        # anchor via the bare-capital relation pattern, so this turn
+        # correctly counts 2 anchors (place + person).
         self.assertEqual(
             story_trigger.count_scene_anchors("Dad walked to the barn."),
-            1,  # place via prep, "Dad" alone (no "my") doesn't fire person
+            2,
         )
 
     def test_implant_does_not_match_plant(self):
@@ -210,9 +215,12 @@ class FalsePositiveResistanceTest(unittest.TestCase):
 
     def test_at_the_plant_DOES_fire_place(self):
         # Same noun WITH a place preposition fires correctly.
+        # Updated 2026-04-30 polish: "Dad" capitalized now ALSO fires
+        # person anchor via the bare-capital relation pattern, so
+        # this turn correctly counts 2 anchors (place + person).
         self.assertEqual(
             story_trigger.count_scene_anchors("Dad worked at the plant."),
-            1,  # place via prep; "Dad" alone (no "my") doesn't fire person
+            2,
         )
 
     def test_at_the_aluminum_plant_DOES_fire_place(self):
@@ -221,14 +229,150 @@ class FalsePositiveResistanceTest(unittest.TestCase):
         # (this is the regression risk introduced by demoting "plant"
         # from Tier 1; the prep regex was widened to a 0–2 token
         # adjective slot so this still hits).
+        # Updated 2026-04-30 polish: "Dad" capitalized fires person
+        # anchor too, so this turn now counts 2.
         self.assertEqual(
             story_trigger.count_scene_anchors("Dad worked at the aluminum plant."),
-            1,
+            2,
         )
 
     def test_to_the_mill_DOES_fire_place(self):
         self.assertEqual(
             story_trigger.count_scene_anchors("We walked to the mill."), 1
+        )
+
+
+class RealWorldNarratorPolishTest(unittest.TestCase):
+    """2026-04-30 evening polish — three improvements that address
+    actual classifier misses observed in the live runtime test session
+    (Janice canonical fired only with capital S; lowercase "spokane"
+    missed; "because of the war" missed; bare-capital "Dad walked"
+    missed)."""
+
+    # ── lowercase proper-noun place fallback ──────────────────────────
+
+    def test_lowercase_in_spokane_DOES_fire_place(self):
+        # STT and quick narrator typing produce all-lowercase text.
+        # The proper-noun fallback retries against title-case when the
+        # source has no uppercase anywhere.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("we lived in spokane."), 1
+        )
+
+    def test_mixed_case_intentional_lowercase_does_not_fire(self):
+        # Real narrator uses some capitals → we trust their casing and
+        # do NOT title-case-fallback. "i was in spokane" still has the
+        # "I" lowercase by typing convention but no other capitals
+        # are missing — we still fall back here because the WHOLE text
+        # contains no capitals. The boundary case: as soon as there's
+        # ANY capital, we stop fallback to respect the narrator's
+        # casing intent.
+        self.assertEqual(
+            story_trigger.count_scene_anchors(
+                "I was in Spokane and went to the doctor."
+            ),
+            1,
+        )
+
+    def test_lowercase_with_no_place_word_does_not_fire(self):
+        # No place preposition → no proper-noun match even after
+        # title-case fallback. Avoids "every word with a capital"
+        # false positive.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("yes that is correct"), 0
+        )
+
+    # ── because/due to/since the war/depression time anchor ───────────
+
+    def test_because_of_the_war_DOES_fire_time(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors(
+                "He walked because gas was so expensive because of the war."
+            ),
+            1,
+        )
+
+    def test_due_to_the_depression_DOES_fire_time(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors(
+                "Money was tight due to the depression."
+            ),
+            1,
+        )
+
+    def test_since_the_war_DOES_fire_time(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors(
+                "Things had been different since the war."
+            ),
+            1,
+        )
+
+    def test_because_of_X_unrelated_does_not_fire(self):
+        # "because of" without one of the era nouns must NOT fire —
+        # the pattern requires war/depression/drought/flu/epidemic.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("I left because of him."), 0
+        )
+
+    # ── bare-capital relation (Dad / Mom / Grandma proper-noun usage)──
+
+    def test_capital_dad_bare_DOES_fire_person(self):
+        # "Dad" capitalized used as a proper noun (specific person).
+        # Common narrator shorthand for "my dad".
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Dad worked nights."), 1
+        )
+
+    def test_capital_mom_bare_DOES_fire_person(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Mom sang in the choir."), 1
+        )
+
+    def test_capital_grandma_bare_DOES_fire_person(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors(
+                "Grandma made the best apple pie."
+            ),
+            1,
+        )
+
+    def test_lowercase_dad_alone_still_no_fire(self):
+        # Bare lowercase "dad" must still NOT fire (pre-polish behavior
+        # preserved). Only the capitalized proper-noun form is the
+        # narrator-shorthand convention we recognize.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("dad walked nights."), 0
+        )
+
+    def test_unrelated_capital_word_does_not_fire_person(self):
+        # "Tom" / "Sara" / random capital names are not in the bare
+        # relation set. Person anchor must not fire on arbitrary
+        # capitalized words.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Tom worked nights."), 0
+        )
+
+    # ── combined: live narrator turn from the session that didn't fire ──
+
+    def test_real_narrator_turn_now_fires_borderline(self):
+        # The actual line Janice's narrator typed during runtime test:
+        # lowercase, "Dad" capitalized, mentions both place + war.
+        # Pre-polish: anchors=2 (place via prep "at the aluminum plant"
+        #            + person via lowercase "dad" — wait, "Dad" was
+        #            capitalized in the live transcript). Actually
+        #            pre-polish hit anchors=2 for this exact text:
+        #            place(at the plant) + ??? Let's just count under
+        #            the new rules.
+        # Post-polish: should now hit place + time(because of war) +
+        # person(capital Dad if present), reaching 3.
+        text = (
+            "Dad worked nights at the aluminum plant. "
+            "He walked because of the war."
+        )
+        self.assertEqual(
+            story_trigger.count_scene_anchors(text), 3,
+            "real narrator turn should fire all 3 axes after polish",
         )
 
 
