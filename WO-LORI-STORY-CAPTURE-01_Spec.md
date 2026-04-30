@@ -483,8 +483,8 @@ Migration: `server/code/api/db_migrations/0042_story_candidates.sql`.
 
 **Pre-parent-session blocker (build phase).**
 
-- Commit 1: schema migration + `db.py` story_candidates declarations.
-- Commit 2: `services/story_preservation.py` + `services/age_arithmetic.py` + tests.
+- Commit 1: schema migration + `db.py` story_candidates declarations. Stubs raise `RuntimeError("story candidate service not implemented until Phase 1A Commit 2")` (per ChatGPT review — `RuntimeError` over `NotImplementedError` makes accidental calls during startup or tests loud, not silent).
+- Commit 2: `services/story_preservation.py` + `services/age_arithmetic.py` + tests. (Fills in the function bodies the Commit 1 stubs raised `RuntimeError("not implemented until Phase 1A Commit 2")` for.)
 - Commit 3: `chat_ws.py` integration — preservation called BEFORE extraction in the turn handler. Extraction call wrapped so its failure does not propagate. New env gates added to `.env.example`. Trigger-detection helper inline (`classify_story_candidate` with both `full_threshold` and `borderline_scene_anchor` paths).
 
 **Acceptance:**
