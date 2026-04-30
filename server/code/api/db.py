@@ -4622,3 +4622,131 @@ def graph_replace_full(narrator_id: str, persons: List[Dict[str, Any]], relation
         raise
     finally:
         con.close()
+
+
+# ── WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 1 ────────────────────────────
+# story_candidates accessors. Stubs only in this commit; bodies land in
+# Phase 1A Commit 2 alongside the services/story_preservation.py
+# implementation. Per ChatGPT review pass 2: stubs raise RuntimeError
+# (NOT NotImplementedError) so accidental calls during startup or tests
+# are loud and immediately attributable, not silent fallthroughs.
+#
+# Schema lives in server/code/db/migrations/0004_story_candidates.sql.
+# The migration runner (run_pending_migrations) applies it at init_db()
+# time after the legacy CREATE TABLE block, so the table is present on
+# any fresh DB without code changes here. These accessor stubs are the
+# Python surface that the router and the preservation service will use.
+
+def story_candidate_insert(
+    candidate_id: str,
+    narrator_id: str,
+    transcript: str,
+    *,
+    audio_clip_path: Optional[str] = None,
+    audio_duration_sec: Optional[float] = None,
+    word_count: Optional[int] = None,
+    trigger_reason: str,
+    scene_anchor_count: int = 0,
+    session_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+    era_candidates: Optional[List[str]] = None,
+    age_bucket: Optional[str] = None,
+    estimated_year_low: Optional[int] = None,
+    estimated_year_high: Optional[int] = None,
+    confidence: str = "low",
+    scene_anchors: Optional[List[str]] = None,
+) -> str:
+    """Insert a story_candidate row (Path 1 / preservation). Returns the
+    candidate id on success.
+
+    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
+    """
+    raise RuntimeError(
+        "story_candidate_insert not implemented until "
+        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
+    )
+
+
+def story_candidate_get(candidate_id: str) -> Optional[Dict[str, Any]]:
+    """Single-row fetch by id. Returns None if not found.
+
+    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
+    """
+    raise RuntimeError(
+        "story_candidate_get not implemented until "
+        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
+    )
+
+
+def story_candidate_list_unreviewed(
+    narrator_id: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """List candidates with review_status='unreviewed', newest first.
+    Optional narrator_id filter.
+
+    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
+    """
+    raise RuntimeError(
+        "story_candidate_list_unreviewed not implemented until "
+        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
+    )
+
+
+def story_candidate_update_placement(
+    candidate_id: str,
+    *,
+    age_bucket: Optional[str] = None,
+    era_candidates: Optional[List[str]] = None,
+    estimated_year_low: Optional[int] = None,
+    estimated_year_high: Optional[int] = None,
+    confidence: Optional[str] = None,
+    scene_anchors: Optional[List[str]] = None,
+) -> None:
+    """Update placement metadata after Lori asks the bucket question
+    and the narrator answers. Does NOT touch extracted_fields or
+    review_* columns — those are owned by their respective lanes.
+
+    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
+    """
+    raise RuntimeError(
+        "story_candidate_update_placement not implemented until "
+        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
+    )
+
+
+def story_candidate_update_extraction(
+    candidate_id: str,
+    *,
+    extraction_status: str,
+    extracted_fields: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Path 2 (extraction) writes back here AFTER its async work. This
+    accessor is what the extractor calls to record what it found, so
+    preservation never depends on extraction's success.
+
+    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
+    """
+    raise RuntimeError(
+        "story_candidate_update_extraction not implemented until "
+        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
+    )
+
+
+def story_candidate_update_review(
+    candidate_id: str,
+    *,
+    review_status: str,
+    review_notes: Optional[str] = None,
+    reviewed_by: Optional[str] = None,
+) -> None:
+    """Operator review actions: promote / refine / discard / memoir_only.
+    Sets reviewed_at = CURRENT_TIMESTAMP server-side.
+
+    Stub — body lands in WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2.
+    """
+    raise RuntimeError(
+        "story_candidate_update_review not implemented until "
+        "WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 2"
+    )
