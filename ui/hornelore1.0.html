@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="css/safety.css">
   <link rel="stylesheet" href="css/safety-banner.css">
   <link rel="stylesheet" href="css/bug-panel-eval.css">
+  <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/affect.css">
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -4078,6 +4079,22 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-OPERATOR-RESOURCE-DASHBOARD-01 — Stack Dashboard.
+         Live car-dashboard-style gauges for services, system, GPU,
+         capture state, archive writes, and eval progress. Polls
+         /api/operator/stack-dashboard/summary every 5s while panel is
+         visible (30s when hidden). Backend gate:
+         HORNELORE_OPERATOR_STACK_DASHBOARD=1; off → quiet "feature
+         disabled" placeholder. NEVER narrator-visible. Operator only.
+         See ui/js/bug-panel-dashboard.js + ui/css/bug-panel-dashboard.css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <section id="lvStackDashboardSection">
+      <div id="lvStackDashboardRoot">
+        <div class="dash-empty">Loading stack dashboard…</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-LORI-SAFETY-INTEGRATION-01 Phase 3b — Safety event banner.
          Polls /api/operator/safety-events on a 30s timer + on Bug
          Panel open. Renders unacknowledged events as amber cards
@@ -4635,6 +4652,8 @@
 <script src="js/safety-ui.js"></script>
 <script src="js/safety-banner.js"></script>
 <script src="js/bug-panel-eval.js"></script>
+<script src="js/bug-panel-dashboard.js"></script>
+<script src="js/bug-panel-dashboard-heartbeat.js"></script>
 <script src="js/permissions.js"></script>
 <script src="js/emotion.js"></script>
 <script src="js/facial-consent.js"></script>
