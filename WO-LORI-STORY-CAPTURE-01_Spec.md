@@ -777,7 +777,13 @@ Three-agent convergence: Chris / Claude / ChatGPT all aligned on principles 1–
 ## 14. Sign-off block
 
 ```
-Chris signoff:                [ ]   date: ____________
+Chris signoff:                [✓]   date: 2026-04-30
+                                     Approved with explicit scope gate:
+                                       - Phase 1A Commit 1 only.
+                                       - Do NOT start Phase 2 behavior work.
+                                       - Do NOT touch prompt_composer.
+                                       - golfball.docx stays outside the repo
+                                         (literary source material, not engineering).
 ChatGPT review (pass 1):      [✓]   approve with two amendments (folded in 2026-04-30):
                                      1. Phase 1B added — minimal review surface lands
                                         before parent-ready signoff (LAW 4).
