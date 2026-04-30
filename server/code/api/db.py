@@ -4745,6 +4745,38 @@ def story_candidate_get(candidate_id: str) -> Optional[Dict[str, Any]]:
         con.close()
 
 
+def story_candidate_get_by_turn(
+    narrator_id: str,
+    turn_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Look up a story candidate by (narrator_id, turn_id).
+
+    WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b — chat_ws may re-fire
+    preservation on reconnect/retry; this is the application-level
+    idempotency lookup. Returns None if either argument is missing or
+    no row matches. If multiple rows somehow exist for the same
+    (narrator, turn) pair (shouldn't happen, but the schema has no
+    UNIQUE constraint yet), returns the newest.
+    """
+    if not narrator_id or not turn_id:
+        return None
+    con = _connect()
+    try:
+        cur = con.execute(
+            """
+            SELECT * FROM story_candidates
+            WHERE narrator_id = ? AND turn_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1;
+            """,
+            (narrator_id, turn_id),
+        )
+        row = cur.fetchone()
+        return _row_to_story_candidate(row) if row is not None else None
+    finally:
+        con.close()
+
+
 def story_candidate_list_unreviewed(
     narrator_id: Optional[str] = None,
     limit: int = 50,

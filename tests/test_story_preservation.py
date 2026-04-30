@@ -190,6 +190,137 @@ class PreserveTurnTest(_TempDbCase):
             )
 
 
+class TurnIdIdempotencyTest(_TempDbCase):
+    """WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b — chat_ws may
+    re-fire preservation on reconnect/retry. preserve_turn must
+    de-dupe on (narrator_id, turn_id) so retries don't write
+    duplicate story_candidate rows."""
+
+    def test_same_turn_id_returns_existing_candidate(self):
+        from api.services import story_preservation
+
+        cid_first = story_preservation.preserve_turn(
+            narrator_id="janice-josephine-horne",
+            transcript="First arrival at the hospital.",
+            trigger_reason="full_threshold",
+            turn_id="turn-abc-123",
+        )
+        cid_second = story_preservation.preserve_turn(
+            narrator_id="janice-josephine-horne",
+            transcript="(retry — different transcript shouldn't matter)",
+            trigger_reason="borderline_scene_anchor",
+            turn_id="turn-abc-123",
+        )
+        self.assertEqual(cid_first, cid_second,
+                         "retry with same (narrator, turn_id) must return existing id")
+
+        # And the row count is exactly 1, not 2.
+        unreviewed = story_preservation.get_unreviewed(
+            narrator_id="janice-josephine-horne"
+        )
+        self.assertEqual(len(unreviewed), 1)
+
+    def test_different_turn_id_writes_new_candidate(self):
+        from api.services import story_preservation
+
+        cid_first = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="One scene.",
+            trigger_reason="full_threshold",
+            turn_id="turn-aaa",
+        )
+        cid_second = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="Another scene.",
+            trigger_reason="full_threshold",
+            turn_id="turn-bbb",
+        )
+        self.assertNotEqual(cid_first, cid_second)
+
+        rows = story_preservation.get_unreviewed(narrator_id="kent")
+        self.assertEqual(len(rows), 2)
+
+    def test_no_turn_id_does_not_dedupe(self):
+        # When the caller has no turn_id (e.g. legacy path or no UI
+        # turn marker), the dedupe is opted-out and each call writes
+        # a new row. This is by design — without a turn_id we have
+        # no key to dedupe on.
+        from api.services import story_preservation
+
+        cid_first = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="Same content twice.",
+            trigger_reason="full_threshold",
+        )
+        cid_second = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="Same content twice.",
+            trigger_reason="full_threshold",
+        )
+        self.assertNotEqual(cid_first, cid_second)
+
+    def test_same_turn_id_different_narrator_writes_new(self):
+        # turn_id alone isn't unique — only (narrator_id, turn_id) is.
+        # Two narrators producing identical turn_id strings must not
+        # collide.
+        from api.services import story_preservation
+
+        cid_kent = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="Kent's turn.",
+            trigger_reason="full_threshold",
+            turn_id="turn-shared-id",
+        )
+        cid_janice = story_preservation.preserve_turn(
+            narrator_id="janice-josephine-horne",
+            transcript="Janice's turn (same turn_id by coincidence).",
+            trigger_reason="full_threshold",
+            turn_id="turn-shared-id",
+        )
+        self.assertNotEqual(cid_kent, cid_janice)
+
+
+class GetByTurnTest(_TempDbCase):
+    """db.story_candidate_get_by_turn — accessor that powers the
+    dedupe in preserve_turn. Direct unit coverage so failure modes
+    surface here rather than via the higher-level idempotency tests."""
+
+    def test_missing_returns_none(self):
+        result = self._db.story_candidate_get_by_turn(
+            narrator_id="kent", turn_id="never-seen"
+        )
+        self.assertIsNone(result)
+
+    def test_empty_args_return_none(self):
+        self.assertIsNone(self._db.story_candidate_get_by_turn(
+            narrator_id="", turn_id="x"
+        ))
+        self.assertIsNone(self._db.story_candidate_get_by_turn(
+            narrator_id="kent", turn_id=""
+        ))
+        self.assertIsNone(self._db.story_candidate_get_by_turn(
+            narrator_id=None, turn_id=None  # type: ignore[arg-type]
+        ))
+
+    def test_finds_by_pair(self):
+        from api.services import story_preservation
+
+        cid = story_preservation.preserve_turn(
+            narrator_id="kent",
+            transcript="One scene.",
+            trigger_reason="full_threshold",
+            turn_id="turn-xyz",
+        )
+        found = self._db.story_candidate_get_by_turn(
+            narrator_id="kent", turn_id="turn-xyz"
+        )
+        self.assertIsNotNone(found)
+        assert found is not None  # narrow for the type checker
+        self.assertEqual(found["id"], cid)
+        self.assertEqual(found["narrator_id"], "kent")
+        self.assertEqual(found["turn_id"], "turn-xyz")
+
+
 class UpdatePlacementTest(_TempDbCase):
     def _seed(self) -> str:
         from api.services import story_preservation

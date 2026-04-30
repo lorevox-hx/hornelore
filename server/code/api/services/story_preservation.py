@@ -105,6 +105,24 @@ def preserve_turn(
     if not transcript or not transcript.strip():
         raise ValueError("transcript must be a non-empty string")
 
+    # WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b — idempotency.
+    # chat_ws may re-fire preservation on reconnect/retry; if the
+    # narrator already has a candidate for this turn_id, return the
+    # existing id instead of writing a duplicate. Application-level
+    # check (no UNIQUE constraint on the schema yet) — the chat path
+    # is single-event-loop per session so a race here is extremely
+    # unlikely. If it ever becomes a real concern, promote to a
+    # UNIQUE INDEX in a follow-up migration.
+    if turn_id:
+        existing = _db.story_candidate_get_by_turn(narrator_id, turn_id)
+        if existing is not None:
+            existing_id = existing.get("id")
+            logger.info(
+                "[preserve] dedupe-skip narrator=%s turn_id=%s existing=%s",
+                narrator_id, turn_id, existing_id,
+            )
+            return existing_id  # type: ignore[return-value]
+
     candidate_id = str(uuid.uuid4())
 
     # Compute word_count if not provided. Cheap, robust to STT noise

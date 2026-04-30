@@ -196,6 +196,114 @@ async def ws_chat(ws: WebSocket):
         # Extract person_id from params (sent by UI)
         person_id: Optional[str] = params.get("person_id") or None
 
+        # ── WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b: story preservation hook ──
+        # Path 1 entry point. Decoupled from the rest of the chat path:
+        # a preservation failure logs CRITICAL but does NOT stop the
+        # session. Imports are lazy and gated so LAW 3 INFRASTRUCTURE
+        # isolation holds when the flag is off — the preservation
+        # modules are not loaded into the process at all.
+        #
+        # See WO-LORI-STORY-CAPTURE-01_Spec.md §0.5 (golfball
+        # architecture): this is the WINDINGS layer wired at the entry
+        # point. Extraction (Path 2) runs separately on a different
+        # route and cannot block this work.
+        #
+        # Behavior contract:
+        #   flag off          → no-op, byte-stable with pre-3b chat path
+        #   empty transcript  → no-op even with flag on (skip silently)
+        #   flag on + text    → trigger_diagnostic() runs every turn,
+        #                       [story-trigger] log marker emitted,
+        #                       preserve_turn() called only if
+        #                       trigger != None AND person_id present
+        #   preserve raises   → [story-trigger][CRITICAL] log,
+        #                       session continues, no rethrow
+        if (
+            os.getenv("HORNELORE_STORY_CAPTURE", "0") in ("1", "true", "True")
+            and user_text
+            and user_text.strip()
+        ):
+            try:
+                from ..services import story_trigger as _story_trigger
+                from ..services import story_preservation as _story_preservation
+            except Exception as _imp_exc:
+                logger.warning(
+                    "[story-trigger] import failed — skipping preservation "
+                    "for this turn (conv=%s): %s",
+                    conv_id, _imp_exc,
+                )
+            else:
+                _trigger_diag = None
+                try:
+                    _trigger_diag = _story_trigger.trigger_diagnostic(
+                        audio_duration_sec=None,
+                        transcript=user_text,
+                    )
+                except Exception as _diag_exc:
+                    logger.warning(
+                        "[story-trigger] diagnostic failed (conv=%s): %s",
+                        conv_id, _diag_exc,
+                    )
+
+                if _trigger_diag is not None:
+                    logger.info(
+                        "[story-trigger] conv=%s narrator=%s trigger=%s "
+                        "words=%s anchors=%s place=%s time=%s person=%s",
+                        conv_id,
+                        person_id or "<unknown>",
+                        _trigger_diag.get("trigger"),
+                        _trigger_diag.get("word_count"),
+                        _trigger_diag.get("anchor_count"),
+                        _trigger_diag.get("place_anchor"),
+                        _trigger_diag.get("time_anchor"),
+                        _trigger_diag.get("person_anchor"),
+                    )
+                    _trigger_reason = _trigger_diag.get("trigger")
+                    if _trigger_reason and person_id:
+                        # turn_id threads through for application-level
+                        # idempotency in preserve_turn (chat_ws may
+                        # re-fire on reconnect/retry).
+                        _turn_id = params.get("turn_id") or None
+                        try:
+                            _candidate_id = _story_preservation.preserve_turn(
+                                narrator_id=person_id,
+                                transcript=user_text,
+                                trigger_reason=_trigger_reason,
+                                scene_anchor_count=int(
+                                    _trigger_diag.get("anchor_count") or 0
+                                ),
+                                conversation_id=conv_id,
+                                turn_id=_turn_id,
+                            )
+                            logger.info(
+                                "[story-trigger] preserved candidate_id=%s "
+                                "conv=%s narrator=%s trigger=%s turn_id=%s",
+                                _candidate_id, conv_id, person_id,
+                                _trigger_reason, _turn_id,
+                            )
+                        except Exception as _preserve_exc:
+                            # LAW 3: preservation failure is loud but
+                            # NOT fatal. Chat turn continues so the
+                            # narrator session is not interrupted.
+                            logger.critical(
+                                "[story-trigger][CRITICAL] preserve_turn "
+                                "FAILED conv=%s narrator=%s trigger=%s — "
+                                "session continues but story was NOT "
+                                "saved: %s",
+                                conv_id, person_id, _trigger_reason,
+                                _preserve_exc,
+                                exc_info=True,
+                            )
+                    elif _trigger_reason and not person_id:
+                        # Trigger fired but no narrator association —
+                        # can't persist (FK + LAW 3 require narrator_id).
+                        # Log so operator can see this happened.
+                        logger.warning(
+                            "[story-trigger] trigger=%s fired but "
+                            "person_id is missing — skipping preservation "
+                            "(conv=%s)",
+                            _trigger_reason, conv_id,
+                        )
+
         # Memory Archive — ensure session exists and log user message
         if person_id:
             archive_ensure_session(
