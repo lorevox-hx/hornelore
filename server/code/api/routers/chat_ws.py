@@ -40,6 +40,7 @@ from ..db import (
     save_segment_flag,
     increment_session_turn,
     set_session_softened,
+    ensure_interview_session,  # BUG-DBLOCK-01 PATCH 3
 )
 import torch
 from ..api import _load_model, _apply_chat_template, StopOnEvent, _normalize_role, MAX_CONTEXT_WINDOW
@@ -381,6 +382,22 @@ async def ws_chat(ws: WebSocket):
                 )
 
                 # Persist segment flag (chat path: question_id=None, section_id=None).
+                # BUG-DBLOCK-01 PATCH 3 (2026-04-30): segment_flags FK's into
+                # interview_sessions(id). chat_ws creates conv_ids that are never
+                # registered there — only routers/interview.py:start_session
+                # inserts. Pre-patch, every safety segment_flag insert on the chat
+                # path failed with FOREIGN KEY constraint failed, leaking the
+                # write lock and cascading into 5s/10s/15s busy_timeout failures
+                # across set_session_softened, save_safety_event, and init_db.
+                # ensure_interview_session is idempotent (INSERT OR IGNORE), safe
+                # to call every safety-trigger turn.
+                try:
+                    ensure_interview_session(conv_id, person_id)
+                except Exception as _ensure_exc:
+                    logger.warning(
+                        "[chat_ws][safety] ensure_interview_session failed conv=%s: %s",
+                        conv_id, _ensure_exc,
+                    )
                 try:
                     _flags = build_segment_flags(_safety_result)
                     save_segment_flag(

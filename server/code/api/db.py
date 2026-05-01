@@ -1717,16 +1717,66 @@ def start_session(person_id: str, plan_id: str = "default") -> Dict[str, Any]:
     sid = _uuid()
     now = _now_iso()
     con = _connect()
-    con.execute(
-        """
-        INSERT INTO interview_sessions(id,person_id,plan_id,started_at,updated_at,active_question_id)
-        VALUES(?,?,?,?,?,NULL);
-        """,
-        (sid, person_id, plan_id or "default", now, now),
-    )
-    con.commit()
-    con.close()
-    return {"id": sid, "person_id": person_id, "plan_id": plan_id or "default", "started_at": now, "updated_at": now}
+    try:
+        con.execute(
+            """
+            INSERT INTO interview_sessions(id,person_id,plan_id,started_at,updated_at,active_question_id)
+            VALUES(?,?,?,?,?,NULL);
+            """,
+            (sid, person_id, plan_id or "default", now, now),
+        )
+        con.commit()
+        return {"id": sid, "person_id": person_id, "plan_id": plan_id or "default", "started_at": now, "updated_at": now}
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def ensure_interview_session(
+    session_id: str,
+    person_id: Optional[str],
+    plan_id: str = "chat_ws",
+) -> None:
+    """Idempotent — create an interview_sessions row if one doesn't exist
+    for the given session_id. Used by chat_ws.py to satisfy the
+    segment_flags(session_id) FOREIGN KEY before any safety write.
+
+    BUG-DBLOCK-01 PATCH 2 (2026-04-30): segment_flags FK's into
+    interview_sessions(id), but chat_ws creates conv_ids that are never
+    registered there (only routers/interview.py:start_session inserts).
+    Without this idempotent ensure, every safety segment_flag insert on
+    the chat path failed with FOREIGN KEY constraint failed, which
+    pre-PATCH 1 leaked the write lock and cascaded the entire safety
+    path into 15s of busy_timeout failures.
+
+    Safe to call every turn: INSERT OR IGNORE deduplicates on the
+    primary key. plan_id defaults to 'chat_ws' to distinguish these
+    rows from real interview-router sessions in the DB.
+    """
+    init_db()
+    now = _now_iso()
+    con = _connect()
+    try:
+        con.execute(
+            "INSERT OR IGNORE INTO interview_sessions"
+            "(id, person_id, plan_id, started_at, updated_at, active_question_id) "
+            "VALUES (?, ?, ?, ?, ?, NULL);",
+            (session_id, person_id, plan_id, now, now),
+        )
+        con.commit()
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
 
 
 def get_interview_session(session_id: str) -> Optional[Dict[str, Any]]:
@@ -3198,28 +3248,47 @@ def save_segment_flag(
 ) -> str:
     """Create a segment flag record. Returns the flag id.
     Uses INSERT OR IGNORE so retrying the same answer never creates duplicates.
+
+    BUG-DBLOCK-01 PATCH 1A (2026-04-30): wrapped in try/except/finally so a
+    raised sqlite3.Error (e.g. FOREIGN KEY constraint failed when the
+    parent interview_sessions row is missing) cannot leak the connection
+    with an open transaction. Without this guard, a single FK failure
+    here held the write lock for the duration of process garbage
+    collection, cascading into 5s/10s/15s busy_timeout failures across
+    set_session_softened, save_safety_event, and init_db (called from
+    export_turns) — the exact safety-path lock chain logged on the
+    2026-04-30 golfball harness Turn 6 (+4 lock events, deterministic
+    across two consecutive runs).
     """
     con = _connect()
     now = _now_iso()
     flag_id = _uuid()
-    con.execute(
-        """
-        INSERT OR IGNORE INTO segment_flags
-          (id, session_id, question_id, section_id,
-           sensitive, sensitive_category, excluded_from_memoir, private, deleted, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?);
-        """,
-        (flag_id, session_id, question_id, section_id,
-         int(sensitive), sensitive_category, int(excluded_from_memoir), int(private), now),
-    )
-    # If a flag for this (session, question) pair already existed, fetch the existing id
-    existing = con.execute(
-        "SELECT id FROM segment_flags WHERE session_id=? AND question_id=?;",
-        (session_id, question_id),
-    ).fetchone()
-    con.commit()
-    con.close()
-    return (existing["id"] if existing else flag_id)
+    try:
+        con.execute(
+            """
+            INSERT OR IGNORE INTO segment_flags
+              (id, session_id, question_id, section_id,
+               sensitive, sensitive_category, excluded_from_memoir, private, deleted, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?);
+            """,
+            (flag_id, session_id, question_id, section_id,
+             int(sensitive), sensitive_category, int(excluded_from_memoir), int(private), now),
+        )
+        # If a flag for this (session, question) pair already existed, fetch the existing id
+        existing = con.execute(
+            "SELECT id FROM segment_flags WHERE session_id=? AND question_id=?;",
+            (session_id, question_id),
+        ).fetchone()
+        con.commit()
+        return (existing["id"] if existing else flag_id)
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
 
 
 def get_segment_flags(session_id: str) -> List[Dict]:
@@ -3499,35 +3568,60 @@ def safety_events_digest(
 # =============================================================================
 
 def set_session_softened(session_id: str, current_turn: int, softened_turns: int = 3) -> None:
-    """Mark session as softened for the next N turns."""
+    """Mark session as softened for the next N turns.
+
+    BUG-DBLOCK-01 PATCH 1B (2026-04-30): try/except/finally to prevent
+    connection leak on sqlite3.Error. Same fatal pattern as
+    save_segment_flag pre-patch.
+    """
     con = _connect()
-    con.execute(
-        """
-        UPDATE interview_sessions
-        SET interview_softened=1,
-            softened_until_turn=?
-        WHERE id=?;
-        """,
-        (current_turn + softened_turns, session_id),
-    )
-    con.commit()
-    con.close()
+    try:
+        con.execute(
+            """
+            UPDATE interview_sessions
+            SET interview_softened=1,
+                softened_until_turn=?
+            WHERE id=?;
+            """,
+            (current_turn + softened_turns, session_id),
+        )
+        con.commit()
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
 
 
 def increment_session_turn(session_id: str) -> int:
-    """Increment turn counter, returns new count."""
+    """Increment turn counter, returns new count.
+
+    BUG-DBLOCK-01 PATCH 1C (2026-04-30): try/except/finally to prevent
+    connection leak on sqlite3.Error.
+    """
     con = _connect()
-    con.execute(
-        "UPDATE interview_sessions SET turn_count=COALESCE(turn_count,0)+1 WHERE id=?;",
-        (session_id,),
-    )
-    con.commit()
-    row = con.execute(
-        "SELECT COALESCE(turn_count,0) as tc FROM interview_sessions WHERE id=?;",
-        (session_id,),
-    ).fetchone()
-    con.close()
-    return int(row["tc"]) if row else 0
+    try:
+        con.execute(
+            "UPDATE interview_sessions SET turn_count=COALESCE(turn_count,0)+1 WHERE id=?;",
+            (session_id,),
+        )
+        con.commit()
+        row = con.execute(
+            "SELECT COALESCE(turn_count,0) as tc FROM interview_sessions WHERE id=?;",
+            (session_id,),
+        ).fetchone()
+        return int(row["tc"]) if row else 0
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
 
 
 def get_session_softened_state(session_id: str) -> Dict:
