@@ -83,8 +83,11 @@ property that makes it composable with the rest of the session loop.
   scan and **before** `_ws_send` of the final assembled assistant_text
 - Harness expansion: 6 new failure labels in
   `scripts/archive/run_golfball_interview_eval.py`
-- 5 acceptance regex patterns plus a unit-test pack covering each
-  illegal structure category
+  (`and_pivot`, `or_speculation`, `request_plus_inquiry`,
+  `choice_framing`, `hidden_second_target`, `dual_retrieval_axis`)
+- 6 acceptance regex patterns plus a unit-test pack covering each
+  illegal structure category, plus 5 truncation-grammar tests
+  for §5.1's post-truncation gate
 
 **Out of scope (explicitly):**
 
@@ -134,6 +137,13 @@ Pattern signal: `?` preceded by content, OR the absence of `?` plus a
 trailing `, and (what|how|why|where|when|did|do|are|were|is|was)` or
 ` and (what|how|why|where|when|did|do|are|were|is|was) +.+\?`.
 
+**Refinement v1.1 (overfire guard).** The pattern fires only when **both
+the pre-pivot and post-pivot clauses contain a verb** — i.e. two
+distinct predicates separated by `, and` or `, or`. This rules out
+single-predicate questions with internal `and` linking modifiers (e.g.
+*"What's your relationship with reading and writing?"* — single
+predicate, single retrieval axis, must NOT trip).
+
 ### 4.2 `or_speculation` — alternatives offered to the narrator
 
 > ❌ *"Was it scary, **or** did it feel normal?"*
@@ -141,6 +151,16 @@ trailing `, and (what|how|why|where|when|did|do|are|were|is|was)` or
 > ✅ *"How did it feel at the time?"*
 
 Pattern signal: `, or (was|were|did|do|is|are|wasn't|weren't|didn't|don't|isn't|aren't) +.+\?`.
+
+**Refinement v1.1 (overfire guard).** Same two-predicate rule. The
+trailing-`or` clause must itself contain a verb. This rules out
+*"Did your parents tell you why they chose to move from Montreal to
+Spokane, or was it a bit of a mystery to you as a child?"* — both
+clauses share the same yes/no operator (`Did your parents tell you...`)
+and the `or` introduces a branch, not a second predicate. (Strictly: a
+yes/no question with an `or it was X` branch is ONE retrieval — the
+narrator can answer "no, it was a mystery" without picking a second
+target.)
 
 ### 4.3 `request_plus_inquiry` — imperative followed by question
 
@@ -172,6 +192,37 @@ match the existing place-anchor or person-anchor regex from
 `story_trigger.py` so we don't over-fire on legitimate single-target
 questions like *"What's your relationship with reading and writing?"*.
 
+### 4.6 `dual_retrieval_axis` — one question, two retrieval systems
+
+> ❌ *"What do you remember about Spokane **and how you felt**?"*
+>
+> ✅ *"What do you remember about Spokane?"*
+
+This is a higher-level semantic catch beyond 4.5. Even when both
+"targets" are technically about the same memory, asking the narrator
+to retrieve **place + emotion**, **event + evaluation**, or
+**person + emotion** in a single question splits cognitive load
+across distinct retrieval systems. Episodic-place memory and
+affective-evaluation memory are stored and surfaced differently;
+asking for both simultaneously degrades both.
+
+Pattern signal: question contains a place/event/person token AND
+one of the affect tokens (`feel`, `felt`, `felt like`, `feeling`,
+`emotion`, `mood`, `proud`, `scared`, `sad`, `happy`, `lonely`,
+`difficult`, `meaningful`) joined by `and` or `, and`. Conservative
+fire — only when the place/event/person token is the question's
+primary subject (same regex hook as 4.5).
+
+> ❌ *"What was your father's farm like **and how did it make you feel**?"* (place + emotion)
+>
+> ❌ *"What happened that day **and what did it mean for the family**?"* (event + evaluation)
+>
+> ❌ *"Tell me about your grandmother **and what she meant to you**."* (person + emotion)
+
+Per the architecture in §5, Layer 2 truncates these at the `, and`
+pivot. Resulting question keeps the narrator-friendly opening retrieval
+target, drops the secondary axis.
+
 ---
 
 ## 5. Architecture — two-layer defense
@@ -197,6 +248,39 @@ narrator-side text leakage. If truncation produces an empty or
 <5-word output, the filter returns the original unchanged and emits
 a `[chat_ws][atomicity][skip-too-short]` warning so we never silently
 return a stub.
+
+### 5.1 Truncation grammar guard (v1.1)
+
+A naïve truncation can produce non-question artifacts. Example:
+
+> Input: *"Tell me more about Spokane and what happened next."*
+>
+> Naïve truncation at `and`: *"Tell me more about Spokane"* — no `?`,
+> not a question form anymore.
+
+Layer 2 enforces this **post-truncation grammar gate**:
+
+```
+1. If truncated output ends with '?' → ACCEPT (truncation succeeded cleanly)
+2. If truncated output is an imperative ("Tell me about X", "Share Y",
+   "Walk me through Z") → ACCEPT (request-form is a valid alternative
+   to question-form per §4.3 disposition)
+3. If truncated output ends with neither '?' nor imperative-form,
+   AND original contained a complete question (regex: a clause
+   starting with what|how|why|where|when|did|do|are|were|is|was
+   ending in '?') → fall back to that question clause, drop the
+   imperative wrapper. This is the ONE allowed truncation form
+   beyond pure character-range removal.
+4. Otherwise → ABORT truncation, return original unchanged, emit
+   [chat_ws][atomicity][skip-grammar] warning. We do NOT introduce
+   new question stems or paraphrase. The "no rewrite" principle
+   trumps the "must be atomic" principle when they conflict.
+```
+
+This guard is the difference between "deterministic filter" and
+"clever filter." Step 4 is the load-bearing safety: when in doubt,
+emit the original and let Layer 1's prompt directive carry the next
+turn.
 
 ---
 
@@ -372,3 +456,34 @@ Total build: ~9 hours. Lands as 4 commits, code-isolated from docs.
 - Do NOT log narrator content in the `[chat_ws][atomicity]` warning.
   Log the failure label only, plus character offsets if needed for
   debugging. Privacy-safe by construction.
+
+---
+
+## 14. Revision history
+
+- **v1.0 (2026-04-30 evening, initial):** 5-category taxonomy
+  (`and_pivot` / `or_speculation` / `request_plus_inquiry` /
+  `choice_framing` / `hidden_second_target`); two-layer defense; LAW-3
+  isolation gate.
+- **v1.1 (2026-04-30 evening, post-review):**
+  - Added §4.6 `dual_retrieval_axis` — catches single questions that
+    span two retrieval systems (place + emotion, event + evaluation,
+    person + emotion). Examples: *"What do you remember about Spokane
+    and how you felt?"* — even when grammatically a single question,
+    the dual retrieval splits cognitive load.
+  - Added §5.1 truncation grammar guard — post-truncation must end in
+    `?` OR be valid imperative form OR fall back to original. Closes
+    the *"Tell me more about Spokane and what happened next"* edge
+    case where naïve truncation produced *"Tell me more about
+    Spokane"* (no `?`, not a question form). The "no rewrite"
+    principle trumps the "must be atomic" principle when they
+    conflict.
+  - Tightened §4.1 / §4.2 patterns: `and_pivot` / `or_speculation`
+    now require **two distinct predicates** (verb in both pre-pivot
+    and post-pivot clauses). Closes false positives on *"Did your
+    parents tell you why they chose to move..., or was it a mystery
+    to you as a child?"* (single yes/no with branch — one retrieval,
+    not two).
+  - Failure-label list extended from 5 to 6.
+  - Implementation order, acceptance criteria, and files-touched
+    block updated to match.
