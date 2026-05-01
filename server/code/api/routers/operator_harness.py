@@ -192,17 +192,44 @@ def _count_safety_events() -> int:
         con.close()
 
 
+def _resolve_api_log_path() -> Optional[Path]:
+    """Resolve api.log path without hardcoding any one operator's WSL layout.
+
+    Resolution order:
+      1. HORNELORE_API_LOG_PATH env var (explicit override, highest priority)
+      2. Repo-root-relative .runtime/logs/api.log computed from this module's
+         on-disk location (server/code/api/routers/operator_harness.py →
+         parents[4] = repo root)
+      3. cwd-relative .runtime/logs/api.log (last-resort fallback)
+
+    Returns None if no candidate exists on disk."""
+    env_override = os.environ.get("HORNELORE_API_LOG_PATH", "").strip()
+    if env_override:
+        p = Path(env_override)
+        if p.exists():
+            return p
+
+    try:
+        repo_root = Path(__file__).resolve().parents[4]
+        candidate = repo_root / ".runtime" / "logs" / "api.log"
+        if candidate.exists():
+            return candidate
+    except (IndexError, OSError):
+        pass
+
+    cwd_candidate = Path(".runtime/logs/api.log")
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    return None
+
+
 def _count_api_log_locks() -> int:
     """Count 'database is locked' occurrences in api.log. Used to detect
     BUG-DBLOCK-01 contention surfacing during a harness turn."""
-    log_path = Path("/mnt/c/Users/chris/hornelore/.runtime/logs/api.log")
-    if not log_path.exists():
-        # Fall back to repo-relative path for non-WSL setups
-        alt = Path(".runtime/logs/api.log")
-        if alt.exists():
-            log_path = alt
-        else:
-            return 0
+    log_path = _resolve_api_log_path()
+    if log_path is None:
+        return 0
     try:
         text = log_path.read_text(errors="ignore")
     except Exception:
@@ -370,7 +397,32 @@ async def _run_turn_via_internal_ws(
     }
 
 
-# ── Endpoint ───────────────────────────────────────────────────────────────
+# ── Endpoints ──────────────────────────────────────────────────────────────
+
+@router.get("/health")
+async def harness_health() -> Dict[str, Any]:
+    """Gate sanity probe.
+
+    When the harness flag is OFF: returns 404 (matches every other
+    gated operator route — the surface doesn't advertise itself).
+    When ON: returns 200 with a minimal status payload so the harness
+    script (and ops) can confirm the route is reachable BEFORE
+    running a full eval batch.
+
+    Use:
+      curl -s http://localhost:8000/api/operator/harness/health
+
+    404 → set HORNELORE_OPERATOR_HARNESS=1 in .env and restart.
+    200 → run the golfball harness.
+    """
+    _require_enabled()
+    return {
+        "ok": True,
+        "feature": "operator-harness",
+        "endpoint": "POST /api/operator/harness/interview-turn",
+        "ts": time.time(),
+    }
+
 
 @router.post("/interview-turn", response_model=InterviewTurnResponse)
 async def harness_interview_turn(

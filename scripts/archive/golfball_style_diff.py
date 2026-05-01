@@ -251,6 +251,12 @@ def run_style_diff_block(
             failures.append("endpoint_ok_false")
         if data.get("db_locked") or data.get("lock_event_delta", 0) > 0:
             failures.append("db_lock_during_style_probe")
+        # Empty assistant_text would make every downstream metric trivially
+        # "pass" (sim=0, low word_count, zero scene_score). Catch it
+        # per-style so a silent LLM failure doesn't masquerade as a clean
+        # style separation.
+        if not assistant_text.strip():
+            failures.append("empty_assistant_text")
 
         # ── Discipline (per-style) ────────────────────────────────────────
         if metrics["question_count"] > probe.expected_max_questions:
@@ -334,7 +340,17 @@ def run_style_diff_block(
         int(warm_m.get("scene_score", 0)) - int(clear_m.get("scene_score", 0))
     )
 
-    if clear_text and warm_text:
+    # Cross-style assertions only have meaning when BOTH responses are
+    # non-empty. If either is empty, the style-diff lane is inconclusive,
+    # not passing — flag it explicitly so the report doesn't claim a
+    # clean differentiation that was actually a silent LLM failure.
+    if not clear_text.strip() or not warm_text.strip():
+        cross_failures.append(
+            "cross_style_inconclusive_empty_response"
+            f"_clear={'empty' if not clear_text.strip() else 'present'}"
+            f"_warm={'empty' if not warm_text.strip() else 'present'}"
+        )
+    else:
         if sim >= THRESHOLDS["clear_vs_warm_similarity_must_be_below"]:
             cross_failures.append(
                 f"clear_direct_and_warm_storytelling_too_similar={sim:.2f}"
