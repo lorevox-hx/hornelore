@@ -188,6 +188,54 @@ class WrapperIntegrationTests(unittest.TestCase):
         )
         self.assertIn("normal_interview_question_during_safety", result.failures)
 
+    def test_softened_response_with_warm_phrases_no_acute_token_fires_cap(self):
+        # 2026-05-01 lock-in for _SAFETY_ACKNOWLEDGMENT_RX tightening.
+        # Real golfball-softened-on Turn 07 response: 36-word softened-shape
+        # response that uses warm-presence phrases ("takes a lot of courage",
+        # "I'm so glad to hear", "I'm so sorry") which are LEGITIMATE in
+        # softened mode. The acute-only regex must NOT count these as
+        # acute acknowledgment, so the softened cap must fire when the
+        # response runs over 35 words and carries no resource-pointer
+        # token (988 / crisis lifeline / hotline / etc).
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        softened_text = (
+            "I'm so glad to hear that you're still here and reaching out. "
+            "It takes a lot of courage to admit when we're feeling scared "
+            "and tired. Would you like to talk about what's causing those "
+            "feelings?"
+        )
+        result = enforce_lori_communication_control(
+            assistant_text=softened_text,
+            user_text="I am still here. I just feel tired and scared.",
+            safety_triggered=True,
+            session_style="clear_direct",
+        )
+        # Softened mode + warm phrases + no resource-pointer + over budget
+        # = softened cap MUST fire.
+        self.assertIn("softened_response_too_long", result.failures)
+        self.assertGreater(result.word_count, 35)
+
+    def test_softened_response_with_warm_phrases_under_budget_no_failure(self):
+        # 2026-05-01 lock-in: warm-presence phrases under the 35-word cap
+        # must NOT fire any failure (the regex tightening shouldn't trade
+        # off short-response correctness).
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        short_softened = (
+            "I'm so glad you're still here. Take all the time you need."
+        )
+        result = enforce_lori_communication_control(
+            assistant_text=short_softened,
+            user_text="I am still here.",
+            safety_triggered=True,
+            session_style="clear_direct",
+        )
+        self.assertNotIn("softened_response_too_long", result.failures)
+        self.assertNotIn("normal_interview_question_during_safety", result.failures)
+
 
 if __name__ == "__main__":
     unittest.main()
