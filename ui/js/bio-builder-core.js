@@ -1165,6 +1165,66 @@
       state.session.speakerName     = null;
     } catch (e) { console.warn("[bb-reset-identity] session reset threw:", e); }
 
+    // 3.5. WO-PARENT-SESSION-HARDENING-01 Phase 1.2 — clear projection layer
+    //      for protected-identity fields. The current flow only wiped BB.personal
+    //      but the projection layer can still hold polluted values written by
+    //      chat extraction OR by the QF auto-save bypass before Phase 1.1's
+    //      shape gate landed. Without this, peek/memoir/export would still
+    //      surface the polluted strings until projection cache turned over.
+    //      Janice's 2026-05-01 evidence (placeOfBirth + birthOrder pollution)
+    //      survived a Reset Identity for exactly this reason.
+    try {
+      var _identityPaths = [
+        "personal.fullName",
+        "personal.preferredName",
+        "personal.dateOfBirth",
+        "personal.placeOfBirth",
+        "personal.birthOrder",
+        "personal.timeOfBirth",
+      ];
+      var _projCleared = 0;
+      if (typeof state !== "undefined" && state.interviewProjection &&
+          state.interviewProjection.fields) {
+        _identityPaths.forEach(function (p) {
+          if (state.interviewProjection.fields[p]) {
+            delete state.interviewProjection.fields[p];
+            _projCleared += 1;
+          }
+        });
+      }
+      // Drop pendingSuggestions for these paths so they don't re-promote
+      // a corrupt value during the next sync turn.
+      var _suggDropped = 0;
+      if (typeof state !== "undefined" && state.interviewProjection &&
+          Array.isArray(state.interviewProjection.pendingSuggestions)) {
+        var _before = state.interviewProjection.pendingSuggestions.length;
+        state.interviewProjection.pendingSuggestions =
+          state.interviewProjection.pendingSuggestions.filter(function (s) {
+            return !s || _identityPaths.indexOf(s.fieldPath) === -1;
+          });
+        _suggDropped = _before - state.interviewProjection.pendingSuggestions.length;
+      }
+      console.log("[bb-reset-identity] projection cleared: " + _projCleared +
+        " identity field(s), " + _suggDropped + " pending suggestion(s) dropped");
+    } catch (e) { console.warn("[bb-reset-identity] projection clear threw:", e); }
+
+    // 3.6. WO-PARENT-SESSION-HARDENING-01 Phase 1.2 — clear localStorage
+    //      projection draft for this narrator. The lorevox_proj_draft_<pid>
+    //      key persists projection state across reload; without clearing it,
+    //      a polluted value can rehydrate after reset. Clearing the whole
+    //      draft is wider than identity-only, but localStorage shape doesn't
+    //      support per-field surgical removal — acceptable: projection
+    //      rebuilds from clean BB + backend.
+    try {
+      var _lsKey = "lorevox_proj_draft_" + pid;
+      var _hadKey = (typeof localStorage !== "undefined" &&
+        localStorage.getItem(_lsKey) !== null);
+      if (_hadKey) {
+        localStorage.removeItem(_lsKey);
+        console.log("[bb-reset-identity] cleared localStorage " + _lsKey.slice(0, 30) + "…");
+      }
+    } catch (e) { console.warn("[bb-reset-identity] localStorage clear threw:", e); }
+
     // 4. Persist BB blob to backend (empty personal merges with whatever else is there).
     try { _persistDrafts(pid); } catch (e) { console.warn("[bb-reset-identity] persist threw:", e); }
 
@@ -1212,6 +1272,9 @@
         "This will:\n" +
         "  • Wipe bb.questionnaire.personal (Full Name / Preferred / DOB / Birthplace / Time of Birth)\n" +
         "  • Clear state.profile.basics identity fields\n" +
+        "  • Clear interview projection entries for the 6 identity paths\n" +
+        "  • Drop any pending identity suggestions in the candidates queue\n" +
+        "  • Clear lorevox_proj_draft_<pid> from localStorage\n" +
         "  • PATCH the backend person row to null DOB + birthplace\n" +
         "  • Re-fire identity onboarding (Lori will ask the three anchors again)\n\n" +
         "PRESERVED:\n" +
