@@ -753,9 +753,102 @@ async def ws_chat(ws: WebSocket):
 
         final_text = "".join(reply_parts).strip()
 
-        # WO-LORI-ACTIVE-LISTENING-01 Layer 2 — apply trim filter on full text.
+        # WO-LORI-QUESTION-ATOMICITY-01 Layer 2 — atomicity enforcement.
+        # Runs in BOTH streaming and buffer modes (the existing v0
+        # _trim_to_one_question only ran in buffer mode, which is why
+        # the 2026-04-30 golfball-v2-clean run still saw compound
+        # questions on Turns 03/04/07 — the filter never ran in
+        # streaming). Now the filter runs on `final_text` regardless of
+        # mode; the `done` event below carries the trimmed text, which
+        # the harness reads via final_text_from_done. Streaming UX still
+        # shows untrimmed tokens as they generate (TTS chunking still
+        # works), but the persisted/echoed-back assistant_text reflects
+        # the filter result.
+        #
         # Memory_echo / correction turns return earlier (above) so they
-        # bypass this filter by construction.
+        # bypass this filter by construction. Acute safety responses
+        # bypass via the _safety_result.triggered flag below.
+        #
+        # Gated DEFAULT-OFF behind HORNELORE_ATOMICITY_FILTER for the
+        # first eval cycle. After one clean rerun on the golfball
+        # harness shows zero atomicity_failures + no master-extractor
+        # regression, flip default to ON in .env.
+        atomicity_failures: List[str] = []
+        try:
+            _atomicity_enabled = os.environ.get(
+                "HORNELORE_ATOMICITY_FILTER", "0"
+            ).strip().lower() in ("1", "true", "yes", "on")
+            _safety_triggered_now = bool(
+                _safety_result and getattr(_safety_result, "triggered", False)
+            )
+            if (
+                _atomicity_enabled
+                and final_text
+                and not _safety_triggered_now
+            ):
+                from ..services.question_atomicity import enforce_question_atomicity
+                _new_text, atomicity_failures = enforce_question_atomicity(final_text)
+                if atomicity_failures:
+                    if _new_text != final_text:
+                        logger.warning(
+                            "[chat_ws][atomicity] truncated conv=%s failures=%s before_len=%d after_len=%d",
+                            conv_id, ",".join(atomicity_failures),
+                            len(final_text), len(_new_text),
+                        )
+                        final_text = _new_text
+                    else:
+                        logger.warning(
+                            "[chat_ws][atomicity] skip-grammar conv=%s failures=%s text_unchanged",
+                            conv_id, ",".join(atomicity_failures),
+                        )
+        except Exception as _atom_exc:
+            # Filter is a safety net — never kill a turn on enforcement
+            # error. Log and continue with untrimmed text.
+            logger.warning(
+                "[chat_ws][atomicity] filter raised, passing through: %s",
+                _atom_exc,
+            )
+
+        # WO-LORI-REFLECTION-01 — memory-echo validator (validator-only,
+        # no mutation). Runs in BOTH streaming and buffer modes alongside
+        # atomicity. Logs failure labels via [chat_ws][reflection] marker.
+        # Never modifies assistant_text — reflection content is too
+        # semantic for safe deterministic mutation (per §6 of the spec).
+        # Skip when _safety_result.triggered (acute SAFETY response has
+        # its own structure).
+        reflection_failures: List[str] = []
+        try:
+            _reflection_enabled = os.environ.get(
+                "HORNELORE_REFLECTION_VALIDATOR", "0"
+            ).strip().lower() in ("1", "true", "yes", "on")
+            _safety_triggered_now2 = bool(
+                _safety_result and getattr(_safety_result, "triggered", False)
+            )
+            if (
+                _reflection_enabled
+                and final_text
+                and not _safety_triggered_now2
+            ):
+                from ..services.lori_reflection import validate_memory_echo
+                _passed, reflection_failures = validate_memory_echo(
+                    assistant_text=final_text,
+                    user_text=user_text or "",
+                )
+                if reflection_failures:
+                    logger.warning(
+                        "[chat_ws][reflection] failures=%s conv=%s",
+                        ",".join(reflection_failures), conv_id,
+                    )
+        except Exception as _refl_exc:
+            logger.warning(
+                "[chat_ws][reflection] validator raised, passing through: %s",
+                _refl_exc,
+            )
+
+        # WO-LORI-ACTIVE-LISTENING-01 Layer 2 (legacy, retained for
+        # backward compat with HORNELORE_INTERVIEW_DISCIPLINE flag).
+        # Buffer-mode-only. Will be retired once ATOMICITY-01 default-on
+        # is observed clean across two consecutive runs.
         try:
             from ..prompt_composer import _trim_to_one_question
             if _buffer_mode and final_text:

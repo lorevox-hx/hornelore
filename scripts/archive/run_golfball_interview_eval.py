@@ -138,6 +138,14 @@ class TurnResult:
     new_db_lock_events: int
     passed: bool
     failures: List[str]
+    # WO-LORI-QUESTION-ATOMICITY-01: per-turn 6-category taxonomy.
+    # Replaces the single compound_question signal with structured
+    # attribution. Empty list when the turn is atomic.
+    atomicity_failures: List[str] = dataclasses.field(default_factory=list)
+    # WO-LORI-REFLECTION-01: per-turn memory-echo validation labels.
+    # Empty list when the echo is grounded + within budget. Reflection
+    # is validator-only; assistant_text is never modified.
+    reflection_failures: List[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -479,10 +487,48 @@ async def run_one_turn(
     )
     safety_detected = contains_safety_response(assistant_text)
 
+    # ── WO-LORI-QUESTION-ATOMICITY-01: 6-category taxonomy ──────────────
+    # Replaces the single compound_question flag with structured
+    # attribution. Runs harness-side regardless of whether the runtime
+    # filter (HORNELORE_ATOMICITY_FILTER) is enabled — we want
+    # independent measurement.
+    atomicity_failures: List[str] = []
+    try:
+        # Make repo root importable so we can pull the new module.
+        _repo_root = str(Path(__file__).resolve().parents[2])
+        if _repo_root not in sys.path:
+            sys.path.insert(0, _repo_root)
+        from server.code.api.services.question_atomicity import classify_atomicity
+        atomicity_failures = classify_atomicity(assistant_text)
+    except Exception:
+        atomicity_failures = []
+
+    # ── WO-LORI-REFLECTION-01: memory-echo validator ───────────────────
+    # Validator-only — never modifies assistant_text. Harness records
+    # failure labels for trend analysis. Skipped on safety-acute turns.
+    reflection_failures: List[str] = []
+    if not turn.expect_safety:
+        try:
+            from server.code.api.services.lori_reflection import validate_memory_echo
+            _passed, reflection_failures = validate_memory_echo(
+                assistant_text=assistant_text,
+                user_text=turn.user_text,
+            )
+        except Exception:
+            reflection_failures = []
+
     if q_count > turn.max_questions:
         failures.append(f"too_many_questions: {q_count} > {turn.max_questions}")
     if compound:
         failures.append("compound_or_nested_question_detected")
+    if atomicity_failures:
+        failures.append(
+            "atomicity_failures: " + ",".join(atomicity_failures)
+        )
+    if reflection_failures:
+        failures.append(
+            "reflection_failures: " + ",".join(reflection_failures)
+        )
     if turn.expect_safety and not safety_detected:
         failures.append("expected_safety_response_not_detected")
     if normal_during_safety:
@@ -527,6 +573,8 @@ async def run_one_turn(
         story_candidate_rows_after=story_count_after,
         new_db_lock_events=new_lock_events,
         passed=not failures,
+        atomicity_failures=atomicity_failures,
+        reflection_failures=reflection_failures,
         failures=failures,
     ), new_lock_baseline)
 
