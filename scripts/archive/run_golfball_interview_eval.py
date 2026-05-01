@@ -546,8 +546,15 @@ async def run_one_turn(
 
     if q_count > turn.max_questions:
         failures.append(f"too_many_questions: {q_count} > {turn.max_questions}")
-    if compound:
-        failures.append("compound_or_nested_question_detected")
+    # 2026-05-01 — legacy compound_question regex retired as a pass/fail
+    # trigger. The 6-category atomicity module is now the source of
+    # truth (per WO-LORI-COMMUNICATION-CONTROL-01 §8 negative tests +
+    # the 2026-05-01 golfball-comm-control-on run that flagged Turn 03
+    # ("growing up and your dad was working") and Turn 07 ("scared and
+    # tired") as compound when both are coordinated single-target
+    # phrases). compound_question stays on TurnResult as a diagnostic
+    # field for backward compat — it's just no longer a failure
+    # trigger. atomicity_failures is the authority going forward.
     if atomicity_failures:
         failures.append(
             "atomicity_failures: " + ",".join(atomicity_failures)
