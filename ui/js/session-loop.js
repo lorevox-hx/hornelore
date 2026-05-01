@@ -705,6 +705,63 @@
     }
   }
 
+  /* ── WO-PARENT-SESSION-HARDENING-01 Phase 1.1 (BUG-326 fix) ─────
+     Value-shape validator for protected-identity QF auto-save.
+
+     The Janice 2026-05-01 live test wrote "My dad worked nights at the
+     aluminum plant.." into personal.placeOfBirth and "I just told you
+     something you ignored." into personal.birthOrder. Both are protected-
+     identity fields. The BUG-312 protected_identity gate in
+     projection-sync.js correctly blocks untrusted writes, but the QF
+     walk's _saveBBAnswer() PUT-direct-to-BB path bypasses that gate
+     entirely.
+
+     This validator runs INSIDE _saveBBAnswer for personal.* protected
+     fields (per LorevoxProjectionMap.isProtectedIdentity). A value that
+     looks like resistance text, prior-turn narrative, or a complaint is
+     rejected before the BB write. Rejected values are also routed to
+     projection-sync via projectValue() with source="qf_walk_answer_
+     rejected" so the operator sees them in the Review Queue (Phase 9
+     work surfaces those) — corruption blocked, audit trail preserved.
+
+     Rejection rules (intentionally narrow, all empirically grounded in
+     the Janice failure mode):
+       1. Empty / whitespace-only
+       2. Over the per-field length cap (placeOfBirth 80, birthOrder 30,
+          fullName 80, preferredName 30)
+       3. Contains "you / your / yours" (second-person narrator-doesn't-
+          refer-to-themselves-as-you signal — catches both Janice strings)
+       4. Contains common past-tense narrative verbs (worked / told /
+          said / ignored / remember / forgot / moved / drove / went /
+          came / left / stayed) — catches "My dad worked nights..."
+       5. Starts with first-person sentence opener (I / my / we / our)
+          — narrator's place-of-birth answer doesn't start with "My"
+  */
+  function _validateProtectedIdentityValue(fieldId, value) {
+    var v = String(value == null ? "" : value).trim();
+    if (!v) return { valid: false, reason: "empty" };
+    var maxLen = ({
+      placeOfBirth: 80,
+      birthOrder: 30,
+      fullName: 80,
+      preferredName: 30,
+      dateOfBirth: 32,
+    })[fieldId] || 80;
+    if (v.length > maxLen) {
+      return { valid: false, reason: "over_length_" + maxLen };
+    }
+    if (/\b(you|your|yours)\b/i.test(v)) {
+      return { valid: false, reason: "second_person_pronoun" };
+    }
+    if (/\b(worked|told|said|ignored|remember|forgot|moved|drove|went|came|left|stayed|asked)\b/i.test(v)) {
+      return { valid: false, reason: "past_tense_narrative_verb" };
+    }
+    if (/^(I|my|we|our)\b/i.test(v)) {
+      return { valid: false, reason: "first_person_narrative_start" };
+    }
+    return { valid: true, reason: "ok" };
+  }
+
   /* ── WO-01B: BB save helper ────────────────────────────────────
      PUT a single answer into the existing /api/bio-builder/questionnaire
      endpoint.  The endpoint expects the WHOLE questionnaire blob, so we
@@ -777,6 +834,51 @@
       }
       return;
     }
+
+    // ── WO-PARENT-SESSION-HARDENING-01 Phase 1.1 (BUG-326 fix) ──
+    // Protected-identity value-shape gate. Runs ONLY for personal.*
+    // fields tagged protectedIdentity:true in projection-map.js. A
+    // value that fails the shape validator is rejected here BEFORE the
+    // BB merge — the corrupt value never reaches the BB blob, never
+    // reaches the memoir, never reaches the export. Rejected values
+    // are routed to projection-sync as qf_walk_answer_rejected so the
+    // operator sees them in the Review Queue (Phase 9 surfaces those).
+    //
+    // Why this guard exists: the Janice 2026-05-01 live test corrupted
+    // both placeOfBirth and birthOrder via this exact code path (the
+    // BB direct-PUT bypassed the BUG-312 projection-sync gate entirely).
+    var _PM = (typeof window !== "undefined") ? window.LorevoxProjectionMap : null;
+    var _isProtected = !!(_PM &&
+      typeof _PM.isProtectedIdentity === "function" &&
+      _PM.isProtectedIdentity(sectionId + "." + fieldId));
+    if (sectionId === "personal" && _isProtected) {
+      var _validation = _validateProtectedIdentityValue(fieldId, normalized);
+      if (!_validation.valid) {
+        console.warn("[bb-drift] qf_walk validation REJECTED " + savedKey +
+          " reason=" + _validation.reason +
+          " value=" + JSON.stringify(answer).slice(0, 100));
+        // Best-effort: route rejected value to suggest_only so operator
+        // sees it in Review Queue. Untrusted source → BUG-312 gate routes
+        // to candidates regardless of empty/non-empty truth state.
+        var _PS = (typeof window !== "undefined") ? window.LorevoxProjectionSync : null;
+        if (_PS && typeof _PS.projectValue === "function") {
+          try {
+            _PS.projectValue(sectionId + "." + fieldId, answer, {
+              source: "qf_walk_answer_rejected",
+              turnId: "qf_walk_validation_reject",
+              confidence: 0.3,
+              reason: _validation.reason,
+            });
+          } catch (_) { /* best-effort; never block the chat turn */ }
+        }
+        if (state.session.loop) {
+          state.session.loop.lastAction =
+            "qf_walk_rejected:" + savedKey + ":" + _validation.reason;
+        }
+        return;  // Do NOT merge into BB — would corrupt protected truth.
+      }
+    }
+
     if (!blob[sectionId] || typeof blob[sectionId] !== "object") {
       blob[sectionId] = {};
     }
