@@ -290,6 +290,23 @@ function lvShellShowTab(tabName) {
     if (typeof _lvNarratorPaintIdentity === "function") _lvNarratorPaintIdentity();
     if (typeof _lvNarratorPaintControls === "function") _lvNarratorPaintControls();
     _lvNarratorStartPaintTick();
+    // WO-PARENT-SESSION-HARDENING-01 Phase 5 — Life Map cold-start fix.
+    // Live audit (2026-05-01) confirmed the bug: shell-tab navigation
+    // ("Narrator Session" tab click) only paints identity/controls; it
+    // does NOT call lvNarratorRoomInit, so _lvInterviewRenderLifeMap
+    // never fires and #lvInterviewLifeMap stays empty. Only the explicit
+    // "Start Narrator Session" button (lvStartNarratorSession) hits the
+    // room init. Result: the right-rail Life Map is blank for any
+    // operator who navigates via the tab strip — exactly the cold-start
+    // repro Chris flagged. Fix: render the Life Map column on every
+    // narrator-tab activation when a narrator is selected. The render
+    // function already RAF-retries if the host element hasn't mounted
+    // yet (see _lvInterviewRenderLifeMap above), so this is safe to
+    // call eagerly. No-ops cleanly when person_id is unset.
+    if (state && state.person_id && typeof _lvInterviewRenderLifeMap === "function") {
+      try { _lvInterviewRenderLifeMap(); }
+      catch (e) { console.warn("[life-map] render on tab-switch threw:", e); }
+    }
     // Anchor to latest when entering (in case user was reading old messages).
     setTimeout(() => { if (typeof lvNarratorScrollToBottom === "function") lvNarratorScrollToBottom(true); }, 60);
   } else {
@@ -555,9 +572,26 @@ function _lvInterviewPeriods() {
   return periods.filter(p => p && typeof p.label === "string" && p.label.trim() !== "");
 }
 
+// WO-PARENT-SESSION-HARDENING-01 Phase 5.1 — render-retry counter for
+// cold-start race. When this function fires before the right-rail aside
+// has mounted (rare but observed in questionnaire_first cold-start per
+// 2026-05-01 audit), we retry once on RAF. Bounded retries; never spins.
+let _lvInterviewLifeMapRetry = 0;
+
 function _lvInterviewRenderLifeMap() {
   const host = document.getElementById("lvInterviewLifeMap");
-  if (!host) return;
+  if (!host) {
+    if (_lvInterviewLifeMapRetry < 3) {
+      _lvInterviewLifeMapRetry += 1;
+      console.warn("[life-map] render: host #lvInterviewLifeMap not found, retry " +
+        _lvInterviewLifeMapRetry + " on RAF");
+      requestAnimationFrame(_lvInterviewRenderLifeMap);
+    } else {
+      console.error("[life-map] render: host #lvInterviewLifeMap missing after 3 retries; aborting render");
+    }
+    return;
+  }
+  _lvInterviewLifeMapRetry = 0;  // reset on successful resolution
   const periods = _lvInterviewPeriods();
   const activeId = (state.session && state.session.activeFocusEra) || null;
 
@@ -594,7 +628,12 @@ function _lvInterviewRenderLifeMap() {
     // Cancel → no state change. _lvInterviewConfirmEra delegates to
     // _lvInterviewSelectEra on Continue, preserving the canonical-only
     // write boundary.
+    // WO-PARENT-SESSION-HARDENING-01 Phase 5.2 — data-era-id attribute
+    // so harness + test pack can observe button state without parsing
+    // localized warm labels.
     body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
+                     data-era-id="${_lvEscapeHtml(eid)}"
+                     aria-pressed="${activeId === eid ? "true" : "false"}"
                      onclick="_lvInterviewConfirmEra(${JSON.stringify(eid)})">
       ${_lvEscapeHtml(_warm(eid))}
     </button>`;
@@ -607,6 +646,8 @@ function _lvInterviewRenderLifeMap() {
   const todayActive = (activeId === "today") ? " is-active" : "";
   body += `<h3 class="lv-interview-lifemap-today-head">Today</h3>
     <button type="button" class="lv-interview-lifemap-era-btn${todayActive}"
+            data-era-id="today"
+            aria-pressed="${activeId === "today" ? "true" : "false"}"
             onclick="_lvInterviewConfirmEra('today')">
       Today
     </button>`;
@@ -625,6 +666,12 @@ function _lvInterviewRenderLifeMap() {
   </div>`;
 
   host.innerHTML = body;
+
+  // WO-PARENT-SESSION-HARDENING-01 Phase 5.1 — render-success log marker.
+  // Test pack TEST-07 (cold-start) greps for this. Logs era count + active
+  // selection so a successful render is observable without DOM inspection.
+  console.info("[life-map] rendered: " + eraIds.length + " eras, active=" +
+    (activeId || "none") + ", today=" + (activeId === "today" ? "active" : "inactive"));
 }
 
 function _lvInterviewActiveFocusLabel(eraId) {
@@ -646,6 +693,12 @@ function _lvInterviewSelectEra(eid) {
   // page or external caller still lands as a bare canonical era_id in
   // state.session.activeFocusEra.
   const canonical = (typeof _canonicalEra === "function") ? _canonicalEra(eid) : eid;
+  // WO-PARENT-SESSION-HARDENING-01 Phase 5.2 — required console marker
+  // for life-map era clicks. Appears on every era-button-driven select
+  // (NOT on programmatic state-only writes). Test pack TEST-08 greps
+  // for this marker.
+  console.info("[life-map][era-click] era=" + (canonical || "null") +
+    " prev=" + ((state.session && state.session.activeFocusEra) || "null"));
   state.session.activeFocusEra = canonical || null;
   // Re-render life-map column to update the active highlight (timeline
   // is now the chronology accordion which manages its own highlights).

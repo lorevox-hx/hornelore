@@ -1434,13 +1434,30 @@ def compose_system_prompt(
 
         # Inject device time when available — gives Lori accurate temporal grounding
         # (e.g., "What a lovely Friday morning to share your story")
+        #
+        # WO-PARENT-SESSION-HARDENING-01 Phase 3.3 (2026-05-01) —
+        # Strengthened directive after the live test on Janice/Kent
+        # showed Lori claiming "I'm in a conversation mode that doesn't
+        # allow me to keep track of the current date" even though
+        # device_time was present in the prompt. The LLM was treating
+        # the original directive as optional context and falling back
+        # to its training-cutoff "I can't tell the date" hallucinated
+        # capability constraint. The new wording is explicit: this IS
+        # reliable knowledge, you DO know the date, and if the narrator
+        # asks ANSWER FIRST, then return to the story.
         if device_date or device_time:
             time_str = f"{device_date}" + (f", {device_time}" if device_time else "")
             tz_str   = f" ({device_tz})" if device_tz else ""
             directive_lines.append(
                 f"  device_time: {time_str}{tz_str}  "
-                f"# Use this as your sense of 'today' and 'now'. "
-                f"Do not use your training cutoff date as the current date."
+                f"# This is the narrator's actual current date and time, "
+                f"sourced from their computer clock. You DO know the current "
+                f"date. If the narrator asks 'what day is it' / 'what's "
+                f"today's date' / any date or day question, answer with "
+                f"this value FIRST, then gently return to the story. NEVER "
+                f"say you can't tell the date or that you don't have access "
+                f"to it — this is reliable knowledge from the device clock, "
+                f"not your training data."
             )
 
         # Inject location when narrator has consented to share it
