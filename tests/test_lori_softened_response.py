@@ -236,6 +236,146 @@ class WrapperIntegrationTests(unittest.TestCase):
         self.assertNotIn("softened_response_too_long", result.failures)
         self.assertNotIn("normal_interview_question_during_safety", result.failures)
 
+    def test_softened_mode_active_skips_normal_question_check(self):
+        # 2026-05-01 lock-in: softened-mode-aware wrapper.
+        # Real golfball-softened-on-v2 Turn 07 case: response carries
+        # a wh-word gentle-invitation question ("Would you like to talk
+        # about what's making you feel that way?"). With softened_mode_
+        # active=True, the normal-question check should be skipped —
+        # softened mode allows gentle invitations; the composer prompt +
+        # softened cap own the discipline. Without the fix, the wrapper
+        # would over-fire normal_interview_question_during_safety on
+        # legitimate softened responses.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        text = (
+            "It sounds like you're feeling tired. Would you like to talk "
+            "about what's making you feel that way?"
+        )
+        # softened_mode_active=True path
+        result = enforce_lori_communication_control(
+            assistant_text=text,
+            user_text="I am still here. I just feel tired and scared.",
+            safety_triggered=True,
+            softened_mode_active=True,
+            session_style="clear_direct",
+        )
+        self.assertNotIn("normal_interview_question_during_safety", result.failures)
+
+    def test_softened_mode_active_false_acute_path_still_fires_normal_q(self):
+        # 2026-05-01 lock-in: the softened-mode-aware fix must NOT
+        # weaken the acute path. When safety_triggered=True AND
+        # softened_mode_active=False (i.e. ACUTE mode, no persisted
+        # state), a wh-word question without acute-resource tokens
+        # must still fire normal_interview_question_during_safety.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        text = (
+            "It's understandable. Can you tell me more about what's been "
+            "going on?"
+        )
+        result = enforce_lori_communication_control(
+            assistant_text=text,
+            user_text="How can I end my life?",
+            safety_triggered=True,
+            softened_mode_active=False,  # acute path
+            session_style="clear_direct",
+        )
+        self.assertIn("normal_interview_question_during_safety", result.failures)
+
+
+class PushAfterResistanceTests(unittest.TestCase):
+    """WO-LORI-CONTROL-YIELD push-after-resistance detector (Phelan
+    SIN 3 — too much arguing). Single-turn detection."""
+
+    def test_resistance_then_probe_fires(self):
+        # Real Phelan example: narrator says "I don't remember", Lori
+        # immediately probes the same memory. Should fire.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        result = enforce_lori_communication_control(
+            assistant_text="Tell me more about what your father did before that.",
+            user_text="I don't remember much about that time.",
+            session_style="clear_direct",
+        )
+        self.assertIn("push_after_resistance", result.failures)
+
+    def test_resistance_with_off_ramp_does_not_fire(self):
+        # CRITICAL: the off-ramp ("Would you like to try a different
+        # memory?") is a Phelan-correct response — it gives the
+        # narrator the choice to stop. PROBE_RX intentionally does NOT
+        # match bare "?$" so this case passes. Without this guard, the
+        # detector would falsely flag good off-ramps as "pushing".
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        result = enforce_lori_communication_control(
+            assistant_text="That's okay. Would you like to try a different memory?",
+            user_text="I don't remember much about that time.",
+            session_style="clear_direct",
+        )
+        self.assertNotIn("push_after_resistance", result.failures)
+
+    def test_resistance_with_no_probe_does_not_fire(self):
+        # Narrator resists; Lori responds with simple acknowledgment.
+        # No probe → no failure.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        result = enforce_lori_communication_control(
+            assistant_text="That's alright. We can sit with it.",
+            user_text="I don't remember much.",
+            session_style="clear_direct",
+        )
+        self.assertNotIn("push_after_resistance", result.failures)
+
+    def test_no_resistance_no_fire_even_with_probe(self):
+        # No resistance phrase from narrator; Lori's probe is a normal
+        # interview question. Should not fire push-after-resistance.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        result = enforce_lori_communication_control(
+            assistant_text="Tell me more about your father's work.",
+            user_text="My father worked at the aluminum plant.",
+            session_style="clear_direct",
+        )
+        self.assertNotIn("push_after_resistance", result.failures)
+
+    def test_bare_i_dont_know_does_not_fire(self):
+        # CRITICAL: bare "I don't know" is too conversational/ambiguous
+        # to count as resistance. RESISTANCE_RX intentionally does NOT
+        # match it. Without this guard, the detector would over-fire
+        # on neutral exchanges where narrators say "I don't know,
+        # maybe Tuesday" or similar phatic uncertainty.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        result = enforce_lori_communication_control(
+            assistant_text="Tell me more about that period.",
+            user_text="I don't know, maybe Tuesday.",
+            session_style="clear_direct",
+        )
+        self.assertNotIn("push_after_resistance", result.failures)
+
+    def test_safety_path_does_not_check_push_after_resistance(self):
+        # Acute/softened paths own no-probe rules separately.
+        # push-after-resistance check should be bypassed on safety turns.
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        result = enforce_lori_communication_control(
+            assistant_text="Tell me more about what's been going on.",
+            user_text="I don't remember.",
+            safety_triggered=True,
+            softened_mode_active=True,
+            session_style="clear_direct",
+        )
+        self.assertNotIn("push_after_resistance", result.failures)
+
 
 if __name__ == "__main__":
     unittest.main()

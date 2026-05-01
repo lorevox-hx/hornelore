@@ -106,6 +106,54 @@ _SAFETY_ACKNOWLEDGMENT_RX = re.compile(
 )
 
 
+# WO-LORI-CONTROL-YIELD push-after-resistance detector (Phelan SIN 3 —
+# too much arguing). Single-turn detection: narrator signals resistance
+# in their turn, AND Lori's response in the same turn includes a probe
+# verb. Caller is expected to skip this on safety/softened turns (those
+# paths own the no-probe rule there). Bare "I don't know" intentionally
+# NOT in RESISTANCE_RX — too conversational, would over-fire on neutral
+# exchanges. PROBE_RX intentionally narrow (does NOT include a bare
+# "?$" alternative) so legitimate off-ramp questions like "Would you
+# like to try a different memory?" don't get falsely flagged.
+_RESISTANCE_RX = re.compile(
+    r"\b("
+    r"i don'?t remember|i can'?t remember|"
+    r"not much|not really|"
+    r"i'?m not sure|"
+    r"i can'?t think of anything|"
+    r"i already told you|you ignored|"
+    r"i don'?t want to talk about|"
+    r"let'?s not|no thanks"
+    r")\b",
+    re.IGNORECASE,
+)
+_PROBE_RX = re.compile(
+    r"\b("
+    r"can you tell me|tell me more|"
+    r"what was it like|do you remember|"
+    r"what do you remember|how did you|"
+    r"why did you|where were you|when did you|who was"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_push_after_resistance(user_text: str, assistant_text: str) -> bool:
+    """Return True if narrator signaled resistance AND Lori's reply
+    contains a probe verb, in the same turn. Narrow by design — sequence-
+    level escalation patterns (resistance → probe → resistance → probe)
+    live in the harness rollup."""
+    u = (user_text or "").strip()
+    a = (assistant_text or "").strip()
+    if not u or not a:
+        return False
+    if not _RESISTANCE_RX.search(u):
+        return False
+    if not _PROBE_RX.search(a):
+        return False
+    return True
+
+
 @dataclass
 class CommunicationControlResult:
     """Single unified result for chat_ws + harness consumption."""
@@ -169,6 +217,7 @@ def _truncate_to_word_limit(text: str, limit: int) -> str:
 def _safety_path(
     assistant_text: str,
     session_style: str,
+    softened_mode_active: bool = False,
 ) -> CommunicationControlResult:
     """Safety-acute exemption: do not modify the assistant_text at all.
     Just record whether the turn appears to have a "normal interview
@@ -183,11 +232,25 @@ def _safety_path(
     we still do NOT mutate — the spec says no rewrite of safety/
     softened responses; let the operator see the violation and
     re-tune Layer 1 if it persists.
+
+    2026-05-01 — softened-mode-aware fix (post-golfball-softened-on-v2).
+    The "normal interview question during safety" check uses the wh-word
+    + '?' pattern, which over-fires in softened mode where gentle
+    invitations like "Would you like to talk about what's making you
+    feel that way?" legitimately use wh-words. The check existed to
+    catch ACUTE-frame failures where the LLM would route through a
+    normal interview prompt mid-crisis. In softened mode the SOFTENED
+    MODE composer directive owns the "no fresh interview question" rule,
+    and the SOFTENED_WORD_LIMIT cap owns the budget. So when caller
+    signals softened_mode_active=True, we skip the normal-question
+    check entirely and rely on the composer + cap. The acute path
+    (safety_triggered=True AND softened_mode_active=False) preserves
+    the original behavior.
     """
     failures: List[str] = []
     has_safety_ack = bool(_SAFETY_ACKNOWLEDGMENT_RX.search(assistant_text))
     has_normal_q = bool(_SAFETY_NORMAL_QUESTION_RX.search(assistant_text))
-    if has_normal_q and not has_safety_ack:
+    if has_normal_q and not has_safety_ack and not softened_mode_active:
         failures.append("normal_interview_question_during_safety")
 
     word_count = len(assistant_text.split())
@@ -233,6 +296,7 @@ def enforce_lori_communication_control(
     *,
     safety_triggered: bool = False,
     session_style: str = "clear_direct",
+    softened_mode_active: bool = False,
 ) -> CommunicationControlResult:
     """The single runtime enforcement entry point.
 
@@ -267,7 +331,11 @@ def enforce_lori_communication_control(
 
     # Step 0: safety exemption
     if safety_triggered:
-        return _safety_path(assistant_text, session_style)
+        return _safety_path(
+            assistant_text,
+            session_style,
+            softened_mode_active=softened_mode_active,
+        )
 
     failures: List[str] = []
     warnings: List[str] = []
@@ -301,6 +369,14 @@ def enforce_lori_communication_control(
         assistant_text=current,
         user_text=user_text or "",
     )
+
+    # Step 5: push-after-resistance (Phelan SIN 3 — too much arguing).
+    # Single-turn detection: narrator-side resistance phrase + Lori-side
+    # probe verb in the same turn. Report-only; never modifies output.
+    # Skipped on safety/softened paths — those own no-probe via the
+    # safety_path branch above.
+    if _detect_push_after_resistance(user_text or "", current):
+        failures.append("push_after_resistance")
 
     return CommunicationControlResult(
         original_text=assistant_text,

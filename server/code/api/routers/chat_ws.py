@@ -920,6 +920,7 @@ async def ws_chat(ws: WebSocket):
                     user_text=user_text or "",
                     safety_triggered=_safety_triggered_now,
                     session_style=str(_session_style),
+                    softened_mode_active=_softened_now,
                 )
                 comm_control_dict = _cc_result.to_dict()
                 atomicity_failures = list(_cc_result.atomicity_failures)

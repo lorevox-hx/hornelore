@@ -182,6 +182,12 @@ class HarnessReport:
     narrator_isolation_checks: Dict[str, Any]
     cleanup: Dict[str, Any]
     passed: bool
+    # WO-LORI-CONTROL-YIELD harness Phelan rollup (2026-05-01).
+    # Aggregates per-turn comm_control + reflection failures into the
+    # Four Cardinal Sins lens (Phelan), and detects sequence-level
+    # control-yield failures (3+ consecutive turns with any control
+    # failure). Uses existing detector signals — no parallel detection.
+    phelan_rollup: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 # ── Test plan ──────────────────────────────────────────────────────────────
@@ -276,6 +282,230 @@ GOLFBALL_TURNS: List[TestTurn] = [
         ),
     ),
 ]
+
+
+# ── WO-LORI-CONTROL-YIELD harness Phelan rollup ────────────────────────────
+#
+# Aggregates existing per-turn signals (atomicity, reflection,
+# comm_control failures) into the Four Cardinal Sins lens from Phelan's
+# parenting work, plus detects sequence-level control-yield failures.
+#
+# Critical: this layer DOES NOT add new detection — it ROLLS UP existing
+# signals. The detection layer is the wrapper (atomicity / reflection /
+# safety / push-after-resistance). The harness lens here is purely
+# interpretive — same data, different shape, useful for trend analysis.
+#
+# Sin → Failure-source map:
+#
+#   Too Much Talking    → question_count > 1, compound_question,
+#                         atomicity request_plus_inquiry, "or" in question
+#   Too Much Emotion    → (placeholder; emotion-amplification detector
+#                         not yet built — currently only flags if some
+#                         future detector populates emotional_amplification)
+#   Too Much Arguing    → push_after_resistance (single-turn from
+#                         wrapper Step 5)
+#   Too Much Control    → missing_memory_echo, echo_not_grounded,
+#                         normal_interview_question_during_safety,
+#                         "or"-fork question (also Talking)
+#
+# Sequence detection: 3+ consecutive turns with any of:
+#   * missing_memory_echo
+#   * echo_not_grounded
+#   * push_after_resistance
+#   * normal_interview_question_during_safety
+# is reported as a control_yield_sequence_failure. Same threshold for
+# the missing_memory_echo-only counter (kept for diagnostic clarity).
+
+_OR_QUESTION_RX = re.compile(r"\bor\b[^.?!]*\?", re.IGNORECASE)
+
+_CONTROL_FAILURE_LABELS = frozenset({
+    "missing_memory_echo",
+    "echo_not_grounded",
+    "push_after_resistance",
+    "normal_interview_question_during_safety",
+})
+
+
+def _phelan_failures_for_turn(turn: "TurnResult") -> Dict[str, List[str]]:
+    """Map a single turn's existing failure signals into the Four
+    Cardinal Sins. Returns dict with non-empty buckets only."""
+    sins: Dict[str, List[str]] = {
+        "too_much_talking": [],
+        "too_much_emotion": [],
+        "too_much_arguing": [],
+        "too_much_control": [],
+    }
+
+    cc = turn.communication_control or {}
+    cc_failures = set(cc.get("failures") or [])
+    atomicity = set(turn.atomicity_failures or cc.get("atomicity_failures") or [])
+    reflection = set(turn.reflection_failures or cc.get("reflection_failures") or [])
+
+    # Talking
+    if turn.question_count > 1:
+        sins["too_much_talking"].append("question_count_gt_1")
+    if turn.compound_question:
+        sins["too_much_talking"].append("compound_question")
+    if "request_plus_inquiry" in atomicity:
+        sins["too_much_talking"].append("request_plus_inquiry")
+    if _OR_QUESTION_RX.search(turn.assistant_text or ""):
+        sins["too_much_talking"].append("or_question")
+        sins["too_much_control"].append("choice_fork")
+
+    # Arguing — push_after_resistance lives in cc.failures
+    if "push_after_resistance" in cc_failures:
+        sins["too_much_arguing"].append("push_after_resistance")
+
+    # Control
+    if "normal_interview_question_during_safety" in cc_failures:
+        sins["too_much_control"].append("interview_during_safety")
+    if "missing_memory_echo" in reflection:
+        sins["too_much_control"].append("missing_memory_echo")
+    if "echo_not_grounded" in reflection:
+        sins["too_much_control"].append("echo_not_grounded")
+
+    # Emotion — placeholder, populated only when a future detector emits it
+    if "emotional_amplification" in cc_failures:
+        sins["too_much_emotion"].append("emotional_amplification")
+
+    return {k: v for k, v in sins.items() if v}
+
+
+def _has_control_failure(turn: "TurnResult") -> bool:
+    """True if turn carries any control-yield failure label."""
+    cc = turn.communication_control or {}
+    cc_failures = set(cc.get("failures") or [])
+    reflection = set(turn.reflection_failures or cc.get("reflection_failures") or [])
+    return bool((reflection | cc_failures) & _CONTROL_FAILURE_LABELS)
+
+
+def build_phelan_rollup(turns: List["TurnResult"]) -> Dict[str, Any]:
+    """Build the per-session Phelan rollup. Idempotent and side-effect free."""
+    per_turn: List[Dict[str, Any]] = []
+    totals = {
+        "too_much_talking": 0,
+        "too_much_emotion": 0,
+        "too_much_arguing": 0,
+        "too_much_control": 0,
+    }
+
+    consecutive_missing_echo = 0
+    max_consecutive_missing_echo = 0
+    consecutive_control = 0
+    max_consecutive_control = 0
+    sequence_failures: List[Dict[str, Any]] = []
+
+    def _flush_sequences(end_marker: Optional[str]) -> None:
+        # Called when a streak ends. Records sequence-level events.
+        nonlocal consecutive_missing_echo, consecutive_control
+        if consecutive_missing_echo >= 3:
+            sequence_failures.append({
+                "type": "missing_echo_sequence",
+                "length": consecutive_missing_echo,
+                "ending_before_turn": end_marker,
+            })
+        if consecutive_control >= 3:
+            sequence_failures.append({
+                "type": "control_yield_sequence",
+                "length": consecutive_control,
+                "ending_before_turn": end_marker,
+            })
+        consecutive_missing_echo = 0
+        consecutive_control = 0
+
+    for t in turns:
+        sins = _phelan_failures_for_turn(t)
+        for sin in sins:
+            totals[sin] += 1
+
+        cc = t.communication_control or {}
+        reflection = set(t.reflection_failures or cc.get("reflection_failures") or [])
+
+        # Missing-echo streak (narrow)
+        if "missing_memory_echo" in reflection:
+            consecutive_missing_echo += 1
+            max_consecutive_missing_echo = max(
+                max_consecutive_missing_echo, consecutive_missing_echo
+            )
+        else:
+            if consecutive_missing_echo >= 3:
+                sequence_failures.append({
+                    "type": "missing_echo_sequence",
+                    "length": consecutive_missing_echo,
+                    "ending_before_turn": t.name,
+                })
+            consecutive_missing_echo = 0
+
+        # Cross-failure control streak (broad)
+        if _has_control_failure(t):
+            consecutive_control += 1
+            max_consecutive_control = max(
+                max_consecutive_control, consecutive_control
+            )
+        else:
+            if consecutive_control >= 3:
+                sequence_failures.append({
+                    "type": "control_yield_sequence",
+                    "length": consecutive_control,
+                    "ending_before_turn": t.name,
+                })
+            consecutive_control = 0
+
+        per_turn.append({
+            "turn": t.name,
+            "phelan_failures": sins,
+        })
+
+    # Final flush — streak running into the end of the session
+    if consecutive_missing_echo >= 3:
+        sequence_failures.append({
+            "type": "missing_echo_sequence",
+            "length": consecutive_missing_echo,
+            "ending_at_final_turn": True,
+        })
+    if consecutive_control >= 3:
+        sequence_failures.append({
+            "type": "control_yield_sequence",
+            "length": consecutive_control,
+            "ending_at_final_turn": True,
+        })
+
+    return {
+        "totals": totals,
+        "max_consecutive_missing_memory_echo": max_consecutive_missing_echo,
+        "max_consecutive_control_failures": max_consecutive_control,
+        "sequence_failures": sequence_failures,
+        "per_turn": per_turn,
+    }
+
+
+def print_phelan_rollup(rollup: Dict[str, Any]) -> None:
+    print("")
+    print("Phelan Four-Sins Rollup")
+    print("-----------------------")
+    totals = rollup.get("totals", {})
+    print(f"Too Much Talking:  {totals.get('too_much_talking', 0)}")
+    print(f"Too Much Emotion:  {totals.get('too_much_emotion', 0)}")
+    print(f"Too Much Arguing:  {totals.get('too_much_arguing', 0)}")
+    print(f"Too Much Control:  {totals.get('too_much_control', 0)}")
+    print(
+        f"Max consecutive missing_memory_echo: "
+        f"{rollup.get('max_consecutive_missing_memory_echo', 0)}"
+    )
+    print(
+        f"Max consecutive control failures (cross): "
+        f"{rollup.get('max_consecutive_control_failures', 0)}"
+    )
+    seq = rollup.get("sequence_failures") or []
+    if seq:
+        print("Sequence failures:")
+        for item in seq:
+            label = item.get("type", "unknown")
+            length = item.get("length", 0)
+            anchor = item.get("ending_before_turn") or (
+                "final_turn" if item.get("ending_at_final_turn") else "?"
+            )
+            print(f"  - {label} length={length} anchor={anchor}")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -577,6 +807,7 @@ async def run_one_turn(
             user_text=turn.user_text,
             safety_triggered=cc_safety_triggered,
             session_style="clear_direct",
+            softened_mode_active=bool(turn.expect_softened_mode_only),
         )
         communication_control = cc_result.to_dict()
     except Exception:
@@ -943,6 +1174,8 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         and bool(narrator_isolation_checks.get("ok"))
     )
 
+    phelan_rollup = build_phelan_rollup(turn_results)
+
     return HarnessReport(
         started_at=now_iso(),
         api=args.api,
@@ -960,6 +1193,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         narrator_isolation_checks=narrator_isolation_checks,
         cleanup=cleanup_info,
         passed=passed,
+        phelan_rollup=phelan_rollup,
     )
 
 
@@ -1077,6 +1311,10 @@ def print_summary(report: HarnessReport) -> None:
         if cleanup and not cleanup.get("skipped"):
             print(f"  cleanup: kent={cleanup.get('kent', {}).get('deleted')} "
                   f"janice={cleanup.get('janice', {}).get('deleted')}")
+
+    # Phelan rollup goes last — interpretive layer on top of everything above.
+    if report.phelan_rollup:
+        print_phelan_rollup(report.phelan_rollup)
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
