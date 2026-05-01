@@ -146,6 +146,12 @@ class TurnResult:
     # Empty list when the echo is grounded + within budget. Reflection
     # is validator-only; assistant_text is never modified.
     reflection_failures: List[str] = dataclasses.field(default_factory=list)
+    # WO-LORI-COMMUNICATION-CONTROL-01: unified runtime-guard report.
+    # Bundles the wrapper's per-turn metrics (changed/failures/word_count/
+    # question_count/atomicity/reflection/safety_triggered/session_style).
+    # Same data the chat_ws path logs via [chat_ws][comm_control] —
+    # surfaced here for trend analysis without grepping logs.
+    communication_control: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -517,6 +523,27 @@ async def run_one_turn(
         except Exception:
             reflection_failures = []
 
+    # ── WO-LORI-COMMUNICATION-CONTROL-01: unified runtime-guard report ──
+    # Same data chat_ws logs via [chat_ws][comm_control], surfaced
+    # here so the harness JSON shows per-turn enforcement attribution
+    # (changed / failures / word_count / question_count / safety) in
+    # one bundle. The harness simulates the wrapper's view post-hoc;
+    # it does NOT mutate assistant_text from the harness side.
+    communication_control: Dict[str, Any] = {}
+    try:
+        from server.code.api.services.lori_communication_control import (
+            enforce_lori_communication_control,
+        )
+        cc_result = enforce_lori_communication_control(
+            assistant_text=assistant_text,
+            user_text=turn.user_text,
+            safety_triggered=bool(turn.expect_safety),
+            session_style="clear_direct",
+        )
+        communication_control = cc_result.to_dict()
+    except Exception:
+        communication_control = {}
+
     if q_count > turn.max_questions:
         failures.append(f"too_many_questions: {q_count} > {turn.max_questions}")
     if compound:
@@ -575,6 +602,7 @@ async def run_one_turn(
         passed=not failures,
         atomicity_failures=atomicity_failures,
         reflection_failures=reflection_failures,
+        communication_control=communication_control,
         failures=failures,
     ), new_lock_baseline)
 

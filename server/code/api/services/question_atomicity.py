@@ -167,26 +167,19 @@ _CHOICE_FRAMING_RX = re.compile(
 )
 
 
-# 4.5 hidden_second_target — two proper-noun place tokens or two relation
-# tokens joined by "and" inside a single question.
-# Conservative: only fires when both tokens look like proper nouns
-# (capitalized) OR are in a small relation-token allowlist.
+# 4.5 hidden_second_target — two PROPER-NOUN tokens joined by "and"
+# inside a single question. The classic case: two distinct place names
+# ("Spokane and Montreal") or two named people that the narrator would
+# need to retrieve from separate memory anchors.
 #
-# We deliberately keep this LOW-recall to avoid false positives on
-# legitimate single-target questions like "your relationship with reading
-# and writing".
-_HIDDEN_TARGET_RELATIONS = (
-    r"(?:mom|mother|dad|father|grandma|grandmother|grandpa|grandfather|"
-    r"sister|brother|aunt|uncle|cousin|son|daughter|wife|husband|"
-    r"school|church|home|farm|kitchen|garden|barn|house)"
-)
-_HIDDEN_SECOND_TARGET_RELATIONS_RX = re.compile(
-    r"\b" + _HIDDEN_TARGET_RELATIONS + r"\b"
-    r"\s+and\s+"
-    r"\b" + _HIDDEN_TARGET_RELATIONS + r"\b"
-    r"[^?!.]*?\?",
-    re.IGNORECASE,
-)
+# 2026-05-01 narrowing per WO-LORI-COMMUNICATION-CONTROL-01 negative
+# tests: dropped the generic-relation branch (mom/dad/school/church/etc).
+# Generic relation pairs like "mother and father" or "reading and
+# writing" are conventionally single coordinated retrieval targets, not
+# two separate memory anchors. The dual_retrieval_axis check still
+# catches the real compound case (place + emotion / person + emotion /
+# event + evaluation). This narrowing closes the false positive
+# Chris's research-driven WO flagged in §8 negative tests.
 _HIDDEN_SECOND_TARGET_PROPER_RX = re.compile(
     r"\b([A-Z][a-z]+)\s+and\s+([A-Z][a-z]+)\b"
     r"[^?!.]*?\?",
@@ -297,11 +290,7 @@ def classify_atomicity(text: str) -> List[str]:
     if _CHOICE_FRAMING_RX.search(text):
         failures.append("choice_framing")
 
-    if _HIDDEN_SECOND_TARGET_RELATIONS_RX.search(text):
-        failures.append("hidden_second_target")
-    elif _HIDDEN_SECOND_TARGET_PROPER_RX.search(text):
-        # Proper-noun pair only fires when relation pair didn't —
-        # avoids double-counting.
+    if _HIDDEN_SECOND_TARGET_PROPER_RX.search(text):
         failures.append("hidden_second_target")
 
     if _DUAL_RETRIEVAL_RX.search(text):

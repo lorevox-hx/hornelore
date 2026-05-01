@@ -753,96 +753,94 @@ async def ws_chat(ws: WebSocket):
 
         final_text = "".join(reply_parts).strip()
 
-        # WO-LORI-QUESTION-ATOMICITY-01 Layer 2 — atomicity enforcement.
-        # Runs in BOTH streaming and buffer modes (the existing v0
-        # _trim_to_one_question only ran in buffer mode, which is why
-        # the 2026-04-30 golfball-v2-clean run still saw compound
-        # questions on Turns 03/04/07 — the filter never ran in
-        # streaming). Now the filter runs on `final_text` regardless of
-        # mode; the `done` event below carries the trimmed text, which
-        # the harness reads via final_text_from_done. Streaming UX still
-        # shows untrimmed tokens as they generate (TTS chunking still
-        # works), but the persisted/echoed-back assistant_text reflects
-        # the filter result.
+        # WO-LORI-COMMUNICATION-CONTROL-01 — the unifying runtime
+        # enforcement layer. Replaces the per-WO call sites for
+        # ATOMICITY-01 and REFLECTION-01 with one wrapper that runs:
+        #   safety exemption → atomicity (truncate) → question-count cap
+        #   → word-count cap (per session_style) → reflection (validate)
+        #
+        # Architecture rationale (Wang et al. 2025 STA): prompt
+        # engineering is fragile to small input changes; deterministic
+        # runtime enforcement is robust. This wrapper IS the runtime
+        # authority. The LORI_INTERVIEW_DISCIPLINE prompt block is
+        # Layer 1 (always-on guidance); this wrapper is Layer 2
+        # (always-on enforcement when the flag is on).
+        #
+        # Runs in BOTH streaming and buffer modes. The `done` event
+        # below carries result.final_text; harness reads it via
+        # final_text_from_done.
         #
         # Memory_echo / correction turns return earlier (above) so they
         # bypass this filter by construction. Acute safety responses
-        # bypass via the _safety_result.triggered flag below.
+        # bypass via the _safety_result.triggered flag inside the
+        # wrapper.
         #
-        # Gated DEFAULT-OFF behind HORNELORE_ATOMICITY_FILTER for the
-        # first eval cycle. After one clean rerun on the golfball
-        # harness shows zero atomicity_failures + no master-extractor
-        # regression, flip default to ON in .env.
+        # Gated DEFAULT-OFF behind HORNELORE_COMMUNICATION_CONTROL for
+        # the first eval cycle. The legacy HORNELORE_ATOMICITY_FILTER
+        # / HORNELORE_REFLECTION_VALIDATOR flags are deprecated — when
+        # COMMUNICATION_CONTROL is on, the wrapper handles both. When
+        # off, no enforcement runs (Layer 1 prompt directives still
+        # fire). After one clean golfball rerun + master extractor
+        # eval green, flip COMMUNICATION_CONTROL default to ON.
+        comm_control_dict: Dict[str, Any] = {}
         atomicity_failures: List[str] = []
-        try:
-            _atomicity_enabled = os.environ.get(
-                "HORNELORE_ATOMICITY_FILTER", "0"
-            ).strip().lower() in ("1", "true", "yes", "on")
-            _safety_triggered_now = bool(
-                _safety_result and getattr(_safety_result, "triggered", False)
-            )
-            if (
-                _atomicity_enabled
-                and final_text
-                and not _safety_triggered_now
-            ):
-                from ..services.question_atomicity import enforce_question_atomicity
-                _new_text, atomicity_failures = enforce_question_atomicity(final_text)
-                if atomicity_failures:
-                    if _new_text != final_text:
-                        logger.warning(
-                            "[chat_ws][atomicity] truncated conv=%s failures=%s before_len=%d after_len=%d",
-                            conv_id, ",".join(atomicity_failures),
-                            len(final_text), len(_new_text),
-                        )
-                        final_text = _new_text
-                    else:
-                        logger.warning(
-                            "[chat_ws][atomicity] skip-grammar conv=%s failures=%s text_unchanged",
-                            conv_id, ",".join(atomicity_failures),
-                        )
-        except Exception as _atom_exc:
-            # Filter is a safety net — never kill a turn on enforcement
-            # error. Log and continue with untrimmed text.
-            logger.warning(
-                "[chat_ws][atomicity] filter raised, passing through: %s",
-                _atom_exc,
-            )
-
-        # WO-LORI-REFLECTION-01 — memory-echo validator (validator-only,
-        # no mutation). Runs in BOTH streaming and buffer modes alongside
-        # atomicity. Logs failure labels via [chat_ws][reflection] marker.
-        # Never modifies assistant_text — reflection content is too
-        # semantic for safe deterministic mutation (per §6 of the spec).
-        # Skip when _safety_result.triggered (acute SAFETY response has
-        # its own structure).
         reflection_failures: List[str] = []
         try:
-            _reflection_enabled = os.environ.get(
-                "HORNELORE_REFLECTION_VALIDATOR", "0"
+            _cc_enabled = os.environ.get(
+                "HORNELORE_COMMUNICATION_CONTROL", "0"
             ).strip().lower() in ("1", "true", "yes", "on")
-            _safety_triggered_now2 = bool(
-                _safety_result and getattr(_safety_result, "triggered", False)
-            )
-            if (
-                _reflection_enabled
-                and final_text
-                and not _safety_triggered_now2
-            ):
-                from ..services.lori_reflection import validate_memory_echo
-                _passed, reflection_failures = validate_memory_echo(
+            if _cc_enabled and final_text:
+                from ..services.lori_communication_control import (
+                    enforce_lori_communication_control,
+                )
+                _safety_triggered_now = bool(
+                    _safety_result and getattr(_safety_result, "triggered", False)
+                )
+                _session_style = (
+                    (params.get("session_style") if isinstance(params, dict) else None)
+                    or "clear_direct"
+                )
+                _cc_result = enforce_lori_communication_control(
                     assistant_text=final_text,
                     user_text=user_text or "",
+                    safety_triggered=_safety_triggered_now,
+                    session_style=str(_session_style),
                 )
-                if reflection_failures:
+                comm_control_dict = _cc_result.to_dict()
+                atomicity_failures = list(_cc_result.atomicity_failures)
+                reflection_failures = list(_cc_result.reflection_failures)
+                if _cc_result.changed:
                     logger.warning(
-                        "[chat_ws][reflection] failures=%s conv=%s",
-                        ",".join(reflection_failures), conv_id,
+                        "[chat_ws][comm_control] changed=True conv=%s "
+                        "failures=%s atomicity=%s reflection=%s "
+                        "before_words=%d after_words=%d",
+                        conv_id,
+                        ",".join(_cc_result.failures),
+                        ",".join(_cc_result.atomicity_failures),
+                        ",".join(_cc_result.reflection_failures),
+                        len(final_text.split()),
+                        _cc_result.word_count,
                     )
-        except Exception as _refl_exc:
+                    final_text = _cc_result.final_text
+                elif _cc_result.failures or _cc_result.reflection_failures:
+                    # Validation-only failures (reflection in v1, or
+                    # safety-path "normal Q during safety"). No mutation.
+                    logger.warning(
+                        "[chat_ws][comm_control] validate-only conv=%s "
+                        "failures=%s atomicity=%s reflection=%s "
+                        "safety=%s",
+                        conv_id,
+                        ",".join(_cc_result.failures),
+                        ",".join(_cc_result.atomicity_failures),
+                        ",".join(_cc_result.reflection_failures),
+                        _cc_result.safety_triggered,
+                    )
+        except Exception as _cc_exc:
+            # Filter is a safety net — never kill a turn on enforcement
+            # error. Log and continue with the original text.
             logger.warning(
-                "[chat_ws][reflection] validator raised, passing through: %s",
-                _refl_exc,
+                "[chat_ws][comm_control] wrapper raised, passing through: %s",
+                _cc_exc,
             )
 
         # WO-LORI-ACTIVE-LISTENING-01 Layer 2 (legacy, retained for

@@ -79,9 +79,12 @@ class ClassifyAtomicityTests(unittest.TestCase):
         text = "What do you remember about Spokane and Montreal?"
         self.assertIn("hidden_second_target", classify_atomicity(text))
 
-    def test_hidden_target_two_relations(self):
-        text = "How did your mom and dad spend evenings together?"
-        self.assertIn("hidden_second_target", classify_atomicity(text))
+    # 2026-05-01 NARROWING: hidden_second_target now requires
+    # PROPER-NOUN pairs only. Generic relation pairs ("mom and dad",
+    # "school and church") are conventionally single coordinated
+    # retrieval targets and must NOT flag — see WO-LORI-COMMUNICATION-
+    # CONTROL-01 §8 negative tests. Dual_retrieval_axis still catches
+    # the real compound case (place + emotion / person + emotion).
 
     # -- 4.6 dual_retrieval_axis ----------------------------------------
 
@@ -115,6 +118,29 @@ class ClassifyAtomicityTests(unittest.TestCase):
     def test_negative_internal_or_in_modifier(self):
         self.assertEqual(
             classify_atomicity("Was it weeks or months ago?"),
+            [],
+        )
+
+    # 2026-05-01 negative tests from WO-LORI-COMMUNICATION-CONTROL-01 §8.
+    # These are coordinated single-target patterns that must NOT trip:
+
+    def test_negative_mother_and_father(self):
+        # "your mother and father" = single coordinated retrieval target
+        # ("memories of my parents" is one memory blob)
+        self.assertEqual(
+            classify_atomicity("What do you remember about your mother and father?"),
+            [],
+        )
+
+    def test_negative_reading_and_writing(self):
+        self.assertEqual(
+            classify_atomicity("What do you remember about reading and writing?"),
+            [],
+        )
+
+    def test_negative_you_and_brother(self):
+        self.assertEqual(
+            classify_atomicity("What did you and your brother do after school?"),
             [],
         )
 
