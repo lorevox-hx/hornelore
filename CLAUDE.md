@@ -10,6 +10,15 @@ Lorevox is a privacy-first conversational memory system that helps older adults 
 
 **Hornelore** is the working implementation Chris uses with his own family (Kent and Janice Horne, his parents). The patterns shipped here graduate to **Lorevox**, the public product.
 
+## Design principles (locked)
+
+- **No dual metaphors.** Life Map is the only navigation surface. The river metaphor (Kawa, Memory River) was a useful theoretical lens early; it's retired as system, UI, and logic. Kept as a research citation only.
+- **No operator leakage.** Anything a narrator can see or interact with must be designed for narrators. No Return-to-Operator buttons, no diagnostic surfaces, no operator-only controls in the narrator flow. Every UI element passes a role check.
+- **No system-tone outputs.** Anything visible to the narrator sounds like a person talking, not a database query result. "(not on record yet)" disappears in narrator-facing output. "Based on: interview projection, session notes" never reaches the narrator. Source-of-truth attribution is operator-side.
+- **No partial resets.** Reset Identity clears all narrator-scoped state in one operation, atomically. No lingering memoir cache, no surviving runtime softened-mode, no localStorage remnants. If a reset doesn't reset everything, it isn't done.
+
+These four principles are checked against every UI element, every data write, and every WO acceptance criterion.
+
 **Canonical extractor architecture reference:** `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`. Consult this when scoping any extractor-lane WO, prompt experiment, or eval. Core Law: *Extraction is semantics-driven, but errors arise from failures in causal attribution at the binding layer.* Five-layer pipeline: Architectural / Control / Binding (primary failure surface) / Decision / Evaluation. Type A/B/C question typology LOCKED.
 
 ## Environment
