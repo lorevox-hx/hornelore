@@ -1,0 +1,62 @@
+/* WO-LORI-SOFTENED-RESPONSE-01 — Bug Panel softened-mode banner.
+ *
+ * Visual posture: warm + calm, NOT alarmed. The card means "Lori is
+ * being gentler right now," which is functioning-as-designed. Avoid
+ * red / urgent tones — this isn't an alert, it's a status indicator.
+ *
+ * Operator-only surface; mounted inside #lv10dBugPanel near the
+ * existing safety-banner block. Never rendered narrator-side.
+ */
+
+#lv10dBpSoftenedBanner {
+  margin-top: 8px;
+}
+
+.lv10d-softened-card {
+  background: linear-gradient(135deg, rgba(180, 200, 220, 0.18) 0%, rgba(160, 180, 210, 0.12) 100%);
+  border: 1px solid rgba(140, 170, 200, 0.45);
+  border-left: 3px solid rgba(110, 150, 190, 0.85);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 8px 0;
+  font-family: var(--lv-font-system, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(40, 50, 70, 0.92);
+}
+
+.lv10d-softened-card-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  letter-spacing: 0.2px;
+}
+
+.lv10d-softened-card-body {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.lv10d-softened-card-meta {
+  opacity: 0.6;
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.lv10d-softened-card-note {
+  font-size: 11px;
+  opacity: 0.75;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* Dark-mode override (matches Bug Panel's general dark-mode posture
+ * when the operator flips the system theme). Pure cosmetic; no
+ * functional change. */
+@media (prefers-color-scheme: dark) {
+  .lv10d-softened-card {
+    background: linear-gradient(135deg, rgba(60, 80, 110, 0.32) 0%, rgba(50, 70, 100, 0.22) 100%);
+    border-color: rgba(140, 170, 200, 0.55);
+    border-left-color: rgba(150, 190, 230, 0.85);
+    color: rgba(220, 230, 240, 0.92);
+  }
+}

@@ -1574,6 +1574,36 @@ def compose_system_prompt(
         directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
         directive_lines.append("")
 
+        # WO-LORI-SOFTENED-RESPONSE-01 — inject SOFTENED MODE directive
+        # when the session is in softened state (set by an acute safety
+        # trigger in a recent prior turn). chat_ws threads the state
+        # dict through runtime71["softened_state"]; we read it here
+        # and append the directive block. Empty string when not
+        # softened, so this is a no-op for normal interview turns.
+        #
+        # The directive shape is locked: echo + presence + ONE gentle
+        # invitation; no new memory probes; 35-word cap. Word-cap
+        # enforcement is downstream in lori_communication_control's
+        # safety-path branch (the wrapper sees safety_triggered=True
+        # for the duration of the softened window).
+        try:
+            _softened_state = (
+                runtime71.get("softened_state") if isinstance(runtime71, dict) else None
+            )
+            if _softened_state:
+                from .services.lori_softened_response import (
+                    build_softened_response_directive,
+                )
+                _softened_block = build_softened_response_directive(_softened_state)
+                if _softened_block:
+                    directive_lines.append(_softened_block)
+                    directive_lines.append("")
+        except Exception:
+            # Never let softened-state injection failures kill prompt
+            # composition. Logged at chat_ws level; here we silently
+            # fall through to normal interview prompt.
+            pass
+
         # v7.4D Phase 6B — Identity mode gate.
         # If identity is not yet complete, replace the normal pass directives with a
         # gentle identity-collection directive that does NOT hijack emotional or

@@ -40,6 +40,7 @@ from ..db import (
     count_unacked_safety_events,
     list_safety_events,
     safety_events_digest,
+    get_session_softened_state,  # WO-LORI-SOFTENED-RESPONSE-01
 )
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,49 @@ def get_digest(
     # diagnostic labels, or longitudinal risk profiles. Operator cares
     # about "did anything fire that I haven't seen?" — counts answer that.
     return safety_events_digest(since_iso=since, person_id=person_id)
+
+
+@router.get("/softened-state")
+def softened_state(
+    conv_id: str = Query(..., description="Conversation/session id to query"),
+):
+    """WO-LORI-SOFTENED-RESPONSE-01 — read post-safety softened state
+    for a single conversation. Returns:
+
+        {
+          "conv_id": str,
+          "interview_softened": bool,
+          "softened_until_turn": int,
+          "turn_count": int,
+          "turns_remaining": int   # 0 when not active; otherwise the
+                                   # number of softened turns still left
+                                   # in the window (including current)
+        }
+
+    Bug Panel polls this every 30s while open. Banner appears when
+    interview_softened=True and clears when turns_remaining drops to 0
+    (auto-clear is handled by the read accessor itself).
+
+    Per spec: NEVER narrator-visible. NO scoring. NO clinical labels.
+    Just enough state for the operator to know "softened mode is on
+    for N more turns" so they understand why Lori is staying quiet.
+    """
+    _require_operator_safety_enabled()
+    state = get_session_softened_state(conv_id)
+    # Reuse the pure-function helper for turns_remaining math so the
+    # operator surface and the prompt composer agree on the count.
+    try:
+        from ..services.lori_softened_response import turns_remaining
+        remaining = turns_remaining(state)
+    except Exception:
+        remaining = 0
+    return {
+        "conv_id": conv_id,
+        "interview_softened": bool(state.get("interview_softened", False)),
+        "softened_until_turn": int(state.get("softened_until_turn", 0) or 0),
+        "turn_count": int(state.get("turn_count", 0) or 0),
+        "turns_remaining": int(remaining),
+    }
 
 
 @router.post("/{event_id}/acknowledge")

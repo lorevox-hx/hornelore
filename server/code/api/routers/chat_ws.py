@@ -41,6 +41,7 @@ from ..db import (
     increment_session_turn,
     set_session_softened,
     ensure_interview_session,  # BUG-DBLOCK-01 PATCH 3
+    get_session_softened_state,  # WO-LORI-SOFTENED-RESPONSE-01
 )
 import torch
 from ..api import _load_model, _apply_chat_template, StopOnEvent, _normalize_role, MAX_CONTEXT_WINDOW
@@ -336,6 +337,74 @@ async def ws_chat(ws: WebSocket):
                 meta={"ws": True},
             )
 
+        # ── WO-LORI-SOFTENED-RESPONSE-01: per-turn turn_count + softened read ─
+        # Mirrors interview.py:302/305 — every interview-style chat turn
+        # ticks the per-session turn_count and reads the current softened
+        # state. Without this unconditional increment, the existing
+        # set_session_softened math (softened_until_turn = current + 3)
+        # is broken because turn_count only ticked on safety triggers.
+        # Both calls wrapped in try/except — never let counter or read
+        # failure kill a chat turn. Default-safe: missing state is
+        # treated as "not softened" by get_session_softened_state.
+        #
+        # ensure_interview_session is called by the safety block below
+        # before save_segment_flag; we also need the parent row to exist
+        # before increment_session_turn here, so we ensure-up-front.
+        # Idempotent INSERT OR IGNORE — safe to call every turn.
+        #
+        # Defensive init for _safety_result here too — without it, a turn
+        # with empty user_text would skip the scan_answer block entirely
+        # and leave _safety_result unbound, raising NameError when the
+        # wrapper later calls `bool(_safety_result and ...)`. Pre-existing
+        # latent bug surfaced during this WO's code review; init here
+        # fixes it for both the new softened path and the legacy path.
+        _safety_result = None  # type: ignore[assignment]
+        _session_turn_count: int = 0
+        _softened_state: Dict[str, Any] = {
+            "interview_softened": False, "softened_until_turn": 0, "turn_count": 0,
+        }
+        # Gate softened-state reads behind the same env flag as the
+        # composer-side directive injection. Without this, the wrapper
+        # could see softened=True from leftover DB state while the
+        # composer ignores it (because flag is off) — Lori would get a
+        # normal interview prompt but the wrapper would treat the
+        # output as safety-exempt. Match composer + wrapper to the same
+        # gate so flag-off means "do nothing softened anywhere."
+        _softened_response_enabled = os.environ.get(
+            "HORNELORE_SOFTENED_RESPONSE", "0"
+        ).strip().lower() in ("1", "true", "yes", "on")
+        try:
+            ensure_interview_session(conv_id, person_id)
+            _session_turn_count = increment_session_turn(conv_id)
+        except Exception as _tc_exc:
+            logger.warning(
+                "[chat_ws][softened] turn_count increment failed conv=%s: %s",
+                conv_id, _tc_exc,
+            )
+        if _softened_response_enabled:
+            try:
+                _softened_state = get_session_softened_state(conv_id)
+            except Exception as _ss_exc:
+                logger.warning(
+                    "[chat_ws][softened] state read failed conv=%s: %s",
+                    conv_id, _ss_exc,
+                )
+
+        # Operator-facing log marker so api.log shows softened state per
+        # turn. Never logs narrator content; just flag + remaining turns.
+        if _softened_state.get("interview_softened"):
+            try:
+                from ..services.lori_softened_response import turns_remaining as _trem
+                _remaining = _trem(_softened_state)
+            except Exception:
+                _remaining = 0
+            logger.info(
+                "[chat_ws][softened] active conv=%s turns_remaining=%d turn_count=%d until=%d",
+                conv_id, _remaining,
+                _softened_state.get("turn_count", 0),
+                _softened_state.get("softened_until_turn", 0),
+            )
+
         # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 1: chat-path safety scan ─────
         # Mirrors interview.py:269-307. Runs BEFORE turn_mode dispatch so a
         # triggered turn cannot be silently routed through memory_echo or
@@ -413,10 +482,23 @@ async def ws_chat(ws: WebSocket):
                     logger.warning("[chat_ws][safety] segment_flag persist failed: %s", _seg_exc)
 
                 # Set softened mode (in-memory + DB), mirroring interview.py.
+                # WO-LORI-SOFTENED-RESPONSE-01 refactor: use the
+                # _session_turn_count from the upstream per-turn
+                # increment instead of incrementing again here.
+                # Double-incrementing would shift the softened window
+                # math by one — and the existing math is already
+                # tested via interview.py.
                 try:
-                    _current_turn = increment_session_turn(conv_id)
-                    set_softened(conv_id, _current_turn)
-                    set_session_softened(conv_id, _current_turn)
+                    set_softened(conv_id, _session_turn_count)
+                    set_session_softened(conv_id, _session_turn_count)
+                    # Refresh the local softened state so the same turn's
+                    # composer and wrapper see softened=True (without this
+                    # the acute-trigger turn itself wouldn't see the new
+                    # softened flag — only subsequent turns would).
+                    try:
+                        _softened_state = get_session_softened_state(conv_id)
+                    except Exception:
+                        pass
                 except Exception as _soft_exc:
                     logger.warning("[chat_ws][safety] softened persist failed: %s", _soft_exc)
 
@@ -550,6 +632,25 @@ async def ws_chat(ws: WebSocket):
         # the trust-behavior fallback path.
         model, tok = _load_model()
         history = export_turns(conv_id)
+
+        # WO-LORI-SOFTENED-RESPONSE-01 — thread softened state into
+        # runtime71 BEFORE compose_system_prompt is called. The
+        # composer reads runtime71["softened_state"] and injects the
+        # SOFTENED MODE directive when interview_softened=True.
+        # The env-flag gate already happened upstream when we decided
+        # whether to read the DB state at all. _softened_state here is
+        # either the freshly-read DB row (flag ON) or the safe default
+        # zero-state (flag OFF). So the if-check below is just "did
+        # we actually find a softened session?" — not a flag check.
+        try:
+            if _softened_state and _softened_state.get("interview_softened"):
+                runtime71 = dict(runtime71) if isinstance(runtime71, dict) else {}
+                runtime71["softened_state"] = dict(_softened_state)
+        except Exception as _rt_exc:
+            logger.warning(
+                "[chat_ws][softened] runtime71 thread failed conv=%s: %s",
+                conv_id, _rt_exc,
+            )
 
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
 
@@ -793,9 +894,23 @@ async def ws_chat(ws: WebSocket):
                 from ..services.lori_communication_control import (
                     enforce_lori_communication_control,
                 )
-                _safety_triggered_now = bool(
+                # WO-LORI-SOFTENED-RESPONSE-01: softened state is also
+                # a "safety frame" from the wrapper's perspective. Even
+                # when this turn's user_text didn't match an acute
+                # pattern (so _safety_result.triggered=False), if the
+                # session is in softened mode from a prior acute
+                # trigger, the wrapper should route through the
+                # safety-exempt path — no atomicity rewrite of a
+                # softened-mode response, and a "normal Q during
+                # safety" check is exactly what flags Turn 07's bug.
+                _acute_now = bool(
                     _safety_result and getattr(_safety_result, "triggered", False)
                 )
+                _softened_now = bool(
+                    isinstance(_softened_state, dict)
+                    and _softened_state.get("interview_softened")
+                )
+                _safety_triggered_now = _acute_now or _softened_now
                 _session_style = (
                     (params.get("session_style") if isinstance(params, dict) else None)
                     or "clear_direct"

@@ -157,12 +157,44 @@ def _safety_path(
     """Safety-acute exemption: do not modify the assistant_text at all.
     Just record whether the turn appears to have a "normal interview
     question during safety" violation (informational only — caller
-    decides what to do)."""
+    decides what to do).
+
+    WO-LORI-SOFTENED-RESPONSE-01 note: this same path also fires when
+    a softened-mode turn is in flight (chat_ws sets safety_triggered=
+    True for both acute pattern matches AND DB-persisted softened
+    state). For softened-mode turns we additionally record whether
+    the response exceeded the SOFTENED_WORD_LIMIT (35 words), but
+    we still do NOT mutate — the spec says no rewrite of safety/
+    softened responses; let the operator see the violation and
+    re-tune Layer 1 if it persists.
+    """
     failures: List[str] = []
     has_safety_ack = bool(_SAFETY_ACKNOWLEDGMENT_RX.search(assistant_text))
     has_normal_q = bool(_SAFETY_NORMAL_QUESTION_RX.search(assistant_text))
     if has_normal_q and not has_safety_ack:
         failures.append("normal_interview_question_during_safety")
+
+    word_count = len(assistant_text.split())
+    # Softened-mode word budget — softer cap than session_style default.
+    # CRITICAL distinction: ACUTE safety responses legitimately run
+    # 40-60 words (warm acknowledgment + 988 phrasing + soft re-engage
+    # invitation), while SOFTENED-mode responses (post-acute, no fresh
+    # trigger) should stay under 35 words per the spec. We can tell
+    # the two apart at this layer by looking for safety-acknowledgment
+    # tokens — acute responses always carry 988/hotline language, so
+    # has_safety_ack=True is the acute signal. If there's no safety
+    # ack AND we're in safety_triggered=True territory, we must be
+    # in softened mode (or in a misrouted normal question, which
+    # already flagged above).
+    #
+    # Imported lazily so question_atomicity / lori_reflection isolation
+    # tests don't fail because of an unrelated import.
+    try:
+        from .lori_softened_response import SOFTENED_WORD_LIMIT
+    except Exception:
+        SOFTENED_WORD_LIMIT = 35
+    if not has_safety_ack and word_count > SOFTENED_WORD_LIMIT:
+        failures.append("softened_response_too_long")
 
     return CommunicationControlResult(
         original_text=assistant_text,
@@ -171,7 +203,7 @@ def _safety_path(
         failures=failures,
         warnings=[],
         question_count=assistant_text.count("?"),
-        word_count=len(assistant_text.split()),
+        word_count=word_count,
         atomicity_failures=[],
         reflection_failures=[],
         session_style=session_style,

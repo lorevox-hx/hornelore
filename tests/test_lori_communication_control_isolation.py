@@ -92,11 +92,20 @@ class LoriCommunicationControlIsolationTests(unittest.TestCase):
                     # Relative — should target a sibling services module
                     for alias in node.names:
                         target = f"{module}.{alias.name}" if module else alias.name
-                        # Must end in question_atomicity or lori_reflection
-                        # (the only services this wrapper composes)
+                        # Must target one of the sibling services this wrapper
+                        # composes:
+                        #   question_atomicity   — atomicity filter (truncate)
+                        #   lori_reflection      — echo validator
+                        #   lori_softened_response — softened word-limit /
+                        #                            directive (lazy import in
+                        #                            safety path)
+                        allowed = (
+                            "question_atomicity",
+                            "lori_reflection",
+                            "lori_softened_response",
+                        )
                         self.assertTrue(
-                            "question_atomicity" in target
-                            or "lori_reflection" in target,
+                            any(name in target for name in allowed),
                             f"Unexpected relative import: {target}",
                         )
 
