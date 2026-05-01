@@ -3353,14 +3353,21 @@
 
   <!-- WO-NARRATOR-ROOM-01 — Take a Break overlay.  Hidden unless the
        narrator clicks Take a break; pauses listening + halts hands-free
-       rearm; Resume or Return to Operator exits. -->
+       rearm; Resume exits.
+
+       WO-PARENT-SESSION-HARDENING-01 Phase 3.1 (UI audit P0 #2):
+       Return-to-Operator button removed (2026-05-01). Narrators must
+       not see operator navigation inside narrator-facing flow. Per
+       the four locked design principles: "No operator leakage."
+       Operators use the Operator shell tab in the header to navigate.
+       The lvNarratorReturnToOperator function remains in app.js as
+       harmless dead code; safe to remove in a later cleanup pass. -->
   <div id="lvNarratorBreakOverlay" class="lv-narrator-break-overlay" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="lvNarratorBreakTitle">
     <div class="lv-narrator-break-card">
       <h2 id="lvNarratorBreakTitle">Let's take a break.</h2>
       <p>Your story is saved. We can come back whenever you are ready.</p>
       <div class="lv-narrator-break-actions">
         <button type="button" class="lv-operator-start-btn" onclick="lvNarratorEndBreak()">Resume</button>
-        <button type="button" class="lv-operator-ghost-btn" onclick="lvNarratorReturnToOperator()">Return to Operator</button>
       </div>
     </div>
   </div>

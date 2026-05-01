@@ -1065,18 +1065,64 @@ function lvNarratorSetRecordVoice(enabled) {
 }
 window.lvNarratorSetRecordVoice = lvNarratorSetRecordVoice;
 
-/* ── Take a Break overlay ─────────────────────────────────────── */
+/* ── Take a Break overlay ───────────────────────────────────────
+   WO-PARENT-SESSION-HARDENING-01 Phase 3.2 + 4.2 + 4.3 + 4.4
+   (UI audit P0 #3 + P1 #1 + P1 #2 + P1 #4):
+
+   StartBreak:
+     - Snapshot pre-break mic state to state.session._breakSnapshot
+       so Resume can restore it (was: snapshot was lost; mic stayed
+       silent forever after Resume).
+     - Cancel in-flight TTS via stopAllTts() — clicking Break while
+       Lori is mid-sentence used to let the audio finish, which felt
+       broken / confusing.
+
+   EndBreak (Resume):
+     - Restore micAutoRearm from snapshot.
+     - If mic was on pre-break, resume listening via the same toggle
+       function that paused it.
+     - Speak welcome-back TTS so the silence-after-Resume failure
+       mode is gone.
+     - Clear the snapshot.
+
+   Escape-key handler at module init:
+     - When the Break overlay is visible, Esc fires Resume (matches
+       Resume button behavior).
+
+   Notes:
+     - lvNarratorReturnToOperator removed from the Break overlay UI
+       (Phase 3.1, hornelore1.0.html). The function definition stays
+       for now as harmless dead code; safe to remove in a later
+       cleanup pass.                                              */
 
 function lvNarratorStartBreak() {
   if (!state.session) state.session = {};
+
+  // Snapshot pre-break mic state BEFORE we change anything.
+  const _preMicAutoRearm = !!state.session.micAutoRearm;
+  const _preMicActive    = !!(state.inputState && state.inputState.micActive);
+  const _preListeningPaused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
+  state.session._breakSnapshot = {
+    micAutoRearm: _preMicAutoRearm,
+    micActive:    _preMicActive,
+    listeningPaused: _preListeningPaused,
+  };
+
   state.session.breakActive = true;
   state.session.micAutoRearm = false;   // stop auto-rearm during break
+
   // Pause mic if active, so the overlay really is silent.
-  const micOn = !!(state.inputState && state.inputState.micActive);
-  const paused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
-  if (micOn && !paused && typeof lv80TogglePauseListening === "function") {
+  if (_preMicActive && !_preListeningPaused && typeof lv80TogglePauseListening === "function") {
     try { lv80TogglePauseListening(); } catch (_) {}
   }
+
+  // Cancel in-flight TTS so clicking Break mid-sentence stops audio
+  // immediately (was: audio kept playing under the overlay).
+  try {
+    if (typeof stopAllTts === "function") stopAllTts();
+    else if (typeof window._wo11eStopTts === "function") window._wo11eStopTts();
+  } catch (_) { /* best-effort */ }
+
   const overlay = document.getElementById("lvNarratorBreakOverlay");
   if (overlay) { overlay.hidden = false; overlay.setAttribute("aria-hidden", "false"); }
   _lvNarratorPaintControls();
@@ -1086,12 +1132,52 @@ window.lvNarratorStartBreak = lvNarratorStartBreak;
 function lvNarratorEndBreak() {
   if (!state.session) state.session = {};
   state.session.breakActive = false;
+
+  // Restore pre-break mic state from snapshot.
+  const snap = state.session._breakSnapshot || null;
+  if (snap) {
+    // Restore auto-rearm flag.
+    state.session.micAutoRearm = !!snap.micAutoRearm;
+    // If mic was on pre-break and we paused it, un-pause now (matching toggle).
+    const stillPaused = !!(typeof listeningPaused !== "undefined" && listeningPaused);
+    const wasUnpausedPreBreak = snap.micActive && !snap.listeningPaused;
+    if (wasUnpausedPreBreak && stillPaused && typeof lv80TogglePauseListening === "function") {
+      try { lv80TogglePauseListening(); } catch (_) {}
+    }
+    state.session._breakSnapshot = null;
+  }
+
   const overlay = document.getElementById("lvNarratorBreakOverlay");
   if (overlay) { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); }
   _lvNarratorPaintControls();
+
+  // Welcome-back TTS — reduces the silence-after-Resume failure mode.
+  // Uses preferred name if known, falls back to a neutral phrase.
+  try {
+    const basics = (state.profile && state.profile.basics) || {};
+    const name = String(basics.preferred || basics.preferredName || basics.fullname ||
+                       basics.firstName || "").trim();
+    const greeting = name
+      ? "Welcome back, " + name + ". Ready to continue?"
+      : "Welcome back. Ready to continue?";
+    if (typeof enqueueTts === "function") enqueueTts(greeting);
+  } catch (_) { /* best-effort; never block Resume */ }
 }
 window.lvNarratorEndBreak = lvNarratorEndBreak;
 
+// WO-PARENT-SESSION-HARDENING-01 Phase 4.4 — Escape-key dismissal of
+// Break overlay. When the overlay is visible, Esc fires Resume.
+// Module-init handler; harmless when overlay is hidden.
+document.addEventListener("keydown", function (e) {
+  if (e.key !== "Escape") return;
+  const overlay = document.getElementById("lvNarratorBreakOverlay");
+  if (!overlay || overlay.hidden) return;
+  e.preventDefault();
+  try { lvNarratorEndBreak(); } catch (_) {}
+});
+
+// Legacy function — UI button removed in Phase 3.1 (no operator leakage).
+// Safe to delete in a later cleanup pass.
 function lvNarratorReturnToOperator() {
   lvNarratorEndBreak();
   if (typeof lvShellShowTab === "function") lvShellShowTab("operator");
