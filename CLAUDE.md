@@ -2,6 +2,14 @@
 
 **Read this first at the start of every session.** These are persistent operational facts, not a task log.
 
+## Mission
+
+Lorevox is a privacy-first conversational memory system that helps older adults preserve life stories, supports cognitive engagement, and provides structured legacy outputs for family. The broader goal is a digital companion for aging populations — supporting memory recall, emotional processing, and intergenerational storytelling.
+
+**This north star is more important than any single WO.** When a decision trades operational tidiness against narrator dignity, narrator dignity wins. The narrator is not an interview subject, not a data source, not a knowledge graph to populate — the narrator is the author of their own story, and the system exists to help them tell it. Operator-side tooling, eval harnesses, and extractor improvements all serve that. None of them outrank it.
+
+**Hornelore** is the working implementation Chris uses with his own family (Kent and Janice Horne, his parents). The patterns shipped here graduate to **Lorevox**, the public product.
+
 **Canonical extractor architecture reference:** `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`. Consult this when scoping any extractor-lane WO, prompt experiment, or eval. Core Law: *Extraction is semantics-driven, but errors arise from failures in causal attribution at the binding layer.* Five-layer pipeline: Architectural / Control / Binding (primary failure surface) / Decision / Evaluation. Type A/B/C question typology LOCKED.
 
 ## Environment
@@ -147,7 +155,13 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 
 **Diag panel first.** For any camera/mic/TTS bug, open the in-app diag at `app.js:5730–5819` (`lv10dSyncHeaderControls`) — it already emits warnings for "Camera active but preview DOM not created", "emotionAware=true but facial consent declined", "Turn state stuck in awaiting_tts_end", plus live `lv10dBpFacialConsent` / `lv10dBpConsentStored` / `lv10dBpCamPreview` / `lv10dBpTts` / `lv10dBpSignalAge` readouts. Check these first; the fault surface collapses to one branch.
 
-**Parallel/supporting subsystems:** Kawa (river metaphor — client-as-theorist, pre-generated "River of Memories" per narrator) and Pheno (lived experience + wisdom extraction, separate from truth fields) are DESIGN COMPLETE specs, not wired to extraction output; they consume the same affect signal. WO-STT-LIVE-02 fragile-fact transcript guard is landed (7-pattern classifier + 30s staleness cap + typed-input fallback).
+**Parallel/supporting subsystems:**
+
+- **Kawa (RETIRED 2026-05-01)** — the river metaphor was a useful theoretical lens early on; gave the project vocabulary for client-as-theorist framing and "river of memories" visualization. The implementation has converged on the canonical 7-era life spine + Life Map UI, and a second river metaphor confused both the model and the user (the broken "narrator-room Memory River view tab" in the 2026-04-30 audit was the trigger). Decision: **Life Map is the only navigation surface; Memory River is removed as a UI.** Kawa is kept as a research citation only — the four papers in `Research/Kawa/` (OTI2023-2768898, TST.2024.9010104, The_Dynamic_Use_of_the_Kawa_Model_A_Scop, newbury-lape-2021-well-being-aging-in-place) support the academic framing of "narrator-as-theorist of their own life" for write-ups. No Kawa engine, no Kawa rendering, no River-of-Memories pre-generation.
+
+- **Pheno (PARKED)** — lived experience + wisdom extraction, separate from truth fields. DESIGN COMPLETE spec, not wired. Doesn't conflict with anything currently shipping. Reactivate when extractor lane settles.
+
+- **WO-STT-LIVE-02 fragile-fact transcript guard** is landed (7-pattern classifier + 30s staleness cap + typed-input fallback).
 
 ## Changelog
 
