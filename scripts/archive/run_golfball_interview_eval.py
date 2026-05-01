@@ -69,6 +69,12 @@ try:
 except Exception:
     _STYLE_DIFF_AVAILABLE = False
 
+try:
+    from golfball_narrator_isolation import run_narrator_isolation_block  # type: ignore
+    _NARRATOR_ISOLATION_AVAILABLE = True
+except Exception:
+    _NARRATOR_ISOLATION_AVAILABLE = False
+
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -149,6 +155,7 @@ class HarnessReport:
     db_checks: Dict[str, Any]
     media_checks: Dict[str, Any]
     style_diff_checks: Dict[str, Any]
+    narrator_isolation_checks: Dict[str, Any]
     cleanup: Dict[str, Any]
     passed: bool
 
@@ -754,6 +761,37 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
             }
             print(f"[golfball] style-diff ERROR: {exc!r}")
 
+    # ── Narrator isolation + truth pipeline flow ─────────────────────────
+    # Two synthetic narrators (Kent + Janice) speak in interleaved order;
+    # the harness asserts each turn writes ONLY to the speaker's record
+    # and that downstream surfaces (story_candidates, operator review,
+    # chronology) reflect the new data for the correct narrator.
+    # Catches BUG-208 class contamination.
+    narrator_isolation_checks: Dict[str, Any] = {
+        "ok": True, "skipped": True,
+        "reason": "skipped (--no-narrator-isolation or module unavailable)",
+    }
+    if args.narrator_isolation and _NARRATOR_ISOLATION_AVAILABLE:
+        print(f"\n[golfball] running narrator-isolation block...")
+        try:
+            narrator_isolation_checks = run_narrator_isolation_block(
+                api=args.api,
+                db_path=args.db,
+                delay_seconds=max(3.0, min(args.delay_between_turns, 8.0)),
+                turn_timeout_seconds=args.turn_timeout,
+                cleanup_synthetic_narrators=args.cleanup,
+            )
+            ni_status = (
+                "PASS" if narrator_isolation_checks.get("ok") else "FAIL"
+            )
+            print(f"[golfball] narrator-isolation {ni_status}")
+        except Exception as exc:
+            narrator_isolation_checks = {
+                "ok": False, "skipped": False,
+                "error": f"narrator_isolation_failed: {exc!r}",
+            }
+            print(f"[golfball] narrator-isolation ERROR: {exc!r}")
+
     cleanup_info: Dict[str, Any] = {"performed": False}
     if synthetic and args.cleanup:
         print(f"\n[golfball] cleanup: deleting synthetic narrator rows...")
@@ -766,6 +804,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         and lock_final == lock_baseline
         and len(turn_results) == len(GOLFBALL_TURNS)
         and bool(style_diff_checks.get("ok"))
+        and bool(narrator_isolation_checks.get("ok"))
     )
 
     return HarnessReport(
@@ -782,6 +821,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         db_checks=db_checks,
         media_checks=media_checks,
         style_diff_checks=style_diff_checks,
+        narrator_isolation_checks=narrator_isolation_checks,
         cleanup=cleanup_info,
         passed=passed,
     )
@@ -868,6 +908,40 @@ def print_summary(report: HarnessReport) -> None:
         for f in sd.get("cross_style_failures", []):
             print(f"  CROSS-STYLE FAIL: {f}")
 
+    ni = report.narrator_isolation_checks or {}
+    if not ni.get("skipped"):
+        print()
+        print("narrator-isolation:")
+        ni_ok = "PASS" if ni.get("ok") else "FAIL"
+        print(f"  overall:        {ni_ok}")
+        narrators = ni.get("narrators", {})
+        print(f"  kent_id:        {narrators.get('kent_synthetic_id', '?')}")
+        print(f"  janice_id:      {narrators.get('janice_synthetic_id', '?')}")
+        for tr in ni.get("turns", []):
+            flag = "PASS" if tr.get("passed") else "FAIL"
+            sd_speaker = tr.get("speaker_delta", {})
+            sd_other = tr.get("other_delta", {})
+            speaker_nonzero = {k: v for k, v in sd_speaker.items() if v}
+            other_nonzero = {k: v for k, v in sd_other.items() if v}
+            print(f"  {flag} turn ({tr.get('narrator_key')}): "
+                  f"speaker_delta={speaker_nonzero or '{}'} "
+                  f"other_delta={other_nonzero or '{}'}")
+            for f in tr.get("failures", []):
+                print(f"       - {f}")
+        leaks = ni.get("cross_narrator_leakage", [])
+        if leaks:
+            print(f"  CROSS-NARRATOR LEAKAGE ({len(leaks)} findings):")
+            for leak in leaks[:8]:  # cap output
+                print(f"       - {leak.get('direction')}: "
+                      f"token={leak.get('token')!r} "
+                      f"hits={leak.get('hits')}")
+        else:
+            print("  cross_narrator_leakage: none ✓")
+        cleanup = ni.get("cleanup", {})
+        if cleanup and not cleanup.get("skipped"):
+            print(f"  cleanup: kent={cleanup.get('kent', {}).get('deleted')} "
+                  f"janice={cleanup.get('janice', {}).get('deleted')}")
+
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -899,6 +973,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--no-style-diff", dest="style_diff", action="store_false",
                    default=True,
                    help="Skip the style-diff probe block. Default: on.")
+    p.add_argument("--no-narrator-isolation",
+                   dest="narrator_isolation", action="store_false",
+                   default=True,
+                   help="Skip the narrator-isolation probe block. "
+                        "Default: on.")
     return p.parse_args(argv)
 
 
