@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -7201,6 +7201,103 @@ def _drop_place_as_lastname(item: Dict[str, Any], source_text: str) -> bool:
     return True
 
 
+# ── BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: cross-emission downgrade guard ──────
+#
+# Companion to BUG-EX-PLACE-LASTNAME-01. The original guard catches the
+# inline-shape ("born in Stanley" → parents.lastName=Stanley) by looking
+# for a place-preposition + value pattern in the source text. It does NOT
+# fire when the narrator answers a follow-up "what's dad's last name?"
+# with just a place noun ("Stanley") because no preposition exists in the
+# answer span.
+#
+# This guard catches the follow-up shape via cross-item emission: when a
+# single extract_fields() call emits BOTH a .birthPlace/.placeOfBirth AND
+# a .lastName/.maidenName/.middleName for the same entity prefix AND the
+# values match (case-insensitive), the lastName item is downgraded to
+# writeMode=suggest_only (operator review adjudicates instead of drop).
+#
+# Source: live runtime trace 2026-05-01 23:01:38 (early_caregivers section,
+# parents.birthPlace=Stanley established prior, follow-up "what's dad's
+# last name?" answer "Stanley", LLM emitted parents.lastName=Stanley).
+
+_PLACE_FOLLOWUP_GUARDED_FIELD_SUFFIXES = (".lastname", ".maidenname", ".middlename")
+_PLACE_FOLLOWUP_PLACE_FIELD_SUFFIXES = (".birthplace", ".placeofbirth")
+_PLACE_FOLLOWUP_PREFIX_WHITELIST = (
+    "personal", "parents", "grandparents", "greatgrandparents",
+    "siblings", "spouse", "family.spouse", "family.children",
+)
+
+
+def _gather_emitted_places(items: List[Dict[str, Any]]) -> Set[Tuple[str, str]]:
+    """BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: collect (prefix_lower, value_lower)
+    tuples for any item whose fieldPath ends in .birthPlace or
+    .placeOfBirth. Used by the .lastName/.maidenName/.middleName
+    cross-emission guard to downgrade items whose value was co-emitted
+    as a place for the same entity prefix.
+
+    Only collects places under the whitelisted entity prefixes
+    (personal / parents / grandparents / greatGrandparents / siblings /
+    spouse / family.spouse / family.children) so unrelated future
+    schema additions with .birthPlace suffixes don't trigger over-match.
+
+    Both prefix and value are stored lowercased so the membership check
+    in _is_followup_place_as_lastname() is robust to LLM casing variance
+    (e.g., parents.birthPlace + Parents.lastName in the same call still
+    matches as same-prefix).
+    """
+    places: Set[Tuple[str, str]] = set()
+    for it in items:
+        fp = it.get("fieldPath") or ""
+        val = it.get("value")
+        if not fp or not isinstance(val, str):
+            continue
+        v = val.strip()
+        if not v:
+            continue
+        fp_lower = fp.lower()
+        if not fp_lower.endswith(_PLACE_FOLLOWUP_PLACE_FIELD_SUFFIXES):
+            continue
+        prefix_lower = fp_lower.rsplit(".", 1)[0]
+        if prefix_lower not in _PLACE_FOLLOWUP_PREFIX_WHITELIST:
+            continue
+        places.add((prefix_lower, v.lower()))
+    return places
+
+
+def _is_followup_place_as_lastname(
+    item: Dict[str, Any],
+    emitted_places: Set[Tuple[str, str]],
+) -> bool:
+    """Return True if this .lastName/.maidenName/.middleName item should
+    be downgraded to suggest_only because its value was co-emitted as a
+    place (.birthPlace / .placeOfBirth) for the same entity prefix in
+    the same extract_fields() call.
+
+    Caller is responsible for performing the downgrade (write_mode =
+    "suggest_only") and emitting the [extract][PLACE-LASTNAME-FOLLOWUP]
+    log line. Posture matches Phase G protected-identity downgrades.
+
+    Prefix is lowercased before membership check to match the gather-side
+    storage (defensive against LLM casing variance within a single call).
+    """
+    if not emitted_places:
+        return False
+    fp = item.get("fieldPath") or ""
+    if not fp:
+        return False
+    fp_lower = fp.lower()
+    if not fp_lower.endswith(_PLACE_FOLLOWUP_GUARDED_FIELD_SUFFIXES):
+        return False
+    val = item.get("value")
+    if not isinstance(val, str):
+        return False
+    v = val.strip()
+    if not v:
+        return False
+    prefix_lower = fp_lower.rsplit(".", 1)[0]
+    return (prefix_lower, v.lower()) in emitted_places
+
+
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
 def _apply_transcript_safety_layer(
@@ -7453,6 +7550,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
 
     if llm_items:
         logger.info("[extract] LLM returned %d items", len(llm_items))
+        # BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: precompute (prefix, value_lower)
+        # tuples for places emitted in this call, so the per-item loop can
+        # downgrade .lastName/.maidenName/.middleName items whose value was
+        # co-emitted as a .birthPlace/.placeOfBirth for the same entity prefix
+        # (the follow-up shape: "what's dad's last name?" → narrator answers
+        # a place noun the LLM previously bound to birthPlace).
+        _emitted_places = _gather_emitted_places(llm_items)
         # Add writeMode from our schema
         result_items = []
         for item in llm_items:
@@ -7475,6 +7579,18 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                         "[extract] Phase G: Protected identity conflict for %s: canonical=%r extracted=%r — downgraded to suggest_only",
                         item["fieldPath"], canonical_val, item["value"],
                     )
+
+            # BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: cross-emission downgrade.
+            # If this is a .lastName/.maidenName/.middleName item whose
+            # value was co-emitted as a place for the same entity prefix
+            # in this call, downgrade to suggest_only (operator review
+            # adjudicates). Same posture as Phase G protected-identity.
+            if _is_followup_place_as_lastname(item, _emitted_places):
+                write_mode = "suggest_only"
+                logger.info(
+                    "[extract][PLACE-LASTNAME-FOLLOWUP] downgrade fieldPath=%s value=%r reason=co_emitted_with_place",
+                    item.get("fieldPath"), item.get("value"),
+                )
 
             # WO-EX-TWOPASS-01: tag extraction method based on pipeline used
             _item_method = "twopass" if _is_twopass else "llm"

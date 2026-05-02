@@ -723,7 +723,9 @@
         "parents.notableLifeEvents": {
           "zone": "must_extract",
           "expected": "born in a car",
-          "alt_defensible_paths": ["earlyMemories.significantEvent"],
+          "alt_defensible_paths": [
+            "earlyMemories.significantEvent"
+          ],
           "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "personal.dateOfBirth": {
@@ -786,7 +788,9 @@
         "education.earlyCareer": {
           "zone": "must_extract",
           "expected": "occupational therapist",
-          "alt_defensible_paths": ["education.careerProgression"],
+          "alt_defensible_paths": [
+            "education.careerProgression"
+          ],
           "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "laterYears.retirement": {
@@ -1480,7 +1484,10 @@
         "residence.place": {
           "zone": "must_extract",
           "expected": "Germany",
-          "alt_defensible_paths": ["family.children.firstName", "family.children.placeOfBirth"],
+          "alt_defensible_paths": [
+            "family.children.firstName",
+            "family.children.placeOfBirth"
+          ],
           "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "personal.dateOfBirth": {
@@ -2694,7 +2701,7 @@
             "US Army",
             "U.S. Army"
           ],
-          "alt_defensible_source": "#144 Lane 1 annotation, value-drift flagged for #97 \u2014 LLM emits greatGrandparents.militaryBranch='Union' (Civil War Union = US Army semantically). Path alt credits under #94 only if value fuzzy \u22650.5; fuzzy falls below gate, so value-alt-credit (#97 WO-EX-VALUE-ALT-CREDIT-01) landed 2026-04-23 with alt_defensible_values=['Union','United States Army',...]. Step-3 scorer credits alt-path + alt-value cross-product at \u22650.5."
+          "alt_defensible_source": "#144 Lane 1 annotation, value-drift flagged for #97 — LLM emits greatGrandparents.militaryBranch='Union' (Civil War Union = US Army semantically). Path alt credits under #94 only if value fuzzy ≥0.5; fuzzy falls below gate, so value-alt-credit (#97 WO-EX-VALUE-ALT-CREDIT-01) landed 2026-04-23 with alt_defensible_values=['Union','United States Army',...]. Step-3 scorer credits alt-path + alt-value cross-product at ≥0.5."
         },
         "military.yearsOfService": {
           "zone": "must_extract",
@@ -2711,7 +2718,7 @@
             "greatGrandparents.militaryEvent",
             "greatGrandparents.militaryUnit"
           ],
-          "alt_defensible_source": "#144 Lane 1 (WO-EX-SCHEMA-ANCESTOR-EXPAND-01, 2026-04-22) \u2014 narrator describes great-grandfather John Michael Shong's Civil War service; LLM emits greatGrandparents.militaryUnit='Company G, 28th Infantry' (substring-matches expected) and greatGrandparents.militaryEvent; schema routes military.* to narrator-era only; alt-credit for ancestor-era military emissions."
+          "alt_defensible_source": "#144 Lane 1 (WO-EX-SCHEMA-ANCESTOR-EXPAND-01, 2026-04-22) — narrator describes great-grandfather John Michael Shong's Civil War service; LLM emits greatGrandparents.militaryUnit='Company G, 28th Infantry' (substring-matches expected) and greatGrandparents.militaryEvent; schema routes military.* to narrator-era only; alt-credit for ancestor-era military emissions."
         },
         "personal.dateOfBirth": {
           "zone": "must_not_write"
@@ -3125,7 +3132,7 @@
           "alt_defensible_paths": [
             "parents.occupation"
           ],
-          "alt_defensible_source": "#144 Lane 1 (WO-EX-SCHEMA-ANCESTOR-EXPAND-01, 2026-04-22) \u2014 LLM emits parents.occupation='foreman of a finishing crew for cement forms' (fuzzy ~0.95 vs expected); narrator's father Pete worked at Garrison Dam; LLM binds occupation to parent schema rather than community schema. Alt-credit under #94."
+          "alt_defensible_source": "#144 Lane 1 (WO-EX-SCHEMA-ANCESTOR-EXPAND-01, 2026-04-22) — LLM emits parents.occupation='foreman of a finishing crew for cement forms' (fuzzy ~0.95 vs expected); narrator's father Pete worked at Garrison Dam; LLM binds occupation to parent schema rather than community schema. Alt-credit under #94."
         },
         "education.earlyCareer": {
           "zone": "must_not_write"
@@ -5914,7 +5921,9 @@
         "grandparents.ancestry": {
           "zone": "must_extract",
           "expected": "French (Alsace-Lorraine), German (Hanover)",
-          "alt_defensible_paths": ["greatGrandparents.ancestry"],
+          "alt_defensible_paths": [
+            "greatGrandparents.ancestry"
+          ],
           "alt_defensible_source": "#119 turnscope greatGrandparents fix r5g adjudication 2026-04-22 — narrator describes great-great-grandparent generation (John Michael Shong, Christine Bolley); LLM emits greatGrandparents.ancestry which is semantically correct; schema routes ancestry to grandparents.ancestry only; alt-credit until schema expansion"
         },
         "grandparents.memorableStory": {
@@ -5980,7 +5989,9 @@
         "residence.place": {
           "zone": "must_extract",
           "expected": "Dodge ND, Glen Ulin ND, Strasburg ND, Bismarck ND, Germany",
-          "alt_defensible_paths": ["personal.placeOfBirth"],
+          "alt_defensible_paths": [
+            "personal.placeOfBirth"
+          ],
           "alt_defensible_source": "WO-EX-SECTION-EFFECT-01 Phase 1 adjudication 2026-04-20"
         },
         "education.schooling": {
@@ -6310,7 +6321,9 @@
         "grandparents.ancestry": {
           "zone": "must_extract",
           "expected": "French (Alsace-Lorraine), German (Hanover)",
-          "alt_defensible_paths": ["greatGrandparents.ancestry"],
+          "alt_defensible_paths": [
+            "greatGrandparents.ancestry"
+          ],
           "alt_defensible_values": [
             "French",
             "German",
@@ -7568,6 +7581,200 @@
         }
       },
       "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture for the spouse path. Validates that the guard generalizes across all guarded suffixes (.lastName / .maidenName / .middleName) regardless of section.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_111",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_identity",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "My dad was born in Stanley, and his last name was Stanley too.",
+      "expectedFields": {
+        "parents.birthPlace": "Stanley"
+      },
+      "forbiddenFields": [
+        "parents.lastName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        },
+        "parents.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: lastName=Stanley is co-emitted with birthPlace=Stanley in same extract_fields() call. Cross-emission guard downgrades lastName to writeMode=suggest_only; suggest_only does not auto-write to truth, so must_not_write is satisfied. Operator review adjudicates whether the surname-Stanley claim is real."
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01 positive fixture (within-call cross-emission). Narrator's compound utterance contains both 'born in Stanley' (triggers birthPlace extraction) AND 'last name was Stanley too' (triggers lastName extraction with explicit name evidence so the original BUG-EX-PLACE-LASTNAME-01 guard does NOT drop it). Within the same extract_fields() call, _gather_emitted_places() collects (parents, 'stanley') and _is_followup_place_as_lastname() matches the lastName item against this set, downgrading writeMode to suggest_only. The downgrade preserves the candidate for operator review (matches Phase G protected-identity posture).",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_112",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "mother_identity",
+      "questionBankAnchor": "Tell me about your mother.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your mother.",
+      "narratorReply": "Mom was born in Spokane, and her last name was Spokane too.",
+      "expectedFields": {
+        "parents.birthPlace": "Spokane"
+      },
+      "forbiddenFields": [
+        "parents.lastName"
+      ],
+      "expectedBehavior": "extract_single",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Spokane"
+        },
+        "parents.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: same shape as case_111, mother variant. Cross-emission guard downgrades lastName=Spokane to suggest_only because birthPlace=Spokane was co-emitted in the same call."
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01 positive fixture (mother variant). Same within-call cross-emission shape as case_111: both birthPlace and lastName matching the place are emitted, original guard does NOT fire (explicit 'last name was' evidence), follow-up guard downgrades lastName to suggest_only.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_113",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_identity",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.lastName",
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "Dad's last name was Horne. He was born in Stanley.",
+      "expectedFields": {
+        "parents.lastName": "Horne",
+        "parents.birthPlace": "Stanley"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_multiple",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne"
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01 negative fixture (no cross-match). Narrator emits BOTH lastName=Horne AND birthPlace=Stanley in the same call. The follow-up guard checks (prefix, value_lower) for cross-match: parents.lastName=horne does NOT match parents.birthPlace=stanley because the values differ. Guard does NOT fire; lastName extracts with default writeMode=human_edit. Locks the no-false-positive property when a real surname coexists with a place that happens to be in the same utterance.",
+      "style_bucket": "topical_history",
+      "chunk_size": "tiny",
+      "noise_profile": "clean",
+      "case_mode": "contract",
+      "style_expectations": {
+        "chronology_consistency": false,
+        "developmental_linkage": false,
+        "family_attribution_correct": true,
+        "event_relevance": false,
+        "motif_detection": false,
+        "spatial_precision": true
+      }
+    },
+    {
+      "id": "case_114",
+      "narratorId": "christopher-todd-horne",
+      "phase": "developmental_foundations",
+      "subTopic": "father_identity",
+      "questionBankAnchor": "Tell me about your father.",
+      "questionType": "anchor",
+      "extractPriority": [
+        "parents.firstName",
+        "parents.lastName",
+        "parents.birthPlace"
+      ],
+      "templateSource": "christopher-todd-horne.json",
+      "loriPrompt": "Tell me about your father.",
+      "narratorReply": "My father Kent Horne was born in Stanley.",
+      "expectedFields": {
+        "parents.firstName": "Kent",
+        "parents.lastName": "Horne",
+        "parents.birthPlace": "Stanley"
+      },
+      "forbiddenFields": [],
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": true,
+      "caseType": "contract",
+      "oralHistoryStyle": "topical",
+      "truthZones": {
+        "parents.firstName": {
+          "zone": "must_extract",
+          "expected": "Kent"
+        },
+        "parents.lastName": {
+          "zone": "must_extract",
+          "expected": "Horne"
+        },
+        "parents.birthPlace": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        }
+      },
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01 negative fixture (compound full-identity utterance). Tests that the new follow-up guard does NOT regress the canonical compound-identity case. LLM emits firstName=Kent, lastName=Horne, birthPlace=Stanley in same call. Cross-emission check: parents.lastName=horne != parents.birthPlace=stanley, so guard does not fire. All three fields extract cleanly. Locks the no-false-positive property on the most common multi-field identity utterance shape.",
       "style_bucket": "topical_history",
       "chunk_size": "tiny",
       "noise_profile": "clean",
