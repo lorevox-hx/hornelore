@@ -7602,19 +7602,22 @@
       "questionBankAnchor": "Tell me about your father.",
       "questionType": "anchor",
       "extractPriority": [
-        "parents.birthPlace"
+        "parents.birthPlace",
+        "personal.placeOfBirth"
       ],
       "templateSource": "christopher-todd-horne.json",
       "loriPrompt": "Tell me about your father.",
-      "narratorReply": "My dad was born in Stanley, and his last name was Stanley too.",
+      "narratorReply": "My dad was born in Stanley, and I was born in stanley too.",
       "expectedFields": {
-        "parents.birthPlace": "Stanley"
+        "parents.birthPlace": "Stanley",
+        "personal.placeOfBirth": "Stanley"
       },
       "forbiddenFields": [
-        "parents.lastName"
+        "parents.lastName",
+        "personal.lastName"
       ],
-      "expectedBehavior": "extract_single",
-      "currentExtractorExpected": true,
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
       "caseType": "contract",
       "oralHistoryStyle": "topical",
       "truthZones": {
@@ -7622,12 +7625,20 @@
           "zone": "must_extract",
           "expected": "Stanley"
         },
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "expected": "Stanley"
+        },
         "parents.lastName": {
           "zone": "must_not_write",
-          "note": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: lastName=Stanley is co-emitted with birthPlace=Stanley in same extract_fields() call. Cross-emission guard downgrades lastName to writeMode=suggest_only; suggest_only does not auto-write to truth, so must_not_write is satisfied. Operator review adjudicates whether the surname-Stanley claim is real."
+          "note": "BUG-EX-PLACE-LASTNAME-01: 'born in Stanley' is a place-preposition pattern with no 'last name was' evidence anywhere in the utterance, so the pre-LLM _drop_place_as_lastname guard MUST drop any parents.lastName=Stanley emission outright. _has_explicit_last_name_evidence returns False; guard fires."
+        },
+        "personal.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-01 narrator-prefix variant: 'I was born in stanley' (lowercase) must not bind to personal.lastName. Locks the pre-LLM guard's case-insensitive place detection AND the narrator-subject + place-preposition pattern not bleeding into a surname slot."
         }
       },
-      "scoringNotes": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01 positive fixture (within-call cross-emission). Narrator's compound utterance contains both 'born in Stanley' (triggers birthPlace extraction) AND 'last name was Stanley too' (triggers lastName extraction with explicit name evidence so the original BUG-EX-PLACE-LASTNAME-01 guard does NOT drop it). Within the same extract_fields() call, _gather_emitted_places() collects (parents, 'stanley') and _is_followup_place_as_lastname() matches the lastName item against this set, downgrading writeMode to suggest_only. The downgrade preserves the candidate for operator review (matches Phase G protected-identity posture).",
+      "scoringNotes": "Compound double-place-of-birth utterance with case mismatch ('Stanley' caps then 'stanley' lowercase). Tests three things in one fixture: (1) parents.birthPlace + personal.placeOfBirth both extract from a single turn (multi-target compound binding from one utterance), (2) the pre-LLM place-as-lastname guard drops mis-bound parents.lastName=Stanley AND personal.lastName=stanley (works on both prefixes, case-insensitive), (3) the fuzzy scorer tolerates the lowercase 'stanley' variant matching the canonical 'Stanley' truth value at >=0.5 fuzzy threshold. Symmetric companion is case_112 (mother variant with inverted case pattern: lowercase first, caps second).\n\nKnown gap (currentExtractorExpected=false, r5h-followup-guard-v2 audit 2026-05-02): current extractor captures parents.birthPlace=Stanley and avoids parents.lastName / personal.lastName pollution (BUG-EX-PLACE-LASTNAME-01 + FOLLOWUP-01 lock both prefixes), but misses personal.placeOfBirth — the LLM hears both clauses as parent-attributed in a same-place dual-subject compound and emits parents.birthPlace twice. This is a binding-layer same-place dual-subject extraction gap (BINDING-01 lane), NOT a place-as-lastName issue. Case stays in bank as a forward-pointer to that lane; pass-state will flip when SPANTAG / BINDING-01 land subject-attribution improvements.",
       "style_bucket": "topical_history",
       "chunk_size": "tiny",
       "noise_profile": "clean",
@@ -7649,19 +7660,22 @@
       "questionBankAnchor": "Tell me about your mother.",
       "questionType": "anchor",
       "extractPriority": [
-        "parents.birthPlace"
+        "parents.birthPlace",
+        "personal.placeOfBirth"
       ],
       "templateSource": "christopher-todd-horne.json",
       "loriPrompt": "Tell me about your mother.",
-      "narratorReply": "Mom was born in Spokane, and her last name was Spokane too.",
+      "narratorReply": "Mom was born in spokane, and I was born in Spokane too.",
       "expectedFields": {
-        "parents.birthPlace": "Spokane"
+        "parents.birthPlace": "Spokane",
+        "personal.placeOfBirth": "Spokane"
       },
       "forbiddenFields": [
-        "parents.lastName"
+        "parents.lastName",
+        "personal.lastName"
       ],
-      "expectedBehavior": "extract_single",
-      "currentExtractorExpected": true,
+      "expectedBehavior": "extract_compound",
+      "currentExtractorExpected": false,
       "caseType": "contract",
       "oralHistoryStyle": "topical",
       "truthZones": {
@@ -7669,12 +7683,20 @@
           "zone": "must_extract",
           "expected": "Spokane"
         },
+        "personal.placeOfBirth": {
+          "zone": "must_extract",
+          "expected": "Spokane"
+        },
         "parents.lastName": {
           "zone": "must_not_write",
-          "note": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01: same shape as case_111, mother variant. Cross-emission guard downgrades lastName=Spokane to suggest_only because birthPlace=Spokane was co-emitted in the same call."
+          "note": "BUG-EX-PLACE-LASTNAME-01 mother variant: 'Mom was born in spokane' (lowercase) must not bind to parents.lastName. Inverted case pattern from case_111 (lowercase first, caps second) to lock case-insensitivity symmetrically; pre-LLM _drop_place_as_lastname guard must fire on either case form."
+        },
+        "personal.lastName": {
+          "zone": "must_not_write",
+          "note": "BUG-EX-PLACE-LASTNAME-01 narrator-prefix variant: 'I was born in Spokane' must not bind to personal.lastName. Pairs with parents.lastName above to lock both prefixes simultaneously on a single utterance."
         }
       },
-      "scoringNotes": "BUG-EX-PLACE-LASTNAME-FOLLOWUP-01 positive fixture (mother variant). Same within-call cross-emission shape as case_111: both birthPlace and lastName matching the place are emitted, original guard does NOT fire (explicit 'last name was' evidence), follow-up guard downgrades lastName to suggest_only.",
+      "scoringNotes": "Mother-side compound double-place-of-birth utterance, INVERTED case mismatch from case_111 ('spokane' lowercase first, 'Spokane' caps second). Symmetric companion to case_111 — locks the case-insensitivity property of the pre-LLM place-as-lastname guard regardless of which occurrence is lowercase. Tests parents.birthPlace + personal.placeOfBirth dual extraction from a single turn, with parents.lastName + personal.lastName both forbidden.\n\nKnown gap (currentExtractorExpected=false, r5h-followup-guard-v2 audit 2026-05-02): same as case_111 — current extractor captures parents.birthPlace=Spokane and avoids parents.lastName / personal.lastName pollution, but misses personal.placeOfBirth in the same-place dual-subject compound. Binding-layer subject-attribution gap (BINDING-01 lane), not a place-as-lastName issue.",
       "style_bucket": "topical_history",
       "chunk_size": "tiny",
       "noise_profile": "clean",
