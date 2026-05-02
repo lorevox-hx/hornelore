@@ -355,6 +355,29 @@
     if (event && event.trigger === "narrator_turn" &&
         loop.currentSection && loop.currentField &&
         typeof event.text === "string" && event.text.trim()) {
+      // ── WO-PARENT-SESSION-HARDENING-01 Patch B (2026-05-01) ──
+      // Conversational input gate. Runs BEFORE digression and BEFORE
+      // save. If the narrator typed a question or an imperative,
+      // suppress save + suppress next-field SYSTEM_QF this turn so
+      // Lori's normal WS path can answer the question (her prompt
+      // already carries device_context for date/time questions).
+      // Live evidence (TEST-09, 2026-05-01 manual run):
+      //   "tell me about today" → saved as personal.dateOfBirth
+      //   "what day is it"      → saved as personal.timeOfBirth
+      // Both passed the digression detector (short, not narrative)
+      // and the validator (no past-tense, no first-person opener).
+      // This gate catches them at the dispatcher level so neither
+      // BB nor candidates queue accumulate them, and Lori sees the
+      // turn as a normal question.
+      if (_isConversationalNonAnswer(event.text)) {
+        const askedKey = `${loop.currentSection}.${loop.currentField}`;
+        loop.lastAction = `conversational_skip_save_${askedKey}`;
+        loop.tellingStoryOnce = true;   // suppress next-field SYSTEM_QF
+        console.log(`[session-loop] BUG-326 phase B: conversational input on ${askedKey} ` +
+          `("${event.text.trim().slice(0, 60)}"). ` +
+          `Skipping save + skipping next-field prompt. Letting Lori answer the question.`);
+        return;
+      }
       // BUG-212: digression check BEFORE save.
       if (_isDigressionAnswer(event.text, loop.currentField)) {
         const askedKey = `${loop.currentSection}.${loop.currentField}`;
@@ -750,6 +773,37 @@
     if (v.length > maxLen) {
       return { valid: false, reason: "over_length_" + maxLen };
     }
+    // ── WO-PARENT-SESSION-HARDENING-01 Patch A (2026-05-01) ─────
+    // Rules 6 + 7 added after the manual TEST-09 run found:
+    //   "tell me about today" → saved as personal.dateOfBirth
+    //   "what day is it"      → saved as personal.timeOfBirth
+    // Both passed all 5 original rules (no second-person, no past-tense
+    // verb, no first-person opener). They're conversational input — a
+    // question and an imperative — that the user typed expecting Lori
+    // to answer, not BB to capture as a field value.
+    //
+    // Rules are intentionally narrow:
+    //   - question_not_answer:  ends with "?" OR starts with a wh-word
+    //     followed by a copula/aux verb ("what is", "where are",
+    //     "when did", "who was", "why does", "how can", "which is")
+    //   - imperative_command:   starts with "tell me / show me /
+    //     explain / describe / give me / help me / list" — the user is
+    //     asking Lori to do something, not answering a BB field.
+    //
+    // The is_conversational flag is set on the result so the dispatcher
+    // (Patch B) can route differently from pollution rejections — these
+    // are conversational, not corrupt. Don't add to candidates queue,
+    // don't consume the asked field; let Lori respond normally.
+    if (/\?\s*$/.test(v)) {
+      return { valid: false, reason: "question_not_answer", is_conversational: true };
+    }
+    if (/^(what|where|when|who|whom|why|how|which|whose)\s+(is|are|was|were|do|does|did|can|could|would|should|will|shall|am)\b/i.test(v)) {
+      return { valid: false, reason: "question_not_answer", is_conversational: true };
+    }
+    if (/^(tell|show|give|help|explain|describe|list)\s+me\b/i.test(v) ||
+        /^(tell|show|explain|describe|list)\s+(us|the|about|some)\b/i.test(v)) {
+      return { valid: false, reason: "imperative_command", is_conversational: true };
+    }
     if (/\b(you|your|yours)\b/i.test(v)) {
       return { valid: false, reason: "second_person_pronoun" };
     }
@@ -760,6 +814,34 @@
       return { valid: false, reason: "first_person_narrative_start" };
     }
     return { valid: true, reason: "ok" };
+  }
+
+  /* ── WO-PARENT-SESSION-HARDENING-01 Patch B (2026-05-01) ─────
+     Conversational-input detector for the dispatcher. Runs alongside
+     _isDigressionAnswer at the top of the asked-field save path.
+     Catches the TEST-09 failure mode where the user types a question
+     ("what day is it") or an imperative ("tell me about today") while
+     the QF walk is asking a BB field — the QF dispatch was hijacking
+     the input as the field's answer before Lori ever saw the question.
+
+     When this returns true, the dispatcher skips:
+       (a) _saveBBAnswer       — don't pollute the BB blob
+       (b) projection-sync     — don't add to candidates either
+       (c) next-field SYSTEM_QF — don't ask the next field this turn
+     so Lori's normal WS path responds with device_context-aware answer.
+
+     Pattern set is the same as Patch A's question/imperative rules,
+     applied at the dispatcher level so it works for ANY field, not
+     just protected-identity. */
+  function _isConversationalNonAnswer(text) {
+    if (!text || typeof text !== "string") return false;
+    var t = text.trim();
+    if (!t) return false;
+    if (/\?\s*$/.test(t)) return true;
+    if (/^(what|where|when|who|whom|why|how|which|whose)\s+(is|are|was|were|do|does|did|can|could|would|should|will|shall|am)\b/i.test(t)) return true;
+    if (/^(tell|show|give|help|explain|describe|list)\s+me\b/i.test(t)) return true;
+    if (/^(tell|show|explain|describe|list)\s+(us|the|about|some)\b/i.test(t)) return true;
+    return false;
   }
 
   /* ── WO-01B: BB save helper ────────────────────────────────────
