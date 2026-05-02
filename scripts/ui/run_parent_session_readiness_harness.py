@@ -278,6 +278,12 @@ class HarnessReport:
     hard_stops: List[str] = field(default_factory=list)
     db_lock_delta: int = 0
     tests: List[TestResult] = field(default_factory=list)
+    # Set by main() based on --narration-only CLI flag. write_report
+    # uses this to render absent static tests as "SKIP" (filtered out
+    # deliberately) instead of "MISSING" (silent regression). Keeps
+    # the operator from chasing ghost regressions on intentional
+    # narration-only runs.
+    narration_only: bool = False
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1068,6 +1074,22 @@ class Harness:
             self.ui.session_start()
             self.ui.page.wait_for_timeout(1_500)
 
+            # Per MANUAL-PARENT-READINESS-V1 (Manual TEST-08A): the
+            # historical-era buttons (Earliest Years, Early School
+            # Years, Adolescence, Coming of Age, Building Years, Later
+            # Years) require identity_complete to activate. Today is
+            # special-cased as the present-day anchor and always
+            # clickable. Prior runs (2026-05-01) showed only the two
+            # Today clicks succeeding while all 7 historical-era
+            # clicks failed silently — exactly the "buttons rendered
+            # but not bound to handler" pattern the manual pack flagged.
+            # Complete identity first so the eras unlock, then exercise
+            # the cycle. This is the realistic post-intake narrator
+            # state — nobody clicks era buttons before they've told Lori
+            # their name.
+            self._complete_identity_for_test_narrator()
+            r.observations["identity_completed"] = True
+
             click_results = []
             era_click_markers_before = len(self.console.matches(r"\[life-map\]\[era-click\]"))
             for label in click_sequence:
@@ -1246,6 +1268,42 @@ class Harness:
             if stop_after_field == field_id:
                 break
         return sends
+
+    def _complete_identity_for_test_narrator(
+        self,
+        name: str = "Era Cycle Test",
+        dob: str = "March 22, 1931",
+        place: str = "Montreal, Quebec, Canada",
+        order: str = "youngest",
+    ) -> None:
+        """Complete narrator identity onboarding so post-onboarding
+        product behaviors become available.
+
+        Used by tests that need a post-identity narrator state — TEST-08
+        Life Map era cycle is the canonical example, since the
+        historical-era buttons (Earliest Years through Later Years)
+        require identity_complete to activate. Today is special-cased
+        and clickable any time, but the rest only unlock after the
+        narrator has at minimum a name + DOB.
+
+        Per MANUAL-PARENT-READINESS-V1 → Manual TEST-08A. ChatGPT's
+        ground-truth name "Era Cycle Test" defaults match the manual
+        pack so the harness and manual run produce comparable narrator
+        states. Callers can override any field for tests that need
+        specific identity values.
+
+        The QF walk fires for any incomplete narrator regardless of
+        session_style — clear_direct narrators still get the identity
+        intake when they're missing name/DOB. So this helper works for
+        any style we created the narrator with. After all 4 fields are
+        saved, we wait briefly for the QF walk to settle (handoff to
+        non-identity phase, identity_complete fires, Life Map historical
+        eras unlock)."""
+        self._intake(name, dob, place, order)
+        # Settle: QF walk emits handoff prompt + Life Map state updates;
+        # ~2s gives identity_complete propagation time without being
+        # gratuitously slow.
+        self.ui.page.wait_for_timeout(2_000)
 
     def test_01_clean_control(self) -> TestResult:
         r = TestResult(id="TEST-01", name="Clean Control")
@@ -2073,9 +2131,16 @@ def write_report(report: HarnessReport, output_path: Path,
     static_ids = ["TEST-01", "TEST-02", "TEST-03", "TEST-04", "TEST-05",
                   "TEST-06", "TEST-07", "TEST-08", "TEST-09", "TEST-10",
                   "TEST-12"]
+    # Static tests absent from the report fall into two cases:
+    #   (a) deliberately filtered out by --narration-only → render as
+    #       SKIP so the run summary doesn't look like a silent regression
+    #   (b) genuinely missing (run aborted before they got a chance) →
+    #       render as MISSING so the operator notices
+    # The narration_only flag distinguishes them.
+    absent_label = "SKIP" if report.narration_only else "MISSING"
     for tid in static_ids:
         t = by_id.get(tid)
-        status = (t.status if t else "MISSING").ljust(6)
+        status = (t.status if t else absent_label).ljust(7)
         label = name_map.get(tid, tid)
         lines.append(f"  {tid:<10} {label:<35}  {status}")
 
@@ -2212,6 +2277,7 @@ def main() -> int:
         base_url=args.base_url,
         api=args.api,
         test_pack=args.test_pack,
+        narration_only=args.narration_only,
     )
 
     with sync_playwright() as pw:
