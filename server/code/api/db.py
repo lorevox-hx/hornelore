@@ -3380,6 +3380,15 @@ def save_safety_event(
     chat_ws._safety_notify_operator catches and logs so the chat turn
     still proceeds. (Defensive init_db() call here so the helper works
     even on a fresh environment that hasn't initialized the schema yet.)
+
+    BUG-DBLOCK-01 PATCH 4 (2026-05-02): mirror save_segment_flag's
+    explicit rollback pattern. Pre-patch, an INSERT failure (e.g.
+    UNIQUE/FK constraint violation, schema drift) closed the connection
+    in `finally` without rolling back, relying on Python's sqlite3
+    driver auto-rollback at GC time — defensive but asymmetric with the
+    sibling safety-path writes that all use the explicit
+    try/except sqlite3.Error → rollback → raise → finally close shape.
+    No behavior change on success; tighter cleanup on failure paths.
     """
     init_db()
     con = _connect()
@@ -3405,6 +3414,12 @@ def save_safety_event(
         )
         con.commit()
         return event_id
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         con.close()
 
@@ -4876,6 +4891,13 @@ def story_candidate_insert(
         )
         con.commit()
         return candidate_id
+    except sqlite3.Error:
+        # BUG-DBLOCK-01 hygiene parity (mirrors save_segment_flag).
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         con.close()
 
@@ -5015,6 +5037,13 @@ def story_candidate_update_placement(
             params,
         )
         con.commit()
+    except sqlite3.Error:
+        # BUG-DBLOCK-01 hygiene parity (mirrors save_segment_flag).
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         con.close()
 
@@ -5049,6 +5078,13 @@ def story_candidate_update_extraction(
             (extraction_status, fields_json, candidate_id),
         )
         con.commit()
+    except sqlite3.Error:
+        # BUG-DBLOCK-01 hygiene parity (mirrors save_segment_flag).
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         con.close()
 
@@ -5082,5 +5118,12 @@ def story_candidate_update_review(
             (review_status, review_notes, reviewed_by, candidate_id),
         )
         con.commit()
+    except sqlite3.Error:
+        # BUG-DBLOCK-01 hygiene parity (mirrors save_segment_flag).
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         con.close()
