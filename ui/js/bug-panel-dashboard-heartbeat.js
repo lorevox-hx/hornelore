@@ -24,7 +24,10 @@
 (function () {
   "use strict";
 
-  const ENDPOINT = "/api/operator/stack-dashboard/ui-heartbeat";
+  // BUG-224 fix (2026-05-01): see bug-panel-dashboard.js comment.
+  // Bare relative URL hits port 8082 (UI), not 8000 (API).
+  const _O = (typeof ORIGIN !== "undefined" && ORIGIN) || "http://localhost:8000";
+  const ENDPOINT = _O + "/api/operator/stack-dashboard/ui-heartbeat";
   const SEND_INTERVAL_FOREGROUND_MS = 5 * 1000;
   const SEND_INTERVAL_BACKGROUND_MS = 30 * 1000;
   const BACKOFF_AFTER_404_MS = 60 * 1000;

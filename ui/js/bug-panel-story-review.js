@@ -18,7 +18,10 @@
   'use strict';
 
   const MOUNT_ID = 'lv10dBpStoryReview';
-  const ENDPOINT = '/api/operator/story-candidates';
+  // BUG-224 fix (2026-05-01): see bug-panel-dashboard.js comment.
+  // Bare relative URL hits port 8082 (UI), not 8000 (API).
+  const _O = (typeof ORIGIN !== 'undefined' && ORIGIN) || 'http://localhost:8000';
+  const ENDPOINT = _O + '/api/operator/story-candidates';
   const DEFAULT_LIMIT = 50;
 
   let _state = {

@@ -23,10 +23,17 @@
 
   const POLL_INTERVAL_FOREGROUND_MS = 5 * 1000;
   const POLL_INTERVAL_BACKGROUND_MS = 30 * 1000;
-  const SUMMARY_ENDPOINT = "/api/operator/stack-dashboard/summary";
-  const HISTORY_ENDPOINT = "/api/operator/stack-dashboard/history?minutes=10";
-  const MARK_ENDPOINT = "/api/operator/stack-dashboard/mark";
-  const HEARTBEAT_ENDPOINT = "/api/operator/stack-dashboard/ui-heartbeat";
+  // BUG-224 fix (2026-05-01): bare relative URLs hit port 8082 (UI
+  // static server) which doesn't proxy /api/* — every request 404'd
+  // even with env gates open. Prefix with ORIGIN (from api.js, =
+  // "http://localhost:8000") so requests route to the API. Same
+  // canonical pattern as API.PEOPLE etc. in api.js. Defensive
+  // fallback in case api.js hasn't loaded by import order.
+  const _O = (typeof ORIGIN !== "undefined" && ORIGIN) || "http://localhost:8000";
+  const SUMMARY_ENDPOINT = _O + "/api/operator/stack-dashboard/summary";
+  const HISTORY_ENDPOINT = _O + "/api/operator/stack-dashboard/history?minutes=10";
+  const MARK_ENDPOINT = _O + "/api/operator/stack-dashboard/mark";
+  const HEARTBEAT_ENDPOINT = _O + "/api/operator/stack-dashboard/ui-heartbeat";
 
   let _timer = null;
   let _gateDisabledLogged = false;

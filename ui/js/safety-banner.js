@@ -30,9 +30,12 @@
   "use strict";
 
   const POLL_INTERVAL_MS = 30 * 1000; // 30 seconds
-  const COUNT_ENDPOINT = "/api/operator/safety-events/count";
-  const LIST_ENDPOINT = "/api/operator/safety-events";
-  const ACK_ENDPOINT = "/api/operator/safety-events"; // POST /{id}/acknowledge
+  // BUG-224 fix (2026-05-01): see bug-panel-dashboard.js comment.
+  // Bare relative URLs hit port 8082 (UI), not 8000 (API).
+  const _O = (typeof ORIGIN !== "undefined" && ORIGIN) || "http://localhost:8000";
+  const COUNT_ENDPOINT = _O + "/api/operator/safety-events/count";
+  const LIST_ENDPOINT = _O + "/api/operator/safety-events";
+  const ACK_ENDPOINT = _O + "/api/operator/safety-events"; // POST /{id}/acknowledge
 
   let _timer = null;
   let _lastCount = -1; // -1 = never polled; tracks transitions

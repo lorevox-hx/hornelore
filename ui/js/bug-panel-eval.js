@@ -15,11 +15,14 @@
   "use strict";
 
   const POLL_INTERVAL_MS = 60 * 1000;
-  const SUMMARY_ENDPOINT = "/api/operator/eval-harness/summary";
+  // BUG-224 fix (2026-05-01): see bug-panel-dashboard.js comment.
+  // Bare relative URLs hit port 8082 (UI), not 8000 (API).
+  const _O = (typeof ORIGIN !== "undefined" && ORIGIN) || "http://localhost:8000";
+  const SUMMARY_ENDPOINT = _O + "/api/operator/eval-harness/summary";
   // WO-OPERATOR-DASHBOARD-MERGE-01: dual-poll the stack dashboard's
   // build_summary() so the cockpit can flag eval validity from
   // infrastructure signals (connection_refused / OOM / stale extract).
-  const SYSTEM_STATUS_ENDPOINT = "/api/operator/stack-dashboard/system-status";
+  const SYSTEM_STATUS_ENDPOINT = _O + "/api/operator/stack-dashboard/system-status";
 
   let _timer = null;
   let _gateDisabledLogged = false;
