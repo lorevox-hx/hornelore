@@ -1,0 +1,74 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T16:40:02.558278
+  finished: 2026-05-01T16:43:02.600926
+
+  TEST-01 Clean Control                        SKIP  
+  TEST-02 Reject placeOfBirth narrative        SKIP  
+  TEST-03 Reject birthOrder complaint          SKIP  
+  TEST-04 Reject fullName first-person         SKIP  
+  TEST-05 Reset Identity clears all            SKIP  
+  TEST-06 Cross-narrator state isolation       SKIP  
+  TEST-07 Life Map cold-start                  FAIL  
+  TEST-08 Life Map era cycle                   FAIL  
+  TEST-09 Today mode date awareness            FAIL  
+  TEST-10 Memoir Peek = Export                 SKIP  
+
+  OVERALL: RED
+  Hard stops fired: Life Map era buttons go visually-active-but-behaviorally-dead., Lori claims she cannot tell the date.
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+TEST-07 Life Map cold-start  (FAIL)  [6205 ms]
+  narrator: Test_219567
+  obs.lifemap_visible: True
+  obs.era_button_count: 7
+  obs.memory_river_absent: False
+  console: [life-map] rendered: 6 eras, active=none, today=inactive
+  console: [life-map] rendered: 6 eras, active=none, today=inactive
+  note: Memory River UI present — should be retired.
+──────────────────────────────────────────────────────────────────────
+TEST-08 Life Map era cycle  (FAIL)  [99622 ms]
+  narrator: Test_225772
+  HARD STOP: Life Map era buttons go visually-active-but-behaviorally-dead.
+  obs.era_clicks: [{'label': 'Earliest Years', 'ok': True}, {'label': 'Today', 'ok': True}, {'label': 'Earliest Years', 'ok': False}, {'label': 'Early School Years', 'ok': False}, {'label': 'Adolescence', 'ok': False}, {'label': 'Coming of Age', 'ok': False}, {'label': 'Building Years', 'ok': False}, {'label': 'Later Years', 'ok': False}, {'label': 'Today', 'ok': False}]
+  obs.era_click_marker_delta: 0
+  obs.lori_today_reply: 
+  obs.db_lock_delta: 0
+  note: 7/9 era clicks failed
+──────────────────────────────────────────────────────────────────────
+TEST-09 Today mode date awareness  (FAIL)  [54862 ms]
+  narrator: Test_325396
+  HARD STOP: Lori claims she cannot tell the date.
+  obs.lori_reply: 
+  obs.matched_positive: False
+  obs.matched_negative: False
+  obs.expected_weekday: Friday
+  obs.expected_date: May 1, 2026
+  note: Reply contained neither today's date nor day-of-week.
+──────────────────────────────────────────────────────────────────────
+TEST-01 test 01 clean control  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-02 test 02 reject place narrative  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-03 test 03 reject order complaint  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-04 test 04 reject name first person  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-05 test 05 reset identity clears all  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-06 test 06 cross narrator isolation  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-10 test 10 memoir peek equals export  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 267

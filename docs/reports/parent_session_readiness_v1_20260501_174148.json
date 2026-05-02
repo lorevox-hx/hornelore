@@ -1,0 +1,235 @@
+{
+  "started_at": "2026-05-01T17:41:48.025363",
+  "finished_at": "2026-05-01T17:43:33.496107",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "RED",
+  "hard_stops": [
+    "Life Map era buttons go visually-active-but-behaviorally-dead."
+  ],
+  "db_lock_delta": 0,
+  "tests": [
+    {
+      "id": "TEST-07",
+      "name": "Life Map cold-start",
+      "status": "PASS",
+      "narrator_name": "Test_932817",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lifemap_visible": true,
+        "era_button_count": 7,
+        "memory_river_absent": true
+      },
+      "console_matches": [
+        "[life-map] rendered: 6 eras, active=none, today=inactive",
+        "[life-map] rendered: 6 eras, active=none, today=inactive"
+      ],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [],
+      "elapsed_ms": 8585
+    },
+    {
+      "id": "TEST-08",
+      "name": "Life Map era cycle",
+      "status": "FAIL",
+      "narrator_name": "Test_941403",
+      "hard_stop": true,
+      "hard_stop_label": "Life Map era buttons go visually-active-but-behaviorally-dead.",
+      "observations": {
+        "era_clicks": [
+          {
+            "label": "Earliest Years",
+            "ok": false
+          },
+          {
+            "label": "Today",
+            "ok": true
+          },
+          {
+            "label": "Earliest Years",
+            "ok": false
+          },
+          {
+            "label": "Early School Years",
+            "ok": false
+          },
+          {
+            "label": "Adolescence",
+            "ok": false
+          },
+          {
+            "label": "Coming of Age",
+            "ok": false
+          },
+          {
+            "label": "Building Years",
+            "ok": false
+          },
+          {
+            "label": "Later Years",
+            "ok": false
+          },
+          {
+            "label": "Today",
+            "ok": true
+          }
+        ],
+        "era_click_marker_delta": 2,
+        "lori_today_reply": "\u2026Tell, it's such a pleasure to meet you and get started on this journey of sharing your story. I'm so glad you've agreed to work with me on building your Life Archive.\n\nNow, I'd love to get some basic",
+        "db_lock_delta": 0,
+        "active_element": {
+          "tag": "BODY",
+          "id": "",
+          "cls": "",
+          "text": "Hornelore 1.0\nT\nACTIVE NARRATOR\nTell\nChoose a narrator\n\u25be\nLife Story\nMemory Exercise\nCompanion\nLife Story\nMic\nCam\n\ud83d\udd0d\nBug\n"
+        },
+        "visible_popovers": [],
+        "era_overlays": []
+      },
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_174148.screenshots/test08_era_cycle_dead_state.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "7/9 era clicks failed"
+      ],
+      "elapsed_ms": 38567
+    },
+    {
+      "id": "TEST-09",
+      "name": "Today mode date awareness",
+      "status": "PASS",
+      "narrator_name": "Test_979971",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lori_reply": "It's Friday, May 1st, 2026. Now, let's get started on building your Life Archive. I'd love to get to know you better. Can you start by telling me your preferred name? What do you like to go by?",
+        "matched_positive": true,
+        "matched_negative": false,
+        "expected_weekday": "Friday",
+        "expected_date": "May 1, 2026"
+      },
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [],
+      "elapsed_ms": 29936
+    },
+    {
+      "id": "TEST-01",
+      "name": "test 01 clean control",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-02",
+      "name": "test 02 reject place narrative",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-03",
+      "name": "test 03 reject order complaint",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-04",
+      "name": "test 04 reject name first person",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-05",
+      "name": "test 05 reset identity clears all",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-06",
+      "name": "test 06 cross narrator isolation",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-10",
+      "name": "test 10 memoir peek equals export",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    }
+  ]
+}

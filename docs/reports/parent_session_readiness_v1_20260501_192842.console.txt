@@ -1,0 +1,129 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T19:28:42.172791
+  finished: 2026-05-01T19:30:23.093320
+
+  TEST-01    Clean Control                        SKIP  
+  TEST-02    Reject placeOfBirth narrative        SKIP  
+  TEST-03    Reject birthOrder complaint          SKIP  
+  TEST-04    Reject fullName first-person         SKIP  
+  TEST-05    Reset Identity clears all            SKIP  
+  TEST-06    Cross-narrator state isolation       SKIP  
+  TEST-07    Life Map cold-start                  PASS  
+  TEST-08    Life Map era cycle                   FAIL  
+  TEST-09    Today mode date awareness            PASS  
+  TEST-10    Memoir Peek = Export                 SKIP  
+  TEST-12    Leap-year DOB awareness              SKIP  
+
+  Narration matrix:
+    test_narrator_002-clean                          SKIP
+    test_narrator_002-emotional                      SKIP
+    test_narrator_002-fragmented                     SKIP
+    test_narrator_002-messy                          SKIP
+    test_narrator_003-clean                          SKIP
+    test_narrator_003-emotional                      SKIP
+    test_narrator_003-fragmented                     SKIP
+    test_narrator_003-messy                          SKIP
+    test_narrator_004-clean                          SKIP
+    test_narrator_004-emotional                      SKIP
+    test_narrator_004-fragmented                     SKIP
+    test_narrator_004-messy                          SKIP
+
+  OVERALL: RED
+  Hard stops fired: Life Map era buttons go visually-active-but-behaviorally-dead.
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+TEST-07 Life Map cold-start  (PASS)  [8492 ms]
+  narrator: Test_341502
+  obs.lifemap_visible: True
+  obs.era_button_count: 7
+  obs.memory_river_absent: True
+  console: [life-map] rendered: 6 eras, active=none, today=inactive
+  console: [life-map] rendered: 6 eras, active=none, today=inactive
+──────────────────────────────────────────────────────────────────────
+TEST-08 Life Map era cycle  (FAIL)  [42301 ms]
+  narrator: Test_349995
+  HARD STOP: Life Map era buttons go visually-active-but-behaviorally-dead.
+  obs.era_clicks: [{'label': 'Earliest Years', 'ok': False}, {'label': 'Today', 'ok': True}, {'label': 'Earliest Years', 'ok': False}, {'label': 'Early School Years', 'ok': False}, {'label': 'Adolescence', 'ok': False}, {'label': 'Coming of Age', 'ok': False}, {'label': 'Building Years', 'ok': False}, {'label': 'Later Years', 'ok': False}, {'label': 'Today', 'ok': True}]
+  obs.era_click_marker_delta: 2
+  obs.lori_today_reply: …Hello Tell, it's lovely to meet you. I'm Lori, and I'm here to help you build a beautiful life archive. Knowing your date of birth helps place your story in history, so I'd love to start by asking: W
+  obs.db_lock_delta: 0
+  obs.active_element: {'tag': 'TEXTAREA', 'id': 'chatInput', 'cls': '', 'text': ''}
+  obs.visible_popovers: []
+  obs.era_overlays: []
+  note: 7/9 era clicks failed
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_192842.screenshots/test08_era_cycle_dead_state.png
+──────────────────────────────────────────────────────────────────────
+TEST-09 Today mode date awareness  (PASS)  [26934 ms]
+  narrator: Test_392298
+  obs.lori_reply: It's Friday, May 1st, 2026. Now, let's get started on building your Life Archive. Can you tell me your name, the one you'd like to go by during our conversation?
+  obs.matched_positive: True
+  obs.matched_negative: False
+  obs.expected_weekday: Friday
+  obs.expected_date: May 1, 2026
+──────────────────────────────────────────────────────────────────────
+TEST-01 test 01 clean control  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-02 test 02 reject place narrative  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-03 test 03 reject order complaint  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-04 test 04 reject name first person  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-05 test 05 reset identity clears all  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-06 test 06 cross narrator isolation  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-10 test 10 memoir peek equals export  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-12 test 12 leap year dob awareness  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 277

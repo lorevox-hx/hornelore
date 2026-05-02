@@ -1,0 +1,389 @@
+{
+  "started_at": "2026-05-01T19:30:24.420368",
+  "finished_at": "2026-05-01T19:31:30.078343",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "GREEN",
+  "hard_stops": [],
+  "db_lock_delta": 0,
+  "tests": [
+    {
+      "id": "TEST-07",
+      "name": "test 07 lifemap cold start",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-08",
+      "name": "test 08 lifemap era cycle",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-09",
+      "name": "test 09 today date awareness",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-01",
+      "name": "test 01 clean control",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-02",
+      "name": "test 02 reject place narrative",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-03",
+      "name": "test 03 reject order complaint",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-04",
+      "name": "test 04 reject name first person",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-05",
+      "name": "test 05 reset identity clears all",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-06",
+      "name": "test 06 cross narrator isolation",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-10",
+      "name": "test 10 memoir peek equals export",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-12",
+      "name": "Leap-year DOB awareness",
+      "status": "PASS",
+      "narrator_name": "Test_444618",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lori_dob_reply": "\u2026Margaret, a leap day baby! I love that. February 29, 1940, will be a special marker in your story. Now, where were you born, Margaret?",
+        "personal.dateOfBirth": "1940-02-29",
+        "matched_defensive_phrases": [],
+        "matched_ack_patterns": [
+          "\\b(?:february\\s*29|feb\\s*29|29(?:th)?\\s+of\\s+february)\\b",
+          "\\b1940\\b",
+          "\\bleap\\b"
+        ],
+        "dob_persisted_correctly": true,
+        "db_lock_delta": 0
+      },
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [],
+      "elapsed_ms": 43045
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    }
+  ]
+}

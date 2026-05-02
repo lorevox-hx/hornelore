@@ -1,0 +1,58 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T16:27:33.224341
+  finished: 2026-05-01T16:28:21.612916
+
+  TEST-01 Clean Control                        SKIP  
+  TEST-02 Reject placeOfBirth narrative        SKIP  
+  TEST-03 Reject birthOrder complaint          SKIP  
+  TEST-04 Reject fullName first-person         SKIP  
+  TEST-05 Reset Identity clears all            SKIP  
+  TEST-06 Cross-narrator state isolation       SKIP  
+  TEST-07 Life Map cold-start                  FAIL  
+  TEST-08 Life Map era cycle                   FAIL  
+  TEST-09 Today mode date awareness            FAIL  
+  TEST-10 Memoir Peek = Export                 SKIP  
+
+  OVERALL: RED
+  Hard stops fired: (none)
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+TEST-07 Life Map cold-start  (FAIL)  [9590 ms]
+  note: exception: add_test_narrator(questionnaire_first) failed: no questionnaire_first trainer-seed button visible
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_162733.screenshots/test07_fail.png
+──────────────────────────────────────────────────────────────────────
+TEST-08 Life Map era cycle  (FAIL)  [9600 ms]
+  note: exception: add_test_narrator(clear_direct) failed: no clear_direct trainer-seed button visible
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_162733.screenshots/test08_fail.png
+──────────────────────────────────────────────────────────────────────
+TEST-09 Today mode date awareness  (FAIL)  [9593 ms]
+  note: exception: add_test_narrator(clear_direct) failed: no clear_direct trainer-seed button visible
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_162733.screenshots/test09_fail.png
+──────────────────────────────────────────────────────────────────────
+TEST-01 test 01 clean control  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-02 test 02 reject place narrative  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-03 test 03 reject order complaint  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-04 test 04 reject name first person  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-05 test 05 reset identity clears all  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-06 test 06 cross narrator isolation  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-10 test 10 memoir peek equals export  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 96

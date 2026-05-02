@@ -1,0 +1,230 @@
+{
+  "started_at": "2026-05-01T16:40:02.558278",
+  "finished_at": "2026-05-01T16:43:02.600926",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "RED",
+  "hard_stops": [
+    "Life Map era buttons go visually-active-but-behaviorally-dead.",
+    "Lori claims she cannot tell the date."
+  ],
+  "db_lock_delta": 0,
+  "tests": [
+    {
+      "id": "TEST-07",
+      "name": "Life Map cold-start",
+      "status": "FAIL",
+      "narrator_name": "Test_219567",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lifemap_visible": true,
+        "era_button_count": 7,
+        "memory_river_absent": false
+      },
+      "console_matches": [
+        "[life-map] rendered: 6 eras, active=none, today=inactive",
+        "[life-map] rendered: 6 eras, active=none, today=inactive"
+      ],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "Memory River UI present \u2014 should be retired."
+      ],
+      "elapsed_ms": 6205
+    },
+    {
+      "id": "TEST-08",
+      "name": "Life Map era cycle",
+      "status": "FAIL",
+      "narrator_name": "Test_225772",
+      "hard_stop": true,
+      "hard_stop_label": "Life Map era buttons go visually-active-but-behaviorally-dead.",
+      "observations": {
+        "era_clicks": [
+          {
+            "label": "Earliest Years",
+            "ok": true
+          },
+          {
+            "label": "Today",
+            "ok": true
+          },
+          {
+            "label": "Earliest Years",
+            "ok": false
+          },
+          {
+            "label": "Early School Years",
+            "ok": false
+          },
+          {
+            "label": "Adolescence",
+            "ok": false
+          },
+          {
+            "label": "Coming of Age",
+            "ok": false
+          },
+          {
+            "label": "Building Years",
+            "ok": false
+          },
+          {
+            "label": "Later Years",
+            "ok": false
+          },
+          {
+            "label": "Today",
+            "ok": false
+          }
+        ],
+        "era_click_marker_delta": 0,
+        "lori_today_reply": "",
+        "db_lock_delta": 0
+      },
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "7/9 era clicks failed"
+      ],
+      "elapsed_ms": 99622
+    },
+    {
+      "id": "TEST-09",
+      "name": "Today mode date awareness",
+      "status": "FAIL",
+      "narrator_name": "Test_325396",
+      "hard_stop": true,
+      "hard_stop_label": "Lori claims she cannot tell the date.",
+      "observations": {
+        "lori_reply": "",
+        "matched_positive": false,
+        "matched_negative": false,
+        "expected_weekday": "Friday",
+        "expected_date": "May 1, 2026"
+      },
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "Reply contained neither today's date nor day-of-week."
+      ],
+      "elapsed_ms": 54862
+    },
+    {
+      "id": "TEST-01",
+      "name": "test 01 clean control",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-02",
+      "name": "test 02 reject place narrative",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-03",
+      "name": "test 03 reject order complaint",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-04",
+      "name": "test 04 reject name first person",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-05",
+      "name": "test 05 reset identity clears all",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-06",
+      "name": "test 06 cross narrator isolation",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-10",
+      "name": "test 10 memoir peek equals export",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    }
+  ]
+}

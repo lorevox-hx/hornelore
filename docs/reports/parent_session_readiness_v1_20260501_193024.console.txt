@@ -1,0 +1,115 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T19:30:24.420368
+  finished: 2026-05-01T19:31:30.078343
+
+  TEST-01    Clean Control                        SKIP  
+  TEST-02    Reject placeOfBirth narrative        SKIP  
+  TEST-03    Reject birthOrder complaint          SKIP  
+  TEST-04    Reject fullName first-person         SKIP  
+  TEST-05    Reset Identity clears all            SKIP  
+  TEST-06    Cross-narrator state isolation       SKIP  
+  TEST-07    Life Map cold-start                  SKIP  
+  TEST-08    Life Map era cycle                   SKIP  
+  TEST-09    Today mode date awareness            SKIP  
+  TEST-10    Memoir Peek = Export                 SKIP  
+  TEST-12    Leap-year DOB awareness              PASS  
+
+  Narration matrix:
+    test_narrator_002-clean                          SKIP
+    test_narrator_002-emotional                      SKIP
+    test_narrator_002-fragmented                     SKIP
+    test_narrator_002-messy                          SKIP
+    test_narrator_003-clean                          SKIP
+    test_narrator_003-emotional                      SKIP
+    test_narrator_003-fragmented                     SKIP
+    test_narrator_003-messy                          SKIP
+    test_narrator_004-clean                          SKIP
+    test_narrator_004-emotional                      SKIP
+    test_narrator_004-fragmented                     SKIP
+    test_narrator_004-messy                          SKIP
+
+  OVERALL: GREEN
+  Hard stops fired: (none)
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+TEST-07 test 07 lifemap cold start  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-08 test 08 lifemap era cycle  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-09 test 09 today date awareness  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-01 test 01 clean control  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-02 test 02 reject place narrative  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-03 test 03 reject order complaint  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-04 test 04 reject name first person  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-05 test 05 reset identity clears all  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-06 test 06 cross narrator isolation  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-10 test 10 memoir peek equals export  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-12 Leap-year DOB awareness  (PASS)  [43045 ms]
+  narrator: Test_444618
+  obs.lori_dob_reply: …Margaret, a leap day baby! I love that. February 29, 1940, will be a special marker in your story. Now, where were you born, Margaret?
+  obs.personal.dateOfBirth: 1940-02-29
+  obs.matched_defensive_phrases: []
+  obs.matched_ack_patterns: ['\\b(?:february\\s*29|feb\\s*29|29(?:th)?\\s+of\\s+february)\\b', '\\b1940\\b', '\\bleap\\b']
+  obs.dob_persisted_correctly: True
+  obs.db_lock_delta: 0
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 166

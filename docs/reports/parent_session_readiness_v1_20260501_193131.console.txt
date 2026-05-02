@@ -1,0 +1,140 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T19:31:31.160915
+  finished: 2026-05-01T20:01:10.034804
+
+  TEST-01    Clean Control                        MISSING
+  TEST-02    Reject placeOfBirth narrative        MISSING
+  TEST-03    Reject birthOrder complaint          MISSING
+  TEST-04    Reject fullName first-person         MISSING
+  TEST-05    Reset Identity clears all            MISSING
+  TEST-06    Cross-narrator state isolation       MISSING
+  TEST-07    Life Map cold-start                  MISSING
+  TEST-08    Life Map era cycle                   MISSING
+  TEST-09    Today mode date awareness            MISSING
+  TEST-10    Memoir Peek = Export                 MISSING
+  TEST-12    Leap-year DOB awareness              MISSING
+
+  Narration matrix:
+    test_narrator_002-clean                          FAIL
+    test_narrator_002-emotional                      FAIL
+    test_narrator_002-fragmented                     FAIL
+    test_narrator_002-messy                          FAIL
+    test_narrator_003-clean                          FAIL
+    test_narrator_003-emotional                      FAIL
+    test_narrator_003-fragmented                     FAIL
+    test_narrator_003-messy                          FAIL
+    test_narrator_004-clean                          FAIL
+    test_narrator_004-emotional                      FAIL
+    test_narrator_004-fragmented                     FAIL
+    test_narrator_004-messy                          FAIL
+
+  OVERALL: RED
+  Hard stops fired: (none)
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-clean Narration clean: Elena Rosario Marquez Parker, 73, Manila-born nurse and blended-family mother  (FAIL)  [282214 ms]
+  narrator: Test_511643
+  obs.sample_word_count: 823
+  obs.narration_reply: Welcome to our conversation, Elena. I'm so glad you're here to share your story with me. Before we begin, I want to let you know that I'm here to listen and help you collect some important details abo
+  obs.follow_ups: [{'ask': "What's my name?", 'matched': False, 'reply': '', 'must_any': ['Elena', 'Lena', 'Lola Lena'], 'must_clock': False}, {'ask': 'What year was I born?', 'matched': False, 'reply': '', 'must_any': ['1952'], 'must_clock': False}, {'ask': 'Where am I from?', 'matched': False, 'reply': '', 'must_any': ['Manila', 'Philippines'], 'must_clock': False}, {'ask': 'What time is it?', 'matched': False, 'reply': '', 'must_any': [], 'must_clock': True}, {'ask': 'What day is it?', 'matched': False, 'reply': '', 'must_any': [], 'must_clock': True}]
+  obs.db_lock_delta: 0
+  obs.follow_up_misses: 5
+  obs.follow_up_total: 5
+  note: 5/5 follow-ups missed: ["What's my name?", 'What year was I born?', 'Where am I from?', 'What time is it?', 'What day is it?']
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_002-clean_follow_up_misses.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-messy Narration messy: Elena Rosario Marquez Parker, 73, Manila-born nurse and blended-family mother  (FAIL)  [50670 ms]
+  narrator: Test_793858
+  obs.sample_word_count: 143
+  obs.narration_reply: Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.
+  obs.follow_ups: [{'ask': "What's my name?", 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['Elena', 'Lena', 'Lola Lena'], 'must_clock': False}, {'ask': 'What year was I born?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['1952'], 'must_clock': False}, {'ask': 'Where am I from?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['Manila', 'Philippines'], 'must_clock': False}, {'ask': 'What time is it?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': [], 'must_clock': True}, {'ask': 'What day is it?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': [], 'must_clock': True}]
+  obs.db_lock_delta: 0
+  obs.follow_up_misses: 5
+  obs.follow_up_total: 5
+  note: 5/5 follow-ups missed: ["What's my name?", 'What year was I born?', 'Where am I from?', 'What time is it?', 'What day is it?']
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_002-messy_follow_up_misses.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-emotional Narration emotional: Elena Rosario Marquez Parker, 73, Manila-born nurse and blended-family mother  (FAIL)  [441585 ms]
+  narrator: Test_844528
+  obs.sample_word_count: 193
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_002-emotional_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-fragmented Narration fragmented: Elena Rosario Marquez Parker, 73, Manila-born nurse and blended-family mother  (FAIL)  [100453 ms]
+  narrator: Test_286114
+  obs.sample_word_count: 67
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_002-fragmented_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-clean Narration clean: Samuel Adewale Okafor, 88, Lagos-born Toronto librarian, never married  (FAIL)  [100547 ms]
+  narrator: Test_386568
+  obs.sample_word_count: 825
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_003-clean_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-messy Narration messy: Samuel Adewale Okafor, 88, Lagos-born Toronto librarian, never married  (FAIL)  [100760 ms]
+  narrator: Test_487116
+  obs.sample_word_count: 139
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_003-messy_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-emotional Narration emotional: Samuel Adewale Okafor, 88, Lagos-born Toronto librarian, never married  (FAIL)  [61466 ms]
+  narrator: Test_587876
+  obs.sample_word_count: 190
+  obs.narration_reply: Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.
+  obs.follow_ups: [{'ask': "What's my name?", 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['Samuel', 'Sam', 'Adewale'], 'must_clock': False}, {'ask': 'What year was I born?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['1938'], 'must_clock': False}, {'ask': 'Where am I from?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['Lagos', 'Nigeria'], 'must_clock': False}, {'ask': 'What time is it?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': [], 'must_clock': True}, {'ask': 'What day is it?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': [], 'must_clock': True}]
+  obs.db_lock_delta: 0
+  obs.follow_up_misses: 5
+  obs.follow_up_total: 5
+  note: 5/5 follow-ups missed: ["What's my name?", 'What year was I born?', 'Where am I from?', 'What time is it?', 'What day is it?']
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_003-emotional_follow_up_misses.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-fragmented Narration fragmented: Samuel Adewale Okafor, 88, Lagos-born Toronto librarian, never married  (FAIL)  [148492 ms]
+  narrator: Test_649343
+  obs.sample_word_count: 61
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_003-fragmented_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-clean Narration clean: Rosa Mae Yazzie Lujan, 76, New Mexico-born mechanic and small-business owner  (FAIL)  [78751 ms]
+  narrator: Test_797835
+  obs.sample_word_count: 803
+  obs.narration_reply: Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.
+  obs.follow_ups: [{'ask': "What's my name?", 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['Rosa', 'Rosie', 'Mae'], 'must_clock': False}, {'ask': 'What year was I born?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['1949'], 'must_clock': False}, {'ask': 'Where am I from?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': ['Gallup', 'New Mexico'], 'must_clock': False}, {'ask': 'What time is it?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': [], 'must_clock': True}, {'ask': 'What day is it?', 'matched': False, 'reply': 'Chat error: Not enough GPU memory for this turn — please try a shorter message or try again shortly.. Try again.', 'must_any': [], 'must_clock': True}]
+  obs.db_lock_delta: 0
+  obs.follow_up_misses: 5
+  obs.follow_up_total: 5
+  note: 5/5 follow-ups missed: ["What's my name?", 'What year was I born?', 'Where am I from?', 'What time is it?', 'What day is it?']
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_004-clean_follow_up_misses.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-messy Narration messy: Rosa Mae Yazzie Lujan, 76, New Mexico-born mechanic and small-business owner  (FAIL)  [249482 ms]
+  narrator: Test_876587
+  obs.sample_word_count: 138
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_004-messy_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-emotional Narration emotional: Rosa Mae Yazzie Lujan, 76, New Mexico-born mechanic and small-business owner  (FAIL)  [40499 ms]
+  narrator: Test_126070
+  obs.sample_word_count: 194
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_004-emotional_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-fragmented Narration fragmented: Rosa Mae Yazzie Lujan, 76, New Mexico-born mechanic and small-business owner  (FAIL)  [100574 ms]
+  narrator: Test_166569
+  obs.sample_word_count: 66
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_193131.screenshots/TEST-NARR-test_narrator_004-fragmented_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 1763

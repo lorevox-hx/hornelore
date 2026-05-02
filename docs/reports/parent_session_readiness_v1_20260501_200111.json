@@ -1,0 +1,209 @@
+{
+  "started_at": "2026-05-01T20:01:11.250244",
+  "finished_at": "2026-05-01T20:03:24.214587",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "RED",
+  "hard_stops": [],
+  "db_lock_delta": 0,
+  "tests": [
+    {
+      "id": "TEST-NARR-test_narrator_002-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-fragmented",
+      "name": "Narration fragmented: Elena Rosario Marquez Parker, 73, Manila-born nurse and blended-family mother",
+      "status": "FAIL",
+      "narrator_name": "Test_291822",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "sample_word_count": 67,
+        "narration_reply": ""
+      },
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_200111.screenshots/TEST-NARR-test_narrator_002-fragmented_no_narration_reply.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "Lori didn't respond to the narration within 90s."
+      ],
+      "elapsed_ms": 109404
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    }
+  ]
+}

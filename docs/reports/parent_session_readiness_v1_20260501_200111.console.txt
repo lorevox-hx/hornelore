@@ -1,0 +1,80 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T20:01:11.250244
+  finished: 2026-05-01T20:03:24.214587
+
+  TEST-01    Clean Control                        MISSING
+  TEST-02    Reject placeOfBirth narrative        MISSING
+  TEST-03    Reject birthOrder complaint          MISSING
+  TEST-04    Reject fullName first-person         MISSING
+  TEST-05    Reset Identity clears all            MISSING
+  TEST-06    Cross-narrator state isolation       MISSING
+  TEST-07    Life Map cold-start                  MISSING
+  TEST-08    Life Map era cycle                   MISSING
+  TEST-09    Today mode date awareness            MISSING
+  TEST-10    Memoir Peek = Export                 MISSING
+  TEST-12    Leap-year DOB awareness              MISSING
+
+  Narration matrix:
+    test_narrator_002-clean                          SKIP
+    test_narrator_002-emotional                      SKIP
+    test_narrator_002-fragmented                     FAIL
+    test_narrator_002-messy                          SKIP
+    test_narrator_003-clean                          SKIP
+    test_narrator_003-emotional                      SKIP
+    test_narrator_003-fragmented                     SKIP
+    test_narrator_003-messy                          SKIP
+    test_narrator_004-clean                          SKIP
+    test_narrator_004-emotional                      SKIP
+    test_narrator_004-fragmented                     SKIP
+    test_narrator_004-messy                          SKIP
+
+  OVERALL: RED
+  Hard stops fired: (none)
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_002-fragmented Narration fragmented: Elena Rosario Marquez Parker, 73, Manila-born nurse and blended-family mother  (FAIL)  [109404 ms]
+  narrator: Test_291822
+  obs.sample_word_count: 67
+  obs.narration_reply: 
+  note: Lori didn't respond to the narration within 90s.
+  screenshot: /mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_200111.screenshots/TEST-NARR-test_narrator_002-fragmented_no_narration_reply.png
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_003-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-clean <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-messy <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-emotional <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+TEST-NARR-test_narrator_004-fragmented <lambda>  (SKIP)  [0 ms]
+  note: filtered out via --only
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 167

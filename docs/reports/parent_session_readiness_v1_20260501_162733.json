@@ -1,0 +1,178 @@
+{
+  "started_at": "2026-05-01T16:27:33.224341",
+  "finished_at": "2026-05-01T16:28:21.612916",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "RED",
+  "hard_stops": [],
+  "db_lock_delta": 0,
+  "tests": [
+    {
+      "id": "TEST-07",
+      "name": "Life Map cold-start",
+      "status": "FAIL",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_162733.screenshots/test07_fail.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "exception: add_test_narrator(questionnaire_first) failed: no questionnaire_first trainer-seed button visible"
+      ],
+      "elapsed_ms": 9590
+    },
+    {
+      "id": "TEST-08",
+      "name": "Life Map era cycle",
+      "status": "FAIL",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_162733.screenshots/test08_fail.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "exception: add_test_narrator(clear_direct) failed: no clear_direct trainer-seed button visible"
+      ],
+      "elapsed_ms": 9600
+    },
+    {
+      "id": "TEST-09",
+      "name": "Today mode date awareness",
+      "status": "FAIL",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_162733.screenshots/test09_fail.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "exception: add_test_narrator(clear_direct) failed: no clear_direct trainer-seed button visible"
+      ],
+      "elapsed_ms": 9593
+    },
+    {
+      "id": "TEST-01",
+      "name": "test 01 clean control",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-02",
+      "name": "test 02 reject place narrative",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-03",
+      "name": "test 03 reject order complaint",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-04",
+      "name": "test 04 reject name first person",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-05",
+      "name": "test 05 reset identity clears all",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-06",
+      "name": "test 06 cross narrator isolation",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-10",
+      "name": "test 10 memoir peek equals export",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    }
+  ]
+}
