@@ -36,6 +36,41 @@ Every canon entry, every interview-discipline rule, every topic-pool prompt must
 
 If a canon expansion drifts toward checkbox-form behavior (Test 1 fail) or pseudo-therapeutic interpretation (Test 2 fail), reject it.
 
+## Lessons learned (2026-05-02 Patch B postmortem)
+
+A locked principle for any future canon work that touches Lori's behavior:
+
+```
+Prompt-heavy reflection rules make Lori worse, not better.
+
+The next reflection iteration MUST be runtime shaping,
+NOT more prompt paragraphs.
+```
+
+Empirical evidence: BUG-LORI-REFLECTION-01 Patch B (2026-05-02 evening) attempted to tighten Lori's reflection discipline by adding two new prompt rules (Rule 5 NEVER SKIP + extended Rule 4 INVENTED CONTEXT) plus two validator improvements. Validator changes were neutral. The prompt additions regressed golfball from **4/8 → 1/8**. Three turns flipped PASS → FAIL (T01 identity, T03 lowercase-paraphrase, T07 post-safety recovery). Patch B fully reverted; tree returned to `ea13cbf` base.
+
+Root cause: the existing prompt told Lori "≤25 words for reflection" alongside "≤55 words per turn"; Rule 5's "NEVER SKIP" pushed Lori to fill the larger budget with reflection content. Stacking more prose did not produce more discipline — it produced more verbose, more invented, more abstract reflections.
+
+**Implication for THIS WO (the canon):**
+
+Layer 2 (interview discipline canon) names the principles already enforced in code. When future canon work needs to enforce a NEW principle:
+
+```
+Don't add a new prompt rule.
+
+Instead:
+  - File the principle as a named DISCIPLINE-N entry in Layer 2
+    (documentation only).
+  - Build the runtime enforcement separately (see
+    BUG-LORI-REFLECTION-02 for the pattern: anchor extraction →
+    runtime shape → softened-mode separate cap).
+  - Reference the runtime mechanism from the canon spec, but never
+    let the canon spec push new instruction text into the system
+    prompt without an adversarial harness pre-check.
+```
+
+The two named gaps in Layer 2 (DISCIPLINE-6 leading-question rule, DISCIPLINE-7 end-of-session invitation) MUST be addressed via runtime enforcement, not new prompt paragraphs, when their lanes open.
+
 ## External grounding
 
 This canon synthesizes evidence from four converging sources Chris collected 2026-05-01 → 2026-05-02:
