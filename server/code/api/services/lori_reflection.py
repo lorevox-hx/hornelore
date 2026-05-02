@@ -37,8 +37,15 @@ ECHO_WORD_BUDGET = 25
 # Question-stem regex used to split assistant_text into:
 #   echo_span        — content before the first question stem
 #   question_span    — the question itself
+#
+# BUG-LORI-REFLECTION-01 (2026-05-02): boundary widened from `[.!?]\s+`
+# to `[.!?,]\s+` so a comma-led inversion ("..., did you find that...")
+# is recognized as a question stem. Pre-patch, the comma blocked the
+# stem detection, the whole turn was treated as echo span, and turns
+# like turn_04 (golfball-comm-control-rerun 2026-05-01) tripped
+# echo_too_long from the inflated word count.
 _QUESTION_STEM_RX = re.compile(
-    r"(?:^|[.!?]\s+)"
+    r"(?:^|[.!?,]\s+)"
     r"(?P<stem>"
     r"\b(?:what|when|where|who|why|how|which|"
     r"did|do|does|were|was|is|are|am|"
@@ -149,10 +156,52 @@ def _split_echo_and_question(text: str) -> Tuple[str, str]:
     return text[:stem_start].strip(), text[stem_start:].strip()
 
 
+# BUG-LORI-REFLECTION-01 (2026-05-02): kinship canon for the grounding
+# overlap check. When a narrator says "dad" and Lori echoes "father",
+# the pre-patch validator counted that as ungrounded because the raw
+# tokens differ. This narrow lookup canonicalizes ordinary kinship
+# variants to their formal form before set-overlap, so the validator
+# stops penalising paraphrase that any reasonable reader would accept.
+#
+# Scope is intentionally narrow — kinship only, validator-side only.
+# This is NOT an extractor truth rule; the extractor never reads
+# this map. A broader oral-history language canon (places, life-stage
+# topics, household roles) is parked as WO-LORI-LANGUAGE-CANON-01.
+_KINSHIP_CANON: dict = {
+    "dad": "father", "daddy": "father", "papa": "father", "pop": "father",
+    "mom": "mother", "mommy": "mother", "mama": "mother", "ma": "mother",
+    "grandma": "grandmother", "granny": "grandmother", "nana": "grandmother",
+    "grandpa": "grandfather", "gramps": "grandfather",
+    "sis": "sister", "bro": "brother",
+}
+
+
+def _stem(tok: str) -> str:
+    """BUG-LORI-REFLECTION-01 (2026-05-02): minimal stemmer for the
+    grounding overlap check. Strips the four most common English
+    inflectional suffixes (-ing, -ed, -es, -s) only when stripping
+    leaves a stem of at least 3 chars. Conservative on purpose — does
+    not collapse derivational morphology (worker → work would collapse
+    too aggressively; -er stays). Lets "worked"/"working" both match
+    "work" without invoking nltk or a real stemmer dependency."""
+    if not tok:
+        return tok
+    for suf in ("ing", "ed", "es", "s"):
+        if len(tok) > len(suf) + 2 and tok.endswith(suf):
+            return tok[: -len(suf)]
+    return tok
+
+
 def _content_tokens(text: str) -> Set[str]:
     """Lowercase content tokens (3+ letters, non-stopword) used for
     grounding comparison. Conservative — we keep numbers and proper
-    nouns lowercased for matching."""
+    nouns lowercased for matching.
+
+    BUG-LORI-REFLECTION-01 (2026-05-02): now applies _KINSHIP_CANON
+    + _stem() before set-build. Caller does set overlap downstream;
+    canonicalising here means both sides of the comparison see the
+    same form. Order matters — canon BEFORE stem so we don't stem
+    "dad" → "da" before the lookup misses."""
     if not text:
         return set()
     raw = re.findall(r"\b[a-zA-Z][a-zA-Z'\-]+\b", text.lower())
@@ -172,7 +221,27 @@ def _content_tokens(text: str) -> Set[str]:
         "very", "really", "quite", "just", "also", "too", "now", "here",
         "there", "more", "less", "some", "any", "all", "much", "many",
     }
-    return {t for t in raw if len(t) >= 3 and t not in stopwords}
+    out: Set[str] = set()
+    for t in raw:
+        # BUG-LORI-REFLECTION-01 (2026-05-02): strip possessive "'s"
+        # and any trailing apostrophe BEFORE downstream lookup. The
+        # \w+ regex above keeps apostrophes in-token ("father's"),
+        # which then defeated _KINSHIP_CANON lookup AND tricked _stem
+        # into stripping the trailing s and leaving "father'". The
+        # narrator's "dad" + Lori's "father's" should both canonicalize
+        # to "father" so the grounding overlap counts the kinship match.
+        if t.endswith("'s") or t.endswith("’s"):
+            t = t[:-2]
+        elif t.endswith("'") or t.endswith("’"):
+            t = t[:-1]
+        if len(t) < 3 or t in stopwords:
+            continue
+        # 1. Kinship canonicalization (lookup BEFORE stemming so "dad"
+        #    maps cleanly without becoming "da" first).
+        canonical = _KINSHIP_CANON.get(t, t)
+        # 2. Conservative stem (worked → work, sisters → sister, etc.).
+        out.add(_stem(canonical))
+    return out
 
 
 def validate_memory_echo(
