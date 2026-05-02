@@ -1,6 +1,6 @@
 # WO-EX-UTTERANCE-FRAME-01 — Narrator Utterance Frames (Story Clause Maps)
 
-**Status:** ACTIVE — Phase 0-2 LANDED 2026-05-02 (builder + fixtures + tests + isolation gate + CLI + chat_ws observability log behind `HORNELORE_UTTERANCE_FRAME_LOG=1`, default-off). Consumer wiring (extractor binding, Lori grounding, validator) remains parked behind separate phases.
+**Status:** ACTIVE — Phase 0-2 LANDED 2026-05-02 morning (builder + fixtures + tests + isolation gate + CLI + chat_ws observability log behind `HORNELORE_UTTERANCE_FRAME_LOG=1`, default-off). **Phase 0-2 polish LANDED 2026-05-02 evening** (lowercase known-place fallback for STT input, prefer-specific-workplace-object, richer `[utterance-frame]` log shape with `obj=` + `feel=`, 4 new fixtures). Consumer wiring (extractor binding, Lori grounding, validator) remains parked behind separate phases.
 **Date:** 2026-05-02
 **Lane:** Architectural / shared infrastructure. Consumed by the extractor (binding lane), Lori (behavior lane), AND the reflection validator. Belongs to the binding layer per Lorevox Extractor Architecture v1 §7.1.
 **Sequencing:** Phase 0-2 ships independently of all consumer phases. Consumer wiring (Phase 3+) opens after BINDING-01 PATCH 1-4 evidence stabilizes (so we can compare frame-driven binding deltas against the same baseline that gates BINDING-01 default-on).
@@ -56,6 +56,85 @@ How to use the observability log:
   4. For per-utterance JSON dumps, `python3 scripts/utterance_frame_repl.py
      --text "..."` re-runs the same parser deterministically against any
      transcript you want to probe.
+
+## Phase 0-2 polish summary (2026-05-02 evening)
+
+```
+Trigger: WO-EX-UTTERANCE-FRAME-SURVEY-01 (Chris + ChatGPT) ran live
+         golfball under HORNELORE_UTTERANCE_FRAME_LOG=1, then ran the
+         dedicated survey harness scripts/run_utterance_frame_survey.py
+         pairing the golfball report + api.log.
+
+         Survey result: AMBER_WITH_POLISH (8/8 live frame logs, db_lock
+         delta=0, zero builder errors — core GREEN). Three classes of
+         polish finding from the harness:
+           lowercase_place_miss: 3
+           generic_work_place_plant: 4
+           object_not_visible_in_log_summary: 1
+           feeling_not_visible_in_log_summary: 1
+
+Polish patches landed (apply_utterance_frame_phase02_polish.py):
+  1. utterance_frame.py — lowercase known-place alias fallback
+     - _KNOWN_PLACE_ALIASES: spokane/stanley/mandan/bismarck/
+       montreal/oslo/hanover/norway → canonical capitalized form
+     - _extract_known_place_alias(text): only fires when the alias
+       appears verbatim after a place preposition (in/at/from/to/
+       near/outside of/moved to/came from/born in)
+     - Wired into Place extraction AFTER _PLACE_PREP_RX (capitalized
+       proper-noun match still wins) but BEFORE bare-noun fallback
+     - No invention: alias is canonicalization of verbatim narrator
+       token, not geocoding/state/country inference
+  2. utterance_frame.py — prefer specific multi-word workplace object
+     - When the place slot was filled by a generic noun fallback
+       (plant/mill/factory/hospital/church/school) AND the object slot
+       caught the specific narrator phrase ("aluminum plant"/"steel
+       mill"), promote object string into place slot too
+     - When place is empty and event is work, copy object into place
+     - Still verbatim narrator text; not inference
+  3. chat_ws.py — richer [utterance-frame] log summary
+     - Shape extended from "subject/event@place|neg=N|unc=N|hints=..."
+       to "subject/event@place|obj=...|feel=...|neg=N|unc=N|hints=..."
+     - Survey harness can now see object + feeling slots from logs
+       without re-running the builder
+  4. tests/test_utterance_frame.py — fixture assertions support
+     - "object" and "feeling" added to the partial-shape assertion
+       handler so new fixtures can lock those slots
+  5. tests/fixtures/utterance_frame_cases.json — 4 new fixtures
+     - uf_021 lowercase dual-subject Stanley (case_111 STT variant)
+     - uf_022 lowercase Spokane parent work + aluminum plant object
+     - uf_023 specific-narrator-phrase preference (place=aluminum plant)
+     - uf_024 stated feeling visibility (scared from T07-style turn)
+
+Polish acceptance gates met:
+  [x] 24/24 tests green (16 unit + 4 isolation + 4 story_preservation)
+  [x] Behavioral verification: lowercase spokane/stanley/mandan/oslo
+      now produce canonical Spokane/Stanley/Mandan/Oslo place slots
+  [x] aluminum plant + steel mill now occupy BOTH place and object
+      slots (no more generic place=plant for narrator phrases that
+      gave us a richer object string)
+  [x] tired/scared captured as feeling on T07-style turns
+  [x] Regression: passive-death-wish still neg=1, hints=[]
+  [x] Regression: case_111 capitalized dual-subject still high conf
+      with both parents.birthPlace + personal.placeOfBirth hints
+  [x] Zero new dependencies; LAW gate still green
+  [x] No consumer wiring; behavior change is observation-only
+
+Banked alongside polish patch:
+  scripts/run_utterance_frame_survey.py                  — survey harness
+  WO-EX-UTTERANCE-FRAME-SURVEY-01_Spec.md                — survey WO spec
+  docs/reports/golfball-utterance-frame-log-v1.json      — first live run
+  docs/reports/utterance_frame_survey_v1.json            — first survey run
+  docs/reports/utterance_frame_survey_v1.console.txt     — readable summary
+
+Goal of next survey rerun (Chris's machine, after stack restart):
+  status:                       GREEN
+  live_frame_logs:              8/8
+  db_lock_delta:                0
+  lowercase_place_miss:         0
+  object_not_visible_in_log_summary: 0
+  feeling_not_visible_in_log_summary: 0
+  generic_work_place_plant:     0
+```
 
 Phase 0-2 is the load-bearing groundwork. Phase 3+ consumer wiring is
 where the extractor / Lori / validator start using the frame as their

@@ -215,6 +215,40 @@ _PLACE_NOUNS_RX = re.compile(
     re.IGNORECASE,
 )
 
+# Known place aliases for STT/lowercase narrator speech. This is NOT
+# geocoding and NOT inference: a canonical place is emitted only when
+# the place token appears verbatim after a place preposition in the
+# narrator text. Keeps the no-invented-facts rule while making
+# lowercase STT input ("in spokane", "born in stanley") frameable.
+_KNOWN_PLACE_ALIASES = {
+    "spokane": "Spokane",
+    "stanley": "Stanley",
+    "mandan": "Mandan",
+    "bismarck": "Bismarck",
+    "montreal": "Montreal",
+    "oslo": "Oslo",
+    "hanover": "Hanover",
+    "norway": "Norway",
+}
+
+_PLACE_ALIAS_PREP_RX_TEMPLATE = (
+    r"\b(?:in|at|from|to|near|outside\s+of|moved\s+to|came\s+from|born\s+in)\s+{place}\b"
+)
+
+
+def _extract_known_place_alias(text: str) -> Optional[str]:
+    """Return canonical place for lowercase/STT place mentions.
+
+    Conservative by design: only matches known aliases after a place
+    preposition. Does not infer states/countries. Does not match bare
+    names used as surnames or people.
+    """
+    for raw, canonical in _KNOWN_PLACE_ALIASES.items():
+        rx = re.compile(_PLACE_ALIAS_PREP_RX_TEMPLATE.format(place=re.escape(raw)), re.IGNORECASE)
+        if rx.search(text):
+            return canonical
+    return None
+
 
 # ═══ Time patterns ══════════════════════════════════════════════════
 
@@ -388,9 +422,13 @@ def _build_clause(text: str) -> Clause:
     if m:
         c.place = m.group(1).strip()
     else:
-        m2 = _PLACE_NOUNS_RX.search(text)
-        if m2:
-            c.place = m2.group(0).strip()
+        alias_place = _extract_known_place_alias(text)
+        if alias_place:
+            c.place = alias_place
+        else:
+            m2 = _PLACE_NOUNS_RX.search(text)
+            if m2:
+                c.place = m2.group(0).strip()
 
     # ── Time ─────────────────────────────────────────────────────────
     for rx in _TIME_PATTERNS:
@@ -403,6 +441,18 @@ def _build_clause(text: str) -> Clause:
     m = _OBJECT_NOUNS_RX.search(text)
     if m:
         c.object = m.group(0).strip()
+        # If the place fallback only found a generic noun ("plant") but
+        # the object matcher found the specific narrator phrase
+        # ("aluminum plant"), preserve the specific phrase in the place
+        # slot too. This is still verbatim narrator text, not inference.
+        if (
+            c.place
+            and c.place.lower() in {"plant", "mill", "factory", "hospital", "church", "school"}
+            and c.object.lower().endswith(c.place.lower())
+        ):
+            c.place = c.object
+        elif not c.place and c.event_class == EVENT_WORK:
+            c.place = c.object
 
     # ── Feeling — ONLY narrator-stated affect words ─────────────────
     # Reuses lori_reflection's existing affect regex so we don't

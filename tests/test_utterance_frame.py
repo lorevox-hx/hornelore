@@ -199,6 +199,18 @@ class FixtureCasesTest(unittest.TestCase):
                 expected["place"],
                 f"{ctx} place mismatch",
             )
+        if "object" in expected:
+            self.assertEqual(
+                actual_dict["object"],
+                expected["object"],
+                f"{ctx} object mismatch",
+            )
+        if "feeling" in expected:
+            self.assertEqual(
+                actual_dict["feeling"],
+                expected["feeling"],
+                f"{ctx} feeling mismatch",
+            )
         if "negation" in expected:
             self.assertEqual(
                 actual_dict["negation"],

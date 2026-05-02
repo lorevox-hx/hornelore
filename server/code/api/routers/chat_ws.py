@@ -353,6 +353,8 @@ async def ws_chat(ws: WebSocket):
                 _clauses_summary = ";".join(
                     f"{c['who_subject_class']}/{c['event_class']}"
                     f"@{c['place'] or '-'}|"
+                    f"obj={c.get('object') or '-'}|"
+                    f"feel={c.get('feeling') or '-'}|"
                     f"neg={int(c['negation'])}|"
                     f"unc={int(c['uncertainty'])}|"
                     f"hints={','.join(c['candidate_fieldPaths']) or '-'}"

@@ -74,7 +74,10 @@
           "must_include_field_path": "parents.occupation"
         }
       ],
-      "expected_confidence_in": ["high", "partial"]
+      "expected_confidence_in": [
+        "high",
+        "partial"
+      ]
     },
     {
       "id": "uf_004_self_career_compound",
@@ -88,7 +91,10 @@
           "must_include_field_path": "education.earlyCareer"
         }
       ],
-      "expected_confidence_in": ["high", "partial"]
+      "expected_confidence_in": [
+        "high",
+        "partial"
+      ]
     },
     {
       "id": "uf_005_passive_death_wish",
@@ -115,7 +121,10 @@
           "candidate_fieldPaths_must_be_empty": true
         }
       ],
-      "expected_confidence_in": ["partial", "low"]
+      "expected_confidence_in": [
+        "partial",
+        "low"
+      ]
     },
     {
       "id": "uf_007_uncertainty_i_think",
@@ -130,7 +139,10 @@
           "must_include_field_path": "residence.place"
         }
       ],
-      "expected_confidence_in": ["high", "partial"]
+      "expected_confidence_in": [
+        "high",
+        "partial"
+      ]
     },
     {
       "id": "uf_008_grandparent_birth_norway",
@@ -139,7 +151,10 @@
       "expected_clause_count": 1,
       "expected_clauses_must_include": [
         {
-          "who_subject_class_in": ["parent", "grandparent"]
+          "who_subject_class_in": [
+            "parent",
+            "grandparent"
+          ]
         }
       ],
       "_note": "v1 frame may classify subject as parent (mom matched first) — generation walking via possessive chains is WO-LORI-LANGUAGE-CANON-01 Layer 2 work, not v1 Phase 0-2 scope. Either classification is acceptable; the test asserts subject was identified."
@@ -161,7 +176,10 @@
           "uncertainty": true
         }
       ],
-      "expected_confidence_in": ["partial", "low"]
+      "expected_confidence_in": [
+        "partial",
+        "low"
+      ]
     },
     {
       "id": "uf_011_sibling_birth",
@@ -233,7 +251,10 @@
       "expected_clause_count_min": 1,
       "expected_clauses_must_include": [
         {
-          "who_subject_class_in": ["pet", "self"]
+          "who_subject_class_in": [
+            "pet",
+            "self"
+          ]
         }
       ],
       "_note": "Frame v1 emits no field hint for pets; pet routing is the extractor's domain via its own classifier."
@@ -267,7 +288,10 @@
     {
       "id": "uf_019_no_subject_floor",
       "narrator_text": "It was a hard winter that year.",
-      "expected_confidence_in": ["low", "partial"],
+      "expected_confidence_in": [
+        "low",
+        "partial"
+      ],
       "_note": "No clear subject — frame produces low-confidence frame; consumer should not promote any field hint."
     },
     {
@@ -281,6 +305,79 @@
         }
       ],
       "_note": "Affect detection reuses lori_reflection._AFFECT_TOKENS_RX; frame surfaces verbatim narrator-stated feeling only. Object 'piano' may also fire."
+    },
+    {
+      "id": "uf_021_lowercase_dual_subject_stanley",
+      "_origin": "Phase 0-2 polish: STT lowercase version of case_111",
+      "narrator_text": "my dad was born in stanley, and i was born in stanley too.",
+      "expected_clause_count": 2,
+      "expected_clauses": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "event_class": "birth",
+          "place": "Stanley",
+          "must_include_field_path": "parents.birthPlace"
+        },
+        {
+          "who_subject_class": "self",
+          "who_canonical": "narrator",
+          "event_class": "birth",
+          "place": "Stanley",
+          "must_include_field_path": "personal.placeOfBirth"
+        }
+      ],
+      "expected_confidence": "high"
+    },
+    {
+      "id": "uf_022_lowercase_spokane_parent_work",
+      "_origin": "Phase 0-2 polish: golfball T03 lowercase STT place",
+      "narrator_text": "when i was young in spokane my dad worked nights at the aluminum plant",
+      "expected_clause_count": 1,
+      "expected_clauses": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "event_class": "work",
+          "place": "Spokane",
+          "object": "aluminum plant",
+          "must_include_field_path": "parents.occupation"
+        }
+      ],
+      "expected_confidence": "high"
+    },
+    {
+      "id": "uf_023_aluminum_plant_specific_place_object",
+      "_origin": "Phase 0-2 polish: prefer specific narrator phrase over generic plant",
+      "narrator_text": "My dad worked nights at the aluminum plant.",
+      "expected_clause_count": 1,
+      "expected_clauses": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "event_class": "work",
+          "place": "aluminum plant",
+          "object": "aluminum plant",
+          "must_include_field_path": "parents.occupation"
+        }
+      ],
+      "expected_confidence": "high"
+    },
+    {
+      "id": "uf_024_stated_feeling_scared",
+      "_origin": "Phase 0-2 polish: stated feeling visibility for softened/HITL consumers later",
+      "narrator_text": "I am still here. I just feel tired and scared.",
+      "expected_clause_count": 2,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "feeling": "scared"
+        }
+      ],
+      "expected_confidence_in": [
+        "partial",
+        "low"
+      ]
     }
   ]
 }
