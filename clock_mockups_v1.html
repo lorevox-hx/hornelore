@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WO-INTERVIEW-CLOCK-01 — Variant Mockups</title>
+<style>
+:root {
+  /* approximate palette (final values pulled from lori80.css when wiring live) */
+  --bg-deep: #0d1117;
+  --bg-chat: #1a1f29;
+  --bg-input: #232a36;
+  --text-primary: #e6e8eb;
+  --text-secondary: #9aa3b2;
+  --text-tertiary: #6b7280;
+  --accent: #6ea3d8;
+  --mic-active: #4ade80;
+  --mic-idle: #475569;
+
+  /* parchment */
+  --parch-bg: #fdf7ea;
+  --parch-bg-edge: #f4ebd5;
+  --parch-ink: #2c2418;
+  --parch-accent: #7b6544;
+  --parch-eyebrow: #9b8763;
+
+  /* slate */
+  --slate-bg: #232a36;
+  --slate-edge: #2f3744;
+  --slate-text: #e6e8eb;
+  --slate-eyebrow: #9aa3b2;
+  --slate-accent: #6ea3d8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0a0d12;
+  color: var(--text-primary);
+  margin: 0;
+  padding: 24px;
+  min-height: 100vh;
+}
+
+.controls {
+  max-width: 1200px;
+  margin: 0 auto 20px;
+  background: #14191f;
+  border: 1px solid #232a36;
+  border-radius: 8px;
+  padding: 16px;
+}
+.controls h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+.controls p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.variant-toggles {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.variant-toggles button {
+  background: #1a1f29;
+  border: 1px solid #2f3744;
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.variant-toggles button:hover { background: #232a36; }
+.variant-toggles button.active {
+  background: var(--accent);
+  color: #0a0d12;
+  border-color: var(--accent);
+}
+
+.row {
+  max-width: 1200px;
+  margin: 0 auto 20px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+.shell {
+  position: relative;
+  background: var(--bg-chat);
+  border: 1px solid #232a36;
+  border-radius: 12px;
+  padding: 20px;
+  height: 480px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-label {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+/* faux narrator chat content */
+.faux-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 30px;
+  margin-bottom: 80px;
+  overflow: hidden;
+}
+.faux-bubble {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 75%;
+}
+.faux-bubble.lori {
+  background: #232a36;
+  color: var(--text-primary);
+  align-self: flex-start;
+}
+.faux-bubble.you {
+  background: #1f3a5a;
+  color: #d4e4f5;
+  align-self: flex-end;
+}
+.faux-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: -4px;
+  padding: 0 4px;
+}
+
+/* faux input bar */
+.faux-input-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.faux-mic {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  background: var(--bg-input);
+  border: 1px solid #2f3744;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mic-idle);
+  font-size: 22px;
+}
+.faux-mic.active { color: var(--mic-active); border-color: var(--mic-active); }
+
+.faux-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid #2f3744;
+  border-radius: 22px;
+  padding: 10px 16px;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+/* ───── Clock slot anchor — locked lower-left of the chat region, above the input bar ───── */
+.clock-slot {
+  position: absolute;
+  left: 16px;
+  bottom: 76px;       /* sits above the input bar */
+  z-index: 5;
+  display: none;      /* toggled by .show-X class on .shell */
+}
+
+.shell.show-c .clock-slot.variant-c { display: block; }
+.shell.show-b .clock-slot.variant-b { display: block; }
+.shell.show-a .clock-slot.variant-a { display: block; }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   VARIANT C — parchment "Right now" card (LEAD)
+   ═════════════════════════════════════════════════════════════════════════ */
+.variant-c {
+  background: linear-gradient(135deg, var(--parch-bg) 0%, var(--parch-bg-edge) 100%);
+  border: 1px solid #d9ccab;
+  border-radius: 6px;
+  padding: 14px 18px 12px;
+  width: 240px;
+  color: var(--parch-ink);
+  font-family: Georgia, "Times New Roman", serif;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 4px 12px rgba(0, 0, 0, 0.25),
+    0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.variant-c .eyebrow {
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--parch-eyebrow);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.variant-c .time {
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+  line-height: 1.1;
+}
+.variant-c .day-of-week {
+  font-size: 14px;
+  color: var(--parch-accent);
+  font-style: italic;
+  margin: 0 0 8px;
+  font-weight: 400;
+}
+.variant-c .date {
+  font-size: 14px;
+  color: var(--parch-ink);
+  margin: 0 0 4px;
+  font-weight: 400;
+}
+.variant-c .place {
+  font-size: 12px;
+  color: var(--parch-eyebrow);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   VARIANT B — slate orientation card (alternate)
+   ═════════════════════════════════════════════════════════════════════════ */
+.variant-b {
+  background: var(--slate-bg);
+  border: 1px solid var(--slate-edge);
+  border-radius: 8px;
+  padding: 14px 18px 12px;
+  width: 240px;
+  color: var(--slate-text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.variant-b .eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--slate-eyebrow);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.variant-b .time {
+  font-size: 36px;          /* CHOSEN: bumped from 26 → 36 per Chris 2026-05-02 */
+  font-weight: 300;
+  letter-spacing: -0.015em;
+  margin: 0 0 2px;
+  line-height: 1.1;
+  color: var(--slate-text);
+}
+.variant-b .day-of-week {
+  font-size: 13px;
+  color: var(--slate-accent);
+  margin: 0 0 8px;
+  font-weight: 400;
+}
+.variant-b .date {
+  font-size: 13px;
+  color: var(--slate-text);
+  margin: 0 0 4px;
+}
+.variant-b .place {
+  font-size: 12px;
+  color: var(--slate-eyebrow);
+  margin: 0;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   VARIANT A — pill style (alternate, lightest weight)
+   ═════════════════════════════════════════════════════════════════════════ */
+.variant-a {
+  background: var(--slate-bg);
+  border: 1px solid var(--slate-edge);
+  border-radius: 22px;
+  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--slate-text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.variant-a .time {
+  font-weight: 500;
+  color: var(--slate-text);
+}
+.variant-a .sep {
+  color: var(--text-tertiary);
+}
+.variant-a .day {
+  color: var(--slate-eyebrow);
+  font-style: italic;
+}
+.variant-a .date {
+  color: var(--slate-eyebrow);
+}
+.variant-a .place {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* row 2 — side-by-side comparison view */
+.compare-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.compare-cell {
+  background: var(--bg-chat);
+  border: 1px solid #232a36;
+  border-radius: 8px;
+  padding: 24px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.compare-cell h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.compare-cell .cell-note {
+  margin: 0 0 18px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.legend {
+  max-width: 1200px;
+  margin: 24px auto 0;
+  background: #14191f;
+  border: 1px solid #232a36;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.legend strong { color: var(--text-primary); }
+.legend code {
+  background: #0a0d12;
+  border: 1px solid #2f3744;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--accent);
+}
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <h1>WO-INTERVIEW-CLOCK-01 — Variant mockups (lower-left mic-adjacent slot)</h1>
+  <p>
+    All three variants render in the same locked position: lower-left of the narrator chat region, above the
+    input bar, adjacent to the mic. Style is the only axis. Toggle below to compare in context, or scroll to
+    the side-by-side row for a clean comparison.
+  </p>
+  <div class="variant-toggles">
+    <button data-variant="b" class="active">B — Slate (CHOSEN, time 36px)</button>
+    <button data-variant="c">C — Parchment</button>
+    <button data-variant="a">A — Pill</button>
+    <button data-variant="off">Off (placement check)</button>
+  </div>
+  <p style="margin-top:12px;margin-bottom:0;font-size:12px;color:#6b7280;">
+    <strong style="color:#9aa3b2;">2026-05-02 lock:</strong> Variant B selected. Time bumped 26 → 36px. No
+    timezone abbreviation surfaced. Default open shows B in context.
+  </p>
+</div>
+
+<!-- Row 1: in-context narrator-room shell -->
+<div class="row">
+  <div class="shell show-b" id="shell">
+    <div class="shell-label">narrator session</div>
+
+    <div class="faux-chat">
+      <div class="faux-meta">Lori · 7:39 PM</div>
+      <div class="faux-bubble lori">
+        That sounds like Stanley was a real anchor for your dad. What's one scene from his life there
+        that stands out to you?
+      </div>
+      <div class="faux-meta" style="align-self:flex-end;">You · 7:40 PM</div>
+      <div class="faux-bubble you">
+        He used to walk down to the railroad tracks every Sunday after church and just watch the trains.
+        I'd go with him sometimes. We didn't talk much, but it was good.
+      </div>
+      <div class="faux-meta">Lori · 7:42 PM</div>
+      <div class="faux-bubble lori">
+        Watching the trains together — that's a quiet kind of closeness. What did the sound of the train
+        mean to him?
+      </div>
+    </div>
+
+    <!-- Clock slot — variants render here based on .show-X class on .shell -->
+    <div class="clock-slot variant-c">
+      <div class="eyebrow">Right now</div>
+      <div class="time" id="time-c">7:42 PM</div>
+      <div class="day-of-week" id="dow-c">Friday evening</div>
+      <div class="date" id="date-c">May 2, 2026</div>
+      <div class="place">Las Vegas, New Mexico</div>
+    </div>
+
+    <div class="clock-slot variant-b">
+      <div class="eyebrow">Right now</div>
+      <div class="time" id="time-b">7:42 PM</div>
+      <div class="day-of-week" id="dow-b">Friday evening</div>
+      <div class="date" id="date-b">May 2, 2026</div>
+      <div class="place">Las Vegas, New Mexico</div>
+    </div>
+
+    <div class="clock-slot variant-a">
+      <span class="time" id="time-a">7:42 PM</span>
+      <span class="sep">·</span>
+      <span class="day" id="day-a">Friday evening</span>
+      <span class="sep">·</span>
+      <span class="place">Las Vegas</span>
+    </div>
+
+    <!-- faux input bar with mic on the left -->
+    <div class="faux-input-bar">
+      <div class="faux-mic active" title="Mic active">🎤</div>
+      <div class="faux-input">Type your reply…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 2: side-by-side clean comparison -->
+<div class="compare-grid">
+  <div class="compare-cell">
+    <h3>Variant C</h3>
+    <p class="cell-note">parchment, serif — LEAD</p>
+    <div class="variant-c" style="position:static;">
+      <div class="eyebrow">Right now</div>
+      <div class="time">7:42 PM</div>
+      <div class="day-of-week">Friday evening</div>
+      <div class="date">May 2, 2026</div>
+      <div class="place">Las Vegas, New Mexico</div>
+    </div>
+  </div>
+
+  <div class="compare-cell">
+    <h3>Variant B</h3>
+    <p class="cell-note">slate, sans-serif — quiet alt</p>
+    <div class="variant-b" style="position:static;">
+      <div class="eyebrow">Right now</div>
+      <div class="time">7:42 PM</div>
+      <div class="day-of-week">Friday evening</div>
+      <div class="date">May 2, 2026</div>
+      <div class="place">Las Vegas, New Mexico</div>
+    </div>
+  </div>
+
+  <div class="compare-cell">
+    <h3>Variant A</h3>
+    <p class="cell-note">pill — minimal weight</p>
+    <div class="variant-a" style="position:static;">
+      <span class="time">7:42 PM</span>
+      <span class="sep">·</span>
+      <span class="day">Friday evening</span>
+      <span class="sep">·</span>
+      <span class="place">Las Vegas</span>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <p><strong>Behavior contract (per WO-INTERVIEW-CLOCK-01):</strong></p>
+  <p>
+    All variants update once per minute via <code>setInterval(_, 60000)</code> that re-derives
+    <code>new Date()</code> (no accumulator — DST-safe). Place line reads from
+    <code>LOREVOX_NARRATOR_LOCATION</code> in <code>.env</code>; collapses cleanly when empty.
+    No timezone abbreviation surfaces. No softened-mode visual change. No reset on narrator switch.
+  </p>
+  <p>
+    <strong>Toggling in production:</strong> operator-side via <code>localStorage["lvClockVariant"]</code> ∈
+    <code>{"C","B","A","off"}</code>. C is default. Per-narrator preference is written once and remembered.
+  </p>
+  <p style="margin-bottom:0;">
+    <strong>Live time updates in this mockup:</strong> the digital time + day-of-week refresh every 60s
+    (open Chrome devtools and watch the values tick over).
+  </p>
+</div>
+
+<script>
+// ─── Variant toggle wiring ────────────────────────────────────────────────
+const shell = document.getElementById("shell");
+document.querySelectorAll(".variant-toggles button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".variant-toggles button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    shell.classList.remove("show-c", "show-b", "show-a");
+    const v = btn.dataset.variant;
+    if (v !== "off") shell.classList.add("show-" + v);
+  });
+});
+
+// ─── Live time / date updater (fires every 60s, re-derives from new Date()) ───
+function _timeOfDayLabel(d) {
+  const h = d.getHours();
+  if (h < 5)  return "night";
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  if (h < 21) return "evening";
+  return "night";
+}
+function _formatTime(d) {
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+function _formatDate(d) {
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+function _formatDayOfWeek(d) {
+  const day = d.toLocaleDateString("en-US", { weekday: "long" });
+  return day + " " + _timeOfDayLabel(d);
+}
+function _shortDay(d) {
+  const day = d.toLocaleDateString("en-US", { weekday: "long" });
+  return day + " " + _timeOfDayLabel(d);
+}
+function _refreshClock() {
+  const d = new Date();
+  const time = _formatTime(d);
+  const dow = _formatDayOfWeek(d);
+  const date = _formatDate(d);
+
+  // Variant C
+  document.getElementById("time-c").textContent = time;
+  document.getElementById("dow-c").textContent = dow;
+  document.getElementById("date-c").textContent = date;
+  // Variant B
+  document.getElementById("time-b").textContent = time;
+  document.getElementById("dow-b").textContent = dow;
+  document.getElementById("date-b").textContent = date;
+  // Variant A
+  document.getElementById("time-a").textContent = time;
+  document.getElementById("day-a").textContent = _shortDay(d);
+
+  // Side-by-side comparison cells
+  document.querySelectorAll(".compare-cell .variant-c .time").forEach(el => el.textContent = time);
+  document.querySelectorAll(".compare-cell .variant-c .day-of-week").forEach(el => el.textContent = dow);
+  document.querySelectorAll(".compare-cell .variant-c .date").forEach(el => el.textContent = date);
+  document.querySelectorAll(".compare-cell .variant-b .time").forEach(el => el.textContent = time);
+  document.querySelectorAll(".compare-cell .variant-b .day-of-week").forEach(el => el.textContent = dow);
+  document.querySelectorAll(".compare-cell .variant-b .date").forEach(el => el.textContent = date);
+  document.querySelectorAll(".compare-cell .variant-a .time").forEach(el => el.textContent = time);
+  document.querySelectorAll(".compare-cell .variant-a .day").forEach(el => el.textContent = _shortDay(d));
+}
+_refreshClock();
+setInterval(_refreshClock, 60000);
+</script>
+
+</body>
+</html>
