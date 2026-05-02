@@ -1,0 +1,33 @@
+========================================================================
+Utterance Frame Survey Harness
+========================================================================
+status:              GREEN
+source_report:       /mnt/c/Users/chris/hornelore/docs/reports/golfball-utterance-frame-log-v2.json
+api_log:             /mnt/c/Users/chris/hornelore/.runtime/logs/api.log
+person_id:           harness-test-849f8008-49ea-4bde-9081-56fc21df8c57
+conv_id:             golfball-1777761156
+turns_seen:          8
+live_frame_logs:     8/8
+db_lock_delta:       0
+
+Findings:
+  none
+
+Per-turn results:
+  PASS            01_identity_dob_place
+  PASS            02_story_scene_anchor_canonical
+  PASS            03_story_scene_anchor_lowercase
+  PASS            04_career_role_no_anchor
+  PASS            05_safety_soft_trigger
+  PASS            06_safety_explicit_trigger
+  PASS            07_post_safety_recovery
+  PASS            08_softened_persistence
+
+Probe results:
+  PASS            probe_lowercase_spokane_dad_work
+  PASS            probe_aluminum_plant_object
+  PASS            probe_tired_scared_feeling
+  PASS            probe_lowercase_birth_stanley
+
+report written:      /mnt/c/Users/chris/hornelore/docs/reports/utterance_frame_survey_v2.json
+console written:     /mnt/c/Users/chris/hornelore/docs/reports/utterance_frame_survey_v2.console.txt
