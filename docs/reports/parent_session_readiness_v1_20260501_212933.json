@@ -1,0 +1,13 @@
+{
+  "started_at": "2026-05-01T21:29:33.699027",
+  "finished_at": "2026-05-01T21:30:11.283907",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "RED",
+  "hard_stops": [
+    "Boot failed before tests could run."
+  ],
+  "db_lock_delta": 0,
+  "tests": []
+}

@@ -1,0 +1,455 @@
+{
+  "started_at": "2026-05-01T21:44:38.663820",
+  "finished_at": "2026-05-01T21:49:03.095523",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api": "http://localhost:8000",
+  "test_pack": "docs/test-packs/PARENT-SESSION-READINESS-V1.md",
+  "overall": "RED",
+  "hard_stops": [
+    "Life Map era buttons go visually-active-but-behaviorally-dead."
+  ],
+  "db_lock_delta": 0,
+  "tests": [
+    {
+      "id": "TEST-07",
+      "name": "Life Map cold-start",
+      "status": "PASS",
+      "narrator_name": "Test_494040",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lifemap_visible": true,
+        "era_button_count": 7,
+        "memory_river_absent": true
+      },
+      "console_matches": [
+        "[life-map] rendered: 6 eras, active=none, today=inactive",
+        "[life-map] rendered: 6 eras, active=none, today=inactive"
+      ],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [],
+      "elapsed_ms": 9309
+    },
+    {
+      "id": "TEST-08",
+      "name": "Life Map era cycle",
+      "status": "FAIL",
+      "narrator_name": "Test_503350",
+      "hard_stop": true,
+      "hard_stop_label": "Life Map era buttons go visually-active-but-behaviorally-dead.",
+      "observations": {
+        "identity_completed": true,
+        "era_clicks": [
+          {
+            "label": "Earliest Years",
+            "ok": false
+          },
+          {
+            "label": "Today",
+            "ok": true
+          },
+          {
+            "label": "Earliest Years",
+            "ok": false
+          },
+          {
+            "label": "Early School Years",
+            "ok": false
+          },
+          {
+            "label": "Adolescence",
+            "ok": false
+          },
+          {
+            "label": "Coming of Age",
+            "ok": false
+          },
+          {
+            "label": "Building Years",
+            "ok": false
+          },
+          {
+            "label": "Later Years",
+            "ok": false
+          },
+          {
+            "label": "Today",
+            "ok": true
+          }
+        ],
+        "era_click_marker_delta": 2,
+        "lori_today_reply": "Today is Friday, May 1st, 2026. Would you like to start sharing some memories from your life, Era?",
+        "db_lock_delta": 0,
+        "active_element": {
+          "tag": "BODY",
+          "id": "",
+          "cls": "",
+          "text": "Hornelore 1.0\nE\nACTIVE NARRATOR\nEra\nMar 22, 1931 \u00b7 Era Cycle Test \u00b7 age 95\n\u25be\nLife Story\nMemory Exercise\nCompanion\nLife S"
+        },
+        "visible_popovers": [],
+        "era_overlays": []
+      },
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_214438.screenshots/test08_era_cycle_dead_state.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "7/9 era clicks failed"
+      ],
+      "elapsed_ms": 114530
+    },
+    {
+      "id": "TEST-09",
+      "name": "Today mode date awareness",
+      "status": "FAIL",
+      "narrator_name": "Test_617881",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lori_reply": "\u2026Hello! I'm Lori. I'm here to help you create a special collection of your life story, which we'll call a Life Archive. It's a way ",
+        "matched_positive": false,
+        "matched_negative": false,
+        "expected_weekday": "Friday",
+        "expected_date": "May 1, 2026"
+      },
+      "console_matches": [],
+      "screenshots": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/parent_session_readiness_v1_20260501_214438.screenshots/test09_bad_date_reply.png"
+      ],
+      "downloads": [],
+      "notes": [
+        "Lori replied but did not include today's date or day-of-week."
+      ],
+      "elapsed_ms": 16814
+    },
+    {
+      "id": "TEST-01",
+      "name": "test 01 clean control",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-02",
+      "name": "test 02 reject place narrative",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-03",
+      "name": "test 03 reject order complaint",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-04",
+      "name": "test 04 reject name first person",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-05",
+      "name": "test 05 reset identity clears all",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-06",
+      "name": "test 06 cross narrator isolation",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-10",
+      "name": "test 10 memoir peek equals export",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-12",
+      "name": "Leap-year DOB awareness",
+      "status": "PASS",
+      "narrator_name": "Test_634695",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {
+        "lori_dob_reply": "\u2026Margaret, I'm glad you shared your special birthday with me, February 29th, 1940! That's quite a unique day to celebrate. Now, I'd love to know more about where you grew up. Where were you born?",
+        "personal.dateOfBirth": "1940-02-29",
+        "matched_defensive_phrases": [],
+        "matched_ack_patterns": [
+          "\\b1940\\b"
+        ],
+        "dob_persisted_correctly": true,
+        "db_lock_delta": 0
+      },
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [],
+      "elapsed_ms": 105351
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_002-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_003-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-clean",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-messy",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-emotional",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    },
+    {
+      "id": "TEST-NARR-test_narrator_004-fragmented",
+      "name": "<lambda>",
+      "status": "SKIP",
+      "narrator_name": "",
+      "hard_stop": false,
+      "hard_stop_label": "",
+      "observations": {},
+      "console_matches": [],
+      "screenshots": [],
+      "downloads": [],
+      "notes": [
+        "filtered out via --only"
+      ],
+      "elapsed_ms": 0
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+PARENT-SESSION-READINESS-V1 HARNESS
+
+  base_url: http://localhost:8082/ui/hornelore1.0.html
+  api:      http://localhost:8000
+  started:  2026-05-01T21:29:33.699027
+  finished: 2026-05-01T21:30:11.283907
+
+  TEST-01    Clean Control                        MISSING
+  TEST-02    Reject placeOfBirth narrative        MISSING
+  TEST-03    Reject birthOrder complaint          MISSING
+  TEST-04    Reject fullName first-person         MISSING
+  TEST-05    Reset Identity clears all            MISSING
+  TEST-06    Cross-narrator state isolation       MISSING
+  TEST-07    Life Map cold-start                  MISSING
+  TEST-08    Life Map era cycle                   MISSING
+  TEST-09    Today mode date awareness            MISSING
+  TEST-10    Memoir Peek = Export                 MISSING
+  TEST-12    Leap-year DOB awareness              MISSING
+
+  OVERALL: RED
+  Hard stops fired: Boot failed before tests could run.
+  DB lock delta: 0
+
+──────────────────────────────────────────────────────────────────────
+
+Console entries captured: 0
