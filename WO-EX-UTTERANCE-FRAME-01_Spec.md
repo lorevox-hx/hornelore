@@ -1,11 +1,67 @@
 # WO-EX-UTTERANCE-FRAME-01 — Narrator Utterance Frames (Story Clause Maps)
 
-**Status:** PARKED — spec written, not yet scoped for build
+**Status:** ACTIVE — Phase 0-2 LANDED 2026-05-02 (builder + fixtures + tests + isolation gate + CLI + chat_ws observability log behind `HORNELORE_UTTERANCE_FRAME_LOG=1`, default-off). Consumer wiring (extractor binding, Lori grounding, validator) remains parked behind separate phases.
 **Date:** 2026-05-02
 **Lane:** Architectural / shared infrastructure. Consumed by the extractor (binding lane), Lori (behavior lane), AND the reflection validator. Belongs to the binding layer per Lorevox Extractor Architecture v1 §7.1.
-**Sequencing:** Opens after BINDING-01 PATCH 1-4 evidence stabilizes. Earlier scoping risk: building the frame before BINDING-01 evidence tells us which fields routinely cross-bind.
-**Blocks:** Nothing (parked).
+**Sequencing:** Phase 0-2 ships independently of all consumer phases. Consumer wiring (Phase 3+) opens after BINDING-01 PATCH 1-4 evidence stabilizes (so we can compare frame-driven binding deltas against the same baseline that gates BINDING-01 default-on).
+**Blocks:** Nothing.
 **Lights up:** case_111 + case_112 (same-place dual-subject extraction), the BINDING-01 "Type C weakly-constrained narrative" failure class, AND BUG-LORI-REFLECTION-01's "concrete-noun grounding" need.
+
+---
+
+## Phase 0-2 landing summary (2026-05-02)
+
+```
+Files added:
+  server/code/api/services/utterance_frame.py       — pure-deterministic builder
+  tests/fixtures/utterance_frame_cases.json         — 20 hand-authored fixtures
+  tests/test_utterance_frame.py                     — 16 unit tests (all green)
+  tests/test_utterance_frame_isolation.py           — 4 build-gate tests (all green)
+  scripts/utterance_frame_repl.py                   — CLI debug runner
+
+Files modified:
+  server/code/api/routers/chat_ws.py                — gated [utterance-frame] log
+  .env.example                                      — HORNELORE_UTTERANCE_FRAME_LOG=0
+
+Acceptance gates met:
+  [x] Pure deterministic. No LLM. No DB. No IO. No NLP framework.
+  [x] Imports only stdlib + lori_reflection._AFFECT_TOKENS_RX (zero new deps).
+  [x] Build-gate isolation test enforces no extractor/Lori/safety/UI imports
+      (mirrors test_story_preservation_isolation.py — both states verified
+      via deliberate negative-test injection of `from ..routers import extract`).
+  [x] 20/20 tests green. case_111 dual-subject motivating fixture passes.
+  [x] CLI runner exercises --text / --file / stdin / --fixtures input modes.
+  [x] chat_ws hook fires only when HORNELORE_UTTERANCE_FRAME_LOG=1 AND text
+      is non-empty AND not a SYSTEM_* directive (mirrors story-trigger gate).
+  [x] Build-gate failure on injected extract import returns clear error
+      message naming the forbidden prefix (negative-test verified).
+  [x] Frame-build failure in chat_ws is non-fatal (logs WARNING, turn
+      continues unchanged) — pure observability discipline.
+
+NOT done in Phase 0-2 (deliberate scope wall):
+  [ ] Extractor binding consumes frame.candidate_fieldPaths     → Phase 3
+  [ ] Lori reflection consumes frame.clauses[*] for grounding   → Phase 4
+  [ ] Validator consumes frame.negation flags                   → Phase 5
+  [ ] UI surface for operator inspection of recent frames       → Phase 6
+  [ ] Generation-walking ("my mom's mother" → grandparent)      → LANGUAGE-CANON-01
+  [ ] Multi-clause subject coreference                          → LANGUAGE-CANON-01
+
+How to use the observability log:
+  1. Operator sets HORNELORE_UTTERANCE_FRAME_LOG=1 in .env (or as a session
+     env var before stack restart).
+  2. Run a narrator session.
+  3. After: `grep "\[utterance-frame\]" .runtime/logs/api.log` shows one
+     line per turn carrying the parse summary + per-clause (subject_class /
+     event_class / place / negation / uncertainty / candidate_fieldPaths).
+  4. For per-utterance JSON dumps, `python3 scripts/utterance_frame_repl.py
+     --text "..."` re-runs the same parser deterministically against any
+     transcript you want to probe.
+
+Phase 0-2 is the load-bearing groundwork. Phase 3+ consumer wiring is
+where the extractor / Lori / validator start using the frame as their
+binding signal — but those phases need their own evidence (BINDING-01
+deltas, LORI golfball reruns, validator alt-credit numbers) before they
+ship default-on.
 
 ---
 

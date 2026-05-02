@@ -1,0 +1,286 @@
+{
+  "_doc": "WO-EX-UTTERANCE-FRAME-01 Phase 0-2 — hand-authored fixture utterances.",
+  "_law": "Each fixture is verbatim narrator-shaped text. Expected outputs are partial assertions: each test asserts the SHAPE of the frame (clause count, who/event/place/negation/uncertainty, candidate_fieldPaths) — NOT byte-equality. The frame builder is allowed to fill additional slots beyond what's asserted; it must NOT contradict an assertion.",
+  "_provenance": "case_111/case_112 are the load-bearing dual-subject motivators carried over from BUG-EX-PLACE-LASTNAME-FOLLOWUP-01. Other cases are author-grounded against actual narrator voice patterns from the Hornelore golfball + canon-grounded corpus.",
+  "_version": 1,
+  "cases": [
+    {
+      "id": "uf_001_dual_subject_dad_self_stanley",
+      "_origin": "case_111 motivating example",
+      "narrator_text": "My dad was born in Stanley, and I was born in Stanley too.",
+      "expected_clause_count": 2,
+      "expected_clauses": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "event_class": "birth",
+          "place": "Stanley",
+          "negation": false,
+          "uncertainty": false,
+          "must_include_field_path": "parents.birthPlace"
+        },
+        {
+          "who_subject_class": "self",
+          "who_canonical": "narrator",
+          "event_class": "birth",
+          "place": "Stanley",
+          "negation": false,
+          "uncertainty": false,
+          "must_include_field_path": "personal.placeOfBirth"
+        }
+      ],
+      "expected_confidence": "high"
+    },
+    {
+      "id": "uf_002_dual_subject_mom_self_spokane",
+      "_origin": "case_112 motivating example, inverted",
+      "narrator_text": "Mom was born in Spokane, and I was born in Spokane too.",
+      "expected_clause_count": 2,
+      "expected_clauses": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "mother",
+          "event_class": "birth",
+          "place": "Spokane",
+          "must_include_field_path": "parents.birthPlace"
+        },
+        {
+          "who_subject_class": "self",
+          "who_canonical": "narrator",
+          "event_class": "birth",
+          "place": "Spokane",
+          "must_include_field_path": "personal.placeOfBirth"
+        }
+      ],
+      "expected_confidence": "high"
+    },
+    {
+      "id": "uf_003_self_illness_childhood_then_dad_work",
+      "_origin": "Janice canonical mastoidectomy story",
+      "narrator_text": "I had a mastoidectomy when I was little, in Spokane. My dad worked nights at the aluminum plant.",
+      "expected_clause_count": 2,
+      "expected_clauses": [
+        {
+          "who_subject_class": "self",
+          "who_canonical": "narrator",
+          "event_class": "illness",
+          "place": "Spokane",
+          "negation": false
+        },
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "event_class": "work",
+          "must_include_field_path": "parents.occupation"
+        }
+      ],
+      "expected_confidence_in": ["high", "partial"]
+    },
+    {
+      "id": "uf_004_self_career_compound",
+      "_origin": "Shatner template — multiple roles in one turn",
+      "narrator_text": "I was Captain Kirk and T.J. Hooker, and later I was the spokesman for Priceline.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "event_class": "work",
+          "must_include_field_path": "education.earlyCareer"
+        }
+      ],
+      "expected_confidence_in": ["high", "partial"]
+    },
+    {
+      "id": "uf_005_passive_death_wish",
+      "_origin": "WO-LORI-SAFETY-PASSIVE-DEATH-WISH-01 — golfball T05",
+      "narrator_text": "I am so old and I ache so much that I do not want to be alive anymore.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "event_class": "illness"
+        }
+      ],
+      "must_have_negation_clause": true,
+      "_safety_note": "Frame does not classify safety. Negation flag + illness event are observable signals; SAFETY-INTEGRATION-01 Phase 2 classifier is the consumer."
+    },
+    {
+      "id": "uf_006_negation_dont_remember",
+      "narrator_text": "I don't remember where we lived then.",
+      "expected_clause_count": 1,
+      "expected_clauses": [
+        {
+          "who_subject_class": "self",
+          "negation": true,
+          "candidate_fieldPaths_must_be_empty": true
+        }
+      ],
+      "expected_confidence_in": ["partial", "low"]
+    },
+    {
+      "id": "uf_007_uncertainty_i_think",
+      "narrator_text": "I think we moved to Mandan after high school.",
+      "expected_clause_count": 1,
+      "expected_clauses": [
+        {
+          "who_subject_class": "self",
+          "event_class": "move",
+          "place": "Mandan",
+          "uncertainty": true,
+          "must_include_field_path": "residence.place"
+        }
+      ],
+      "expected_confidence_in": ["high", "partial"]
+    },
+    {
+      "id": "uf_008_grandparent_birth_norway",
+      "_origin": "generation walking via possessive chain",
+      "narrator_text": "My mom's mother came from Norway.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class_in": ["parent", "grandparent"]
+        }
+      ],
+      "_note": "v1 frame may classify subject as parent (mom matched first) — generation walking via possessive chains is WO-LORI-LANGUAGE-CANON-01 Layer 2 work, not v1 Phase 0-2 scope. Either classification is acceptable; the test asserts subject was identified."
+    },
+    {
+      "id": "uf_009_trivial_thank_you",
+      "narrator_text": "Thank you.",
+      "expected_clause_count_min": 1,
+      "expected_confidence": "low",
+      "_note": "Trivial response — frame produces a clause with no subject/event classification; downstream consumers should treat as low-signal."
+    },
+    {
+      "id": "uf_010_garbled_stt",
+      "narrator_text": "um yeah I think so",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "uncertainty": true
+        }
+      ],
+      "expected_confidence_in": ["partial", "low"]
+    },
+    {
+      "id": "uf_011_sibling_birth",
+      "narrator_text": "My sister was born in Bismarck two years before me.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "sibling",
+          "event_class": "birth",
+          "place": "Bismarck",
+          "must_include_field_path": "siblings.birthPlace"
+        }
+      ]
+    },
+    {
+      "id": "uf_012_marriage_with_date",
+      "narrator_text": "We got married in 1967.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "event_class": "marriage"
+        }
+      ]
+    },
+    {
+      "id": "uf_013_military_war",
+      "narrator_text": "I served in the Navy during the war.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "event_class": "military",
+          "must_include_field_path": "military.branch"
+        }
+      ]
+    },
+    {
+      "id": "uf_014_grandparent_birth_explicit",
+      "narrator_text": "My grandmother was born in Oslo.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "grandparent",
+          "who_canonical": "grandmother",
+          "event_class": "birth",
+          "place": "Oslo",
+          "must_include_field_path": "grandparents.birthPlace"
+        }
+      ]
+    },
+    {
+      "id": "uf_015_great_grandparent_birth",
+      "narrator_text": "My great-grandfather was born in Hanover.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "great_grandparent",
+          "who_canonical": "great_grandfather",
+          "event_class": "birth",
+          "place": "Hanover",
+          "must_include_field_path": "greatGrandparents.birthPlace"
+        }
+      ]
+    },
+    {
+      "id": "uf_016_pet_no_field_hint",
+      "narrator_text": "We had a dog named Skip when I was little.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class_in": ["pet", "self"]
+        }
+      ],
+      "_note": "Frame v1 emits no field hint for pets; pet routing is the extractor's domain via its own classifier."
+    },
+    {
+      "id": "uf_017_parent_death",
+      "narrator_text": "My father passed away in 1998.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "event_class": "death",
+          "must_include_field_path": "parents.dateOfDeath"
+        }
+      ]
+    },
+    {
+      "id": "uf_018_education_school_self",
+      "narrator_text": "I attended high school in Bismarck.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "event_class": "education",
+          "place": "Bismarck",
+          "must_include_field_path": "education.schooling"
+        }
+      ]
+    },
+    {
+      "id": "uf_019_no_subject_floor",
+      "narrator_text": "It was a hard winter that year.",
+      "expected_confidence_in": ["low", "partial"],
+      "_note": "No clear subject — frame produces low-confidence frame; consumer should not promote any field hint."
+    },
+    {
+      "id": "uf_020_affect_word_present",
+      "narrator_text": "I was so happy when we got the new piano.",
+      "expected_clause_count_min": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "self",
+          "feeling_present": true
+        }
+      ],
+      "_note": "Affect detection reuses lori_reflection._AFFECT_TOKENS_RX; frame surfaces verbatim narrator-stated feeling only. Object 'piano' may also fire."
+    }
+  ]
+}

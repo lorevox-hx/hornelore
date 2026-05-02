@@ -320,6 +320,62 @@ async def ws_chat(ws: WebSocket):
                             _trigger_reason, conv_id,
                         )
 
+        # ── WO-EX-UTTERANCE-FRAME-01 Phase 0-2: observability-only log ──
+        # Build the Story Clause Map for this narrator turn and emit a
+        # single [utterance-frame] log line. This is OBSERVATION ONLY:
+        #   - frame is NOT consumed by the extractor
+        #   - frame is NOT consumed by Lori
+        #   - frame is NOT consumed by safety
+        #   - frame is NOT written to truth or any DB
+        #   - frame failure is swallowed silently — never breaks a turn
+        #
+        # Default-OFF behind HORNELORE_UTTERANCE_FRAME_LOG=1. Goal of
+        # Phase 0-2 is to gather real-world per-turn frame output in
+        # api.log so we can survey the parser's actual behavior on
+        # narrator-shaped text BEFORE wiring any consumer.
+        #
+        # See WO-EX-UTTERANCE-FRAME-01_Spec.md "Three consumption
+        # surfaces" — those land in later phases. v1 is purely
+        # representation.
+        if (
+            os.getenv("HORNELORE_UTTERANCE_FRAME_LOG", "0") in ("1", "true", "True")
+            and user_text
+            and user_text.strip()
+            and not _is_system_directive
+        ):
+            try:
+                from ..services import utterance_frame as _utterance_frame
+                _frame = _utterance_frame.build_frame(user_text)
+                _fd = _frame.to_dict()
+                # Compact one-line summary; downstream tooling can
+                # re-parse the full frame from the [utterance-frame]
+                # JSON line if needed.
+                _clauses_summary = ";".join(
+                    f"{c['who_subject_class']}/{c['event_class']}"
+                    f"@{c['place'] or '-'}|"
+                    f"neg={int(c['negation'])}|"
+                    f"unc={int(c['uncertainty'])}|"
+                    f"hints={','.join(c['candidate_fieldPaths']) or '-'}"
+                    for c in _fd["clauses"]
+                )
+                logger.info(
+                    "[utterance-frame] conv=%s narrator=%s conf=%s "
+                    "clauses=%d unbound=%s shape=%s",
+                    conv_id,
+                    person_id or "<unknown>",
+                    _fd["parse_confidence"],
+                    len(_fd["clauses"]),
+                    "Y" if _fd["unbound_remainder"] else "N",
+                    _clauses_summary or "-",
+                )
+            except Exception as _frame_exc:
+                # Pure observability — failure is non-fatal and silent
+                # at INFO level; turn continues unchanged.
+                logger.warning(
+                    "[utterance-frame] build_frame failed (conv=%s): %s",
+                    conv_id, _frame_exc,
+                )
+
         # Memory Archive — ensure session exists and log user message
         if person_id:
             archive_ensure_session(
