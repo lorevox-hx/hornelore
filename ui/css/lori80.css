@@ -992,6 +992,12 @@ mark.fragment-fact {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* WO-INTERVIEW-CLOCK-01 (2026-05-02): position-relative so the
+     #lvClock surface can absolute-anchor to lower-left adjacent to
+     the mic affordance. No-op for any other descendants because no
+     existing child uses absolute positioning relative to this
+     container. */
+  position: relative;
 }
 .lv-narrator-context-panel {
   flex: 0 0 260px;
@@ -1821,4 +1827,158 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
 }
 @media (max-width: 820px) {
   body.lv-interview-mode-active #lvInterviewTimeline { flex-basis: 200px; min-width: 180px; padding: 14px 12px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-INTERVIEW-CLOCK-01 — Narrator orientation clock (2026-05-02)
+
+   Surface ID:           #lvClock
+   Mount parent:         .lv-narrator-conversation (position:relative)
+   Slot:                 lower-left, above the input footer, adjacent
+                         to the mic affordance (#btnMic)
+   Variant lock:         B (slate, 36px time) is the default
+   Updated by:           ui/js/lori-clock.js (setInterval 60s, vanilla)
+
+   Locked design rules (non-negotiable per WO):
+     - Narrator-visible only (mounted inside narrator chat region)
+     - No softened-mode visual change (never recolors or hides on
+       safety events)
+     - No timezone abbreviation
+     - Place line collapses cleanly when location is unset
+     - Pointer-events:none — orientation surface, not interactive
+   ═══════════════════════════════════════════════════════════════ */
+.lv-clock {
+  position: absolute;
+  left: 18px;
+  bottom: 92px;            /* sits above the WO-8 voice bar + footer */
+  z-index: 5;
+  pointer-events: none;    /* decorative; never steals clicks */
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Variant shells override background/border below. */
+}
+.lv-clock[hidden] { display: none; }
+
+/* ── Variant B — slate orientation card (default, 36px time) ───── */
+.lv-clock-variant-b {
+  background: rgba(35, 42, 54, 0.94);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 10px;
+  padding: 12px 18px 10px;
+  width: 240px;
+  color: #e6e8eb;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 6px 18px rgba(0, 0, 0, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.lv-clock-variant-b .lv-clock-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #9aa3b2;
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.lv-clock-variant-b .lv-clock-time {
+  font-size: 36px;          /* per Chris 2026-05-02 lock */
+  font-weight: 300;
+  letter-spacing: -0.015em;
+  margin: 0 0 2px;
+  line-height: 1.05;
+  color: #e6e8eb;
+}
+.lv-clock-variant-b .lv-clock-day {
+  font-size: 13px;
+  color: #6ea3d8;
+  margin: 0 0 6px;
+  font-weight: 400;
+}
+.lv-clock-variant-b .lv-clock-date {
+  font-size: 13px;
+  color: #cbd5e1;
+  margin: 0 0 4px;
+}
+.lv-clock-variant-b .lv-clock-place {
+  font-size: 12px;
+  color: #9aa3b2;
+  margin: 0;
+}
+.lv-clock-variant-b .lv-clock-place[hidden] { display: none; }
+
+/* ── Variant C — parchment alternate (operator-toggleable) ─────── */
+.lv-clock-variant-c {
+  background: linear-gradient(135deg, #fdf7ea 0%, #f4ebd5 100%);
+  border: 1px solid #d9ccab;
+  border-radius: 6px;
+  padding: 12px 18px 10px;
+  width: 240px;
+  color: #2c2418;
+  font-family: Georgia, "Times New Roman", serif;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.lv-clock-variant-c .lv-clock-eyebrow {
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #9b8763;
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.lv-clock-variant-c .lv-clock-time {
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+  line-height: 1.1;
+}
+.lv-clock-variant-c .lv-clock-day {
+  font-size: 14px;
+  color: #7b6544;
+  font-style: italic;
+  margin: 0 0 6px;
+}
+.lv-clock-variant-c .lv-clock-date {
+  font-size: 14px;
+  color: #2c2418;
+  margin: 0 0 4px;
+}
+.lv-clock-variant-c .lv-clock-place {
+  font-size: 12px;
+  color: #9b8763;
+  font-style: italic;
+  margin: 0;
+}
+.lv-clock-variant-c .lv-clock-place[hidden] { display: none; }
+
+/* ── Variant A — pill alternate (lightest weight) ──────────────── */
+.lv-clock-variant-a {
+  background: rgba(35, 42, 54, 0.94);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 22px;
+  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #e6e8eb;
+  font-size: 13px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  width: auto;              /* shrink-wrap to content */
+}
+.lv-clock-variant-a .lv-clock-eyebrow { display: none; }
+.lv-clock-variant-a .lv-clock-time { font-weight: 500; }
+.lv-clock-variant-a .lv-clock-day  { color: #9aa3b2; font-style: italic; }
+.lv-clock-variant-a .lv-clock-date { display: none; }
+.lv-clock-variant-a .lv-clock-place { color: #6b7280; font-size: 12px; }
+.lv-clock-variant-a .lv-clock-place[hidden] { display: none; }
+
+/* ── Narrow-viewport shrink (tablet kiosk in landscape) ────────── */
+@media (max-width: 980px) {
+  .lv-clock-variant-b,
+  .lv-clock-variant-c { width: 210px; padding: 10px 14px 8px; }
+  .lv-clock-variant-b .lv-clock-time { font-size: 32px; }
+  .lv-clock-variant-c .lv-clock-time { font-size: 24px; }
 }

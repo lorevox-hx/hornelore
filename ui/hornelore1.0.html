@@ -4680,6 +4680,13 @@
 <script src="js/bug-panel-dashboard.js?v=2026-05-01"></script>
 <script src="js/bug-panel-story-review.js?v=2026-05-01"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js?v=2026-05-01"></script>
+<!-- WO-INTERVIEW-CLOCK-01 (2026-05-02): narrator-visible orientation
+     clock. Mounts inside #lvNarratorConversation lower-left, above
+     the input bar, adjacent to the mic. Variant B (slate, 36px time)
+     is the locked default; operator can override via
+     localStorage["lvClockVariant"]. IIFE — no global side effects
+     beyond window.lvClockRefresh() (operator dev convenience). -->
+<script src="js/lori-clock.js?v=2026-05-02"></script>
 <script src="js/permissions.js"></script>
 <script src="js/emotion.js"></script>
 <script src="js/facial-consent.js"></script>
