@@ -804,6 +804,17 @@ async def ws_chat(ws: WebSocket):
                 "(prompt=%d, max_new=%d). Not calling model.generate().",
                 _required_mb, _vram_free, _prompt_tokens, max_new,
             )
+            # WO-OPS-VRAM-VISIBILITY-01 Phase 2 — record the block for
+            # operator dashboard + eval discipline header. Lazy import +
+            # try/except so a stack_monitor failure can't kill the turn.
+            try:
+                from ..services import stack_monitor as _sm
+                _sm.record_vram_guard_block()
+            except Exception as _vram_rec_exc:
+                logger.warning(
+                    "[chat_ws][WO-10M] vram-guard counter record failed: %s",
+                    _vram_rec_exc,
+                )
             await _ws_send(ws, {
                 "type": "error",
                 "code": "VRAM_PRESSURE",

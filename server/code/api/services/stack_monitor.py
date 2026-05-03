@@ -116,6 +116,58 @@ _log_scan_cache: Dict[str, Any] = {
 _ui_heartbeat_lock = threading.Lock()
 _ui_heartbeat_store: Dict[str, Dict[str, Any]] = {}
 
+# WO-OPS-VRAM-VISIBILITY-01 Phase 2 — VRAM_GUARD block counter.
+# `chat_ws.py` calls record_vram_guard_block() each time the WO-10M
+# pre-generation guard fires (chat_ws.py L801-816). We keep a bounded
+# rolling deque of timestamps so the operator dashboard can report
+# "blocks in last hour" without growing unbounded. The window matches
+# the existing log-scan / GPU-cache cadence (~1 hour rolling visibility).
+#
+# Locked design rules (per WO-OPS-VRAM-VISIBILITY-01 §10):
+#   - In-memory only; no DB writes per sample.
+#   - Bounded (deque maxlen=2000 covers worst-case ~36/min for an hour).
+#   - Read-only for everything except the BLOCKING-turn site.
+#   - Resets on stack restart (acceptable — restart events are themselves
+#     observable via api.log).
+import collections as _collections
+
+_vram_guard_lock = threading.Lock()
+_vram_guard_blocks: "_collections.deque[float]" = _collections.deque(maxlen=2000)
+
+
+def record_vram_guard_block() -> None:
+    """Record one VRAM_GUARD block event (called from chat_ws.py BLOCKING site).
+
+    Called at the moment chat_ws decides not to invoke model.generate()
+    because pre-generation VRAM is below the safe threshold. One call per
+    blocked turn. Thread-safe and bounded.
+    """
+    now = time.time()
+    with _vram_guard_lock:
+        _vram_guard_blocks.append(now)
+
+
+def vram_guard_blocks_in_window(window_seconds: float = 3600.0) -> int:
+    """Count VRAM_GUARD blocks in the trailing window (default 1 hour).
+
+    Used by build_summary() and the eval discipline header to surface
+    pressure indicators alongside instantaneous VRAM stats.
+    """
+    cutoff = time.time() - window_seconds
+    with _vram_guard_lock:
+        # deque is FIFO ordered by append time; iterate from the right
+        # since recent events matter most. For a 2000-entry max deque,
+        # this is O(N) worst case but typically much faster.
+        return sum(1 for ts in _vram_guard_blocks if ts >= cutoff)
+
+
+def latest_vram_guard_block() -> Optional[float]:
+    """Return UTC epoch of most recent VRAM_GUARD block, or None."""
+    with _vram_guard_lock:
+        if not _vram_guard_blocks:
+            return None
+        return _vram_guard_blocks[-1]
+
 # Operator markers (POST /mark) — capped buffer so a runaway client can't
 # grow this unbounded.
 _MARKERS_MAX = 200
@@ -878,6 +930,18 @@ def build_summary(person_id: Optional[str] = None) -> Dict[str, Any]:
     except Exception as e:
         gpu = {"status": "unavailable", "error": str(e)}
         warnings.append({"category": "gpu", "message": f"gpu probe crashed: {e}"})
+
+    # WO-OPS-VRAM-VISIBILITY-01 Phase 2 — surface VRAM_GUARD block counter
+    # alongside the GPU snapshot. Operator dashboard widget reads this to
+    # show "Guard blocks (1h)" badge. In-memory rolling deque, ~30 KB cost.
+    try:
+        if isinstance(gpu, dict):
+            gpu["vram_guard_blocks_last_hour"] = vram_guard_blocks_in_window(3600.0)
+            _last_block = latest_vram_guard_block()
+            if _last_block is not None:
+                gpu["last_vram_guard_block_age_seconds"] = max(0.0, time.time() - _last_block)
+    except Exception as e:
+        warnings.append({"category": "gpu", "message": f"vram-guard counter read failed: {e}"})
 
     try:
         capture = collect_capture(person_id=person_id)

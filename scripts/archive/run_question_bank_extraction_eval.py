@@ -151,6 +151,76 @@ _DISCIPLINE_FLAG_NAMES = (
 )
 
 
+def _capture_vram_snapshot() -> Dict[str, Any]:
+    """WO-OPS-VRAM-VISIBILITY-01 Phase 4 — single-shot nvidia-smi snapshot.
+
+    Returns a normalized dict suitable for both pre-eval (in discipline
+    header) and post-eval (at finalize_report) capture. Sibling to
+    warmup_probe in shape and failure semantics: never raises, always
+    returns a dict, populates {"available": false} on any failure.
+
+    Mirrors the canonical query used by stack_monitor.py so post-hoc
+    correlation with operator-dashboard data uses the same units.
+    """
+    import subprocess as _sp_local
+    import datetime as _dt_local
+    snap = {
+        "captured_at": _dt_local.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "available": False,
+    }
+    try:
+        proc = _sp_local.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.used,memory.free,memory.total,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except FileNotFoundError:
+        snap["error"] = "nvidia-smi not on PATH"
+        return snap
+    except _sp_local.TimeoutExpired:
+        snap["error"] = "nvidia-smi timed out (>2s)"
+        return snap
+    except Exception as e:
+        snap["error"] = f"nvidia-smi failed: {type(e).__name__}: {e}"
+        return snap
+
+    if proc.returncode != 0:
+        snap["error"] = (proc.stderr or "nvidia-smi non-zero exit").strip()[:200]
+        return snap
+
+    line = (proc.stdout or "").strip().splitlines()
+    if not line:
+        snap["error"] = "empty nvidia-smi output"
+        return snap
+
+    fields = [c.strip() for c in line[0].split(",")]
+    if len(fields) < 4:
+        snap["error"] = f"unexpected nvidia-smi field count: {len(fields)}"
+        return snap
+
+    def _flt(idx: int) -> Optional[float]:
+        try:
+            v = fields[idx]
+            if v in ("[N/A]", "N/A", ""):
+                return None
+            return float(v)
+        except (ValueError, IndexError):
+            return None
+
+    snap["available"] = True
+    snap["vram_used_mb"] = _flt(0)
+    snap["vram_free_mb"] = _flt(1)
+    snap["vram_total_mb"] = _flt(2)
+    snap["util_percent"] = _flt(3)
+    return snap
+
+
 def _capture_discipline_header(
     api_base: str,
     mode: str,
@@ -313,6 +383,17 @@ def _capture_discipline_header(
                 "error": "requests package not installed",
             }
 
+    # WO-OPS-VRAM-VISIBILITY-01 Phase 4 — pre-eval VRAM snapshot.
+    # Sibling to warmup_probe. Single-shot nvidia-smi call captures the
+    # state of GPU memory immediately before the eval begins. Combined
+    # with the post-eval snapshot (added at finalize_report), this gives
+    # a per-eval pressure indicator that builds historical truth over
+    # many runs without requiring continuous polling.
+    #
+    # Failure mode: if nvidia-smi unavailable (non-NVIDIA dev box),
+    # populate {"available": false} and continue. Never blocks the eval.
+    header["vram_snapshot"] = {"pre": _capture_vram_snapshot()}
+
     # Scorer + case-bank hashes — detect scorer or fixture drift across runs
     # that would otherwise masquerade as extractor movement.
     try:
@@ -366,6 +447,28 @@ def _capture_discipline_header(
     lines.append(f"  classification: {wp.get('classification', 'unknown')}")
     if wp.get("error"):
         lines.append(f"  error: {wp['error']}")
+    # WO-OPS-VRAM-VISIBILITY-01 Phase 4 — render the pre-eval VRAM snapshot
+    # alongside warmup_probe. Post-eval delta is added to the JSON report
+    # at finalize time but kept out of the console header to preserve the
+    # existing top-of-output shape (operators can grep `vram_snapshot` in
+    # the JSON for the post-eval data).
+    _vs = header.get("vram_snapshot", {}).get("pre", {})
+    if _vs.get("available"):
+        used_mb = _vs.get("vram_used_mb")
+        free_mb = _vs.get("vram_free_mb")
+        total_mb = _vs.get("vram_total_mb")
+        used_str = f"{used_mb:.0f}" if isinstance(used_mb, (int, float)) else "?"
+        free_str = f"{free_mb:.0f}" if isinstance(free_mb, (int, float)) else "?"
+        total_str = f"{total_mb:.0f}" if isinstance(total_mb, (int, float)) else "?"
+        lines.append(
+            f"[discipline] vram_pre: used={used_str}MB free={free_str}MB "
+            f"total={total_str}MB"
+        )
+    elif _vs:
+        lines.append(
+            f"[discipline] vram_pre: unavailable ({_vs.get('error', 'no nvidia-smi')})"
+        )
+
     lines.append(f"[discipline] scorer_version={header['scorer_version']}")
     lines.append(f"[discipline] case_bank_version={header['case_bank_version']}")
 
