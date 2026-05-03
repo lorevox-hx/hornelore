@@ -434,6 +434,55 @@ Code contributions go through the license terms below (assignment-based, by invi
 
 ---
 
+## Listening before hearing
+
+Lorevox is not a transcription product. It is a memory-preservation system for older narrators.
+
+Modern ASR can hear words with high accuracy, but **better hearing without better listening just makes the system wrong faster.** A perfect transcript can still become a trust failure if the binding layer writes a complaint, a resistance phrase, or a story fragment into a protected identity field. The Janice regression — where the narrator said *"I just told you something you ignored"* and the system bound that complaint to `personal.birthOrder` — is the canonical failure mode. Better ASR would have transcribed the same nine words with the same precision and routed them to the same wrong field.
+
+The locked principle:
+
+> **Better hearing without better listening just makes you wrong faster.**
+
+For this reason, model upgrades do not bypass the Lorevox truth pipeline:
+
+```
+Audio / transcript  →  Archive  →  structured candidate  →  Review Queue  →  promoted History  →  Memoir
+```
+
+Better ASR may improve the Archive. It does not change what reaches History or Memoir. Protected identity, family facts, dates, places, and biographical claims still require the existing review and promotion discipline. The architectural wall is the load-bearing thing; the model is replaceable.
+
+### Current model posture (locked 2026-05-03 after 3-agent triangulation)
+
+- **Keep:** Llama 3.1-8B-Instruct (Q4) for Lori chat and extraction. Production-stable; current extractor prompts are tuned to it; master eval baseline (`r5h-followup-guard-v1` = 78/114) is calibrated against this model.
+- **Keep:** Current TTS (Coqui VITS on port 8001). Already sized for the RTX 5080 stack.
+- **Sandbox only:** **Canary-Qwen 2.5B** as an Archive-only transcription experiment. Plausible 20% WER improvement over Whisper on noisy audio, but unverified on Janice + Kent voice profiles specifically. WER gains feed the Archive only — they do NOT bypass the Review Queue.
+- **Defer:** **PersonaPlex 7B**. Sub-300ms full-duplex turn-taking is optimized for fluent adult conversation. Older narrators (Janice and Kent are 86) need *longer* protected pauses, not shorter ones — this is why WO-10C set silence cadence at 120s / 300s / 600s, not 300ms. Full-duplex is wrong-target for the population this product serves.
+- **Post-session only:** **Nemotron 3 Nano 30B-A3B**. The "3B active" parameter count refers to MoE compute per token, NOT total memory residence — the full ~30B expert set still loads into VRAM. Not a live narrator-session model on a 16 GB consumer card. Reasonable as an offline reasoning experiment overnight.
+
+### RTX 5080 working envelope (16 GB VRAM)
+
+Approximate current operational behavior on the warm Hornelore stack. **These are working hypotheses until verified by `WO-OPS-VRAM-VISIBILITY-01`** (banked spec; bench + Bug Panel + eval-discipline-header instrumentation pending implementation).
+
+```
+Idle floor:                       ~8–9 GB    (Llama 3.1-8B Q4 + TTS, no active turn)
+Normal active turn:               ~10–11 GB
+Long prompt / SPANTAG pressure:   ~13–15 GB
+Worst case observed:              OOM        (the 6 HTTP 500s on extract-fields, 2026-04-27)
+```
+
+The `VRAM_GUARD` in `chat_ws.py` (WO-10M) blocks turns when free VRAM dips below `base 600 MB + per_token 0.14 MB × planned_seq`. It exists because long prompts + KV cache filling can push past the ceiling on the long tail.
+
+### The verification stance
+
+Before any model swap proceeds, three things must verify:
+
+1. **Verified VRAM** beats estimated VRAM. Parameter math × bytes-per-param is necessary but not sufficient — real live VRAM also includes CUDA context, framework overhead, KV cache (which scales with context length, not just model size), audio buffers, TTS, and fragmentation.
+2. **Verified WER on Janice and Kent** beats benchmark WER. Open ASR Leaderboard numbers are useful but generic. The narrator-specific WER on the canon-grounded corpus (24 cases) is what matters for whether Janice keeps talking.
+3. **Verified narrator trust** beats both. The metric that actually predicts whether an older narrator continues the interview is *did the system reflect what they said, ask one short question, and then stop?* That's anchor selection + atomicity + waiting — none of which require a model upgrade.
+
+---
+
 ## Quick Start
 
 1. Start all services (Windows Terminal):
