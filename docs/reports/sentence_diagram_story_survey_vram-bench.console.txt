@@ -1,0 +1,31 @@
+==============================================================================
+WO-EX-SENTENCE-DIAGRAM-STORY-SURVEY-01
+==============================================================================
+cases:              11
+extract_passed:     7/11
+must_not_violations:0
+chat_ran:           11
+chat_errors:        0
+frame_available:    11
+
+Top missed expected fields:
+  parents.notableLifeEvents            1
+  parents.occupation                   1
+  pets.notes                           1
+  pets.species                         1
+
+Cases with misses or violations:
+  sd_007_mother_homemaker_and_organist [occupation_talent_income] misses=['parents.occupation'] must_not=[]
+    said: My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent m
+    lori: That's fascinating about your mother, Maggie. What was it like growing up with a mother who had such a unique talent and experience as an organist?
+  sd_009_mother_secretary_later_homemaker [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.
+    lori: That's so lovely. It sounds like your mom, Evelyn, was a very capable and caring person. What was it like growing up with her as a homemaker?
+  sd_011_barn_cats_and_dad_horse [pets_cardinality] misses=['pets.species'] must_not=[]
+    said: We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.
+    lori: It sounds like you grew up in a lovely rural setting with animals around. What was it like helping your dad with the ranch work?
+  sd_012_named_dog_and_unnamed_cats [pets_cardinality] misses=['pets.notes'] must_not=[]
+    said: Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.
+    lori: Barn cats can be such sweet companions. What was it like growing up on a farm or in a rural area with animals like Biscuit and the barn cats?
+
+Report includes per-case: user_text, assistant_text, frame, extraction payload, raw items, expected hits/misses.

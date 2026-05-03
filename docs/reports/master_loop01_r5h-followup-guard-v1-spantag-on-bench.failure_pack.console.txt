@@ -1,0 +1,45 @@
+==============================================================================
+  FAILURE PACK — eval_tag=r5h-followup-guard-v1-spantag-on-bench
+==============================================================================
+  total: 10   passed: 3   failed: 7
+
+  Failure categories:
+    schema_gap                         4   [case_001, case_018, case_033, case_077]
+    field_path_mismatch                2   [case_028, case_082]
+    defensible_value_alt_credit        1   [case_033]
+    noise_leakage                      1   [case_082]
+    defensible_alt_credit              1   [case_087]
+
+  By narrator (failures):
+    kent-james-horne                   3
+    christopher-todd-horne             2
+    janice-josephine-horne             2
+
+  By phase (failures):
+    developmental_foundations          6
+    midlife                            1
+
+  By era (failures):
+    school_years                       6
+    midlife                            1
+
+  By score bucket (failures):
+    0.00         2
+    0.01-0.24    0
+    0.25-0.49    2
+    0.50-0.69    3
+    0.70+        0
+
+  Hallucination prefix rollup:
+    siblings                 offenders=  1  cases= 1
+    parents                  offenders=  1  cases= 1
+    family                   offenders=  1  cases= 1
+    hobbies                  offenders=  1  cases= 1
+
+  must_not_write violations: 0
+
+  Cross-axis highlights (biggest cell per grid):
+    narrator×phase           christopher-todd-horne×developmental_foundations             failed=2
+    category×narrator        schema_gap×kent-james-horne                                  failed=3
+
+==============================================================================

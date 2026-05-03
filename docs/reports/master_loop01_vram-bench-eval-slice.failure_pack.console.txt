@@ -1,0 +1,48 @@
+==============================================================================
+  FAILURE PACK — eval_tag=vram-bench-eval-slice
+==============================================================================
+  total: 5   passed: 0   failed: 5
+
+  Failure categories:
+    schema_gap                         4   [case_028, case_033, case_044, case_069]
+    defensible_alt_credit              2   [case_033, case_087]
+    defensible_alt_value_credit        1   [case_033]
+    field_path_mismatch                1   [case_044]
+    llm_hallucination                  1   [case_069]
+
+  By narrator (failures):
+    janice-josephine-horne             2
+    kent-james-horne                   2
+    christopher-todd-horne             1
+
+  By phase (failures):
+    developmental_foundations          3
+    early_adulthood                    1
+    transitional_adolescence           1
+
+  By era (failures):
+    school_years                       3
+    early_adulthood                    1
+    adolescence                        1
+
+  By score bucket (failures):
+    0.00         2
+    0.01-0.24    0
+    0.25-0.49    1
+    0.50-0.69    2
+    0.70+        0
+
+  Hallucination prefix rollup:
+    greatGrandparents        offenders=  5  cases= 1
+    education                offenders=  5  cases= 2
+    parents                  offenders=  3  cases= 1
+    family                   offenders=  3  cases= 1
+    grandparents             offenders=  2  cases= 1
+
+  must_not_write violations: 0
+
+  Cross-axis highlights (biggest cell per grid):
+    narrator×phase           janice-josephine-horne×developmental_foundations             failed=1
+    category×narrator        schema_gap×janice-josephine-horne                            failed=2
+
+==============================================================================

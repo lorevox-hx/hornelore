@@ -1,0 +1,174 @@
+[discipline] eval_tag=r5h-followup-guard-v1-spantag-on-bench
+[discipline] started_at=2026-05-03T16:19:46Z
+[discipline] mode=live
+[discipline] git_sha=5c5555d git_dirty=True branch=main
+[discipline] flags:
+  HORNELORE_NARRATIVE=0 (default)
+  HORNELORE_ATTRIB_BOUNDARY=0 (default)
+  HORNELORE_PROMPTSHRINK=0 (default)
+  HORNELORE_SILENT_DEBUG=0 (default)
+  HORNELORE_SPANTAG=0 (default)
+  HORNELORE_INTAKE_MINIMAL=0 (default)
+[discipline] api_endpoint=http://localhost:8000
+[discipline] api_model=unavailable — /status endpoint not exposed  api_model_hash=unavailable
+[discipline] api_log_last_line_age_seconds=0.0
+[discipline] warmup_probe:
+  post_extract_roundtrip_ms=19415
+  classification: hot
+[discipline] vram_pre: used=6774MB free=9204MB total=16303MB
+[discipline] scorer_version=46d84732c05f
+[discipline] case_bank_version=b487e54cd84d
+
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     10
+  Passed:          3
+  Failed:          7
+  Pass rate:       30.0%
+  Avg score:       0.522
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 3/7 passed  (42.9%)
+    v2 (field avg):   2/7 passed  (28.6%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 2/10 passed (20.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        52.6%
+    may_extract bonus rate:     28.6%
+    should_ignore leak rate:    14.3%
+    must_not_write violations:  0.0%
+
+  By behavior:
+    extract_single                  2/4 passed
+    extract_multiple                1/5 passed
+    extract_compound                0/1 passed
+
+  By narrator:
+    christopher-todd-horne          3/5 passed  (avg 0.800)
+    kent-james-horne                0/3 passed  (avg 0.250)
+    janice-josephine-horne          0/2 passed  (avg 0.234)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  2/6
+    Known gaps (currentExtractorExpected=false):  1/4
+
+  Failure categories:
+    schema_gap                      4
+    defensible_alt_credit           2
+    field_path_mismatch             2
+    defensible_value_alt_credit     1
+    noise_leakage                   1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   3/7 passed  (avg 0.536)
+    mixed_narrative            0/1 passed  (avg 0.500)
+    dense_truth                0/2 passed  (avg 0.484)
+
+  By style bucket:
+    life_history               2/9 passed  (avg 0.469)
+    topical_history            1/1 passed  (avg 1.000)
+
+  By chunk size:
+    tiny                       1/3 passed  (avg 0.583)
+    small                      2/4 passed  (avg 0.500)
+    medium                     0/1 passed  (avg 0.500)
+    large                      0/2 passed  (avg 0.484)
+
+  By noise profile:
+    clean                      3/7 passed  (avg 0.536)
+    mixed                      0/1 passed  (avg 0.500)
+    dense_truth                0/2 passed  (avg 0.484)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    early_school_years      1/7 passed  (avg 0.460)
+    coming_of_age           1/1 passed  (avg 1.000)
+    building_years          0/1 passed  (avg 0.000)
+    unknown                 1/1 passed  (avg 1.000)
+
+  By pass:
+    pass1                   3/10 passed  (avg 0.522)
+
+  By mode:
+    open                    3/10 passed  (avg 0.522)
+
+  By era × pass:
+    early_adulthood::pass1                    1/1 passed  (avg 1.000)
+    midlife::pass1                            0/1 passed  (avg 0.000)
+    school_years::pass1                       1/7 passed  (avg 0.460)
+    unknown::pass1                            1/1 passed  (avg 1.000)
+
+  ─── LAYER 3b: STUBBORN-PACK PARTITION ───
+
+    primary                 1/3 passed  (33.3%, avg 0.489)
+      cases: case_008, case_018, case_082
+    truncation_starved      0/1 passed  (0.0%, avg 0.500)
+      cases: case_087
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     70.0%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    30.0%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       7
+    rules_fallback                            3
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               2  (20.0%)
+    still-mismatched cases:       2
+    top primary → alt pairs:
+      parents.notableLifeEvents -> earlyMemories.significantEvent   1
+      grandparents.ancestry -> greatGrandparents.ancestry           1
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               1  (10.0%)
+    per-case value-alt matches:
+      case_033      military.branch                 score=1.000  alt="Union"
+
+  Confidence distribution:
+    item_count:      28
+    min/avg/max:     0.700 / 0.887 / 0.950
+    <0.5:            0
+    0.5-0.7:         0
+    0.7-0.9:         8
+    >=0.9:           20
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_082      offenders= 2  categories=['field_path_mismatch', 'noise_leakage']
+      emitted: siblings.relation, parents.relation
+    case_018      offenders= 1  categories=['schema_gap']
+      emitted: family.children.firstName
+    case_028      offenders= 1  categories=['field_path_mismatch']
+      emitted: hobbies.hobbies
+
+  ─── FAILED CASES ───
+
+    case_001    contract         tiny    clean         score=0.50  christopher-todd-horne
+      Failures:  ['schema_gap']
+    case_018    contract         small   clean         score=0.00  kent-james-horne
+      Failures:  ['schema_gap']
+    case_028    contract         small   clean         score=0.00  janice-josephine-horne
+      Failures:  ['field_path_mismatch']
+    case_033    contract         tiny    clean         score=0.25  kent-james-horne
+      Failures:  ['schema_gap', 'defensible_value_alt_credit']
+    case_077    mixed_narrative  medium  mixed         score=0.50  kent-james-horne [GAP]
+      Failures:  ['schema_gap']
+    case_082    dense_truth      large   dense_truth   score=0.47  janice-josephine-horne [GAP]
+      Failures:  ['field_path_mismatch', 'noise_leakage']
+    case_087    dense_truth      large   dense_truth   score=0.50  christopher-todd-horne [GAP]
+      Failures:  ['defensible_alt_credit']
+
+==============================================================================

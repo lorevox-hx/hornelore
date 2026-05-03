@@ -462,16 +462,22 @@ Better ASR may improve the Archive. It does not change what reaches History or M
 
 ### RTX 5080 working envelope (16 GB VRAM)
 
-Approximate current operational behavior on the warm Hornelore stack. **These are working hypotheses until verified by `WO-OPS-VRAM-VISIBILITY-01`** (banked spec; bench + Bug Panel + eval-discipline-header instrumentation pending implementation).
+Measured behavior on the warm Hornelore stack (verified by `WO-OPS-VRAM-VISIBILITY-01` bench, 2026-05-03 — full report at `docs/reports/WO-OPS-VRAM-VISIBILITY-01_BASELINE.md`):
 
 ```
-Idle floor:                       ~8–9 GB    (Llama 3.1-8B Q4 + TTS, no active turn)
-Normal active turn:               ~10–11 GB
-Long prompt / SPANTAG pressure:   ~13–15 GB
-Worst case observed:              OOM        (the 6 HTTP 500s on extract-fields, 2026-04-27)
+Idle floor:                       ~5.9 GB    (Llama 3.1-8B Q4 + TTS, no active turn)
+Normal active turn (SPANTAG-off): ~8.0 GB    (curl 20w-1000w + real eval slice all pin here)
+Real eval flow (SPANTAG-off):     ~8.0 GB    (sentence-diagram-survey peak 8.04 GB / min free 6.37 GB)
+SPANTAG-on eval slice:            ~7.0 GB    (10-case bench peak 6.97 GB / min free 9.0 GB)
+Long-prompt SPANTAG tail:         (working hypothesis) ~13–15 GB
+                                  Historical OOM (2026-04-27) on ~6k-token cases
+                                  not reproduced in today's bench. Needs targeted
+                                  case_044 + case_069 SPANTAG-on bench before
+                                  envelope can be declared fully verified.
+                                  Parked risk while SPANTAG stays default-OFF.
 ```
 
-The `VRAM_GUARD` in `chat_ws.py` (WO-10M) blocks turns when free VRAM dips below `base 600 MB + per_token 0.14 MB × planned_seq`. It exists because long prompts + KV cache filling can push past the ceiling on the long tail.
+The `VRAM_GUARD` in `chat_ws.py` (WO-10M) blocks turns when free VRAM dips below `base 600 MB + per_token 0.14 MB × planned_seq`. It exists because long prompts + KV cache filling can push past the ceiling on the long tail. Bug Panel widget surfaces guard-block count via `vram_guard_blocks_last_hour` (banked under WO-OPS-VRAM-VISIBILITY-01 Phase 2). Today's bench: zero guard blocks across all 9 scenarios over ~25 minutes.
 
 ### The verification stance
 
