@@ -1,0 +1,271 @@
+[discipline] eval_tag=r5h-followup-guard-v1
+[discipline] started_at=2026-05-03T10:54:13Z
+[discipline] mode=live
+[discipline] git_sha=7c2b1f1 git_dirty=True branch=main
+[discipline] flags:
+  HORNELORE_NARRATIVE=0 (default)
+  HORNELORE_ATTRIB_BOUNDARY=0 (default)
+  HORNELORE_PROMPTSHRINK=0 (default)
+  HORNELORE_SILENT_DEBUG=0 (default)
+  HORNELORE_SPANTAG=0 (default)
+  HORNELORE_INTAKE_MINIMAL=0 (default)
+[discipline] api_endpoint=http://localhost:8000
+[discipline] api_model=unavailable — /status endpoint not exposed  api_model_hash=unavailable
+[discipline] api_log_last_line_age_seconds=0.0
+[discipline] warmup_probe:
+  post_extract_roundtrip_ms=14044
+  classification: hot
+[discipline] scorer_version=cc7dd27507b4
+[discipline] case_bank_version=b487e54cd84d
+
+
+==============================================================================
+  WO-QB-MASTER-EVAL-01 — LIVE MODE
+==============================================================================
+  Total cases:     114
+  Passed:          78
+  Failed:          36
+  Pass rate:       68.4%
+  Avg score:       0.784
+
+  CONTRACT SUBSET (regression guard):
+    v3 (truth zones): 49/72 passed  (68.1%)
+    v2 (field avg):   43/72 passed  (59.7%)
+    Prior baseline:   32/62 (v2)
+
+  V2-COMPAT (all cases): 57/114 passed (50.0%)
+
+  ─── LAYER 1: CONTRACT / REGRESSION ───
+
+  Truth zone metrics:
+    must_extract recall:        75.0%
+    may_extract bonus rate:     35.7%
+    should_ignore leak rate:    30.9%
+    must_not_write violations:  1.2%
+
+  must_not_write violations:
+    case_035      education.schooling                  (janice-josephine-horne)
+    case_093      education.higherEducation            (kent-james-horne)
+
+  By behavior:
+    extract_single                  30/36 passed
+    extract_multiple                31/53 passed
+    clarify_before_write            5/5 passed
+    extract_compound                10/18 passed
+    null_case                       2/2 passed
+
+  By narrator:
+    christopher-todd-horne          35/48 passed  (avg 0.844)
+    kent-james-horne                22/33 passed  (avg 0.796)
+    janice-josephine-horne          21/33 passed  (avg 0.684)
+
+  Expected extractor results:
+    Should pass (currentExtractorExpected=true):  43/58
+    Known gaps (currentExtractorExpected=false):  35/56
+
+  Failure categories:
+    schema_gap                      15
+    llm_hallucination               14
+    noise_leakage                   13
+    field_path_mismatch             10
+    defensible_alt_credit           8
+    guard_false_positive            2
+    defensible_alt_value_credit     1
+
+  ─── LAYER 2: ORAL-HISTORY STYLE ───
+
+  By case type:
+    contract                   49/72 passed  (avg 0.794)
+    mixed_narrative            11/19 passed  (avg 0.661)
+    dense_truth                4/8 passed  (avg 0.738)
+    follow_up                  7/8 passed  (avg 0.852)
+    null_clarify               7/7 passed  (avg 0.986)
+
+  By style bucket:
+    life_history               61/93 passed  (avg 0.763)
+    topical_history            11/13 passed  (avg 0.915)
+    thematic_study             4/6 passed  (avg 0.750)
+    site_artifact              2/2 passed  (avg 1.000)
+
+  By chunk size:
+    tiny                       36/52 passed  (avg 0.804)
+    small                      25/34 passed  (avg 0.814)
+    medium                     14/24 passed  (avg 0.683)
+    large                      3/4 passed  (avg 0.875)
+
+  By noise profile:
+    clean                      63/87 passed  (avg 0.815)
+    good_garbage               7/14 passed  (avg 0.571)
+    mixed                      4/5 passed  (avg 0.913)
+    dense_truth                4/8 passed  (avg 0.738)
+
+  ─── LAYER 3a: LIFE-MAP AXES (era / pass / mode) ───
+
+  By era:
+    early_school_years      32/53 passed  (avg 0.757)
+    adolescence             2/5 passed  (avg 0.500)
+    coming_of_age           18/22 passed  (avg 0.827)
+    later_years             11/12 passed  (avg 0.908)
+    building_years          11/17 passed  (avg 0.790)
+    earliest_years          3/4 passed  (avg 0.812)
+    unknown                 1/1 passed  (avg 1.000)
+
+  By pass:
+    pass1                   78/114 passed  (avg 0.784)
+
+  By mode:
+    open                    78/114 passed  (avg 0.784)
+
+  By era × pass:
+    adolescence::pass1                        2/5 passed  (avg 0.500)
+    early_adulthood::pass1                    18/22 passed  (avg 0.827)
+    early_childhood::pass1                    3/4 passed  (avg 0.812)
+    later_life::pass1                         11/12 passed  (avg 0.908)
+    midlife::pass1                            11/17 passed  (avg 0.790)
+    school_years::pass1                       32/53 passed  (avg 0.757)
+    unknown::pass1                            1/1 passed  (avg 1.000)
+
+  ─── LAYER 3b: STUBBORN-PACK PARTITION ───
+
+    primary                 4/4 passed  (100.0%, avg 1.000)
+      cases: case_008, case_009, case_018, case_082
+    secondary               1/1 passed  (100.0%, avg 1.000)
+      cases: case_017
+    truncation_starved      3/7 passed  (42.9%, avg 0.700)
+      cases: case_080, case_081, case_083, case_084, case_085, case_086, case_087
+    out_of_scope            3/3 passed  (100.0%, avg 0.817)
+      cases: case_053, case_075, case_088
+
+  ─── LAYER 3c: EXTRACTOR DIAGNOSTICS ───
+
+  Method rates:
+    parse_success_rate:     95.6%
+    parse_failure_rate:     0.0%
+    rules_fallback_rate:    4.4%
+    truncation_rate:        0.0%
+
+  Method distribution:
+    llm                                       109
+    fallback                                  5
+
+  Defensible-alt-credit scorer (SECTION-EFFECT #94):
+    credited cases:               8  (7.0%)
+    still-mismatched cases:       10
+    top primary → alt pairs:
+      grandparents.ancestry -> greatGrandparents.ancestry           2
+      parents.notableLifeEvents -> earlyMemories.significantEvent   1
+      education.earlyCareer -> education.careerProgression          1
+      residence.place -> family.children.placeOfBirth               1
+      military.significantEvent -> greatGrandparents.militaryUnit   1
+      community.role -> parents.occupation                          1
+      residence.place -> personal.placeOfBirth                      1
+
+  Defensible-value-alt-credit scorer (#97, 075/088-scoped):
+    credited cases:               0  (0.0%)
+    per-case value-alt matches:
+      case_075      parents.notableLifeEvents       score=0.800  alt="two years of college at Capitol Business College"
+
+  Confidence distribution:
+    item_count:      473
+    min/avg/max:     0.600 / 0.889 / 1.000
+    <0.5:            0
+    0.5-0.7:         1
+    0.7-0.9:         74
+    >=0.9:           398
+
+  Invalid-fieldpath hallucinations (top 10):
+    case_028      offenders= 8  categories=['schema_gap']
+      emitted: parents.firstName, parents.lastName, parents.notes, grandparents.side, grandparents.firstName
+    case_033      offenders= 5  categories=['schema_gap', 'defensible_alt_credit', 'defensible_alt_value_credit']
+      emitted: greatGrandparents.firstName, greatGrandparents.lastName, greatGrandparents.militaryBranch, greatGrandparents.militaryUnit, greatGrandparents.militaryEvent
+    case_035      offenders= 4  categories=['guard_false_positive', 'field_path_mismatch']
+      emitted: family.children.relation, family.children.firstName, parents.relation, parents.firstName
+    case_044      offenders= 4  categories=['schema_gap', 'field_path_mismatch']
+      emitted: education.earlyCareer, family.children.relation, family.children.firstName, family.children.placeOfBirth
+    case_069      offenders= 4  categories=['llm_hallucination', 'schema_gap']
+      emitted: education.gradeLevel, education.readingAbility, education.gradeLevel, education.gradeLevel
+    case_014      offenders= 3  categories=['llm_hallucination', 'field_path_mismatch']
+      emitted: siblings.uniqueCharacteristics, siblings.uniqueCharacteristics, siblings.uniqueCharacteristics
+    case_039      offenders= 3  categories=['schema_gap', 'defensible_alt_credit']
+      emitted: parents.firstName, parents.occupation, parents.relation
+    case_053      offenders= 3  categories=['schema_gap']
+      emitted: siblings.relation, siblings.relation, siblings.relation
+    case_078      offenders= 3  categories=['schema_gap', 'noise_leakage']
+      emitted: family.children.relation, family.children.placeOfBirth, parents.firstName
+    case_020      offenders= 2  categories=['field_path_mismatch']
+      emitted: laterYears.significantEvent, laterYears.significantEvent
+
+  ─── FAILED CASES ───
+
+    case_002    contract         tiny    clean         score=0.40  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap', 'llm_hallucination']
+    case_014    contract         tiny    clean         score=0.33  kent-james-horne [GAP]
+      Failures:  ['llm_hallucination', 'field_path_mismatch']
+    case_020    contract         tiny    clean         score=0.00  kent-james-horne
+      Failures:  ['field_path_mismatch']
+    case_024    contract         small   clean         score=0.33  janice-josephine-horne [GAP]
+      Failures:  ['schema_gap', 'llm_hallucination']
+    case_027    contract         tiny    clean         score=0.00  janice-josephine-horne
+      Failures:  ['llm_hallucination']
+    case_028    contract         small   clean         score=0.00  janice-josephine-horne
+      Failures:  ['schema_gap']
+    case_033    contract         tiny    clean         score=0.50  kent-james-horne
+      Failures:  ['schema_gap', 'defensible_alt_credit', 'defensible_alt_value_credit']
+    case_035    contract         small   clean         score=0.30  janice-josephine-horne
+      Forbidden: ['education.schooling']
+      Failures:  ['guard_false_positive', 'field_path_mismatch']
+    case_037    contract         small   clean         score=0.50  kent-james-horne
+      Failures:  ['llm_hallucination']
+    case_039    contract         small   clean         score=0.50  janice-josephine-horne
+      Failures:  ['schema_gap', 'defensible_alt_credit']
+    case_042    contract         tiny    clean         score=0.50  christopher-todd-horne
+      Failures:  ['llm_hallucination']
+    case_043    contract         small   clean         score=0.50  christopher-todd-horne
+      Failures:  ['llm_hallucination']
+    case_044    contract         tiny    clean         score=0.33  kent-james-horne
+      Failures:  ['schema_gap', 'field_path_mismatch']
+    case_045    contract         tiny    clean         score=0.50  christopher-todd-horne
+      Failures:  ['llm_hallucination']
+    case_046    contract         tiny    clean         score=0.33  janice-josephine-horne
+      Failures:  ['llm_hallucination']
+    case_047    contract         tiny    clean         score=0.67  christopher-todd-horne
+      Failures:  ['schema_gap']
+    case_048    contract         tiny    clean         score=0.50  kent-james-horne
+      Failures:  ['field_path_mismatch']
+    case_049    contract         tiny    clean         score=0.50  janice-josephine-horne
+      Failures:  ['schema_gap']
+    case_058    contract         tiny    clean         score=0.50  janice-josephine-horne [GAP]
+      Failures:  ['field_path_mismatch']
+    case_059    contract         small   clean         score=0.50  kent-james-horne [GAP]
+      Failures:  ['field_path_mismatch']
+    case_061    contract         tiny    clean         score=0.00  janice-josephine-horne [GAP]
+      Failures:  ['schema_gap']
+    case_065    mixed_narrative  medium  good_garbage  score=0.60  christopher-todd-horne [GAP]
+      Failures:  ['llm_hallucination']
+    case_066    mixed_narrative  medium  good_garbage  score=0.50  janice-josephine-horne [GAP]
+      Failures:  ['schema_gap']
+    case_068    mixed_narrative  medium  good_garbage  score=0.00  kent-james-horne [GAP]
+      Failures:  ['llm_hallucination']
+    case_069    mixed_narrative  medium  good_garbage  score=0.00  janice-josephine-horne [GAP]
+      Failures:  ['llm_hallucination', 'schema_gap']
+    case_070    mixed_narrative  medium  good_garbage  score=0.53  christopher-todd-horne [GAP]
+      Failures:  ['schema_gap']
+    case_078    mixed_narrative  medium  good_garbage  score=0.00  janice-josephine-horne [GAP]
+      Failures:  ['schema_gap', 'noise_leakage']
+    case_079    mixed_narrative  small   mixed         score=0.57  christopher-todd-horne [GAP]
+    case_080    dense_truth      medium  dense_truth   score=0.60  kent-james-horne [GAP]
+      Failures:  ['schema_gap']
+    case_083    dense_truth      medium  dense_truth   score=0.50  kent-james-horne [GAP]
+    case_084    dense_truth      medium  dense_truth   score=0.50  christopher-todd-horne [GAP]
+    case_087    dense_truth      large   dense_truth   score=0.50  christopher-todd-horne [GAP]
+      Failures:  ['defensible_alt_credit']
+    case_093    follow_up        small   clean         score=0.70  kent-james-horne [GAP]
+      Failures:  ['noise_leakage', 'guard_false_positive']
+    case_104    mixed_narrative  medium  good_garbage  score=0.00  christopher-todd-horne [GAP]
+      Failures:  ['llm_hallucination', 'noise_leakage']
+    case_111    contract         tiny    clean         score=0.50  christopher-todd-horne [GAP]
+      Failures:  ['field_path_mismatch']
+    case_112    contract         tiny    clean         score=0.50  christopher-todd-horne [GAP]
+      Failures:  ['field_path_mismatch']
+
+==============================================================================
