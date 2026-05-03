@@ -6086,6 +6086,26 @@ function lv80FireCheckIn() {
     return;
   }
 
+  // BUG-SILENCE-CUE / WO-LORI-SESSION-AWARENESS-01 Phase 3 (2026-05-03):
+  // Phase 3's locked principle is "Visual presence is default. Spoken cue
+  // is exceptional. Silence belongs to the narrator." The OLD
+  // [SYSTEM: The narrator has been quiet for a while...] injector below
+  // produces SPOKEN Lori output that fills silence with TTS — exactly
+  // what Phase 3 was designed to retire.
+  //
+  // When window.LV_ATTENTION_CUE_TICKER === true, the Phase 3 ticker is
+  // running and the visual presence cue ("Take your time. I'm listening.")
+  // is the silence response. Suppress this old spoken path entirely.
+  //
+  // When the ticker is OFF (default), preserve the existing WO-10B/WO-10C
+  // behavior so we don't lose silence-fill while Phase 3 is dormant.
+  // No spoken-cue paths land until the Phase 5 test matrix gates them.
+  if (window.LV_ATTENTION_CUE_TICKER === true) {
+    lv80LogTurnDebug({ event: "idle_fire_blocked", reason: "phase3_visual_cue_active" });
+    lv80ClearIdle();
+    return;
+  }
+
   /* ═══ WO-10C — Cognitive Support Mode idle protocol ═══
      Completely bypasses standard no-interruption engine.
      Uses staged escalation: gentle invitation → re-entry bridge → stop.
