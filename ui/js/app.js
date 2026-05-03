@@ -4229,6 +4229,17 @@ async function sendUserMessage(){
   }
   unlockAudio();
   const text=getv("chatInput").trim(); if(!text) return;
+  // Lane H — narrator just sent. Clear the countdown anchor so the timer
+  // resets to 00:00 / "Lori speaking" until her first reply token arrives.
+  // Mirrors Chris's spec: "Narrator starts typing/speaking → timer
+  // stops/resets/hides; Next Lori reply starts → timer restarts."
+  if (state && state.narratorTurn) {
+    state.narratorTurn.loriStreamStartedAt = null;
+    state.narratorTurn.ttsFinishedAt = null;
+  }
+  if (typeof window.lvSinceTimerRefresh === "function") {
+    try { window.lvSinceTimerRefresh(); } catch (_) {}
+  }
   // WO-MIC-UI-02A: Confirm send source and content
   console.log("[WO-MIC-UI-02A] sendUserMessage() — source: #chatInput, length:", text.length, "preview:", text.slice(0, 80));
   // WO-STT-LIVE-02 (#99) — when no speech capture is staged (or it's
@@ -4935,6 +4946,16 @@ function handleWsMessage(j){
     if(!currentAssistantBubble){
       currentAssistantBubble=appendBubble("ai","");
       setLoriState("drafting");
+      // Lane H — countdown timer anchor. Chris's spec: "start as soon
+      // as Lori types the first word, not after she is done typing and
+      // actually speaking." Set ONLY on first-token (the bubble-create
+      // path), so subsequent chunks inside the same turn don't re-anchor.
+      if (state && state.narratorTurn) {
+        state.narratorTurn.loriStreamStartedAt = Date.now();
+      }
+      if (typeof window.lvSinceTimerRefresh === "function") {
+        try { window.lvSinceTimerRefresh(); } catch (_) {}
+      }
     }
     _bubbleBody(currentAssistantBubble).textContent+=(j.delta||j.token||"");
     document.getElementById("chatMessages").scrollTop=99999;

@@ -1,27 +1,35 @@
 /* ═══════════════════════════════════════════════════════════════
-   lori-since-timer.js — operator-visible "Lori finished N seconds ago"
+   lori-since-timer.js — Lane H Countdown Timer (operator-visible)
 
-   Sits next to the lori-clock element inside #lvNarratorConversation.
-   Reads state.narratorTurn.ttsFinishedAt every 1s and renders:
+   Sits to the RIGHT of the Send button inside the footer compose
+   bar (#lv80SendBtn.nextSibling). Reads narratorTurn anchors every
+   1s and renders a mm:ss countdown plus tier label.
 
-     "Lori finished:  23s"   ← gray   (within 25s hard floor)
-     "Lori finished:  47s"   ← light  (Tier 0 — silent presence)
-     "Lori finished: 1m 12s" ← blue   (Tier 1 — visual cue stronger)
-     "Lori finished: 2m 30s" ← amber  (Tier 2 — soft offer)
-     "Lori finished: 5m 10s" ← orange (Tier 3 — re-entry zone)
-     "Lori finished: 10m+"   ← red    (Tier 4 — break offer zone)
+   ANCHOR (Chris's spec, 2026-05-03 evening):
+     Primary  : state.narratorTurn.loriStreamStartedAt
+                — set in app.js handleWsMessage() the moment Lori's
+                  FIRST stream token arrives in the UI.
+     Fallback : state.narratorTurn.ttsFinishedAt
+                — for stacks where TTS is gating but stream was
+                  not observed (older WO-10H-only path).
+     Reset    : sendUserMessage() clears BOTH anchors when the
+                narrator hits Send. Mic-active also resets.
 
-   When Lori is currently speaking (ttsFinishedAt null), shows
-   "Lori speaking…" in a calm slate.
+     This means: the timer starts as soon as Lori begins responding
+     (visible first word), keeps running through her TTS speech AND
+     the silence afterward, and only resets when the narrator takes
+     the floor (mic on OR send pressed).
 
-   The tier color thresholds match attention-cue-dispatcher.js
-   constants exactly. This is purely operator/observer-side so the
-   parent-session driver can see at-a-glance whether the silence
-   ladder is on the right rung. Per Phase 3 design — does NOT
-   route to TTS, transcript, or extractor. Pure cosmetic readout.
+   PLACEMENT (Chris's spec, 2026-05-03 evening):
+     Adjacent to the Send button on the right — NEVER overlapping
+     the textarea. Inline-flex so the footer auto-sizes around it.
 
-   Updates every 1s via setInterval. IIFE — no global side effects
-   beyond window.lvSinceTimerRefresh() (operator dev convenience).
+   Tier color thresholds match attention-cue-dispatcher.js / 25s
+   hard floor / 45s stronger cue / WO-10C 60s/2m/5m/10m boundaries.
+   Pure operator observability — does NOT route to TTS, transcript,
+   or extractor. Updates every 1s via setInterval. IIFE — no global
+   side effects beyond window.lvSinceTimerRefresh() (operator dev
+   convenience).
    ═══════════════════════════════════════════════════════════════ */
 
 (function (global) {
@@ -51,6 +59,23 @@
     const s = _state();
     if (!s || !s.narratorTurn) return null;
     return s.narratorTurn.ttsFinishedAt || null;
+  }
+
+  function _loriStreamStartedAt() {
+    // Lane H primary anchor — set on Lori's first reply token
+    // (app.js handleWsMessage). When set, this overrides
+    // ttsFinishedAt because Chris's rule is "start as soon as
+    // Lori types the first word, not after she's done speaking."
+    const s = _state();
+    if (!s || !s.narratorTurn) return null;
+    return s.narratorTurn.loriStreamStartedAt || null;
+  }
+
+  function _countAnchor() {
+    // Prefer the first-token anchor; fall back to TTS-finished if
+    // a stack runs without observing the stream (e.g. test harness
+    // that watches for legacy WO-10H signals).
+    return _loriStreamStartedAt() || _ttsFinishedAt();
   }
 
   function _attentionState() {
@@ -121,9 +146,29 @@
     let el = document.getElementById(MOUNT_ID);
     if (el) return el;
 
-    // Mount inside the same container as the clock (lvNarratorConversation).
-    const container = document.getElementById("lvNarratorConversation");
-    if (!container) return null;
+    // Lane H placement — sit IMMEDIATELY AFTER the Send button so
+    // the timer is adjacent to it on the right. Falls back to the
+    // footer's compose row if Send isn't present, then to
+    // #lvNarratorConversation (legacy mount) as last resort.
+    // Never mounts on top of #chatInput — that's the textarea
+    // narrators type into and the original bug Chris flagged.
+    const sendBtn = document.getElementById("lv80SendBtn");
+    let parent = null;
+    let insertBefore = null;
+    if (sendBtn && sendBtn.parentNode) {
+      parent = sendBtn.parentNode;
+      insertBefore = sendBtn.nextSibling; // null is fine — appendChild semantics
+    } else {
+      // Fallback: attach to #lvNarratorConversation if Send hasn't
+      // rendered yet (Operator tab open at boot). Refresh keeps
+      // re-running, so once Send appears we'll re-mount on next tick
+      // when the existing element is still pointed at the wrong
+      // parent — handled by the resync below.
+      const container = document.getElementById("lvNarratorConversation");
+      if (!container) return null;
+      parent = container;
+      insertBefore = null;
+    }
 
     el = document.createElement("div");
     el.id = MOUNT_ID;
@@ -131,11 +176,25 @@
     el.setAttribute("aria-hidden", "true");  // operator/decorative
     el.dataset.purpose = "operator_observability";
     el.innerHTML =
-      '<div class="lv-since-eyebrow">Countdown Timer</div>' +
+      '<div class="lv-since-eyebrow">Countdown</div>' +
       '<div class="lv-since-elapsed" data-since-slot="elapsed">00:00</div>' +
       '<div class="lv-since-tier" data-since-slot="tier">Lori speaking</div>';
-    container.appendChild(el);
+    if (insertBefore) parent.insertBefore(el, insertBefore);
+    else parent.appendChild(el);
     return el;
+  }
+
+  function _resyncToSendIfStranded() {
+    // If we mounted into the legacy fallback parent before #lv80SendBtn
+    // existed, move the element next to Send the moment it appears.
+    // Idempotent — only acts when the parent is wrong.
+    if (typeof global.document === "undefined") return;
+    const el = document.getElementById(MOUNT_ID);
+    if (!el) return;
+    const sendBtn = document.getElementById("lv80SendBtn");
+    if (!sendBtn || !sendBtn.parentNode) return;
+    if (el.parentNode === sendBtn.parentNode) return;
+    sendBtn.parentNode.insertBefore(el, sendBtn.nextSibling);
   }
 
   // ── Refresh ────────────────────────────────────────────────────
@@ -143,8 +202,9 @@
   function refresh() {
     const el = _ensureMount();
     if (!el) return;
+    _resyncToSendIfStranded();
 
-    const tts_at = _ttsFinishedAt();
+    const anchor = _countAnchor();
     const elapsedSlot = el.querySelector('[data-since-slot="elapsed"]');
     const tierSlot    = el.querySelector('[data-since-slot="tier"]');
 
@@ -170,16 +230,19 @@
       return;
     }
 
-    if (!tts_at) {
-      // Lori is currently speaking (or no turn has happened yet).
-      // Per Chris's spec: "Lori speaks: reset". Show 00:00, calm slate.
+    if (!anchor) {
+      // No Lori turn has started yet (boot, post-send-pre-stream).
+      // Per Chris's spec: timer "stops/resets/hides" until next Lori
+      // reply starts. Show 00:00 in calm slate; copy reads "Lori
+      // speaking" because that's the next state the operator is
+      // waiting for.
       el.classList.add("lv-since-speaking");
       if (elapsedSlot) elapsedSlot.textContent = "00:00";
-      if (tierSlot)    tierSlot.textContent    = "Lori speaking";
+      if (tierSlot)    tierSlot.textContent    = "waiting for Lori";
       return;
     }
 
-    const gap_ms = Math.max(0, Date.now() - tts_at);
+    const gap_ms = Math.max(0, Date.now() - anchor);
     const t = _tierForGap(gap_ms);
     el.classList.add(t.klass);
 
@@ -227,11 +290,20 @@
 
   // ── Module export ──────────────────────────────────────────────
 
-  global.lvSinceTimerRefresh = refresh;
-  global.LoriSinceTimer = {
+  const LoriSinceTimer = {
     start, stop, refresh,
     HARD_FLOOR_MS, TIER_1_MIN_MS, TIER_2_MIN_MS,
     TIER_3_MIN_MS, TIER_4_MIN_MS,
   };
+
+  global.lvSinceTimerRefresh = refresh;
+  global.LoriSinceTimer = LoriSinceTimer;
+
+  // CommonJS for Node-side tests (matches the convention from
+  // attention-cue-dispatcher.js / attention-state-classifier.js /
+  // attention-cue-ticker.js / presence-cue.js).
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = LoriSinceTimer;
+  }
 
 })(typeof window !== "undefined" ? window : (typeof global !== "undefined" ? global : this));
