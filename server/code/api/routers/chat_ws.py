@@ -817,6 +817,51 @@ async def ws_chat(ws: WebSocket):
                     person_id or "(none)",
                 )
 
+            # ── WO-LORI-SESSION-AWARENESS-01 Phase 1c-wire (2026-05-03) ──
+            # Pull promoted_truth + recent_turns via the peek_at_memoir
+            # read accessor. Phase 5c safety filter is applied INSIDE
+            # build_peek_at_memoir so any sensitive turn is dropped
+            # automatically — no chance of distress content surfacing
+            # in "what I know about you" memory_echo summaries.
+            #
+            # Default-OFF behind HORNELORE_PEEK_AT_MEMOIR_LIVE=0 because
+            # the surface text rendering (compose_memory_echo's new
+            # "From our records" section) is a real narrator-facing
+            # behavior change that should be Chris-validated on the
+            # parent-session readiness harness before flipping live.
+            #
+            # When the flag is off: runtime71["peek_data"] stays
+            # absent, compose_memory_echo's new rendering branch is
+            # skipped, and behavior is byte-identical to pre-Phase 1c.
+            if (
+                person_id
+                and os.getenv("HORNELORE_PEEK_AT_MEMOIR_LIVE", "0") in ("1", "true", "True")
+            ):
+                try:
+                    from ..services.peek_at_memoir import (
+                        build_peek_at_memoir as _build_peek,
+                        summarize_for_runtime as _summarize_peek,
+                    )
+                    _peek = _build_peek(person_id, session_id=conv_id)
+                    _peek_summary = _summarize_peek(_peek)
+                    runtime71 = dict(runtime71)
+                    runtime71["peek_data"] = _peek_summary
+                    logger.info(
+                        "[chat_ws][memory-echo][peek] conv=%s person=%s "
+                        "promoted_facts=%d recent_turns=%d sources=%s "
+                        "errors=%d",
+                        conv_id, person_id,
+                        len(_peek_summary.get("promoted_facts") or []),
+                        len(_peek_summary.get("recent_user_turns") or []),
+                        ",".join(_peek_summary.get("sources_used") or []) or "none",
+                        len(_peek.get("errors") or []),
+                    )
+                except Exception as _peek_exc:
+                    logger.warning(
+                        "[chat_ws][memory-echo][peek] build failed conv=%s person=%s: %s",
+                        conv_id, person_id, _peek_exc,
+                    )
+
             assistant_text = compose_memory_echo(
                 text=user_text,
                 runtime=runtime71,

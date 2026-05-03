@@ -1338,6 +1338,61 @@ def compose_memory_echo(
         lines.extend(["", "Notes from our conversation"])
         lines.extend(seed_lines)
 
+    # WO-LORI-SESSION-AWARENESS-01 Phase 1c-wire (2026-05-03):
+    # Render promoted_facts from runtime["peek_data"] when present.
+    # This is the live narrator-facing surface for the family_truth
+    # promoted-truth pipeline. Default-off in chat_ws via
+    # HORNELORE_PEEK_AT_MEMOIR_LIVE; when off, this section is skipped
+    # and behavior matches pre-Phase-1c.
+    #
+    # Format: one line per (subject, field, value) tuple. Subject
+    # "self" renders as the narrator (uses speaker_name). Field
+    # names get a light human-readable mapping.
+    peek_data = runtime.get("peek_data") if isinstance(runtime.get("peek_data"), dict) else {}
+    promoted_facts = peek_data.get("promoted_facts") or []
+    if promoted_facts:
+        # Field-name humanization for narrator-facing surface. Operator
+        # field names like "date_of_birth" don't read well to a
+        # narrator; render them as natural-language labels.
+        _PROMOTED_FIELD_LABELS = {
+            "date_of_birth": "date of birth",
+            "place_of_birth": "place of birth",
+            "full_name": "name",
+            "first_name": "first name",
+            "last_name": "last name",
+            "occupation": "occupation",
+            "employment": "work",
+            "residence": "lived in",
+            "marriage_date": "married",
+            "ethnicity": "heritage",
+            "religion": "faith",
+        }
+        promoted_lines = []
+        for fact in promoted_facts:
+            if not isinstance(fact, dict):
+                continue
+            subject = (fact.get("subject") or "").strip()
+            field = (fact.get("field") or "").strip()
+            value = (fact.get("value") or "").strip()
+            if not field or not value:
+                continue
+            label = _PROMOTED_FIELD_LABELS.get(field, field.replace("_", " "))
+            if subject in ("", "self", "narrator"):
+                # Narrator's own fact — use speaker_name when known
+                if speaker_name and speaker_name != "you":
+                    promoted_lines.append(f"- {speaker_name}'s {label}: {value}")
+                else:
+                    promoted_lines.append(f"- Your {label}: {value}")
+            else:
+                # Someone else (parent, spouse, etc.)
+                promoted_lines.append(f"- {subject.capitalize()}'s {label}: {value}")
+        if promoted_lines:
+            lines.extend(["", "From our records"])
+            lines.extend(promoted_lines)
+            # Track in the source footer
+            if "promoted truth" not in sources_used:
+                sources_used.append("promoted truth")
+
     lines.extend([
         "",
         "What I'm less sure about",
