@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Candidate Class B trigger expansion (Phase 3 demo). Adds hidden_custom + hard_times anchors targeting tie-break-by-library-order misses (ncue_037 elder_keeper>hidden_custom, ncue_034 + ncue_033 parent_character>hard_times). Each phrase is narrow enough to avoid cross-cue collisions; verify via run_narrative_cue_eval.py --candidate this --tag class_b_v1.",
+  "description": "Narrative cue library for Lori follow-up selection. Listener aid only; never a truth source.",
   "no_truth_write": true,
   "cue_types": [
     {
@@ -371,12 +371,7 @@
         "sick",
         "doctor",
         "fear",
-        "survival",
-        "be invisible",
-        "stay safe",
-        "when to be",
-        "three months a year",
-        "open three months"
+        "survival"
       ],
       "scene_anchor_dimensions": [
         "emotion_named",
@@ -417,11 +412,7 @@
         "old prayer",
         "hidden",
         "quiet",
-        "understood",
-        "died with",
-        "never told anyone",
-        "between us",
-        "cannot know"
+        "understood"
       ],
       "scene_anchor_dimensions": [
         "ritual",

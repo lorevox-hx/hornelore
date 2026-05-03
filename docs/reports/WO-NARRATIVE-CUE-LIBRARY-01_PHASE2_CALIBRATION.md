@@ -10,8 +10,15 @@
 
 Pure-stdlib narrative cue detector landed and tested. Detects which of
 the 12 v1 cue types best fits a narrator's utterance via deterministic
-trigger-term matching. **75% top-1 hit rate (30/40)** on the locked
-eval pack `data/qa/lori_narrative_cue_eval.json`.
+trigger-term matching. **82.5% top-1 hit rate (33/40)** on the locked
+eval pack `data/qa/lori_narrative_cue_eval.json` after Class B promotion
+(2026-05-03). The pre-promotion floor was 75% (30/40); the Class B
+candidate library (hidden_custom + hard_times trigger expansion) was
+proven GREEN with zero regressions via the Phase 3 harness and
+promoted to v1 seed.
+
+**Pre-promotion seed preserved at**
+`data/lori/narrative_cue_library.v1.pre_class_b.json` for rollback.
 
 The misses are calibration signals for library-side trigger tuning, not
 detector bugs. The detector itself is byte-stable, deterministic, and

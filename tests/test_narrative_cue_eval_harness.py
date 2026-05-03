@@ -83,9 +83,12 @@ class HarnessBaselineReportTest(unittest.TestCase):
             self.assertIn(key, report)
         self.assertGreaterEqual(report["cue_type_count"], 12)
         self.assertEqual(report["summary"]["total"], 40)
-        # Detector calibration locked at 30 hits in PHASE2_CALIBRATION.md
-        self.assertEqual(report["summary"]["hits"], 30)
-        self.assertEqual(report["summary"]["pass_rate_pct"], 75.0)
+        # Detector calibration locked at 33 hits after Class B promotion
+        # (was 30 hits / 75% pre-promotion; see PHASE2_CALIBRATION.md +
+        # PHASE3_HARNESS.md for the tuning loop history; v1 seed library
+        # was rolled forward 2026-05-03 from candidate_class_b_v1).
+        self.assertEqual(report["summary"]["hits"], 33)
+        self.assertEqual(report["summary"]["pass_rate_pct"], 82.5)
 
     def test_records_have_miss_class_field(self):
         cases = _load_cases()
