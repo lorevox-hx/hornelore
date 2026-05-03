@@ -168,11 +168,68 @@ iteration design.
 
 ---
 
-## Recommendation
+## Path A audit result (2026-05-03 afternoon, after this report's first
+draft)
 
-**Sequence:** Path A first (lowest risk, fastest payoff) → Path B if Path A
-doesn't close the regression → Path C only if Paths A+B together don't fix
-the SPANTAG-on extraction regression.
+I ran the eval-case audit Path A proposed. Reading the actual truth
+zones for the 4 SPANTAG-on bench failures:
+
+| Case | Truth zone reality | Path A applies? |
+|---|---|---|
+| case_018 | `residence.place` already has `alt_defensible_paths: ['family.children.firstName', 'family.children.placeOfBirth']`. The extractor emitted `family.children.firstName='Vincent'`. Alt-path matched, but value match failed (`Vincent` ≠ a place name like `Germany`). The case is correctly designed; the extractor genuinely missed emitting `residence.place` items for "Germany / North Dakota". | **NO** |
+| case_082 | `residence.place` already has `alt_defensible: ['personal.placeOfBirth']`. The extractor emitted `siblings.relation` + `parents.relation`. These aren't in ANY truth zone — noise_leakage is the correct verdict. | **NO** |
+| case_028 | The case asked about "food, song, or ritual" → expects `earlyMemories.significantEvent`. The extractor emitted `hobbies.hobbies` — semantic mismatch (the answer is about cultural ritual, not hobbies). Truth zone is correctly designed; extractor mis-routed. | **NO** |
+| case_001 | Expects `personal.placeOfBirth` + `personal.dateOfBirth` from "born in Williston, North Dakota, on Christmas Eve, December 24th, 1962." Extractor scored 0.50 — without offender detail in the failure_pack, can't diagnose, but the answer is unambiguous so this looks like a SPANTAG Pass 2 emission gap, not a case-bank canonicalization issue. | **NO** |
+
+**Path A does not help these 4 cases.** The cases' truth zones are
+correctly designed. The SPANTAG-on extractor is genuinely mis-routing
+or under-emitting. The diagnosis must move to Path B (prompt
+tightening) or Path C (more bench data to find a real Path A pattern).
+
+This is a useful negative result — Path A's "lowest risk, fastest
+payoff" framing was based on a hypothesis that didn't survive contact
+with the evidence. Saved Chris from a 30-min audit that would have
+landed empty.
+
+---
+
+## Updated Recommendation
+
+**Path A is closed (not applicable to these 4 cases).** Sequence
+becomes:
+
+1. **Path B (prompt tightening)** — author the SPANTAG Pass 2
+   NARROW-EMISSION RULE in extract.py around the existing fewshot
+   exemplars (L644-680). This is real prompt work with friendly-fire
+   risk; needs Chris-cycled SPANTAG-on bench to validate.
+
+2. **Path C (full master under SPANTAG-on)** — only if Path B's
+   smaller bench shows promise, expand to full 114-case master to
+   confirm the patch holds at scale. Higher OOM tail risk per the
+   2026-04-27 reject context.
+
+3. **Defer entirely** — accept that SPANTAG-on default-active is
+   blocked by binding-vs-eval-zone semantic mismatches that take
+   real prompt work + multi-iteration eval cycles to resolve. Stay
+   on SPANTAG-OFF default; revisit only when the parent-session lane
+   surfaces specific narrator-side needs that the SPANTAG path would
+   uniquely address.
+
+The Path B work is concrete: the SPANTAG Pass 2 prompt needs a rule
+saying "when the question is about places, emit place-fields; do not
+also emit `.relation` metadata or child-name fields just because the
+narrator mentioned a person in passing." That rule is ~5-10 lines
+added to the existing fewshot block. Friendly-fire risk = the rule
+might suppress LEGITIMATE relation/name emissions on cases that DO
+expect them (which is exactly what bit the 2026-04-27 v3 reject).
+
+**My personal lean:** Defer for now. The SPANTAG-OFF baseline
+(`r5h-followup-guard-v1` = 78/114) is solid; the parent-session lane
+(SAFETY Phase 2 + SESSION-AWARENESS phases + Lori-cue work) has
+higher leverage on the actual upcoming parent sessions. SPANTAG
+default-on isn't a parent-session blocker; it's an extractor
+optimization that can wait until the lane has more failure-cluster
+signal to design against.
 
 Reasoning:
 - Path A is pure eval-bank work, zero extract.py touch, zero
