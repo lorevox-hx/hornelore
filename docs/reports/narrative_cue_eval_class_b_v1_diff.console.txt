@@ -1,0 +1,23 @@
+==============================================================================
+  Narrative Cue Detector Eval — BASELINE vs CANDIDATE
+==============================================================================
+  Baseline:   narrative_cue_library.v1.seed  →  30/40  (75.0%)
+  Candidate:  narrative_cue_library.candidate_class_b_v1  →  33/40  (82.5%)
+  Delta:      +7.5 pp
+
+  Verdict:    GREEN — candidate improves and zero regressions
+
+  Newly PASSED (3 cases):
+    + [ncue_033_hard_school]  expected=hard_times  baseline_actual=parent_character  candidate_triggers=['open three months', 'three months a year']
+    + [ncue_034_hard_invisible]  expected=hard_times  baseline_actual=parent_character  candidate_triggers=['be invisible', 'invisible', 'stay safe', 'when to be']
+    + [ncue_037_hidden_grandmother]  expected=hidden_custom  baseline_actual=elder_keeper  candidate_triggers=['cannot know', 'died with', 'secret']
+
+  Per-cue-type delta:
+    hard_times                 base= 1  cand= 3  delta=+2
+    hidden_custom              base= 2  cand= 3  delta=+1
+
+  Miss-class delta:
+    class_a       base= 3  cand= 3  delta=0
+    class_b       base= 6  cand= 4  delta=-2
+    class_c       base= 1  cand= 0  delta=-1
+==============================================================================

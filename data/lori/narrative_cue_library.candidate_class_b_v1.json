@@ -1,0 +1,488 @@
+{
+  "version": 1,
+  "description": "Candidate Class B trigger expansion (Phase 3 demo). Adds hidden_custom + hard_times anchors targeting tie-break-by-library-order misses (ncue_037 elder_keeper>hidden_custom, ncue_034 + ncue_033 parent_character>hard_times). Each phrase is narrow enough to avoid cross-cue collisions; verify via run_narrative_cue_eval.py --candidate this --tag class_b_v1.",
+  "no_truth_write": true,
+  "cue_types": [
+    {
+      "cue_id": "parent_character_001",
+      "cue_type": "parent_character",
+      "label": "Parent character through action, body, silence, work, or gesture",
+      "risk_level": "low",
+      "trigger_terms": [
+        "father",
+        "mother",
+        "dad",
+        "mom",
+        "hands",
+        "apron",
+        "silence",
+        "work",
+        "shoulder"
+      ],
+      "scene_anchor_dimensions": [
+        "person",
+        "object",
+        "gesture"
+      ],
+      "safe_followups": [
+        "What do you remember those hands doing?",
+        "Where would you usually see that happen?",
+        "What did that gesture mean in your family?"
+      ],
+      "forbidden_moves": [
+        "Do not infer affection, coldness, trauma, or diagnosis unless the narrator names it.",
+        "Do not turn a gesture into a protected fact.",
+        "Do not write parent fields directly.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "parents.notes",
+        "parents.occupation",
+        "parents.notableLifeEvents"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "elder_keeper_001",
+      "cue_type": "elder_keeper",
+      "label": "Grandparent or elder as keeper of memory, craft, rule, or story",
+      "risk_level": "low",
+      "trigger_terms": [
+        "grandmother",
+        "grandfather",
+        "grandpa",
+        "grandma",
+        "oldest",
+        "kept",
+        "remembered",
+        "taught"
+      ],
+      "scene_anchor_dimensions": [
+        "person",
+        "object",
+        "ritual"
+      ],
+      "safe_followups": [
+        "Where was that kept?",
+        "Who taught you what it meant?",
+        "What do you remember watching them do?"
+      ],
+      "forbidden_moves": [
+        "Do not infer legal authority, religion, or family role beyond what was said.",
+        "Do not promote elder details directly.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "grandparents.memorableStory",
+        "greatGrandparents.memorableStories",
+        "familyTraditions"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "journey_arrival_001",
+      "cue_type": "journey_arrival",
+      "label": "Migration, arrival, move, first strange place, first home",
+      "risk_level": "medium",
+      "trigger_terms": [
+        "arrived",
+        "train",
+        "ship",
+        "wagon",
+        "moved",
+        "crossing",
+        "first time",
+        "new place",
+        "border"
+      ],
+      "scene_anchor_dimensions": [
+        "movement",
+        "place",
+        "time",
+        "sensory"
+      ],
+      "safe_followups": [
+        "What was the first thing that told you this place was different?",
+        "What did you notice first when you arrived?",
+        "Who was with you at that moment?"
+      ],
+      "forbidden_moves": [
+        "Do not assume immigration status.",
+        "Do not convert arrival scene into placeOfBirth.",
+        "Do not overwrite residence fields.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "residence.place",
+        "residence.period",
+        "travel.destination",
+        "cultural.touchstoneMemory"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "home_place_001",
+      "cue_type": "home_place",
+      "label": "House, kitchen, porch, yard, neighborhood, room, shelter",
+      "risk_level": "low",
+      "trigger_terms": [
+        "house",
+        "home",
+        "kitchen",
+        "porch",
+        "yard",
+        "sod house",
+        "room",
+        "neighborhood",
+        "door"
+      ],
+      "scene_anchor_dimensions": [
+        "place",
+        "object",
+        "sensory"
+      ],
+      "safe_followups": [
+        "Where in the house did that usually happen?",
+        "Who else would have been there?",
+        "What did that place feel like to you as a child?"
+      ],
+      "forbidden_moves": [
+        "Do not treat a remembered home as place of birth.",
+        "Do not invent address or residence period.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "residence.notes",
+        "earlyMemories.firstMemory",
+        "familyTraditions"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "work_survival_001",
+      "cue_type": "work_survival",
+      "label": "Labor, duty, money, farm, factory, railroad, domestic work",
+      "risk_level": "medium",
+      "trigger_terms": [
+        "worked",
+        "factory",
+        "farm",
+        "railroad",
+        "steel mill",
+        "sharecropper",
+        "field",
+        "threshing",
+        "debt",
+        "wages"
+      ],
+      "scene_anchor_dimensions": [
+        "work",
+        "person",
+        "sensory",
+        "time"
+      ],
+      "safe_followups": [
+        "What sound do you remember from that work?",
+        "What did a hard day of that work look like?",
+        "Who depended on that work?"
+      ],
+      "forbidden_moves": [
+        "Do not decide whether this is narrator work or parent work without subject evidence.",
+        "Do not infer class judgment or politics.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "parents.occupation",
+        "education.earlyCareer",
+        "education.careerProgression",
+        "community.role"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "hearth_food_001",
+      "cue_type": "hearth_food",
+      "label": "Food, recipes, kitchen ritual, table memory",
+      "risk_level": "low",
+      "trigger_terms": [
+        "bread",
+        "soup",
+        "coffee",
+        "onions",
+        "kitchen",
+        "canning",
+        "lard",
+        "garden",
+        "Christmas",
+        "Sunday",
+        "collards",
+        "ham bone"
+      ],
+      "scene_anchor_dimensions": [
+        "sensory",
+        "object",
+        "ritual",
+        "person"
+      ],
+      "safe_followups": [
+        "Who usually made that?",
+        "Was that everyday food, or did it belong to a special day?",
+        "What smell comes back first when you remember it?"
+      ],
+      "forbidden_moves": [
+        "Do not infer ethnicity, religion, poverty, or health from food.",
+        "Do not turn recipe language into a confirmed family tradition without review.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "familyTraditions",
+        "recipes",
+        "faith.notes",
+        "parents.notes",
+        "grandparents.memorableStory"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "object_keepsake_001",
+      "cue_type": "object_keepsake",
+      "label": "Keepsake, tool, document, photo, Bible, jar, ticket, shawl",
+      "risk_level": "medium",
+      "trigger_terms": [
+        "kept",
+        "ticket",
+        "passport",
+        "Bible",
+        "jar",
+        "ribbon",
+        "shawl",
+        "photo",
+        "watch",
+        "flute"
+      ],
+      "scene_anchor_dimensions": [
+        "object",
+        "person",
+        "time"
+      ],
+      "safe_followups": [
+        "Where was it kept?",
+        "Who was allowed to touch it?",
+        "What did that object mean in the family?"
+      ],
+      "forbidden_moves": [
+        "Do not infer ownership or legal identity beyond stated words.",
+        "Do not write identity fields from object mentions.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "additionalNotes.desiredStory",
+        "personal.nameStory",
+        "grandparents.memorableStory"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "language_name_001",
+      "cue_type": "language_name",
+      "label": "Accent, changed name, old language, nickname, shame/pride",
+      "risk_level": "medium",
+      "trigger_terms": [
+        "name",
+        "called",
+        "accent",
+        "talk funny",
+        "English",
+        "German",
+        "nickname",
+        "changed my name"
+      ],
+      "scene_anchor_dimensions": [
+        "language",
+        "person",
+        "emotion_named"
+      ],
+      "safe_followups": [
+        "How did that name sound inside the family?",
+        "Who used the old name?",
+        "What did it feel like when people said it differently?"
+      ],
+      "forbidden_moves": [
+        "Do not correct names.",
+        "Do not infer legal name change unless explicitly stated.",
+        "Do not write protected identity.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "personal.nameStory",
+        "parents.preferredName",
+        "siblings.preferredName"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "identity_between_001",
+      "cue_type": "identity_between",
+      "label": "Belonging, assimilation, in-between identity, old/new world",
+      "risk_level": "medium",
+      "trigger_terms": [
+        "American",
+        "old country",
+        "in-between",
+        "ashamed",
+        "belong",
+        "hyphen",
+        "too American",
+        "too Russian"
+      ],
+      "scene_anchor_dimensions": [
+        "emotion_named",
+        "language",
+        "movement"
+      ],
+      "safe_followups": [
+        "When did you first feel that split?",
+        "Who in the family felt it most strongly?",
+        "What helped you feel at home?"
+      ],
+      "forbidden_moves": [
+        "Do not assign ethnicity, nationality, religion, or politics without direct narrator statement.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "personal.notes",
+        "cultural.touchstoneMemory",
+        "laterYears.lifeLessons"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "hard_times_001",
+      "cue_type": "hard_times",
+      "label": "Poverty, hunger, danger, discrimination, weather, illness, social pressure",
+      "risk_level": "sensitive",
+      "trigger_terms": [
+        "blizzard",
+        "hunger",
+        "debt",
+        "danger",
+        "invisible",
+        "law",
+        "sick",
+        "doctor",
+        "fear",
+        "survival",
+        "be invisible",
+        "stay safe",
+        "when to be",
+        "three months a year",
+        "open three months"
+      ],
+      "scene_anchor_dimensions": [
+        "emotion_named",
+        "time",
+        "place",
+        "person"
+      ],
+      "safe_followups": [
+        "Would you like to stay with that memory for a moment?",
+        "What helped people get through it?",
+        "Who was looking out for the family then?"
+      ],
+      "forbidden_moves": [
+        "Do not press for trauma details.",
+        "Do not continue normal interview flow if present distress appears.",
+        "Safety overrides this cue.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "hobbies.personalChallenges",
+        "laterYears.significantEvent",
+        "community.notes"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "hidden_custom_001",
+      "cue_type": "hidden_custom",
+      "label": "Protected custom, coded ritual, silence, private family rule",
+      "risk_level": "sensitive",
+      "trigger_terms": [
+        "secret",
+        "nobody said",
+        "we just knew",
+        "candle",
+        "covered",
+        "door",
+        "old prayer",
+        "hidden",
+        "quiet",
+        "understood",
+        "died with",
+        "never told anyone",
+        "between us",
+        "cannot know"
+      ],
+      "scene_anchor_dimensions": [
+        "ritual",
+        "object",
+        "silence",
+        "place"
+      ],
+      "safe_followups": [
+        "Was that something people talked about, or something everyone simply understood?",
+        "Who seemed to know the meaning of it?",
+        "Would you like to stay with that memory, or leave it there for now?"
+      ],
+      "forbidden_moves": [
+        "Never infer religion, ethnicity, trauma, ancestry, or family secret.",
+        "Never name a hidden identity unless the narrator names it first.",
+        "Do not press for disclosure.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "faith.notes",
+        "familyTraditions",
+        "additionalNotes.desiredStory"
+      ],
+      "runtime_exposes_extract_hints": false
+    },
+    {
+      "cue_id": "legacy_wisdom_001",
+      "cue_type": "legacy_wisdom",
+      "label": "Lessons, grandkids, what must be remembered",
+      "risk_level": "low",
+      "trigger_terms": [
+        "grandkids",
+        "remember",
+        "lesson",
+        "legacy",
+        "tell my",
+        "what I want",
+        "flame",
+        "future"
+      ],
+      "scene_anchor_dimensions": [
+        "emotion_named",
+        "person",
+        "time"
+      ],
+      "safe_followups": [
+        "What do you most want them to understand?",
+        "Who do you hope hears that someday?",
+        "What would you want written down exactly as you said it?"
+      ],
+      "forbidden_moves": [
+        "Do not turn wisdom into moral judgment.",
+        "Preserve narrator wording when possible.",
+        "Cue library is listener aid only; it must never write truth directly."
+      ],
+      "operator_extract_hints": [
+        "laterYears.lifeLessons",
+        "laterYears.desiredStory",
+        "additionalNotes.unfinishedDreams"
+      ],
+      "runtime_exposes_extract_hints": false
+    }
+  ]
+}
