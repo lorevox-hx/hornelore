@@ -11,9 +11,10 @@
      attention_state     'passive_waiting' | 'engaged' | 'reflective' |
                          'face_missing' | 'unknown'
      mic_activity        bool — narrator is currently speaking (any sound)
-     last_cue_ts         ms timestamp of the last spoken cue (Tier 1+)
-                         OR null if no cue this session
+     last_cue_ts         ms timestamp of the last cue OR null if none
      last_cue_tier       int 0-4 of last cue OR null
+     last_cue_intent     'visual_only' | 'spoken_cue' | null
+                         Phase 3 cooldown gate — see below.
 
    Output:
      null                — no cue right now
@@ -29,7 +30,11 @@
 
    Hard rules (cannot violate):
      - HARD_FLOOR_MS = 25s. No cue fires before this, ever.
-     - 90s cooldown after Tier 1+ cue.
+     - 90s cooldown ONLY after a spoken cue (last_cue_intent ===
+       'spoken_cue'). Visual cues are persistent presence, not
+       interruptive — they never trigger cooldown. Phase 3 is all
+       visual-only, so cooldown is dead code in Phase 3 by design;
+       Phase 5 will activate it when spoken cues land.
      - 'engaged' / 'reflective' veto cues below WO-10C 120s mark.
      - 'face_missing' is NOT 'passive_waiting' — fall to time ladder.
      - mic_activity suppresses any pending cue.
@@ -66,9 +71,19 @@
     return 'unknown';
   }
 
-  function _cooldownActive(now_ms, last_cue_ts, last_cue_tier) {
+  function _cooldownActive(now_ms, last_cue_ts, last_cue_tier, last_cue_intent) {
     if (!last_cue_ts || last_cue_tier == null) return false;
     if (last_cue_tier < 1) return false;  // Tier 0 is silent UI; no cooldown
+    // BUG FIX (2026-05-03 pre-commit code review): cooldown is for
+    // SPOKEN cues only. Visual presence cues are persistent — gating
+    // them on cooldown caused the cue to fade out at gap=120s while
+    // narrator was still in passive_waiting (60s safety auto-hide
+    // fires inside the 90s cooldown window with no fresh dispatch
+    // events to keep the timer alive). In Phase 3 last_cue_intent
+    // is always 'visual_only' → cooldown never fires by structural
+    // lock. Phase 5 will activate this branch when 'spoken_cue'
+    // intents land.
+    if (last_cue_intent !== 'spoken_cue') return false;
     return (now_ms - last_cue_ts) < COOLDOWN_MS;
   }
 
@@ -125,6 +140,7 @@
     const mic_activity    = !!inputs.mic_activity;
     const last_cue_ts     = inputs.last_cue_ts || null;
     const last_cue_tier   = (inputs.last_cue_tier != null) ? Number(inputs.last_cue_tier) : null;
+    const last_cue_intent = inputs.last_cue_intent || null;
     const now_ms          = Number(inputs.now_ms || Date.now());
 
     // Rule 1: narrator is speaking — never interrupt.
@@ -137,8 +153,9 @@
       return null;
     }
 
-    // Rule 3: cooldown after a spoken cue.
-    if (_cooldownActive(now_ms, last_cue_ts, last_cue_tier)) {
+    // Rule 3: cooldown after a spoken cue (Phase 5+ only — Phase 3
+    // visual cues never trigger cooldown; see _cooldownActive note).
+    if (_cooldownActive(now_ms, last_cue_ts, last_cue_tier, last_cue_intent)) {
       return null;
     }
 

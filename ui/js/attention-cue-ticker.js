@@ -86,7 +86,7 @@
       };
     }
     if (!session.lastAttentionCue) {
-      session.lastAttentionCue = { ts: null, tier: null, signal_state: null };
+      session.lastAttentionCue = { ts: null, tier: null, signal_state: null, intent: null };
     }
   }
 
@@ -99,6 +99,11 @@
    *
    * Pure read-then-write: never produces narrator-facing output.
    */
+  // Visual-signal freshness window — matches cognitive-auto.js v7.4C
+  // 8s cap. If MediaPipe stops emitting (camera off, error), the last
+  // affect_state would otherwise stick forever and falsely veto cues.
+  const VISUAL_SIGNAL_FRESHNESS_MS = 8000;
+
   function refreshAttentionStateFromClassifier(gap_ms) {
     const C = global.AttentionStateClassifier;
     if (!C) return;
@@ -107,6 +112,18 @@
 
     const visual = session.visualSignals || {};
     const inputs = session.passive_waiting_inputs || {};
+
+    // BUG FIX (2026-05-03 pre-commit): freshness gate on affect.
+    // If the visual signal is older than 8s, treat it as null —
+    // otherwise stale "engaged" state vetoes cues forever after the
+    // camera goes dark.
+    const visualFresh = !!(
+      visual.affectState
+      && visual.timestamp
+      && (_now() - visual.timestamp) < VISUAL_SIGNAL_FRESHNESS_MS
+    );
+    const affect_state_for_classifier = visualFresh ? visual.affectState : null;
+    const face_present_for_classifier = visualFresh ? true : null;
 
     // Don't clobber an explicitly-set attention_state (e.g. via
     // setAttentionState in tests/debug, or future adapter that
@@ -119,16 +136,15 @@
     ) || (
       inputs.no_speech_intent !== null && inputs.no_speech_intent !== undefined
     );
-    const hasAffect = !!(visual.affectState);
-    if (!hasPassiveInput && !hasAffect) return;
+    if (!hasPassiveInput && !visualFresh) return;
 
     const classified = C.classify({
       gaze_forward:        inputs.gaze_forward,
       low_movement:        inputs.low_movement,
       no_speech_intent:    inputs.no_speech_intent,
       post_tts_silence_ms: gap_ms,
-      affect_state:        visual.affectState || null,
-      face_present:        (visual.affectState != null) ? true : null,
+      affect_state:        affect_state_for_classifier,
+      face_present:        face_present_for_classifier,
     });
 
     session.attention_state = classified;
@@ -165,8 +181,9 @@
       gap_ms,
       attention_state,
       mic_activity,
-      last_cue_ts:   last.ts   || null,
-      last_cue_tier: (last.tier != null) ? last.tier : null,
+      last_cue_ts:     last.ts     || null,
+      last_cue_tier:   (last.tier != null) ? last.tier : null,
+      last_cue_intent: last.intent || null,
       now_ms: _now(),
     };
   }
@@ -181,6 +198,7 @@
         ts: _now(),
         tier: decision.tier,
         signal_state: decision.signal_state,
+        intent: decision.intent,
       };
     }
 

@@ -6,6 +6,63 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
+## Daily handoff — 2026-05-03 (evening, Phase 3 read-only attention awareness LANDED)
+
+**TL;DR for next session:** **WO-LORI-SESSION-AWARENESS-01 Phase 3 is ready to commit** as one milestone (5 sub-phases all ship together: 3A classifier / 3B runtime plumbing / 3C harness cases / 3D cue text disabled / 3E quiet presence cue). The structural promise — *Lori gained presence without gaining chatter* — holds: dispatcher's `intent` is locked to `'visual_only'` for all tiers, presence cue rejects any other intent value, no TTS path / no transcript-write / no extractor coupling. **102 tests green across 4 Node-runnable packs.** Active baseline `r5h` (70/104, v3=41/62, v2=35/62, mnw=2) unchanged. **Tree DIRTY** (10 uncommitted files). Pre-commit code review caught and fixed two real bugs in this lane (see "Bugs caught in code review" below). After commit, the agreed next step is **one real Janice/Kent session with `window.LV_ATTENTION_CUE_TICKER = true`** to observe presence-cue feel before Phase 4 scoping begins.
+
+### Phase 3 — what landed (5 sub-phases bundled into one commit)
+
+- **3A Classifier** — `ui/js/attention-state-classifier.js` (NEW). Pure 5-state decision module. `passive_waiting` requires ALL FOUR sensor inputs (gaze_forward + low_movement + no_speech_intent + post_tts_silence ≥ 25s). `engaged`/`reflective` (incl. `moved`) emitted when affect signal positive. `face_missing` only when face_present === false. Anything else → `unknown`. 19 tests cover every spec scenario.
+- **3B Runtime plumbing** — `ui/js/attention-cue-ticker.js` (modified). Ticker calls classifier on every snapshot, writes `state.session.attention_state`. Manual `setAttentionState()` overrides survive when no sensor inputs are populated (test/debug path).
+- **3C Harness cases** — 19 classifier tests + 27 ticker tests + 37 dispatcher tests + 19 presence-cue tests = 102/102 green.
+- **3D Cue text DISABLED** — `_intentForTier()` returns `'visual_only'` for ALL tiers (0-4) by structural lock. Dispatcher tests sweep every signal × gap combo + assert `intent === 'visual_only'`. Presence cue REJECTS any other intent (`'attention_cue'` / `'spoken_cue'` / `'tts'`).
+- **3E Quiet Presence Cue** — `ui/js/presence-cue.js` (NEW) + `ui/css/lori80.css` (additions). Visual-only DOM element with locked text *"Take your time. I'm listening."*. Two-stage opacity ramp: 25-45s = faint (`.lv-presence-faint`, opacity 0.45), 45s+ = stronger (`.lv-presence-stronger`, opacity 0.85). Same text, different presence weight. Hides on mic activity. `data-purpose="visual_presence"` + `data-transcript-ignore="true"` markers. Auto-mounts inside `lvNarratorConversation`.
+
+### Bugs caught in pre-commit code review (both fixed)
+
+**BUG A — Cooldown gating visual cues caused them to fade out mid-passive-waiting.** Pre-fix trace: at gap=65s Tier 1 fires → `lastAttentionCue.tier=1` triggers 90s cooldown → all subsequent ticks return null → presence cue's 60s safety auto-hide fires inside the cooldown window with no fresh dispatch events to keep it visible → cue fades out at gap=120s while narrator is still in passive_waiting. **Fix:** dispatcher's `_cooldownActive()` now requires `last_cue_intent === 'spoken_cue'`. In Phase 3 all intents are `visual_only`, so cooldown is dead code by structural design (Phase 5 will activate the spoken-cue branch when spoken intents land). Threaded `last_cue_intent` through ticker → snapshot → dispatcher → emit. New regression test `BUG-FIX: visual_only cue continues across ticks` locks the fix.
+
+**BUG B — Stale `visualSignals.affectState` vetoes cues forever after camera goes dark.** Pre-fix: if MediaPipe stops emitting (camera off, error), the last `affectState` (e.g. `'engaged'`) sticks in `state.session.visualSignals.affectState` indefinitely. Classifier reads it, dispatcher vetoes. **Fix:** ticker's `refreshAttentionStateFromClassifier()` now applies an 8s freshness window matching `cognitive-auto.js` v7.4C — if `Date.now() - visualSignals.timestamp > 8000`, the affectState is treated as null. New regression tests `BUG-FIX: visualSignals older than 8s treated as null` + `BUG-FIX: visualSignals fresh (<8s) IS read` lock the fix.
+
+### Pending after commit
+
+1. **Live Janice/Kent observation** — flip `window.LV_ATTENTION_CUE_TICKER = true` (DevTools console or future Bug Panel toggle), watch the presence cue: when it appears (faint at ~25s, stronger at ~45s), whether it ever feels intrusive, whether it disappears cleanly on speech.
+2. **Phase 4 — Adaptive Silence Ladder** — DO NOT START until #1 lands. Per-narrator × prompt_weight rolling window p75/p90/p95 → tier overrides. 25s hard floor. Cold-start <10 turns falls back to WO-10C 120s/300s/600s. Decision-object output only (`silence_tier` + `attention_state` + `intent` + `reason` + `cue_allowed: false` + `visual_presence_allowed: true`). Phase 4 is decision logic, NOT speech logic. Pure-Python helper at `server/code/services/narrator_pacing.py`.
+3. **Phase 5 — test matrix** — 20-test acceptance gate. Only after Phase 5 passes may dispatcher intent for Tiers 1-4 flip from `'visual_only'` to `'spoken_cue'`. Spoken cue candidates locked to two: Tier 3 *"Would it help if I asked that another way?"*, Tier 4 *"We can pause here if you'd like. I'm still with you."*.
+4. **3 RED gates from prior week still open** — SAFETY-INTEGRATION-01 Phase 2 (LLM second-layer classifier for soft-trigger detection), TRUTH-PIPELINE-01 Phase 1 (observability stub), Post-safety recovery / softened-mode persistence.
+
+### Files staged for commit (10)
+
+```
+ui/js/attention-cue-dispatcher.js              (modified — intent locked + cooldown gated on spoken_cue)
+ui/js/attention-state-classifier.js            (NEW — 5-state pure classifier)
+ui/js/attention-cue-ticker.js                  (modified — classifier wire + 8s freshness + intent in lastAttentionCue)
+ui/js/presence-cue.js                          (NEW — visual-only renderer with two-stage opacity ramp)
+ui/css/lori80.css                              (NEW: .lv-presence-cue rules + .lv-presence-faint + .lv-presence-stronger)
+ui/hornelore1.0.html                           (modified — 4 script tags after cognitive-auto.js)
+tests/test_attention_cue_dispatcher.js         (modified — Phase 3 lock assertions + cooldown gating tests)
+tests/test_attention_state_classifier.js       (NEW — 19 tests)
+tests/test_attention_cue_ticker.js             (modified — Phase 3B + bug-fix regression tests)
+tests/test_presence_cue.js                     (NEW — 19 tests including two-stage ramp)
+```
+
+### Commit block (paste from `/mnt/c/Users/chris/hornelore`)
+
+See chat for the full commit-message HEREDOC. Standard sequence:
+1. `git add` the 10 files above
+2. `git status` to verify
+3. `git commit -m "$(cat <<'EOF' ... EOF)"`
+4. `git push origin main`
+
+### Stack state
+
+- Stack was NOT cycled this session. Phase 3 wiring is JS-only — no backend restart required to load it; a hard browser reload picks up the new script tags.
+- Active baseline `r5h` 70/104 v3=41/62 v2=35/62 mnw=2 — unchanged.
+- SPANTAG=0 default. BINDING-01 in-tree behind PATCH 1-4 + micro-patch; default-off.
+- Tree DIRTY (10 files) until commit lands.
+
+---
+
 ## Daily handoff — 2026-04-29 (evening, end of day)
 
 **TL;DR for tomorrow morning:** Today's afternoon + evening landed three workstreams that move parent-session readiness materially forward: (1) **BUG-EX-PLACE-LASTNAME-01** post-LLM regex guard at `extract.py` (`9b9e557`) drops `.lastName`/`.maidenName`/`.middleName` candidates appearing only after place-prepositions — fixes the live "in Stanley" / "in Spokane" → parents.lastName binding error from the 2026-04-28 1000-word test; six new eval fixtures `case_105–110` master pack 104→110; smoke 15/15. (2) **`scan_answer()` default-safe fallback** in `chat_ws.py` L206-228 closes a silent-skip gap surfaced by code review — when scan_answer raises, force `turn_mode=interview` so the ACUTE SAFETY RULE in the system prompt fires + emit `[chat_ws][safety][default-safe]` log marker. (3) **WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1** — read-only operator cockpit in the Bug Panel with 4 status cards (Extractor / Lori Behavior / Safety / Story Surface) backed by `/api/operator/eval-harness/*` endpoints, gated behind `HORNELORE_OPERATOR_EVAL_HARNESS=0` default-off (404 when off). Smoke-tested against `r5h-restore` (PASS, 70/104, mnw 1.2%, age 0.89d). Phase 2 (run buttons) parked. Plus **eval-script printer fix** (`4ac71f0`) unblocks the r5h-place-guard re-run that was lost to a `_print_breakdown("By era")` crash on `None` keys + mixed legacy era names — JSON write now happens BEFORE printer so future printer crashes never lose reports. Plus **prompt_composer warmth + legacy-language cleanup** (#330): four narrator-facing string edits aligning with SESSION-AWARENESS-01 banned-vocab spec (273-TALK softened with 988/AFSP context; memory-echo "What I'm less sure about" warmer for elders; NO QUESTION LISTS RULE narrowed to interview mode; "cognitive difficulty (dementia or similar)" → "benefits from extra pacing support"). Active baseline `r5h` (70/104 v3=41/62 v2=35/62 mnw=2) unchanged; SPANTAG=0 default; BINDING-01 in-tree behind PATCH 1-4 + micro-patch, default-off pending next iteration. **Tree clean post all evening commits.** First morning task: run `r5h-place-guard` eval to confirm BUG-EX-PLACE-LASTNAME-01 lands clean (now that the printer crash is fixed) + cycle stack with `HORNELORE_OPERATOR_EVAL_HARNESS=1` to live-verify the Bug Panel cockpit + Reset Identity for Kent / Janice / Christopher (UI clicks per #318) + live re-test "what do you know about me?" after Phase 1a memory_echo (#319).

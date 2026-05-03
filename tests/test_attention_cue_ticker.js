@@ -159,14 +159,19 @@ test('snapshot defaults attention_state to "unknown"', () => {
   restoreNow();
 });
 
-test('snapshot reads last_cue_ts + last_cue_tier from session.lastAttentionCue', () => {
+test('snapshot reads last_cue_ts + last_cue_tier + last_cue_intent from session.lastAttentionCue', () => {
   resetState();
   freezeNow(NOW_FIXED);
   global.state.narratorTurn.ttsFinishedAt = NOW_FIXED - 200_000;
-  global.state.session.lastAttentionCue = { ts: NOW_FIXED - 30_000, tier: 1 };
+  global.state.session.lastAttentionCue = {
+    ts: NOW_FIXED - 30_000,
+    tier: 1,
+    intent: 'visual_only',
+  };
   const snap = T.snapshot();
   assert.strictEqual(snap.last_cue_ts, NOW_FIXED - 30_000);
   assert.strictEqual(snap.last_cue_tier, 1);
+  assert.strictEqual(snap.last_cue_intent, 'visual_only');
   restoreNow();
 });
 
@@ -192,7 +197,7 @@ test('tick: passive_waiting + 65s gap fires lvAttentionCue Tier 1', () => {
   restoreNow();
 });
 
-test('tick: writes lastAttentionCue to session after firing', () => {
+test('tick: writes lastAttentionCue (with intent) to session after firing', () => {
   resetState();
   freezeNow(NOW_FIXED);
   T.ensureAttentionSurface();
@@ -202,10 +207,18 @@ test('tick: writes lastAttentionCue to session after firing', () => {
   assert.strictEqual(global.state.session.lastAttentionCue.tier, 2);
   assert.strictEqual(global.state.session.lastAttentionCue.signal_state, 'passive_waiting');
   assert.strictEqual(global.state.session.lastAttentionCue.ts, NOW_FIXED);
+  assert.strictEqual(global.state.session.lastAttentionCue.intent, 'visual_only',
+    'Phase 3 lock — written intent must always be visual_only');
   restoreNow();
 });
 
-test('tick: cooldown after Tier 1 fires — second tick within 90s fires nothing', () => {
+test('BUG-FIX: visual_only cue continues across ticks (no cooldown for visual cues)', () => {
+  // Pre-fix bug: at gap=65s Tier 1 fires, lastAttentionCue.tier=1
+  // sets a 90s cooldown that blocked all subsequent ticks. The
+  // presence cue's 60s safety auto-hide then fired during the
+  // cooldown window with no fresh dispatch events to keep it
+  // visible — cue faded out at gap=120s while narrator was still
+  // in passive_waiting.
   resetState();
   freezeNow(NOW_FIXED);
   T.ensureAttentionSurface();
@@ -213,12 +226,21 @@ test('tick: cooldown after Tier 1 fires — second tick within 90s fires nothing
   T.setAttentionState('passive_waiting');
   T.tick();
   assert.strictEqual(_events.length, 1);
+  assert.strictEqual(_events[0].detail.intent, 'visual_only');
 
-  // Advance 30s, gap continues
+  // Advance 30s; gap is now 95s. Pre-fix this would suppress
+  // (within 90s cooldown). Post-fix it must continue firing.
   freezeNow(NOW_FIXED + 30_000);
-  global.state.narratorTurn.ttsFinishedAt = NOW_FIXED - 65_000;  // unchanged
   T.tick();
-  assert.strictEqual(_events.length, 1, 'no second event during cooldown');
+  assert.strictEqual(_events.length, 2,
+    'visual_only must keep dispatching every tick — it is presence, not interruption');
+  assert.strictEqual(_events[1].detail.tier, 1);
+
+  // Advance another 30s; gap=125s. Tier should rise to 2.
+  freezeNow(NOW_FIXED + 60_000);
+  T.tick();
+  assert.strictEqual(_events.length, 3);
+  assert.strictEqual(_events[2].detail.tier, 2);
   restoreNow();
 });
 
@@ -372,6 +394,47 @@ test('Phase 3B: emitted events always carry intent=visual_only (Phase 3 lock)', 
   T.tick();
   assert.strictEqual(_events.length, 1);
   assert.strictEqual(_events[0].detail.intent, 'visual_only');
+  restoreNow();
+});
+
+// ── BUG FIX: stale visualSignals freshness ────────────────────
+
+test('BUG-FIX: visualSignals older than 8s treated as null (stale veto guard)', () => {
+  resetState();
+  freezeNow(NOW_FIXED);
+  T.ensureAttentionSurface();
+  global.state.narratorTurn.ttsFinishedAt = NOW_FIXED - 60_000;
+  // affect captured 10s ago (stale per 8s freshness cap)
+  global.state.session.visualSignals = {
+    affectState: 'engaged',
+    confidence: 0.85,
+    timestamp: NOW_FIXED - 10_000,
+  };
+  // No passive_waiting_inputs populated → classifier should NOT
+  // refresh on stale affect alone. attention_state stays at default 'unknown'.
+  T.tick();
+  assert.notStrictEqual(global.state.session.attention_state, 'engaged',
+    'stale (>8s) affect must not be classified as engaged');
+  // gap=60s + unknown → time ladder returns null (no Tier 2 yet at <120s)
+  // so no event fires
+  assert.strictEqual(_events.length, 0);
+  restoreNow();
+});
+
+test('BUG-FIX: visualSignals fresh (<8s) IS read by classifier', () => {
+  resetState();
+  freezeNow(NOW_FIXED);
+  T.ensureAttentionSurface();
+  global.state.narratorTurn.ttsFinishedAt = NOW_FIXED - 90_000;
+  global.state.session.visualSignals = {
+    affectState: 'engaged',
+    confidence: 0.85,
+    timestamp: NOW_FIXED - 3_000,  // 3s ago, fresh
+  };
+  T.tick();
+  assert.strictEqual(global.state.session.attention_state, 'engaged');
+  // engaged @ 90s → vetoed (under WO-10C 120s mark)
+  assert.strictEqual(_events.length, 0);
   restoreNow();
 });
 

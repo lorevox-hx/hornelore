@@ -225,42 +225,83 @@ test('unknown signal: Tier 2 at 120s, Tier 3 at 300s, Tier 4 at 600s', () => {
 
 // ── Cooldown after spoken cue (Tier 1+) ───────────────────────
 
-test('cooldown: Tier 1 cue blocks new cue for 90s', () => {
-  // Tier 1 fired 30s ago → cooldown active (30s < 90s)
+// Cooldown semantics — Phase 3 lock: only spoken cues trigger cooldown.
+// In Phase 3 last_cue_intent is always 'visual_only' so cooldown is
+// dead code by structural design. The Phase 5 lane will exercise the
+// cooldown=spoken_cue branch when spoken intents are introduced.
+
+test('cooldown: visual_only Tier 1 cue does NOT block new cue (Phase 3 lock)', () => {
+  // Tier 1 fired 30s ago — but as visual_only, no cooldown.
+  // This is the bug-fix: cooldown gating visual cues caused them
+  // to fade out at gap=120s (60s safety auto-hide inside the
+  // 90s cooldown window with no fresh dispatch events).
   const r = D.decideCue({
     gap_ms: 70_000,
     attention_state: 'passive_waiting',
     mic_activity: false,
     last_cue_ts: NOW - 30_000,
     last_cue_tier: 1,
+    last_cue_intent: 'visual_only',
     now_ms: NOW,
   });
-  assert.strictEqual(r, null);
+  assert.ok(r, 'visual_only cue must NOT trigger cooldown');
+  assert.strictEqual(r.tier, 1);
 });
 
-test('cooldown: Tier 2 cue blocks new cue for 90s', () => {
+test('cooldown: visual_only Tier 2 cue does NOT block new cue (Phase 3 lock)', () => {
   const r = D.decideCue({
     gap_ms: 200_000,
     attention_state: 'passive_waiting',
     mic_activity: false,
     last_cue_ts: NOW - 60_000,
     last_cue_tier: 2,
+    last_cue_intent: 'visual_only',
+    now_ms: NOW,
+  });
+  assert.ok(r);
+  assert.strictEqual(r.tier, 2);
+});
+
+test('cooldown: spoken_cue blocks new cue for 90s (Phase 5 future lane)', () => {
+  const r = D.decideCue({
+    gap_ms: 70_000,
+    attention_state: 'passive_waiting',
+    mic_activity: false,
+    last_cue_ts: NOW - 30_000,
+    last_cue_tier: 1,
+    last_cue_intent: 'spoken_cue',
     now_ms: NOW,
   });
   assert.strictEqual(r, null);
 });
 
-test('cooldown: 90s elapsed → next cue allowed', () => {
+test('cooldown: spoken_cue 90s elapsed → next cue allowed', () => {
   const r = D.decideCue({
     gap_ms: 70_000,
     attention_state: 'passive_waiting',
     mic_activity: false,
     last_cue_ts: NOW - 90_001,
     last_cue_tier: 1,
+    last_cue_intent: 'spoken_cue',
     now_ms: NOW,
   });
   assert.ok(r);
   assert.strictEqual(r.tier, 1);
+});
+
+test('cooldown: missing last_cue_intent → defaults to no cooldown', () => {
+  // Defensive: legacy callers pre-Phase-3-fix passed no intent.
+  // Default behavior: do NOT cooldown (visual cue persistence wins).
+  const r = D.decideCue({
+    gap_ms: 70_000,
+    attention_state: 'passive_waiting',
+    mic_activity: false,
+    last_cue_ts: NOW - 30_000,
+    last_cue_tier: 1,
+    // last_cue_intent omitted
+    now_ms: NOW,
+  });
+  assert.ok(r);
 });
 
 test('cooldown: Tier 0 cue does NOT trigger cooldown (silent UI)', () => {
@@ -270,6 +311,7 @@ test('cooldown: Tier 0 cue does NOT trigger cooldown (silent UI)', () => {
     mic_activity: false,
     last_cue_ts: NOW - 5_000,   // very recent
     last_cue_tier: 0,            // but Tier 0 is silent — no cooldown
+    last_cue_intent: 'visual_only',
     now_ms: NOW,
   });
   assert.ok(r);
@@ -365,16 +407,21 @@ test('scenario: narrator starts speaking mid-decision → suppressed', () => {
   assert.strictEqual(r, null);
 });
 
-test('scenario: cooldown — second cue blocked within 90s', () => {
+test('scenario: cooldown — visual_only second cue NOT blocked (Phase 3)', () => {
+  // Per Phase 3 lock: visual cues are persistent presence, not
+  // interruptive. They never trigger cooldown. The matrix row's
+  // original "second cue blocked within 90s" expectation only
+  // applies to spoken cues which Phase 5 will introduce.
   const r = D.decideCue({
     gap_ms: 150_000,
     attention_state: 'passive_waiting',
     mic_activity: false,
     last_cue_ts: NOW - 60_000,   // Tier 1 fired 60s ago
     last_cue_tier: 1,
+    last_cue_intent: 'visual_only',
     now_ms: NOW,
   });
-  assert.strictEqual(r, null);
+  assert.ok(r, 'visual_only cue must continue; cooldown is for spoken cues');
 });
 
 // ── Output shape ──────────────────────────────────────────────
