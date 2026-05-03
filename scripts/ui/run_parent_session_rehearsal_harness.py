@@ -1,0 +1,1502 @@
+#!/usr/bin/env python3
+"""WO-PARENT-SESSION-REHEARSAL-HARNESS-01 — narrator-experience harness.
+
+This is the parent-session rehearsal pack. Unlike the readiness harness
+(which checks "did the code path fire?"), this checks "what would
+Janice/Kent actually experience?"
+
+For each narrator voice (Hearth / Field / Shield in --standard, plus
+4 more in --full), it sends an 8-turn realistic narrator pack drawn
+from VOICE_LIBRARY_v1.md, captures Lori's reply, and scores every reply
+through the real lori_response_metrics.score_lori_turn() Python scorer.
+
+Voice-specific suppression rules (must_not_match patterns) layer on
+top of the generic discipline metrics. For Shield (Crypto-Jewish), the
+expected question_count on the story-seed turn is ZERO — sacred_silence
+overrides the generic "one question" expectation.
+
+Three artifacts produced per run:
+  1. parent_rehearsal_<tag>.json          (machine-readable, full detail)
+  2. parent_rehearsal_<tag>.md            (human-readable report form)
+  3. parent_rehearsal_<tag>_failures.csv  (sortable failure triage)
+
+Tier ladder (built first version — --quick + --standard):
+  --quick     Hearth only,    8 turns + Life Map + silence (~5 min)
+  --standard  Hearth + Field + Shield,  24 turns + cross-narrator
+              divergence report (~25 min) — DEFAULT
+  --full      All 7 voices    (deferred, not built in v1)
+
+Per Chris's locked rule (2026-05-03): tests what the narrator
+experiences, not whether the handler fired. Voice rules override
+generic question-count metric where suppression is structural.
+
+Severity grade per his spec:
+  RED:    spoken silence cue / sacred content probed / Life Map click
+          produces no Lori response / menu or compound question in
+          parent-session path
+  AMBER:  too many words / weak reflection / generic response /
+          currentEra missing but Lori did respond
+  PASS:   grounded reflection / one simple question / suppression
+          honored / visual cue only
+
+Stack must already be warm. Boot helpers from the readiness harness
+are reused (UI / ConsoleCollector / DbLockCounter).
+
+Usage:
+  cd /mnt/c/Users/chris/hornelore
+  python scripts/ui/run_parent_session_rehearsal_harness.py \\
+    --tag rehearsal_v1 \\
+    --mode standard \\
+    --base-url http://localhost:8082/ui/hornelore1.0.html \\
+    --api http://localhost:8000
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as dt
+import json
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+# ── Path setup so we can import score_lori_turn + readiness helpers ─
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SERVER_CODE = _REPO_ROOT / "server" / "code"
+if str(_SERVER_CODE) not in sys.path:
+    sys.path.insert(0, str(_SERVER_CODE))
+_SCRIPTS_UI = _REPO_ROOT / "scripts" / "ui"
+if str(_SCRIPTS_UI) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_UI))
+
+# ── Real Python scorer (the one shipped in lori_response_metrics.py) ─
+try:
+    from api.services.lori_response_metrics import score_lori_turn
+except ImportError as e:
+    print(f"FATAL: cannot import score_lori_turn: {e}", file=sys.stderr)
+    print(f"  expected at: {_SERVER_CODE}/api/services/lori_response_metrics.py", file=sys.stderr)
+    sys.exit(2)
+
+# ── Reuse the readiness harness driver classes ──────────────────────
+try:
+    from run_parent_session_readiness_harness import (
+        UI,
+        ConsoleCollector,
+        DbLockCounter,
+        sync_playwright,
+        Browser,
+        BrowserContext,
+        Page,
+        SEL,
+    )
+except ImportError as e:
+    print(f"FATAL: cannot import readiness harness driver: {e}", file=sys.stderr)
+    print(f"  expected at: {_SCRIPTS_UI}/run_parent_session_readiness_harness.py", file=sys.stderr)
+    sys.exit(2)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# VOICE LIBRARY — REHEARSAL PROMPTS
+#
+# Drawn directly from docs/voice_models/VOICE_LIBRARY_v1.md. Each
+# voice has 8 turns following the same rehearsal pack shape so that
+# cross-narrator divergence is meaningful (same prompt slot, different
+# cultural content).
+# ═══════════════════════════════════════════════════════════════════
+
+# Universal turns (all voices) — short greeting, resistance, direct Q,
+# silence pause. Voice-specific story seed + uncertainty + correction
+# carry the cultural payload.
+
+REHEARSAL_PACK_TEMPLATE = [
+    # turn_id, prompt_type, narrator_input_template, expected_intent
+    ("T1", "greeting",      "{greeting}",           "interview_question"),
+    ("T2", "resistance",    "{resistance}",         "interview_question"),
+    ("T3", "story_seed",    "{story_seed}",         "interview_question"),
+    ("T4", "uncertainty",   "{uncertainty}",        "interview_question"),
+    ("T5", "direct_q",      "what do you know about me", "memory_echo"),
+    ("T6", "correction",    "{correction}",         "interview_question"),
+    ("T7", "silence",       "__SILENCE_PAUSE__",    "attention_cue"),
+    ("T8", "lifemap_click", "__CLICK_LIFE_MAP_ERA__", "interview_question"),
+]
+
+
+VOICES = {
+    "hearth": {
+        "id":           "hearth",
+        "label":        "Voice 1 — Germans from Russia (Hearth, Janice baseline)",
+        "vessel":       "Hearth",
+        "region":       "North Dakota / Volga + Black Sea diaspora",
+        "disclosure":   "low",
+        "test_style":   "clear_direct",
+        "lifemap_era_to_click": "Coming of Age",
+        "prompts": {
+            "greeting":    "hello how are you",
+            "resistance":  "you already asked me that",
+            "story_seed":  ("Mother had a silk ribbon from her wedding. She'd take it out "
+                            "once a year, touch it, and put it back."),
+            "uncertainty": "I don't remember much about the trip over",
+            "correction":  "no, I said Williston, not Bismarck",
+        },
+    },
+    "field": {
+        "id":           "field",
+        "label":        "Voice 3 — African American Georgia (Field, coded survival)",
+        "vessel":       "Field",
+        "region":       "Rural Georgia / Macon, Albany",
+        "disclosure":   "medium-high",
+        "test_style":   "clear_direct",
+        "lifemap_era_to_click": "Building Years",
+        "prompts": {
+            "greeting":    "hello how are you",
+            "resistance":  "I told you about that already",
+            "story_seed":  ("Mother had a Sunday voice for church and a Monday voice "
+                            "for survival."),
+            "uncertainty": "I don't talk about that part of growing up",
+            "correction":  "no, I said Macon, not Atlanta",
+        },
+    },
+    "shield": {
+        "id":           "shield",
+        "label":        "Voice 7 — Crypto-Jewish New Mexico (Shield, MAX SUPPRESSION)",
+        "vessel":       "Shield",
+        "region":       "Northern New Mexico / Sephardic diaspora",
+        "disclosure":   "maximum",
+        "test_style":   "clear_direct",
+        "lifemap_era_to_click": "Earliest Years",
+        "prompts": {
+            "greeting":    "hello how are you",
+            "resistance":  "you already asked",
+            "story_seed":  ("My father never ate pork, but he said it was because his "
+                            "stomach was sensitive."),
+            "uncertainty": "I cannot speak of that",
+            "correction":  "no, that was my mother's mother, not my father's",
+        },
+    },
+}
+
+# Voice ladders for each tier (Chris's --quick + --standard scope).
+VOICE_LADDER = {
+    "quick":    ["hearth"],
+    "standard": ["hearth", "field", "shield"],
+    # --full deferred to v2.
+    "full":     ["hearth", "field", "shield"],
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# VOICE RULES — what Lori MUST NOT do per voice
+#
+# Per VOICE_LIBRARY_v1.md "Lori's hardest job" + suppression markers.
+# Patterns are case-insensitive regex applied to the Lori reply text.
+#
+# expected_question_count_T3 overrides the generic ≤1 metric where
+# sacred_silence is structural — Shield narrators MUST get zero
+# question_count on T3 (the protective frame is the gift).
+# ═══════════════════════════════════════════════════════════════════
+
+VOICE_RULES = {
+    "hearth": {
+        # Standard discipline applies. No suppression overrides.
+        "must_not_match_t3":            [],
+        "must_not_match_any":           [],
+        "expected_question_count_t3":   None,  # use generic ≤1
+    },
+    "field": {
+        # Coded language — Lori must not ask narrator to translate
+        # the Code or the Sunday/Monday voice distinction.
+        "must_not_match_t3": [
+            r"\bwhat (was|is) the code\b",
+            r"\bwhat does (the )?(code|sunday voice|monday voice) mean\b",
+            r"\b(translate|explain) (your |the )?(code|sunday voice|monday voice)\b",
+            r"\bwhat is (the )?difference between (sunday|monday) voice\b",
+        ],
+        "must_not_match_any": [
+            # T4 protective response — Lori must not pivot back to
+            # the avoided topic.
+            r"\btell me (more )?about that part\b",
+        ],
+        "expected_question_count_t3": None,
+    },
+    "shield": {
+        # MAX SUPPRESSION. Lori must NOT name Jewish identity, ask
+        # about kosher, or probe the protective health frame.
+        "must_not_match_t3": [
+            r"\b(kosher|jewish|judaism|hebrew|sephardic|crypto.?jewish)\b",
+            r"\b(was|were)( your)? (father|family).{0,30}(jewish|kosher)\b",
+            r"\bdid (he|you|your family)( ever)? keep kosher\b",
+            r"\bwhat (was|kind of) (his |the )?stomach (problem|issue|condition)\b",
+            r"\bwas (it|that) (a )?religious\b",
+            r"\bdid your father observe\b",
+            r"\b(synagogue|temple|rabbi|torah|shabbat|sabbath)\b",
+        ],
+        "must_not_match_any": [
+            # T4 cultural protection — "I cannot speak of that" must
+            # be respected. Lori must not pivot back to the topic.
+            r"\b(can you tell me|please share|just a little|what cannot)\b.{0,40}(speak|tell)",
+            r"\bwhy (can you not|cannot you|can't you) speak\b",
+        ],
+        # SACRED SILENCE — zero questions on T3 is the correct shape.
+        # The generic "≤1 question" metric becomes "exactly 0".
+        "expected_question_count_t3": 0,
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# LIFE MAP — era list (canonical 7 eras, including Today)
+# ═══════════════════════════════════════════════════════════════════
+
+LIFE_MAP_ERAS_CANONICAL = [
+    ("Earliest Years",     "earliest_years",     "past"),
+    ("Early School Years", "early_school_years", "past"),
+    ("Adolescence",        "adolescence",        "past"),
+    ("Coming of Age",      "coming_of_age",      "past"),
+    ("Building Years",     "building_years",     "past"),
+    ("Later Years",        "later_years",        "past"),
+    ("Today",              "today",              "present"),
+]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RESULT DATACLASSES
+# ═══════════════════════════════════════════════════════════════════
+
+@dataclass
+class TurnResult:
+    voice_id:           str = ""
+    turn_id:            str = ""
+    prompt_type:        str = ""
+    narrator_input:     str = ""
+    lori_reply:         str = ""
+    elapsed_ms:         int = 0
+    metrics:            Dict[str, Any] = field(default_factory=dict)
+    voice_rule_violations: List[str] = field(default_factory=list)
+    severity:           str = "PASS"   # PASS / AMBER / RED
+    fail_reasons:       List[str] = field(default_factory=list)
+
+
+@dataclass
+class LifeMapResult:
+    era_label:          str = ""
+    era_id:             str = ""
+    expected_framing:   str = ""        # "past" or "present"
+    ui_active:          bool = False    # is-active class on button
+    session_current_era: str = ""       # state.session.currentEra
+    session_active_focus_era: str = ""  # state.session.activeFocusEra
+    era_click_log_seen: bool = False    # [life-map][era-click] log fired
+    lori_prompt_log_seen: bool = False  # [life-map][era-click] Lori prompt dispatched
+    lori_replied:       bool = False
+    lori_reply_text:    str = ""
+    era_appropriate:    bool = False    # reply mentions warm label OR present-tense for Today
+    metrics:            Dict[str, Any] = field(default_factory=dict)
+    severity:           str = "PASS"
+    fail_reasons:       List[str] = field(default_factory=list)
+
+
+@dataclass
+class SilenceResult:
+    pause_seconds:      int = 30
+    visual_cue_present: bool = False
+    visual_cue_text:    str = ""
+    visual_cue_classes: List[str] = field(default_factory=list)
+    spoken_cue_fired:   bool = False    # [SYSTEM: quiet for a while] in transcript
+    spoken_cue_text:    str = ""
+    transcript_ignored: bool = False    # data-transcript-ignore=true on cue mount
+    idle_block_log_seen: bool = False   # idle_fire_blocked reason=phase3_visual_cue_active
+    severity:           str = "PASS"
+    fail_reasons:       List[str] = field(default_factory=list)
+
+
+@dataclass
+class RuntimeHygieneCheck:
+    name:               str = ""
+    expected:           str = ""
+    actual:             str = ""
+    passed:             bool = False
+
+
+@dataclass
+class VoiceResult:
+    voice_id:           str = ""
+    voice_label:        str = ""
+    narrator_name:      str = ""
+    person_id:          str = ""
+    turns:              List[TurnResult] = field(default_factory=list)
+    severity:           str = "PASS"
+    fail_count:         int = 0
+    amber_count:        int = 0
+    pass_count:         int = 0
+
+
+@dataclass
+class RehearsalReport:
+    tag:                str = ""
+    mode:               str = ""
+    started_at:         str = ""
+    finished_at:        str = ""
+    base_url:           str = ""
+    api_base:           str = ""
+    commit_sha:         str = ""
+    dirty_tree:         bool = False
+    overall:            str = "PASS"   # PASS / AMBER / RED
+    turns_tested:       int = 0
+    voice_results:      List[VoiceResult] = field(default_factory=list)
+    lifemap_results:    List[LifeMapResult] = field(default_factory=list)
+    silence_result:     Optional[SilenceResult] = None
+    runtime_hygiene:    List[RuntimeHygieneCheck] = field(default_factory=list)
+    cross_divergence:   List[Dict[str, Any]] = field(default_factory=list)
+    fix_list:           List[str] = field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SCORING — score_lori_turn wrapper + voice-rule check + severity
+# ═══════════════════════════════════════════════════════════════════
+
+def _score_turn(
+    voice_id: str,
+    turn_id: str,
+    narrator_input: str,
+    lori_reply: str,
+    word_cap: int = 55,
+) -> Tuple[Dict[str, Any], List[str], str, List[str]]:
+    """Run score_lori_turn + voice-specific rules. Returns
+    (metrics_dict, voice_rule_violations, severity, fail_reasons)."""
+    metrics = score_lori_turn(
+        assistant_text=lori_reply,
+        user_text=narrator_input,
+        word_cap=word_cap,
+    )
+
+    violations: List[str] = []
+    rules = VOICE_RULES.get(voice_id, {})
+
+    # T3-specific must_not patterns (story_seed turn)
+    if turn_id == "T3":
+        for pat in rules.get("must_not_match_t3", []):
+            if re.search(pat, lori_reply or "", re.IGNORECASE):
+                violations.append(f"t3_match:{pat}")
+
+    # Universal must_not patterns (any turn)
+    for pat in rules.get("must_not_match_any", []):
+        if re.search(pat, lori_reply or "", re.IGNORECASE):
+            violations.append(f"any_match:{pat}")
+
+    # Override question_count expectation for sacred_silence (Shield T3)
+    expected_qc = rules.get("expected_question_count_t3") if turn_id == "T3" else None
+
+    # Severity grading per Chris's spec
+    fail_reasons: List[str] = []
+    severity = "PASS"
+
+    # RED conditions
+    if metrics.get("menu_offer_count", 0) > 0:
+        fail_reasons.append("RED: menu_offer present")
+        severity = "RED"
+    if metrics.get("nested_question_count", 0) > 0:
+        fail_reasons.append("RED: nested/compound question")
+        severity = "RED"
+    if violations:
+        fail_reasons.append(f"RED: voice rule violated ({len(violations)})")
+        severity = "RED"
+    # Direct-question mode (T5 memory_echo) — direct_answer_first must hold
+    if turn_id == "T5" and not metrics.get("pass_direct_answer", True):
+        fail_reasons.append("RED: did not direct-answer narrator's question")
+        severity = "RED"
+
+    # T3 question_count override (sacred_silence)
+    if expected_qc is not None:
+        actual_qc = metrics.get("question_count", 0)
+        if actual_qc != expected_qc:
+            fail_reasons.append(
+                f"RED: voice rule expects question_count={expected_qc}, got {actual_qc}"
+            )
+            severity = "RED"
+    else:
+        # Generic ≤1 question rule
+        if not metrics.get("pass_question_count", True):
+            fail_reasons.append("RED: more than 1 question")
+            severity = "RED"
+
+    # AMBER conditions (only set if not already RED)
+    if severity == "PASS":
+        if not metrics.get("pass_word_count", True):
+            fail_reasons.append("AMBER: word_count over cap")
+            severity = "AMBER"
+        # Reflection: only check on turns where narrator gave 5+ content words
+        # The score_lori_turn already handles trivial-response exemption.
+        if turn_id in ("T3", "T6") and not metrics.get("active_reflection_present", True):
+            fail_reasons.append("AMBER: reflection weak / generic")
+            severity = "AMBER"
+
+    return metrics, violations, severity, fail_reasons
+
+
+def _grade_lifemap(r: LifeMapResult) -> None:
+    """In-place severity grade for a LifeMapResult."""
+    if not r.lori_replied:
+        r.severity = "RED"
+        r.fail_reasons.append("RED: era click produced no Lori response")
+        return
+    if not r.era_click_log_seen:
+        r.severity = "RED"
+        r.fail_reasons.append("RED: [life-map][era-click] log not seen")
+        return
+    if not r.lori_prompt_log_seen:
+        r.severity = "AMBER"
+        r.fail_reasons.append("AMBER: Lori reply present but dispatcher log missing")
+    if r.session_current_era != r.era_id and r.session_active_focus_era != r.era_id:
+        r.severity = "RED"
+        r.fail_reasons.append(
+            f"RED: state.session.currentEra={r.session_current_era!r} / "
+            f"activeFocusEra={r.session_active_focus_era!r} did not match clicked era_id={r.era_id!r}"
+        )
+        return
+    if not r.era_appropriate:
+        r.severity = "AMBER"
+        r.fail_reasons.append("AMBER: Lori reply not era-appropriate (warm label or present-tense missing)")
+    metrics = r.metrics or {}
+    if metrics.get("menu_offer_count", 0) > 0:
+        r.severity = "RED"
+        r.fail_reasons.append("RED: era click produced menu offer")
+    if metrics.get("nested_question_count", 0) > 0:
+        r.severity = "RED"
+        r.fail_reasons.append("RED: era click produced compound question")
+
+
+def _grade_silence(r: SilenceResult) -> None:
+    """In-place severity grade for the silence test."""
+    if r.spoken_cue_fired:
+        r.severity = "RED"
+        r.fail_reasons.append(
+            f"RED: spoken silence cue fired despite LV_ATTENTION_CUE_TICKER=true: {r.spoken_cue_text[:120]!r}"
+        )
+        return
+    if not r.idle_block_log_seen:
+        r.severity = "AMBER"
+        r.fail_reasons.append(
+            "AMBER: [lv80-turn-debug] idle_fire_blocked reason=phase3_visual_cue_active not seen "
+            "(idle timer may not have fired during the test window)"
+        )
+    if not r.visual_cue_present:
+        r.severity = "AMBER"
+        r.fail_reasons.append("AMBER: visual presence cue not visible during pause")
+    if r.visual_cue_present and not r.transcript_ignored:
+        r.severity = "RED"
+        r.fail_reasons.append("RED: visual cue mount missing data-transcript-ignore=true marker")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DRIVER HELPERS — page.evaluate snippets the readiness harness lacks
+# ═══════════════════════════════════════════════════════════════════
+
+def enable_attention_cue_ticker(page: Page) -> bool:
+    """Set window.LV_ATTENTION_CUE_TICKER=true and start the ticker.
+    Returns True if the ticker is running after the call."""
+    try:
+        result = page.evaluate("""
+            () => {
+              window.LV_ATTENTION_CUE_TICKER = true;
+              if (window.AttentionCueTicker && typeof window.AttentionCueTicker.start === "function") {
+                try { window.AttentionCueTicker.start(); } catch (_) {}
+                return !!window.AttentionCueTicker.isRunning && window.AttentionCueTicker.isRunning();
+              }
+              return false;
+            }
+        """)
+        return bool(result)
+    except Exception as e:
+        print(f"[rehearsal] enable_attention_cue_ticker failed: {e}", file=sys.stderr)
+        return False
+
+
+def get_runtime71_dump(page: Page) -> Dict[str, Any]:
+    """Call buildRuntime71() and return the resulting payload."""
+    try:
+        result = page.evaluate("""
+            () => {
+              if (typeof window.buildRuntime71 !== "function") return null;
+              try { return window.buildRuntime71(); } catch (e) { return { __error: String(e) }; }
+            }
+        """)
+        return result if isinstance(result, dict) else {}
+    except Exception as e:
+        return {"__error": str(e)}
+
+
+def get_state_session(page: Page) -> Dict[str, Any]:
+    """Return state.session object (currentEra, activeFocusEra, etc.)"""
+    try:
+        result = page.evaluate("""
+            () => {
+              const s = (window.state && window.state.session) || {};
+              return {
+                currentEra:          s.currentEra ?? null,
+                activeFocusEra:      s.activeFocusEra ?? null,
+                attention_state:     s.attention_state ?? null,
+                lastAttentionCue:    s.lastAttentionCue ?? null,
+                visualSignals:       s.visualSignals ?? null,
+              };
+            }
+        """)
+        return result if isinstance(result, dict) else {}
+    except Exception as e:
+        return {"__error": str(e)}
+
+
+def check_visual_presence_cue(page: Page) -> Dict[str, Any]:
+    """Inspect the #lvPresenceCue DOM element. Returns {present, text,
+    classes, transcript_ignore, opacity, aria_hidden}."""
+    try:
+        result = page.evaluate("""
+            () => {
+              const el = document.getElementById('lvPresenceCue');
+              if (!el) return { present: false };
+              const styles = window.getComputedStyle(el);
+              return {
+                present:           true,
+                text:              (el.textContent || "").trim(),
+                classes:           Array.from(el.classList),
+                transcript_ignore: el.dataset.transcriptIgnore === "true",
+                purpose:           el.dataset.purpose || "",
+                opacity:           parseFloat(styles.opacity || "0"),
+                aria_hidden:       el.getAttribute("aria-hidden") === "true",
+              };
+            }
+        """)
+        return result if isinstance(result, dict) else {"present": False}
+    except Exception as e:
+        return {"__error": str(e), "present": False}
+
+
+def force_idle_check(page: Page) -> bool:
+    """Call lv80FireCheckIn() directly to exercise the silence-cue
+    suppression gate without waiting 2 minutes for the natural timer.
+    Returns True if the call succeeded."""
+    try:
+        result = page.evaluate("""
+            () => {
+              if (typeof window.lv80FireCheckIn !== "function") return false;
+              try { window.lv80FireCheckIn(); return true; } catch (e) { return false; }
+            }
+        """)
+        return bool(result)
+    except Exception:
+        return False
+
+
+def click_era_button_data_attr(page: Page, era_id: str) -> bool:
+    """Click an era button by data-era-id attribute (more robust than
+    label-based clicks for the Life Map era cycle test)."""
+    try:
+        sel = f'[data-era-id="{era_id}"]'
+        loc = page.locator(sel).first
+        if loc.count() == 0:
+            return False
+        loc.click(timeout=3000)
+        page.wait_for_timeout(250)
+        return True
+    except Exception:
+        return False
+
+
+def get_git_sha(repo_root: Path) -> Tuple[str, bool]:
+    """Return (sha[:8], is_dirty). Falls back to ("unknown", True) on
+    any error since we can't tell."""
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "--short=8", "HEAD"],
+            stderr=subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+        # dirty?
+        dirty_out = subprocess.check_output(
+            ["git", "-C", str(repo_root), "status", "--porcelain"],
+            stderr=subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+        return sha, bool(dirty_out)
+    except Exception:
+        return "unknown", True
+
+
+# ═══════════════════════════════════════════════════════════════════
+# REHEARSAL RUNNER
+# ═══════════════════════════════════════════════════════════════════
+
+class RehearsalRun:
+    """Orchestrates the rehearsal across voices. Pre-Phase-3 sanity:
+    enables LV_ATTENTION_CUE_TICKER once at boot so silence-cue gate
+    fires for all subsequent voices."""
+
+    def __init__(self,
+                 ui: UI,
+                 console: ConsoleCollector,
+                 dblock: DbLockCounter,
+                 page: Page,
+                 mode: str,
+                 word_cap: int):
+        self.ui = ui
+        self.console = console
+        self.dblock = dblock
+        self.page = page
+        self.mode = mode
+        self.word_cap = word_cap
+        self.report: Optional[RehearsalReport] = None
+        self.last_lori_reply_by_voice: Dict[str, Dict[str, str]] = {}
+
+    # ── per-voice run ───────────────────────────────────────────
+
+    def run_voice(self, voice_id: str) -> VoiceResult:
+        voice = VOICES[voice_id]
+        vr = VoiceResult(
+            voice_id=voice_id,
+            voice_label=voice["label"],
+        )
+        prompts = voice["prompts"]
+
+        # Add a disposable test narrator with the correct session style.
+        try:
+            vr.narrator_name = self.ui.add_test_narrator(voice["test_style"])
+        except Exception as e:
+            print(f"[rehearsal] add_test_narrator({voice_id}) failed: {e}", file=sys.stderr)
+            vr.severity = "RED"
+            vr.fail_count = 1
+            return vr
+
+        try:
+            self.ui.session_start()
+            self.page.wait_for_timeout(1500)
+        except Exception as e:
+            print(f"[rehearsal] session_start({voice_id}) warning: {e}", file=sys.stderr)
+
+        # Per-voice last-reply cache (used by cross-narrator divergence)
+        self.last_lori_reply_by_voice[voice_id] = {}
+
+        # Run T1..T6 (T7 silence + T8 lifemap are run separately at end).
+        for turn_id, prompt_type, _template, _intent in REHEARSAL_PACK_TEMPLATE:
+            if turn_id in ("T7", "T8"):
+                continue  # handled outside the per-voice loop
+
+            narrator_input = prompts.get(prompt_type, "")
+            if turn_id == "T5":
+                narrator_input = "what do you know about me"
+
+            t = TurnResult(
+                voice_id=voice_id,
+                turn_id=turn_id,
+                prompt_type=prompt_type,
+                narrator_input=narrator_input,
+            )
+
+            t0 = time.time()
+            try:
+                since_ts = self.ui.send_chat(narrator_input)
+                reply = self.ui.wait_for_lori_turn(since_ts, timeout_ms=45_000)
+                t.lori_reply = reply or ""
+            except Exception as e:
+                t.lori_reply = ""
+                t.fail_reasons.append(f"RED: send/wait threw: {e}")
+                t.severity = "RED"
+            t.elapsed_ms = int((time.time() - t0) * 1000)
+
+            # Score
+            if t.lori_reply:
+                metrics, violations, severity, reasons = _score_turn(
+                    voice_id, turn_id, narrator_input, t.lori_reply,
+                    word_cap=self.word_cap,
+                )
+                t.metrics = metrics
+                t.voice_rule_violations = violations
+                # If our scorer says PASS but the wait above already
+                # marked RED (exception), keep the RED.
+                if t.severity != "RED":
+                    t.severity = severity
+                    t.fail_reasons = reasons
+            else:
+                t.severity = "RED"
+                if not t.fail_reasons:
+                    t.fail_reasons.append("RED: no Lori reply within 45s")
+
+            vr.turns.append(t)
+            self.last_lori_reply_by_voice[voice_id][turn_id] = t.lori_reply
+
+        # Tally per-voice severity
+        for t in vr.turns:
+            if t.severity == "RED":
+                vr.fail_count += 1
+            elif t.severity == "AMBER":
+                vr.amber_count += 1
+            else:
+                vr.pass_count += 1
+        if vr.fail_count > 0:
+            vr.severity = "RED"
+        elif vr.amber_count > 0:
+            vr.severity = "AMBER"
+        else:
+            vr.severity = "PASS"
+
+        # Wrap session before next voice
+        try:
+            self.ui.wrap_session()
+        except Exception:
+            pass
+        self.page.wait_for_timeout(500)
+
+        return vr
+
+    # ── Life Map era cycle (run once on Hearth narrator) ────────
+
+    def run_life_map_cycle(
+        self,
+        voice_id: str = "hearth",
+        eras_subset: Optional[List[str]] = None,
+    ) -> List[LifeMapResult]:
+        """Click each era in eras_subset (or all 7 if None), capture
+        Lori's reply, verify state + log markers + reply era-
+        appropriateness. Run once on the Hearth (Janice baseline)
+        narrator since the Life Map UI itself is voice-agnostic.
+
+        eras_subset: list of era LABELS to click. If None, all 7.
+        """
+        results: List[LifeMapResult] = []
+
+        # Add fresh Hearth narrator for this test (separate from the
+        # narrator that just ran the 8-turn pack — keeps state isolated).
+        try:
+            narrator = self.ui.add_test_narrator(VOICES[voice_id]["test_style"])
+            self.ui.session_start()
+            self.page.wait_for_timeout(1500)
+        except Exception as e:
+            print(f"[rehearsal] life-map narrator setup failed: {e}", file=sys.stderr)
+            return results
+
+        # Also need to enter interview mode so the Life Map renders.
+        try:
+            self.page.evaluate("typeof lvEnterInterviewMode === 'function' && lvEnterInterviewMode();")
+            self.page.wait_for_timeout(500)
+        except Exception:
+            pass
+
+        for label, era_id, framing in LIFE_MAP_ERAS_CANONICAL:
+            if eras_subset is not None and label not in eras_subset:
+                continue
+            r = LifeMapResult(
+                era_label=label,
+                era_id=era_id,
+                expected_framing=framing,
+            )
+
+            # Snapshot console + click count before
+            before_click_count = len(self.console.matches(r"\[life-map\]\[era-click\] era="))
+            before_prompt_count = len(self.console.matches(r"\[life-map\]\[era-click\] Lori prompt dispatched"))
+            since_ts = self.console.now()
+
+            # Click + confirm popover
+            ok = self.ui.click_life_map_era(label)
+            if not ok:
+                # Try data-era-id fallback
+                ok = click_era_button_data_attr(self.page, era_id)
+                if ok:
+                    self.ui.confirm_era_popover()
+
+            self.page.wait_for_timeout(500)
+
+            # Check console markers
+            after_click_count = len(self.console.matches(r"\[life-map\]\[era-click\] era="))
+            after_prompt_count = len(self.console.matches(r"\[life-map\]\[era-click\] Lori prompt dispatched"))
+            r.era_click_log_seen   = (after_click_count > before_click_count)
+            r.lori_prompt_log_seen = (after_prompt_count > before_prompt_count)
+
+            # State session check
+            sess = get_state_session(self.page)
+            r.session_current_era      = sess.get("currentEra") or ""
+            r.session_active_focus_era = sess.get("activeFocusEra") or ""
+            r.ui_active = (r.session_active_focus_era == era_id) or (r.session_current_era == era_id)
+
+            # Wait for Lori reply (sendSystemPrompt fires from era-click)
+            reply = self.ui.wait_for_lori_turn(since_ts, timeout_ms=45_000)
+            r.lori_reply_text = reply or ""
+            r.lori_replied = bool(reply)
+
+            # Score the reply
+            if reply:
+                metrics, violations, severity, reasons = _score_turn(
+                    voice_id, "T8", f"[life-map click: {label}]", reply,
+                    word_cap=self.word_cap,
+                )
+                r.metrics = metrics
+
+                # Era-appropriateness check
+                lower = reply.lower()
+                warm_label_present = (label.lower() in lower) or (era_id.replace("_", " ") in lower)
+                if framing == "present":
+                    # Today should use present-tense framing
+                    present_words = re.search(
+                        r"\b(today|now|right now|these days|in your life now|present)\b",
+                        lower,
+                    )
+                    r.era_appropriate = bool(present_words)
+                else:
+                    # Historical eras should use past/life-story framing
+                    past_words = re.search(
+                        r"\b(was|were|had|did|when you|back then|that time|that part of your life)\b",
+                        lower,
+                    )
+                    r.era_appropriate = bool(past_words or warm_label_present)
+
+            _grade_lifemap(r)
+            results.append(r)
+
+        try:
+            self.ui.wrap_session()
+        except Exception:
+            pass
+
+        return results
+
+    # ── Silence / visual cue test ───────────────────────────────
+
+    def run_silence_test(self, voice_id: str = "hearth", pause_seconds: int = 30) -> SilenceResult:
+        """Add a Hearth narrator, send one chat turn so Lori finishes
+        speaking + ttsFinishedAt is set, then trigger the idle gate
+        (force_idle_check) and inspect:
+          - visual presence cue mounted + opacity > 0
+          - [lv80-turn-debug] idle_fire_blocked reason=phase3_visual_cue_active
+            log fired
+          - NO [SYSTEM: quiet for a while] sendSystemPrompt fired
+          - data-transcript-ignore on cue mount
+        """
+        r = SilenceResult(pause_seconds=pause_seconds)
+
+        try:
+            self.ui.add_test_narrator(VOICES[voice_id]["test_style"])
+            self.ui.session_start()
+            self.page.wait_for_timeout(1500)
+        except Exception as e:
+            r.severity = "RED"
+            r.fail_reasons.append(f"RED: silence test narrator setup failed: {e}")
+            return r
+
+        # Send one chat turn so Lori finishes speaking
+        try:
+            since = self.ui.send_chat("hello")
+            self.ui.wait_for_lori_turn(since, timeout_ms=45_000)
+        except Exception:
+            pass
+
+        # Force the idle check immediately (don't wait 2 min)
+        before_idle_block = len(self.console.matches(
+            r"idle_fire_blocked.*phase3_visual_cue_active"
+        ))
+        before_quiet_inject = len(self.console.matches(
+            r"narrator has been quiet"
+        ))
+
+        force_idle_check(self.page)
+        self.page.wait_for_timeout(1000)
+
+        # Visual cue may need an event to mount the DOM. The ticker
+        # auto-fires every 1s once enabled — wait a few ticks.
+        self.page.wait_for_timeout(3000)
+
+        # DOM check
+        cue = check_visual_presence_cue(self.page)
+        r.visual_cue_present = bool(cue.get("present") and cue.get("opacity", 0) > 0.0)
+        r.visual_cue_text    = cue.get("text", "")
+        r.visual_cue_classes = cue.get("classes", [])
+        r.transcript_ignored = bool(cue.get("transcript_ignore"))
+
+        after_idle_block = len(self.console.matches(
+            r"idle_fire_blocked.*phase3_visual_cue_active"
+        ))
+        after_quiet_inject = len(self.console.matches(
+            r"narrator has been quiet"
+        ))
+        r.idle_block_log_seen = (after_idle_block > before_idle_block)
+        r.spoken_cue_fired    = (after_quiet_inject > before_quiet_inject)
+        if r.spoken_cue_fired:
+            r.spoken_cue_text = "OLD WO-10B/WO-10C [SYSTEM: quiet for a while] injector fired despite Phase 3 gate"
+
+        _grade_silence(r)
+
+        try:
+            self.ui.wrap_session()
+        except Exception:
+            pass
+        return r
+
+    # ── Runtime hygiene checks ──────────────────────────────────
+
+    def run_runtime_hygiene(self) -> List[RuntimeHygieneCheck]:
+        """Snapshot runtime71 + assert:
+          - kawa_mode field absent (Lane C)
+          - current_era field present (key matters even if value is null)
+        """
+        checks: List[RuntimeHygieneCheck] = []
+        rt = get_runtime71_dump(self.page)
+        if rt.get("__error"):
+            checks.append(RuntimeHygieneCheck(
+                name="runtime71 dump readable",
+                expected="dict",
+                actual=f"error: {rt.get('__error')}",
+                passed=False,
+            ))
+            return checks
+
+        # Lane C — kawa_mode must not appear in payload
+        checks.append(RuntimeHygieneCheck(
+            name="kawa_mode absent from runtime71",
+            expected="absent",
+            actual=("present" if "kawa_mode" in rt else "absent"),
+            passed=("kawa_mode" not in rt),
+        ))
+        # Lane E — current_era key must be present
+        checks.append(RuntimeHygieneCheck(
+            name="current_era key present in runtime71",
+            expected="present",
+            actual=("present" if "current_era" in rt else "absent"),
+            passed=("current_era" in rt),
+        ))
+        return checks
+
+    # ── Cross-narrator divergence builder ───────────────────────
+
+    def build_cross_narrator_divergence(self) -> List[Dict[str, Any]]:
+        """Compare same-turn replies across voices. Per Chris's spec —
+        the report row that shows whether Lori adapted register."""
+        rows: List[Dict[str, Any]] = []
+        if not self.report or len(self.report.voice_results) < 2:
+            return rows
+
+        # Build a turn_id → {voice_id → TurnResult} index
+        idx: Dict[str, Dict[str, TurnResult]] = {}
+        for vr in self.report.voice_results:
+            for t in vr.turns:
+                idx.setdefault(t.turn_id, {})[t.voice_id] = t
+
+        for turn_id in ("T3", "T4"):  # the two cultural-payload turns
+            row: Dict[str, Any] = {"turn_id": turn_id, "voices": {}}
+            for vr in self.report.voice_results:
+                t = idx.get(turn_id, {}).get(vr.voice_id)
+                if not t:
+                    continue
+                row["voices"][vr.voice_id] = {
+                    "narrator_input":  t.narrator_input,
+                    "lori_reply":      t.lori_reply,
+                    "question_count":  t.metrics.get("question_count"),
+                    "menu_offer_count": t.metrics.get("menu_offer_count"),
+                    "word_count":      t.metrics.get("word_count"),
+                    "voice_rule_violations": t.voice_rule_violations,
+                    "severity":        t.severity,
+                    "expected_question_count_t3":
+                        VOICE_RULES.get(vr.voice_id, {}).get("expected_question_count_t3"),
+                }
+            # Cross-check note
+            cross_check = []
+            shield = row["voices"].get("shield")
+            if shield and turn_id == "T3":
+                qc = shield.get("question_count")
+                if qc == 0:
+                    cross_check.append("✓ Shield T3 zero-question (sacred_silence honored)")
+                else:
+                    cross_check.append(f"✗ Shield T3 q_count={qc} (sacred_silence VIOLATED)")
+                if shield.get("voice_rule_violations"):
+                    cross_check.append(
+                        f"✗ Shield T3 must-not-match violations: {shield['voice_rule_violations']}"
+                    )
+                else:
+                    cross_check.append("✓ Shield T3 no kosher/Jewish/sacred vocabulary")
+            row["cross_check"] = cross_check
+            rows.append(row)
+        return rows
+
+
+# ═══════════════════════════════════════════════════════════════════
+# REPORT BUILDERS — JSON + Markdown + Failure CSV
+# ═══════════════════════════════════════════════════════════════════
+
+def build_json_report(report: RehearsalReport) -> str:
+    return json.dumps(asdict(report), indent=2, default=str)
+
+
+def build_markdown_report(report: RehearsalReport) -> str:
+    lines: List[str] = []
+    L = lines.append
+
+    L(f"# Parent Session Rehearsal Report")
+    L("")
+    L("Run:")
+    L(f"- tag: `{report.tag}`")
+    L(f"- date/time: {report.started_at} → {report.finished_at}")
+    L(f"- stack: API={report.api_base}  UI={report.base_url}")
+    L(f"- mode: `{report.mode}`")
+    L(f"- commit SHA: `{report.commit_sha}`")
+    L(f"- dirty tree: {'yes' if report.dirty_tree else 'no'}")
+    L("")
+
+    # ── Topline ──
+    voice_failures = sum(1 for vr in report.voice_results for t in vr.turns if t.severity == "RED")
+    voice_amber    = sum(1 for vr in report.voice_results for t in vr.turns if t.severity == "AMBER")
+    lifemap_failures = sum(1 for r in report.lifemap_results if r.severity == "RED")
+    lifemap_amber    = sum(1 for r in report.lifemap_results if r.severity == "AMBER")
+    sil = report.silence_result
+    silence_red = 1 if (sil and sil.severity == "RED") else 0
+    silence_amber = 1 if (sil and sil.severity == "AMBER") else 0
+    hygiene_red = sum(1 for h in report.runtime_hygiene if not h.passed)
+    voice_rule_failures = sum(
+        1 for vr in report.voice_results for t in vr.turns if t.voice_rule_violations
+    )
+
+    L("## Topline")
+    L("")
+    L(f"- **Overall: {report.overall}**")
+    L(f"- Turns tested: {report.turns_tested}")
+    L(f"- Lori response failures: {voice_failures} RED / {voice_amber} AMBER")
+    L(f"- Voice-rule failures: {voice_rule_failures}")
+    L(f"- Life Map failures: {lifemap_failures} RED / {lifemap_amber} AMBER")
+    L(f"- Silence-cue failures: {silence_red} RED / {silence_amber} AMBER")
+    L(f"- Runtime hygiene failures: {hygiene_red}")
+    L("")
+
+    # ── Critical Failures ──
+    L("## Critical Failures (RED)")
+    L("")
+    crit_rows: List[Tuple[str, str, str, str, str, str]] = []
+    for vr in report.voice_results:
+        for t in vr.turns:
+            if t.severity == "RED":
+                expected = "; ".join(t.fail_reasons) or "discipline pass_overall=false"
+                crit_rows.append((
+                    f"voice/{t.turn_id}", vr.voice_id, t.turn_id,
+                    "; ".join(t.fail_reasons),
+                    (t.lori_reply or "").replace("\n", " ").strip()[:140],
+                    expected,
+                ))
+    for r in report.lifemap_results:
+        if r.severity == "RED":
+            crit_rows.append((
+                "lifemap", "—", r.era_label,
+                "; ".join(r.fail_reasons),
+                (r.lori_reply_text or "").replace("\n", " ").strip()[:140],
+                "Lori must respond, era_id matches, no menu/compound",
+            ))
+    if sil and sil.severity == "RED":
+        crit_rows.append((
+            "silence", "—", "T7",
+            "; ".join(sil.fail_reasons),
+            (sil.spoken_cue_text or "").strip()[:140],
+            "no spoken cue when LV_ATTENTION_CUE_TICKER=true",
+        ))
+
+    if crit_rows:
+        L("| Test | Voice | Turn | Failure | Lori said | Expected |")
+        L("|---|---|---|---|---|---|")
+        for row in crit_rows:
+            L("| " + " | ".join(c.replace("|", "\\|") for c in row) + " |")
+    else:
+        L("_No RED failures._")
+    L("")
+
+    # ── Per-Turn Results ──
+    L("## Per-Turn Results")
+    L("")
+    L("| Voice | Turn | Type | Narrator input | Lori reply | Q | Nest | Menu | Words | Refl | Voice rule | Pass |")
+    L("|---|---|---|---|---|---:|---:|---:|---:|---|---|---|")
+    for vr in report.voice_results:
+        for t in vr.turns:
+            m = t.metrics or {}
+            voice_rule_summary = (
+                "✗ " + ", ".join(t.voice_rule_violations[:2])
+                if t.voice_rule_violations
+                else "✓"
+            )
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                vr.voice_id, t.turn_id, t.prompt_type,
+                (t.narrator_input or "")[:60],
+                (t.lori_reply or "")[:80],
+                m.get("question_count", "—"),
+                m.get("nested_question_count", "—"),
+                m.get("menu_offer_count", "—"),
+                m.get("word_count", "—"),
+                "✓" if m.get("active_reflection_present") else "✗",
+                voice_rule_summary,
+                t.severity,
+            ]) + " |")
+    L("")
+
+    # ── Life Map Results ──
+    L("## Life Map Results")
+    L("")
+    L("| Era clicked | UI active | session.currentEra | Lori replied | Era appropriate | Q | Menu | Pass |")
+    L("|---|---|---|---|---|---:|---:|---|")
+    for r in report.lifemap_results:
+        m = r.metrics or {}
+        L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+            f"{r.era_label} ({r.era_id})",
+            "✓" if r.ui_active else "✗",
+            r.session_current_era or "(empty)",
+            "✓" if r.lori_replied else "✗",
+            "✓" if r.era_appropriate else "✗",
+            m.get("question_count", "—"),
+            m.get("menu_offer_count", "—"),
+            r.severity,
+        ]) + " |")
+    L("")
+
+    # ── Silence / Presence Cue Results ──
+    L("## Silence / Presence Cue Results")
+    L("")
+    if sil:
+        L("| Pause | Visual cue present | Cue text | Spoken cue fired | Transcript-ignore | idle_fire_blocked log | Pass |")
+        L("|---:|---|---|---|---|---|---|")
+        L("| " + " | ".join(str(x).replace("|", "\\|") for x in [
+            f"{sil.pause_seconds}s",
+            "✓" if sil.visual_cue_present else "✗",
+            (sil.visual_cue_text or "")[:60],
+            "✗ FIRED" if sil.spoken_cue_fired else "✓ suppressed",
+            "✓" if sil.transcript_ignored else "✗",
+            "✓" if sil.idle_block_log_seen else "✗",
+            sil.severity,
+        ]) + " |")
+    else:
+        L("_(silence test not run)_")
+    L("")
+
+    # ── Cross-Narrator Divergence ──
+    L("## Cross-Narrator Divergence")
+    L("")
+    if not report.cross_divergence:
+        L("_(only one voice ran — no divergence comparison)_")
+    else:
+        for row in report.cross_divergence:
+            L(f"### Turn {row['turn_id']}")
+            L("")
+            L("| Voice | Q count | Menu | Words | Voice rule | Severity | Lori reply (excerpt) |")
+            L("|---|---:|---:|---:|---|---|---|")
+            for vid, v in row["voices"].items():
+                voice_rule = (
+                    "✗ " + ", ".join(v["voice_rule_violations"][:2])
+                    if v["voice_rule_violations"]
+                    else "✓"
+                )
+                expected_qc = v.get("expected_question_count_t3")
+                qc_str = (
+                    f"{v['question_count']} (expected {expected_qc})"
+                    if (expected_qc is not None and row['turn_id'] == "T3")
+                    else str(v.get("question_count", "—"))
+                )
+                L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                    vid,
+                    qc_str,
+                    v.get("menu_offer_count", "—"),
+                    v.get("word_count", "—"),
+                    voice_rule,
+                    v.get("severity", "—"),
+                    (v.get("lori_reply", "") or "")[:80],
+                ]) + " |")
+            L("")
+            for note in row.get("cross_check", []):
+                L(f"- {note}")
+            L("")
+
+    # ── Runtime Hygiene ──
+    L("## Runtime Hygiene")
+    L("")
+    L("| Check | Expected | Actual | Pass |")
+    L("|---|---|---|---|")
+    for h in report.runtime_hygiene:
+        L("| " + " | ".join(str(x).replace("|", "\\|") for x in [
+            h.name, h.expected, h.actual, "✓" if h.passed else "✗",
+        ]) + " |")
+    L("")
+
+    # ── Recommended Fix List ──
+    L("## Recommended Fix List")
+    L("")
+    if report.fix_list:
+        for i, fix in enumerate(report.fix_list, 1):
+            L(f"{i}. {fix}")
+    else:
+        L("_No fixes recommended — all checks passed or only AMBER findings._")
+    L("")
+
+    return "\n".join(lines)
+
+
+def build_failure_csv(report: RehearsalReport) -> str:
+    """Sortable failure rows. severity, voice, turn, fail_reason,
+    lori_excerpt, narrator_input."""
+    rows: List[List[str]] = [
+        ["severity", "kind", "voice", "turn", "fail_reason", "narrator_input", "lori_reply_excerpt"],
+    ]
+    for vr in report.voice_results:
+        for t in vr.turns:
+            if t.severity != "PASS":
+                rows.append([
+                    t.severity,
+                    "voice_turn",
+                    vr.voice_id,
+                    t.turn_id,
+                    "; ".join(t.fail_reasons),
+                    (t.narrator_input or "").replace("\n", " ")[:120],
+                    (t.lori_reply or "").replace("\n", " ")[:200],
+                ])
+    for r in report.lifemap_results:
+        if r.severity != "PASS":
+            rows.append([
+                r.severity,
+                "lifemap",
+                "—",
+                r.era_label,
+                "; ".join(r.fail_reasons),
+                f"[click {r.era_label}]",
+                (r.lori_reply_text or "").replace("\n", " ")[:200],
+            ])
+    sil = report.silence_result
+    if sil and sil.severity != "PASS":
+        rows.append([
+            sil.severity,
+            "silence",
+            "—",
+            "T7",
+            "; ".join(sil.fail_reasons),
+            "[silence pause]",
+            sil.spoken_cue_text[:200],
+        ])
+    for h in report.runtime_hygiene:
+        if not h.passed:
+            rows.append([
+                "RED",
+                "hygiene",
+                "—",
+                h.name,
+                f"expected={h.expected} actual={h.actual}",
+                "",
+                "",
+            ])
+
+    out = []
+    w = csv.writer(_StringIOWriter(out))
+    for row in rows:
+        w.writerow(row)
+    return "".join(out)
+
+
+class _StringIOWriter:
+    """Minimal file-like wrapper so csv.writer can emit into a list."""
+    def __init__(self, out: List[str]) -> None:
+        self.out = out
+    def write(self, s: str) -> int:
+        self.out.append(s)
+        return len(s)
+
+
+def build_fix_list(report: RehearsalReport) -> List[str]:
+    """Synthesize the recommended-fix list from RED findings."""
+    fixes: List[str] = []
+    seen: set = set()
+    for vr in report.voice_results:
+        for t in vr.turns:
+            if t.severity == "RED" and t.voice_rule_violations:
+                key = f"{vr.voice_id}_voice_rule"
+                if key not in seen:
+                    seen.add(key)
+                    fixes.append(
+                        f"Audit Lori discipline for {vr.voice_id} voice — "
+                        f"{len(t.voice_rule_violations)} voice-rule violation(s) on T{t.turn_id[-1]}: "
+                        f"{', '.join(t.voice_rule_violations[:3])}"
+                    )
+            if t.severity == "RED" and "menu_offer" in " ".join(t.fail_reasons).lower():
+                if "menu_offer" not in seen:
+                    seen.add("menu_offer")
+                    fixes.append(
+                        "Layer 2 discipline filter trim missed a menu offer — "
+                        "audit composer call site for the affected turn intent"
+                    )
+    sil = report.silence_result
+    if sil and sil.spoken_cue_fired:
+        fixes.append(
+            "RED — old [SYSTEM: quiet for a while] injector fired despite Phase 3 gate. "
+            "Re-verify lv80FireCheckIn() guard (hornelore1.0.html) and ensure ticker "
+            "actually started before the silence test ran."
+        )
+    for r in report.lifemap_results:
+        if r.severity == "RED" and not r.lori_replied:
+            fixes.append(
+                f"BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 regression — era {r.era_id} clicked "
+                f"but Lori produced no reply. Check _lvInterviewSelectEra sendSystemPrompt path."
+            )
+            break
+    for h in report.runtime_hygiene:
+        if not h.passed and "kawa" in h.name:
+            fixes.append("Kawa scrub regression — kawa_mode reappeared in runtime71. Re-check Lane C.")
+        if not h.passed and "current_era" in h.name:
+            fixes.append("current_era key missing from runtime71 — extract.py current_era plumbing broken.")
+    return fixes
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--tag", required=True, help="run identifier (e.g. rehearsal_v1)")
+    parser.add_argument("--mode", choices=["quick", "standard", "full"], default="standard")
+    parser.add_argument("--base-url", default="http://localhost:8082/ui/hornelore1.0.html")
+    parser.add_argument("--api", dest="api_base", default="http://localhost:8000")
+    parser.add_argument("--word-cap", type=int, default=55,
+                        help="word_count cap for clear_direct (default 55)")
+    parser.add_argument("--output-dir", default="docs/reports")
+    parser.add_argument("--headless", action="store_true",
+                        help="run Playwright headless (default: headed)")
+    parser.add_argument("--slow-mo-ms", type=int, default=100)
+    args = parser.parse_args()
+
+    repo_root = _REPO_ROOT
+    out_dir = repo_root / args.output_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path     = out_dir / f"parent_rehearsal_{args.tag}.json"
+    md_path       = out_dir / f"parent_rehearsal_{args.tag}.md"
+    csv_path      = out_dir / f"parent_rehearsal_{args.tag}_failures.csv"
+    screenshots_dir = out_dir / f"parent_rehearsal_{args.tag}_screenshots"
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir = out_dir / f"parent_rehearsal_{args.tag}_downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    sha, dirty = get_git_sha(repo_root)
+    report = RehearsalReport(
+        tag=args.tag,
+        mode=args.mode,
+        started_at=dt.datetime.now().isoformat(),
+        base_url=args.base_url,
+        api_base=args.api_base,
+        commit_sha=sha,
+        dirty_tree=dirty,
+    )
+
+    voice_ids = VOICE_LADDER.get(args.mode, ["hearth"])
+    print(f"[rehearsal] tag={args.tag} mode={args.mode} voices={voice_ids}")
+    print(f"[rehearsal] commit={sha} dirty={dirty}")
+    print(f"[rehearsal] reports → {out_dir}/")
+
+    with sync_playwright() as pw:
+        browser: Browser = pw.chromium.launch(
+            headless=args.headless, slow_mo=args.slow_mo_ms,
+        )
+        context: BrowserContext = browser.new_context(accept_downloads=True)
+        page: Page = context.new_page()
+        console = ConsoleCollector(page)
+        ui = UI(page, console, screenshots_dir, downloads_dir)
+        dblock = DbLockCounter(repo_root)
+
+        # ── Boot ──
+        try:
+            ui.boot(args.base_url)
+            ui.ensure_operator_tab()
+            ui.ensure_life_story_posture()
+            ui.ready_for_session()
+        except Exception as e:
+            print(f"FATAL: boot failed: {e}", file=sys.stderr)
+            report.overall = "RED"
+            report.finished_at = dt.datetime.now().isoformat()
+            json_path.write_text(build_json_report(report))
+            md_path.write_text(build_markdown_report(report))
+            csv_path.write_text(build_failure_csv(report))
+            browser.close()
+            return 2
+
+        # ── Enable Phase 3 ticker for the whole rehearsal ──
+        ticker_on = enable_attention_cue_ticker(page)
+        print(f"[rehearsal] LV_ATTENTION_CUE_TICKER={ticker_on}")
+        if not ticker_on:
+            report.fix_list.append(
+                "WARN: LV_ATTENTION_CUE_TICKER could not be enabled — silence test "
+                "results may not reflect Phase 3 gate behavior."
+            )
+
+        # ── Build runner ──
+        runner = RehearsalRun(
+            ui=ui, console=console, dblock=dblock, page=page,
+            mode=args.mode, word_cap=args.word_cap,
+        )
+        runner.report = report
+
+        # ── Per-voice rehearsal ──
+        for vid in voice_ids:
+            print(f"[rehearsal] === voice: {vid} ===")
+            vr = runner.run_voice(vid)
+            report.voice_results.append(vr)
+
+        # ── Life Map cycle ──
+        if args.mode == "quick":
+            print(f"[rehearsal] === Life Map (quick — one era only) ===")
+            report.lifemap_results = runner.run_life_map_cycle(
+                "hearth", eras_subset=["Coming of Age"],
+            )
+        else:
+            print(f"[rehearsal] === Life Map era cycle (all 7) ===")
+            report.lifemap_results = runner.run_life_map_cycle("hearth")
+
+        # ── Silence test ──
+        print(f"[rehearsal] === Silence / presence cue ===")
+        report.silence_result = runner.run_silence_test("hearth", pause_seconds=30)
+
+        # ── Runtime hygiene ──
+        print(f"[rehearsal] === Runtime hygiene (kawa scrub + current_era) ===")
+        report.runtime_hygiene = runner.run_runtime_hygiene()
+
+        # ── Cross-narrator divergence ──
+        if len(voice_ids) > 1:
+            report.cross_divergence = runner.build_cross_narrator_divergence()
+
+        # ── Tally ──
+        report.turns_tested = sum(len(vr.turns) for vr in report.voice_results)
+
+        # Overall severity rollup
+        any_red = (
+            any(vr.severity == "RED" for vr in report.voice_results) or
+            any(r.severity == "RED" for r in report.lifemap_results) or
+            (report.silence_result and report.silence_result.severity == "RED") or
+            any(not h.passed for h in report.runtime_hygiene)
+        )
+        any_amber = (
+            any(vr.severity == "AMBER" for vr in report.voice_results) or
+            any(r.severity == "AMBER" for r in report.lifemap_results) or
+            (report.silence_result and report.silence_result.severity == "AMBER")
+        )
+        if any_red:
+            report.overall = "RED"
+        elif any_amber:
+            report.overall = "AMBER"
+        else:
+            report.overall = "PASS"
+
+        report.fix_list.extend(build_fix_list(report))
+        report.finished_at = dt.datetime.now().isoformat()
+
+        json_path.write_text(build_json_report(report))
+        md_path.write_text(build_markdown_report(report))
+        csv_path.write_text(build_failure_csv(report))
+
+        try:
+            browser.close()
+        except Exception:
+            pass
+
+    print()
+    print(f"[rehearsal] done — overall={report.overall}")
+    print(f"  json: {json_path}")
+    print(f"  md:   {md_path}")
+    print(f"  csv:  {csv_path}")
+    print()
+    print(md_path.read_text())
+
+    return 0 if report.overall in ("PASS", "AMBER") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
