@@ -7555,32 +7555,32 @@
       "questionBankAnchor": "Tell me about your spouse.",
       "questionType": "anchor",
       "extractPriority": [
-        "spouse.firstName"
+        "family.spouse.firstName"
       ],
       "templateSource": "christopher-todd-horne.json",
       "loriPrompt": "Tell me about your spouse.",
       "narratorReply": "My husband Kent was born in Stanley.",
       "expectedFields": {
-        "spouse.firstName": "Kent"
+        "family.spouse.firstName": "Kent"
       },
       "forbiddenFields": [
-        "spouse.lastName"
+        "family.spouse.lastName"
       ],
       "expectedBehavior": "extract_single",
       "currentExtractorExpected": true,
       "caseType": "contract",
       "oralHistoryStyle": "topical",
       "truthZones": {
-        "spouse.firstName": {
+        "family.spouse.firstName": {
           "zone": "must_extract",
           "expected": "Kent"
         },
-        "spouse.lastName": {
+        "family.spouse.lastName": {
           "zone": "must_not_write",
-          "note": "BUG-EX-PLACE-LASTNAME-01: 'in Stanley' must not bind to spouse.lastName either — guard generalizes across all .lastName paths"
+          "note": "BUG-EX-PLACE-LASTNAME-01: 'in Stanley' must not bind to family.spouse.lastName either — guard generalizes across all .lastName paths"
         }
       },
-      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture for the spouse path. Validates that the guard generalizes across all guarded suffixes (.lastName / .maidenName / .middleName) regardless of section.",
+      "scoringNotes": "BUG-EX-PLACE-LASTNAME-01 fixture for the spouse path. Validates that the guard generalizes across all guarded suffixes (.lastName / .maidenName / .middleName) regardless of section. Path normalized 2026-05-02 from bare spouse.* → family.spouse.* to match the canonical schema (rest of case bank uses 64x family.spouse.* / 0x bare spouse.*).",
       "style_bucket": "topical_history",
       "chunk_size": "tiny",
       "noise_profile": "clean",
