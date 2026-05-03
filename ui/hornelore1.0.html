@@ -4698,6 +4698,27 @@
 <script src="js/lori-kawa.js"></script>
 <script src="js/app.js"></script>
 <script src="js/cognitive-auto.js"></script>
+<!-- WO-LORI-SESSION-AWARENESS-01 Phase 3 — read-only attention surface.
+     Per Chris's restructure (2026-05-03): Phase 3 is classify + plumb +
+     visual-only cue. Lori speaks ZERO additional words in this phase.
+     Decision to flip cue tiers 1-4 to spoken stays gated behind Phase 5
+     test-matrix evidence.
+
+     Load order matters:
+       1. dispatcher (pure decision logic)
+       2. classifier (sensor-input → label)
+       3. ticker (snapshots state, calls dispatcher, dispatches event)
+       4. presence-cue (renders narrator-visible visual cue ONLY on
+          intent === 'visual_only'; rejects any other intent value)
+
+     Ticker auto-starts only when window.LV_ATTENTION_CUE_TICKER === true
+     (default-OFF). When OFF, the surface still initializes so reads
+     are safe and the classifier can be exercised by the operator
+     harness without firing cues. -->
+<script src="js/attention-cue-dispatcher.js?v=2026-05-03b"></script>
+<script src="js/attention-state-classifier.js?v=2026-05-03b"></script>
+<script src="js/attention-cue-ticker.js?v=2026-05-03b"></script>
+<script src="js/presence-cue.js?v=2026-05-03b"></script>
 <script src="vendor/mind-elixir/mind-elixir.js"></script>
 <script src="js/life-map.js"></script>
 <script src="js/bio-builder-core.js"></script>
