@@ -1984,6 +1984,145 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   lori-since-timer — operator countdown sitting beside the clock.
+
+   Shows "Lori finished N seconds ago" + the tier label. Color ramps
+   match the dispatcher tier ladder:
+     <25s    gray   (narrator's space — hard floor)
+     25–60s  light  (Tier 0 silent presence)
+     60–120s blue   (Tier 1 affirmation)
+     120–300 amber  (Tier 2 soft offer)
+     300–600 orange (Tier 3 re-entry zone)
+     600+    red    (Tier 4 break offer zone)
+
+   Position: lower-left of #lvNarratorConversation, sits to the
+   RIGHT of the lori-clock so they read as one operator strip.
+   data-purpose="operator_observability" tags it so transcript
+   filters skip it (consistent with presence-cue convention).
+   ═══════════════════════════════════════════════════════════════ */
+.lv-since-timer {
+  position: absolute;
+  bottom: 16px;
+  left: 248px;                        /* clock variant B is ~220px wide @ 16px left */
+  width: 220px;
+  padding: 8px 14px 6px;
+  background: #1e293b;                /* slate, matches clock variant B */
+  color: #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  font-family: 'Inter', system-ui, sans-serif;
+  user-select: none;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.lv-since-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  margin-bottom: 2px;
+}
+
+.lv-since-elapsed {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.lv-since-tier {
+  font-size: 11px;
+  color: #cbd5e1;
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* Tier color ramps — applied to the OUTER element so the
+   background tints subtly. Foreground text always stays
+   readable (light slate / white). */
+.lv-since-timer.lv-since-speaking {
+  background: #334155;
+  color: #cbd5e1;
+}
+.lv-since-timer.lv-since-speaking .lv-since-elapsed {
+  font-style: italic;
+  color: #cbd5e1;
+}
+
+.lv-since-timer.lv-since-mic-active {
+  background: #064e3b;            /* deep teal — narrator has the floor */
+  color: #d1fae5;
+}
+.lv-since-timer.lv-since-mic-active .lv-since-elapsed {
+  font-style: italic;
+  color: #d1fae5;
+}
+.lv-since-timer.lv-since-mic-active .lv-since-tier {
+  color: #a7f3d0;
+}
+
+.lv-since-timer.lv-since-floor {
+  background: #1e293b;                /* gray-slate — narrator's space */
+}
+.lv-since-timer.lv-since-floor .lv-since-elapsed {
+  color: #94a3b8;
+}
+
+.lv-since-timer.lv-since-t0 {
+  background: #1e3a5f;                /* light blue — 25-45s faint cue range */
+}
+.lv-since-timer.lv-since-t0 .lv-since-elapsed {
+  color: #cbe3ff;
+}
+
+.lv-since-timer.lv-since-t0-strong {
+  background: #1e40af;                /* deeper blue — 45-60s stronger cue */
+}
+.lv-since-timer.lv-since-t0-strong .lv-since-elapsed {
+  color: #dbeafe;
+}
+
+.lv-since-timer.lv-since-t1 {
+  background: #1d4ed8;                /* blue — Tier 1 affirmation */
+}
+.lv-since-timer.lv-since-t1 .lv-since-elapsed {
+  color: #ffffff;
+}
+
+.lv-since-timer.lv-since-t2 {
+  background: #b45309;                /* amber — Tier 2 soft offer */
+}
+.lv-since-timer.lv-since-t2 .lv-since-elapsed {
+  color: #fef3c7;
+}
+
+.lv-since-timer.lv-since-t3 {
+  background: #c2410c;                /* orange — Tier 3 re-entry */
+}
+.lv-since-timer.lv-since-t3 .lv-since-elapsed {
+  color: #ffedd5;
+}
+
+.lv-since-timer.lv-since-t4 {
+  background: #b91c1c;                /* red — Tier 4 break offer */
+}
+.lv-since-timer.lv-since-t4 .lv-since-elapsed {
+  color: #fee2e2;
+}
+
+@media (max-width: 980px) {
+  .lv-since-timer {
+    width: 190px;
+    left: 232px;
+    padding: 6px 12px 4px;
+  }
+  .lv-since-elapsed { font-size: 18px; }
+  .lv-since-eyebrow { font-size: 9px; }
+  .lv-since-tier    { font-size: 10px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    WO-LORI-SESSION-AWARENESS-01 Phase 3E — Quiet Presence Cue
 
    Visual-only cue: "Take your time. I'm listening."
