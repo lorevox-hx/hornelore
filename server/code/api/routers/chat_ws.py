@@ -564,6 +564,75 @@ async def ws_chat(ws: WebSocket):
                 )
                 params["turn_mode"] = "interview"
 
+            # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 2: LLM second-layer ──
+            # Run the LLM-side classifier in parallel with the pattern
+            # detector. Composition rule (locked, see WO spec):
+            #   - Pattern detector wins on positive detection (always)
+            #   - LLM classifier fills gaps — only used when pattern
+            #     returned None (no trigger)
+            #   - On LLM parse failure or LLM error, fall back to pattern
+            #     result (fail-OPEN)
+            #
+            # Default-OFF behind HORNELORE_SAFETY_LLM_LAYER=0. Adds ~1-2s
+            # latency per turn when enabled; needs Phase 6 red-team
+            # validation before live narrator use.
+            #
+            # When the LLM detects distressed/ideation/acute on a turn
+            # the pattern missed, we synthesize a SafetyResult and let
+            # the existing segment_flag + softened-mode + UI overlay
+            # pipeline below handle it identically to a pattern hit.
+            # The LLM-source attribution is preserved in the log marker
+            # [chat_ws][safety][llm_layer] so operators can distinguish.
+            if (
+                not _safety_scan_failed
+                and not (_safety_result and _safety_result.triggered)
+                and user_text and user_text.strip()
+                and not _is_system_directive
+            ):
+                try:
+                    from ..safety_classifier import (
+                        classify_safety_llm as _classify_llm,
+                        should_route_to_safety as _should_route,
+                    )
+                    _llm_class = _classify_llm(user_text)
+                    # Reflective gets logged for operator awareness but
+                    # is NOT routed (per WO spec — past-tense is normal
+                    # processing, not acute).
+                    if _llm_class.parse_ok and _llm_class.category == "reflective":
+                        logger.info(
+                            "[chat_ws][safety][llm_layer] reflective conv=%s confidence=%.2f (logged, not routed)",
+                            conv_id, _llm_class.confidence,
+                        )
+                    elif _should_route(False, _llm_class):
+                        logger.warning(
+                            "[chat_ws][safety][llm_layer] triggered conv=%s category=%s confidence=%.2f reason=%s",
+                            conv_id, _llm_class.category,
+                            _llm_class.confidence, _llm_class.reason,
+                        )
+                        # Synthesize a SafetyResult so the existing
+                        # segment_flag / softened / overlay pipeline
+                        # below handles it. Map LLM category to the
+                        # closest existing pattern-side category.
+                        _llm_cat_map = {
+                            "acute": "suicidal_ideation",
+                            "ideation": "suicidal_ideation_indirect",
+                            "distressed": "cognitive_distress",
+                        }
+                        _safety_result = SafetyResult(
+                            triggered=True,
+                            category=_llm_cat_map.get(
+                                _llm_class.category, "cognitive_distress"
+                            ),
+                            confidence=_llm_class.confidence,
+                        )
+                except Exception as _llm_layer_exc:
+                    # Pure observability — LLM-layer failure must not
+                    # break the turn. Pattern result (or None) stands.
+                    logger.warning(
+                        "[chat_ws][safety][llm_layer] failed (conv=%s): %s",
+                        conv_id, _llm_layer_exc,
+                    )
+
             if _safety_result and _safety_result.triggered:
                 logger.warning(
                     "[chat_ws][safety] triggered conv=%s category=%s confidence=%.2f",
