@@ -424,6 +424,22 @@ RESOURCE_CARDS = [
         "type": "phone",
         "description": "24/7 support for memory concerns, dementia, and caregivers",
     },
+    # WO-LORI-SAFETY-INTEGRATION-01 Phase 6 (2026-05-03):
+    # Friendship Line at the Institute on Aging — 24/7 warmline + crisis
+    # line specifically for adults 60 and over. Free, staffed by trained
+    # volunteers. NOT a substitute for 988 in acute situations; it
+    # complements 988 for the population this product serves (older
+    # narrators who may want presence + continuity, not just crisis
+    # routing). Surfaced in the Phase 4 INDIRECT IDEATION + DISTRESSED
+    # response template's gentle-mention step (3) alongside 988.
+    {
+        "name": "Friendship Line",
+        "contact": "1-800-971-0016",
+        "type": "phone",
+        "description": "Institute on Aging warmline + crisis line for adults 60+, 24/7, no crisis required",
+        "population": "60+",
+        "operator": "Institute on Aging",
+    },
 ]
 
 
@@ -432,13 +448,29 @@ def get_resources_for_category(category: Optional[str]) -> list[dict]:
     Return relevant resource cards for a crisis category.
     Suicidal ideation always includes 988.
     Abuse categories include category-relevant + 988.
+
+    WO-LORI-SAFETY-INTEGRATION-01 Phase 6 (2026-05-03): Friendship Line
+    (RESOURCE_CARDS[5]) is added to the indirect-ideation /
+    cognitive-distress / distress-call paths. For these tiers the
+    population-fit warmline option meaningfully complements 988 — older
+    narrators may prefer talking with a trained volunteer who doesn't
+    require a crisis to listen. ACUTE suicidal_ideation stays
+    988-first to preserve immediacy; Friendship Line is NOT surfaced
+    in that path because it's a warmline, not a crisis line.
     """
     if not category:
         return RESOURCE_CARDS
 
     relevant = []
     if category == "suicidal_ideation":
+        # ACUTE: 988-first, no Friendship Line (warmline is wrong shape
+        # for explicit current-self-harm language)
         relevant = [RESOURCE_CARDS[0]]                     # 988 only
+    elif category == "suicidal_ideation_indirect":
+        # Phase 2 LLM-detected indirect ideation tier — warm-first
+        # response per Phase 4 template uses 988 + Friendship Line
+        # together. Operator-side resource list mirrors that ordering.
+        relevant = [RESOURCE_CARDS[5], RESOURCE_CARDS[0]]  # Friendship Line + 988
     elif category in ("sexual_abuse", "child_abuse"):
         relevant = [RESOURCE_CARDS[1], RESOURCE_CARDS[0]]  # RAINN + 988
     elif category in ("domestic_abuse",):
@@ -448,9 +480,14 @@ def get_resources_for_category(category: Optional[str]) -> list[dict]:
     elif category == "physical_abuse":
         relevant = [RESOURCE_CARDS[2], RESOURCE_CARDS[0]]  # DV + 988
     elif category == "distress_call":
-        relevant = [RESOURCE_CARDS[0]]                     # 988
+        # Distressed but no ideation language — warm presence first,
+        # 988 as backstop.
+        relevant = [RESOURCE_CARDS[5], RESOURCE_CARDS[0]]  # Friendship Line + 988
     elif category == "cognitive_distress":
-        relevant = [RESOURCE_CARDS[4], RESOURCE_CARDS[3], RESOURCE_CARDS[0]]  # Alzheimer's + Eldercare + 988
+        # Phase 6: prepend Friendship Line; the population-fit warmline
+        # is most aligned with cognitive-distress framing for older
+        # narrators.
+        relevant = [RESOURCE_CARDS[5], RESOURCE_CARDS[4], RESOURCE_CARDS[3], RESOURCE_CARDS[0]]  # Friendship Line + Alzheimer's + Eldercare + 988
     else:
         relevant = RESOURCE_CARDS
 
