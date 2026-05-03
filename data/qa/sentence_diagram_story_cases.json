@@ -664,6 +664,22 @@
       ],
       "lori_expectation": ["scared", "stories", "remembered", "you"],
       "watch": "Narrator-stated affect ('scared') + responsibility weight ('only one left'). Lori must reflect the feeling + the responsibility WITHOUT therapizing or diminishing. Test whether assistant_text lands ANY of the lori_expectation grounding terms."
+    },
+    {
+      "id": "sd_043_pig_named_sam_disability_loss",
+      "group": "pets_emotional",
+      "title": "Childhood pet pig — disability narrative + euphemistic loss",
+      "user_text": "I had a pet pig named Sam. He hurt his back and could not use his back legs. One day he was just gone.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.name",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Sam"]},
+        {"fieldPath": "pets.species", "anyOf": ["pig"]},
+        {"fieldPath": "pets.notes", "anyOf": ["hurt his back", "could not use his back legs", "back legs", "one day he was just gone", "just gone"]}
+      ],
+      "lori_expectation": ["Sam", "back", "pig"],
+      "watch": "Live-narrator-grounded (Janice's actual childhood pet pig). Three emotional pressures: (1) pig as a pet species the canon under-represents, (2) disability arc mid-life, (3) euphemistic disappearance ('one day he was just gone' — almost certainly a death the family did not name to a child). Lori must NOT push 'what happened to him?' or 'did he die?' (the euphemism is doing the protective work the narrator received as a child). Best Lori: warm reflection naming Sam OR the back injury, no question — or one very soft 'do you remember how old you were?' Extractor must capture the species + name + disability detail without inventing a death event."
     }
   ]
 }
