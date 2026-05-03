@@ -1,0 +1,997 @@
+{
+  "tag": "r5h-followup-guard-after-utterance-frame-v1",
+  "runs": 3,
+  "stubborn_cases": [
+    "case_075",
+    "case_080",
+    "case_081",
+    "case_082",
+    "case_083",
+    "case_084",
+    "case_085",
+    "case_086",
+    "case_087",
+    "case_008",
+    "case_009",
+    "case_017",
+    "case_018",
+    "case_053",
+    "case_088"
+  ],
+  "per_run_reports": [
+    "stubborn_pack_r5h-followup-guard-after-utterance-frame-v1_run1.json",
+    "stubborn_pack_r5h-followup-guard-after-utterance-frame-v1_run2.json",
+    "stubborn_pack_r5h-followup-guard-after-utterance-frame-v1_run3.json"
+  ],
+  "stability": {
+    "n_runs": 3,
+    "per_case": {
+      "case_075": {
+        "case_id": "case_075",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "llm_hallucination"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "parents.education",
+              "parents.firstName",
+              "parents.notableLifeEvents",
+              "parents.occupation",
+              "parents.preferredName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "parents.education",
+              "parents.firstName",
+              "parents.notableLifeEvents",
+              "parents.occupation",
+              "parents.preferredName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "llm_hallucination",
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "parents.education",
+              "parents.firstName",
+              "parents.notableLifeEvents",
+              "parents.occupation",
+              "parents.preferredName"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_080": {
+        "case_id": "case_080",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.6,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "grandparents.birthPlace",
+              "grandparents.firstName",
+              "grandparents.lastName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.6,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "grandparents.birthPlace",
+              "grandparents.firstName",
+              "grandparents.lastName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.6,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "grandparents.birthPlace",
+              "grandparents.firstName",
+              "grandparents.lastName"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_081": {
+        "case_id": "case_081",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "defensible_alt_credit"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "greatGrandparents.ancestry",
+              "greatGrandparents.birthDate",
+              "greatGrandparents.birthPlace",
+              "greatGrandparents.firstName",
+              "greatGrandparents.lastName",
+              "greatGrandparents.militaryBranch",
+              "greatGrandparents.militaryEvent"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "greatGrandparents.ancestry",
+              "greatGrandparents.birthDate",
+              "greatGrandparents.birthPlace",
+              "greatGrandparents.firstName",
+              "greatGrandparents.lastName",
+              "greatGrandparents.militaryBranch",
+              "greatGrandparents.militaryEvent"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "greatGrandparents.ancestry",
+              "greatGrandparents.birthDate",
+              "greatGrandparents.birthPlace",
+              "greatGrandparents.firstName",
+              "greatGrandparents.lastName",
+              "greatGrandparents.militaryBranch",
+              "greatGrandparents.militaryEvent"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_082": {
+        "case_id": "case_082",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": true,
+        "unique_primary_failures": [
+          "defensible_alt_credit",
+          "noise_leakage"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 11,
+            "field_paths": [
+              "education.schooling",
+              "parents.firstName",
+              "parents.occupation",
+              "personal.placeOfBirth",
+              "residence.period",
+              "siblings.firstName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "noise_leakage",
+            "method": "llm",
+            "extracted_count": 11,
+            "field_paths": [
+              "education.schooling",
+              "parents.firstName",
+              "parents.occupation",
+              "personal.placeOfBirth",
+              "residence.period",
+              "siblings.firstName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "noise_leakage",
+            "method": "llm",
+            "extracted_count": 11,
+            "field_paths": [
+              "education.schooling",
+              "parents.firstName",
+              "parents.occupation",
+              "personal.placeOfBirth",
+              "residence.period",
+              "siblings.firstName"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_083": {
+        "case_id": "case_083",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "grandparents.firstName",
+              "grandparents.lastName",
+              "grandparents.memorableStory"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "grandparents.firstName",
+              "grandparents.lastName",
+              "grandparents.memorableStory"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "grandparents.firstName",
+              "grandparents.lastName",
+              "grandparents.memorableStory"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_084": {
+        "case_id": "case_084",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "family.children.dateOfBirth",
+              "family.children.firstName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "family.children.dateOfBirth",
+              "family.children.firstName"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "family.children.dateOfBirth",
+              "family.children.firstName"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_085": {
+        "case_id": "case_085",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.8,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "parents.birthPlace",
+              "parents.firstName",
+              "parents.lastName",
+              "parents.notes",
+              "parents.occupation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.8,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "parents.birthPlace",
+              "parents.firstName",
+              "parents.lastName",
+              "parents.notes",
+              "parents.occupation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.8,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 7,
+            "field_paths": [
+              "parents.birthPlace",
+              "parents.firstName",
+              "parents.lastName",
+              "parents.notes",
+              "parents.occupation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_086": {
+        "case_id": "case_086",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 10,
+            "field_paths": [
+              "education.earlyCareer",
+              "family.children.firstName",
+              "family.children.placeOfBirth",
+              "family.children.relation",
+              "residence.place"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 10,
+            "field_paths": [
+              "education.earlyCareer",
+              "family.children.firstName",
+              "family.children.placeOfBirth",
+              "family.children.relation",
+              "residence.place"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 10,
+            "field_paths": [
+              "education.earlyCareer",
+              "family.children.firstName",
+              "family.children.placeOfBirth",
+              "family.children.relation",
+              "residence.place"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_087": {
+        "case_id": "case_087",
+        "bucket": "stable_fail",
+        "pass_count": 0,
+        "fail_count": 3,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "defensible_alt_credit"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 6,
+            "field_paths": [
+              "greatGrandparents.ancestry",
+              "greatGrandparents.birthDate",
+              "greatGrandparents.birthPlace",
+              "greatGrandparents.firstName",
+              "greatGrandparents.lastName",
+              "greatGrandparents.memorableStories"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 6,
+            "field_paths": [
+              "greatGrandparents.ancestry",
+              "greatGrandparents.birthDate",
+              "greatGrandparents.birthPlace",
+              "greatGrandparents.firstName",
+              "greatGrandparents.lastName",
+              "greatGrandparents.memorableStories"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": false,
+            "score": 0.5,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 6,
+            "field_paths": [
+              "greatGrandparents.ancestry",
+              "greatGrandparents.birthDate",
+              "greatGrandparents.birthPlace",
+              "greatGrandparents.firstName",
+              "greatGrandparents.lastName",
+              "greatGrandparents.memorableStories"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_008": {
+        "case_id": "case_008",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "defensible_alt_credit"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 1,
+            "field_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 1,
+            "field_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 1,
+            "field_paths": [
+              "earlyMemories.significantEvent"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_009": {
+        "case_id": "case_009",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": false,
+        "field_paths_change_count": 1,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "defensible_alt_credit"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "education.careerProgression",
+              "education.training"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 2,
+            "field_paths": [
+              "education.careerProgression",
+              "education.training"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "education.careerProgression"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_017": {
+        "case_id": "case_017",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": null,
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_018": {
+        "case_id": "case_018",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "defensible_alt_credit"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "family.children.firstName",
+              "family.children.placeOfBirth",
+              "family.children.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "family.children.firstName",
+              "family.children.placeOfBirth",
+              "family.children.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 1.0,
+            "primary_failure": "defensible_alt_credit",
+            "method": "llm",
+            "extracted_count": 3,
+            "field_paths": [
+              "family.children.firstName",
+              "family.children.placeOfBirth",
+              "family.children.relation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_053": {
+        "case_id": "case_053",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": true,
+        "field_paths_change_count": 0,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "schema_gap"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.75,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 10,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.75,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 10,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.75,
+            "primary_failure": "schema_gap",
+            "method": "llm",
+            "extracted_count": 10,
+            "field_paths": [
+              "parents.firstName",
+              "parents.occupation",
+              "siblings.firstName",
+              "siblings.relation"
+            ],
+            "truncated": true
+          }
+        ]
+      },
+      "case_088": {
+        "case_id": "case_088",
+        "bucket": "stable_pass",
+        "pass_count": 3,
+        "fail_count": 0,
+        "total_runs": 3,
+        "field_paths_identical": false,
+        "field_paths_change_count": 1,
+        "fail_category_changed": false,
+        "unique_primary_failures": [
+          "noise_leakage"
+        ],
+        "score_improved_across_runs": false,
+        "truncated_any": true,
+        "truncated_all": true,
+        "runs": [
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.7,
+            "primary_failure": "noise_leakage",
+            "method": "llm",
+            "extracted_count": 5,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species",
+              "residence.place",
+              "residence.region"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.7,
+            "primary_failure": "noise_leakage",
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species",
+              "residence.place"
+            ],
+            "truncated": true
+          },
+          {
+            "missing": false,
+            "pass": true,
+            "score": 0.7,
+            "primary_failure": "noise_leakage",
+            "method": "llm",
+            "extracted_count": 4,
+            "field_paths": [
+              "pets.name",
+              "pets.notes",
+              "pets.species",
+              "residence.place"
+            ],
+            "truncated": true
+          }
+        ]
+      }
+    },
+    "buckets": {
+      "stable_pass": [
+        "case_075",
+        "case_081",
+        "case_082",
+        "case_085",
+        "case_086",
+        "case_008",
+        "case_009",
+        "case_017",
+        "case_018",
+        "case_053",
+        "case_088"
+      ],
+      "stable_fail": [
+        "case_080",
+        "case_083",
+        "case_084",
+        "case_087"
+      ],
+      "unstable": [],
+      "missing": []
+    },
+    "counts": {
+      "stable_pass": 11,
+      "stable_fail": 4,
+      "unstable": 0,
+      "missing": 0,
+      "truncated_any": 15,
+      "fail_category_changed": 1,
+      "score_improved_across_runs": 0,
+      "field_shape_changed_across_runs": 2
+    }
+  }
+}

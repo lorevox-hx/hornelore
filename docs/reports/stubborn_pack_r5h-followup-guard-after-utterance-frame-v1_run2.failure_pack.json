@@ -1,0 +1,126 @@
+{
+  "_wo": "WO-EX-FAILURE-PACK-01",
+  "eval_tag": null,
+  "generated_from": {
+    "_wo": "WO-QB-MASTER-EVAL-01",
+    "_generated": "2026-05-02T19:53:32",
+    "mode": "live"
+  },
+  "total_cases": 15,
+  "passed": 11,
+  "failed": 4,
+  "failure_categories": {
+    "schema_gap": {
+      "count": 1,
+      "cases": [
+        "case_080"
+      ]
+    },
+    "defensible_alt_credit": {
+      "count": 1,
+      "cases": [
+        "case_087"
+      ]
+    }
+  },
+  "by_narrator": {
+    "kent-james-horne": {
+      "failed": 2,
+      "cases": [
+        "case_080",
+        "case_083"
+      ]
+    },
+    "christopher-todd-horne": {
+      "failed": 2,
+      "cases": [
+        "case_084",
+        "case_087"
+      ]
+    }
+  },
+  "by_phase": {
+    "developmental_foundations": {
+      "failed": 3,
+      "cases": [
+        "case_080",
+        "case_083",
+        "case_087"
+      ]
+    },
+    "midlife": {
+      "failed": 1,
+      "cases": [
+        "case_084"
+      ]
+    }
+  },
+  "by_era": {
+    "school_years": {
+      "failed": 3,
+      "cases": [
+        "case_080",
+        "case_083",
+        "case_087"
+      ]
+    },
+    "midlife": {
+      "failed": 1,
+      "cases": [
+        "case_084"
+      ]
+    }
+  },
+  "by_score_bucket": {
+    "0.00": {
+      "count": 0,
+      "cases": []
+    },
+    "0.01-0.24": {
+      "count": 0,
+      "cases": []
+    },
+    "0.25-0.49": {
+      "count": 0,
+      "cases": []
+    },
+    "0.50-0.69": {
+      "count": 4,
+      "cases": [
+        "case_080",
+        "case_083",
+        "case_084",
+        "case_087"
+      ]
+    },
+    "0.70+": {
+      "count": 0,
+      "cases": []
+    }
+  },
+  "hallucination_prefix_rollup": {
+    "siblings": {
+      "offenders": 3,
+      "case_count": 1,
+      "cases": [
+        "case_053"
+      ]
+    }
+  },
+  "must_not_write": {
+    "count": 0,
+    "cases": []
+  },
+  "cross_axis_highlights": [
+    {
+      "axis": "narrator×phase",
+      "row": "kent-james-horne×developmental_foundations",
+      "failed": 2
+    },
+    {
+      "axis": "category×narrator",
+      "row": "schema_gap×kent-james-horne",
+      "failed": 1
+    }
+  ]
+}
