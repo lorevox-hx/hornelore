@@ -646,6 +646,134 @@ class RehearsalRun:
         self.word_cap = word_cap
         self.report: Optional[RehearsalReport] = None
         self.last_lori_reply_by_voice: Dict[str, Dict[str, str]] = {}
+        # Lane G.1 fix #1 — wait_for_lori_turn dedup. The underlying
+        # readiness-harness wait scans console.entries from the head and
+        # returns the first lori_reply event with ts > since_ts. If
+        # console events are pushed out of order or a prior reply event
+        # arrives shortly after the new send_chat ts, the same reply can
+        # be captured twice. Track the highest-consumed event ts and
+        # require strictly-greater on subsequent calls.
+        self._last_consumed_reply_ts: float = 0.0
+        # Track the last returned reply_text too so we can fail loudly
+        # in the rare case the same exact text is returned twice — that
+        # is the report-level signature of the bug T3/T4 hit.
+        self._last_returned_reply_text: str = ""
+
+    # ── Lane G.1 fix #4 — boot wait-for-ready ───────────────────
+
+    def wait_for_warm_stack(self, timeout_s: int = 90) -> bool:
+        """Poll the page for app readiness BEFORE sending T1 of any
+        voice. T1 timed out in rehearsal_quick_v1 because the harness
+        sent the first turn before LLM warmup completed (cold-boot
+        race). Returns True when ready, False on timeout.
+
+        Readiness signals (any one is sufficient):
+          - window._llmReady === true   (app.js readiness gate)
+          - [readiness] Model warm and ready  console line
+        """
+        # Already-warm shortcut.
+        try:
+            ready = self.page.evaluate("window._llmReady === true")
+            if ready:
+                return True
+        except Exception:
+            pass
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                ready = self.page.evaluate("window._llmReady === true")
+                if ready:
+                    print(f"[rehearsal] stack warm — _llmReady=true")
+                    return True
+            except Exception:
+                pass
+            # Console fallback
+            warm_logs = self.console.matches(r"\[readiness\] Model warm and ready")
+            if warm_logs:
+                print(f"[rehearsal] stack warm — readiness log seen")
+                return True
+            self.page.wait_for_timeout(2000)
+        print(f"[rehearsal] WARN — stack did not warm within {timeout_s}s; proceeding anyway")
+        return False
+
+    # ── Lane G.1 fix #1 — dedup wrapper around wait_for_lori_turn ─
+
+    def _wait_for_fresh_lori_turn(self, since_ts: float, timeout_ms: int = 45_000) -> str:
+        """wait_for_lori_turn wrapper that:
+          (a) ensures the captured reply event ts > _last_consumed_reply_ts
+              (advances strictly forward through events)
+          (b) detects literal-duplicate reply_text against the previous
+              capture and re-polls a few extra seconds — handles the
+              edge case where a slow-to-land reply gets re-captured.
+        """
+        deadline = time.time() + (timeout_ms / 1000.0)
+        # Effective floor — must be strictly greater than the last
+        # event we returned, even if since_ts is older.
+        effective_since = max(since_ts, self._last_consumed_reply_ts + 0.001)
+
+        # First pass — normal wait.
+        remaining_ms = max(500, int((deadline - time.time()) * 1000))
+        reply = self.ui.wait_for_lori_turn(effective_since, timeout_ms=remaining_ms)
+
+        # Dedup check on text.
+        if reply and reply == self._last_returned_reply_text and time.time() < deadline:
+            # Re-poll for a fresh reply — bump effective_since to "now"
+            # so we wait for any NEW event after this point.
+            print(f"[rehearsal] WARN — duplicate reply_text detected, re-polling for fresh reply")
+            new_since = time.time()
+            remaining_ms = max(500, int((deadline - time.time()) * 1000))
+            fresh = self.ui.wait_for_lori_turn(new_since, timeout_ms=remaining_ms)
+            if fresh and fresh != self._last_returned_reply_text:
+                reply = fresh
+
+        if reply:
+            # Update consumed-ts to the latest matching event ts so the
+            # next call advances past it.
+            try:
+                # Scan back for the matching event ts.
+                latest_ts = 0.0
+                for e in self.console.entries:
+                    args_json = e.get("args_json") or ""
+                    if "lori_reply" not in args_json:
+                        continue
+                    if e.get("ts", 0) > latest_ts:
+                        latest_ts = e["ts"]
+                if latest_ts > self._last_consumed_reply_ts:
+                    self._last_consumed_reply_ts = latest_ts
+            except Exception:
+                pass
+            self._last_returned_reply_text = reply
+        return reply
+
+    # ── Lane G.1 fix #3 — tolerant session_start ───────────────
+
+    def _safe_session_start(self) -> bool:
+        """Wraps ui.session_start() and tolerates the case where a
+        narrator is already loaded + active (post-wrap-up state, where
+        the Start Narrator Session / Enter Interview Mode buttons may
+        not be visible because the session is effectively still open).
+
+        Returns True if session_start succeeded OR the session is
+        already in a usable state. Returns False only if both paths
+        fail.
+        """
+        try:
+            self.ui.session_start()
+            return True
+        except Exception as e:
+            # Check whether a narrator is already active.
+            try:
+                already = self.page.evaluate(
+                    "!!(window.state && window.state.person_id)"
+                )
+                if already:
+                    print(f"[rehearsal] session_start fallback — narrator already active, proceeding")
+                    return True
+            except Exception:
+                pass
+            print(f"[rehearsal] session_start FAILED with no fallback: {e}", file=sys.stderr)
+            return False
 
     # ── per-voice run ───────────────────────────────────────────
 
@@ -666,11 +794,9 @@ class RehearsalRun:
             vr.fail_count = 1
             return vr
 
-        try:
-            self.ui.session_start()
-            self.page.wait_for_timeout(1500)
-        except Exception as e:
-            print(f"[rehearsal] session_start({voice_id}) warning: {e}", file=sys.stderr)
+        if not self._safe_session_start():
+            print(f"[rehearsal] session_start({voice_id}) failed and no fallback", file=sys.stderr)
+        self.page.wait_for_timeout(1500)
 
         # Per-voice last-reply cache (used by cross-narrator divergence)
         self.last_lori_reply_by_voice[voice_id] = {}
@@ -691,10 +817,19 @@ class RehearsalRun:
                 narrator_input=narrator_input,
             )
 
+            # Lane G.1 fix #4 — give T1 (cold start first turn) extra
+            # patience. The post-warmup first-turn LLM round-trip can
+            # spike to 60s+ even on a "warm" stack because the chat-
+            # ws path lazily initializes some context. T2-T6 settle
+            # to ~10-15s.
+            timeout_ms = 75_000 if turn_id == "T1" else 45_000
+
             t0 = time.time()
             try:
                 since_ts = self.ui.send_chat(narrator_input)
-                reply = self.ui.wait_for_lori_turn(since_ts, timeout_ms=45_000)
+                # Lane G.1 fix #1 — use the dedup wrapper that ensures
+                # we never return the same lori_reply event twice.
+                reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=timeout_ms)
                 t.lori_reply = reply or ""
             except Exception as e:
                 t.lori_reply = ""
@@ -767,18 +902,34 @@ class RehearsalRun:
         # narrator that just ran the 8-turn pack — keeps state isolated).
         try:
             narrator = self.ui.add_test_narrator(VOICES[voice_id]["test_style"])
-            self.ui.session_start()
-            self.page.wait_for_timeout(1500)
         except Exception as e:
             print(f"[rehearsal] life-map narrator setup failed: {e}", file=sys.stderr)
             return results
+        if not self._safe_session_start():
+            print(f"[rehearsal] life-map session_start failed", file=sys.stderr)
+        self.page.wait_for_timeout(1500)
 
-        # Also need to enter interview mode so the Life Map renders.
+        # Lane G.1 fix #2 — Life Map wait-for-render. The previous
+        # 500ms wait after lvEnterInterviewMode was too short — the
+        # era buttons hadn't rendered when the click attempt fired,
+        # so era_click_log_seen=false in rehearsal_quick_v1.
         try:
             self.page.evaluate("typeof lvEnterInterviewMode === 'function' && lvEnterInterviewMode();")
-            self.page.wait_for_timeout(500)
+            self.page.wait_for_timeout(2000)
         except Exception:
             pass
+
+        # Lane G.1 fix #2 — wait for at least one era button to be
+        # present in the DOM before starting the click loop. If the
+        # selector never appears within 8s, log and continue (the
+        # tests below will fail gracefully).
+        try:
+            self.page.wait_for_selector(
+                '[data-era-id]', state="attached", timeout=8000,
+            )
+        except Exception:
+            print(f"[rehearsal] WARN — Life Map era buttons did not render within 8s; "
+                  f"clicks will likely be no-ops", file=sys.stderr)
 
         for label, era_id, framing in LIFE_MAP_ERAS_CANONICAL:
             if eras_subset is not None and label not in eras_subset:
@@ -816,8 +967,9 @@ class RehearsalRun:
             r.session_active_focus_era = sess.get("activeFocusEra") or ""
             r.ui_active = (r.session_active_focus_era == era_id) or (r.session_current_era == era_id)
 
-            # Wait for Lori reply (sendSystemPrompt fires from era-click)
-            reply = self.ui.wait_for_lori_turn(since_ts, timeout_ms=45_000)
+            # Wait for Lori reply (sendSystemPrompt fires from era-click).
+            # Lane G.1 fix #1 — dedup wrapper.
+            reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=45_000)
             r.lori_reply_text = reply or ""
             r.lori_replied = bool(reply)
 
@@ -873,17 +1025,23 @@ class RehearsalRun:
 
         try:
             self.ui.add_test_narrator(VOICES[voice_id]["test_style"])
-            self.ui.session_start()
-            self.page.wait_for_timeout(1500)
         except Exception as e:
             r.severity = "RED"
-            r.fail_reasons.append(f"RED: silence test narrator setup failed: {e}")
+            r.fail_reasons.append(f"RED: silence test add_test_narrator failed: {e}")
             return r
+        # Lane G.1 fix #3 — tolerant session start.
+        if not self._safe_session_start():
+            r.severity = "AMBER"
+            r.fail_reasons.append(
+                "AMBER: session_start failed and no fallback — silence test "
+                "may not reflect a freshly-armed session"
+            )
+        self.page.wait_for_timeout(1500)
 
         # Send one chat turn so Lori finishes speaking
         try:
             since = self.ui.send_chat("hello")
-            self.ui.wait_for_lori_turn(since, timeout_ms=45_000)
+            self._wait_for_fresh_lori_turn(since, timeout_ms=45_000)
         except Exception:
             pass
 
@@ -1113,10 +1271,15 @@ def build_markdown_report(report: RehearsalReport) -> str:
                 if t.voice_rule_violations
                 else "✓"
             )
+            # Lane G.1 — bumped narrator_input from 60→100 + lori_reply
+            # from 80→200 char display width. Previous truncation was
+            # too short to distinguish nearby Lori replies (caused
+            # rehearsal_quick_v1 T3/T4 to look identical at a glance
+            # even when the underlying capture was correct).
             L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
                 vr.voice_id, t.turn_id, t.prompt_type,
-                (t.narrator_input or "")[:60],
-                (t.lori_reply or "")[:80],
+                (t.narrator_input or "")[:100],
+                (t.lori_reply or "")[:200],
                 m.get("question_count", "—"),
                 m.get("nested_question_count", "—"),
                 m.get("menu_offer_count", "—"),
@@ -1424,6 +1587,16 @@ def main() -> int:
             mode=args.mode, word_cap=args.word_cap,
         )
         runner.report = report
+
+        # ── Lane G.1 fix #4 — wait for stack warm before T1 ──
+        # rehearsal_quick_v1 had T1 timeout because the harness sent
+        # before _llmReady=true. Block here up to 90s.
+        warm = runner.wait_for_warm_stack(timeout_s=90)
+        if not warm:
+            report.fix_list.append(
+                "WARN: stack not confirmed warm before T1 — first turn may "
+                "still time out. Wait for the [readiness] log line then re-run."
+            )
 
         # ── Per-voice rehearsal ──
         for vid in voice_ids:
