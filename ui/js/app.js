@@ -700,6 +700,19 @@ function _lvInterviewSelectEra(eid) {
   console.info("[life-map][era-click] era=" + (canonical || "null") +
     " prev=" + ((state.session && state.session.activeFocusEra) || "null"));
   state.session.activeFocusEra = canonical || null;
+
+  // BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 (2026-05-03): the era button only
+  // wrote activeFocusEra. The canonical interview-era cursor lives at
+  // state.session.currentEra (managed by setEra() in state.js). Without
+  // this write, runtime71's current_era stayed stale and the chronology
+  // accordion / interview pass code couldn't see the new era. Mirror
+  // the click into currentEra via the canonical setter so all downstream
+  // consumers (extract.py current_era, prompt_composer life-spine, life
+  // map renderer) see a single source of truth.
+  if (canonical && typeof setEra === "function") {
+    try { setEra(canonical); } catch (_) { /* setEra is self-healing */ }
+  }
+
   // Re-render life-map column to update the active highlight (timeline
   // is now the chronology accordion which manages its own highlights).
   _lvInterviewRenderLifeMap();
@@ -713,6 +726,45 @@ function _lvInterviewSelectEra(eid) {
     window.dispatchEvent(new CustomEvent("lv-interview-focus-change",
       { detail: { era_id: canonical, era_label: _lvInterviewActiveFocusLabel(canonical) } }));
   } catch (_) {}
+
+  // BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 (2026-05-03): produce ONE Lori
+  // prompt about the selected era. This is the missing 4th step from
+  // the bug spec — without it the era click was behaviorally dead
+  // (state moved, but Lori never spoke about the new era).
+  //
+  // Per Chris's locked principle (2026-05-03): "Era click may produce
+  // a Lori prompt only because the operator/narrator clicked a
+  // deliberate Life Map control." This call site IS that deliberate
+  // gesture (popover Continue). The directive enforces Phase 1+2
+  // discipline rules inline so the LLM stays inside the contract:
+  // ≤55 words, ONE question, no menu choices, warm one-ask shape.
+  //
+  // Caller contract: this function is only reached via the popover
+  // Continue path (cancel never invokes it). Programmatic callers
+  // who want to write era state without firing Lori should either
+  // (a) call setEra() directly, or (b) write activeFocusEra by
+  // hand — bypassing this function entirely.
+  if (canonical && typeof sendSystemPrompt === "function") {
+    const warmLabel = _lvInterviewActiveFocusLabel(canonical);
+    const isToday = (canonical === "today");
+    const directive = isToday
+      ? ("[SYSTEM: The narrator just selected 'Today' on the Life Map — "
+        + "they want to talk about life now, in the present. Ask ONE warm, "
+        + "open question about something in their life today. Maximum 55 "
+        + "words. ONE question only. No menu choices. No 'or we could' "
+        + "phrasing. No compound 'and how / and what' follow-ups.]")
+      : ("[SYSTEM: The narrator just selected '" + warmLabel + "' on the "
+        + "Life Map — they want to talk about this era of their life. "
+        + "Ask ONE warm, open question about this period. Maximum 55 "
+        + "words. ONE question only. No menu choices. No 'or we could' "
+        + "phrasing. No compound 'and how / and what' follow-ups.]");
+    try {
+      sendSystemPrompt(directive);
+      console.info("[life-map][era-click] Lori prompt dispatched for era=" + canonical);
+    } catch (e) {
+      console.warn("[life-map][era-click] sendSystemPrompt threw:", e);
+    }
+  }
 }
 window._lvInterviewSelectEra = _lvInterviewSelectEra;
 
