@@ -537,7 +537,51 @@ async def ws_chat(ws: WebSocket):
         # RULE in prompt_composer.py:108-193 fires. We do NOT short-circuit
         # the response — Lori still produces a turn, but under safety-side
         # prompt guidance.
-        if user_text and user_text.strip():
+        #
+        # WO-LORI-SAFETY-INTEGRATION-01 Phase 7 (2026-05-03): LV_ENABLE_SAFETY
+        # kill-switch. Default-ON ("1"). Setting LV_ENABLE_SAFETY=0 disables
+        # the ENTIRE chat-path safety pipeline: pattern scan, LLM
+        # second-layer, segment_flag persistence, softened-mode set,
+        # operator notification, and the Phase 5a discipline exemption (it
+        # checks _safety_result which won't be set).
+        #
+        # This is a DEVELOPER-ONLY toggle. Use cases:
+        #   - Running automated chat-path tests where deterministic safety
+        #     routing would mask normal-turn behavior under inspection
+        #   - Red-team eval that wants to test ONLY the LLM-side path
+        #     (Phase 2) by suppressing pattern-side noise — but for that
+        #     case, set HORNELORE_SAFETY_LLM_LAYER=1 separately and still
+        #     leave LV_ENABLE_SAFETY=1; the LLM-layer fires inside the
+        #     pattern block's else branch
+        #   - Eyeballing a clean composer / extractor surface without
+        #     safety interjections
+        #
+        # NEVER set LV_ENABLE_SAFETY=0 in a real narrator session. The
+        # ACUTE SAFETY RULE in the prompt still fires (the rule is in
+        # the system prompt unconditionally), but the deterministic
+        # segment_flag → softened-mode → operator-notify → LLM-routing
+        # cascade is GONE. That means:
+        #   - No operator visibility (Bug Panel banner won't show)
+        #   - No segment_flag in the DB (review queue won't see it)
+        #   - No softened-mode for subsequent turns
+        #   - turn_mode won't be forced to interview, so memory_echo
+        #     could echo distress content back at the narrator
+        # The default-OFF onboarding consent (Phase 9) and the kill-switch
+        # itself are sufficient operator controls. The kill-switch is for
+        # the operator workstation, not for a deployed kiosk.
+        _safety_enabled = os.getenv("LV_ENABLE_SAFETY", "1") in ("1", "true", "True")
+        if not _safety_enabled:
+            # Emit a per-turn WARNING — chosen over a session-only one-shot
+            # because operators looking at api.log mid-incident need to see
+            # this on every turn. Quiet noise on a normal session is the
+            # cost of loud warning when something is actually wrong.
+            logger.warning(
+                "[chat_ws][safety][KILL-SWITCH] LV_ENABLE_SAFETY=0 — "
+                "deterministic safety pipeline DISABLED for this turn. "
+                "DEVELOPER MODE ONLY. conv=%s",
+                conv_id,
+            )
+        if _safety_enabled and user_text and user_text.strip():
             _safety_scan_failed = False
             try:
                 _safety_result = scan_answer(user_text)
