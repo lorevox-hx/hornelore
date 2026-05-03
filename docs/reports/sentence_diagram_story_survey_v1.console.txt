@@ -1,0 +1,69 @@
+==============================================================================
+WO-EX-SENTENCE-DIAGRAM-STORY-SURVEY-01
+==============================================================================
+cases:              42
+extract_passed:     22/42
+must_not_violations:1
+chat_ran:           0
+chat_errors:        0
+frame_available:    42
+
+Top missed expected fields:
+  earlyMemories.significantEvent       5
+  parents.notableLifeEvents            3
+  parents.occupation                   3
+  parents.relation                     2
+  pets.notes                           2
+  pets.species                         2
+  grandparents.memorableStory          1
+  military.servicePeriod               1
+  parents.firstName                    1
+  personal.birthOrder                  1
+  pets.name                            1
+  siblings.firstName                   1
+  spouse.narrative                     1
+  spouse.placeOfBirth                  1
+
+Cases with misses or violations:
+  sd_007_mother_homemaker_and_organist [occupation_talent_income] misses=['parents.occupation'] must_not=[]
+    said: My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent m
+  sd_008_mother_housewife_piano_church [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.
+  sd_009_mother_secretary_later_homemaker [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.
+  sd_010_father_factory_and_fiddle [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.
+  sd_011_barn_cats_and_dad_horse [pets_cardinality] misses=['pets.species'] must_not=[]
+    said: We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.
+  sd_012_named_dog_and_unnamed_cats [pets_cardinality] misses=['pets.notes'] must_not=[]
+    said: Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.
+  sd_015_species_then_breed [pets_species_breed] misses=['pets.notes'] must_not=[]
+    said: Buster was our dog, really a Labrador retriever, and he followed the kids everywhere.
+  sd_016_grandmother_cultural_origin [heritage_thematic_binding] misses=['earlyMemories.significantEvent', 'grandparents.memorableStory'] must_not=[]
+    said: We were Volga Germans. Both sides — the Millers and the Schaafs. My grandmother Clara's family came through Odessa, and that whole culture came through in the food and the way thin
+  sd_017_grandfather_not_parent [kinship_binding] misses=['parents.firstName'] must_not=[]
+    said: My grandfather Anton hated the old empire, but my father Leo never talked politics at all.
+  sd_019_partner_not_legal_spouse [spouse_alias] misses=['spouse.placeOfBirth', 'spouse.narrative'] must_not=[]
+    said: My partner Samuel was born in Chicago. We never had a big legal wedding, but he has been my family for forty years.
+  sd_021_siblings_list_birth_order [cardinality_siblings] misses=['personal.birthOrder'] must_not=[]
+    said: My brothers were Robert and James. Robert was oldest, James was second, and I was the youngest.
+  sd_022_father_work_life_map [work_vs_community] misses=['parents.occupation'] must_not=[]
+    said: My dad Peter was foreman of the finishing crew on the Red River dam project. At home he was just Dad, but out there people knew him as the cement man.
+  sd_027_household_routine_from_shift_work [lori_grounding] misses=['earlyMemories.significantEvent'] must_not=[]
+    said: My dad worked nights at the aluminum plant, so supper was quiet and mornings were when we had to be careful not to wake him.
+  sd_030_negated_wrong_birthplace [negation_guard] misses=[] must_not=['personal.placeOfBirth']
+    said: People sometimes say I was born in Waterloo, but that is not right. I was born in Cedar Falls, Iowa.
+  sd_033_stepfather_blended_family [complex_family_blended] misses=['parents.occupation', 'parents.relation'] must_not=[]
+    said: My mother Joanne was a nurse aide. My biological father Richard worked at the auto plant in Dayton. My stepdad Leonard came along when I was about ten — he was a truck driver.
+  sd_034_lgbtq_self_disclosure [identity_disclosure] misses=['earlyMemories.significantEvent'] must_not=[]
+    said: I knew I was gay when I was about fourteen but I didn't tell anyone for years. I didn't have the words for it back then.
+  sd_035_sparse_unknown_father [sparse_uncertain_kinship] misses=['parents.relation'] must_not=[]
+    said: I don't really know much about my father. He left when I was very small. My mother was a seamstress in Pueblo.
+  sd_036_narrator_military_homecoming [narrator_military_emotional] misses=['military.servicePeriod', 'earlyMemories.significantEvent'] must_not=[]
+    said: I served in Korea from 1951 to 1953. Came home to a wife and a baby I'd never met.
+  sd_037_faith_with_critique [faith_sensitivity] misses=['earlyMemories.significantEvent'] must_not=[]
+    said: We were Catholic, but I was at a Lutheran boarding school for high school. The nuns there were not always kind.
+  sd_040_six_clause_run_on [run_on_compound_stress] misses=['pets.name', 'pets.species', 'siblings.firstName'] must_not=[]
+    said: When I was little we lived on a farm in North Dakota and I had a horse named Grey and my sister Verene didn't like to be outside but I loved being out there with the animals and th
+
+Report includes per-case: user_text, assistant_text, frame, extraction payload, raw items, expected hits/misses.

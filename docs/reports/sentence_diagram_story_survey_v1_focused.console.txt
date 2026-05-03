@@ -1,0 +1,37 @@
+==============================================================================
+WO-EX-SENTENCE-DIAGRAM-STORY-SURVEY-01
+==============================================================================
+cases:              11
+extract_passed:     5/11
+must_not_violations:0
+chat_ran:           11
+chat_errors:        0
+frame_available:    11
+
+Top missed expected fields:
+  parents.notableLifeEvents            3
+  parents.occupation                   1
+  pets.notes                           1
+  pets.species                         1
+
+Cases with misses or violations:
+  sd_007_mother_homemaker_and_organist [occupation_talent_income] misses=['parents.occupation'] must_not=[]
+    said: My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent m
+    lori: That's fascinating about your mother, Maggie. It sounds like she had a beautiful talent for music. What was it like growing up with a mother who played the organ for silent movies?
+  sd_008_mother_housewife_piano_church [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.
+    lori: It sounds like your mother was a talented woman with many responsibilities. She took care of the household and also had a special gift for music. What was it like growing up with a
+  sd_009_mother_secretary_later_homemaker [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.
+    lori: That's lovely. It sounds like your mom, Evelyn, was a very capable and helpful person. What was it like growing up with her as a homemaker?
+  sd_010_father_factory_and_fiddle [occupation_talent_income] misses=['parents.notableLifeEvents'] must_not=[]
+    said: My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.
+    lori: That sounds like a wonderful balance your dad had in his life. What was it about playing the fiddle at barn dances that brought him joy?
+  sd_011_barn_cats_and_dad_horse [pets_cardinality] misses=['pets.species'] must_not=[]
+    said: We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.
+    lori: It sounds like you grew up in a rural setting with animals. What was your favorite thing about having barn cats?
+  sd_012_named_dog_and_unnamed_cats [pets_cardinality] misses=['pets.notes'] must_not=[]
+    said: Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.
+    lori: That's so sweet! I'm glad you have fond memories of your furry friends. What was Biscuit like?
+
+Report includes per-case: user_text, assistant_text, frame, extraction payload, raw items, expected hits/misses.

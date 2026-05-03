@@ -1,0 +1,3363 @@
+{
+  "_wo": "WO-EX-SENTENCE-DIAGRAM-STORY-SURVEY-01",
+  "generated_at": "2026-05-03T03:44:23Z",
+  "api": "http://localhost:8000",
+  "ws_url": "ws://localhost:8000/api/chat/ws",
+  "cases_file": "/mnt/c/Users/chris/hornelore/data/qa/sentence_diagram_story_cases.json",
+  "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+  "session_base": "sentence-diagram-1777779568",
+  "summary": {
+    "total_cases": 11,
+    "extract_ran": 11,
+    "extract_passed": 5,
+    "must_not_violations": 0,
+    "chat_ran": 11,
+    "chat_errors": 0,
+    "frame_available": 11,
+    "misses_by_field": {
+      "parents.notableLifeEvents": 3,
+      "parents.occupation": 1,
+      "pets.notes": 1,
+      "pets.species": 1
+    }
+  },
+  "cases": [
+    {
+      "id": "sd_001_birth_place_date_comma",
+      "group": "dob_pob",
+      "title": "Born in place, on date",
+      "watch": "Does DOB get emitted every time, not just POB?",
+      "user_text": "I was born in Cedar Falls, Iowa, on August 30th, 1939. My dad Peter worked at an aluminum factory there.",
+      "expected_extract": [
+        {
+          "fieldPath": "personal.placeOfBirth",
+          "anyOf": [
+            "Cedar Falls, Iowa"
+          ]
+        },
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "anyOf": [
+            "1939-08-30",
+            "August 30, 1939",
+            "August 30th, 1939"
+          ]
+        },
+        {
+          "fieldPath": "parents.firstName",
+          "anyOf": [
+            "Peter"
+          ]
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "anyOf": [
+            "aluminum factory",
+            "aluminum factory worker"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "I was born in Cedar Falls, Iowa, on August 30th, 1939. My dad Peter worked at an aluminum factory there.",
+          "clauses": [
+            {
+              "raw": "I was born in Cedar Falls, Iowa, on August 30th, 1939.",
+              "who": "I",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": "was born",
+              "event_class": "birth",
+              "place": "Cedar Falls",
+              "time": "1939",
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "personal.placeOfBirth",
+                "personal.dateOfBirth"
+              ]
+            },
+            {
+              "raw": "My dad Peter worked at an aluminum factory there.",
+              "who": "My dad",
+              "who_canonical": "father",
+              "who_subject_class": "parent",
+              "event": "worked",
+              "event_class": "work",
+              "place": "factory",
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "parents.occupation"
+              ]
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "high"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "That's fascinating. Tell me more about growing up in Cedar Falls during that time.",
+        "elapsed_ms": 3077,
+        "raw_event_count": 18,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 27541,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-001",
+          "answer": "I was born in Cedar Falls, Iowa, on August 30th, 1939. My dad Peter worked at an aluminum factory there.",
+          "current_section": "origin_point",
+          "current_target_path": "personal.dateOfBirth",
+          "current_era": "earliest_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "I was born in Cedar Falls, Iowa, on August 30th, 1939. My dad Peter worked at an aluminum factory there.",
+          "normalized_transcript": "I was born in Cedar Falls, Iowa, on August 30th, 1939. My dad Peter worked at an aluminum factory there.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "personal.dateOfBirth",
+              "value": "1939-08-30",
+              "writeMode": "prefill_if_blank",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "personal.placeOfBirth",
+              "value": "Cedar Falls, Iowa",
+              "writeMode": "prefill_if_blank",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.firstName",
+              "value": "Peter",
+              "writeMode": "candidate_only",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.occupation",
+              "value": "worked at an aluminum factory",
+              "writeMode": "candidate_only",
+              "confidence": 0.95,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"personal.dateOfBirth\",\n    \"value\": \"August 30, 1939\",\n    \"confidence\": 1.0\n  },\n  {\n    \"fieldPath\": \"personal.placeOfBirth\",\n    \"value\": \"Cedar Falls, Iowa\",\n    \"confidence\": 1.0\n  },\n  {\n    \"fieldPath\": \"parents.firstName\",\n    \"value\": \"Peter\",\n    \"confidence\": 1.0\n  },\n  {\n    \"fieldPath\": \"parents.occupation\",\n    \"value\": \"worked at an aluminum factory\",\n    \"confidence\": 0.95\n  }\n]\n```\n\nNote that I assumed the confidence score to be 1.0 for the date of birth and place of birth since they are relatively certain facts, and 0.95 for the occupation since it's a bit more contextual and might require some interpretation. Let me know if you'd like me to adjust anything!",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "value": "1939-08-30",
+            "writeMode": "prefill_if_blank",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "value": "Cedar Falls, Iowa",
+            "writeMode": "prefill_if_blank",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.firstName",
+            "value": "Peter",
+            "writeMode": "candidate_only",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "value": "worked at an aluminum factory",
+            "writeMode": "candidate_only",
+            "confidence": 0.95,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 4,
+        "expected_total": 4,
+        "must_not_violations": 0,
+        "passed": true,
+        "expected_results": [
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "Cedar Falls, Iowa"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.placeOfBirth",
+                "value": "Cedar Falls, Iowa",
+                "writeMode": "prefill_if_blank",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "1939-08-30",
+              "August 30, 1939",
+              "August 30th, 1939"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.dateOfBirth",
+                "value": "1939-08-30",
+                "writeMode": "prefill_if_blank",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.firstName",
+            "alsoAccept": [],
+            "anyOf": [
+              "Peter"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.firstName",
+                "value": "Peter",
+                "writeMode": "candidate_only",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "alsoAccept": [],
+            "anyOf": [
+              "aluminum factory",
+              "aluminum factory worker"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.occupation",
+                "value": "worked at an aluminum factory",
+                "writeMode": "candidate_only",
+                "confidence": 0.95,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_002_birth_date_then_place",
+      "group": "dob_pob",
+      "title": "Born on date in place",
+      "watch": "Reverse order DOB/POB pattern.",
+      "user_text": "I was born on August 30, 1939 in Cedar Falls, Iowa, and we lived there until I was six.",
+      "expected_extract": [
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "anyOf": [
+            "1939-08-30",
+            "August 30, 1939"
+          ]
+        },
+        {
+          "fieldPath": "personal.placeOfBirth",
+          "anyOf": [
+            "Cedar Falls, Iowa"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "I was born on August 30, 1939 in Cedar Falls, Iowa, and we lived there until I was six.",
+          "clauses": [
+            {
+              "raw": "I was born on August 30, 1939 in Cedar Falls, Iowa",
+              "who": "I",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": "was born",
+              "event_class": "birth",
+              "place": "Cedar Falls",
+              "time": "1939",
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "personal.placeOfBirth",
+                "personal.dateOfBirth"
+              ]
+            },
+            {
+              "raw": "we lived there until I was six.",
+              "who": "we",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "Cedar Falls, Iowa, in 1939 - that must have been a charming place to grow up. What do you remember about your early years in Cedar Falls?",
+        "elapsed_ms": 5753,
+        "raw_event_count": 31,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 23146,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-002",
+          "answer": "I was born on August 30, 1939 in Cedar Falls, Iowa, and we lived there until I was six.",
+          "current_section": "origin_point",
+          "current_target_path": "personal.dateOfBirth",
+          "current_era": "earliest_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "I was born on August 30, 1939 in Cedar Falls, Iowa, and we lived there until I was six.",
+          "normalized_transcript": "I was born on August 30, 1939 in Cedar Falls, Iowa, and we lived there until I was six.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "personal.dateOfBirth",
+              "value": "1939-08-30",
+              "writeMode": "prefill_if_blank",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "personal.placeOfBirth",
+              "value": "Cedar Falls, Iowa",
+              "writeMode": "prefill_if_blank",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "personal.birthOrder",
+              "value": "six",
+              "writeMode": "prefill_if_blank",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted information as a JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"personal.dateOfBirth\",\n    \"value\": \"August 30, 1939\",\n    \"confidence\": 1.0\n  },\n  {\n    \"fieldPath\": \"personal.placeOfBirth\",\n    \"value\": \"Cedar Falls, Iowa\",\n    \"confidence\": 1.0\n  },\n  {\n    \"fieldPath\": \"personal.birthOrder\",\n    \"value\": \"six\",\n    \"confidence\": 0.9\n  }\n]\n```\n\nNote that the confidence score is 1.0 for the date of birth and place of birth, indicating high certainty, while the birth order has a slightly lower confidence score due to the ambiguity of the word \"six\".",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "value": "1939-08-30",
+            "writeMode": "prefill_if_blank",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "value": "Cedar Falls, Iowa",
+            "writeMode": "prefill_if_blank",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "personal.birthOrder",
+            "value": "six",
+            "writeMode": "prefill_if_blank",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 2,
+        "expected_total": 2,
+        "must_not_violations": 0,
+        "passed": true,
+        "expected_results": [
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "1939-08-30",
+              "August 30, 1939"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.dateOfBirth",
+                "value": "1939-08-30",
+                "writeMode": "prefill_if_blank",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "Cedar Falls, Iowa"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.placeOfBirth",
+                "value": "Cedar Falls, Iowa",
+                "writeMode": "prefill_if_blank",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_003_birthday_sentence",
+      "group": "dob_pob",
+      "title": "Birthday sentence plus birthplace",
+      "watch": "Can birthday and birthplace split across two sentences?",
+      "user_text": "My birthday is August 30, 1939. I was born in Cedar Falls, Iowa, at the old county hospital.",
+      "expected_extract": [
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "anyOf": [
+            "1939-08-30",
+            "August 30, 1939"
+          ]
+        },
+        {
+          "fieldPath": "personal.placeOfBirth",
+          "anyOf": [
+            "Cedar Falls, Iowa",
+            "old county hospital"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "My birthday is August 30, 1939. I was born in Cedar Falls, Iowa, at the old county hospital.",
+          "clauses": [
+            {
+              "raw": "My birthday is August 30, 1939.",
+              "who": null,
+              "who_canonical": null,
+              "who_subject_class": "unknown",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": "1939",
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "I was born in Cedar Falls, Iowa, at the old county hospital.",
+              "who": "I",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": "was born",
+              "event_class": "birth",
+              "place": "Cedar Falls",
+              "time": null,
+              "object": "hospital",
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "personal.placeOfBirth"
+              ]
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "It's lovely to meet you! I'm so glad you're sharing your story with me. Being born in Cedar Falls, Iowa, at the old county hospital is a great starting point. What do you remember about your early days growing up in Cedar Falls?",
+        "elapsed_ms": 6836,
+        "raw_event_count": 47,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 17038,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-003",
+          "answer": "My birthday is August 30, 1939. I was born in Cedar Falls, Iowa, at the old county hospital.",
+          "current_section": "origin_point",
+          "current_target_path": "personal.dateOfBirth",
+          "current_era": "earliest_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "My birthday is August 30, 1939. I was born in Cedar Falls, Iowa, at the old county hospital.",
+          "normalized_transcript": "My birthday is August 30, 1939. I was born in Cedar Falls, Iowa, at the old county hospital.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "personal.dateOfBirth",
+              "value": "1939-08-30",
+              "writeMode": "prefill_if_blank",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "personal.placeOfBirth",
+              "value": "Cedar Falls, Iowa",
+              "writeMode": "prefill_if_blank",
+              "confidence": 1.0,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted information as a JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"personal.dateOfBirth\",\n    \"value\": \"August 30, 1939\",\n    \"confidence\": 1.0\n  },\n  {\n    \"fieldPath\": \"personal.placeOfBirth\",\n    \"value\": \"Cedar Falls, Iowa\",\n    \"confidence\": 1.0\n  }\n]\n```\n\nNote that the confidence score is assumed to be 1.0 (100%) since the answer is direct and unambiguous.",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "value": "1939-08-30",
+            "writeMode": "prefill_if_blank",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "value": "Cedar Falls, Iowa",
+            "writeMode": "prefill_if_blank",
+            "confidence": 1.0,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 2,
+        "expected_total": 2,
+        "must_not_violations": 0,
+        "passed": true,
+        "expected_results": [
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "1939-08-30",
+              "August 30, 1939"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.dateOfBirth",
+                "value": "1939-08-30",
+                "writeMode": "prefill_if_blank",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "Cedar Falls, Iowa",
+              "old county hospital"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.placeOfBirth",
+                "value": "Cedar Falls, Iowa",
+                "writeMode": "prefill_if_blank",
+                "confidence": 1.0,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_004_lowercase_place_birth",
+      "group": "dob_pob",
+      "title": "Lowercase place in birth sentence",
+      "watch": "Lowercase date/place casing.",
+      "user_text": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+      "expected_extract": [
+        {
+          "fieldPath": "personal.placeOfBirth",
+          "anyOf": [
+            "Cedar Falls, Iowa",
+            "cedar falls, iowa"
+          ]
+        },
+        {
+          "fieldPath": "personal.dateOfBirth",
+          "anyOf": [
+            "1939-08-30",
+            "August 30, 1939"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+          "clauses": [
+            {
+              "raw": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+              "who": "i",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": "was born",
+              "event_class": "birth",
+              "place": null,
+              "time": "1939",
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "personal.dateOfBirth"
+              ]
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "high"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "That's a lovely start to your story. Being called an \"Iowa baby\" suggests you have a strong connection to the Hawkeye State. Tell me, what do you remember about growing up in Cedar Falls?",
+        "elapsed_ms": 5262,
+        "raw_event_count": 38,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 17684,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-004",
+          "answer": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+          "current_section": "origin_point",
+          "current_target_path": "personal.dateOfBirth",
+          "current_era": "earliest_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+          "normalized_transcript": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "personal.dateOfBirth",
+              "value": "1939-08-30",
+              "writeMode": "prefill_if_blank",
+              "confidence": 0.95,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "personal.placeOfBirth",
+              "value": "Cedar Falls, Iowa",
+              "writeMode": "prefill_if_blank",
+              "confidence": 0.95,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": null,
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted information as a JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"personal.dateOfBirth\",\n    \"value\": \"August 30, 1939\",\n    \"confidence\": 0.95\n  },\n  {\n    \"fieldPath\": \"personal.placeOfBirth\",\n    \"value\": \"Cedar Falls, Iowa\",\n    \"confidence\": 0.95\n  }\n]\n```\n\nNote that I assumed the confidence score to be 0.95 since the narrator provided a clear and direct answer. Also, I kept the original wording of the birth date and place, but converted the month to",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "value": "1939-08-30",
+            "writeMode": "prefill_if_blank",
+            "confidence": 0.95,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "value": "Cedar Falls, Iowa",
+            "writeMode": "prefill_if_blank",
+            "confidence": 0.95,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": null,
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 2,
+        "expected_total": 2,
+        "must_not_violations": 0,
+        "passed": true,
+        "expected_results": [
+          {
+            "fieldPath": "personal.placeOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "Cedar Falls, Iowa",
+              "cedar falls, iowa"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.placeOfBirth",
+                "value": "Cedar Falls, Iowa",
+                "writeMode": "prefill_if_blank",
+                "confidence": 0.95,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "personal.dateOfBirth",
+            "alsoAccept": [],
+            "anyOf": [
+              "1939-08-30",
+              "August 30, 1939"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "personal.dateOfBirth",
+                "value": "1939-08-30",
+                "writeMode": "prefill_if_blank",
+                "confidence": 0.95,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": null,
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_007_mother_homemaker_and_organist",
+      "group": "occupation_talent_income",
+      "title": "Mother homemaker plus paid organ side work",
+      "watch": "Occupation may be homemaker and organist; side income should go to notable life event/talent, not counted hallucination.",
+      "user_text": "My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+      "expected_extract": [
+        {
+          "fieldPath": "parents.firstName",
+          "anyOf": [
+            "Margaret"
+          ]
+        },
+        {
+          "fieldPath": "parents.preferredName",
+          "anyOf": [
+            "Maggie"
+          ]
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "anyOf": [
+            "homemaker",
+            "organist",
+            "musician"
+          ]
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "anyOf": [
+            "silent movies",
+            "played for silent movies",
+            "gifted organist"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+          "clauses": [
+            {
+              "raw": "My mother was Margaret — everyone called her Maggie.",
+              "who": "My mother",
+              "who_canonical": "mother",
+              "who_subject_class": "parent",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+              "who": null,
+              "who_canonical": null,
+              "who_subject_class": "unknown",
+              "event": "married",
+              "event_class": "marriage",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "That's fascinating about your mother, Maggie. It sounds like she had a beautiful talent for music. What was it like growing up with a mother who played the organ for silent movies?",
+        "elapsed_ms": 4825,
+        "raw_event_count": 36,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 27402,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-005",
+          "answer": "My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+          "current_section": "mother_stories",
+          "current_target_path": "parents.notableLifeEvents",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+          "normalized_transcript": "My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "parents.firstName",
+              "value": "Margaret",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.preferredName",
+              "value": "Maggie",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.notableLifeEvents",
+              "value": "homemaker, kept the house running, played organ for silent movies to earn spending money",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"parents.firstName\",\n    \"value\": \"Margaret\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.preferredName\",\n    \"value\": \"Maggie\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.notableLifeEvents\",\n    \"value\": \"homemaker, kept the house running, played organ for silent movies to earn spending money\",\n    \"confidence\": 0.9\n  }\n]\n```\n\nNote that I assumed the confidence score is 0.9 since the narrator provided a clear and direct answer. Also, I combined the notable life events into a single string value, separated by commas, as per the instruction to extract all facts as a JSON array.",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "parents.firstName",
+            "value": "Margaret",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.preferredName",
+            "value": "Maggie",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.notableLifeEvents",
+            "value": "homemaker, kept the house running, played organ for silent movies to earn spending money",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 3,
+        "expected_total": 4,
+        "must_not_violations": 0,
+        "passed": false,
+        "expected_results": [
+          {
+            "fieldPath": "parents.firstName",
+            "alsoAccept": [],
+            "anyOf": [
+              "Margaret"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.firstName",
+                "value": "Margaret",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.preferredName",
+            "alsoAccept": [],
+            "anyOf": [
+              "Maggie"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.preferredName",
+                "value": "Maggie",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "alsoAccept": [],
+            "anyOf": [
+              "homemaker",
+              "organist",
+              "musician"
+            ],
+            "optional": false,
+            "hit": false,
+            "matched_items": []
+          },
+          {
+            "fieldPath": "parents.notableLifeEvents",
+            "alsoAccept": [],
+            "anyOf": [
+              "silent movies",
+              "played for silent movies",
+              "gifted organist"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.notableLifeEvents",
+                "value": "homemaker, kept the house running, played organ for silent movies to earn spending money",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_008_mother_housewife_piano_church",
+      "group": "occupation_talent_income",
+      "title": "Housewife duties plus church piano",
+      "watch": "Does it choose only one occupation, or preserve both role and side income?",
+      "user_text": "Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.",
+      "expected_extract": [
+        {
+          "fieldPath": "parents.occupation",
+          "anyOf": [
+            "house",
+            "homemaker",
+            "housewife",
+            "piano",
+            "church weddings"
+          ]
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "anyOf": [
+            "played piano",
+            "church weddings",
+            "few dollars"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.",
+          "clauses": [
+            {
+              "raw": "Mother's everyday work was the house — cooking, washing, keeping all of us fed.",
+              "who": "Mother",
+              "who_canonical": "mother",
+              "who_subject_class": "parent",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "But she also played piano for church weddings, and people slipped her a few dollars for that.",
+              "who": null,
+              "who_canonical": null,
+              "who_subject_class": "unknown",
+              "event": "church",
+              "event_class": "faith",
+              "place": "church",
+              "time": null,
+              "object": "piano",
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "It sounds like your mother was a talented woman with many responsibilities. She took care of the household and also had a special gift for music. What was it like growing up with a mother who played the piano?",
+        "elapsed_ms": 7614,
+        "raw_event_count": 43,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 22605,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-006",
+          "answer": "Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.",
+          "current_section": "mother_stories",
+          "current_target_path": "parents.occupation",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.",
+          "normalized_transcript": "Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "parents.occupation",
+              "value": "household management (cooking, washing, childcare)",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.notes",
+              "value": "also played piano for church weddings; received tips",
+              "writeMode": "candidate_only",
+              "confidence": 0.8,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted JSON array:\n\n[\n  {\n    \"fieldPath\": \"parents.occupation\",\n    \"value\": \"household management (cooking, washing, childcare)\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.notes\",\n    \"value\": \"also played piano for church weddings; received tips\",\n    \"confidence\": 0.8\n  }\n]\n\nExplanation:\n\n* \"household management (cooking, washing, childcare)\" is inferred from the phrase \"Mother's everyday work was the house — cooking, washing, keeping all of us fed\".\n* \"also played piano for church weddings; received tips\" is inferred from the phrase \"But she also played piano for church weddings, and people slipped her a few dollars for that\". This is added to the existing \"parents.notes\" field, rather than creating a new field.",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "parents.occupation",
+            "value": "household management (cooking, washing, childcare)",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.notes",
+            "value": "also played piano for church weddings; received tips",
+            "writeMode": "candidate_only",
+            "confidence": 0.8,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 1,
+        "expected_total": 2,
+        "must_not_violations": 0,
+        "passed": false,
+        "expected_results": [
+          {
+            "fieldPath": "parents.occupation",
+            "alsoAccept": [],
+            "anyOf": [
+              "house",
+              "homemaker",
+              "housewife",
+              "piano",
+              "church weddings"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.occupation",
+                "value": "household management (cooking, washing, childcare)",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.notableLifeEvents",
+            "alsoAccept": [],
+            "anyOf": [
+              "played piano",
+              "church weddings",
+              "few dollars"
+            ],
+            "optional": false,
+            "hit": false,
+            "matched_items": []
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_009_mother_secretary_later_homemaker",
+      "group": "occupation_talent_income",
+      "title": "Work history then homemaker",
+      "watch": "Temporal occupation: secretary before children, homemaker after.",
+      "user_text": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.",
+      "expected_extract": [
+        {
+          "fieldPath": "parents.firstName",
+          "anyOf": [
+            "Evelyn"
+          ]
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "anyOf": [
+            "secretary",
+            "home",
+            "homemaker",
+            "typed letters"
+          ]
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "anyOf": [
+            "typed letters",
+            "neighbors"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.",
+          "clauses": [
+            {
+              "raw": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us.",
+              "who": "My mom",
+              "who_canonical": "mother",
+              "who_subject_class": "parent",
+              "event": "worked",
+              "event_class": "work",
+              "place": "home",
+              "time": "when she was young",
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "parents.occupation"
+              ]
+            },
+            {
+              "raw": "She still typed letters for neighbors when they needed help.",
+              "who": null,
+              "who_canonical": null,
+              "who_subject_class": "unknown",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "That's lovely. It sounds like your mom, Evelyn, was a very capable and helpful person. What was it like growing up with her as a homemaker?",
+        "elapsed_ms": 5108,
+        "raw_event_count": 30,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 20502,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-007",
+          "answer": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.",
+          "current_section": "mother_stories",
+          "current_target_path": "parents.occupation",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.",
+          "normalized_transcript": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "parents.firstName",
+              "value": "Evelyn",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.occupation",
+              "value": "secretary",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.relation",
+              "value": "mother",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted JSON array:\n\n[\n  {\n    \"fieldPath\": \"parents.firstName\",\n    \"value\": \"Evelyn\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.occupation\",\n    \"value\": \"secretary\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.relation\",\n    \"value\": \"mother\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.notes\",\n    \"value\": \"worked as a secretary when young, stayed home with children,",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "parents.firstName",
+            "value": "Evelyn",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "value": "secretary",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.relation",
+            "value": "mother",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 2,
+        "expected_total": 3,
+        "must_not_violations": 0,
+        "passed": false,
+        "expected_results": [
+          {
+            "fieldPath": "parents.firstName",
+            "alsoAccept": [],
+            "anyOf": [
+              "Evelyn"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.firstName",
+                "value": "Evelyn",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "alsoAccept": [],
+            "anyOf": [
+              "secretary",
+              "home",
+              "homemaker",
+              "typed letters"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.occupation",
+                "value": "secretary",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.notableLifeEvents",
+            "alsoAccept": [],
+            "anyOf": [
+              "typed letters",
+              "neighbors"
+            ],
+            "optional": false,
+            "hit": false,
+            "matched_items": []
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_010_father_factory_and_fiddle",
+      "group": "occupation_talent_income",
+      "title": "Father job plus musical talent",
+      "watch": "Separate paid job from talent/hobby.",
+      "user_text": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.",
+      "expected_extract": [
+        {
+          "fieldPath": "parents.firstName",
+          "anyOf": [
+            "Leo"
+          ]
+        },
+        {
+          "fieldPath": "parents.occupation",
+          "anyOf": [
+            "glass plant",
+            "worked nights"
+          ]
+        },
+        {
+          "fieldPath": "parents.notableLifeEvents",
+          "anyOf": [
+            "fiddle",
+            "barn dances"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.",
+          "clauses": [
+            {
+              "raw": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances.",
+              "who": "My dad",
+              "who_canonical": "father",
+              "who_subject_class": "parent",
+              "event": "worked",
+              "event_class": "work",
+              "place": "plant",
+              "time": null,
+              "object": "barn",
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": [
+                "parents.occupation"
+              ]
+            },
+            {
+              "raw": "The plant paid the bills; the fiddle was what made him happy.",
+              "who": null,
+              "who_canonical": null,
+              "who_subject_class": "unknown",
+              "event": null,
+              "event_class": "unknown",
+              "place": "plant",
+              "time": null,
+              "object": null,
+              "feeling": "happy",
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "That sounds like a wonderful balance your dad had in his life. What was it about playing the fiddle at barn dances that brought him joy?",
+        "elapsed_ms": 4066,
+        "raw_event_count": 30,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 26774,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-008",
+          "answer": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.",
+          "current_section": "father_story",
+          "current_target_path": "parents.occupation",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.",
+          "normalized_transcript": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "parents.firstName",
+              "value": "Leo",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.occupation",
+              "value": "worked nights at the glass plant",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "parents.notes",
+              "value": "played fiddle at barn dances; the fiddle was what made him happy",
+              "writeMode": "candidate_only",
+              "confidence": 0.8,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "parents_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted JSON array:\n\n[\n  {\n    \"fieldPath\": \"parents.firstName\",\n    \"value\": \"Leo\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.occupation\",\n    \"value\": \"worked nights at the glass plant\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"parents.notes\",\n    \"value\": \"played fiddle at barn dances; the fiddle was what made him happy\",\n    \"confidence\": 0.8\n  }\n]\n\nNote that I extracted the following facts:\n\n* Parents' first name: Leo\n* Parents' occupation: worked nights at the glass plant\n* Additional information about parents' occupation: played fiddle at barn dances; the fiddle was what made him happy (this is stored in the notes field)\n\nI did not extract any other facts from the answer, such as the narrator's current interview section or primary question target, since they are not relevant to extracting facts from the narrator's response.",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "parents.firstName",
+            "value": "Leo",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "value": "worked nights at the glass plant",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "parents.notes",
+            "value": "played fiddle at barn dances; the fiddle was what made him happy",
+            "writeMode": "candidate_only",
+            "confidence": 0.8,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "parents_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 2,
+        "expected_total": 3,
+        "must_not_violations": 0,
+        "passed": false,
+        "expected_results": [
+          {
+            "fieldPath": "parents.firstName",
+            "alsoAccept": [],
+            "anyOf": [
+              "Leo"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.firstName",
+                "value": "Leo",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.occupation",
+            "alsoAccept": [],
+            "anyOf": [
+              "glass plant",
+              "worked nights"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "parents.occupation",
+                "value": "worked nights at the glass plant",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "parents_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "parents.notableLifeEvents",
+            "alsoAccept": [],
+            "anyOf": [
+              "fiddle",
+              "barn dances"
+            ],
+            "optional": false,
+            "hit": false,
+            "matched_items": []
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_011_barn_cats_and_dad_horse",
+      "group": "pets_cardinality",
+      "title": "Barn cats plus dad's horse",
+      "watch": "Canonical pet sentence-diagram: two animal entities, not one merged record.",
+      "user_text": "We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.",
+      "expected_extract": [
+        {
+          "fieldPath": "pets.species",
+          "anyOf": [
+            "cat",
+            "cats"
+          ]
+        },
+        {
+          "fieldPath": "pets.name",
+          "anyOf": [
+            "Silver"
+          ]
+        },
+        {
+          "fieldPath": "pets.species",
+          "anyOf": [
+            "horse"
+          ]
+        },
+        {
+          "fieldPath": "pets.notes",
+          "anyOf": [
+            "ranch work",
+            "dad had a horse"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.",
+          "clauses": [
+            {
+              "raw": "We always had cats.",
+              "who": "We",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "Barn cats mostly.",
+              "who": null,
+              "who_canonical": null,
+              "who_subject_class": "unknown",
+              "event": null,
+              "event_class": "unknown",
+              "place": "Barn",
+              "time": null,
+              "object": "Barn",
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "And my dad had a horse named Silver that he used for ranch work.",
+              "who": "my dad",
+              "who_canonical": "father",
+              "who_subject_class": "parent",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "It sounds like you grew up in a rural setting with animals. What was your favorite thing about having barn cats?",
+        "elapsed_ms": 4233,
+        "raw_event_count": 25,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 15575,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-009",
+          "answer": "We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.",
+          "current_section": "childhood_pets",
+          "current_target_path": "pets.name",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.",
+          "normalized_transcript": "We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "pets.species",
+              "value": "cat",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "pets.name",
+              "value": "Silver",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "pets.notes",
+              "value": "barn cat, horse used for ranch work",
+              "writeMode": "suggest_only",
+              "confidence": 0.8,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted information as a JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"pets.species\",\n    \"value\": \"cat\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"pets.name\",\n    \"value\": \"Silver\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"pets.notes\",\n    \"value\": \"barn cat, horse used for ranch work\",\n    \"confidence\": 0.8\n  }\n]\n```\n\nNote that I assumed the confidence levels based on the provided answer. In a real-world",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "pets.species",
+            "value": "cat",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "pets.name",
+            "value": "Silver",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "pets.notes",
+            "value": "barn cat, horse used for ranch work",
+            "writeMode": "suggest_only",
+            "confidence": 0.8,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 3,
+        "expected_total": 4,
+        "must_not_violations": 0,
+        "passed": false,
+        "expected_results": [
+          {
+            "fieldPath": "pets.species",
+            "alsoAccept": [],
+            "anyOf": [
+              "cat",
+              "cats"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.species",
+                "value": "cat",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "pets.name",
+            "alsoAccept": [],
+            "anyOf": [
+              "Silver"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.name",
+                "value": "Silver",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "pets.species",
+            "alsoAccept": [],
+            "anyOf": [
+              "horse"
+            ],
+            "optional": false,
+            "hit": false,
+            "matched_items": []
+          },
+          {
+            "fieldPath": "pets.notes",
+            "alsoAccept": [],
+            "anyOf": [
+              "ranch work",
+              "dad had a horse"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.notes",
+                "value": "barn cat, horse used for ranch work",
+                "writeMode": "suggest_only",
+                "confidence": 0.8,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_012_named_dog_and_unnamed_cats",
+      "group": "pets_cardinality",
+      "title": "Named dog plus unnamed cats",
+      "watch": "Does name attach to dog only, not cats?",
+      "user_text": "Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.",
+      "expected_extract": [
+        {
+          "fieldPath": "pets.name",
+          "anyOf": [
+            "Biscuit"
+          ]
+        },
+        {
+          "fieldPath": "pets.species",
+          "anyOf": [
+            "dog",
+            "beagle",
+            "cat",
+            "cats"
+          ]
+        },
+        {
+          "fieldPath": "pets.notes",
+          "anyOf": [
+            "barn cats",
+            "none of the cats had names"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.",
+          "clauses": [
+            {
+              "raw": "Our dog was named Biscuit, a beagle.",
+              "who": "dog",
+              "who_canonical": "dog",
+              "who_subject_class": "pet",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "We also had barn cats, but none of the cats had names that I remember.",
+              "who": "We",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": null,
+              "event_class": "unknown",
+              "place": "barn",
+              "time": null,
+              "object": "barn",
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "That's so sweet! I'm glad you have fond memories of your furry friends. What was Biscuit like?",
+        "elapsed_ms": 5968,
+        "raw_event_count": 27,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 19170,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-010",
+          "answer": "Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.",
+          "current_section": "childhood_pets",
+          "current_target_path": "pets.name",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.",
+          "normalized_transcript": "Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "pets.name",
+              "value": "Biscuit",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "pets.species",
+              "value": "beagle",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"pets.name\",\n    \"value\": \"Biscuit\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"pets.species\",\n    \"value\": \"beagle\",\n    \"confidence\": 0.9\n  }\n]\n```\n\nNote that since the narrator doesn't mention any specific names for the barn cats, no corresponding `pets.name` field is emitted. However, the presence of barn cats is noted in the `pets.notes` field:\n\n```\n{\n  \"fieldPath\": \"pets.notes",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "pets.name",
+            "value": "Biscuit",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "pets.species",
+            "value": "beagle",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 2,
+        "expected_total": 3,
+        "must_not_violations": 0,
+        "passed": false,
+        "expected_results": [
+          {
+            "fieldPath": "pets.name",
+            "alsoAccept": [],
+            "anyOf": [
+              "Biscuit"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.name",
+                "value": "Biscuit",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "pets.species",
+            "alsoAccept": [],
+            "anyOf": [
+              "dog",
+              "beagle",
+              "cat",
+              "cats"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.species",
+                "value": "beagle",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "pets.notes",
+            "alsoAccept": [],
+            "anyOf": [
+              "barn cats",
+              "none of the cats had names"
+            ],
+            "optional": false,
+            "hit": false,
+            "matched_items": []
+          }
+        ],
+        "must_not_results": []
+      }
+    },
+    {
+      "id": "sd_013_favorite_horse_followup",
+      "group": "pets_cardinality",
+      "title": "Favorite horse follow-up detail",
+      "watch": "Horse should be accepted as pet/animal memory.",
+      "user_text": "The horse I remember best was Grey. She was my favorite, and I rode her every morning before chores.",
+      "expected_extract": [
+        {
+          "fieldPath": "pets.name",
+          "anyOf": [
+            "Grey"
+          ]
+        },
+        {
+          "fieldPath": "pets.species",
+          "anyOf": [
+            "horse"
+          ]
+        },
+        {
+          "fieldPath": "pets.notes",
+          "anyOf": [
+            "favorite",
+            "rode her every morning",
+            "chores"
+          ]
+        }
+      ],
+      "must_not_extract": [],
+      "utterance_frame": {
+        "available": true,
+        "frame": {
+          "raw_text": "The horse I remember best was Grey. She was my favorite, and I rode her every morning before chores.",
+          "clauses": [
+            {
+              "raw": "The horse I remember best was Grey.",
+              "who": "I",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            },
+            {
+              "raw": "She was my favorite, and I rode her every morning before chores.",
+              "who": "I",
+              "who_canonical": "narrator",
+              "who_subject_class": "self",
+              "event": null,
+              "event_class": "unknown",
+              "place": null,
+              "time": null,
+              "object": null,
+              "feeling": null,
+              "negation": false,
+              "uncertainty": false,
+              "candidate_fieldPaths": []
+            }
+          ],
+          "unbound_remainder": "",
+          "parse_confidence": "partial"
+        }
+      },
+      "chat": {
+        "skipped": false,
+        "error": null,
+        "assistant_text": "What were some of your favorite memories of riding her?",
+        "elapsed_ms": 3697,
+        "raw_event_count": 26,
+        "raw_event_types": [
+          "status",
+          "session_verified",
+          "status",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "token",
+          "done"
+        ]
+      },
+      "lori_grounding": {
+        "checked": false
+      },
+      "extract": {
+        "elapsed_ms": 20909,
+        "payload": {
+          "person_id": "sentence-diagram-harness-96954524-fadc-4828-b41c-8ec4c1a8b33a",
+          "session_id": "sentence-diagram-1777779568-011",
+          "answer": "The horse I remember best was Grey. She was my favorite, and I rode her every morning before chores.",
+          "current_section": "childhood_pets",
+          "current_target_path": "pets.notes",
+          "current_era": "early_school_years",
+          "current_pass": "pass1",
+          "current_mode": "open",
+          "transcript_source": "typed",
+          "raw_transcript": "The horse I remember best was Grey. She was my favorite, and I rode her every morning before chores.",
+          "normalized_transcript": "The horse I remember best was Grey. She was my favorite, and I rode her every morning before chores.",
+          "profile_context": {}
+        },
+        "response": {
+          "items": [
+            {
+              "fieldPath": "pets.name",
+              "value": "Grey",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "pets.species",
+              "value": "horse",
+              "writeMode": "candidate_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            },
+            {
+              "fieldPath": "pets.notes",
+              "value": "favorite horse; ridden every morning before chores",
+              "writeMode": "suggest_only",
+              "confidence": 0.9,
+              "source": "backend_extract",
+              "extractionMethod": "llm",
+              "repeatableGroup": "pets_0",
+              "plausibility_flag": null,
+              "plausibility_reason": null,
+              "plausibility_age": null,
+              "audio_source": "typed",
+              "needs_confirmation": null,
+              "confirmation_reason": null
+            }
+          ],
+          "method": "llm",
+          "raw_llm_output": "Here is the extracted information as a JSON array:\n\n```\n[\n  {\n    \"fieldPath\": \"pets.name\",\n    \"value\": \"Grey\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"pets.species\",\n    \"value\": \"horse\",\n    \"confidence\": 0.9\n  },\n  {\n    \"fieldPath\": \"pets.notes\",\n    \"value\": \"favorite horse; ridden every morning before chores\",\n    \"confidence\": 0.9\n  }\n]\n```\n\nNote that since the primary question target is `pets.notes`, we're extracting the entire narrative",
+          "clarification_required": []
+        },
+        "items": [
+          {
+            "fieldPath": "pets.name",
+            "value": "Grey",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "pets.species",
+            "value": "horse",
+            "writeMode": "candidate_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          },
+          {
+            "fieldPath": "pets.notes",
+            "value": "favorite horse; ridden every morning before chores",
+            "writeMode": "suggest_only",
+            "confidence": 0.9,
+            "source": "backend_extract",
+            "extractionMethod": "llm",
+            "repeatableGroup": "pets_0",
+            "plausibility_flag": null,
+            "plausibility_reason": null,
+            "plausibility_age": null,
+            "audio_source": "typed",
+            "needs_confirmation": null,
+            "confirmation_reason": null
+          }
+        ],
+        "error": null
+      },
+      "score": {
+        "expected_hits": 3,
+        "expected_total": 3,
+        "must_not_violations": 0,
+        "passed": true,
+        "expected_results": [
+          {
+            "fieldPath": "pets.name",
+            "alsoAccept": [],
+            "anyOf": [
+              "Grey"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.name",
+                "value": "Grey",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "pets.species",
+            "alsoAccept": [],
+            "anyOf": [
+              "horse"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.species",
+                "value": "horse",
+                "writeMode": "candidate_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          },
+          {
+            "fieldPath": "pets.notes",
+            "alsoAccept": [],
+            "anyOf": [
+              "favorite",
+              "rode her every morning",
+              "chores"
+            ],
+            "optional": false,
+            "hit": true,
+            "matched_items": [
+              {
+                "fieldPath": "pets.notes",
+                "value": "favorite horse; ridden every morning before chores",
+                "writeMode": "suggest_only",
+                "confidence": 0.9,
+                "source": "backend_extract",
+                "extractionMethod": "llm",
+                "repeatableGroup": "pets_0",
+                "plausibility_flag": null,
+                "plausibility_reason": null,
+                "plausibility_age": null,
+                "audio_source": "typed",
+                "needs_confirmation": null,
+                "confirmation_reason": null
+              }
+            ]
+          }
+        ],
+        "must_not_results": []
+      }
+    }
+  ]
+}

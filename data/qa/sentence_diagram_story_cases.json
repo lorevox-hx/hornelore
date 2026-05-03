@@ -1,0 +1,669 @@
+{
+  "_wo": "WO-EX-SENTENCE-DIAGRAM-STORY-SURVEY-01",
+  "_version": 1,
+  "purpose": "Large mixed narrator-turn survey for DOB/POB variants, parent occupation-vs-talent, side income, housewife/homemaker duties, multi-animal pet clauses, spouse alias, and clause/entity binding. Fictionalized from the style of existing Lorevox narrator preload templates; names changed.",
+  "default_profile_context": {
+    "personal": {
+      "fullName": "Test Narrator",
+      "preferredName": "Tester"
+    }
+  },
+  "cases": [
+    {
+      "id": "sd_001_birth_place_date_comma",
+      "group": "dob_pob",
+      "title": "Born in place, on date",
+      "user_text": "I was born in Cedar Falls, Iowa, on August 30th, 1939. My dad Peter worked at an aluminum factory there.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.dateOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Cedar Falls, Iowa"]},
+        {"fieldPath": "personal.dateOfBirth", "anyOf": ["1939-08-30", "August 30, 1939", "August 30th, 1939"]},
+        {"fieldPath": "parents.firstName", "anyOf": ["Peter"]},
+        {"fieldPath": "parents.occupation", "anyOf": ["aluminum factory", "aluminum factory worker"]}
+      ],
+      "watch": "Does DOB get emitted every time, not just POB?"
+    },
+    {
+      "id": "sd_002_birth_date_then_place",
+      "group": "dob_pob",
+      "title": "Born on date in place",
+      "user_text": "I was born on August 30, 1939 in Cedar Falls, Iowa, and we lived there until I was six.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.dateOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "personal.dateOfBirth", "anyOf": ["1939-08-30", "August 30, 1939"]},
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Cedar Falls, Iowa"]}
+      ],
+      "watch": "Reverse order DOB/POB pattern."
+    },
+    {
+      "id": "sd_003_birthday_sentence",
+      "group": "dob_pob",
+      "title": "Birthday sentence plus birthplace",
+      "user_text": "My birthday is August 30, 1939. I was born in Cedar Falls, Iowa, at the old county hospital.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.dateOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "personal.dateOfBirth", "anyOf": ["1939-08-30", "August 30, 1939"]},
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Cedar Falls, Iowa", "old county hospital"]}
+      ],
+      "watch": "Can birthday and birthplace split across two sentences?"
+    },
+    {
+      "id": "sd_004_lowercase_place_birth",
+      "group": "dob_pob",
+      "title": "Lowercase place in birth sentence",
+      "user_text": "i was born in cedar falls, iowa on august 30th 1939, but everyone just said i was an iowa baby.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.dateOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Cedar Falls, Iowa", "cedar falls, iowa"]},
+        {"fieldPath": "personal.dateOfBirth", "anyOf": ["1939-08-30", "August 30, 1939"]}
+      ],
+      "watch": "Lowercase date/place casing."
+    },
+    {
+      "id": "sd_005_dual_subject_same_birth_place",
+      "group": "dob_pob_binding",
+      "title": "Father and narrator born in same town",
+      "user_text": "My dad was born in Maple Junction, and I was born in Maple Junction too.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.placeOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "parents.birthPlace", "anyOf": ["Maple Junction"]},
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Maple Junction"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "parents.lastName", "anyOf": ["Maple Junction"]}
+      ],
+      "watch": "Sentence-diagram dual-subject split; place must not become surname."
+    },
+    {
+      "id": "sd_006_mother_and_narrator_same_birth_place",
+      "group": "dob_pob_binding",
+      "title": "Mother and narrator born in same city",
+      "user_text": "Mom was born in Riverbend, and I was born in Riverbend too, but years apart.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.placeOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "parents.birthPlace", "anyOf": ["Riverbend"]},
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Riverbend"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "parents.lastName", "anyOf": ["Riverbend"]}
+      ],
+      "watch": "Same as Stanley/Spokane shape, with new names."
+    },
+    {
+      "id": "sd_007_mother_homemaker_and_organist",
+      "group": "occupation_talent_income",
+      "title": "Mother homemaker plus paid organ side work",
+      "user_text": "My mother was Margaret — everyone called her Maggie. Mostly she was a homemaker and kept the house running, but before she married she was a gifted organist and played for silent movies to make spending money.",
+      "current_section": "mother_stories",
+      "current_target_path": "parents.notableLifeEvents",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["Margaret"]},
+        {"fieldPath": "parents.preferredName", "anyOf": ["Maggie"]},
+        {"fieldPath": "parents.occupation", "anyOf": ["homemaker", "organist", "musician"]},
+        {"fieldPath": "parents.notableLifeEvents", "anyOf": ["silent movies", "played for silent movies", "gifted organist"], "alsoAccept": ["parents.notes"]}
+      ],
+      "watch": "Occupation may be homemaker and organist; side income should go to notable life event/talent, not counted hallucination."
+    },
+    {
+      "id": "sd_008_mother_housewife_piano_church",
+      "group": "occupation_talent_income",
+      "title": "Housewife duties plus church piano",
+      "user_text": "Mother's everyday work was the house — cooking, washing, keeping all of us fed. But she also played piano for church weddings, and people slipped her a few dollars for that.",
+      "current_section": "mother_stories",
+      "current_target_path": "parents.occupation",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.occupation", "anyOf": ["house", "homemaker", "housewife", "piano", "church weddings"]},
+        {"fieldPath": "parents.notableLifeEvents", "anyOf": ["played piano", "church weddings", "few dollars"], "alsoAccept": ["parents.notes"]}
+      ],
+      "watch": "Does it choose only one occupation, or preserve both role and side income?"
+    },
+    {
+      "id": "sd_009_mother_secretary_later_homemaker",
+      "group": "occupation_talent_income",
+      "title": "Work history then homemaker",
+      "user_text": "My mom Evelyn worked as a secretary when she was young, then after the children came she was home with us. She still typed letters for neighbors when they needed help.",
+      "current_section": "mother_stories",
+      "current_target_path": "parents.occupation",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["Evelyn"]},
+        {"fieldPath": "parents.occupation", "anyOf": ["secretary", "home", "homemaker", "typed letters"]},
+        {"fieldPath": "parents.notableLifeEvents", "anyOf": ["typed letters", "neighbors"], "alsoAccept": ["parents.notes"]}
+      ],
+      "watch": "Temporal occupation: secretary before children, homemaker after."
+    },
+    {
+      "id": "sd_010_father_factory_and_fiddle",
+      "group": "occupation_talent_income",
+      "title": "Father job plus musical talent",
+      "user_text": "My dad Leo worked nights at the glass plant, but on Saturdays he played fiddle at barn dances. The plant paid the bills; the fiddle was what made him happy.",
+      "current_section": "father_story",
+      "current_target_path": "parents.occupation",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["Leo"]},
+        {"fieldPath": "parents.occupation", "anyOf": ["glass plant", "worked nights"]},
+        {"fieldPath": "parents.notableLifeEvents", "anyOf": ["fiddle", "barn dances"], "alsoAccept": ["parents.notes"]}
+      ],
+      "watch": "Separate paid job from talent/hobby."
+    },
+    {
+      "id": "sd_011_barn_cats_and_dad_horse",
+      "group": "pets_cardinality",
+      "title": "Barn cats plus dad's horse",
+      "user_text": "We always had cats. Barn cats mostly. And my dad had a horse named Silver that he used for ranch work.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.name",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "pets.species", "anyOf": ["cat", "cats"]},
+        {"fieldPath": "pets.name", "anyOf": ["Silver"]},
+        {"fieldPath": "pets.species", "anyOf": ["horse"]},
+        {"fieldPath": "pets.notes", "anyOf": ["ranch work", "dad had a horse"]}
+      ],
+      "watch": "Canonical pet sentence-diagram: two animal entities, not one merged record."
+    },
+    {
+      "id": "sd_012_named_dog_and_unnamed_cats",
+      "group": "pets_cardinality",
+      "title": "Named dog plus unnamed cats",
+      "user_text": "Our dog was named Biscuit, a beagle. We also had barn cats, but none of the cats had names that I remember.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.name",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Biscuit"]},
+        {"fieldPath": "pets.species", "anyOf": ["dog", "beagle", "cat", "cats"]},
+        {"fieldPath": "pets.notes", "anyOf": ["barn cats", "none of the cats had names"]}
+      ],
+      "watch": "Does name attach to dog only, not cats?"
+    },
+    {
+      "id": "sd_013_favorite_horse_followup",
+      "group": "pets_cardinality",
+      "title": "Favorite horse follow-up detail",
+      "user_text": "The horse I remember best was Grey. She was my favorite, and I rode her every morning before chores.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.notes",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Grey"]},
+        {"fieldPath": "pets.species", "anyOf": ["horse"]},
+        {"fieldPath": "pets.notes", "anyOf": ["favorite", "rode her every morning", "chores"]}
+      ],
+      "watch": "Horse should be accepted as pet/animal memory."
+    },
+    {
+      "id": "sd_014_pet_breed_vs_species",
+      "group": "pets_species_breed",
+      "title": "Breed should satisfy dog species",
+      "user_text": "Ivan was a Golden Retriever, the family dog, and he slept by the kitchen stove.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.species",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Ivan"]},
+        {"fieldPath": "pets.species", "anyOf": ["dog", "Golden Retriever", "retriever"]},
+        {"fieldPath": "pets.notes", "anyOf": ["kitchen stove", "family dog"]}
+      ],
+      "watch": "Breed/species normalization."
+    },
+    {
+      "id": "sd_015_species_then_breed",
+      "group": "pets_species_breed",
+      "title": "Dog plus breed detail",
+      "user_text": "Buster was our dog, really a Labrador retriever, and he followed the kids everywhere.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.name",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Buster"]},
+        {"fieldPath": "pets.species", "anyOf": ["dog", "Labrador", "retriever"]},
+        {"fieldPath": "pets.notes", "anyOf": ["followed the kids"]}
+      ],
+      "watch": "Case_045 shape: labrador retriever should not fail if expected dog."
+    },
+    {
+      "id": "sd_016_grandmother_cultural_origin",
+      "group": "heritage_thematic_binding",
+      "title": "Cultural heritage as memory, not only people/place facts",
+      "user_text": "We were Volga Germans. Both sides — the Millers and the Schaafs. My grandmother Clara's family came through Odessa, and that whole culture came through in the food and the way things were done.",
+      "current_section": "family_rituals_and_holidays",
+      "current_target_path": "earlyMemories.significantEvent",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["Volga Germans", "culture", "food", "way things were done"]},
+        {"fieldPath": "grandparents.firstName", "anyOf": ["Clara"]},
+        {"fieldPath": "grandparents.memorableStory", "anyOf": ["Odessa", "Volga Germans"]}
+      ],
+      "watch": "Case_028 shape: thematic cultural identity vs decomposition into relatives only."
+    },
+    {
+      "id": "sd_017_grandfather_not_parent",
+      "group": "kinship_binding",
+      "title": "Grandfather must not bind to parents",
+      "user_text": "My grandfather Anton hated the old empire, but my father Leo never talked politics at all.",
+      "current_section": "family_history",
+      "current_target_path": "grandparents.firstName",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "grandparents.firstName", "anyOf": ["Anton"]},
+        {"fieldPath": "parents.firstName", "anyOf": ["Leo"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["Anton"]}
+      ],
+      "watch": "Case_028 Mathias-to-parents error shape."
+    },
+    {
+      "id": "sd_018_spouse_alias_simple",
+      "group": "spouse_alias",
+      "title": "Spouse path alias",
+      "user_text": "My wife Helen was born in Mason City, Iowa. Helen was the steady one in our marriage.",
+      "current_section": "spouse",
+      "current_target_path": "spouse.firstName",
+      "current_era": "building_years",
+      "expected_extract": [
+        {"fieldPath": "spouse.firstName", "anyOf": ["Helen"], "alsoAccept": ["family.spouse.firstName"]},
+        {"fieldPath": "spouse.placeOfBirth", "anyOf": ["Mason City, Iowa"], "alsoAccept": ["family.spouse.placeOfBirth"]}
+      ],
+      "watch": "Case_110 alias gap: family.spouse.* vs spouse.*."
+    },
+    {
+      "id": "sd_019_partner_not_legal_spouse",
+      "group": "spouse_alias",
+      "title": "Partner commitment, not necessarily legal marriage",
+      "user_text": "My partner Samuel was born in Chicago. We never had a big legal wedding, but he has been my family for forty years.",
+      "current_section": "spouse",
+      "current_target_path": "spouse.firstName",
+      "current_era": "building_years",
+      "expected_extract": [
+        {"fieldPath": "spouse.firstName", "anyOf": ["Samuel"], "alsoAccept": ["family.spouse.firstName"]},
+        {"fieldPath": "spouse.placeOfBirth", "anyOf": ["Chicago"]},
+        {"fieldPath": "spouse.narrative", "anyOf": ["forty years", "family"]}
+      ],
+      "watch": "Modern partner/chosen family should not disappear because not legal spouse."
+    },
+    {
+      "id": "sd_020_children_list_three",
+      "group": "cardinality_children",
+      "title": "Three children in one sentence",
+      "user_text": "Our children were Anna, Benjamin, and Clara. Anna was the oldest, Benjamin came second, and Clara was the baby.",
+      "current_section": "parenthood",
+      "current_target_path": "family.children.firstName",
+      "current_era": "building_years",
+      "expected_extract": [
+        {"fieldPath": "family.children.firstName", "anyOf": ["Anna"]},
+        {"fieldPath": "family.children.firstName", "anyOf": ["Benjamin"]},
+        {"fieldPath": "family.children.firstName", "anyOf": ["Clara"]},
+        {"fieldPath": "family.children.birthOrder", "anyOf": ["oldest", "second", "baby"]}
+      ],
+      "watch": "List splitting vs concatenated child names."
+    },
+    {
+      "id": "sd_021_siblings_list_birth_order",
+      "group": "cardinality_siblings",
+      "title": "Sibling list with relation and order",
+      "user_text": "My brothers were Robert and James. Robert was oldest, James was second, and I was the youngest.",
+      "current_section": "sibling_dynamics",
+      "current_target_path": "siblings.firstName",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "siblings.firstName", "anyOf": ["Robert"]},
+        {"fieldPath": "siblings.firstName", "anyOf": ["James"]},
+        {"fieldPath": "siblings.relation", "anyOf": ["brother"]},
+        {"fieldPath": "personal.birthOrder", "anyOf": ["youngest"]}
+      ],
+      "watch": "Sibling relation + birth order, avoids one concatenated blob only."
+    },
+    {
+      "id": "sd_022_father_work_life_map",
+      "group": "work_vs_community",
+      "title": "Parent work and community project",
+      "user_text": "My dad Peter was foreman of the finishing crew on the Red River dam project. At home he was just Dad, but out there people knew him as the cement man.",
+      "current_section": "community_belonging",
+      "current_target_path": "community.role",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["Peter"]},
+        {"fieldPath": "parents.occupation", "anyOf": ["foreman", "cement"]},
+        {"fieldPath": "community.organization", "anyOf": ["Red River dam"]},
+        {"fieldPath": "community.role", "anyOf": ["foreman", "finishing crew"]}
+      ],
+      "watch": "Dual-binding: parent occupation and community role can both be true."
+    },
+    {
+      "id": "sd_023_working_by_eighteen",
+      "group": "early_career_binding",
+      "title": "Working construction by eighteen",
+      "user_text": "By the time I turned eighteen, I was already working construction and learning the trades from older men on the crew.",
+      "current_section": "civic_entry_age_18",
+      "current_target_path": "education.earlyCareer",
+      "current_era": "coming_of_age",
+      "expected_extract": [
+        {"fieldPath": "education.earlyCareer", "anyOf": ["working construction", "learning the trades", "age eighteen", "eighteen"]}
+      ],
+      "watch": "Case_020 shape: should not route only to laterYears.significantEvent."
+    },
+    {
+      "id": "sd_024_grandparent_military_story",
+      "group": "ancestor_military_schema",
+      "title": "Great-grandparent military story",
+      "user_text": "My great-grandfather John served in Company G during the Civil War, mostly in Kansas and Missouri, from 1865 into 1866.",
+      "current_section": "family_stories_and_lore",
+      "current_target_path": "military.significantEvent",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "greatGrandparents.firstName", "anyOf": ["John"]},
+        {"fieldPath": "greatGrandparents.militaryEvent", "anyOf": ["Civil War", "Company G", "Kansas", "Missouri", "1865", "1866"]},
+        {"fieldPath": "military.significantEvent", "anyOf": ["Civil War", "Company G"], "alsoAccept": ["greatGrandparents.militaryEvent"]}
+      ],
+      "watch": "Schema ancestor military vs narrator military."
+    },
+    {
+      "id": "sd_025_mother_college_boarding_school",
+      "group": "notable_events_narrative",
+      "title": "Mother education should become notable life event, not narrator education",
+      "user_text": "Mother went to Capitol Business College for two years, then later told us about being sent by train to Saint Martha's boarding school when she was young. She hated boarding school and said she would never send us away.",
+      "current_section": "mother_stories",
+      "current_target_path": "parents.notableLifeEvents",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.notableLifeEvents", "anyOf": ["Capitol Business College", "boarding school", "sent by train", "never send us away"], "alsoAccept": ["parents.notes"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "education.schooling", "anyOf": ["Capitol Business College", "boarding school"]},
+        {"fieldPath": "education.higherEducation", "anyOf": ["Capitol Business College"]}
+      ],
+      "watch": "Case_075/035 shape: parent education must not write narrator education."
+    },
+    {
+      "id": "sd_026_dict_repr_pressure",
+      "group": "notable_events_narrative",
+      "title": "Multiple school event names in parent narrative",
+      "user_text": "Mom's school story had three names in it: Capitol Business College, Saint Martha's, and Sacred Heart. But the point was not a list of schools; the point was how lonely she felt being sent away so young.",
+      "current_section": "mother_stories",
+      "current_target_path": "parents.notableLifeEvents",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.notableLifeEvents", "anyOf": ["lonely", "sent away", "Capitol Business College", "Saint Martha", "Sacred Heart"], "alsoAccept": ["parents.notes"]}
+      ],
+      "watch": "Does notableLifeEvents become a clean string, not dict/list repr?"
+    },
+    {
+      "id": "sd_027_household_routine_from_shift_work",
+      "group": "lori_grounding",
+      "title": "Lori should ground on plant/night shifts",
+      "user_text": "My dad worked nights at the aluminum plant, so supper was quiet and mornings were when we had to be careful not to wake him.",
+      "current_section": "family_routines",
+      "current_target_path": "parents.occupation",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.occupation", "anyOf": ["aluminum plant", "worked nights"]},
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["supper was quiet", "not to wake him", "mornings"]}
+      ],
+      "lori_expectation": ["aluminum plant", "nights", "supper", "wake him"],
+      "watch": "Report should show whether Lori's response grounds on concrete nouns."
+    },
+    {
+      "id": "sd_028_health_weariness_nonacute",
+      "group": "soft_safety_hitl",
+      "title": "Pain/life-weariness as HITL signal",
+      "user_text": "I am so old and I ache so much that sometimes I do not want to be alive anymore, but I am not planning to hurt myself tonight.",
+      "current_section": "health_and_body",
+      "current_target_path": "health.majorCondition",
+      "current_era": "later_years",
+      "expected_extract": [
+        {"fieldPath": "health.majorCondition", "anyOf": ["ache", "pain", "old"]}
+      ],
+      "watch": "Should flag operator concern / softened response, not extract bogus facts or ask compound questions."
+    },
+    {
+      "id": "sd_029_uncertainty_birthplace",
+      "group": "uncertainty_fragile_fact",
+      "title": "Uncertain birthplace should be suggest/confirm",
+      "user_text": "I think I was born in Cedar Falls, or maybe Waterloo. I know the date was August 30, 1939, but I am not certain about the town.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.dateOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "personal.dateOfBirth", "anyOf": ["1939-08-30", "August 30, 1939"]},
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Cedar Falls", "Waterloo"]}
+      ],
+      "watch": "Uncertainty should be visible; fragile place may need confirmation."
+    },
+    {
+      "id": "sd_030_negated_wrong_birthplace",
+      "group": "negation_guard",
+      "title": "Negated birthplace must not write",
+      "user_text": "People sometimes say I was born in Waterloo, but that is not right. I was born in Cedar Falls, Iowa.",
+      "current_section": "origin_point",
+      "current_target_path": "personal.placeOfBirth",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Cedar Falls, Iowa", "Cedar Falls"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "personal.placeOfBirth", "anyOf": ["Waterloo"]}
+      ],
+      "watch": "Negation/contrast guard."
+    },
+    {
+      "id": "sd_031_maiden_name_vs_place",
+      "group": "kinship_binding",
+      "title": "Mother maiden name plus place",
+      "user_text": "My mother's maiden name was Novak, and she was born in Pine Bluff. Pine Bluff was the place, not the family name.",
+      "current_section": "mother_stories",
+      "current_target_path": "parents.maidenName",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.maidenName", "anyOf": ["Novak"]},
+        {"fieldPath": "parents.birthPlace", "anyOf": ["Pine Bluff"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "parents.lastName", "anyOf": ["Pine Bluff"]},
+        {"fieldPath": "parents.maidenName", "anyOf": ["Pine Bluff"]}
+      ],
+      "watch": "Place-lastName/maidenName guard shape."
+    },
+    {
+      "id": "sd_032_chosen_family_partner_friend",
+      "group": "chosen_family",
+      "title": "Chosen family vs spouse",
+      "user_text": "Marisol was not my spouse. She was my closest friend and chosen family; Sarah was my partner.",
+      "current_section": "family_stories_and_lore",
+      "current_target_path": "family.spouse.firstName",
+      "current_era": "building_years",
+      "expected_extract": [
+        {"fieldPath": "family.spouse.firstName", "anyOf": ["Sarah"], "alsoAccept": ["spouse.firstName"]},
+        {"fieldPath": "family.chosenFamily.firstName", "anyOf": ["Marisol"], "optional": true}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "family.spouse.firstName", "anyOf": ["Marisol"]},
+        {"fieldPath": "spouse.firstName", "anyOf": ["Marisol"]}
+      ],
+      "watch": "Negated spouse vs chosen family."
+    },
+    {
+      "id": "sd_033_stepfather_blended_family",
+      "group": "complex_family_blended",
+      "title": "Three named parental figures (bio mom + bio dad + stepdad)",
+      "user_text": "My mother Joanne was a nurse aide. My biological father Richard worked at the auto plant in Dayton. My stepdad Leonard came along when I was about ten — he was a truck driver.",
+      "current_section": "family_history",
+      "current_target_path": "parents.firstName",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["Joanne"]},
+        {"fieldPath": "parents.firstName", "anyOf": ["Richard"]},
+        {"fieldPath": "parents.firstName", "anyOf": ["Leonard"]},
+        {"fieldPath": "parents.occupation", "anyOf": ["nurse aide", "auto plant", "truck driver"]},
+        {"fieldPath": "parents.relation", "anyOf": ["Mother", "mother", "Father", "father", "Stepfather", "stepfather"]}
+      ],
+      "watch": "Three distinct parental figures with relations. Must not collapse stepfather into biological father slot."
+    },
+    {
+      "id": "sd_034_lgbtq_self_disclosure",
+      "group": "identity_disclosure",
+      "title": "Self-disclosure of orientation in adolescence",
+      "user_text": "I knew I was gay when I was about fourteen but I didn't tell anyone for years. I didn't have the words for it back then.",
+      "current_section": "coming_of_age",
+      "current_target_path": "personal.identityNotes",
+      "current_era": "adolescence",
+      "expected_extract": [
+        {"fieldPath": "personal.identityNotes", "anyOf": ["gay", "fourteen", "didn't tell anyone"], "optional": true},
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["fourteen", "didn't tell anyone", "didn't have the words"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "family.spouse.firstName", "anyOf": ["gay"]}
+      ],
+      "watch": "Sensitive self-disclosure. Must not slot orientation into a name field. Identity-notes path may not exist; narrative should still anchor."
+    },
+    {
+      "id": "sd_035_sparse_unknown_father",
+      "group": "sparse_uncertain_kinship",
+      "title": "Narrator does not know father details",
+      "user_text": "I don't really know much about my father. He left when I was very small. My mother was a seamstress in Pueblo.",
+      "current_section": "family_history",
+      "current_target_path": "parents.firstName",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "parents.occupation", "anyOf": ["seamstress"]},
+        {"fieldPath": "parents.relation", "anyOf": ["mother"]},
+        {"fieldPath": "parents.birthPlace", "anyOf": ["Pueblo"], "optional": true}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["father", "He"]},
+        {"fieldPath": "parents.lastName", "anyOf": ["Pueblo"]}
+      ],
+      "watch": "Narrator explicitly disclaims father knowledge. Must not invent firstName, must not bind Pueblo as surname."
+    },
+    {
+      "id": "sd_036_narrator_military_homecoming",
+      "group": "narrator_military_emotional",
+      "title": "Narrator's own service plus unmet-baby homecoming",
+      "user_text": "I served in Korea from 1951 to 1953. Came home to a wife and a baby I'd never met.",
+      "current_section": "young_adulthood",
+      "current_target_path": "military.servicePeriod",
+      "current_era": "coming_of_age",
+      "expected_extract": [
+        {"fieldPath": "military.servicePeriod", "anyOf": ["1951 to 1953", "1951-1953", "Korea", "1951", "1953"]},
+        {"fieldPath": "military.branch", "anyOf": ["Korea"], "optional": true},
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["baby I'd never met", "came home"]}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "greatGrandparents.militaryEvent", "anyOf": ["Korea"]}
+      ],
+      "watch": "Narrator-self military, NOT ancestor military. Must not bind to greatGrandparents.* (sd_024 is the ancestor case)."
+    },
+    {
+      "id": "sd_037_faith_with_critique",
+      "group": "faith_sensitivity",
+      "title": "Faith disclosure with critique of authority figure",
+      "user_text": "We were Catholic, but I was at a Lutheran boarding school for high school. The nuns there were not always kind.",
+      "current_section": "family_rituals_and_holidays",
+      "current_target_path": "spirituality.tradition",
+      "current_era": "adolescence",
+      "expected_extract": [
+        {"fieldPath": "spirituality.tradition", "anyOf": ["Catholic", "Lutheran"], "optional": true},
+        {"fieldPath": "education.schooling", "anyOf": ["Lutheran boarding school", "boarding school"]},
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["nuns", "not always kind"]}
+      ],
+      "watch": "Multi-tradition (raised Catholic, schooled Lutheran). Critique of nuns is narrator-grounded. Lori must not defend or pivot away."
+    },
+    {
+      "id": "sd_038_pet_loss_brief_context",
+      "group": "pets_emotional",
+      "title": "Pet loss — brief context, narrator pacing",
+      "user_text": "Spot was the last dog I had as a kid. Uncle Johnny got him when he had rented a farm. He wasn't there long.",
+      "current_section": "childhood_pets",
+      "current_target_path": "pets.name",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Spot"]},
+        {"fieldPath": "pets.species", "anyOf": ["dog"]},
+        {"fieldPath": "pets.notes", "anyOf": ["Uncle Johnny", "rented a farm", "wasn't there long", "last dog"]}
+      ],
+      "watch": "Pet loss with restraint — 'wasn't there long' is the emotional weight. Lori must not force grief framing or skip past it."
+    },
+    {
+      "id": "sd_039_stt_disfluency",
+      "group": "stt_garbage_resilience",
+      "title": "STT-shaped disfluency on father's workplace",
+      "user_text": "My my dad uh he he worked at uh the the aluminum plant in in Spokane I think it was Spokane yeah",
+      "current_section": "father_story",
+      "current_target_path": "parents.occupation",
+      "current_era": "early_school_years",
+      "expected_extract": [
+        {"fieldPath": "parents.occupation", "anyOf": ["aluminum plant", "worked at the aluminum plant"]},
+        {"fieldPath": "parents.workPlace", "anyOf": ["Spokane"], "optional": true}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "parents.firstName", "anyOf": ["my", "uh", "he"]},
+        {"fieldPath": "parents.lastName", "anyOf": ["Spokane"]}
+      ],
+      "watch": "Disfluency stress test. Extractor must clean past 'my my' / 'uh' / 'in in' without binding them as names. Lori must not echo or correct the stutter."
+    },
+    {
+      "id": "sd_040_six_clause_run_on",
+      "group": "run_on_compound_stress",
+      "title": "Six-clause childhood run-on with multiple anchors",
+      "user_text": "When I was little we lived on a farm in North Dakota and I had a horse named Grey and my sister Verene didn't like to be outside but I loved being out there with the animals and the cows and once I almost got kicked by a milking cow.",
+      "current_section": "childhood_pets",
+      "current_target_path": "earlyMemories.significantEvent",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "pets.name", "anyOf": ["Grey"]},
+        {"fieldPath": "pets.species", "anyOf": ["horse"]},
+        {"fieldPath": "siblings.firstName", "anyOf": ["Verene"]},
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["milking cow", "almost got kicked", "farm in North Dakota"]}
+      ],
+      "watch": "Six-clause stress test. Multiple distinct entities + concrete-event anchor. Extractor binding pressure; Lori should pick ONE specific anchor (the kicked-by-cow incident is most memorable) for grounding."
+    },
+    {
+      "id": "sd_041_negation_personal_memory",
+      "group": "negation_secondhand_knowledge",
+      "title": "Narrator denies personal memory but cites secondhand",
+      "user_text": "I don't really remember my grandmother very well. She died when I was small. I just know she was a tough lady from what my mother said.",
+      "current_section": "family_history",
+      "current_target_path": "grandparents.memorableStory",
+      "current_era": "earliest_years",
+      "expected_extract": [
+        {"fieldPath": "grandparents.memorableStory", "anyOf": ["tough lady", "died when I was small"]},
+        {"fieldPath": "grandparents.notes", "anyOf": ["from what my mother said"], "optional": true}
+      ],
+      "must_not_extract": [
+        {"fieldPath": "grandparents.firstName", "anyOf": ["she"]}
+      ],
+      "watch": "Negation of personal memory + secondhand framing. Must preserve the 'tough lady' anchor (came from mother, not narrator). Lori must not push for direct memory."
+    },
+    {
+      "id": "sd_042_stated_affect_responsibility",
+      "group": "stated_affect_grounding",
+      "title": "Narrator names own feeling + responsibility weight",
+      "user_text": "When my mother died I felt scared. I was the only one left who really remembered her stories.",
+      "current_section": "loss_and_grief",
+      "current_target_path": "earlyMemories.significantEvent",
+      "current_era": "later_years",
+      "expected_extract": [
+        {"fieldPath": "earlyMemories.significantEvent", "anyOf": ["mother died", "felt scared", "remembered her stories"]},
+        {"fieldPath": "parents.deceased", "anyOf": [true, "true", "deceased"], "optional": true}
+      ],
+      "lori_expectation": ["scared", "stories", "remembered", "you"],
+      "watch": "Narrator-stated affect ('scared') + responsibility weight ('only one left'). Lori must reflect the feeling + the responsibility WITHOUT therapizing or diminishing. Test whether assistant_text lands ANY of the lori_expectation grounding terms."
+    }
+  ]
+}
