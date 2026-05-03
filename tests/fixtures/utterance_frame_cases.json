@@ -378,6 +378,45 @@
         "partial",
         "low"
       ]
+    },
+    {
+      "id": "uf_025_my_horse_grey_pet_subject",
+      "_origin": "2026-05-02 sentence-diagram-survey polish: horse must classify as a recognized pet/animal noun. Survey case sd_011/013/040 motivated this — horse-as-pet was previously falling through because the relational pet alternation only had dog/cat/pet. Frame canon: bare pet nouns (with or without 'my') match as SUBJECT_PET, same as the existing dog/cat handling. Object slot also fills via _OBJECT_NOUNS_RX. (Whether 'I had a [pet]' should classify SELF instead of PET is an open design question for a separate discussion — for now, matches the existing canon.)",
+      "narrator_text": "I had a horse named Grey when I was little.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "pet",
+          "object": "horse"
+        }
+      ],
+      "expected_confidence_in": ["partial", "low"]
+    },
+    {
+      "id": "uf_026_dad_horse_silver_ranch_work",
+      "_origin": "2026-05-02 sentence-diagram-survey polish: direct lift from sd_011 — 'And my dad had a horse named Silver that he used for ranch work'. Tests sentence-diagram dual-subject (cats clause earlier, dad's horse here). The 'my dad' relational match fires first, so this clause classifies as SUBJECT_PARENT; horse appears as object.",
+      "narrator_text": "And my dad had a horse named Silver that he used for ranch work.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "parent",
+          "who_canonical": "father",
+          "object": "horse"
+        }
+      ],
+      "expected_confidence_in": ["partial", "high"]
+    },
+    {
+      "id": "uf_027_pig_named_sam",
+      "_origin": "2026-05-02 sentence-diagram-survey polish: live-narrator-grounded. Janice's template already lists a childhood pet pig (name + period blank, narrator-confirmed). Chris surfaced the canonical narrator turn — 'I had a pet pig named Sam.' Pig must classify as SUBJECT_PET, matching the existing dog/cat/horse canon.",
+      "narrator_text": "I had a pet pig named Sam.",
+      "expected_clause_count": 1,
+      "expected_clauses_must_include": [
+        {
+          "who_subject_class": "pet"
+        }
+      ],
+      "expected_confidence_in": ["partial", "low"]
     }
   ]
 }

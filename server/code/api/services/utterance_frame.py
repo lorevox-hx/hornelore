@@ -122,7 +122,14 @@ _RELATIONAL_PATTERNS = [
      SUBJECT_GRANDPARENT, None),
 
     # ── Pet ─────────────────────────────────────────────────────────
-    (re.compile(r"\b(my\s+)?(dog|cat|pet)\b", re.IGNORECASE),
+    # 2026-05-02 sentence-diagram-survey polish: added horse + kitten +
+    # puppy + pig. Survey (sd_011 / sd_013 / sd_040 / sd_043) plus
+    # Janice's template (childhood pet pig, narrator-confirmed) showed
+    # the canon was too narrow — dog/cat/pet missed real narrator pets.
+    # The alternation stays conservative — we do NOT add bare "barn" or
+    # "ranch" because those are place tokens; horse, kitten, puppy, and
+    # pig are unambiguously animal subjects.
+    (re.compile(r"\b(my\s+)?(dog|puppy|cat|kitten|horse|pig|pet)\b", re.IGNORECASE),
      SUBJECT_PET, None),
 ]
 
@@ -300,7 +307,13 @@ _OBJECT_NOUNS_RX = re.compile(
     r"radio|tv|television|stove|fireplace|"
     r"camera|photograph|picture|letter|diary|"
     r"aluminum\s+plant|steel\s+mill|drug\s+store|"
-    r"swimming\s+hole|tree\s+house)\b",
+    r"swimming\s+hole|tree\s+house|"
+    # 2026-05-02 sentence-diagram-survey polish: horse + named-pet
+    # context (Silver / Grey / Dusty are typical names). The object
+    # lexicon stays conservative — horse here is a scene anchor noun,
+    # not a subject. Subject classification handles "my horse" via
+    # _RELATIONAL_PATTERNS pet alternation.
+    r"horse)\b",
     re.IGNORECASE,
 )
 
