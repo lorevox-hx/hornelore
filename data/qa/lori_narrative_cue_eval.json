@@ -1,0 +1,859 @@
+{
+  "version": 1,
+  "description": "Seed eval pack for WO-NARRATIVE-CUE-LIBRARY-01. Measures cue selection and Lori follow-up behavior, not extraction accuracy.",
+  "cases": [
+    {
+      "id": "ncue_001_parent_hands",
+      "user_text": "Father’s hands were so callused he could pick up a hot coal from the stove without flinching.",
+      "current_section": "parents",
+      "expected_cue_type": "parent_character",
+      "must_reflect_terms": [
+        "hands",
+        "hot coal"
+      ],
+      "must_not_infer": [
+        "abuse",
+        "trauma",
+        "diagnosis"
+      ],
+      "must_not_write": [
+        "parents.occupation",
+        "parents.notes",
+        "personal.*",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_002_parent_apron",
+      "user_text": "Mother’s apron was like a toolbox; it held seeds, eggs, and occasionally a crying grandchild.",
+      "current_section": "parents",
+      "expected_cue_type": "parent_character",
+      "must_reflect_terms": [
+        "apron",
+        "seeds"
+      ],
+      "must_not_infer": [
+        "diagnosis"
+      ],
+      "must_not_write": [
+        "parents.notes",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_003_parent_silence",
+      "user_text": "Father didn’t hug us. He just put his hand on our shoulder after the harvest was in.",
+      "current_section": "parents",
+      "expected_cue_type": "parent_character",
+      "must_reflect_terms": [
+        "hand on our shoulder",
+        "harvest"
+      ],
+      "must_not_infer": [
+        "cold",
+        "abuse",
+        "trauma"
+      ],
+      "must_not_write": [
+        "parents.notes",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_004_parent_survival_voice",
+      "user_text": "Mother had a Sunday voice for church and a Monday voice for survival.",
+      "current_section": "parents",
+      "expected_cue_type": "parent_character",
+      "must_reflect_terms": [
+        "Sunday voice",
+        "Monday voice"
+      ],
+      "must_not_infer": [
+        "religion as identity",
+        "diagnosis"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "parents.notes"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_005_elder_ribbon",
+      "user_text": "Grandmother kept a silk ribbon from her wedding and touched it once a year before putting it back.",
+      "current_section": "family",
+      "expected_cue_type": "elder_keeper",
+      "must_reflect_terms": [
+        "silk ribbon",
+        "wedding"
+      ],
+      "must_not_infer": [
+        "legal marriage fact"
+      ],
+      "must_not_write": [
+        "grandparents.memorableStory",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_006_elder_blessings",
+      "user_text": "Grandpa rubbed bread on his plate to clean the blessings off.",
+      "current_section": "family",
+      "expected_cue_type": "elder_keeper",
+      "must_reflect_terms": [
+        "bread",
+        "blessings"
+      ],
+      "must_not_infer": [
+        "religion as identity"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "grandparents.memorableStory"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_007_elder_stars",
+      "user_text": "The oldest woman in our family could name every star but could not read a newspaper.",
+      "current_section": "family",
+      "expected_cue_type": "elder_keeper",
+      "must_reflect_terms": [
+        "every star",
+        "newspaper"
+      ],
+      "must_not_infer": [
+        "education judgment"
+      ],
+      "must_not_write": [
+        "education.schooling",
+        "grandparents.notes"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_008_journey_ship",
+      "user_text": "The ship smelled of salt, cabbage, and the fear of people who had nowhere to go back to.",
+      "current_section": "journeys",
+      "expected_cue_type": "journey_arrival",
+      "must_reflect_terms": [
+        "ship",
+        "salt",
+        "cabbage"
+      ],
+      "must_not_infer": [
+        "immigration status"
+      ],
+      "must_not_write": [
+        "residence.place",
+        "personal.placeOfBirth"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_009_journey_train",
+      "user_text": "The train ride from New York felt longer than the ocean crossing.",
+      "current_section": "journeys",
+      "expected_cue_type": "journey_arrival",
+      "must_reflect_terms": [
+        "train",
+        "New York"
+      ],
+      "must_not_infer": [
+        "birthplace"
+      ],
+      "must_not_write": [
+        "personal.placeOfBirth",
+        "residence.place"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_010_journey_orange",
+      "user_text": "I saw my first orange on the train and tried to eat the peel because I didn’t know any better.",
+      "current_section": "journeys",
+      "expected_cue_type": "journey_arrival",
+      "must_reflect_terms": [
+        "orange",
+        "train"
+      ],
+      "must_not_infer": [
+        "poverty judgment"
+      ],
+      "must_not_write": [
+        "travel.destination",
+        "residence.place"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_011_journey_sky",
+      "user_text": "The sky was so big it made my head hurt. I felt like I was going to fall upward into it.",
+      "current_section": "journeys",
+      "expected_cue_type": "journey_arrival",
+      "must_reflect_terms": [
+        "sky",
+        "fall upward"
+      ],
+      "must_not_infer": [
+        "medical condition"
+      ],
+      "must_not_write": [
+        "health.majorCondition",
+        "residence.place"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_012_home_sod",
+      "user_text": "We lived in the sod house for five years. It was warm in winter but smelled like a damp dog.",
+      "current_section": "home",
+      "expected_cue_type": "home_place",
+      "must_reflect_terms": [
+        "sod house",
+        "damp dog"
+      ],
+      "must_not_infer": [
+        "birthplace"
+      ],
+      "must_not_write": [
+        "personal.placeOfBirth",
+        "residence.period"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_013_home_porch",
+      "user_text": "In the summer we slept on the porch to escape the heat of the woodstove.",
+      "current_section": "home",
+      "expected_cue_type": "home_place",
+      "must_reflect_terms": [
+        "porch",
+        "woodstove"
+      ],
+      "must_not_infer": [
+        "neglect"
+      ],
+      "must_not_write": [
+        "residence.notes",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_014_home_onions",
+      "user_text": "The smell of frying onions always meant my father was coming home from the fields.",
+      "current_section": "home",
+      "expected_cue_type": "home_place",
+      "must_reflect_terms": [
+        "frying onions",
+        "father"
+      ],
+      "must_not_infer": [
+        "occupation certainty"
+      ],
+      "must_not_write": [
+        "parents.occupation",
+        "familyTraditions"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_015_work_threshing",
+      "user_text": "Threshing was beautiful and terrible. The dust stayed in your throat for weeks.",
+      "current_section": "work",
+      "expected_cue_type": "work_survival",
+      "must_reflect_terms": [
+        "threshing",
+        "dust"
+      ],
+      "must_not_infer": [
+        "health diagnosis"
+      ],
+      "must_not_write": [
+        "health.majorCondition",
+        "education.earlyCareer"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_016_work_railroad",
+      "user_text": "Father worked the Extra Board for the Great Northern and was home three days a month.",
+      "current_section": "work",
+      "expected_cue_type": "work_survival",
+      "must_reflect_terms": [
+        "Great Northern",
+        "three days"
+      ],
+      "must_not_infer": [
+        "narrator career"
+      ],
+      "must_not_write": [
+        "education.earlyCareer",
+        "parents.occupation"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_017_work_sharecropper",
+      "user_text": "My father was a sharecropper; he spent forty years paying off a debt he never signed for.",
+      "current_section": "work",
+      "expected_cue_type": "work_survival",
+      "must_reflect_terms": [
+        "sharecropper",
+        "debt"
+      ],
+      "must_not_infer": [
+        "political claim"
+      ],
+      "must_not_write": [
+        "parents.occupation",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_018_work_steel",
+      "user_text": "I worked in the steel mill for thirty years. My sweat is in the girders of the skyscrapers.",
+      "current_section": "work",
+      "expected_cue_type": "work_survival",
+      "must_reflect_terms": [
+        "steel mill",
+        "skyscrapers"
+      ],
+      "must_not_infer": [
+        "metaphor as literal"
+      ],
+      "must_not_write": [
+        "education.careerProgression",
+        "residence.place"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_019_food_kuchen",
+      "user_text": "Kuchen is the bread of the soul. Without the cinnamon, it is just dough.",
+      "current_section": "food",
+      "expected_cue_type": "hearth_food",
+      "must_reflect_terms": [
+        "Kuchen",
+        "cinnamon"
+      ],
+      "must_not_infer": [
+        "ethnicity"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "familyTraditions"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_020_food_soup",
+      "user_text": "We made Knoephla soup when the men were tired. The heavy dough made them strong again.",
+      "current_section": "food",
+      "expected_cue_type": "hearth_food",
+      "must_reflect_terms": [
+        "Knoephla soup",
+        "heavy dough"
+      ],
+      "must_not_infer": [
+        "health claim"
+      ],
+      "must_not_write": [
+        "recipes",
+        "health.notes"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_021_food_tin",
+      "user_text": "We saved the bacon grease in a blue tin. It was more valuable than money.",
+      "current_section": "food",
+      "expected_cue_type": "hearth_food",
+      "must_reflect_terms": [
+        "bacon grease",
+        "blue tin"
+      ],
+      "must_not_infer": [
+        "poverty judgment"
+      ],
+      "must_not_write": [
+        "familyTraditions",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_022_food_collards",
+      "user_text": "Mother could take a ham bone and collards and make the whole house feel like a palace.",
+      "current_section": "food",
+      "expected_cue_type": "hearth_food",
+      "must_reflect_terms": [
+        "ham bone",
+        "collards"
+      ],
+      "must_not_infer": [
+        "economic status"
+      ],
+      "must_not_write": [
+        "familyTraditions",
+        "parents.notes"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_023_object_ticket",
+      "user_text": "I still have the steamship ticket. It cost my father three years of his life to buy it.",
+      "current_section": "objects",
+      "expected_cue_type": "object_keepsake",
+      "must_reflect_terms": [
+        "steamship ticket",
+        "father"
+      ],
+      "must_not_infer": [
+        "birthplace"
+      ],
+      "must_not_write": [
+        "travel.destination",
+        "personal.placeOfBirth"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_024_object_passport",
+      "user_text": "I kept my old passport in a Bible. It is a document of a person who does not exist anymore.",
+      "current_section": "objects",
+      "expected_cue_type": "object_keepsake",
+      "must_reflect_terms": [
+        "passport",
+        "Bible"
+      ],
+      "must_not_infer": [
+        "religion",
+        "legal name"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "personal.fullName"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_025_object_jar",
+      "user_text": "Father saved every nickel in a Mason jar buried under the porch. That was our ticket out.",
+      "current_section": "objects",
+      "expected_cue_type": "object_keepsake",
+      "must_reflect_terms": [
+        "Mason jar",
+        "porch"
+      ],
+      "must_not_infer": [
+        "crime",
+        "poverty judgment"
+      ],
+      "must_not_write": [
+        "parents.notes",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_026_name_dmitri",
+      "user_text": "They changed my name from Dmitri to Jim. I felt like they had cut off my arm.",
+      "current_section": "names",
+      "expected_cue_type": "language_name",
+      "must_reflect_terms": [
+        "Dmitri",
+        "Jim"
+      ],
+      "must_not_infer": [
+        "legal change certainty"
+      ],
+      "must_not_write": [
+        "personal.fullName",
+        "personal.preferredName"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_027_name_funny",
+      "user_text": "My grandson asked me why I talk funny, and I told him my tongue was born in another country.",
+      "current_section": "names",
+      "expected_cue_type": "language_name",
+      "must_reflect_terms": [
+        "talk funny",
+        "tongue"
+      ],
+      "must_not_infer": [
+        "nationality"
+      ],
+      "must_not_write": [
+        "ancestry",
+        "personal.notes"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_028_name_bigsteve",
+      "user_text": "Father’s name was Stefan, but the rail boss called him Big Steve. He hated that name.",
+      "current_section": "names",
+      "expected_cue_type": "language_name",
+      "must_reflect_terms": [
+        "Stefan",
+        "Big Steve"
+      ],
+      "must_not_infer": [
+        "legal name"
+      ],
+      "must_not_write": [
+        "parents.firstName",
+        "parents.preferredName"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_029_identity_between",
+      "user_text": "We were too American for Russia and too Russian for America. We were never just us.",
+      "current_section": "identity",
+      "expected_cue_type": "identity_between",
+      "must_reflect_terms": [
+        "too American",
+        "too Russian"
+      ],
+      "must_not_infer": [
+        "nationality certainty"
+      ],
+      "must_not_write": [
+        "personal.notes",
+        "ancestry"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_030_identity_accent",
+      "user_text": "My son is ashamed of my accent. He wants white bread and store clothes.",
+      "current_section": "identity",
+      "expected_cue_type": "identity_between",
+      "must_reflect_terms": [
+        "accent",
+        "white bread"
+      ],
+      "must_not_infer": [
+        "family conflict certainty"
+      ],
+      "must_not_write": [
+        "family.children.notes",
+        "personal.notes"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_031_identity_hyphen",
+      "user_text": "I am not Slovenian and I am not American. The hyphen is the bridge where I live.",
+      "current_section": "identity",
+      "expected_cue_type": "identity_between",
+      "must_reflect_terms": [
+        "hyphen",
+        "bridge"
+      ],
+      "must_not_infer": [
+        "citizenship"
+      ],
+      "must_not_write": [
+        "personal.notes",
+        "ancestry"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_032_hard_blizzard",
+      "user_text": "The blizzard of 88 was not a storm; it was an execution. We lost half the cattle in one night.",
+      "current_section": "hard_times",
+      "expected_cue_type": "hard_times",
+      "must_reflect_terms": [
+        "blizzard",
+        "cattle"
+      ],
+      "must_not_infer": [
+        "literal execution"
+      ],
+      "must_not_write": [
+        "laterYears.significantEvent",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_033_hard_school",
+      "user_text": "Mother taught us to read by the fireplace because the school for us was only open three months a year.",
+      "current_section": "hard_times",
+      "expected_cue_type": "hard_times",
+      "must_reflect_terms": [
+        "fireplace",
+        "school"
+      ],
+      "must_not_infer": [
+        "education field direct"
+      ],
+      "must_not_write": [
+        "education.schooling",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_034_hard_invisible",
+      "user_text": "Father was strong, but he knew when to be invisible to stay safe.",
+      "current_section": "hard_times",
+      "expected_cue_type": "hard_times",
+      "must_reflect_terms": [
+        "invisible",
+        "stay safe"
+      ],
+      "must_not_infer": [
+        "trauma details"
+      ],
+      "must_not_write": [
+        "parents.notes",
+        "safety.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_035_hidden_candle",
+      "user_text": "We lit the candle in the dark, but nobody ever said why.",
+      "current_section": "customs",
+      "expected_cue_type": "hidden_custom",
+      "must_reflect_terms": [
+        "candle",
+        "nobody ever said"
+      ],
+      "must_not_infer": [
+        "Jewish",
+        "Crypto-Jewish",
+        "religion"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "ancestry",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_036_hidden_greeting",
+      "user_text": "The old greeting was only a nod of the head. It meant I see you, but no one said the words.",
+      "current_section": "customs",
+      "expected_cue_type": "hidden_custom",
+      "must_reflect_terms": [
+        "nod",
+        "no one said"
+      ],
+      "must_not_infer": [
+        "secret identity"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "familyTraditions"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_037_hidden_grandmother",
+      "user_text": "You cannot know where you are going if you do not know the secret your grandmother died with.",
+      "current_section": "customs",
+      "expected_cue_type": "hidden_custom",
+      "must_reflect_terms": [
+        "secret",
+        "grandmother"
+      ],
+      "must_not_infer": [
+        "family secret content"
+      ],
+      "must_not_write": [
+        "grandparents.memorableStory",
+        "faith.denomination"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_038_hidden_bowl",
+      "user_text": "There was a bowl over the candle, and as children we knew not to ask about it.",
+      "current_section": "customs",
+      "expected_cue_type": "hidden_custom",
+      "must_reflect_terms": [
+        "bowl",
+        "candle"
+      ],
+      "must_not_infer": [
+        "religion"
+      ],
+      "must_not_write": [
+        "faith.denomination",
+        "familyTraditions"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_039_legacy_soil",
+      "user_text": "I tell my stories so the grandkids know they did not just fall from the sky; they came from the soil.",
+      "current_section": "legacy",
+      "expected_cue_type": "legacy_wisdom",
+      "must_reflect_terms": [
+        "grandkids",
+        "soil"
+      ],
+      "must_not_infer": [
+        "literal origin"
+      ],
+      "must_not_write": [
+        "laterYears.lifeLessons",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    },
+    {
+      "id": "ncue_040_legacy_flame",
+      "user_text": "I tell my grandkids they are a flame that was kept alive in a hurricane.",
+      "current_section": "legacy",
+      "expected_cue_type": "legacy_wisdom",
+      "must_reflect_terms": [
+        "flame",
+        "hurricane"
+      ],
+      "must_not_infer": [
+        "literal disaster"
+      ],
+      "must_not_write": [
+        "laterYears.lifeLessons",
+        "family_truth.*"
+      ],
+      "max_questions": 1,
+      "max_words": 55,
+      "no_schema_language": true,
+      "no_truth_write": true
+    }
+  ]
+}

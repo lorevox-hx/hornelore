@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lorevox Narrative Cue Library Schema",
+  "type": "object",
+  "required": [
+    "version",
+    "description",
+    "no_truth_write",
+    "cue_types"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "no_truth_write": {
+      "const": true
+    },
+    "cue_types": {
+      "type": "array",
+      "minItems": 12,
+      "items": {
+        "type": "object",
+        "required": [
+          "cue_id",
+          "cue_type",
+          "label",
+          "risk_level",
+          "trigger_terms",
+          "scene_anchor_dimensions",
+          "safe_followups",
+          "forbidden_moves",
+          "operator_extract_hints",
+          "runtime_exposes_extract_hints"
+        ],
+        "properties": {
+          "cue_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "cue_type": {
+            "type": "string",
+            "enum": [
+              "parent_character",
+              "elder_keeper",
+              "journey_arrival",
+              "home_place",
+              "work_survival",
+              "hearth_food",
+              "object_keepsake",
+              "language_name",
+              "identity_between",
+              "hard_times",
+              "hidden_custom",
+              "legacy_wisdom"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "sensitive",
+              "safety_override"
+            ]
+          },
+          "trigger_terms": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "scene_anchor_dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "person",
+                "place",
+                "object",
+                "time",
+                "sensory",
+                "work",
+                "ritual",
+                "movement",
+                "emotion_named",
+                "silence",
+                "language",
+                "gesture"
+              ]
+            }
+          },
+          "safe_followups": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "forbidden_moves": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "operator_extract_hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runtime_exposes_extract_hints": {
+            "const": false
+          }
+        }
+      }
+    }
+  }
+}
