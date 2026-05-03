@@ -1,0 +1,4 @@
+severity,kind,voice,turn,fail_reason,narrator_input,lori_reply_excerpt
+RED,voice_turn,hearth,T1,RED: no Lori reply within 45s,hello how are you,
+RED,lifemap,—,Coming of Age,RED: era click produced no Lori response,[click Coming of Age],
+RED,silence,—,T7,RED: silence test narrator setup failed: session_start: neither Start Narrator Session nor Enter Interview Mode visible,[silence pause],
