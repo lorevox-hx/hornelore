@@ -1,0 +1,4 @@
+severity,kind,voice,turn,fail_reason,narrator_input,lori_reply_excerpt
+RED,voice_turn,hearth,T4,RED: menu_offer present,I don't remember much about the trip over,"It seems like you're not recalling a lot about the trip over. Would you like to tell me more about what you do remember, or perhaps we can focus on a different part of your life story? What would you "
+RED,lifemap,—,Coming of Age,RED: era click produced no Lori response,[click Coming of Age],
+AMBER,silence,—,T7,AMBER: session_start failed and no fallback — silence test may not reflect a freshly-armed session; AMBER: visual presence cue not visible during pause,[silence pause],
