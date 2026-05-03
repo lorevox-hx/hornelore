@@ -323,6 +323,56 @@ def clear_softened(session_id: str) -> None:
     _softened_sessions.pop(session_id, None)
 
 
+# ─── Phase 5c: Sensitive-turn filter (forward-looking helper) ─────────────
+
+def filter_safety_flagged_turns(turns: list) -> list:
+    """WO-LORI-SAFETY-INTEGRATION-01 Phase 5c — forward-looking primitive.
+
+    Given a list of session-transcript turn dicts, return a new list with
+    any turn carrying `sensitive=True` (or equivalent flag) removed.
+    Distress is not biography; safety-routed turns must not appear in
+    "here's what I'm beginning to understand about you" memory_echo
+    summaries.
+
+    The Phase 1b session-transcript read accessor (still pending in
+    SESSION-AWARENESS-01 Phase 1c) doesn't exist yet. When it does, it
+    should pass its query result through this filter before handing to
+    compose_memory_echo.
+
+    Accepted flag-name variants (caller-friendly; multiple stores write
+    sensitivity differently):
+      - turn["sensitive"]            (bool)
+      - turn["segment_flag_sensitive"] (bool)
+      - turn["safety_flagged"]       (bool)
+      - turn["segment_flag"]["sensitive"] (nested dict, bool)
+
+    Any of these being truthy means "drop this turn from the filtered
+    list". Other turns pass through unchanged. None / empty input
+    returns []. Non-dict items in the list are kept (defensive — caller
+    may have non-turn metadata mixed in).
+
+    This is a pure function; no DB read, no env read, no IO.
+    """
+    if not turns:
+        return []
+
+    out = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            out.append(turn)
+            continue
+        is_sensitive = bool(
+            turn.get("sensitive")
+            or turn.get("segment_flag_sensitive")
+            or turn.get("safety_flagged")
+        )
+        if not is_sensitive and isinstance(turn.get("segment_flag"), dict):
+            is_sensitive = bool(turn["segment_flag"].get("sensitive"))
+        if not is_sensitive:
+            out.append(turn)
+    return out
+
+
 # ─── Segment Flag Helpers ─────────────────────────────────────────────────────
 
 def build_segment_flags(safety_result: SafetyResult) -> SegmentFlags:

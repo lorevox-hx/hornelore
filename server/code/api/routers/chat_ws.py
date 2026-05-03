@@ -1165,9 +1165,32 @@ async def ws_chat(ws: WebSocket):
         # backward compat with HORNELORE_INTERVIEW_DISCIPLINE flag).
         # Buffer-mode-only. Will be retired once ATOMICITY-01 default-on
         # is observed clean across two consecutive runs.
+        #
+        # WO-LORI-SAFETY-INTEGRATION-01 Phase 5a (2026-05-03): when a
+        # safety event has triggered this turn (pattern OR LLM
+        # second-layer), the safety response legitimately exceeds the
+        # one-question discipline (988 + Friendship Line + warm
+        # acknowledgment + step structure) and uses safety language
+        # patterns the trim regex would mis-match as compound questions.
+        # SKIP THE TRIM on safety-routed turns. The safety response
+        # itself was carefully composed to be the right shape; the
+        # one-question discipline is for normal interview turns.
+        _is_safety_turn = bool(_safety_result and _safety_result.triggered)
+        if _is_safety_turn and _buffer_mode and final_text:
+            logger.info(
+                "[lori][discipline][safety-exempt] trim skipped conv=%s "
+                "category=%s — safety response bypasses one-question rule",
+                conv_id,
+                _safety_result.category if _safety_result else "?",
+            )
+            await _ws_send(ws, {"type": "token", "delta": final_text})
+            # Skip the normal trim path for this turn entirely.
+            _buffer_mode_for_trim = False
+        else:
+            _buffer_mode_for_trim = _buffer_mode
         try:
             from ..prompt_composer import _trim_to_one_question
-            if _buffer_mode and final_text:
+            if _buffer_mode_for_trim and final_text:
                 _trimmed, _was_trimmed, _reason = _trim_to_one_question(final_text)
                 if _was_trimmed:
                     logger.info(
@@ -1183,7 +1206,7 @@ async def ws_chat(ws: WebSocket):
             # raised in buffer mode, send the untrimmed text so the narrator
             # still sees an answer.
             logger.warning("[lori][discipline] filter raised, passing through: %s", _disc_exc)
-            if _buffer_mode and final_text:
+            if _buffer_mode_for_trim and final_text:
                 await _ws_send(ws, {"type": "token", "delta": final_text})
 
         # Phase G: fail-closed — only persist if generation completed cleanly

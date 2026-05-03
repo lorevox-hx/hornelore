@@ -31,12 +31,15 @@ Design rules enforced here:
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .. import db
+
+logger = logging.getLogger("lorevox.family_truth")
 
 router = APIRouter(prefix="/api/family-truth", tags=["family-truth"])
 
@@ -59,6 +62,14 @@ class NoteAddRequest(BaseModel):
     source_kind: str = Field(default="chat", description=f"One of: {', '.join(NOTE_SOURCE_KINDS)}")
     source_ref: str = Field(default="", description="Provenance reference (session_id, turn_idx, file path, …)")
     created_by: str = Field(default="system", description="user id, 'system', or extractor tag")
+    # WO-LORI-SAFETY-INTEGRATION-01 Phase 5d (2026-05-03):
+    # Callers ingesting from a chat turn that triggered a safety
+    # segment_flag (sensitive=True) must set this. Notes flagged
+    # sensitive=True are REJECTED at this endpoint with 403 — distress
+    # is not biography; safety-routed turns must not enter the
+    # family_truth shadow archive → proposals → promoted truth pipeline.
+    # Default False; the contract is opt-in for the safety-aware caller.
+    sensitive: bool = Field(default=False, description="WO Phase 5d: caller marks True if the source turn was segment-flagged for safety; the note is then rejected to keep distress out of the family_truth pipeline.")
 
 
 class ProposalItem(BaseModel):
@@ -169,6 +180,26 @@ def api_add_note(req: NoteAddRequest):
     _require_person(req.person_id)
     _block_if_reference(req.person_id, "shadow note creation")
     _validate_source_kind(req.source_kind)
+    # WO-LORI-SAFETY-INTEGRATION-01 Phase 5d (2026-05-03): safety-flagged
+    # turns must NOT enter the family_truth pipeline. Distress is not
+    # biography. Reject with 403 + log marker so operators see the
+    # rejection trail; the deterministic safety layer + Phase 4 response
+    # template + Phase 3 operator notification still cover the
+    # narrator-side response and operator visibility.
+    if req.sensitive:
+        logger.warning(
+            "[family_truth][safety-reject] safety-flagged note rejected "
+            "person_id=%s source_kind=%s source_ref=%s created_by=%s",
+            req.person_id, req.source_kind, req.source_ref, req.created_by,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "safety-flagged note rejected from family_truth pipeline "
+                "(WO-LORI-SAFETY-INTEGRATION-01 Phase 5d): distress is "
+                "not biography. Caller marked sensitive=True; note dropped."
+            ),
+        )
     note = db.ft_add_note(
         person_id=req.person_id,
         body=req.body,
