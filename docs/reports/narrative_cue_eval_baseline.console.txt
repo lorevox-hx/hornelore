@@ -1,0 +1,43 @@
+==============================================================================
+  Narrative Cue Detector Eval — narrative_cue_library.v1.seed
+==============================================================================
+  Library:           /sessions/ecstatic-determined-pasteur/mnt/hornelore/data/lori/narrative_cue_library.v1.seed.json
+  Library version:   1
+  Cue types loaded:  12
+
+  Total cases:       40
+  Hits:              30
+  Misses:            10
+  Pass rate:         75.0%
+
+  Per-cue-type pass rate:
+    elder_keeper               3/3    (100%)
+    hard_times                 1/3    (33%)
+    hearth_food                3/4    (75%)
+    hidden_custom              2/4    (50%)
+    home_place                 2/3    (67%)
+    identity_between           2/3    (67%)
+    journey_arrival            3/4    (75%)
+    language_name              3/3    (100%)
+    legacy_wisdom              2/2    (100%)
+    object_keepsake            2/3    (67%)
+    parent_character           4/4    (100%)
+    work_survival              3/4    (75%)
+
+  Miss-class distribution:
+    class_a       3
+    class_b       6
+    class_c       1
+
+  Misses (10 cases):
+    [ncue_011_journey_sky]  expected=journey_arrival  actual=None  score=0  miss_class=class_a
+    [ncue_014_home_onions]  expected=home_place  actual=parent_character  score=1  miss_class=class_b
+    [ncue_016_work_railroad]  expected=work_survival  actual=parent_character  score=1  miss_class=class_b
+    [ncue_021_food_tin]  expected=hearth_food  actual=None  score=0  miss_class=class_a
+    [ncue_023_object_ticket]  expected=object_keepsake  actual=parent_character  score=1  miss_class=class_b
+    [ncue_030_identity_accent]  expected=identity_between  actual=hearth_food  score=1  miss_class=class_b
+    [ncue_033_hard_school]  expected=hard_times  actual=parent_character  score=1  miss_class=class_c
+    [ncue_034_hard_invisible]  expected=hard_times  actual=parent_character  score=1  miss_class=class_b
+    [ncue_036_hidden_greeting]  expected=hidden_custom  actual=None  score=0  miss_class=class_a
+    [ncue_037_hidden_grandmother]  expected=hidden_custom  actual=elder_keeper  score=1  miss_class=class_b
+==============================================================================

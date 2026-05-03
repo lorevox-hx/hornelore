@@ -1,0 +1,28 @@
+==============================================================================
+  Narrative Cue Detector Eval — BASELINE vs CANDIDATE
+==============================================================================
+  Baseline:   narrative_cue_library.v1.seed  →  30/40  (75.0%)
+  Candidate:  narrative_cue_library.candidate_class_a_v1  →  32/40  (80.0%)
+  Delta:      +5.0 pp
+
+  Verdict:    AMBER — candidate has regressions; review newly_failed before adopting
+
+  Newly PASSED (3 cases):
+    + [ncue_011_journey_sky]  expected=journey_arrival  baseline_actual=None  candidate_triggers=['fall upward', 'sky']
+    + [ncue_021_food_tin]  expected=hearth_food  baseline_actual=None  candidate_triggers=['bacon', 'grease', 'saved', 'tin']
+    + [ncue_036_hidden_greeting]  expected=hidden_custom  baseline_actual=None  candidate_triggers=['greeting', 'no one said', 'nod']
+
+  Newly FAILED — REGRESSIONS (1):
+    - [ncue_025_object_jar]  expected=object_keepsake  candidate_actual=hearth_food  baseline_triggers=['jar', 'ticket']
+
+  Per-cue-type delta:
+    hearth_food                base= 3  cand= 4  delta=+1
+    hidden_custom              base= 2  cand= 3  delta=+1
+    journey_arrival            base= 3  cand= 4  delta=+1
+    object_keepsake            base= 2  cand= 1  delta=-1
+
+  Miss-class delta:
+    class_a       base= 3  cand= 0  delta=-3
+    class_b       base= 6  cand= 7  delta=+1
+    class_c       base= 1  cand= 1  delta=0
+==============================================================================

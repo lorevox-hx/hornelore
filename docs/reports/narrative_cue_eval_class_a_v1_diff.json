@@ -1,0 +1,154 @@
+{
+  "baseline": {
+    "config": "narrative_cue_library.v1.seed",
+    "library_path": "/sessions/ecstatic-determined-pasteur/mnt/hornelore/data/lori/narrative_cue_library.v1.seed.json",
+    "pass_rate_pct": 75.0,
+    "hits": 30,
+    "total": 40
+  },
+  "candidate": {
+    "config": "narrative_cue_library.candidate_class_a_v1",
+    "library_path": "data/lori/narrative_cue_library.candidate_class_a_v1.json",
+    "pass_rate_pct": 80.0,
+    "hits": 32,
+    "total": 40
+  },
+  "delta_pct": 5.0,
+  "newly_passed": [
+    {
+      "id": "ncue_011_journey_sky",
+      "expected": "journey_arrival",
+      "baseline_actual": null,
+      "baseline_miss_class": "class_a",
+      "candidate_score": 2,
+      "candidate_triggers": [
+        "fall upward",
+        "sky"
+      ],
+      "user_text": "The sky was so big it made my head hurt. I felt like I was going to fall upward into it."
+    },
+    {
+      "id": "ncue_021_food_tin",
+      "expected": "hearth_food",
+      "baseline_actual": null,
+      "baseline_miss_class": "class_a",
+      "candidate_score": 4,
+      "candidate_triggers": [
+        "bacon",
+        "grease",
+        "saved",
+        "tin"
+      ],
+      "user_text": "We saved the bacon grease in a blue tin. It was more valuable than money."
+    },
+    {
+      "id": "ncue_036_hidden_greeting",
+      "expected": "hidden_custom",
+      "baseline_actual": null,
+      "baseline_miss_class": "class_a",
+      "candidate_score": 3,
+      "candidate_triggers": [
+        "greeting",
+        "no one said",
+        "nod"
+      ],
+      "user_text": "The old greeting was only a nod of the head. It meant I see you, but no one said the words."
+    }
+  ],
+  "newly_failed": [
+    {
+      "id": "ncue_025_object_jar",
+      "expected": "object_keepsake",
+      "candidate_actual": "hearth_food",
+      "candidate_miss_class": "class_b",
+      "baseline_score": 2,
+      "baseline_triggers": [
+        "jar",
+        "ticket"
+      ],
+      "user_text": "Father saved every nickel in a Mason jar buried under the porch. That was our ticket out."
+    }
+  ],
+  "score_only_changes": [],
+  "per_cue_type_delta": {
+    "elder_keeper": {
+      "baseline_hits": 3,
+      "candidate_hits": 3,
+      "delta": 0
+    },
+    "hard_times": {
+      "baseline_hits": 1,
+      "candidate_hits": 1,
+      "delta": 0
+    },
+    "hearth_food": {
+      "baseline_hits": 3,
+      "candidate_hits": 4,
+      "delta": 1
+    },
+    "hidden_custom": {
+      "baseline_hits": 2,
+      "candidate_hits": 3,
+      "delta": 1
+    },
+    "home_place": {
+      "baseline_hits": 2,
+      "candidate_hits": 2,
+      "delta": 0
+    },
+    "identity_between": {
+      "baseline_hits": 2,
+      "candidate_hits": 2,
+      "delta": 0
+    },
+    "journey_arrival": {
+      "baseline_hits": 3,
+      "candidate_hits": 4,
+      "delta": 1
+    },
+    "language_name": {
+      "baseline_hits": 3,
+      "candidate_hits": 3,
+      "delta": 0
+    },
+    "legacy_wisdom": {
+      "baseline_hits": 2,
+      "candidate_hits": 2,
+      "delta": 0
+    },
+    "object_keepsake": {
+      "baseline_hits": 2,
+      "candidate_hits": 1,
+      "delta": -1
+    },
+    "parent_character": {
+      "baseline_hits": 4,
+      "candidate_hits": 4,
+      "delta": 0
+    },
+    "work_survival": {
+      "baseline_hits": 3,
+      "candidate_hits": 3,
+      "delta": 0
+    }
+  },
+  "miss_class_delta": {
+    "class_a": {
+      "baseline": 3,
+      "candidate": 0,
+      "delta": -3
+    },
+    "class_b": {
+      "baseline": 6,
+      "candidate": 7,
+      "delta": 1
+    },
+    "class_c": {
+      "baseline": 1,
+      "candidate": 1,
+      "delta": 0
+    }
+  },
+  "verdict": "AMBER \u2014 candidate has regressions; review newly_failed before adopting",
+  "generated_at": "2026-05-03T17:42:03Z"
+}

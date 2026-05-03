@@ -1,0 +1,1183 @@
+{
+  "config_name": "narrative_cue_library.candidate_class_a_v1",
+  "library_path": "data/lori/narrative_cue_library.candidate_class_a_v1.json",
+  "library_version": 1,
+  "library_description": "Candidate Class A trigger expansion (Phase 3 demo). Adds journey_arrival/hearth_food/hidden_custom anchors for the 3 'no trigger fired' misses identified in PHASE2_CALIBRATION. Validate with run_narrative_cue_eval.py --candidate this --tag class_a_v1.",
+  "cue_type_count": 12,
+  "summary": {
+    "total": 40,
+    "hits": 32,
+    "misses": 8,
+    "pass_rate_pct": 80.0
+  },
+  "per_cue_type": {
+    "parent_character": {
+      "total": 4,
+      "hits": 4
+    },
+    "elder_keeper": {
+      "total": 3,
+      "hits": 3
+    },
+    "journey_arrival": {
+      "total": 4,
+      "hits": 4
+    },
+    "home_place": {
+      "total": 3,
+      "hits": 2
+    },
+    "work_survival": {
+      "total": 4,
+      "hits": 3
+    },
+    "hearth_food": {
+      "total": 4,
+      "hits": 4
+    },
+    "object_keepsake": {
+      "total": 3,
+      "hits": 1
+    },
+    "language_name": {
+      "total": 3,
+      "hits": 3
+    },
+    "identity_between": {
+      "total": 3,
+      "hits": 2
+    },
+    "hard_times": {
+      "total": 3,
+      "hits": 1
+    },
+    "hidden_custom": {
+      "total": 4,
+      "hits": 3
+    },
+    "legacy_wisdom": {
+      "total": 2,
+      "hits": 2
+    }
+  },
+  "miss_class_distribution": {
+    "class_b": 7,
+    "class_c": 1
+  },
+  "records": [
+    {
+      "id": "ncue_001_parent_hands",
+      "expected": "parent_character",
+      "actual": "parent_character",
+      "actual_score": 2,
+      "actual_triggers": [
+        "hands"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 2,
+          "triggers": [
+            "hands"
+          ]
+        }
+      ],
+      "section": "parents",
+      "user_text": "Father\u2019s hands were so callused he could pick up a hot coal from the stove without flinching."
+    },
+    {
+      "id": "ncue_002_parent_apron",
+      "expected": "parent_character",
+      "actual": "parent_character",
+      "actual_score": 2,
+      "actual_triggers": [
+        "apron"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 2,
+          "triggers": [
+            "apron"
+          ]
+        }
+      ],
+      "section": "parents",
+      "user_text": "Mother\u2019s apron was like a toolbox; it held seeds, eggs, and occasionally a crying grandchild."
+    },
+    {
+      "id": "ncue_003_parent_silence",
+      "expected": "parent_character",
+      "actual": "parent_character",
+      "actual_score": 3,
+      "actual_triggers": [
+        "father",
+        "shoulder"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 3,
+          "triggers": [
+            "father",
+            "shoulder"
+          ]
+        }
+      ],
+      "section": "parents",
+      "user_text": "Father didn\u2019t hug us. He just put his hand on our shoulder after the harvest was in."
+    },
+    {
+      "id": "ncue_004_parent_survival_voice",
+      "expected": "parent_character",
+      "actual": "parent_character",
+      "actual_score": 2,
+      "actual_triggers": [
+        "mother"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 2,
+          "triggers": [
+            "mother"
+          ]
+        },
+        {
+          "cue_type": "hearth_food",
+          "score": 2,
+          "triggers": [
+            "Sunday"
+          ]
+        },
+        {
+          "cue_type": "hard_times",
+          "score": 1,
+          "triggers": [
+            "survival"
+          ]
+        }
+      ],
+      "section": "parents",
+      "user_text": "Mother had a Sunday voice for church and a Monday voice for survival."
+    },
+    {
+      "id": "ncue_005_elder_ribbon",
+      "expected": "elder_keeper",
+      "actual": "elder_keeper",
+      "actual_score": 2,
+      "actual_triggers": [
+        "grandmother",
+        "kept"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "elder_keeper",
+          "score": 2,
+          "triggers": [
+            "grandmother",
+            "kept"
+          ]
+        },
+        {
+          "cue_type": "object_keepsake",
+          "score": 2,
+          "triggers": [
+            "kept",
+            "ribbon"
+          ]
+        }
+      ],
+      "section": "family",
+      "user_text": "Grandmother kept a silk ribbon from her wedding and touched it once a year before putting it back."
+    },
+    {
+      "id": "ncue_006_elder_blessings",
+      "expected": "elder_keeper",
+      "actual": "elder_keeper",
+      "actual_score": 1,
+      "actual_triggers": [
+        "grandpa"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "elder_keeper",
+          "score": 1,
+          "triggers": [
+            "grandpa"
+          ]
+        },
+        {
+          "cue_type": "hearth_food",
+          "score": 1,
+          "triggers": [
+            "bread"
+          ]
+        }
+      ],
+      "section": "family",
+      "user_text": "Grandpa rubbed bread on his plate to clean the blessings off."
+    },
+    {
+      "id": "ncue_007_elder_stars",
+      "expected": "elder_keeper",
+      "actual": "elder_keeper",
+      "actual_score": 1,
+      "actual_triggers": [
+        "oldest"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "elder_keeper",
+          "score": 1,
+          "triggers": [
+            "oldest"
+          ]
+        },
+        {
+          "cue_type": "language_name",
+          "score": 1,
+          "triggers": [
+            "name"
+          ]
+        }
+      ],
+      "section": "family",
+      "user_text": "The oldest woman in our family could name every star but could not read a newspaper."
+    },
+    {
+      "id": "ncue_008_journey_ship",
+      "expected": "journey_arrival",
+      "actual": "journey_arrival",
+      "actual_score": 1,
+      "actual_triggers": [
+        "ship"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "journey_arrival",
+          "score": 1,
+          "triggers": [
+            "ship"
+          ]
+        },
+        {
+          "cue_type": "hard_times",
+          "score": 1,
+          "triggers": [
+            "fear"
+          ]
+        }
+      ],
+      "section": "journeys",
+      "user_text": "The ship smelled of salt, cabbage, and the fear of people who had nowhere to go back to."
+    },
+    {
+      "id": "ncue_009_journey_train",
+      "expected": "journey_arrival",
+      "actual": "journey_arrival",
+      "actual_score": 2,
+      "actual_triggers": [
+        "crossing",
+        "train"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "journey_arrival",
+          "score": 2,
+          "triggers": [
+            "crossing",
+            "train"
+          ]
+        }
+      ],
+      "section": "journeys",
+      "user_text": "The train ride from New York felt longer than the ocean crossing."
+    },
+    {
+      "id": "ncue_010_journey_orange",
+      "expected": "journey_arrival",
+      "actual": "journey_arrival",
+      "actual_score": 1,
+      "actual_triggers": [
+        "train"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "journey_arrival",
+          "score": 1,
+          "triggers": [
+            "train"
+          ]
+        }
+      ],
+      "section": "journeys",
+      "user_text": "I saw my first orange on the train and tried to eat the peel because I didn\u2019t know any better."
+    },
+    {
+      "id": "ncue_011_journey_sky",
+      "expected": "journey_arrival",
+      "actual": "journey_arrival",
+      "actual_score": 2,
+      "actual_triggers": [
+        "fall upward",
+        "sky"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "journey_arrival",
+          "score": 2,
+          "triggers": [
+            "fall upward",
+            "sky"
+          ]
+        }
+      ],
+      "section": "journeys",
+      "user_text": "The sky was so big it made my head hurt. I felt like I was going to fall upward into it."
+    },
+    {
+      "id": "ncue_012_home_sod",
+      "expected": "home_place",
+      "actual": "home_place",
+      "actual_score": 2,
+      "actual_triggers": [
+        "house",
+        "sod house"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "home_place",
+          "score": 2,
+          "triggers": [
+            "house",
+            "sod house"
+          ]
+        }
+      ],
+      "section": "home",
+      "user_text": "We lived in the sod house for five years. It was warm in winter but smelled like a damp dog."
+    },
+    {
+      "id": "ncue_013_home_porch",
+      "expected": "home_place",
+      "actual": "home_place",
+      "actual_score": 1,
+      "actual_triggers": [
+        "porch"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "home_place",
+          "score": 1,
+          "triggers": [
+            "porch"
+          ]
+        }
+      ],
+      "section": "home",
+      "user_text": "In the summer we slept on the porch to escape the heat of the woodstove."
+    },
+    {
+      "id": "ncue_014_home_onions",
+      "expected": "home_place",
+      "actual": "parent_character",
+      "actual_score": 1,
+      "actual_triggers": [
+        "father"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "father"
+          ]
+        },
+        {
+          "cue_type": "home_place",
+          "score": 1,
+          "triggers": [
+            "home"
+          ]
+        },
+        {
+          "cue_type": "hearth_food",
+          "score": 1,
+          "triggers": [
+            "onions"
+          ]
+        }
+      ],
+      "section": "home",
+      "user_text": "The smell of frying onions always meant my father was coming home from the fields."
+    },
+    {
+      "id": "ncue_015_work_threshing",
+      "expected": "work_survival",
+      "actual": "work_survival",
+      "actual_score": 1,
+      "actual_triggers": [
+        "threshing"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "work_survival",
+          "score": 1,
+          "triggers": [
+            "threshing"
+          ]
+        }
+      ],
+      "section": "work",
+      "user_text": "Threshing was beautiful and terrible. The dust stayed in your throat for weeks."
+    },
+    {
+      "id": "ncue_016_work_railroad",
+      "expected": "work_survival",
+      "actual": "parent_character",
+      "actual_score": 1,
+      "actual_triggers": [
+        "father"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "father"
+          ]
+        },
+        {
+          "cue_type": "home_place",
+          "score": 1,
+          "triggers": [
+            "home"
+          ]
+        },
+        {
+          "cue_type": "work_survival",
+          "score": 1,
+          "triggers": [
+            "worked"
+          ]
+        }
+      ],
+      "section": "work",
+      "user_text": "Father worked the Extra Board for the Great Northern and was home three days a month."
+    },
+    {
+      "id": "ncue_017_work_sharecropper",
+      "expected": "work_survival",
+      "actual": "work_survival",
+      "actual_score": 2,
+      "actual_triggers": [
+        "debt",
+        "sharecropper"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "work_survival",
+          "score": 2,
+          "triggers": [
+            "debt",
+            "sharecropper"
+          ]
+        },
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "father"
+          ]
+        },
+        {
+          "cue_type": "hard_times",
+          "score": 1,
+          "triggers": [
+            "debt"
+          ]
+        }
+      ],
+      "section": "work",
+      "user_text": "My father was a sharecropper; he spent forty years paying off a debt he never signed for."
+    },
+    {
+      "id": "ncue_018_work_steel",
+      "expected": "work_survival",
+      "actual": "work_survival",
+      "actual_score": 2,
+      "actual_triggers": [
+        "steel mill",
+        "worked"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "work_survival",
+          "score": 2,
+          "triggers": [
+            "steel mill",
+            "worked"
+          ]
+        }
+      ],
+      "section": "work",
+      "user_text": "I worked in the steel mill for thirty years. My sweat is in the girders of the skyscrapers."
+    },
+    {
+      "id": "ncue_019_food_kuchen",
+      "expected": "hearth_food",
+      "actual": "hearth_food",
+      "actual_score": 1,
+      "actual_triggers": [
+        "bread"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hearth_food",
+          "score": 1,
+          "triggers": [
+            "bread"
+          ]
+        }
+      ],
+      "section": "food",
+      "user_text": "Kuchen is the bread of the soul. Without the cinnamon, it is just dough."
+    },
+    {
+      "id": "ncue_020_food_soup",
+      "expected": "hearth_food",
+      "actual": "hearth_food",
+      "actual_score": 1,
+      "actual_triggers": [
+        "soup"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hearth_food",
+          "score": 1,
+          "triggers": [
+            "soup"
+          ]
+        }
+      ],
+      "section": "food",
+      "user_text": "We made Knoephla soup when the men were tired. The heavy dough made them strong again."
+    },
+    {
+      "id": "ncue_021_food_tin",
+      "expected": "hearth_food",
+      "actual": "hearth_food",
+      "actual_score": 4,
+      "actual_triggers": [
+        "bacon",
+        "grease",
+        "saved",
+        "tin"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hearth_food",
+          "score": 4,
+          "triggers": [
+            "bacon",
+            "grease",
+            "saved",
+            "tin"
+          ]
+        }
+      ],
+      "section": "food",
+      "user_text": "We saved the bacon grease in a blue tin. It was more valuable than money."
+    },
+    {
+      "id": "ncue_022_food_collards",
+      "expected": "hearth_food",
+      "actual": "hearth_food",
+      "actual_score": 2,
+      "actual_triggers": [
+        "collards",
+        "ham bone"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hearth_food",
+          "score": 2,
+          "triggers": [
+            "collards",
+            "ham bone"
+          ]
+        },
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "mother"
+          ]
+        },
+        {
+          "cue_type": "home_place",
+          "score": 1,
+          "triggers": [
+            "house"
+          ]
+        }
+      ],
+      "section": "food",
+      "user_text": "Mother could take a ham bone and collards and make the whole house feel like a palace."
+    },
+    {
+      "id": "ncue_023_object_ticket",
+      "expected": "object_keepsake",
+      "actual": "parent_character",
+      "actual_score": 1,
+      "actual_triggers": [
+        "father"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "father"
+          ]
+        },
+        {
+          "cue_type": "object_keepsake",
+          "score": 1,
+          "triggers": [
+            "ticket"
+          ]
+        }
+      ],
+      "section": "objects",
+      "user_text": "I still have the steamship ticket. It cost my father three years of his life to buy it."
+    },
+    {
+      "id": "ncue_024_object_passport",
+      "expected": "object_keepsake",
+      "actual": "object_keepsake",
+      "actual_score": 3,
+      "actual_triggers": [
+        "Bible",
+        "kept",
+        "passport"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "object_keepsake",
+          "score": 3,
+          "triggers": [
+            "Bible",
+            "kept",
+            "passport"
+          ]
+        },
+        {
+          "cue_type": "elder_keeper",
+          "score": 1,
+          "triggers": [
+            "kept"
+          ]
+        }
+      ],
+      "section": "objects",
+      "user_text": "I kept my old passport in a Bible. It is a document of a person who does not exist anymore."
+    },
+    {
+      "id": "ncue_025_object_jar",
+      "expected": "object_keepsake",
+      "actual": "hearth_food",
+      "actual_score": 2,
+      "actual_triggers": [
+        "jar",
+        "saved"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "hearth_food",
+          "score": 2,
+          "triggers": [
+            "jar",
+            "saved"
+          ]
+        },
+        {
+          "cue_type": "object_keepsake",
+          "score": 2,
+          "triggers": [
+            "jar",
+            "ticket"
+          ]
+        },
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "father"
+          ]
+        }
+      ],
+      "section": "objects",
+      "user_text": "Father saved every nickel in a Mason jar buried under the porch. That was our ticket out."
+    },
+    {
+      "id": "ncue_026_name_dmitri",
+      "expected": "language_name",
+      "actual": "language_name",
+      "actual_score": 2,
+      "actual_triggers": [
+        "changed my name",
+        "name"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "language_name",
+          "score": 2,
+          "triggers": [
+            "changed my name",
+            "name"
+          ]
+        }
+      ],
+      "section": "names",
+      "user_text": "They changed my name from Dmitri to Jim. I felt like they had cut off my arm."
+    },
+    {
+      "id": "ncue_027_name_funny",
+      "expected": "language_name",
+      "actual": "language_name",
+      "actual_score": 1,
+      "actual_triggers": [
+        "talk funny"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "language_name",
+          "score": 1,
+          "triggers": [
+            "talk funny"
+          ]
+        }
+      ],
+      "section": "names",
+      "user_text": "My grandson asked me why I talk funny, and I told him my tongue was born in another country."
+    },
+    {
+      "id": "ncue_028_name_bigsteve",
+      "expected": "language_name",
+      "actual": "language_name",
+      "actual_score": 2,
+      "actual_triggers": [
+        "called",
+        "name"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "language_name",
+          "score": 2,
+          "triggers": [
+            "called",
+            "name"
+          ]
+        }
+      ],
+      "section": "names",
+      "user_text": "Father\u2019s name was Stefan, but the rail boss called him Big Steve. He hated that name."
+    },
+    {
+      "id": "ncue_029_identity_between",
+      "expected": "identity_between",
+      "actual": "identity_between",
+      "actual_score": 3,
+      "actual_triggers": [
+        "American",
+        "too American",
+        "too Russian"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "identity_between",
+          "score": 3,
+          "triggers": [
+            "American",
+            "too American",
+            "too Russian"
+          ]
+        }
+      ],
+      "section": "identity",
+      "user_text": "We were too American for Russia and too Russian for America. We were never just us."
+    },
+    {
+      "id": "ncue_030_identity_accent",
+      "expected": "identity_between",
+      "actual": "hearth_food",
+      "actual_score": 1,
+      "actual_triggers": [
+        "bread"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "hearth_food",
+          "score": 1,
+          "triggers": [
+            "bread"
+          ]
+        },
+        {
+          "cue_type": "language_name",
+          "score": 1,
+          "triggers": [
+            "accent"
+          ]
+        },
+        {
+          "cue_type": "identity_between",
+          "score": 1,
+          "triggers": [
+            "ashamed"
+          ]
+        }
+      ],
+      "section": "identity",
+      "user_text": "My son is ashamed of my accent. He wants white bread and store clothes."
+    },
+    {
+      "id": "ncue_031_identity_hyphen",
+      "expected": "identity_between",
+      "actual": "identity_between",
+      "actual_score": 2,
+      "actual_triggers": [
+        "American",
+        "hyphen"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "identity_between",
+          "score": 2,
+          "triggers": [
+            "American",
+            "hyphen"
+          ]
+        }
+      ],
+      "section": "identity",
+      "user_text": "I am not Slovenian and I am not American. The hyphen is the bridge where I live."
+    },
+    {
+      "id": "ncue_032_hard_blizzard",
+      "expected": "hard_times",
+      "actual": "hard_times",
+      "actual_score": 1,
+      "actual_triggers": [
+        "blizzard"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hard_times",
+          "score": 1,
+          "triggers": [
+            "blizzard"
+          ]
+        }
+      ],
+      "section": "hard_times",
+      "user_text": "The blizzard of 88 was not a storm; it was an execution. We lost half the cattle in one night."
+    },
+    {
+      "id": "ncue_033_hard_school",
+      "expected": "hard_times",
+      "actual": "parent_character",
+      "actual_score": 1,
+      "actual_triggers": [
+        "mother"
+      ],
+      "ok": false,
+      "miss_class": "class_c",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "mother"
+          ]
+        },
+        {
+          "cue_type": "elder_keeper",
+          "score": 1,
+          "triggers": [
+            "taught"
+          ]
+        }
+      ],
+      "section": "hard_times",
+      "user_text": "Mother taught us to read by the fireplace because the school for us was only open three months a year."
+    },
+    {
+      "id": "ncue_034_hard_invisible",
+      "expected": "hard_times",
+      "actual": "parent_character",
+      "actual_score": 1,
+      "actual_triggers": [
+        "father"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "parent_character",
+          "score": 1,
+          "triggers": [
+            "father"
+          ]
+        },
+        {
+          "cue_type": "hard_times",
+          "score": 1,
+          "triggers": [
+            "invisible"
+          ]
+        }
+      ],
+      "section": "hard_times",
+      "user_text": "Father was strong, but he knew when to be invisible to stay safe."
+    },
+    {
+      "id": "ncue_035_hidden_candle",
+      "expected": "hidden_custom",
+      "actual": "hidden_custom",
+      "actual_score": 1,
+      "actual_triggers": [
+        "candle"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hidden_custom",
+          "score": 1,
+          "triggers": [
+            "candle"
+          ]
+        }
+      ],
+      "section": "customs",
+      "user_text": "We lit the candle in the dark, but nobody ever said why."
+    },
+    {
+      "id": "ncue_036_hidden_greeting",
+      "expected": "hidden_custom",
+      "actual": "hidden_custom",
+      "actual_score": 3,
+      "actual_triggers": [
+        "greeting",
+        "no one said",
+        "nod"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hidden_custom",
+          "score": 3,
+          "triggers": [
+            "greeting",
+            "no one said",
+            "nod"
+          ]
+        }
+      ],
+      "section": "customs",
+      "user_text": "The old greeting was only a nod of the head. It meant I see you, but no one said the words."
+    },
+    {
+      "id": "ncue_037_hidden_grandmother",
+      "expected": "hidden_custom",
+      "actual": "elder_keeper",
+      "actual_score": 1,
+      "actual_triggers": [
+        "grandmother"
+      ],
+      "ok": false,
+      "miss_class": "class_b",
+      "top3": [
+        {
+          "cue_type": "elder_keeper",
+          "score": 1,
+          "triggers": [
+            "grandmother"
+          ]
+        },
+        {
+          "cue_type": "hidden_custom",
+          "score": 1,
+          "triggers": [
+            "secret"
+          ]
+        }
+      ],
+      "section": "customs",
+      "user_text": "You cannot know where you are going if you do not know the secret your grandmother died with."
+    },
+    {
+      "id": "ncue_038_hidden_bowl",
+      "expected": "hidden_custom",
+      "actual": "hidden_custom",
+      "actual_score": 1,
+      "actual_triggers": [
+        "candle"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "hidden_custom",
+          "score": 1,
+          "triggers": [
+            "candle"
+          ]
+        }
+      ],
+      "section": "customs",
+      "user_text": "There was a bowl over the candle, and as children we knew not to ask about it."
+    },
+    {
+      "id": "ncue_039_legacy_soil",
+      "expected": "legacy_wisdom",
+      "actual": "legacy_wisdom",
+      "actual_score": 2,
+      "actual_triggers": [
+        "grandkids",
+        "tell my"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "legacy_wisdom",
+          "score": 2,
+          "triggers": [
+            "grandkids",
+            "tell my"
+          ]
+        },
+        {
+          "cue_type": "journey_arrival",
+          "score": 1,
+          "triggers": [
+            "sky"
+          ]
+        }
+      ],
+      "section": "legacy",
+      "user_text": "I tell my stories so the grandkids know they did not just fall from the sky; they came from the soil."
+    },
+    {
+      "id": "ncue_040_legacy_flame",
+      "expected": "legacy_wisdom",
+      "actual": "legacy_wisdom",
+      "actual_score": 3,
+      "actual_triggers": [
+        "flame",
+        "grandkids",
+        "tell my"
+      ],
+      "ok": true,
+      "miss_class": "none",
+      "top3": [
+        {
+          "cue_type": "legacy_wisdom",
+          "score": 3,
+          "triggers": [
+            "flame",
+            "grandkids",
+            "tell my"
+          ]
+        },
+        {
+          "cue_type": "elder_keeper",
+          "score": 1,
+          "triggers": [
+            "kept"
+          ]
+        },
+        {
+          "cue_type": "object_keepsake",
+          "score": 1,
+          "triggers": [
+            "kept"
+          ]
+        }
+      ],
+      "section": "legacy",
+      "user_text": "I tell my grandkids they are a flame that was kept alive in a hurricane."
+    }
+  ],
+  "generated_at": "2026-05-03T17:42:03Z",
+  "eval_pack": "/sessions/ecstatic-determined-pasteur/mnt/hornelore/data/qa/lori_narrative_cue_eval.json"
+}
