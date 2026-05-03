@@ -6,6 +6,51 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
+## Daily handoff — 2026-05-03 (late evening, parent-session readiness lane — 7 commits banked)
+
+**TL;DR for next session:** Six lanes landed end-to-end this evening on top of the Phase 3 milestone. Active baseline `r5h-followup-guard-v1` (78/114) unchanged. Parent-session readiness moves materially forward: the OLD `[SYSTEM: quiet for a while]` spoken silence-cue is now gated when Phase 3 ticker is on (Lane A); BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 patched at the source — era click now produces ONE warm Lori prompt + sets `state.session.currentEra` (Lane E); kawa_mode scrubbed from runtime71 + Kawa directive block retired (Lane C); WO-PARENT-SESSION-REHEARSAL-HARNESS-01 built as a narrator-experience harness with 3 cultural voices drawn from VOICE_LIBRARY_v1.md (Lane G); first run `rehearsal_quick_v1` was RED with 3 findings (1 product / 2 harness) — Lane G.1 stabilization patches address all three; operator-visible Countdown Timer mounted beside the clock with mm:ss format + tier color-coding (Lane H, 22 Node tests). **Phase 4 (Adaptive Silence Ladder) STAYS PARKED** per Chris's locked rule: wait for one real Janice/Kent observation of Phase 3 before scoping. Stack was DOWN at end of session — Chris will bring up + re-run `--quick` (now `rehearsal_quick_v2` after Lane G.1 fixes) on his next return. Tree clean post all 7 commits (Phase 3 milestone, Lane C, Lane E, Lane A, Lane G, Lane G.1, Lane H + scan_answer #325 verification close).
+
+### What landed (7 commits)
+
+1. **Phase 3 milestone (5 sub-phases bundled)** — Phase 3A classifier + 3B runtime plumbing + 3C harness cases + 3D cue text DISABLED + 3E Quiet Presence Cue. 4 new JS modules + 4 Node test packs (102 tests green). `intent='visual_only'` for ALL tiers by structural lock — Phase 5 test matrix is the only future gate that may flip 1-4 to spoken. Two pre-commit code-review bug fixes folded in (cooldown gating + 8s freshness window).
+2. **Lane C — Kawa scrub** — `kawa_mode` field removed from `ui/js/app.js buildRuntime71()`; WO-KAWA-02A directive block retired in `server/code/api/prompt_composer.py`. Per CLAUDE.md design principles "Kawa is RETIRED... Life Map is the only navigation surface."
+3. **Lane E — BUG-LIFEMAP-ERA-CLICK-NO-LORI-01** — `_lvInterviewSelectEra()` patched: (a) calls `setEra(canonical)` to mirror click into `state.session.currentEra`; (b) calls `sendSystemPrompt(...)` for ONE warm Lori prompt with Phase 1+2 discipline rules inlined. Special-cases `today` with present-tense framing.
+4. **Lane A — old spoken silence-cue gated** — single chokepoint at top of `lv80FireCheckIn()` in `ui/hornelore1.0.html`. When `LV_ATTENTION_CUE_TICKER === true`, suppresses ALL four downstream silence prompts (WO-10C stages 2 + 3, WO-10B life_story / memory_exercise / companion / non_memoir). Default-OFF preserves existing behavior. Log marker `[lv80-turn-debug] {event:"idle_fire_blocked", reason:"phase3_visual_cue_active"}`.
+5. **Lane G — WO-PARENT-SESSION-REHEARSAL-HARNESS-01** — `scripts/ui/run_parent_session_rehearsal_harness.py` (NEW, 1502 lines). Narrator-experience harness, NOT just code-path checks. 3 voices in `--standard` (Hearth/Janice baseline, Field/African American Georgia coded survival, Shield/Crypto-Jewish New Mexico MAX SUPPRESSION) drawn from VOICE_LIBRARY_v1.md. 8-turn rehearsal pack per voice with voice-specific suppression rules layered on top of `score_lori_turn()`. Three artifacts per run: JSON + Markdown + Failure CSV. Severity grading RED/AMBER/PASS per Chris's spec.
+6. **Lane G.1 — harness stabilization** — `_wait_for_fresh_lori_turn()` dedup wrapper, `_safe_session_start()` tolerant fallback, `wait_for_warm_stack()` boot guard, Life Map `wait_for_selector('[data-era-id]')` + bumped post-`lvEnterInterviewMode` wait 500ms→2000ms, per-turn report column widths bumped (60→100, 80→200). ~170 net lines.
+7. **Lane H — Countdown Timer beside the clock** — `ui/js/lori-since-timer.js` (NEW, ~210 lines, IIFE) + 9 stage-class CSS rules in `ui/css/lori80.css` + script tag in `hornelore1.0.html`. mm:ss format, color-coded tier labels (25-45s "faint cue (25–45s)" / 45s+ "stronger cue (45s+)" / 60s+ T1 / 2m+ T2 / 5m+ T3 / 10m+ T4), mic-active reset, Lori-speaking reset. Operator-observability surface (data-purpose / aria-hidden / pointer-events:none). 22 Node tests added (`tests/test_lori_since_timer.js`).
+
+### Open + pending
+
+- **rehearsal_quick_v2 re-run** — Chris brings up stack, runs `--quick` again to disambiguate Lane G.1's 3 findings. If T1 doesn't time out + T3/T4 capture distinct replies + Life Map era-click now logs `era_click_log_seen=true`, then all 3 findings were harness, NOT product regression. If Life Map STILL shows `era_click_log_seen=false`, BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 has a real Lane E regression that needs investigation.
+- **rehearsal_standard run** (~25 min) — only after `--quick` reports clean. Tests cross-narrator divergence across Hearth + Field + Shield voices.
+- **Live Janice/Kent observation of Phase 3** — gate before Phase 4 (Adaptive Silence Ladder) opens. Per Chris's locked rule, do NOT pre-build `narrator_pacing.py` until this lands.
+- **3 RED parent-session gates from prior week still open**: SAFETY-INTEGRATION-01 Phase 2 (LLM second-layer classifier #290), TRUTH-PIPELINE-01 Phase 1 (observability stub), Post-safety recovery / softened-mode persistence.
+
+### Stack state
+
+- Stack was DOWN at end of session — Chris will bring up via `Start Hornelore.bat` (vanilla; NOT LORI-CUE ON or SPANTAG ON variants).
+- Active baseline `r5h-followup-guard-v1` 78/114 unchanged.
+- SPANTAG=0 default. BINDING-01 in-tree behind PATCH 1-4 + micro-patch, default-off pending next iteration.
+- Tree clean post all 7 evening commits.
+
+### Next-session run command
+
+```bash
+# After stack is warm (~4 min):
+cd /mnt/c/Users/chris/hornelore
+python scripts/ui/run_parent_session_rehearsal_harness.py \
+  --tag rehearsal_quick_v2 \
+  --mode quick
+
+# If quick is PASS/AMBER, then:
+python scripts/ui/run_parent_session_rehearsal_harness.py \
+  --tag rehearsal_standard_v1 \
+  --mode standard
+```
+
+---
+
 ## Daily handoff — 2026-05-03 (evening, Phase 3 read-only attention awareness LANDED)
 
 **TL;DR for next session:** **WO-LORI-SESSION-AWARENESS-01 Phase 3 is ready to commit** as one milestone (5 sub-phases all ship together: 3A classifier / 3B runtime plumbing / 3C harness cases / 3D cue text disabled / 3E quiet presence cue). The structural promise — *Lori gained presence without gaining chatter* — holds: dispatcher's `intent` is locked to `'visual_only'` for all tiers, presence cue rejects any other intent value, no TTS path / no transcript-write / no extractor coupling. **102 tests green across 4 Node-runnable packs.** Active baseline `r5h` (70/104, v3=41/62, v2=35/62, mnw=2) unchanged. **Tree DIRTY** (10 uncommitted files). Pre-commit code review caught and fixed two real bugs in this lane (see "Bugs caught in code review" below). After commit, the agreed next step is **one real Janice/Kent session with `window.LV_ATTENTION_CUE_TICKER = true`** to observe presence-cue feel before Phase 4 scoping begins.
