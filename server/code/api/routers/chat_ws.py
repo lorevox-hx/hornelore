@@ -378,6 +378,70 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _frame_exc,
                 )
 
+        # ── WO-NARRATIVE-CUE-LIBRARY-01 Phase 4: observability-only log ──
+        # Run the narrative cue detector against this narrator turn and
+        # emit a single [lori-cue] log line. This is OBSERVATION ONLY:
+        #   - cue is NOT consumed by Lori response composer (Phase 5+)
+        #   - cue is NOT consumed by extractor (would violate LAW 3)
+        #   - cue is NOT consumed by safety
+        #   - cue is NOT written to truth or any DB
+        #   - cue failure is swallowed silently — never breaks a turn
+        #
+        # Default-OFF behind HORNELORE_LORI_CUE_LOG=1. Goal of Phase 4
+        # is to gather real-world per-turn cue selections in api.log so
+        # the library JSON can be tuned with measured evidence (using
+        # scripts/run_narrative_cue_eval.py from Phase 3) BEFORE
+        # wiring the cue into Lori's response composer.
+        #
+        # Section context (current_section) is not threaded into chat_ws
+        # today; Phase 4 passes None and skips the section bonus
+        # tie-break. If the operator side wants to inform tie-breaks
+        # later, the path is to thread the active section from interview
+        # state into the chat turn payload — separate WO.
+        #
+        # See WO-NARRATIVE-CUE-LIBRARY-01_PHASE3_HARNESS.md for the
+        # tuning loop and PHASE2_CALIBRATION.md for the locked detector
+        # behavior. v1 is purely the listener-aid representation; the
+        # cue library may NEVER write truth (LAW from the WO spec).
+        if (
+            os.getenv("HORNELORE_LORI_CUE_LOG", "0") in ("1", "true", "True")
+            and user_text
+            and user_text.strip()
+            and not _is_system_directive
+        ):
+            try:
+                from ..services import narrative_cue_detector as _cue_detector
+                _detection = _cue_detector.detect_cues(user_text, current_section=None)
+                _top = _detection.top_cue
+                if _top is not None:
+                    _triggers = ",".join(_top.trigger_matches) or "-"
+                    logger.info(
+                        "[lori-cue] conv=%s narrator=%s cue_type=%s "
+                        "risk=%s score=%d triggers=%s ranked_count=%d",
+                        conv_id,
+                        person_id or "<unknown>",
+                        _top.cue_type,
+                        _top.risk_level,
+                        _top.score,
+                        _triggers,
+                        len(_detection.cues),
+                    )
+                else:
+                    logger.info(
+                        "[lori-cue] conv=%s narrator=%s cue_type=- "
+                        "no_match_reason=%s ranked_count=0",
+                        conv_id,
+                        person_id or "<unknown>",
+                        _detection.no_match_reason or "no_match",
+                    )
+            except Exception as _cue_exc:
+                # Pure observability — failure is non-fatal and silent
+                # at INFO level; turn continues unchanged.
+                logger.warning(
+                    "[lori-cue] detect_cues failed (conv=%s): %s",
+                    conv_id, _cue_exc,
+                )
+
         # Memory Archive — ensure session exists and log user message
         if person_id:
             archive_ensure_session(
