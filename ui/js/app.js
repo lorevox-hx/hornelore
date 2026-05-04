@@ -709,20 +709,40 @@ function _lvInterviewSelectEra(eid) {
   // for life-map era clicks. Appears on every era-button-driven select
   // (NOT on programmatic state-only writes). Test pack TEST-08 greps
   // for this marker.
+  const _prevCurrent = (state.session && state.session.currentEra) || "null";
+  const _prevActive  = (state.session && state.session.activeFocusEra) || "null";
   console.info("[life-map][era-click] era=" + (canonical || "null") +
-    " prev=" + ((state.session && state.session.activeFocusEra) || "null"));
+    " prev_active=" + _prevActive + " prev_current=" + _prevCurrent);
   state.session.activeFocusEra = canonical || null;
 
   // BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 (2026-05-03): the era button only
   // wrote activeFocusEra. The canonical interview-era cursor lives at
   // state.session.currentEra (managed by setEra() in state.js). Without
   // this write, runtime71's current_era stayed stale and the chronology
-  // accordion / interview pass code couldn't see the new era. Mirror
-  // the click into currentEra via the canonical setter so all downstream
-  // consumers (extract.py current_era, prompt_composer life-spine, life
-  // map renderer) see a single source of truth.
-  if (canonical && typeof setEra === "function") {
-    try { setEra(canonical); } catch (_) { /* setEra is self-healing */ }
+  // accordion / interview pass code couldn't see the new era.
+  //
+  // BUG-LIFEMAP-STATE-WRITE-01 (2026-05-03 v2 — Shatner cascade evidence):
+  // shatner_cascade_v1 confirmed era_click_log_seen=true,
+  // lori_prompt_log_seen=true, lori_replied=true — BUT
+  // state.session.currentEra read back as "" empty. The setEra() call
+  // either threw silently in the try/catch OR something downstream
+  // wiped the value. Belt-and-suspenders: write currentEra DIRECTLY
+  // (canonical, never null-empty) so the era cursor is set even if
+  // setEra() fails. Then ALSO call setEra() so any state.js-side
+  // self-healing / event dispatch still fires. Add a post-write
+  // marker so we can detect any subsequent reset in api.log greps.
+  if (canonical) {
+    state.session.currentEra = canonical;
+    if (typeof setEra === "function") {
+      try { setEra(canonical); } catch (e) {
+        console.warn("[life-map][era-click] setEra threw:", e);
+      }
+    }
+    // Verify the write stuck (will catch any downstream reset that
+    // happens synchronously before this line runs).
+    const _writeCheck = (state.session && state.session.currentEra) || "null";
+    console.info("[life-map][era-click] post-write currentEra=" + _writeCheck +
+      " activeFocus=" + ((state.session && state.session.activeFocusEra) || "null"));
   }
 
   // Re-render life-map column to update the active highlight (timeline

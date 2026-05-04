@@ -1392,18 +1392,36 @@ class RehearsalRun:
             pass
         self.page.wait_for_timeout(1500)
 
-        # ── 3. Complete identity with Shatner data ──
-        # _complete_identity_for_test_narrator drives the BB intake;
-        # the QF walk fires regardless of session_style when fields
-        # are missing. After the 4 fields land, identity_complete
-        # propagates and the historical era buttons unlock.
+        # ── 3. Complete identity with Shatner data (inlined intake) ──
+        # NOTE: shatner_cascade_v1 hit AttributeError because
+        # _complete_identity_for_test_narrator lives on the readiness
+        # harness's TestRunner, NOT on the UI class. Inline the
+        # equivalent logic here using helpers that ARE on UI
+        # (send_chat) and on this RehearsalRun (_wait_for_fresh_lori_turn).
+        # The QF walk fires automatically for any narrator missing
+        # personal-basics fields regardless of session_style, so
+        # answering 4 prompts in order completes identity.
         try:
-            self.ui._complete_identity_for_test_narrator(
-                name=self.SHATNER_NARRATOR_NAME,
-                dob=self.SHATNER_NARRATOR_DOB,
-                place=self.SHATNER_NARRATOR_PLACE,
-                order=self.SHATNER_NARRATOR_ORDER,
-            )
+            for _value in (
+                self.SHATNER_NARRATOR_NAME,
+                self.SHATNER_NARRATOR_DOB,
+                self.SHATNER_NARRATOR_PLACE,
+                self.SHATNER_NARRATOR_ORDER,
+            ):
+                _since = self.console.now()
+                self.ui.send_chat(_value)
+                # Wait for Lori's reply (the next QF prompt) before
+                # sending the next field. 45s ceiling matches the
+                # readiness harness's _intake helper.
+                _reply = self._wait_for_fresh_lori_turn(_since, timeout_ms=45_000)
+                if not _reply:
+                    raise RuntimeError(
+                        f"intake stalled — no Lori reply after sending {_value!r}"
+                    )
+            # Allow ~2s for identity_complete propagation + Life Map
+            # historical-era unlock (matches readiness harness pattern).
+            self.page.wait_for_timeout(2_000)
+
             # Verify the four BB fields actually saved
             full = self.ui.read_bb_field("personal.fullName")
             dob = self.ui.read_bb_field("personal.dateOfBirth")
