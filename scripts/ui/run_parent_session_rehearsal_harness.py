@@ -1293,6 +1293,21 @@ class RehearsalRun:
         # in the rare case the same exact text is returned twice — that
         # is the report-level signature of the bug T3/T4 hit.
         self._last_returned_reply_text: str = ""
+        # 2026-05-04 WO-HARNESS-T1-INTRO-WAIT-EXTENSION-01:
+        # Set True inside _safe_session_start after a successful
+        # startIdentityOnboarding force-fire (BUG-CLEARDIRECT-SUBSEQUENT-
+        # NARRATOR-ONBOARDING-01). The voice loop's T1 wait reads this
+        # flag and bumps its timeout from 75s → 120s when True, then
+        # resets the flag once T1 completes. The longer window is
+        # required because the post-switch intro generation under late-
+        # run KV pressure (median 6266 / max 7256 prompt tokens by the
+        # field/shield boundary in stress_v3) can take 60-90s on
+        # Llama-3.1-8B-Q4 — well past the 75s ceiling that produced
+        # field T1 + shield T1 RED in stress_v1/v2/v3. The `-358 MB`
+        # negative free on field's kv-clear in stress_v3 was direct
+        # evidence the previous LLM turn was still generating when
+        # the harness gave up.
+        self._forcefire_just_fired: bool = False
 
     # ── Lane G.1 fix #4 — boot wait-for-ready ───────────────────
 
@@ -1424,6 +1439,13 @@ class RehearsalRun:
         already in a usable state. Returns False only if both paths
         fail outright.
         """
+        # 2026-05-04 WO-HARNESS-T1-INTRO-WAIT-EXTENSION-01:
+        # Clear the post-forcefire flag at the start of every
+        # session_start so it accurately reflects ONLY this call.
+        # The startIdentityOnboarding force-fire branch below sets
+        # it back to True on success.
+        self._forcefire_just_fired = False
+
         ui_path_ok = False
         try:
             self.ui.session_start()
@@ -1577,6 +1599,18 @@ class RehearsalRun:
                             print(f"[rehearsal] startIdentityOnboarding force-fired "
                                   f"(BUG-CLEARDIRECT-SUBSEQUENT-NARRATOR-ONBOARDING-01) — "
                                   f"phase={force_result.get('phase')}")
+                            # 2026-05-04 WO-HARNESS-T1-INTRO-WAIT-EXTENSION-01:
+                            # Mark that a force-fire just landed so the
+                            # voice loop's T1 wait gives the LLM 120s
+                            # instead of the default 75s. The post-switch
+                            # T1 generation under late-run KV pressure
+                            # (median ~6266 / max ~7256 prompt tokens by
+                            # the field/shield boundary in stress_v3)
+                            # routinely exceeds 75s on Llama-3.1-8B-Q4 —
+                            # the harness was reaping the LLM mid-flight.
+                            # Flag is reset by run_voice immediately after
+                            # T1 completes so it never leaks to T2+.
+                            self._forcefire_just_fired = True
                         else:
                             reason = (force_result or {}).get("reason", "unknown")
                             print(f"[rehearsal] WARN — startIdentityOnboarding force-fire "
@@ -1671,7 +1705,24 @@ class RehearsalRun:
             # spike to 60s+ even on a "warm" stack because the chat-
             # ws path lazily initializes some context. T2-T6 settle
             # to ~10-15s.
-            timeout_ms = 75_000 if turn_id == "T1" else 45_000
+            #
+            # 2026-05-04 WO-HARNESS-T1-INTRO-WAIT-EXTENSION-01:
+            # When _safe_session_start just force-fired
+            # startIdentityOnboarding (subsequent narrator on
+            # clear_direct / companion — see BUG-CLEARDIRECT-SUBSEQUENT-
+            # NARRATOR-ONBOARDING-01), bump T1's ceiling 75s → 120s.
+            # stress_v1/v2/v3 evidence: field T1 + shield T1 RED with
+            # the force-fire confirmed firing (phase=askName logged)
+            # but the LLM intro generation under accumulated KV
+            # pressure (median 6266 / max 7256 prompt tokens) routinely
+            # exceeds 75s. The negative -358 MB free on field's
+            # kv-clear in stress_v3 was direct evidence the previous
+            # T1 generation was still in flight when the harness
+            # reaped at 75s and triggered the inter-narrator clear.
+            if turn_id == "T1":
+                timeout_ms = 120_000 if self._forcefire_just_fired else 75_000
+            else:
+                timeout_ms = 45_000
 
             t0 = time.time()
             try:
@@ -1685,6 +1736,15 @@ class RehearsalRun:
                 t.fail_reasons.append(f"RED: send/wait threw: {e}")
                 t.severity = "RED"
             t.elapsed_ms = int((time.time() - t0) * 1000)
+
+            # 2026-05-04 WO-HARNESS-T1-INTRO-WAIT-EXTENSION-01:
+            # Reset the force-fire flag once T1 has completed (whether
+            # PASS or RED). Subsequent turns in this voice always use
+            # the standard 45s ceiling — T2+ are fast (~10-15s) and
+            # the extended window is only justified by the post-
+            # switch intro-generation race.
+            if turn_id == "T1":
+                self._forcefire_just_fired = False
 
             # Score
             if t.lori_reply:
@@ -1702,7 +1762,12 @@ class RehearsalRun:
             else:
                 t.severity = "RED"
                 if not t.fail_reasons:
-                    t.fail_reasons.append("RED: no Lori reply within 45s")
+                    # 2026-05-04 — report the actual ceiling we used,
+                    # not the stale "45s" copy. T1 may have waited 75s
+                    # or 120s (post-forcefire); T2-T6 use 45s.
+                    t.fail_reasons.append(
+                        f"RED: no Lori reply within {int(timeout_ms / 1000)}s"
+                    )
 
             vr.turns.append(t)
             self.last_lori_reply_by_voice[voice_id][turn_id] = t.lori_reply
