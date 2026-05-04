@@ -385,6 +385,105 @@ class ShatnerCascadeResult:
     fail_reasons:             List[str] = field(default_factory=list)
 
 
+# ── TEST-22 dataclasses (long-life multi-voice cascade) ─────────────
+#
+# Per WO-PARENT-SESSION-LONG-LIFE-HARNESS-01_Spec.md. The closest
+# synthetic to a real Janice/Kent session: composite 200-year-old
+# narrator with stories sourced from VOICE_LIBRARY_v1.md voices,
+# seeded across all 7 eras, then click each era + capture Lori's
+# response shape. Strict 12 / Informational 8 + memory recall.
+
+@dataclass
+class LongLifeEraStep:
+    """One era's strict + informational observations after seeding +
+    clicking. Strict drives RED; informational reports gaps for
+    follow-up WOs (WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01)."""
+    era_label:                str = ""
+    era_id:                   str = ""
+    voice:                    str = ""    # Hearth/Field/Bridge/Shield
+    seed_text:                str = ""    # the story we sent before click
+    # STRICT
+    seed_lori_reply:          str = ""    # Lori's response to the seed turn
+    clicked_ok:               bool = False
+    era_click_log_seen:       bool = False
+    lori_prompt_log_seen:     bool = False
+    state_currentEra:         str = ""
+    state_activeFocusEra:     str = ""
+    click_lori_replied:       bool = False
+    click_lori_reply:         str = ""
+    click_lori_era_anchored:  bool = False
+    click_metrics:            Dict[str, Any] = field(default_factory=dict)
+    voice_rule_violations:    List[str] = field(default_factory=list)
+    strict_fail_reasons:      List[str] = field(default_factory=list)
+    severity:                 str = "PASS"
+    # INFORMATIONAL
+    timeline_active_era_id:   str = ""
+    memoir_section_present:   bool = False
+    memoir_top_heading:       str = ""
+    memoir_excerpt:           str = ""
+    info_notes:               List[str] = field(default_factory=list)
+
+
+@dataclass
+class LongLifeMemoryRecall:
+    """End-of-arc memory recall probe. Sends 'what do you know about
+    me' after all 7 eras seeded + clicked. Asserts response references
+    facts from MULTIPLE eras. Per-era recall is parked as
+    WO-LORI-ERA-RECALL-01."""
+    sent_text:                str = ""
+    response:                 str = ""
+    eras_referenced:          List[str] = field(default_factory=list)
+    multi_era_count:          int = 0
+    severity:                 str = "PASS"   # RED if 0 eras, AMBER if 1, PASS if >=2
+    fail_reasons:             List[str] = field(default_factory=list)
+
+
+@dataclass
+class LongLifeCascadeResult:
+    """TEST-22 full cascade — synthetic 200-year-old composite narrator."""
+    narrator_name:            str = ""
+    narrator_person_id:       str = ""
+    narrator_added:           bool = False
+    identity_complete:        bool = False
+    identity_fail_reason:     str = ""
+    era_steps:                List[LongLifeEraStep] = field(default_factory=list)
+    memory_recall:            Optional[LongLifeMemoryRecall] = None
+    voice_arc_divergence:     Dict[str, Any] = field(default_factory=dict)
+    severity:                 str = "PASS"
+    fail_reasons:             List[str] = field(default_factory=list)
+
+
+# Long-Life canonical narrator + per-era seed plan.
+# Each era has (voice, seed_text). Voices map to VOICE_LIBRARY_v1.md.
+# Seeds are short, distinctive, and intentionally cross-cultural so we
+# can detect Lori contamination across eras (the cross-voice divergence
+# check). Real-data sourcing (sd_001-sd_065) is left for v2; v1 uses
+# inline seeds for portability.
+
+LONG_LIFE_NARRATOR_NAME  = "Esther Ridley-Yamamoto-Cordova"
+LONG_LIFE_NARRATOR_DOB   = "July 14, 1825"
+LONG_LIFE_NARRATOR_PLACE = "Charleston, South Carolina"
+LONG_LIFE_NARRATOR_ORDER = "youngest"
+
+LONG_LIFE_ERA_PLAN: List[Tuple[str, str, str, str]] = [
+    # (era_label, era_id, voice, seed_text)
+    ("Earliest Years", "earliest_years", "Hearth",
+     "Mother had a silk ribbon from her wedding. She'd take it out once a year, touch it, and put it back."),
+    ("Early School Years", "early_school_years", "Hearth",
+     "I walked to school past the grain elevator. My teacher was Miss Olson and she taught us all our letters."),
+    ("Adolescence", "adolescence", "Field",
+     "We had a way of speaking different on Sundays than on Mondays. You learned which voice to use where."),
+    ("Coming of Age", "coming_of_age", "Field",
+     "They changed our family name at the port. The clerk wrote down what he heard, not what we said."),
+    ("Building Years", "building_years", "Bridge",
+     "My father worked in a family shop in California. We all helped — that's how it was for our family."),
+    ("Later Years", "later_years", "Shield",
+     "There were things we remembered but never said. My grandmother told me that on her deathbed."),
+    ("Today", "today", "Shield",
+     "These days I think more about what stays with you and what you're allowed to say out loud."),
+]
+
+
 @dataclass
 class VoiceResult:
     voice_id:           str = ""
@@ -416,6 +515,7 @@ class RehearsalReport:
     runtime_hygiene:    List[RuntimeHygieneCheck] = field(default_factory=list)
     cross_divergence:   List[Dict[str, Any]] = field(default_factory=list)
     shatner_cascade:    Optional[ShatnerCascadeResult] = None
+    long_life_cascade:  Optional[LongLifeCascadeResult] = None
     fix_list:           List[str] = field(default_factory=list)
 
 
@@ -1361,10 +1461,15 @@ class RehearsalRun:
         """
         out = ShatnerCascadeResult()
 
-        # ── 1. Add narrator (clear_direct so the QF walk doesn't
-        #      steamroll over our deliberate identity intake) ──
+        # ── 1. Add narrator (questionnaire_first triggers the QF walk
+        #      which asks for each identity field in order, matching
+        #      what _intake() expects in the readiness harness) ──
+        # NOTE: shatner_cascade_v3 hit BB-field-empty failure with
+        # clear_direct because that style does NOT auto-fire QF intake.
+        # questionnaire_first is the correct session_style for any
+        # test that needs identity_complete to land.
         try:
-            out.narrator_name = self.ui.add_test_narrator("clear_direct")
+            out.narrator_name = self.ui.add_test_narrator("questionnaire_first")
             out.narrator_added = bool(out.narrator_name)
         except Exception as e:
             out.narrator_added = False
@@ -1486,6 +1591,421 @@ class RehearsalRun:
             out.severity = "RED"
             out.fail_reasons.extend(red_reasons)
         else:
+            out.severity = "PASS"
+
+        try:
+            self.ui.wrap_session()
+        except Exception:
+            pass
+
+        return out
+
+    # ── TEST-22 — Long-Life Multi-Voice Cascade ─────────────────
+    #
+    # Per WO-PARENT-SESSION-LONG-LIFE-HARNESS-01_Spec.md. Synthetic
+    # 200-year-old composite narrator (Esther Ridley-Yamamoto-Cordova)
+    # with stories sourced from VOICE_LIBRARY_v1.md voices, seeded
+    # across all 7 eras. Closest synthetic to a real Janice/Kent
+    # session.
+    #
+    # Pipeline per era:
+    #   1. Click era button → Lori asks an era-anchored question
+    #   2. Send the era's voice-keyed seed story
+    #   3. Capture Lori's reflection (the "voice-respect" probe)
+    #   4. Click era again → state + log + Lori re-engagement check
+    # That gives us TWO Lori responses per era — one to the seed,
+    # one to the re-click — and tests both directions of the era→Lori
+    # context handoff.
+    #
+    # End-of-arc memory recall: send "what do you know about me",
+    # assert response references facts from MULTIPLE eras.
+
+    def _click_era_for_long_life(
+        self,
+        label: str,
+        era_id: str,
+        voice: str,
+        seed_text: str,
+    ) -> LongLifeEraStep:
+        """One era's full step: click era → wait Lori → send seed →
+        wait Lori → click era again → capture state + scoring."""
+        step = LongLifeEraStep(
+            era_label=label, era_id=era_id, voice=voice, seed_text=seed_text,
+        )
+
+        # ── Phase A: Initial era click — get Lori in era context ──
+        try:
+            ok = self.ui.click_life_map_era(label)
+            if not ok:
+                ok = click_era_button_data_attr(self.page, era_id)
+                if ok:
+                    self.ui.confirm_era_popover()
+            self.page.wait_for_timeout(400)
+        except Exception as e:
+            step.strict_fail_reasons.append(f"initial era click threw: {e}")
+
+        since_seed = self.console.now()
+
+        # Wait briefly for the era-anchored Lori prompt before seeding
+        # (don't time out hard — Lori may not always re-prompt on a
+        # bare era click, especially for Today which fires only when
+        # discussion shifts).
+        try:
+            _initial_reply = self._wait_for_fresh_lori_turn(
+                since_seed, timeout_ms=20_000,
+            )
+        except Exception:
+            _initial_reply = ""
+
+        # ── Phase B: Send the seed story for this era's voice ──
+        seed_since = self.console.now()
+        try:
+            self.ui.send_chat(seed_text)
+            seed_reply = self._wait_for_fresh_lori_turn(
+                seed_since, timeout_ms=45_000,
+            )
+            step.seed_lori_reply = seed_reply or ""
+        except Exception as e:
+            step.strict_fail_reasons.append(f"seed send/wait threw: {e}")
+
+        # ── Phase C: Click era AGAIN — verify state still sticks
+        #            after the seed turn fired and capture Lori's
+        #            re-engagement quality ──
+        before_click = len(self.console.matches(r"\[life-map\]\[era-click\] era="))
+        before_prompt = len(self.console.matches(
+            r"\[life-map\]\[era-click\] Lori prompt dispatched"))
+        click_since = self.console.now()
+
+        try:
+            ok = self.ui.click_life_map_era(label)
+            if not ok:
+                ok = click_era_button_data_attr(self.page, era_id)
+                if ok:
+                    self.ui.confirm_era_popover()
+            step.clicked_ok = bool(ok)
+        except Exception as e:
+            step.strict_fail_reasons.append(f"re-click threw: {e}")
+
+        if not step.clicked_ok:
+            step.strict_fail_reasons.append("re-click did not land")
+
+        self.page.wait_for_timeout(500)
+
+        # Console marker delta
+        after_click = len(self.console.matches(r"\[life-map\]\[era-click\] era="))
+        after_prompt = len(self.console.matches(
+            r"\[life-map\]\[era-click\] Lori prompt dispatched"))
+        step.era_click_log_seen = (after_click > before_click)
+        step.lori_prompt_log_seen = (after_prompt > before_prompt)
+        if not step.era_click_log_seen:
+            step.strict_fail_reasons.append("[life-map][era-click] log not seen on re-click")
+        if not step.lori_prompt_log_seen:
+            step.strict_fail_reasons.append("[life-map][era-click] Lori prompt dispatched marker not seen")
+
+        # State checks (now visible via window.state alias from
+        # BUG-LIFEMAP-STATE-VISIBILITY-01 fix in commit dc2a389d)
+        sess = get_state_session(self.page)
+        step.state_currentEra = sess.get("currentEra") or ""
+        step.state_activeFocusEra = sess.get("activeFocusEra") or ""
+        if step.state_currentEra != era_id:
+            step.strict_fail_reasons.append(
+                f"state.session.currentEra={step.state_currentEra!r} (expected {era_id!r})"
+            )
+        if step.state_activeFocusEra != era_id:
+            step.strict_fail_reasons.append(
+                f"state.session.activeFocusEra={step.state_activeFocusEra!r} (expected {era_id!r})"
+            )
+
+        # Wait for re-engagement reply
+        click_reply = self._wait_for_fresh_lori_turn(click_since, timeout_ms=45_000)
+        step.click_lori_reply = click_reply or ""
+        step.click_lori_replied = bool(click_reply)
+        if not click_reply:
+            step.strict_fail_reasons.append("Lori did not re-engage after era re-click within 45s")
+
+        # Score the re-engagement reply (cleanliness gate)
+        if click_reply:
+            metrics, voice_violations, _sev, _fail = _score_turn(
+                voice_id="long_life_" + voice.lower(),
+                turn_id=f"era_{era_id}",
+                narrator_input=f"[Life Map click: {label}]",
+                lori_reply=click_reply,
+                word_cap=55,
+            )
+            step.click_metrics = metrics or {}
+            step.voice_rule_violations = voice_violations or []
+            qcount = int(step.click_metrics.get("question_count", 0) or 0)
+            ncount = int(step.click_metrics.get("nested_question_count", 0) or 0)
+            mcount = int(step.click_metrics.get("menu_offer_count", 0) or 0)
+            if qcount < 1:
+                step.strict_fail_reasons.append(
+                    f"Lori re-engagement has 0 questions (era was {era_id})"
+                )
+            if ncount > 0:
+                step.strict_fail_reasons.append(f"nested questions={ncount}")
+            if mcount > 0:
+                step.strict_fail_reasons.append(f"menu offers={mcount}")
+            if voice_violations:
+                step.strict_fail_reasons.append(
+                    f"voice_rule_violations={voice_violations[:2]}"
+                )
+
+            # Era-anchored heuristic: warm label appears in reply,
+            # OR for Today the reply is present-tense. Light check.
+            warm_lower = label.lower()
+            reply_lower = (click_reply or "").lower()
+            if warm_lower in reply_lower:
+                step.click_lori_era_anchored = True
+            elif era_id == "today" and any(
+                w in reply_lower for w in ("today", "now", "these days", "currently", "right now")
+            ):
+                step.click_lori_era_anchored = True
+            elif era_id != "today" and any(
+                w in reply_lower for w in ("remember", "those days", "when you", "back then", "growing up")
+            ):
+                step.click_lori_era_anchored = True
+            else:
+                # Soft note — not a strict fail; era-anchoring can be
+                # implicit via the prompt directive on the backend.
+                step.info_notes.append(
+                    f"Lori reply does not visibly anchor on '{label}' — backend "
+                    "prompt may have framed it implicitly. Verify in api.log."
+                )
+
+        # ── Phase D: INFORMATIONAL — downstream cohesion probes ──
+        try:
+            step.timeline_active_era_id = self.page.evaluate("""
+                () => {
+                  const el = document.querySelector('.cr-year.cr-active-era');
+                  if (!el) return "";
+                  let p = el.parentElement;
+                  while (p) {
+                    if (p.dataset && p.dataset.eraId) return p.dataset.eraId;
+                    if (p.dataset && p.dataset.era) return p.dataset.era;
+                    p = p.parentElement;
+                  }
+                  return "";
+                }
+            """) or ""
+        except Exception:
+            step.timeline_active_era_id = ""
+        if step.timeline_active_era_id != era_id:
+            step.info_notes.append(
+                f"Timeline active era is {step.timeline_active_era_id!r} (expected {era_id!r}) "
+                "— WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01 not yet wired"
+            )
+
+        try:
+            self.ui.open_peek_memoir()
+            section_data = self.page.evaluate(
+                "(eraId) => {"
+                "  const root = document.getElementById('memoirScrollPopover')"
+                "            || document.querySelector('.lv-peek-memoir-popover');"
+                "  if (!root) return {present: false, heading: '', excerpt: ''};"
+                "  const section = root.querySelector('[data-era-id=\"' + eraId + '\"]');"
+                "  const present = !!section;"
+                "  const headingEl = root.querySelector('.memoir-section-warm-heading')"
+                "                 || root.querySelector('.memoir-section-title')"
+                "                 || root.querySelector('h1, h2, h3');"
+                "  const heading = (headingEl && (headingEl.innerText || '').trim()) || '';"
+                "  const excerpt = ((root.innerText || '').trim()).slice(0, 200).replace(/\\n/g, ' ');"
+                "  return {present: present, heading: heading, excerpt: excerpt};"
+                "}",
+                era_id,
+            )
+            if isinstance(section_data, dict):
+                step.memoir_section_present = bool(section_data.get("present"))
+                step.memoir_top_heading = (section_data.get("heading") or "")[:80]
+                step.memoir_excerpt = (section_data.get("excerpt") or "")[:200]
+        except Exception:
+            pass
+        try:
+            self.ui.close_bug_panel()
+        except Exception:
+            pass
+
+        if not step.memoir_section_present:
+            step.info_notes.append(
+                f"Memoir popover has no [data-era-id={era_id!r}] section"
+            )
+
+        # ── Severity ──
+        step.severity = "RED" if step.strict_fail_reasons else "PASS"
+        return step
+
+    def run_long_life_cascade(self) -> LongLifeCascadeResult:
+        """TEST-22 — Long-life multi-voice cascade. Per
+        WO-PARENT-SESSION-LONG-LIFE-HARNESS-01_Spec.md."""
+        out = LongLifeCascadeResult()
+
+        # ── 1. Add narrator (questionnaire_first triggers QF intake) ──
+        try:
+            out.narrator_name = self.ui.add_test_narrator("questionnaire_first")
+            out.narrator_added = bool(out.narrator_name)
+        except Exception as e:
+            out.severity = "RED"
+            out.fail_reasons.append(f"add_test_narrator failed: {e}")
+            return out
+        if not out.narrator_added:
+            out.severity = "RED"
+            out.fail_reasons.append("narrator name not returned")
+            return out
+
+        try:
+            out.narrator_person_id = (
+                self.page.evaluate("window.state && window.state.person_id || ''")
+                or ""
+            )
+        except Exception:
+            pass
+
+        # ── 2. session_start (tolerate; some flows auto-start) ──
+        try:
+            self._safe_session_start()
+        except Exception:
+            pass
+        self.page.wait_for_timeout(1500)
+
+        # ── 3. Complete identity (Esther's data) ──
+        try:
+            for _value in (
+                LONG_LIFE_NARRATOR_NAME,
+                LONG_LIFE_NARRATOR_DOB,
+                LONG_LIFE_NARRATOR_PLACE,
+                LONG_LIFE_NARRATOR_ORDER,
+            ):
+                _since = self.console.now()
+                self.ui.send_chat(_value)
+                _reply = self._wait_for_fresh_lori_turn(_since, timeout_ms=45_000)
+                if not _reply:
+                    raise RuntimeError(
+                        f"intake stalled after sending {_value!r}"
+                    )
+            self.page.wait_for_timeout(2_000)
+
+            full = self.ui.read_bb_field("personal.fullName")
+            dob = self.ui.read_bb_field("personal.dateOfBirth")
+            place = self.ui.read_bb_field("personal.placeOfBirth")
+            ok = (
+                "Esther" in (full or "")
+                and "1825" in (dob or "")
+                and "Charleston" in (place or "")
+            )
+            out.identity_complete = ok
+            if not ok:
+                out.identity_fail_reason = (
+                    f"BB fields incomplete: fullName={full!r} dob={dob!r} place={place!r}"
+                )
+        except Exception as e:
+            out.identity_fail_reason = f"identity intake threw: {e}"
+
+        if not out.identity_complete:
+            out.severity = "RED"
+            out.fail_reasons.append(
+                "Identity intake did not complete — historical era "
+                "click would be gated. Aborting cascade."
+            )
+            return out
+
+        # ── 4. Enter interview mode + wait for Life Map render ──
+        try:
+            self.page.evaluate(
+                "typeof lvEnterInterviewMode === 'function' && lvEnterInterviewMode();"
+            )
+            self.page.wait_for_timeout(2000)
+            self.page.wait_for_selector('[data-era-id]', state="attached", timeout=8000)
+        except Exception:
+            pass
+
+        # ── 5. Per-era arc — click → seed → click → capture ──
+        for label, era_id, voice, seed_text in LONG_LIFE_ERA_PLAN:
+            print(f"[rehearsal][long-life] era={era_id} voice={voice}", file=sys.stderr)
+            step = self._click_era_for_long_life(label, era_id, voice, seed_text)
+            out.era_steps.append(step)
+            # Brief pause between eras so console markers don't merge
+            self.page.wait_for_timeout(800)
+
+        # ── 6. Memory recall test (end-of-arc) ──
+        recall = LongLifeMemoryRecall(sent_text="what do you know about me")
+        try:
+            # Click Today first to settle into present-life context
+            try:
+                self.ui.click_life_map_era("Today")
+                self.page.wait_for_timeout(300)
+            except Exception:
+                pass
+            recall_since = self.console.now()
+            self.ui.send_chat(recall.sent_text)
+            recall.response = (
+                self._wait_for_fresh_lori_turn(recall_since, timeout_ms=60_000) or ""
+            )
+
+            # Detect era references — heuristic substring match against
+            # seed-derived era keywords. Not perfect but signals whether
+            # memory_echo is pulling from the full arc.
+            response_lower = recall.response.lower()
+            era_keywords = {
+                "Earliest Years":     ["silk ribbon", "wedding", "earliest"],
+                "Early School Years": ["school", "grain elevator", "olson", "letters"],
+                "Adolescence":        ["sundays", "monday", "voice", "way of speaking"],
+                "Coming of Age":      ["family name", "port", "clerk", "renamed"],
+                "Building Years":     ["california", "shop", "father worked", "family business"],
+                "Later Years":        ["grandmother", "deathbed", "remembered but never"],
+                "Today":              ["today", "now", "these days", "currently"],
+            }
+            for era, kws in era_keywords.items():
+                if any(kw in response_lower for kw in kws):
+                    recall.eras_referenced.append(era)
+            recall.multi_era_count = len(recall.eras_referenced)
+
+            if recall.multi_era_count == 0:
+                recall.severity = "RED"
+                recall.fail_reasons.append(
+                    "memory_echo did NOT reference any era-distinct facts — "
+                    "either persistence broke or memory_echo is producing "
+                    "generic content"
+                )
+            elif recall.multi_era_count == 1:
+                recall.severity = "AMBER"
+                recall.fail_reasons.append(
+                    f"memory_echo only references 1 era ({recall.eras_referenced[0]}) — "
+                    "per-narrator memory may be limited to recent turns; "
+                    "WO-LORI-ERA-RECALL-01 will address this"
+                )
+            else:
+                recall.severity = "PASS"
+        except Exception as e:
+            recall.severity = "RED"
+            recall.fail_reasons.append(f"recall probe threw: {e}")
+
+        out.memory_recall = recall
+
+        # ── 7. Voice arc divergence (lightweight summary) ──
+        voice_counts: Dict[str, int] = {}
+        voice_violations: Dict[str, int] = {}
+        for s in out.era_steps:
+            voice_counts[s.voice] = voice_counts.get(s.voice, 0) + 1
+            voice_violations[s.voice] = voice_violations.get(s.voice, 0) + len(s.voice_rule_violations)
+        out.voice_arc_divergence = {
+            "voice_turn_counts":      voice_counts,
+            "voice_rule_violations":  voice_violations,
+        }
+
+        # ── 8. Cascade severity rollup (STRICT only) ──
+        red_steps = [s for s in out.era_steps if s.severity == "RED"]
+        if red_steps:
+            out.severity = "RED"
+            for s in red_steps:
+                out.fail_reasons.append(
+                    f"{s.era_label}: {'; '.join(s.strict_fail_reasons)}"
+                )
+        if recall.severity == "RED":
+            out.severity = "RED"
+            out.fail_reasons.append(f"memory_recall: {'; '.join(recall.fail_reasons)}")
+        elif recall.severity == "AMBER" and out.severity != "RED":
+            out.severity = "AMBER"
+            out.fail_reasons.append(f"memory_recall AMBER: {'; '.join(recall.fail_reasons)}")
+        if out.severity not in ("RED", "AMBER"):
             out.severity = "PASS"
 
         try:
@@ -1811,6 +2331,118 @@ def build_markdown_report(report: RehearsalReport) -> str:
               "Life Map quote-fix verification.")
             L("")
 
+    # ── Long-Life Multi-Voice Cascade (TEST-22) ──
+    llc = report.long_life_cascade
+    L("## TEST-22 — Long-Life Multi-Voice Cascade")
+    L("")
+    if not llc:
+        L("_(cascade not run — pass --include-long-life to enable)_")
+        L("")
+    else:
+        L("**Setup**")
+        L("")
+        L("| Check | Value |")
+        L("|---|---|")
+        L(f"| Narrator added | {'✓' if llc.narrator_added else '✗'} ({llc.narrator_name or '—'}) |")
+        L(f"| person_id | {(llc.narrator_person_id or '—')[:12]} |")
+        L(f"| Identity complete | {'✓' if llc.identity_complete else '✗'}{' — ' + llc.identity_fail_reason if llc.identity_fail_reason else ''} |")
+        L(f"| Total era steps | {len(llc.era_steps)} |")
+        L(f"| Cascade severity | **{llc.severity}** |")
+        L("")
+        # STRICT — Era click chain
+        L("**STRICT — Era click chain** _(per era; drives RED)_")
+        L("")
+        L("| Era | Voice | Click | Click log | Prompt log | currentEra | activeFocus | Lori re-engaged | Era-anchored | Q | Nest | Menu | Voice rule | Severity |")
+        L("|---|---|---|---|---|---|---|---|---|---:|---:|---:|---|---|")
+        for s in llc.era_steps:
+            m = s.click_metrics or {}
+            voice_rule_str = (
+                "✗ " + ", ".join(s.voice_rule_violations[:2])
+                if s.voice_rule_violations else "✓"
+            )
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                f"{s.era_label} ({s.era_id})",
+                s.voice,
+                "✓" if s.clicked_ok else "✗",
+                "✓" if s.era_click_log_seen else "✗",
+                "✓" if s.lori_prompt_log_seen else "✗",
+                s.state_currentEra or "(empty)",
+                s.state_activeFocusEra or "(empty)",
+                "✓" if s.click_lori_replied else "✗",
+                "✓" if s.click_lori_era_anchored else "—",
+                m.get("question_count", "—"),
+                m.get("nested_question_count", "—"),
+                m.get("menu_offer_count", "—"),
+                voice_rule_str,
+                s.severity,
+            ]) + " |")
+        L("")
+        # Per-era seed + replies (truncated)
+        L("**Era seed turns + Lori replies**")
+        L("")
+        L("| Era | Voice | Seed (excerpt) | Lori to seed (excerpt) | Lori to re-click (excerpt) |")
+        L("|---|---|---|---|---|")
+        for s in llc.era_steps:
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                f"{s.era_label}",
+                s.voice,
+                (s.seed_text or "")[:60],
+                (s.seed_lori_reply or "—")[:80],
+                (s.click_lori_reply or "—")[:80],
+            ]) + " |")
+        L("")
+        # INFORMATIONAL — downstream cohesion
+        L("**INFORMATIONAL — Downstream cohesion** _(known gap pre-WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01; never RED)_")
+        L("")
+        L("| Era | Timeline active | Memoir section | Memoir top heading | Notes |")
+        L("|---|---|---|---|---|")
+        for s in llc.era_steps:
+            notes_str = "; ".join(s.info_notes) if s.info_notes else "—"
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                f"{s.era_label}",
+                s.timeline_active_era_id or "(empty)",
+                "✓" if s.memoir_section_present else "✗",
+                (s.memoir_top_heading or "—")[:60],
+                notes_str[:140],
+            ]) + " |")
+        L("")
+        # Memory recall
+        L("**Memory Recall — end-of-arc**")
+        L("")
+        if llc.memory_recall:
+            mr = llc.memory_recall
+            L("| Probe | Lori response (excerpt) | Eras referenced | Multi-era count | Severity |")
+            L("|---|---|---|---:|---|")
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                mr.sent_text,
+                (mr.response or "—")[:140],
+                "; ".join(mr.eras_referenced) if mr.eras_referenced else "(none detected)",
+                mr.multi_era_count,
+                mr.severity,
+            ]) + " |")
+            if mr.fail_reasons:
+                L("")
+                for r in mr.fail_reasons:
+                    L(f"- {r}")
+        L("")
+        # Voice arc divergence
+        L("**Voice Arc Divergence**")
+        L("")
+        if llc.voice_arc_divergence:
+            counts = llc.voice_arc_divergence.get("voice_turn_counts") or {}
+            violations = llc.voice_arc_divergence.get("voice_rule_violations") or {}
+            L("| Voice | Era turns | Voice-rule violations |")
+            L("|---|---:|---:|")
+            for v in sorted(counts.keys()):
+                L(f"| {v} | {counts[v]} | {violations.get(v, 0)} |")
+        L("")
+        if llc.fail_reasons:
+            L("**Cascade failure reasons:**")
+            L("")
+            for r in llc.fail_reasons:
+                L(f"- {r}")
+            L("")
+
     # ── Cross-Narrator Divergence ──
     L("## Cross-Narrator Divergence")
     L("")
@@ -2000,6 +2632,10 @@ def main() -> int:
     parser.add_argument("--headless", action="store_true",
                         help="run Playwright headless (default: headed)")
     parser.add_argument("--slow-mo-ms", type=int, default=100)
+    parser.add_argument("--include-long-life", action="store_true",
+                        help="run TEST-22 (long-life multi-voice cascade) — "
+                             "adds ~5 minutes to wall clock; skip in --quick "
+                             "if you only want fast feedback")
     args = parser.parse_args()
 
     repo_root = _REPO_ROOT
@@ -2117,6 +2753,23 @@ def main() -> int:
                 fail_reasons=[f"cascade threw: {e}"],
             )
 
+        # ── TEST-22 — Long-life multi-voice cascade (opt-in) ──
+        # Per WO-PARENT-SESSION-LONG-LIFE-HARNESS-01_Spec.md.
+        # Closest synthetic to a real Janice/Kent session: composite
+        # 200-year-old narrator (Esther Ridley-Yamamoto-Cordova),
+        # 7-era arc with voice rotation, end-of-arc memory recall.
+        # Adds ~5 min wall clock — opt-in via --include-long-life.
+        if args.include_long_life:
+            print(f"[rehearsal] === Long-Life multi-voice cascade (TEST-22) ===")
+            try:
+                report.long_life_cascade = runner.run_long_life_cascade()
+            except Exception as e:
+                print(f"[rehearsal] WARN — Long-Life cascade threw: {e}", file=sys.stderr)
+                report.long_life_cascade = LongLifeCascadeResult(
+                    severity="RED",
+                    fail_reasons=[f"cascade threw: {e}"],
+                )
+
         # ── Runtime hygiene ──
         print(f"[rehearsal] === Runtime hygiene (kawa scrub + current_era) ===")
         report.runtime_hygiene = runner.run_runtime_hygiene()
@@ -2134,13 +2787,15 @@ def main() -> int:
             any(r.severity == "RED" for r in report.lifemap_results) or
             (report.silence_result and report.silence_result.severity == "RED") or
             (report.shatner_cascade and report.shatner_cascade.severity == "RED") or
+            (report.long_life_cascade and report.long_life_cascade.severity == "RED") or
             any(not h.passed for h in report.runtime_hygiene)
         )
         any_amber = (
             any(vr.severity == "AMBER" for vr in report.voice_results) or
             any(r.severity == "AMBER" for r in report.lifemap_results) or
             (report.silence_result and report.silence_result.severity == "AMBER") or
-            (report.shatner_cascade and report.shatner_cascade.severity == "AMBER")
+            (report.shatner_cascade and report.shatner_cascade.severity == "AMBER") or
+            (report.long_life_cascade and report.long_life_cascade.severity == "AMBER")
         )
         if any_red:
             report.overall = "RED"
