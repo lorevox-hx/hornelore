@@ -837,8 +837,22 @@
     if (!text || typeof text !== "string") return false;
     var t = text.trim();
     if (!t) return false;
+    // Trailing "?" — definitive question.
     if (/\?\s*$/.test(t)) return true;
+    // Wh- question with verb adjacent: "what is", "where are", "how do".
     if (/^(what|where|when|who|whom|why|how|which|whose)\s+(is|are|was|were|do|does|did|can|could|would|should|will|shall|am)\b/i.test(t)) return true;
+    // BUG-1-fix (live transcript switch_moqe9, 2026-05-03): wh-question
+    // with 1–3 noun/det words between the question word and the verb.
+    // Catches "what day is it", "what time is it", "what year is it",
+    // "what date are we", "what month is it", "where in the world is",
+    // "how on earth did". Without this, the QF dispatcher steamrolled
+    // every "what day is it" the tester typed during live test.
+    if (/^(what|where|when|who|whom|why|how|which|whose)\s+(\w+\s+){1,3}(is|are|was|were|do|does|did|can|could|would|should|will|shall|am)\b/i.test(t)) return true;
+    // Yes/no question opener: "do you know...", "is it...", "are we...",
+    // "can you tell me...", "would you...". Common parent-narrator
+    // phrasings that aren't answers to a structured BB field.
+    if (/^(do|does|did|is|are|was|were|will|would|can|could|should|am|have|has|had)\s+(you|i|we|they|he|she|it|there|that|this)\b/i.test(t)) return true;
+    // Imperatives.
     if (/^(tell|show|give|help|explain|describe|list)\s+me\b/i.test(t)) return true;
     if (/^(tell|show|explain|describe|list)\s+(us|the|about|some)\b/i.test(t)) return true;
     return false;

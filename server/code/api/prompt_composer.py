@@ -1103,12 +1103,22 @@ _MENU_OFFER_RX = re.compile(
 
 
 def _discipline_filter_enabled() -> bool:
-    """Layer 2 runtime filter is OFF by default. Enable with
-    `HORNELORE_INTERVIEW_DISCIPLINE=1` once Layer 1 (the prompt block)
-    has been observed for a session and we know whether the LLM still
-    drifts past one question. Conservative rollout per spec — Layer 1
-    does the real work; Layer 2 is a safety net for LLM stochasticity."""
-    return os.getenv("HORNELORE_INTERVIEW_DISCIPLINE", "0").strip().lower() in ("1", "true", "yes", "on")
+    """Layer 2 runtime filter — DEFAULT ON as of 2026-05-03 evening.
+
+    Conservative rollout gate satisfied by two-run evidence of Layer 1
+    drift past one question:
+      - rehearsal_quick_v3 T4 (uncertainty turn): Lori emitted
+        "Would you like to tell me more... or perhaps we can focus
+        on a different part of your life story?" — menu_offer.
+      - Live transcript switch_moqe9 final handoff: Lori emitted
+        "...you can choose a memory that stands out to you...
+        Would you like to..." — menu_offer.
+
+    Layer 1 (prompt block) does the real work but the LLM stochastically
+    drifts. Layer 2 is the safety net. Disable explicitly via
+    `HORNELORE_INTERVIEW_DISCIPLINE=0` to fall back to prompt-only.
+    """
+    return os.getenv("HORNELORE_INTERVIEW_DISCIPLINE", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _split_into_questions(text: str) -> List[str]:

@@ -4519,7 +4519,20 @@ IMPORTANT INTERVIEW RULES:
             _sseError = d;
             console.error("[SSE] backend error:", d.error, d.message);
           } else if(d.delta||d.text){
-            if(!_tFirstToken) { _tFirstToken = performance.now(); console.log("[chat-turn:" + _turnId + "] first_token", { ms: Math.round(_tFirstToken - _t0) }); }
+            if(!_tFirstToken) {
+              _tFirstToken = performance.now();
+              console.log("[chat-turn:" + _turnId + "] first_token", { ms: Math.round(_tFirstToken - _t0) });
+              // Lane H — anchor the countdown timer on Lori's first SSE
+              // token. SSE path is what the live stack uses; WS path
+              // (handleWsMessage) carries its own anchor. Either may
+              // fire; first-to-arrive wins via the null-check.
+              if (state && state.narratorTurn && state.narratorTurn.loriStreamStartedAt == null) {
+                state.narratorTurn.loriStreamStartedAt = Date.now();
+                if (typeof window.lvSinceTimerRefresh === "function") {
+                  try { window.lvSinceTimerRefresh(); } catch (_) {}
+                }
+              }
+            }
             _tLastToken = performance.now();
             full+=(d.delta||d.text); _bubbleBody(bubble).textContent=full;
             document.getElementById("chatMessages").scrollTop=99999;
@@ -4946,13 +4959,16 @@ function handleWsMessage(j){
     if(!currentAssistantBubble){
       currentAssistantBubble=appendBubble("ai","");
       setLoriState("drafting");
-      // Lane H — countdown timer anchor. Chris's spec: "start as soon
-      // as Lori types the first word, not after she is done typing and
-      // actually speaking." Set ONLY on first-token (the bubble-create
-      // path), so subsequent chunks inside the same turn don't re-anchor.
-      if (state && state.narratorTurn) {
-        state.narratorTurn.loriStreamStartedAt = Date.now();
-      }
+    }
+    // Lane H countdown anchor — fires on first-token regardless of
+    // whether the bubble was pre-created (sendSystemPrompt /
+    // sendUserMessage create a placeholder "…" bubble BEFORE tokens
+    // arrive, which made the bubble-existence gate miss every system
+    // -prompt turn). Null-check + same-turn idempotency: send/mic
+    // clears it; first arriving token sets it; subsequent chunks
+    // leave it alone.
+    if (state && state.narratorTurn && state.narratorTurn.loriStreamStartedAt == null) {
+      state.narratorTurn.loriStreamStartedAt = Date.now();
       if (typeof window.lvSinceTimerRefresh === "function") {
         try { window.lvSinceTimerRefresh(); } catch (_) {}
       }
