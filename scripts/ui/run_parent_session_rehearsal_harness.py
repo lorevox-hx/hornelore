@@ -100,6 +100,475 @@ except ImportError as e:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# WO-OPS-STRESS-TELEMETRY-KV-01 — Stress run telemetry recorder
+#
+# Captures snapshots at key run points (run_start, voice_start/end,
+# era_click, etc.), calls the KV-clear endpoint between voices, parses
+# api.log for derived metrics + prompt_tokens histogram, writes a
+# separate telemetry JSON next to the existing report.
+#
+# All operations are best-effort: failures log a WARN line but never
+# block the harness flow. Telemetry is OPT-IN via --emit-telemetry
+# (auto-enabled by --include-long-life since stress runs need it).
+# ═══════════════════════════════════════════════════════════════════
+
+import urllib.request as _urllib_request
+import urllib.error as _urllib_error
+
+
+class TelemetryRecorder:
+    """Run-scoped telemetry capture. One instance per harness run.
+
+    Wire-in points:
+      - record_start() — call once at run start (before voices)
+      - record_snapshot(label, extra={}) — at voice boundaries, era clicks, etc.
+      - clear_kv(label) — calls /clear-kv endpoint, captures before/after
+      - finalize() — at run end, computes derived metrics + writes JSON
+
+    Usage:
+      tel = TelemetryRecorder(
+          api_base="http://localhost:8000",
+          out_path=out_dir / f"parent_rehearsal_{tag}.telemetry.json",
+          api_log_path=repo_root / ".runtime" / "logs" / "api.log",
+          enabled=args.emit_telemetry,
+      )
+      tel.record_start()
+      ...
+      tel.record_snapshot("voice_start:hearth", {"voice_id": "hearth"})
+      ...
+      tel.clear_kv("after_voice:hearth")
+      ...
+      tel.finalize()
+    """
+
+    def __init__(
+        self,
+        api_base: str,
+        out_path: Path,
+        api_log_path: Optional[Path] = None,
+        enabled: bool = True,
+    ) -> None:
+        self.api_base = api_base.rstrip("/")
+        self.out_path = out_path
+        self.api_log_path = api_log_path
+        self.enabled = enabled
+        self.snapshots: List[Dict[str, Any]] = []
+        self.kv_clears: List[Dict[str, Any]] = []
+        self.run_start_ts: Optional[float] = None
+        self.run_start_iso: Optional[str] = None
+        self.run_end_iso: Optional[str] = None
+        # Cap snapshot count to prevent runaway file size.
+        self._snapshot_cap = 500
+
+    def _now_iso(self) -> str:
+        return dt.datetime.now(dt.timezone.utc).isoformat()
+
+    def _http_post_json(self, path: str, timeout: float = 10.0) -> Dict[str, Any]:
+        """POST {} JSON to api_base + path, return parsed JSON or error dict."""
+        url = self.api_base + path
+        try:
+            req = _urllib_request.Request(
+                url,
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with _urllib_request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                return {"_status": resp.status, **json.loads(body or "{}")}
+        except _urllib_error.HTTPError as e:
+            return {"_error": f"HTTP {e.code}", "_status": e.code,
+                    "_body": e.read().decode("utf-8", errors="replace")[:200]}
+        except Exception as e:
+            return {"_error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+    def _http_get_json(self, path: str, timeout: float = 5.0) -> Dict[str, Any]:
+        url = self.api_base + path
+        try:
+            with _urllib_request.urlopen(url, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                return {"_status": resp.status, **json.loads(body or "{}")}
+        except _urllib_error.HTTPError as e:
+            return {"_error": f"HTTP {e.code}", "_status": e.code}
+        except Exception as e:
+            return {"_error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+    def record_start(self) -> None:
+        if not self.enabled:
+            return
+        self.run_start_ts = time.time()
+        self.run_start_iso = self._now_iso()
+        self.record_snapshot("run_start")
+
+    def record_snapshot(self, label: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        """Capture stack-dashboard summary + harness context.
+        Best-effort — never raises."""
+        if not self.enabled:
+            return
+        if len(self.snapshots) >= self._snapshot_cap:
+            return  # cap reached, silently drop (warning logged once below)
+        if len(self.snapshots) == self._snapshot_cap - 1:
+            print(f"[telemetry] WARN — snapshot cap {self._snapshot_cap} reached, "
+                  f"further snapshots dropped", file=sys.stderr)
+        try:
+            summary = self._http_get_json("/api/operator/stack-dashboard/summary")
+            elapsed = (time.time() - self.run_start_ts) if self.run_start_ts else 0.0
+            snap: Dict[str, Any] = {
+                "label": label,
+                "ts": self._now_iso(),
+                "elapsed_s_since_run_start": round(elapsed, 3),
+                "extra": extra or {},
+            }
+            # Pull just the fields we care about (don't dump full summary)
+            if isinstance(summary, dict) and "_error" not in summary:
+                gpu = summary.get("gpu") or {}
+                system = summary.get("system") or {}
+                snap["gpu"] = {
+                    "vram_used_mb": gpu.get("vram_used_mb"),
+                    "vram_free_mb": gpu.get("vram_free_mb"),
+                    "vram_total_mb": gpu.get("vram_total_mb"),
+                    "util_percent": gpu.get("util_percent"),
+                    "temperature_c": gpu.get("temperature_c"),
+                }
+                snap["system"] = {
+                    "cpu_percent": system.get("cpu_percent"),
+                    "ram_used_mb": system.get("ram_used_mb"),
+                    "ram_free_mb": system.get("ram_free_mb"),
+                    "ram_total_mb": system.get("ram_total_mb"),
+                    "uptime_seconds": system.get("uptime_seconds"),
+                }
+            else:
+                snap["error"] = (summary or {}).get("_error", "unknown")
+            self.snapshots.append(snap)
+        except Exception as e:
+            print(f"[telemetry] snapshot({label}) threw: {e}", file=sys.stderr)
+
+    def clear_kv(self, label: str) -> Dict[str, Any]:
+        """POST /clear-kv. Captures before/after VRAM. Returns the response
+        for the caller to log if they want."""
+        if not self.enabled:
+            return {"_skipped": "telemetry_disabled"}
+        try:
+            t0 = time.time()
+            result = self._http_post_json(
+                "/api/operator/stack-dashboard/clear-kv",
+                timeout=35.0,  # endpoint caps at 30s + buffer
+            )
+            wall_ms = int((time.time() - t0) * 1000)
+            entry = {
+                "label": label,
+                "ts": self._now_iso(),
+                "wall_ms": wall_ms,
+                **result,
+            }
+            self.kv_clears.append(entry)
+            # Take a fresh snapshot AFTER the clear so derived metrics
+            # see the post-clear VRAM state.
+            self.record_snapshot(f"after_clear_kv:{label}", {
+                "freed_mb": result.get("freed_mb"),
+                "elapsed_ms": result.get("elapsed_ms"),
+            })
+            return entry
+        except Exception as e:
+            err = {"_error": f"{type(e).__name__}: {str(e)[:200]}", "label": label}
+            self.kv_clears.append(err)
+            return err
+
+    # ── Derived metrics — api.log grep aggregators ────────────────
+
+    def _scan_api_log_in_window(self) -> Dict[str, Any]:
+        """Scan api.log for the run window. Counts FK errors, comm_control
+        trims, GPU OOM, Phase G disconnects, and harvests prompt_tokens
+        values for the histogram. Best-effort — returns partial data on
+        any error."""
+        out: Dict[str, Any] = {
+            "fk_constraint_count": 0,
+            "comm_control_trim_count": 0,
+            "comm_control_validate_only_count": 0,
+            "send_system_prompt_timeouts": 0,
+            "phase_g_disconnect_count": 0,
+            "gpu_oom_count": 0,
+            "vram_guard_block_count": 0,
+            "prompt_tokens_values": [],
+            "_log_path": str(self.api_log_path) if self.api_log_path else None,
+            "_window_start": self.run_start_iso,
+            "_window_end": self.run_end_iso,
+        }
+        if not self.api_log_path or not self.api_log_path.exists():
+            out["_error"] = "api.log not found"
+            return out
+        if not self.run_start_ts:
+            out["_error"] = "run_start_ts not set"
+            return out
+
+        # api.log timestamps look like "2026-05-04 10:59:53,015 ..."
+        # We want to filter to only lines within run_start..run_end.
+        start_dt = dt.datetime.fromtimestamp(self.run_start_ts)
+        end_dt = dt.datetime.now()  # finalize() is called at end-of-run
+
+        ts_pattern = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(\d{3})")
+
+        try:
+            # Read the tail — typical run is <30 min, ~5MB max of relevant
+            # log. Read last 20MB to be safe; older runs grep would skip.
+            file_size = self.api_log_path.stat().st_size
+            tail_bytes = min(file_size, 20 * 1024 * 1024)
+            with open(self.api_log_path, "rb") as f:
+                f.seek(file_size - tail_bytes)
+                # Skip partial first line
+                if file_size > tail_bytes:
+                    f.readline()
+                for raw in f:
+                    line = raw.decode("utf-8", errors="replace")
+                    m = ts_pattern.match(line)
+                    if not m:
+                        continue
+                    try:
+                        line_dt = dt.datetime.strptime(
+                            m.group(1), "%Y-%m-%d %H:%M:%S"
+                        )
+                    except ValueError:
+                        continue
+                    if line_dt < start_dt:
+                        continue
+                    if line_dt > end_dt:
+                        break  # log is roughly chronological; stop early
+                    # Counters
+                    if "FOREIGN KEY constraint failed" in line:
+                        out["fk_constraint_count"] += 1
+                    if "[chat_ws][comm_control]" in line and "changed=True" in line:
+                        out["comm_control_trim_count"] += 1
+                    if "[chat_ws][comm_control]" in line and "validate-only" in line:
+                        out["comm_control_validate_only_count"] += 1
+                    if "[WO-11][chat-state]" in line and "timeout" in line:
+                        out["send_system_prompt_timeouts"] += 1
+                    if "Phase G: WebSocket disconnected" in line:
+                        out["phase_g_disconnect_count"] += 1
+                    if "Not enough GPU memory" in line:
+                        out["gpu_oom_count"] += 1
+                    if "VRAM_GUARD" in line and "block" in line.lower():
+                        out["vram_guard_block_count"] += 1
+                    # prompt_tokens harvest — for histogram
+                    pt = re.search(r"\[chat_ws\]\[WO-10M\] prompt_tokens=(\d+)", line)
+                    if pt:
+                        try:
+                            out["prompt_tokens_values"].append(int(pt.group(1)))
+                        except ValueError:
+                            pass
+        except Exception as e:
+            out["_scan_error"] = f"{type(e).__name__}: {str(e)[:200]}"
+
+        return out
+
+    def _build_prompt_token_summary(self, values: List[int]) -> Dict[str, Any]:
+        """Build min/p25/median/p75/p95/max + bucketed histogram from
+        prompt_tokens series."""
+        if not values:
+            return {"n": 0, "values": []}
+        s = sorted(values)
+        n = len(s)
+        def _pct(p: float) -> int:
+            idx = max(0, min(n - 1, int(round((n - 1) * p))))
+            return s[idx]
+        # Bucketed histogram: 1k slabs up to 7k+
+        buckets = [0] * 8  # 0-1k, 1-2k, ..., 6-7k, 7k+
+        for v in s:
+            slab = min(7, v // 1000)
+            buckets[slab] += 1
+        # Monotonic growth over time (input order, not sorted): how often
+        # does the next value exceed previous by some margin?
+        growths = []
+        for i in range(1, len(values)):
+            prev = values[i - 1]
+            cur = values[i]
+            if prev > 0:
+                growths.append((cur - prev) / prev * 100.0)
+        avg_growth_pct = (sum(growths) / len(growths)) if growths else 0.0
+        return {
+            "n": n,
+            "min": s[0],
+            "p25": _pct(0.25),
+            "median": _pct(0.50),
+            "p75": _pct(0.75),
+            "p95": _pct(0.95),
+            "max": s[-1],
+            "histogram": {
+                "0-1000": buckets[0], "1000-2000": buckets[1],
+                "2000-3000": buckets[2], "3000-4000": buckets[3],
+                "4000-5000": buckets[4], "5000-6000": buckets[5],
+                "6000-7000": buckets[6], "7000+": buckets[7],
+            },
+            "avg_pct_growth_per_turn": round(avg_growth_pct, 2),
+        }
+
+    def _build_kv_summary(self) -> Dict[str, Any]:
+        """Aggregate KV-clear effectiveness: count, total freed, avg freed."""
+        successes = [c for c in self.kv_clears if c.get("ok") and c.get("freed_mb") is not None]
+        if not successes:
+            return {"n": 0, "total_freed_mb": 0.0, "avg_freed_mb": 0.0,
+                    "n_calls": len(self.kv_clears)}
+        freed = [c["freed_mb"] for c in successes]
+        return {
+            "n": len(successes),
+            "n_calls": len(self.kv_clears),
+            "total_freed_mb": round(sum(freed), 1),
+            "avg_freed_mb": round(sum(freed) / len(freed), 1),
+            "min_freed_mb": round(min(freed), 1),
+            "max_freed_mb": round(max(freed), 1),
+        }
+
+    def _build_vram_per_voice(self) -> Dict[str, Any]:
+        """Peak VRAM per voice from snapshots tagged voice_start:X / voice_end:X."""
+        out: Dict[str, Any] = {}
+        # Group snapshots by voice_id when present
+        for snap in self.snapshots:
+            label = snap.get("label", "")
+            extra = snap.get("extra") or {}
+            voice_id = extra.get("voice_id")
+            if not voice_id:
+                # Try to parse from label like "voice_start:hearth"
+                if ":" in label:
+                    voice_id = label.split(":", 1)[1]
+            if not voice_id:
+                continue
+            gpu = snap.get("gpu") or {}
+            used = gpu.get("vram_used_mb")
+            if not isinstance(used, (int, float)):
+                continue
+            v = out.setdefault(voice_id, {"vram_samples": [], "labels": []})
+            v["vram_samples"].append(used)
+            v["labels"].append(label)
+        # Build summary per voice
+        summary: Dict[str, Any] = {}
+        for vid, v in out.items():
+            samples = v["vram_samples"]
+            if not samples:
+                continue
+            summary[vid] = {
+                "n": len(samples),
+                "peak_mb": round(max(samples), 1),
+                "min_mb": round(min(samples), 1),
+                "avg_mb": round(sum(samples) / len(samples), 1),
+            }
+        return summary
+
+    def finalize(self) -> Dict[str, Any]:
+        """End-of-run: compute derived metrics, write JSON, return the payload."""
+        if not self.enabled:
+            return {"_skipped": "telemetry_disabled"}
+        self.run_end_iso = self._now_iso()
+        self.record_snapshot("run_end")
+
+        api_log_scan = self._scan_api_log_in_window()
+        prompt_token_summary = self._build_prompt_token_summary(
+            api_log_scan.get("prompt_tokens_values", [])
+        )
+        # Drop the raw values list from the api_log_scan output —
+        # it's already aggregated into the summary; raw values would
+        # just bloat the JSON.
+        api_log_scan_out = {k: v for k, v in api_log_scan.items() if k != "prompt_tokens_values"}
+
+        derived = {
+            "api_log_scan": api_log_scan_out,
+            "prompt_tokens_summary": prompt_token_summary,
+            "kv_clear_summary": self._build_kv_summary(),
+            "vram_per_voice": self._build_vram_per_voice(),
+        }
+
+        elapsed_s = 0.0
+        if self.run_start_ts:
+            elapsed_s = round(time.time() - self.run_start_ts, 1)
+
+        payload = {
+            "tag": self.out_path.stem.replace("parent_rehearsal_", "").replace(".telemetry", ""),
+            "run_start": self.run_start_iso,
+            "run_end": self.run_end_iso,
+            "elapsed_seconds": elapsed_s,
+            "snapshot_count": len(self.snapshots),
+            "kv_clear_count": len(self.kv_clears),
+            "snapshots": self.snapshots,
+            "kv_clears": self.kv_clears,
+            "derived_metrics": derived,
+        }
+
+        try:
+            self.out_path.parent.mkdir(parents=True, exist_ok=True)
+            self.out_path.write_text(json.dumps(payload, indent=2, default=str))
+            print(f"[telemetry] wrote {self.out_path} "
+                  f"(snapshots={len(self.snapshots)} kv_clears={len(self.kv_clears)} "
+                  f"prompt_tokens_n={prompt_token_summary.get('n', 0)} "
+                  f"fk_count={api_log_scan_out.get('fk_constraint_count', 0)})")
+        except Exception as e:
+            print(f"[telemetry] failed to write {self.out_path}: {e}", file=sys.stderr)
+
+        return payload
+
+    def render_markdown_section(self, payload: Dict[str, Any]) -> str:
+        """Build a Stress Telemetry markdown section that gets appended
+        to the existing rehearsal report. Returns empty string if disabled."""
+        if not self.enabled or not payload:
+            return ""
+        derived = payload.get("derived_metrics", {}) or {}
+        api_scan = derived.get("api_log_scan", {}) or {}
+        pt = derived.get("prompt_tokens_summary", {}) or {}
+        kv = derived.get("kv_clear_summary", {}) or {}
+        vram = derived.get("vram_per_voice", {}) or {}
+
+        out: List[str] = []
+        out.append("\n## Stress Telemetry (WO-OPS-STRESS-TELEMETRY-KV-01)\n")
+        out.append(f"- snapshots captured: **{payload.get('snapshot_count', 0)}**")
+        out.append(f"- kv-clear calls: **{payload.get('kv_clear_count', 0)}**")
+        out.append(f"- elapsed: **{payload.get('elapsed_seconds', 0)}s**\n")
+
+        # api.log signal counts
+        out.append("### api.log signal counts (run window)\n")
+        out.append("| Signal | Count |")
+        out.append("|---|---:|")
+        out.append(f"| FOREIGN KEY constraint failed | {api_scan.get('fk_constraint_count', 0)} |")
+        out.append(f"| comm_control trims | {api_scan.get('comm_control_trim_count', 0)} |")
+        out.append(f"| comm_control validate-only | {api_scan.get('comm_control_validate_only_count', 0)} |")
+        out.append(f"| sendSystemPrompt timeouts | {api_scan.get('send_system_prompt_timeouts', 0)} |")
+        out.append(f"| Phase G disconnects | {api_scan.get('phase_g_disconnect_count', 0)} |")
+        out.append(f"| GPU OOM | {api_scan.get('gpu_oom_count', 0)} |")
+        out.append(f"| VRAM_GUARD blocks | {api_scan.get('vram_guard_block_count', 0)} |\n")
+
+        # prompt_tokens histogram
+        if pt.get("n", 0) > 0:
+            out.append("### Prompt-tokens histogram\n")
+            out.append(f"- n={pt.get('n')} min={pt.get('min')} p25={pt.get('p25')} "
+                       f"median={pt.get('median')} p75={pt.get('p75')} p95={pt.get('p95')} "
+                       f"max={pt.get('max')}")
+            out.append(f"- avg growth per turn: **{pt.get('avg_pct_growth_per_turn', 0)}%**\n")
+            out.append("| Bucket | Count |")
+            out.append("|---|---:|")
+            hist = pt.get("histogram", {})
+            for bucket in ("0-1000", "1000-2000", "2000-3000", "3000-4000",
+                           "4000-5000", "5000-6000", "6000-7000", "7000+"):
+                out.append(f"| {bucket} | {hist.get(bucket, 0)} |")
+            out.append("")
+
+        # KV-clear effectiveness
+        if kv.get("n_calls", 0) > 0:
+            out.append("### KV-clear effectiveness\n")
+            out.append(f"- calls: {kv.get('n_calls')}, successes: {kv.get('n')}")
+            out.append(f"- total freed: {kv.get('total_freed_mb', 0)} MB")
+            out.append(f"- avg freed per call: {kv.get('avg_freed_mb', 0)} MB")
+            out.append(f"- min/max freed: {kv.get('min_freed_mb', 0)}/{kv.get('max_freed_mb', 0)} MB\n")
+
+        # VRAM per voice
+        if vram:
+            out.append("### VRAM per voice\n")
+            out.append("| Voice | Samples | Peak MB | Min MB | Avg MB |")
+            out.append("|---|---:|---:|---:|---:|")
+            for vid, v in vram.items():
+                out.append(f"| {vid} | {v.get('n')} | {v.get('peak_mb')} | "
+                           f"{v.get('min_mb')} | {v.get('avg_mb')} |")
+            out.append("")
+
+        return "\n".join(out)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # VOICE LIBRARY — REHEARSAL PROMPTS
 #
 # Drawn directly from docs/voice_models/VOICE_LIBRARY_v1.md. Each
@@ -982,6 +1451,18 @@ class RehearsalRun:
         # Even if the UI path already triggered lvSessionStyleEnter via
         # lvNarratorRoomInit, calling it again is idempotent. If the
         # paint cycle didn't fire it, this is the only thing that does.
+        #
+        # 2026-05-04 v8 diagnostic — also capture runtime state BEFORE
+        # and AFTER the call so we can diagnose why sendSystemPrompt
+        # might not be reaching the server. Specifically:
+        #   - phase_before: state.session.identityPhase before call
+        #     (tells us whether inProgress branch will block startIdentityOnboarding)
+        #   - basics_complete: hasIdentityBasics74() result
+        #     (tells us which _enterQuestionnaireFirst branch is hit)
+        #   - llm_ready: window._llmReady (tells us if sendSystemPrompt
+        #     would block at L4478)
+        #   - ws_ready: window.wsReady (tells us if WS path is alive)
+        #   - phase_after / qf_after: state after the call
         try:
             result = self.page.evaluate(
                 """
@@ -992,14 +1473,35 @@ class RehearsalRun:
                                   (window.state && window.state.session && window.state.session.sessionStyle) ||
                                   'warm_storytelling';
                     const pid = window.state && window.state.person_id;
+                    // Snapshot BEFORE the call — these answer "would startIdentityOnboarding fire?"
+                    const phase_before = (window.state && window.state.session && window.state.session.identityPhase) || null;
+                    let basics_complete = null;
+                    try {
+                      if (typeof window.hasIdentityBasics74 === 'function') {
+                        basics_complete = !!window.hasIdentityBasics74();
+                      } else if (typeof hasIdentityBasics74 === 'function') {
+                        basics_complete = !!hasIdentityBasics74();
+                      }
+                    } catch (_) { basics_complete = 'threw'; }
+                    const llm_ready = !!window._llmReady;
+                    const ws_ready = !!window.wsReady;
+                    const ws_present = !!window.ws;
+
                     if (typeof window.lvSessionStyleEnter !== 'function') {
-                      return {ok: false, reason: 'lvSessionStyleEnter_missing', style: style, pid: pid};
+                      return {ok: false, reason: 'lvSessionStyleEnter_missing',
+                              style: style, pid: pid,
+                              phase_before: phase_before, basics_complete: basics_complete,
+                              llm_ready: llm_ready, ws_ready: ws_ready, ws_present: ws_present};
                     }
                     if (!pid) {
-                      return {ok: false, reason: 'no_person_id', style: style};
+                      return {ok: false, reason: 'no_person_id', style: style,
+                              phase_before: phase_before, basics_complete: basics_complete,
+                              llm_ready: llm_ready, ws_ready: ws_ready, ws_present: ws_present};
                     }
                     window.lvSessionStyleEnter(style, pid);
                     return {ok: true, style: style, pid: pid,
+                            phase_before: phase_before, basics_complete: basics_complete,
+                            llm_ready: llm_ready, ws_ready: ws_ready, ws_present: ws_present,
                             phase: (window.state.session && window.state.session.identityPhase) || null,
                             qf: (window.state.session && window.state.session.questionnaireFirst) || null};
                   } catch (e) {
@@ -1013,9 +1515,22 @@ class RehearsalRun:
                 qf_seg = (result.get("qf") or {}).get("segment") if isinstance(result.get("qf"), dict) else None
                 print(f"[rehearsal] lvSessionStyleEnter fired — style={result.get('style')} "
                       f"identityPhase={phase} qf_segment={qf_seg}")
+                # v8 diagnostic snapshot — captures all the conditions
+                # that gate sendSystemPrompt firing a real LLM turn.
+                print(f"[rehearsal][diag] phase_before={result.get('phase_before')!r} "
+                      f"basics_complete={result.get('basics_complete')!r} "
+                      f"llm_ready={result.get('llm_ready')} "
+                      f"ws_ready={result.get('ws_ready')} "
+                      f"ws_present={result.get('ws_present')}")
             else:
                 reason = (result or {}).get("reason", "unknown")
                 print(f"[rehearsal] WARN — lvSessionStyleEnter not fired: {reason}", file=sys.stderr)
+                if result:
+                    print(f"[rehearsal][diag] phase_before={result.get('phase_before')!r} "
+                          f"basics_complete={result.get('basics_complete')!r} "
+                          f"llm_ready={result.get('llm_ready')} "
+                          f"ws_ready={result.get('ws_ready')} "
+                          f"ws_present={result.get('ws_present')}", file=sys.stderr)
         except Exception as e:
             print(f"[rehearsal] WARN — lvSessionStyleEnter force-fire threw: {e}", file=sys.stderr)
 
@@ -1049,6 +1564,29 @@ class RehearsalRun:
 
         # Per-voice last-reply cache (used by cross-narrator divergence)
         self.last_lori_reply_by_voice[voice_id] = {}
+
+        # 2026-05-04 v11 — Wait for the askName intro reply BEFORE T1 sends.
+        # session_start fires startIdentityOnboarding → sendSystemPrompt with
+        # askName intro directive. That LLM turn races T1's user message:
+        # the intro's lori_reply event may fire BEFORE T1's _since timestamp,
+        # then the strict ts gate skips it. T1 wait then times out at 45s
+        # because no NEW lori_reply event fires within the window. v9+v10
+        # evidence: T1 captured empty, T2-T6 captured fine.
+        # Fix: same pattern as Shatner cascade Phase A — consume the intro
+        # reply once before the voice loop starts. T1 then sees a fresh
+        # window. 120s ceiling matches the other intro-wait sites.
+        try:
+            _intro_since = self.console.now() - 5.0  # look back 5s for already-firing intro
+            _intro_reply = self._wait_for_fresh_lori_turn(
+                _intro_since, timeout_ms=120_000,
+            )
+            if _intro_reply:
+                print(f"[rehearsal] voice/{voice_id} intro consumed ({len(_intro_reply.split())}w)")
+            else:
+                print(f"[rehearsal] voice/{voice_id} no intro within 120s — T1 may capture empty",
+                      file=sys.stderr)
+        except Exception as e:
+            print(f"[rehearsal] voice/{voice_id} intro-wait threw: {e}", file=sys.stderr)
 
         # Run T1..T6 (T7 silence + T8 lifemap are run separately at end).
         for turn_id, prompt_type, _template, _intent in REHEARSAL_PACK_TEMPLATE:
@@ -1219,12 +1757,15 @@ class RehearsalRun:
             # Wait for Lori reply (sendSystemPrompt fires from era-click).
             # Lane G.1 fix #1 — dedup wrapper.
             # 2026-05-04 Lane 1 fix — bumped 45s → 90s for era-click probes.
-            # Diagnosis from quick_v5: prompt_tokens=5675 for era-click turns,
-            # LLM generation runs 10-50s on 8B-Q4 / 5080. wait_for_lori_turn
-            # polls every 400ms and returns immediately on capture, so the
-            # bump only affects the worst-case ceiling — fast replies still
-            # resolve fast. Real fix is WO-PROMPT-BLOAT-AUDIT-01 (parallel lane).
-            reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=90_000)
+            # 2026-05-04 v10 follow-up — bumped 90s → 150s. v10 evidence:
+            # era-click turns fire with prompt_tokens approaching 6851 (from
+            # v9 api.log) which on Llama-3.1-8B-Q4 / RTX 5080 generates in
+            # 50-80s. 90s was too tight for the prompt-bloat tail; 150s gives
+            # 2x margin until WO-PROMPT-BLOAT-AUDIT-01 trims tokens.
+            # wait_for_lori_turn polls every 400ms and returns immediately
+            # on capture — the higher ceiling only affects worst-case wait,
+            # fast replies still resolve fast.
+            reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=150_000)
             r.lori_reply_text = reply or ""
             r.lori_replied = bool(reply)
 
@@ -1596,7 +2137,38 @@ class RehearsalRun:
         # The QF walk fires automatically for any narrator missing
         # personal-basics fields regardless of session_style, so
         # answering 4 prompts in order completes identity.
+        #
+        # BUG-HARNESS-SHATNER-INTAKE-RACE-01 (2026-05-04): the original
+        # implementation sent "William Shatner" only 1.5s after
+        # _safe_session_start fired, while Lori's askName intro
+        # (~150-word sendSystemPrompt directive) was still generating.
+        # Two LLM turns ended up racing — the askName intro reply and
+        # the post-William-Shatner reply — and _wait_for_fresh_lori_turn
+        # captured them in the wrong order, leaving subsequent intake
+        # steps waiting on phantom replies.
+        # Fix: wait for Lori's askName intro reply BEFORE starting the
+        # 4-step loop. This serializes the conversation properly so
+        # each subsequent send_chat sees its own dedicated reply.
         try:
+            # Phase A — wait for Lori's intro before sending anything.
+            # The intro is firing from startIdentityOnboarding's
+            # sendSystemPrompt that was triggered by lvSessionStyleEnter
+            # inside _safe_session_start above. It typically takes
+            # 15-30s on Llama-3.1-8B-Q4 (longer with bloated prompts —
+            # see WO-PROMPT-BLOAT-AUDIT-01). 90s ceiling matches Lane 1
+            # era-click probe rationale: max-wait, fast replies still
+            # resolve fast.
+            _intro_since = self.console.now() - 5.0  # look back 5s for already-firing intro
+            _intro_reply = self._wait_for_fresh_lori_turn(
+                _intro_since, timeout_ms=90_000,
+            )
+            if not _intro_reply:
+                raise RuntimeError(
+                    "askName intro did not fire within 90s after session_start "
+                    "— check that lvSessionStyleEnter / startIdentityOnboarding fired"
+                )
+
+            # Phase B — strict turn-by-turn intake loop.
             for _value in (
                 self.SHATNER_NARRATOR_NAME,
                 self.SHATNER_NARRATOR_DOB,
@@ -1606,9 +2178,11 @@ class RehearsalRun:
                 _since = self.console.now()
                 self.ui.send_chat(_value)
                 # Wait for Lori's reply (the next QF prompt) before
-                # sending the next field. 45s ceiling matches the
-                # readiness harness's _intake helper.
-                _reply = self._wait_for_fresh_lori_turn(_since, timeout_ms=45_000)
+                # sending the next field. 90s ceiling — same rationale
+                # as Phase A above (per-turn LLM latency varies with
+                # prompt size, prompt grows turn-over-turn as transcript
+                # accumulates).
+                _reply = self._wait_for_fresh_lori_turn(_since, timeout_ms=90_000)
                 if not _reply:
                     raise RuntimeError(
                         f"intake stalled — no Lori reply after sending {_value!r}"
@@ -2727,7 +3301,21 @@ def main() -> int:
                         help="run TEST-22 (long-life multi-voice cascade) — "
                              "adds ~5 minutes to wall clock; skip in --quick "
                              "if you only want fast feedback")
+    parser.add_argument("--clear-kv-between-voices", action="store_true",
+                        help="WO-OPS-STRESS-TELEMETRY-KV-01: call /api/operator/"
+                             "stack-dashboard/clear-kv between voice loops to "
+                             "release accumulated KV-cache VRAM. Requires both "
+                             "HORNELORE_OPERATOR_STACK_DASHBOARD=1 and "
+                             "HORNELORE_OPERATOR_CLEAR_KV=1 server-side.")
+    parser.add_argument("--emit-telemetry", action="store_true",
+                        help="WO-OPS-STRESS-TELEMETRY-KV-01: capture snapshots + "
+                             "derived metrics; write parent_rehearsal_<tag>"
+                             ".telemetry.json. Auto-enabled by --include-long-life.")
     args = parser.parse_args()
+    # Auto-enable telemetry for stress runs
+    if args.include_long_life and not args.emit_telemetry:
+        args.emit_telemetry = True
+        print("[telemetry] auto-enabled (--include-long-life implies --emit-telemetry)")
 
     repo_root = _REPO_ROOT
     out_dir = repo_root / args.output_dir
@@ -2755,6 +3343,24 @@ def main() -> int:
     print(f"[rehearsal] tag={args.tag} mode={args.mode} voices={voice_ids}")
     print(f"[rehearsal] commit={sha} dirty={dirty}")
     print(f"[rehearsal] reports → {out_dir}/")
+
+    # WO-OPS-STRESS-TELEMETRY-KV-01: telemetry recorder (best-effort).
+    # When enabled it captures snapshots via the stack-dashboard summary
+    # endpoint, calls clear-kv between voices, and writes a separate
+    # telemetry JSON. Fully opt-in; auto-enabled by --include-long-life.
+    telemetry_path = out_dir / f"parent_rehearsal_{args.tag}.telemetry.json"
+    api_log_path = repo_root / ".runtime" / "logs" / "api.log"
+    telemetry = TelemetryRecorder(
+        api_base=args.api_base,
+        out_path=telemetry_path,
+        api_log_path=api_log_path,
+        enabled=args.emit_telemetry,
+    )
+    if args.emit_telemetry:
+        print(f"[telemetry] enabled → {telemetry_path}")
+    if args.clear_kv_between_voices:
+        print(f"[telemetry] --clear-kv-between-voices ON (requires both "
+              f"HORNELORE_OPERATOR_STACK_DASHBOARD=1 and HORNELORE_OPERATOR_CLEAR_KV=1)")
 
     with sync_playwright() as pw:
         browser: Browser = pw.chromium.launch(
@@ -2808,11 +3414,27 @@ def main() -> int:
                 "still time out. Wait for the [readiness] log line then re-run."
             )
 
+        # WO-OPS-STRESS-TELEMETRY-KV-01 — start telemetry capture
+        telemetry.record_start()
+
         # ── Per-voice rehearsal ──
-        for vid in voice_ids:
+        for vid_idx, vid in enumerate(voice_ids):
             print(f"[rehearsal] === voice: {vid} ===")
+            telemetry.record_snapshot(f"voice_start:{vid}", {"voice_id": vid})
             vr = runner.run_voice(vid)
             report.voice_results.append(vr)
+            telemetry.record_snapshot(f"voice_end:{vid}", {"voice_id": vid,
+                "fail_count": getattr(vr, "fail_count", 0)})
+            # KV-clear between voices (not after the last one)
+            if args.clear_kv_between_voices and vid_idx < len(voice_ids) - 1:
+                kv_result = telemetry.clear_kv(f"between_voices:{vid}_to_{voice_ids[vid_idx+1]}")
+                freed = kv_result.get("freed_mb")
+                ms = kv_result.get("elapsed_ms") or kv_result.get("wall_ms")
+                if kv_result.get("ok"):
+                    print(f"[telemetry] kv-clear after {vid} → freed {freed} MB in {ms} ms")
+                else:
+                    err = kv_result.get("_error") or kv_result.get("errors") or "unknown"
+                    print(f"[telemetry] kv-clear after {vid} → not ok ({err})", file=sys.stderr)
 
         # ── Life Map cycle ──
         if args.mode == "quick":
@@ -2898,8 +3520,20 @@ def main() -> int:
         report.fix_list.extend(build_fix_list(report))
         report.finished_at = dt.datetime.now().isoformat()
 
+        # WO-OPS-STRESS-TELEMETRY-KV-01 — finalize telemetry, append
+        # markdown section to the rehearsal report.
+        telemetry_payload = telemetry.finalize() if args.emit_telemetry else None
+        telemetry_md = (
+            telemetry.render_markdown_section(telemetry_payload)
+            if (args.emit_telemetry and telemetry_payload)
+            else ""
+        )
+
         json_path.write_text(build_json_report(report))
-        md_path.write_text(build_markdown_report(report))
+        md_text = build_markdown_report(report)
+        if telemetry_md:
+            md_text = md_text + "\n" + telemetry_md
+        md_path.write_text(md_text)
         csv_path.write_text(build_failure_csv(report))
 
         try:
@@ -2912,6 +3546,8 @@ def main() -> int:
     print(f"  json: {json_path}")
     print(f"  md:   {md_path}")
     print(f"  csv:  {csv_path}")
+    if args.emit_telemetry:
+        print(f"  telemetry: {telemetry_path}")
     print()
     print(md_path.read_text())
 

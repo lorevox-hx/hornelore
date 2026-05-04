@@ -779,15 +779,28 @@ function _lvInterviewSelectEra(eid) {
   if (canonical && typeof sendSystemPrompt === "function") {
     const warmLabel = _lvInterviewActiveFocusLabel(canonical);
     const isToday = (canonical === "today");
+    // 2026-05-04 BUG-LIFEMAP-ERA-FRAMING-01 — directive now requires past-tense
+    // framing for historical eras AND explicitly names the warm label so the
+    // reply anchors to the era. Without this, LLM produced era-neutral replies
+    // (rehearsal_quick_v6 marked Lori replied=✓ but era_appropriate=✗ because
+    // no past-tense markers / no era label appeared in Lori's reply).
     const directive = isToday
       ? ("[SYSTEM: The narrator just selected 'Today' on the Life Map — "
-        + "they want to talk about life now, in the present. Ask ONE warm, "
-        + "open question about something in their life today. Maximum 55 "
-        + "words. ONE question only. No menu choices. No 'or we could' "
-        + "phrasing. No compound 'and how / and what' follow-ups.]")
+        + "they want to talk about life NOW, in the present. Ask ONE warm, "
+        + "open question about something in their life today. Frame the "
+        + "question in PRESENT TENSE — use words like 'today', 'now', "
+        + "'these days', 'right now'. Maximum 55 words. ONE question only. "
+        + "No menu choices. No 'or we could' phrasing. No compound 'and "
+        + "how / and what' follow-ups.]")
       : ("[SYSTEM: The narrator just selected '" + warmLabel + "' on the "
         + "Life Map — they want to talk about this era of their life. "
-        + "Ask ONE warm, open question about this period. Maximum 55 "
+        + "Ask ONE warm, open question about this period. Frame the "
+        + "question in PAST TENSE — use words like 'was', 'were', 'had', "
+        + "'when you', 'back then', 'that time'. Anchor the question in "
+        + "the era explicitly: you may name it directly (e.g. 'During "
+        + "your " + warmLabel.toLowerCase() + "...' or 'In your "
+        + warmLabel.toLowerCase() + " years...') so the narrator hears "
+        + "you connect to the specific period they chose. Maximum 55 "
         + "words. ONE question only. No menu choices. No 'or we could' "
         + "phrasing. No compound 'and how / and what' follow-ups.]");
     try {
@@ -3658,16 +3671,64 @@ function _parseBirthplaceFromUtterance(text){
 
   // Pass 3 (last resort): the whole utterance IS the place name.
   // Place-only replies look like proper nouns: every word starts with a
-  // capital (or punctuation like apostrophe/dash). "It was a long time ago"
-  // starts with capital "It" but contains lowercase words — those would
-  // be lowercased in a real place name only at proper-noun boundaries
-  // (which are rare; we accept "of"/"the" in "Land of the Free" if needed
-  // but for birthplace the "all capital-led" rule is safe).
+  // capital (or punctuation like apostrophe/dash).
+  //
+  // 2026-05-04 BUG-PARSE-BIRTHPLACE-NAME-CONFUSION-01: tightened to
+  // require either ≥3 capital-led tokens OR an explicit place separator
+  // (comma — as in "Williston, North Dakota") or a recognized state/
+  // country tail token. Previous rule accepted any 2-word capitalized
+  // string and returned "William Shatner" as a place during askName,
+  // which then poisoned identityCapture._embeddedPob and carried over
+  // into placeOfBirth on the askBirthplace step. Live evidence:
+  // rehearsal_quick_v9 + v10 BB place='William Shatner' for Shatner
+  // cascade narrator. The harness's actual askBirthplace answer was
+  // "Montreal, Quebec, Canada" which has both ≥3 tokens AND commas, so
+  // the legitimate-place case is preserved.
   if (t.length <= 60 && /^[A-Z]/.test(t) && !STOP_RE.test(t)) {
-    const allCapitalLed = t.split(/\s+/).every(function (w) {
+    const tokens = t.split(/\s+/);
+    const allCapitalLed = tokens.every(function (w) {
       return w.length === 0 || /^[A-Z]/.test(w) || /^[,'-]/.test(w);
     });
-    if (allCapitalLed) return _cleanPlace(t);
+    if (allCapitalLed) {
+      // Conservative: require either ≥3 capital-led tokens (e.g.
+      // "Mason City Iowa", "Lima Peru Country", "New York City") OR
+      // a comma-separated place form ("Williston, North Dakota",
+      // "Montreal, Quebec, Canada", "Boston, MA") OR a known
+      // place-tail token (state/country indicator).
+      const _PLACE_TAIL = new Set([
+        // US states (subset — full list lives in geo lookup)
+        "Alabama","Alaska","Arizona","Arkansas","California","Colorado",
+        "Connecticut","Delaware","Florida","Georgia","Hawaii","Idaho",
+        "Illinois","Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine",
+        "Maryland","Massachusetts","Michigan","Minnesota","Mississippi",
+        "Missouri","Montana","Nebraska","Nevada","Hampshire","Jersey",
+        "Mexico","York","Carolina","Dakota","Ohio","Oklahoma","Oregon",
+        "Pennsylvania","Rhode","Tennessee","Texas","Utah","Vermont",
+        "Virginia","Washington","Wisconsin","Wyoming",
+        // Major countries
+        "Canada","Mexico","England","France","Germany","Italy","Spain",
+        "Portugal","Ireland","Scotland","Wales","Norway","Sweden","Finland",
+        "Denmark","Netherlands","Belgium","Switzerland","Austria","Poland",
+        "Russia","Ukraine","China","Japan","Korea","India","Pakistan",
+        "Brazil","Argentina","Chile","Peru","Colombia","Australia",
+        "Zealand","Africa","Egypt","Greece", "Quebec","Ontario","Manitoba",
+        "Alberta","Columbia","Saskatchewan",
+      ]);
+      const hasComma = /,/.test(t);
+      const hasPlaceTail = tokens.some(function (w) {
+        return _PLACE_TAIL.has(w.replace(/[,.]+$/, ""));
+      });
+      if (tokens.length >= 3 || hasComma || hasPlaceTail) {
+        return _cleanPlace(t);
+      }
+      // 2-word capital pair WITHOUT comma or known tail token —
+      // ambiguous (could be a person's name like "William Shatner"
+      // or a place like "New Hampshire"). Reject to prevent name→place
+      // confusion. Real 2-word places either have a known tail
+      // ("New Hampshire" — "Hampshire" in tail set) or come from
+      // an explicit "born in X" trigger (Pass 1).
+      return null;
+    }
   }
 
   return null;
@@ -4476,26 +4537,42 @@ async function sendSystemPrompt(instruction){
     const _llmMs = (window._lv10dLlmParams && window._lv10dLlmParams.max_new_tokens) || 512;
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
       message:instruction,params:{person_id:state.person_id,temperature:_llmTs,max_new_tokens:_llmMs,runtime71:_rt71sys}}));
-    // Safety timeout: if no response within 30s, unstick the UI
+    // Safety timeout: if no response within 120s, unstick the UI
     // WO-11: Only show unavailable if WS is genuinely disconnected
+    //
+    // 2026-05-04 BUG-SENDSYSTEMPROMPT-PLACEHOLDER-RACE-01: bumped 30s → 120s.
+    // Live evidence (rehearsal_quick_v9 api.log 11:05:03-11:05:38): a
+    // sendSystemPrompt-driven LLM turn with prompt_tokens=6851 took 35s
+    // to complete generation, but the 30s timeout fired at 11:05:33 while
+    // the bubble was still "…" placeholder. setLoriState("ready") triggered
+    // the [lv80-turn-debug] lori_reply event (hornelore1.0.html:8156) reading
+    // textContent="…", which the harness's placeholder filter correctly
+    // rejected — no subsequent event fired because bubble.remove() ran.
+    // Result: harness saw zero captured replies despite Lori actually
+    // responding 5s after the spurious event.
+    //
+    // Real fix is WO-PROMPT-BLOAT-AUDIT-01 to get prompt_tokens under 3000.
+    // This is containment until that lands. 120s covers worst-case LLM
+    // generation time at current bloat (~50s for 7K-token prompt) with 2x
+    // safety margin. Genuinely-broken WS still gets surfaced after 120s.
     setTimeout(()=>{
       if(currentAssistantBubble===bubble && _bubbleBody(bubble)?.textContent==="…"){
         // WO-11: Check if WS is actually healthy before showing error
         if (ws && wsReady) {
-          console.log("[WO-11][chat-state] System prompt 30s timeout but WS connected — suppressing");
+          console.log("[WO-11][chat-state] System prompt 120s timeout but WS connected — suppressing");
           setLoriState("ready");
           currentAssistantBubble=null;
           // Remove the "…" bubble since WS is fine, just slow
           try { bubble.remove(); } catch(_) {}
           return;
         }
-        console.warn("[sendSystemPrompt] 30s timeout — no response from backend");
+        console.warn("[sendSystemPrompt] 120s timeout — no response from backend");
         console.log("[WO-11][chat-state] Chat unavailable banner SET (system prompt path)");
         _bubbleBody(bubble).textContent="Chat service unavailable — start or restart the Hornelore AI backend to enable responses.";
         setLoriState("ready");
         currentAssistantBubble=null;
       }
-    }, 30000);
+    }, 120000);
     return;
   }
   await streamSse(instruction,bubble);

@@ -763,8 +763,23 @@ class UI:
         read from console.args_json (populated by ConsoleCollector via
         arg.json_value()).
 
+        2026-05-04 BUG-HARNESS-ELLIPSIS-CAPTURE: filter out the streaming
+        placeholder bubble. sendSystemPrompt and chat-send both call
+        appendBubble("ai","…") at app.js:4482/4524 BEFORE streaming
+        starts. If a `[lv80-turn-debug] {event:'lori_reply'}` event fires
+        when that placeholder mounts, this loop captures "…" instead of
+        Lori's actual reply. Live evidence: rehearsal_quick_v7 captured
+        "…" for Coming of Age era click and T1+T2 voice loop. Fix: skip
+        any event whose reply_text is empty, the literal "…" placeholder,
+        or contains only whitespace/dots — keep waiting for the real
+        completed reply text. This is a no-op when the placeholder event
+        either doesn't fire or arrives after the real reply.
+
         Returns the reply_text payload, or empty string on timeout."""
         deadline = time.time() + (timeout_ms / 1000.0)
+        # Track which entries we've seen but skipped, so we don't re-walk
+        # them every poll iteration (cheap optimization for long waits).
+        seen_skipped = set()
         while time.time() < deadline:
             for e in self.console.entries:
                 if e["ts"] < since_ts:
@@ -784,10 +799,29 @@ class UI:
                 # JSON.stringify(val), so reply_text is "..." quoted.
                 m = re.search(r'"reply_text"\s*:\s*"((?:[^"\\]|\\.)*?)"',
                               args_json, re.S)
+                reply_text = ""
                 if m:
                     # Unescape JSON string escapes.
-                    return m.group(1).encode().decode("unicode_escape", errors="replace")
-                return args_json
+                    reply_text = m.group(1).encode().decode("unicode_escape", errors="replace")
+                else:
+                    reply_text = args_json
+
+                # Skip placeholder + empty events — wait for the real reply.
+                # "…" is U+2026 (ellipsis); also catch the 3-dot ASCII form
+                # and pure whitespace/dot strings that might leak from the
+                # streaming bubble before tokens arrive.
+                stripped = reply_text.strip()
+                if (not stripped
+                        or stripped == "…"
+                        or stripped == "..."
+                        or stripped == "…"
+                        or set(stripped) <= {".", "…", " ", "\t", "\n"}):
+                    # Mark as seen so we don't re-check this exact event,
+                    # but keep polling for a later real-reply event.
+                    seen_skipped.add(id(e))
+                    continue
+
+                return reply_text
             self.page.wait_for_timeout(400)
         return ""
 

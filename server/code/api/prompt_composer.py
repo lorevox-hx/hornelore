@@ -1877,12 +1877,19 @@ def compose_system_prompt(
                 "Respond with warmth and empathy for 1–2 sentences before asking any identity question. "
                 "NEVER treat an emotional sentence as a name answer. "
                 "A sentence like 'That was a very hard time' is not a name — it is an emotion to acknowledge.\n"
+                "RULE — STORY DISCLOSURES: If the narrator volunteers a memory or sensory detail "
+                "instead of answering with a name, honor it: reflect briefly on the specific detail "
+                "they shared, then ask for the missing identity field. NEVER use 'Let me start fresh', "
+                "'I seem to have repeated a question', 'let's restart', or any phrase that dismisses "
+                "what they just shared.\n"
                 "RULE — NO ABRUPT PIVOT: Never use 'Now,', 'So,', 'Alright,' or similar transition words "
                 "to shift from emotion into data collection. Let the transition feel natural.\n"
                 "RULE — ONE QUESTION: Ask for only the single next missing piece of identity. "
                 "Do not stack questions. Do not collect name + DOB in one turn.\n"
-                "RULE — NO INTERVIEW YET: Do not ask about memories, childhood, family, or life events "
-                "until name, date of birth, and place of birth are all confirmed."
+                "RULE — NO DEEP FOLLOWUPS YET: Do not ask follow-up questions about memories, childhood, "
+                "family, or life events until name, date of birth, and place of birth are all confirmed. "
+                "(You may briefly acknowledge a memory the narrator volunteers — see STORY DISCLOSURES — "
+                "but do not pursue it with questions.)"
             )
         elif not identity_mode:
             # Pass-level directive — only fires once identity is established
