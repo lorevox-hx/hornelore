@@ -1,0 +1,3 @@
+severity,kind,voice,turn,fail_reason,narrator_input,lori_reply_excerpt
+AMBER,voice_turn,hearth,T3,AMBER: reflection weak / generic,"Mother had a silk ribbon from her wedding. She'd take it out once a year, touch it, and put it back.","I'm doing well, thank you for asking! I'm a friendly companion here to help you share your story. I'm excited to get to know you better and help you create a Life Archive. To begin, I'd love to know y"
+AMBER,silence,—,T7,AMBER: visual presence cue not visible during pause,[silence pause],
