@@ -3791,6 +3791,36 @@ function _parseNameFromUtterance(text){
     if (_NOT_A_NAME.has(firstWord.toLowerCase()) || firstWord.length < 2) continue;
     return cand;
   }
+
+  // 2026-05-04 BUG-NAME-PARSE-BARE-PAIR-01: Pass 2 (last resort) — bare name.
+  // Live evidence (rehearsal_quick_v11 + stress_v1): harness sent
+  // "William Shatner" without a trigger phrase; Pass 1 returned null and
+  // the upstream askName fallback captured first-word only ("William"),
+  // losing "Shatner". Real narrators answer concisely too — "Janice Horne"
+  // not "my name is Janice Horne". Capture 2-4 capital-led words IF:
+  //   (a) total utterance is ≤5 tokens (short answer, not a sentence)
+  //   (b) every token (up to 4) starts with a capital letter (proper noun)
+  //   (c) first token isn't in the NOT_A_NAME guard
+  //   (d) first token is ≥2 chars
+  // Single-word names ("Christopher", "Janice") still fall through to the
+  // upstream first-word fallback in _advanceIdentityPhase — this Pass 2
+  // only catches multi-word capital-led utterances that Pass 1 missed.
+  const _allTokens = t.split(/\s+/);
+  if (_allTokens.length >= 2 && _allTokens.length <= 5) {
+    const _capTokens = [];
+    for (let i = 0; i < Math.min(_allTokens.length, 4); i++) {
+      const w = _allTokens[i].replace(/[^A-Za-z'\-]/g, "");
+      if (!w || !/^[A-Z]/.test(w)) break;
+      _capTokens.push(w);
+    }
+    if (_capTokens.length >= 2) {
+      const first = _capTokens[0];
+      if (!_NOT_A_NAME.has(first.toLowerCase()) && first.length >= 2) {
+        return _capTokens.join(" ");
+      }
+    }
+  }
+
   return null;
 }
 

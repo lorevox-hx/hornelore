@@ -1522,6 +1522,68 @@ class RehearsalRun:
                       f"llm_ready={result.get('llm_ready')} "
                       f"ws_ready={result.get('ws_ready')} "
                       f"ws_present={result.get('ws_present')}")
+
+                # 2026-05-04 BUG-CLEARDIRECT-SUBSEQUENT-NARRATOR-ONBOARDING-01:
+                # For clear_direct/companion (tier-2 styles), lvSessionStyleEnter
+                # at session-style-router.js:66-72 just logs "tier-2 style selected"
+                # and returns — does NOT fire startIdentityOnboarding. The first
+                # narrator gets onboarding via session_start clicking the v9-gate
+                # "Complete profile basics" button. Subsequent narrators (after
+                # kv-clear, after narrator switch) hit the session_start fallback
+                # path which does NOT go through the v9-gate, so identityPhase
+                # stays null and the askName intro never fires.
+                #
+                # Live evidence (stress_v1 + stress_v2):
+                #   hearth: phase_before='askName' → intro consumed, 6/6 PASS
+                #   field:  phase_before=None → no intro, T1 RED in v2
+                #   shield: phase_before=None → no intro, T1 RED in v2
+                #
+                # Fix: force-call window.startIdentityOnboarding when:
+                #   (a) style is a tier-2 style (clear_direct / companion)
+                #   (b) basics_complete is False (incomplete narrator)
+                #   (c) phase is null/None (onboarding hasn't fired yet)
+                # The voice-loop intro-wait below will then consume the intro
+                # reply, T1 starts fresh, and the voice loop runs normally.
+                _style = result.get("style") or ""
+                _basics_complete = result.get("basics_complete")
+                _phase_after = phase  # value AFTER lvSessionStyleEnter fired
+                if (_style in ("clear_direct", "companion")
+                        and _basics_complete is False
+                        and not _phase_after):
+                    try:
+                        force_result = self.page.evaluate(
+                            """
+                            () => {
+                              try {
+                                const fn = (typeof window.startIdentityOnboarding === 'function')
+                                  ? window.startIdentityOnboarding
+                                  : (typeof startIdentityOnboarding === 'function')
+                                    ? startIdentityOnboarding
+                                    : null;
+                                if (!fn) {
+                                  return {ok: false, reason: 'startIdentityOnboarding_missing'};
+                                }
+                                fn();
+                                return {ok: true,
+                                        phase: (window.state && window.state.session
+                                                && window.state.session.identityPhase) || null};
+                              } catch (e) {
+                                return {ok: false, reason: 'threw: ' + (e && e.message || e)};
+                              }
+                            }
+                            """
+                        )
+                        if force_result and force_result.get("ok"):
+                            print(f"[rehearsal] startIdentityOnboarding force-fired "
+                                  f"(BUG-CLEARDIRECT-SUBSEQUENT-NARRATOR-ONBOARDING-01) — "
+                                  f"phase={force_result.get('phase')}")
+                        else:
+                            reason = (force_result or {}).get("reason", "unknown")
+                            print(f"[rehearsal] WARN — startIdentityOnboarding force-fire "
+                                  f"not fired: {reason}", file=sys.stderr)
+                    except Exception as e:
+                        print(f"[rehearsal] WARN — startIdentityOnboarding force-fire threw: {e}",
+                              file=sys.stderr)
             else:
                 reason = (result or {}).get("reason", "unknown")
                 print(f"[rehearsal] WARN — lvSessionStyleEnter not fired: {reason}", file=sys.stderr)

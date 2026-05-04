@@ -810,6 +810,15 @@ class UI:
                 # "…" is U+2026 (ellipsis); also catch the 3-dot ASCII form
                 # and pure whitespace/dot strings that might leak from the
                 # streaming bubble before tokens arrive.
+                #
+                # 2026-05-04 stress_v1 evidence: field T1 captured
+                # "…What's your full name?" (4 words, leading "…" prefix).
+                # That's a mid-stream capture where the bubble started at
+                # placeholder, then the lori_reply event fired before
+                # streaming had time to accumulate the full intro reply.
+                # Tighten: also reject events whose reply_text starts with
+                # "…" AND has ≤5 trailing words (very short tail = mid-stream
+                # capture, not a complete reply).
                 stripped = reply_text.strip()
                 if (not stripped
                         or stripped == "…"
@@ -820,6 +829,17 @@ class UI:
                     # but keep polling for a later real-reply event.
                     seen_skipped.add(id(e))
                     continue
+
+                # 2026-05-04 mid-stream-capture filter: reject leading-"…"
+                # replies with very short tails (placeholder + first sentence
+                # only — reply hasn't finished streaming yet).
+                if stripped.startswith("…") or stripped.startswith("..."):
+                    # Strip the leading ellipsis + whitespace, count the rest
+                    tail = stripped.lstrip("…. \t\n")
+                    tail_words = tail.split()
+                    if len(tail_words) <= 5:
+                        seen_skipped.add(id(e))
+                        continue
 
                 return reply_text
             self.page.wait_for_timeout(400)
