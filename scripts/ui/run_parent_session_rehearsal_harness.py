@@ -863,41 +863,45 @@ class RehearsalRun:
         print(f"[rehearsal] WARN — stack did not warm within {timeout_s}s; proceeding anyway")
         return False
 
-    # ── Lane G.1 fix #1 — dedup wrapper around wait_for_lori_turn ─
+    # ── Lane G.1 fix #1 — strictly-forward event-ts gate around wait_for_lori_turn ─
+    #
+    # 2026-05-04 (BUG-HARNESS-LORI-REPLY-DEDUP-01): the original wrapper
+    # ALSO had a text-equality dedup branch that re-polled when the
+    # captured reply_text matched the previous capture. That branch was
+    # over-aggressive — when Lori legitimately produced byte-equal replies
+    # (stock greetings, console truncation collapsing distinct replies to
+    # the same prefix), the re-poll waited for an event AFTER `time.time()`
+    # but the just-fired event was already consumed, deadline expired,
+    # returned empty. Live evidence: rehearsal_quick_v3+v4 logged
+    # "duplicate reply_text detected, re-polling for fresh reply" on
+    # turns where the api.log proved Lori HAD replied.
+    #
+    # The ts-based gate (effective_since = max(since_ts, _last_consumed_reply_ts + 0.001))
+    # is sufficient on its own. wait_for_lori_turn returns the FIRST
+    # lori_reply event whose ts > since — so as long as we advance
+    # _last_consumed_reply_ts after each capture, we are guaranteed
+    # forward motion through the event stream. Text equality is no longer
+    # consulted as a dedup signal.
 
     def _wait_for_fresh_lori_turn(self, since_ts: float, timeout_ms: int = 45_000) -> str:
-        """wait_for_lori_turn wrapper that:
-          (a) ensures the captured reply event ts > _last_consumed_reply_ts
-              (advances strictly forward through events)
-          (b) detects literal-duplicate reply_text against the previous
-              capture and re-polls a few extra seconds — handles the
-              edge case where a slow-to-land reply gets re-captured.
+        """wait_for_lori_turn wrapper that ensures the captured reply
+        event ts is strictly greater than _last_consumed_reply_ts —
+        i.e., we always advance forward through the event stream and
+        never re-capture a previously-consumed lori_reply event.
+
+        Trust the ts gate. Do NOT dedup on reply_text equality —
+        Lori may legitimately produce byte-equal replies.
         """
-        deadline = time.time() + (timeout_ms / 1000.0)
         # Effective floor — must be strictly greater than the last
         # event we returned, even if since_ts is older.
         effective_since = max(since_ts, self._last_consumed_reply_ts + 0.001)
 
-        # First pass — normal wait.
-        remaining_ms = max(500, int((deadline - time.time()) * 1000))
-        reply = self.ui.wait_for_lori_turn(effective_since, timeout_ms=remaining_ms)
-
-        # Dedup check on text.
-        if reply and reply == self._last_returned_reply_text and time.time() < deadline:
-            # Re-poll for a fresh reply — bump effective_since to "now"
-            # so we wait for any NEW event after this point.
-            print(f"[rehearsal] WARN — duplicate reply_text detected, re-polling for fresh reply")
-            new_since = time.time()
-            remaining_ms = max(500, int((deadline - time.time()) * 1000))
-            fresh = self.ui.wait_for_lori_turn(new_since, timeout_ms=remaining_ms)
-            if fresh and fresh != self._last_returned_reply_text:
-                reply = fresh
+        reply = self.ui.wait_for_lori_turn(effective_since, timeout_ms=timeout_ms)
 
         if reply:
             # Update consumed-ts to the latest matching event ts so the
             # next call advances past it.
             try:
-                # Scan back for the matching event ts.
                 latest_ts = 0.0
                 for e in self.console.entries:
                     args_json = e.get("args_json") or ""
@@ -912,21 +916,49 @@ class RehearsalRun:
             self._last_returned_reply_text = reply
         return reply
 
-    # ── Lane G.1 fix #3 — tolerant session_start ───────────────
+    # ── Lane G.1 fix #3 — tolerant session_start + force-fire QF dispatcher ─
+    #
+    # 2026-05-04 (BUG-HARNESS-IDENTITY-INTAKE-01): the original wrapper
+    # tried `ui.session_start()` (button-click path) and on failure fell
+    # back to "narrator already active, proceeding" if state.person_id
+    # was set. That fallback HID a critical product-flow gap: after
+    # add_test_narrator does the API POST + loadPerson(pid), state.person_id
+    # IS set, but lvSessionStyleEnter may never fire (the narrator-room
+    # paint cycle that hooks into lvNarratorRoomInit + the session-style
+    # router doesn't run reliably for harness-driven narrator switches).
+    # Without lvSessionStyleEnter firing → identityPhase stays null →
+    # QF walk dispatcher never emits [SYSTEM_QF: ...] directives →
+    # BB fields stay empty even though the narrator is "active".
+    #
+    # Live evidence (api.log search 2026-05-04): for harness-created
+    # narrators Test_804968 (Shatner cascade) and Test_900813 (Esther
+    # long-life cascade), zero SYSTEM_QF directives appeared in the
+    # chat_ws log across the entire run window.
+    #
+    # The fix: regardless of whether the button-click path succeeds OR
+    # the fallback fires, EXPLICITLY call lvSessionStyleEnter via
+    # page.evaluate using the localStorage style + state.person_id.
+    # This is belt-and-suspenders — if the UI flow already fired the
+    # dispatcher, lvSessionStyleEnter is idempotent. If it didn't,
+    # this forces it.
 
     def _safe_session_start(self) -> bool:
         """Wraps ui.session_start() and tolerates the case where a
-        narrator is already loaded + active (post-wrap-up state, where
-        the Start Narrator Session / Enter Interview Mode buttons may
-        not be visible because the session is effectively still open).
+        narrator is already loaded + active (post-wrap-up state).
+
+        After the UI path resolves (success OR fallback), force-fires
+        lvSessionStyleEnter via page.evaluate so the QF dispatcher /
+        identity onboarding kicks off reliably for harness-driven
+        narrator switches.
 
         Returns True if session_start succeeded OR the session is
         already in a usable state. Returns False only if both paths
-        fail.
+        fail outright.
         """
+        ui_path_ok = False
         try:
             self.ui.session_start()
-            return True
+            ui_path_ok = True
         except Exception as e:
             # Check whether a narrator is already active.
             try:
@@ -935,11 +967,62 @@ class RehearsalRun:
                 )
                 if already:
                     print(f"[rehearsal] session_start fallback — narrator already active, proceeding")
-                    return True
+                    ui_path_ok = True
+                else:
+                    print(f"[rehearsal] session_start FAILED with no fallback: {e}", file=sys.stderr)
+                    return False
             except Exception:
-                pass
-            print(f"[rehearsal] session_start FAILED with no fallback: {e}", file=sys.stderr)
+                print(f"[rehearsal] session_start FAILED + person_id check threw: {e}", file=sys.stderr)
+                return False
+
+        if not ui_path_ok:
             return False
+
+        # ── Force-fire the session-style dispatcher ──
+        # Even if the UI path already triggered lvSessionStyleEnter via
+        # lvNarratorRoomInit, calling it again is idempotent. If the
+        # paint cycle didn't fire it, this is the only thing that does.
+        try:
+            result = self.page.evaluate(
+                """
+                () => {
+                  try {
+                    const style = (typeof localStorage !== 'undefined' &&
+                                   localStorage.getItem('hornelore_session_style_v1')) ||
+                                  (window.state && window.state.session && window.state.session.sessionStyle) ||
+                                  'warm_storytelling';
+                    const pid = window.state && window.state.person_id;
+                    if (typeof window.lvSessionStyleEnter !== 'function') {
+                      return {ok: false, reason: 'lvSessionStyleEnter_missing', style: style, pid: pid};
+                    }
+                    if (!pid) {
+                      return {ok: false, reason: 'no_person_id', style: style};
+                    }
+                    window.lvSessionStyleEnter(style, pid);
+                    return {ok: true, style: style, pid: pid,
+                            phase: (window.state.session && window.state.session.identityPhase) || null,
+                            qf: (window.state.session && window.state.session.questionnaireFirst) || null};
+                  } catch (e) {
+                    return {ok: false, reason: 'threw: ' + (e && e.message || e)};
+                  }
+                }
+                """
+            )
+            if result and result.get("ok"):
+                phase = result.get("phase")
+                qf_seg = (result.get("qf") or {}).get("segment") if isinstance(result.get("qf"), dict) else None
+                print(f"[rehearsal] lvSessionStyleEnter fired — style={result.get('style')} "
+                      f"identityPhase={phase} qf_segment={qf_seg}")
+            else:
+                reason = (result or {}).get("reason", "unknown")
+                print(f"[rehearsal] WARN — lvSessionStyleEnter not fired: {reason}", file=sys.stderr)
+        except Exception as e:
+            print(f"[rehearsal] WARN — lvSessionStyleEnter force-fire threw: {e}", file=sys.stderr)
+
+        # Settle time for any async dispatch (identityPhase change,
+        # initial Lori prompt, BB blob fetch).
+        self.page.wait_for_timeout(1500)
+        return True
 
     # ── per-voice run ───────────────────────────────────────────
 
