@@ -631,10 +631,22 @@ function _lvInterviewRenderLifeMap() {
     // WO-PARENT-SESSION-HARDENING-01 Phase 5.2 — data-era-id attribute
     // so harness + test pack can observe button state without parsing
     // localized warm labels.
+    // BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 root cause (2026-05-03 v4):
+    // The onclick used `${JSON.stringify(eid)}` which produces a
+    // literal double-quoted string ("coming_of_age") — but the
+    // surrounding HTML attribute is ALSO double-quoted, so the
+    // browser's HTML parser ended the attribute value at the first
+    // inner double quote. The onclick became "_lvInterviewConfirmEra("
+    // (broken JS, never executes) and the rest became garbage
+    // attribute leftovers. Today worked because it uses single
+    // quotes manually (line below). Match the Today pattern with
+    // single-quoted string and escape any embedded apostrophe via
+    // _lvEscapeHtml so era_ids stay safe even if the schema ever
+    // adds an era like "o'clock_years".
     body += `<button type="button" class="lv-interview-lifemap-era-btn${active}"
                      data-era-id="${_lvEscapeHtml(eid)}"
                      aria-pressed="${activeId === eid ? "true" : "false"}"
-                     onclick="_lvInterviewConfirmEra(${JSON.stringify(eid)})">
+                     onclick="_lvInterviewConfirmEra('${_lvEscapeHtml(eid)}')">
       ${_lvEscapeHtml(_warm(eid))}
     </button>`;
   });
@@ -4229,17 +4241,6 @@ async function sendUserMessage(){
   }
   unlockAudio();
   const text=getv("chatInput").trim(); if(!text) return;
-  // Lane H — narrator just sent. Clear the countdown anchor so the timer
-  // resets to 00:00 / "Lori speaking" until her first reply token arrives.
-  // Mirrors Chris's spec: "Narrator starts typing/speaking → timer
-  // stops/resets/hides; Next Lori reply starts → timer restarts."
-  if (state && state.narratorTurn) {
-    state.narratorTurn.loriStreamStartedAt = null;
-    state.narratorTurn.ttsFinishedAt = null;
-  }
-  if (typeof window.lvSinceTimerRefresh === "function") {
-    try { window.lvSinceTimerRefresh(); } catch (_) {}
-  }
   // WO-MIC-UI-02A: Confirm send source and content
   console.log("[WO-MIC-UI-02A] sendUserMessage() — source: #chatInput, length:", text.length, "preview:", text.slice(0, 80));
   // WO-STT-LIVE-02 (#99) — when no speech capture is staged (or it's
@@ -4519,20 +4520,7 @@ IMPORTANT INTERVIEW RULES:
             _sseError = d;
             console.error("[SSE] backend error:", d.error, d.message);
           } else if(d.delta||d.text){
-            if(!_tFirstToken) {
-              _tFirstToken = performance.now();
-              console.log("[chat-turn:" + _turnId + "] first_token", { ms: Math.round(_tFirstToken - _t0) });
-              // Lane H — anchor the countdown timer on Lori's first SSE
-              // token. SSE path is what the live stack uses; WS path
-              // (handleWsMessage) carries its own anchor. Either may
-              // fire; first-to-arrive wins via the null-check.
-              if (state && state.narratorTurn && state.narratorTurn.loriStreamStartedAt == null) {
-                state.narratorTurn.loriStreamStartedAt = Date.now();
-                if (typeof window.lvSinceTimerRefresh === "function") {
-                  try { window.lvSinceTimerRefresh(); } catch (_) {}
-                }
-              }
-            }
+            if(!_tFirstToken) { _tFirstToken = performance.now(); console.log("[chat-turn:" + _turnId + "] first_token", { ms: Math.round(_tFirstToken - _t0) }); }
             _tLastToken = performance.now();
             full+=(d.delta||d.text); _bubbleBody(bubble).textContent=full;
             document.getElementById("chatMessages").scrollTop=99999;
@@ -4959,19 +4947,6 @@ function handleWsMessage(j){
     if(!currentAssistantBubble){
       currentAssistantBubble=appendBubble("ai","");
       setLoriState("drafting");
-    }
-    // Lane H countdown anchor — fires on first-token regardless of
-    // whether the bubble was pre-created (sendSystemPrompt /
-    // sendUserMessage create a placeholder "…" bubble BEFORE tokens
-    // arrive, which made the bubble-existence gate miss every system
-    // -prompt turn). Null-check + same-turn idempotency: send/mic
-    // clears it; first arriving token sets it; subsequent chunks
-    // leave it alone.
-    if (state && state.narratorTurn && state.narratorTurn.loriStreamStartedAt == null) {
-      state.narratorTurn.loriStreamStartedAt = Date.now();
-      if (typeof window.lvSinceTimerRefresh === "function") {
-        try { window.lvSinceTimerRefresh(); } catch (_) {}
-      }
     }
     _bubbleBody(currentAssistantBubble).textContent+=(j.delta||j.token||"");
     document.getElementById("chatMessages").scrollTop=99999;

@@ -363,12 +363,6 @@ let state = {
     timeoutDeadline:    null,     // when timeout check-in should fire (ms epoch)
     interruptionBlock:  null,     // reason interruptions are blocked: "narrator_claimed_turn" | null
     ttsFinishedAt:      null,     // when TTS finished (ms epoch) — null while speaking
-    // Set on Lori's FIRST streamed token arriving in the UI (handleWsMessage
-    // token/delta branch). Cleared in sendUserMessage() so the count resets
-    // the moment the narrator actually sends. Lane H countdown timer
-    // anchors on this — Chris's spec: "start as soon as Lori types the
-    // first word, not after she is done typing and actually speaking."
-    loriStreamStartedAt: null,    // ms epoch | null
     checkInFired:       false,    // true after one gentle check-in has been sent
   },
 

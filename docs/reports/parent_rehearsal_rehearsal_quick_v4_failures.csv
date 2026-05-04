@@ -1,0 +1,4 @@
+severity,kind,voice,turn,fail_reason,narrator_input,lori_reply_excerpt
+AMBER,voice_turn,hearth,T3,AMBER: reflection weak / generic,"Mother had a silk ribbon from her wedding. She'd take it out once a year, touch it, and put it back.",That's a beautiful ritual. What's your name?
+RED,lifemap,—,Coming of Age,RED: era click produced no Lori response,[click Coming of Age],
+AMBER,silence,—,T7,AMBER: session_start failed and no fallback — silence test may not reflect a freshly-armed session; AMBER: visual presence cue not visible during pause,[silence pause],
