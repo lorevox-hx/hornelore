@@ -321,6 +321,71 @@ class RuntimeHygieneCheck:
 
 
 @dataclass
+class ShatnerEraStep:
+    """One era click + observation set inside the Shatner cascade.
+
+    STRICT fields (drive RED severity if they fail):
+      - clicked_ok            : button click landed
+      - era_click_log_seen    : [life-map][era-click] era= console marker
+      - lori_prompt_log_seen  : [life-map][era-click] Lori prompt dispatched marker
+      - session_current_era   : state.session.currentEra after click+settle
+      - lori_replied          : a fresh Lori turn arrived
+      - lori_clean            : reply has ≥1 question, 0 nested, 0 menu
+
+    INFORMATIONAL fields (reported, never RED):
+      - timeline_active_era_id   : era_id from .cr-active-era element (stale
+                                   until WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01)
+      - memoir_top_section_text  : top visible heading inside memoirScrollPopover
+                                   (does not auto-scroll to active era today)
+      - memoir_excerpt           : first 200 chars of memoir popover text
+    """
+    era_label:                str = ""
+    era_id:                   str = ""
+    expected_framing:         str = ""    # "past" or "present"
+    # STRICT
+    clicked_ok:               bool = False
+    era_click_log_seen:       bool = False
+    lori_prompt_log_seen:     bool = False
+    session_current_era:      str = ""
+    lori_replied:             bool = False
+    lori_reply_text:          str = ""
+    lori_clean:               bool = False
+    metrics:                  Dict[str, Any] = field(default_factory=dict)
+    strict_fail_reasons:      List[str] = field(default_factory=list)
+    # INFORMATIONAL (downstream wiring not yet present)
+    timeline_active_era_id:   str = ""
+    memoir_top_section_text:  str = ""
+    memoir_excerpt:           str = ""
+    info_notes:               List[str] = field(default_factory=list)
+    # Severity (computed only from STRICT fields)
+    severity:                 str = "PASS"
+
+
+@dataclass
+class ShatnerCascadeResult:
+    """Shatner narrator end-to-end cascade probe (TEST-21).
+
+    Pipeline: add narrator → complete identity → click Today → click
+    Coming of Age. Each click captures the strict Life Map signal chain
+    + informational downstream subscriber state.
+
+    Severity rollup uses ONLY the strict fields per Chris's directive
+    (option C from the 2026-05-03 evening triage). Timeline + Memoir
+    surface as informational AMBER notes, never RED.
+    """
+    narrator_added:           bool = False
+    narrator_name:            str = ""
+    narrator_person_id:       str = ""
+    identity_complete:        bool = False
+    identity_fail_reason:     str = ""
+    today:                    Optional[ShatnerEraStep] = None
+    coming_of_age:            Optional[ShatnerEraStep] = None
+    downstream_wiring_known_gap: bool = True   # Timeline + Memoir not subscribed
+    severity:                 str = "PASS"
+    fail_reasons:             List[str] = field(default_factory=list)
+
+
+@dataclass
 class VoiceResult:
     voice_id:           str = ""
     voice_label:        str = ""
@@ -350,6 +415,7 @@ class RehearsalReport:
     silence_result:     Optional[SilenceResult] = None
     runtime_hygiene:    List[RuntimeHygieneCheck] = field(default_factory=list)
     cross_divergence:   List[Dict[str, Any]] = field(default_factory=list)
+    shatner_cascade:    Optional[ShatnerCascadeResult] = None
     fix_list:           List[str] = field(default_factory=list)
 
 
@@ -1086,6 +1152,331 @@ class RehearsalRun:
             pass
         return r
 
+    # ── Shatner Life Map cascade (TEST-21) ──────────────────────
+    #
+    # End-to-end probe per Chris's 2026-05-03 evening directive
+    # (option C in the triage). Verifies the full Life Map click
+    # chain end-to-end on a William Shatner test narrator: open
+    # session → complete identity (unlocks historical eras) →
+    # click Today → click Coming of Age. Each click captures BOTH:
+    #
+    #   STRICT (drives RED severity):
+    #     - click landed
+    #     - [life-map][era-click] log marker fired
+    #     - [life-map][era-click] Lori prompt dispatched marker fired
+    #     - state.session.currentEra matches era_id
+    #     - fresh Lori reply arrives
+    #     - reply is clean (≥1 question, 0 nested, 0 menu)
+    #
+    #   INFORMATIONAL (reported, never RED):
+    #     - timeline active-era marker (chronology accordion)
+    #     - memoir top section heading (peek popover)
+    #     - memoir excerpt
+    #
+    # Chris's call: Timeline + Memoir downstream subscribers are
+    # NOT YET WIRED to react to era-click events (verified by
+    # grep: lv-interview-focus-change has no listeners; chronology
+    # accordion only re-renders on narrator-load). Until
+    # WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01 lands, surfacing those
+    # as RED would be a false negative against the Life Map fix.
+    # So this method records them but never grades them down.
+
+    SHATNER_NARRATOR_NAME    = "William Shatner"
+    SHATNER_NARRATOR_DOB     = "March 22, 1931"
+    SHATNER_NARRATOR_PLACE   = "Montreal, Quebec, Canada"
+    SHATNER_NARRATOR_ORDER   = "youngest"
+
+    def _probe_timeline_active_era(self) -> str:
+        """Read the chronology accordion's active-era highlight.
+        Returns the era_id of the FIRST .cr-active-era element, or
+        empty string if none. INFORMATIONAL only — currently always
+        stale post-click until WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01
+        lands a focus-change listener on crInitAccordion."""
+        try:
+            return self.page.evaluate("""
+                () => {
+                  const el = document.querySelector('.cr-year.cr-active-era');
+                  if (!el) return "";
+                  // Walk up to find the era container that owns this year
+                  let p = el.parentElement;
+                  while (p) {
+                    if (p.dataset && p.dataset.eraId) return p.dataset.eraId;
+                    if (p.dataset && p.dataset.era)   return p.dataset.era;
+                    p = p.parentElement;
+                  }
+                  // Fallback: read state directly
+                  return (window.state && window.state.session && window.state.session.currentEra) || "";
+                }
+            """) or ""
+        except Exception:
+            return ""
+
+    def _probe_memoir_state(self) -> Tuple[str, str]:
+        """Open peek + return (top_section_text, excerpt). Best-effort
+        — failures return empty strings (logged as INFORMATIONAL gap).
+        Mirrors readiness harness UI.read_peek_memoir_text() pattern."""
+        try:
+            self.ui.open_peek_memoir()
+        except Exception:
+            return ("", "")
+        try:
+            top = self.page.evaluate("""
+                () => {
+                  const root = document.getElementById('memoirScrollPopover')
+                            || document.querySelector('.lv-peek-memoir-popover');
+                  if (!root) return "";
+                  // First visible heading inside the popover
+                  const h = root.querySelector('.memoir-section-warm-heading')
+                         || root.querySelector('.memoir-section-title')
+                         || root.querySelector('h1, h2, h3');
+                  return (h && (h.innerText || h.textContent) || '').trim();
+                }
+            """) or ""
+        except Exception:
+            top = ""
+        try:
+            text = self.page.evaluate("""
+                () => {
+                  const root = document.getElementById('memoirScrollPopover')
+                            || document.querySelector('.lv-peek-memoir-popover');
+                  return (root && (root.innerText || root.textContent) || '').trim();
+                }
+            """) or ""
+            excerpt = (text[:200] or "").replace("\n", " ")
+        except Exception:
+            excerpt = ""
+        # Close peek so the next click sees a clean DOM
+        try:
+            self.ui.close_bug_panel()
+        except Exception:
+            pass
+        return (top, excerpt)
+
+    def _click_era_for_shatner(self, label: str, era_id: str) -> ShatnerEraStep:
+        """Click one era button + capture STRICT + INFORMATIONAL state.
+        Mirrors run_life_map_cycle's click loop but emits a
+        ShatnerEraStep instead of LifeMapResult."""
+        framing = "present" if era_id == "today" else "past"
+        step = ShatnerEraStep(
+            era_label=label, era_id=era_id, expected_framing=framing,
+        )
+
+        # Snapshot console + click count before
+        before_click = len(self.console.matches(r"\[life-map\]\[era-click\] era="))
+        before_prompt = len(self.console.matches(
+            r"\[life-map\]\[era-click\] Lori prompt dispatched"))
+        since_ts = self.console.now()
+
+        # Click + confirm popover (label-based first, data-attr fallback)
+        ok = self.ui.click_life_map_era(label)
+        if not ok:
+            ok = click_era_button_data_attr(self.page, era_id)
+            if ok:
+                self.ui.confirm_era_popover()
+        step.clicked_ok = bool(ok)
+        if not ok:
+            step.strict_fail_reasons.append("click did not land")
+
+        self.page.wait_for_timeout(500)
+
+        # Console marker checks
+        after_click = len(self.console.matches(r"\[life-map\]\[era-click\] era="))
+        after_prompt = len(self.console.matches(
+            r"\[life-map\]\[era-click\] Lori prompt dispatched"))
+        step.era_click_log_seen = (after_click > before_click)
+        step.lori_prompt_log_seen = (after_prompt > before_prompt)
+        if not step.era_click_log_seen:
+            step.strict_fail_reasons.append("[life-map][era-click] log not seen")
+        if not step.lori_prompt_log_seen:
+            step.strict_fail_reasons.append(
+                "[life-map][era-click] Lori prompt dispatched marker not seen")
+
+        # State session check
+        sess = get_state_session(self.page)
+        step.session_current_era = sess.get("currentEra") or ""
+        if step.session_current_era != era_id:
+            step.strict_fail_reasons.append(
+                f"state.session.currentEra={step.session_current_era!r} "
+                f"(expected {era_id!r})")
+
+        # Wait for Lori reply (sendSystemPrompt fires from era-click)
+        reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=45_000)
+        step.lori_reply_text = reply or ""
+        step.lori_replied = bool(reply)
+        if not reply:
+            step.strict_fail_reasons.append("Lori did not reply within 45s")
+
+        # Score the reply (cleanliness — strict gate on questions/menu/nested)
+        if reply:
+            metrics, _voice_violations, _sev, _fail = _score_turn(
+                voice_id="shatner",
+                turn_id=f"era_{era_id}",
+                narrator_input=f"[Life Map click: {label}]",
+                lori_reply=reply,
+                word_cap=55,
+            )
+            step.metrics = metrics or {}
+            qcount = int(step.metrics.get("question_count", 0) or 0)
+            ncount = int(step.metrics.get("nested_question_count", 0) or 0)
+            mcount = int(step.metrics.get("menu_offer_count", 0) or 0)
+            clean = (qcount >= 1) and (ncount == 0) and (mcount == 0)
+            step.lori_clean = clean
+            if not clean:
+                step.strict_fail_reasons.append(
+                    f"Lori reply not clean (Q={qcount} nested={ncount} menu={mcount})")
+
+        # INFORMATIONAL probes (never grade RED)
+        step.timeline_active_era_id = self._probe_timeline_active_era()
+        if step.timeline_active_era_id != era_id:
+            step.info_notes.append(
+                f"Timeline active era is {step.timeline_active_era_id!r} "
+                f"(expected {era_id!r}) — known gap, "
+                "WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01")
+        top, excerpt = self._probe_memoir_state()
+        step.memoir_top_section_text = top
+        step.memoir_excerpt = excerpt
+        # Heuristic only — does the active era's warm label appear in the
+        # top heading? If not, that's the known memoir auto-scroll gap.
+        warm_label = label  # "Today" or "Coming of Age"
+        if warm_label.lower() not in (top or "").lower():
+            step.info_notes.append(
+                f"Memoir top heading is {top!r} — does not match "
+                f"active era {warm_label!r}. Known gap, "
+                "WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01")
+
+        # Severity: RED if any strict failure, PASS otherwise
+        step.severity = "RED" if step.strict_fail_reasons else "PASS"
+        return step
+
+    def run_shatner_cascade(self) -> ShatnerCascadeResult:
+        """TEST-21 — Shatner Life Map cascade end-to-end.
+
+        Severity computed from STRICT fields ONLY:
+          - identity_complete must be True
+          - both era steps must have severity=PASS
+
+        Timeline + Memoir mismatches are reported as INFORMATIONAL
+        notes (they always live in step.info_notes; never tip
+        the cascade to RED).
+        """
+        out = ShatnerCascadeResult()
+
+        # ── 1. Add narrator (clear_direct so the QF walk doesn't
+        #      steamroll over our deliberate identity intake) ──
+        try:
+            out.narrator_name = self.ui.add_test_narrator("clear_direct")
+            out.narrator_added = bool(out.narrator_name)
+        except Exception as e:
+            out.narrator_added = False
+            out.severity = "RED"
+            out.fail_reasons.append(f"add_test_narrator failed: {e}")
+            return out
+        if not out.narrator_added:
+            out.severity = "RED"
+            out.fail_reasons.append("narrator name not returned")
+            return out
+
+        # Capture person_id if available (best-effort, informational)
+        try:
+            out.narrator_person_id = (
+                self.page.evaluate("window.state && window.state.person_id || ''")
+                or ""
+            )
+        except Exception:
+            pass
+
+        # ── 2. session_start (tolerant; some flows already auto-started) ──
+        try:
+            self._safe_session_start()
+        except Exception:
+            pass
+        self.page.wait_for_timeout(1500)
+
+        # ── 3. Complete identity with Shatner data ──
+        # _complete_identity_for_test_narrator drives the BB intake;
+        # the QF walk fires regardless of session_style when fields
+        # are missing. After the 4 fields land, identity_complete
+        # propagates and the historical era buttons unlock.
+        try:
+            self.ui._complete_identity_for_test_narrator(
+                name=self.SHATNER_NARRATOR_NAME,
+                dob=self.SHATNER_NARRATOR_DOB,
+                place=self.SHATNER_NARRATOR_PLACE,
+                order=self.SHATNER_NARRATOR_ORDER,
+            )
+            # Verify the four BB fields actually saved
+            full = self.ui.read_bb_field("personal.fullName")
+            dob = self.ui.read_bb_field("personal.dateOfBirth")
+            place = self.ui.read_bb_field("personal.placeOfBirth")
+            ok = (
+                self.SHATNER_NARRATOR_NAME in (full or "")
+                and "1931" in (dob or "")
+                and "Montreal" in (place or "")
+            )
+            out.identity_complete = ok
+            if not ok:
+                out.identity_fail_reason = (
+                    f"BB fields incomplete: fullName={full!r} dob={dob!r} place={place!r}"
+                )
+        except Exception as e:
+            out.identity_complete = False
+            out.identity_fail_reason = f"identity intake threw: {e}"
+
+        if not out.identity_complete:
+            out.severity = "RED"
+            out.fail_reasons.append(
+                "Identity intake did not complete — historical era click "
+                "would be gated. Aborting cascade to avoid downstream "
+                "noise."
+            )
+            return out
+
+        # ── 4. Enter interview mode + wait for Life Map render ──
+        try:
+            self.page.evaluate(
+                "typeof lvEnterInterviewMode === 'function' && lvEnterInterviewMode();"
+            )
+            self.page.wait_for_timeout(2000)
+            self.page.wait_for_selector(
+                '[data-era-id]', state="attached", timeout=8000,
+            )
+        except Exception:
+            pass
+
+        # ── 5. Today click (control test) ──
+        out.today = self._click_era_for_shatner("Today", "today")
+
+        # ── 6. Coming of Age click (the era that exposed the bug) ──
+        # Brief pause between clicks so console markers don't merge
+        # and Lori has time to settle the prior turn.
+        self.page.wait_for_timeout(1200)
+        out.coming_of_age = self._click_era_for_shatner(
+            "Coming of Age", "coming_of_age"
+        )
+
+        # ── 7. Cascade severity rollup (STRICT only) ──
+        red_reasons: List[str] = []
+        if out.today and out.today.severity == "RED":
+            red_reasons.append(
+                f"Today: {'; '.join(out.today.strict_fail_reasons)}"
+            )
+        if out.coming_of_age and out.coming_of_age.severity == "RED":
+            red_reasons.append(
+                f"Coming of Age: {'; '.join(out.coming_of_age.strict_fail_reasons)}"
+            )
+        if red_reasons:
+            out.severity = "RED"
+            out.fail_reasons.extend(red_reasons)
+        else:
+            out.severity = "PASS"
+
+        try:
+            self.ui.wrap_session()
+        except Exception:
+            pass
+
+        return out
+
     # ── Runtime hygiene checks ──────────────────────────────────
 
     def run_runtime_hygiene(self) -> List[RuntimeHygieneCheck]:
@@ -1327,6 +1718,80 @@ def build_markdown_report(report: RehearsalReport) -> str:
     else:
         L("_(silence test not run)_")
     L("")
+
+    # ── Shatner Life Map Cascade (TEST-21) ──
+    sc = report.shatner_cascade
+    L("## Shatner Life Map Cascade (TEST-21)")
+    L("")
+    if not sc:
+        L("_(cascade not run)_")
+        L("")
+    else:
+        # Setup row
+        L("**Setup**")
+        L("")
+        L("| Check | Value |")
+        L("|---|---|")
+        L(f"| Narrator added | {'✓' if sc.narrator_added else '✗'} ({sc.narrator_name or '—'}) |")
+        L(f"| person_id | {(sc.narrator_person_id or '—')[:12]} |")
+        L(f"| Identity complete | {'✓' if sc.identity_complete else '✗'}{' — ' + sc.identity_fail_reason if sc.identity_fail_reason else ''} |")
+        L(f"| Cascade severity | **{sc.severity}** |")
+        L("")
+        # STRICT — Life Map click chain (drives RED)
+        L("**STRICT — Life Map click chain**")
+        L("")
+        L("| Era | Clicked | Click log | Lori prompt log | currentEra | Lori replied | Lori clean | Q | Nest | Menu | Severity |")
+        L("|---|---|---|---|---|---|---|---:|---:|---:|---|")
+        for step in (sc.today, sc.coming_of_age):
+            if not step:
+                continue
+            m = step.metrics or {}
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                f"{step.era_label} ({step.era_id})",
+                "✓" if step.clicked_ok else "✗",
+                "✓" if step.era_click_log_seen else "✗",
+                "✓" if step.lori_prompt_log_seen else "✗",
+                step.session_current_era or "(empty)",
+                "✓" if step.lori_replied else "✗",
+                "✓" if step.lori_clean else "✗",
+                m.get("question_count", "—"),
+                m.get("nested_question_count", "—"),
+                m.get("menu_offer_count", "—"),
+                step.severity,
+            ]) + " |")
+        L("")
+        # INFORMATIONAL — Timeline + Memoir downstream subscribers
+        L("**INFORMATIONAL — Timeline + Memoir downstream subscribers** _(known gap, never RED)_")
+        L("")
+        L("| Era | Timeline active | Memoir top heading | Memoir excerpt | Notes |")
+        L("|---|---|---|---|---|")
+        for step in (sc.today, sc.coming_of_age):
+            if not step:
+                continue
+            notes_str = "; ".join(step.info_notes) if step.info_notes else "—"
+            L("| " + " | ".join(str(x).replace("|", "\\|").replace("\n", " ").strip() for x in [
+                f"{step.era_label} ({step.era_id})",
+                step.timeline_active_era_id or "(empty)",
+                (step.memoir_top_section_text or "—")[:60],
+                (step.memoir_excerpt or "—")[:80],
+                notes_str[:120],
+            ]) + " |")
+        L("")
+        if sc.fail_reasons:
+            L("**Strict failure reasons:**")
+            L("")
+            for r in sc.fail_reasons:
+                L(f"- {r}")
+            L("")
+        if sc.downstream_wiring_known_gap:
+            L("> **Downstream subscriber note:** Timeline (chronology accordion) and "
+              "Peek at Memoir (popover) do NOT auto-react to era-click events today. "
+              "The `lv-interview-focus-change` CustomEvent is dispatched but has zero "
+              "subscribers in the codebase. This is a known gap tracked as "
+              "**WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01** and is INTENTIONALLY surfaced "
+              "as informational AMBER, not RED, so it does not falsely fail the "
+              "Life Map quote-fix verification.")
+            L("")
 
     # ── Cross-Narrator Divergence ──
     L("## Cross-Narrator Divergence")
@@ -1618,6 +2083,22 @@ def main() -> int:
         print(f"[rehearsal] === Silence / presence cue ===")
         report.silence_result = runner.run_silence_test("hearth", pause_seconds=30)
 
+        # ── Shatner Life Map cascade (TEST-21) ──
+        # End-to-end probe of the Life Map quote-fix: identity →
+        # Today click → Coming of Age click. Strict gates on the
+        # click chain; Timeline + Memoir reported as informational
+        # (downstream subscribers not yet wired —
+        # WO-LIFEMAP-DOWNSTREAM-SUBSCRIBERS-01).
+        print(f"[rehearsal] === Shatner Life Map cascade (TEST-21) ===")
+        try:
+            report.shatner_cascade = runner.run_shatner_cascade()
+        except Exception as e:
+            print(f"[rehearsal] WARN — Shatner cascade threw: {e}", file=sys.stderr)
+            report.shatner_cascade = ShatnerCascadeResult(
+                severity="RED",
+                fail_reasons=[f"cascade threw: {e}"],
+            )
+
         # ── Runtime hygiene ──
         print(f"[rehearsal] === Runtime hygiene (kawa scrub + current_era) ===")
         report.runtime_hygiene = runner.run_runtime_hygiene()
@@ -1634,12 +2115,14 @@ def main() -> int:
             any(vr.severity == "RED" for vr in report.voice_results) or
             any(r.severity == "RED" for r in report.lifemap_results) or
             (report.silence_result and report.silence_result.severity == "RED") or
+            (report.shatner_cascade and report.shatner_cascade.severity == "RED") or
             any(not h.passed for h in report.runtime_hygiene)
         )
         any_amber = (
             any(vr.severity == "AMBER" for vr in report.voice_results) or
             any(r.severity == "AMBER" for r in report.lifemap_results) or
-            (report.silence_result and report.silence_result.severity == "AMBER")
+            (report.silence_result and report.silence_result.severity == "AMBER") or
+            (report.shatner_cascade and report.shatner_cascade.severity == "AMBER")
         )
         if any_red:
             report.overall = "RED"
