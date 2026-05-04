@@ -422,6 +422,28 @@ let state = {
   },
 };
 
+/* BUG-LIFEMAP-STATE-VISIBILITY-01 (2026-05-03 Shatner cascade evidence):
+   `let state = {...}` at script top-level does NOT attach to window in
+   modern browsers (only `var` does). So window.state was undefined.
+   bio-*.js files defensively did `if (!window.state) window.state = {};`
+   creating a SEPARATE empty object on window — completely disconnected
+   from the real `state` that state.js / app.js / interview.js use via
+   lexical scope. Anything reading window.state.session.X (the harness
+   probe via Playwright page.evaluate) saw the fake empty object, not
+   the real state. That's why every harness run since the Life Map
+   quote-fix landed has shown currentEra=empty even when Lori responds
+   correctly with era-anchored content (chat path uses the real state).
+
+   Fix: alias window.state to the real state object so reads via
+   window.state.X see the same data as lexical-scope reads. The
+   bio-*.js files' `if (!window.state) window.state = {};` becomes
+   a no-op because window.state already exists by the time they load
+   (state.js loads FIRST per the load-order comment at the top of
+   this file). */
+if (typeof window !== "undefined") {
+  window.state = state;
+}
+
 /* ── v8 Debug: expose projection state globally for console inspection ── */
 window.__proj = state.interviewProjection;
 
