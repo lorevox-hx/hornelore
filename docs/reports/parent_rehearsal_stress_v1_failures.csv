@@ -1,0 +1,8 @@
+severity,kind,voice,turn,fail_reason,narrator_input,lori_reply_excerpt
+AMBER,voice_turn,hearth,T3,AMBER: reflection weak / generic,"Mother had a silk ribbon from her wedding. She'd take it out once a year, touch it, and put it back.","I'm doing great, thanks for asking. I'm here to help you build a Life Archive, a collection of your life stories. To get started, I need to know a few basics about you. Can you tell me, what's your pr"
+RED,voice_turn,field,T2,RED: no Lori reply within 45s,I told you about that already,
+RED,voice_turn,field,T3,RED: no Lori reply within 45s,Mother had a Sunday voice for church and a Monday voice for survival.,
+RED,voice_turn,field,T4,RED: no Lori reply within 45s,I don't talk about that part of growing up,
+RED,voice_turn,shield,T3,"RED: voice rule expects question_count=0, got 1","My father never ate pork, but he said it was because his stomach was sensitive.",…Some people like to go by nicknames or shorter versions of their names. What would you like me to call you?
+AMBER,lifemap,—,Earliest Years,AMBER: Lori reply not era-appropriate (warm label or present-tense missing),[click Earliest Years],…Smells that you remember from your home and daily life?
+AMBER,silence,—,T7,AMBER: visual presence cue not visible during pause,[silence pause],

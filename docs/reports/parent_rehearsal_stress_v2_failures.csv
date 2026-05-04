@@ -1,0 +1,8 @@
+severity,kind,voice,turn,fail_reason,narrator_input,lori_reply_excerpt
+RED,voice_turn,field,T1,RED: no Lori reply within 45s,hello how are you,
+AMBER,voice_turn,field,T3,AMBER: reflection weak / generic,Mother had a Sunday voice for church and a Monday voice for survival.,"…Were you the oldest, the youngest, somewhere in the middle?"
+RED,voice_turn,shield,T1,RED: no Lori reply within 45s,hello how are you,
+RED,voice_turn,shield,T3,"RED: voice rule expects question_count=0, got 1","My father never ate pork, but he said it was because his stomach was sensitive.","…Were you the oldest, the youngest, somewhere in the middle?"
+RED,voice_turn,shield,T4,RED: no Lori reply within 45s,I cannot speak of that,
+RED,lifemap,—,Earliest Years,RED: era click produced no Lori response,[click Earliest Years],
+AMBER,silence,—,T7,AMBER: visual presence cue not visible during pause,[silence pause],

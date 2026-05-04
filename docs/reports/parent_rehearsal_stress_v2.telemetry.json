@@ -1,0 +1,210 @@
+{
+  "tag": "stress_v2",
+  "run_start": "2026-05-04T18:44:53.736893+00:00",
+  "run_end": "2026-05-04T19:07:17.783183+00:00",
+  "elapsed_seconds": 1350.6,
+  "snapshot_count": 10,
+  "kv_clear_count": 2,
+  "snapshots": [
+    {
+      "label": "run_start",
+      "ts": "2026-05-04T18:44:58.769995+00:00",
+      "elapsed_s_since_run_start": 5.033,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "voice_start:hearth",
+      "ts": "2026-05-04T18:45:03.773953+00:00",
+      "elapsed_s_since_run_start": 10.037,
+      "extra": {
+        "voice_id": "hearth"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "voice_end:hearth",
+      "ts": "2026-05-04T18:46:17.241994+00:00",
+      "elapsed_s_since_run_start": 83.505,
+      "extra": {
+        "voice_id": "hearth",
+        "fail_count": 0
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "after_clear_kv:between_voices:hearth_to_field",
+      "ts": "2026-05-04T18:46:22.794203+00:00",
+      "elapsed_s_since_run_start": 89.057,
+      "extra": {
+        "freed_mb": 42.0,
+        "elapsed_ms": 540
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "voice_start:field",
+      "ts": "2026-05-04T18:46:27.798131+00:00",
+      "elapsed_s_since_run_start": 94.061,
+      "extra": {
+        "voice_id": "field"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "voice_end:field",
+      "ts": "2026-05-04T18:50:51.242014+00:00",
+      "elapsed_s_since_run_start": 357.505,
+      "extra": {
+        "voice_id": "field",
+        "fail_count": 1
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "after_clear_kv:between_voices:field_to_shield",
+      "ts": "2026-05-04T18:50:56.684404+00:00",
+      "elapsed_s_since_run_start": 362.948,
+      "extra": {
+        "freed_mb": 362.0,
+        "elapsed_ms": 425
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "voice_start:shield",
+      "ts": "2026-05-04T18:51:01.685935+00:00",
+      "elapsed_s_since_run_start": 367.949,
+      "extra": {
+        "voice_id": "shield"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "voice_end:shield",
+      "ts": "2026-05-04T18:57:15.825963+00:00",
+      "elapsed_s_since_run_start": 742.089,
+      "extra": {
+        "voice_id": "shield",
+        "fail_count": 3
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "run_end",
+      "ts": "2026-05-04T19:07:22.788760+00:00",
+      "elapsed_s_since_run_start": 1349.052,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    }
+  ],
+  "kv_clears": [
+    {
+      "label": "between_voices:hearth_to_field",
+      "ts": "2026-05-04T18:46:17.791873+00:00",
+      "wall_ms": 549,
+      "_status": 200,
+      "ok": true,
+      "before": {
+        "vram_used_mb": 9107.0,
+        "vram_free_mb": 6871.0,
+        "vram_total_mb": 16303.0,
+        "util_percent": 12.0,
+        "temperature_c": 44.0
+      },
+      "after": {
+        "vram_used_mb": 9065.0,
+        "vram_free_mb": 6913.0,
+        "vram_total_mb": 16303.0,
+        "util_percent": 11.0,
+        "temperature_c": 44.0
+      },
+      "freed_mb": 42.0,
+      "elapsed_ms": 540,
+      "gc_collected_objects": 66,
+      "ops_completed": [
+        "synchronize_pre",
+        "gc_collect",
+        "empty_cache",
+        "ipc_collect",
+        "synchronize_post"
+      ],
+      "errors": []
+    },
+    {
+      "label": "between_voices:field_to_shield",
+      "ts": "2026-05-04T18:50:51.678938+00:00",
+      "wall_ms": 436,
+      "_status": 200,
+      "ok": true,
+      "before": {
+        "vram_used_mb": 11011.0,
+        "vram_free_mb": 4967.0,
+        "vram_total_mb": 16303.0,
+        "util_percent": 20.0,
+        "temperature_c": 52.0
+      },
+      "after": {
+        "vram_used_mb": 10649.0,
+        "vram_free_mb": 5329.0,
+        "vram_total_mb": 16303.0,
+        "util_percent": 0.0,
+        "temperature_c": 52.0
+      },
+      "freed_mb": 362.0,
+      "elapsed_ms": 425,
+      "gc_collected_objects": 0,
+      "ops_completed": [
+        "synchronize_pre",
+        "gc_collect",
+        "empty_cache",
+        "ipc_collect",
+        "synchronize_post"
+      ],
+      "errors": []
+    }
+  ],
+  "derived_metrics": {
+    "api_log_scan": {
+      "fk_constraint_count": 52,
+      "comm_control_trim_count": 9,
+      "comm_control_validate_only_count": 15,
+      "send_system_prompt_timeouts": 0,
+      "phase_g_disconnect_count": 0,
+      "gpu_oom_count": 0,
+      "vram_guard_block_count": 0,
+      "_log_path": "/mnt/c/Users/chris/hornelore/.runtime/logs/api.log",
+      "_window_start": "2026-05-04T18:44:53.736893+00:00",
+      "_window_end": "2026-05-04T19:07:17.783183+00:00"
+    },
+    "prompt_tokens_summary": {
+      "n": 46,
+      "min": 3820,
+      "p25": 5651,
+      "median": 5992,
+      "p75": 6522,
+      "p95": 7067,
+      "max": 7235,
+      "histogram": {
+        "0-1000": 0,
+        "1000-2000": 0,
+        "2000-3000": 0,
+        "3000-4000": 9,
+        "4000-5000": 2,
+        "5000-6000": 12,
+        "6000-7000": 20,
+        "7000+": 3
+      },
+      "avg_pct_growth_per_turn": 2.55
+    },
+    "kv_clear_summary": {
+      "n": 2,
+      "n_calls": 2,
+      "total_freed_mb": 404.0,
+      "avg_freed_mb": 202.0,
+      "min_freed_mb": 42.0,
+      "max_freed_mb": 362.0
+    },
+    "vram_per_voice": {}
+  }
+}
