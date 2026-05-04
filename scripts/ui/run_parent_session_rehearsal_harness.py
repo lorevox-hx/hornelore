@@ -1218,7 +1218,13 @@ class RehearsalRun:
 
             # Wait for Lori reply (sendSystemPrompt fires from era-click).
             # Lane G.1 fix #1 — dedup wrapper.
-            reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=45_000)
+            # 2026-05-04 Lane 1 fix — bumped 45s → 90s for era-click probes.
+            # Diagnosis from quick_v5: prompt_tokens=5675 for era-click turns,
+            # LLM generation runs 10-50s on 8B-Q4 / 5080. wait_for_lori_turn
+            # polls every 400ms and returns immediately on capture, so the
+            # bump only affects the worst-case ceiling — fast replies still
+            # resolve fast. Real fix is WO-PROMPT-BLOAT-AUDIT-01 (parallel lane).
+            reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=90_000)
             r.lori_reply_text = reply or ""
             r.lori_replied = bool(reply)
 
@@ -1483,11 +1489,12 @@ class RehearsalRun:
                 f"(expected {era_id!r})")
 
         # Wait for Lori reply (sendSystemPrompt fires from era-click)
-        reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=45_000)
+        # 2026-05-04 Lane 1 fix — bumped 45s → 90s. See run_life_map_cycle for rationale.
+        reply = self._wait_for_fresh_lori_turn(since_ts, timeout_ms=90_000)
         step.lori_reply_text = reply or ""
         step.lori_replied = bool(reply)
         if not reply:
-            step.strict_fail_reasons.append("Lori did not reply within 45s")
+            step.strict_fail_reasons.append("Lori did not reply within 90s")
 
         # Score the reply (cleanliness — strict gate on questions/menu/nested)
         if reply:
@@ -1800,7 +1807,8 @@ class RehearsalRun:
             )
 
         # Wait for re-engagement reply
-        click_reply = self._wait_for_fresh_lori_turn(click_since, timeout_ms=45_000)
+        # 2026-05-04 Lane 1 fix — bumped 45s → 90s for era-click probes.
+        click_reply = self._wait_for_fresh_lori_turn(click_since, timeout_ms=90_000)
         step.click_lori_reply = click_reply or ""
         step.click_lori_replied = bool(click_reply)
         if not click_reply:
