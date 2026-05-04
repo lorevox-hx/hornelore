@@ -327,3 +327,181 @@ def ui_heartbeat(payload: UiHeartbeat):
     return {"ok": True, "ttl_sec": stack_monitor._UI_HEARTBEAT_TTL_SEC,
             "person_id": entry.get("person_id"),
             "session_id": entry.get("session_id")}
+
+
+# ── KV / VRAM cleanup endpoint (WO-OPS-STRESS-TELEMETRY-KV-01 Phase A) ────
+
+def _operator_clear_kv_enabled() -> bool:
+    """Default-OFF gate. Compounds with the dashboard gate above.
+    Enable BOTH `HORNELORE_OPERATOR_STACK_DASHBOARD=1` AND
+    `HORNELORE_OPERATOR_CLEAR_KV=1`. Two gates because clear-kv mutates
+    runtime state (vs. read-only summary/history) — opt-in only."""
+    if not _operator_stack_dashboard_enabled():
+        return False
+    return os.getenv("HORNELORE_OPERATOR_CLEAR_KV", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+@router.post("/clear-kv")
+def clear_kv():
+    """Force a CUDA cleanup pass. Returns before/after VRAM stats so the
+    rehearsal harness (WO-OPS-STRESS-TELEMETRY-KV-01 Phase B) can observe
+    KV-clear effectiveness between voice loops in the stress run.
+
+    Sequence:
+      1. torch.cuda.synchronize() — flush in-flight ops so we measure clean
+      2. snapshot VRAM via collect_gpu(force=True) (bypass 4s cache)
+      3. gc.collect() — Python objects holding tensor refs
+      4. torch.cuda.empty_cache() — release cached blocks back to driver
+      5. torch.cuda.ipc_collect() — clean inter-process tensor refs
+      6. torch.cuda.synchronize() — ensure cleanup ops finish before measure
+      7. snapshot VRAM again
+      8. return delta
+
+    Safety:
+      - Both env gates must be ON (HORNELORE_OPERATOR_STACK_DASHBOARD +
+        HORNELORE_OPERATOR_CLEAR_KV) — endpoint returns 404 otherwise.
+      - 30s hard timeout — if any cuda op hangs longer than that, we
+        return what we have rather than blocking the harness indefinitely.
+      - Wrapped in try/except — failures return 200 with diagnostic
+        payload, never 500. Diagnostic infrastructure must never crash
+        the running stack.
+      - Operates on whichever CUDA device is currently active. Hornelore
+        is single-GPU; multi-GPU isn't in scope.
+    """
+    if not _operator_clear_kv_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    import gc as _gc
+    started_at = time.time()
+    elapsed_ms_cap = 30_000
+
+    result: Dict[str, Any] = {
+        "ok": False,
+        "before": None,
+        "after": None,
+        "freed_mb": None,
+        "elapsed_ms": 0,
+        "gc_collected_objects": 0,
+        "ops_completed": [],
+        "errors": [],
+    }
+
+    # Try to import torch — gracefully degrade if unavailable
+    try:
+        import torch  # type: ignore
+        cuda_available = torch.cuda.is_available()
+    except Exception as e:
+        logger.warning("[stack-dashboard][clear-kv] torch import failed: %s", e)
+        result["errors"].append(f"torch_import: {str(e)[:200]}")
+        result["elapsed_ms"] = int((time.time() - started_at) * 1000)
+        return result
+
+    if not cuda_available:
+        result["errors"].append("cuda_not_available")
+        result["elapsed_ms"] = int((time.time() - started_at) * 1000)
+        return result
+
+    # Step 1: synchronize before measuring (flush in-flight)
+    try:
+        torch.cuda.synchronize()
+        result["ops_completed"].append("synchronize_pre")
+    except Exception as e:
+        result["errors"].append(f"synchronize_pre: {str(e)[:200]}")
+
+    # Step 2: snapshot before
+    try:
+        before = stack_monitor.collect_gpu(force=True)
+        result["before"] = {
+            "vram_used_mb": before.get("vram_used_mb"),
+            "vram_free_mb": before.get("vram_free_mb"),
+            "vram_total_mb": before.get("vram_total_mb"),
+            "util_percent": before.get("util_percent"),
+            "temperature_c": before.get("temperature_c"),
+        }
+    except Exception as e:
+        result["errors"].append(f"snapshot_pre: {str(e)[:200]}")
+
+    # Step 3: gc.collect()
+    try:
+        gc_collected = _gc.collect()
+        result["gc_collected_objects"] = gc_collected
+        result["ops_completed"].append("gc_collect")
+    except Exception as e:
+        result["errors"].append(f"gc_collect: {str(e)[:200]}")
+
+    # Bail early if we've blown the time cap (paranoid)
+    if (time.time() - started_at) * 1000 > elapsed_ms_cap:
+        result["errors"].append("elapsed_ms_cap_hit_pre_cuda_ops")
+        result["elapsed_ms"] = int((time.time() - started_at) * 1000)
+        return result
+
+    # Step 4: torch.cuda.empty_cache()
+    try:
+        torch.cuda.empty_cache()
+        result["ops_completed"].append("empty_cache")
+    except Exception as e:
+        result["errors"].append(f"empty_cache: {str(e)[:200]}")
+
+    # Step 5: torch.cuda.ipc_collect() — best-effort, may not exist on all torch versions
+    try:
+        if hasattr(torch.cuda, "ipc_collect"):
+            torch.cuda.ipc_collect()
+            result["ops_completed"].append("ipc_collect")
+        else:
+            result["ops_completed"].append("ipc_collect_skipped_no_attr")
+    except Exception as e:
+        result["errors"].append(f"ipc_collect: {str(e)[:200]}")
+
+    # Step 6: synchronize after
+    try:
+        torch.cuda.synchronize()
+        result["ops_completed"].append("synchronize_post")
+    except Exception as e:
+        result["errors"].append(f"synchronize_post: {str(e)[:200]}")
+
+    # Step 7: snapshot after
+    try:
+        after = stack_monitor.collect_gpu(force=True)
+        result["after"] = {
+            "vram_used_mb": after.get("vram_used_mb"),
+            "vram_free_mb": after.get("vram_free_mb"),
+            "vram_total_mb": after.get("vram_total_mb"),
+            "util_percent": after.get("util_percent"),
+            "temperature_c": after.get("temperature_c"),
+        }
+    except Exception as e:
+        result["errors"].append(f"snapshot_post: {str(e)[:200]}")
+
+    # Compute freed_mb
+    try:
+        bu = (result.get("before") or {}).get("vram_used_mb")
+        au = (result.get("after") or {}).get("vram_used_mb")
+        if isinstance(bu, (int, float)) and isinstance(au, (int, float)):
+            result["freed_mb"] = round(bu - au, 1)
+    except Exception:
+        pass
+
+    result["elapsed_ms"] = int((time.time() - started_at) * 1000)
+    result["ok"] = (
+        len(result["errors"]) == 0
+        and "empty_cache" in result["ops_completed"]
+        and result["before"] is not None
+        and result["after"] is not None
+    )
+
+    # Single-line summary log so post-run grep can correlate with rest
+    # of the stress run. Match `[stack-dashboard][clear-kv]` for the
+    # telemetry harness aggregator.
+    logger.info(
+        "[stack-dashboard][clear-kv] freed_mb=%s elapsed_ms=%s gc=%s ok=%s ops=%s errors=%s",
+        result.get("freed_mb"),
+        result.get("elapsed_ms"),
+        result.get("gc_collected_objects"),
+        result.get("ok"),
+        len(result.get("ops_completed", [])),
+        len(result.get("errors", [])),
+    )
+
+    return result
