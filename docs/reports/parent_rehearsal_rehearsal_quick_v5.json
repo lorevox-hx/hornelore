@@ -1,0 +1,265 @@
+{
+  "tag": "rehearsal_quick_v5",
+  "mode": "quick",
+  "started_at": "2026-05-04T08:31:38.062875",
+  "finished_at": "2026-05-04T08:35:51.565121",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api_base": "http://localhost:8000",
+  "commit_sha": "951436d4",
+  "dirty_tree": true,
+  "overall": "RED",
+  "turns_tested": 6,
+  "voice_results": [
+    {
+      "voice_id": "hearth",
+      "voice_label": "Voice 1 \u2014 Germans from Russia (Hearth, Janice baseline)",
+      "narrator_name": "Test_111281",
+      "person_id": "",
+      "turns": [
+        {
+          "voice_id": "hearth",
+          "turn_id": "T1",
+          "prompt_type": "greeting",
+          "narrator_input": "hello how are you",
+          "lori_reply": "Hello! I'm an AI, so I don't have feelings like humans do, but I'm here to listen and chat with you. How are you doing today?",
+          "elapsed_ms": 21899,
+          "metrics": {
+            "question_count": 1,
+            "nested_question_count": 0,
+            "word_count": 26,
+            "menu_offer_count": 0,
+            "direct_answer_first": true,
+            "active_reflection_present": true,
+            "asks_question_after_user_question": false,
+            "user_turn_had_direct_question": false,
+            "pass_question_count": true,
+            "pass_word_count": true,
+            "pass_no_nested": true,
+            "pass_no_menu_offer": true,
+            "pass_direct_answer": true,
+            "pass_asks_after_answer": true,
+            "pass_overall": true
+          },
+          "voice_rule_violations": [],
+          "severity": "PASS",
+          "fail_reasons": []
+        },
+        {
+          "voice_id": "hearth",
+          "turn_id": "T2",
+          "prompt_type": "resistance",
+          "narrator_input": "you already asked me that",
+          "lori_reply": "Hello! I'm an AI, so I don't have feelings like humans do, but I'm here to listen and chat with you. How are you doing today?",
+          "elapsed_ms": 11668,
+          "metrics": {
+            "question_count": 1,
+            "nested_question_count": 0,
+            "word_count": 26,
+            "menu_offer_count": 0,
+            "direct_answer_first": true,
+            "active_reflection_present": true,
+            "asks_question_after_user_question": false,
+            "user_turn_had_direct_question": false,
+            "pass_question_count": true,
+            "pass_word_count": true,
+            "pass_no_nested": true,
+            "pass_no_menu_offer": true,
+            "pass_direct_answer": true,
+            "pass_asks_after_answer": true,
+            "pass_overall": true
+          },
+          "voice_rule_violations": [],
+          "severity": "PASS",
+          "fail_reasons": []
+        },
+        {
+          "voice_id": "hearth",
+          "turn_id": "T3",
+          "prompt_type": "story_seed",
+          "narrator_input": "Mother had a silk ribbon from her wedding. She'd take it out once a year, touch it, and put it back.",
+          "lori_reply": "Hello! I'm an AI, so I don't have feelings like humans do, but I'm here to listen and chat with you. How are you doing today?",
+          "elapsed_ms": 19175,
+          "metrics": {
+            "question_count": 1,
+            "nested_question_count": 0,
+            "word_count": 26,
+            "menu_offer_count": 0,
+            "direct_answer_first": true,
+            "active_reflection_present": false,
+            "asks_question_after_user_question": false,
+            "user_turn_had_direct_question": false,
+            "pass_question_count": true,
+            "pass_word_count": true,
+            "pass_no_nested": true,
+            "pass_no_menu_offer": true,
+            "pass_direct_answer": true,
+            "pass_asks_after_answer": true,
+            "pass_overall": true
+          },
+          "voice_rule_violations": [],
+          "severity": "AMBER",
+          "fail_reasons": [
+            "AMBER: reflection weak / generic"
+          ]
+        },
+        {
+          "voice_id": "hearth",
+          "turn_id": "T4",
+          "prompt_type": "uncertainty",
+          "narrator_input": "I don't remember much about the trip over",
+          "lori_reply": "Hello! I'm an AI, so I don't have feelings like humans do, but I'm here to listen and chat with you. How are you doing today?",
+          "elapsed_ms": 11443,
+          "metrics": {
+            "question_count": 1,
+            "nested_question_count": 0,
+            "word_count": 26,
+            "menu_offer_count": 0,
+            "direct_answer_first": true,
+            "active_reflection_present": true,
+            "asks_question_after_user_question": false,
+            "user_turn_had_direct_question": false,
+            "pass_question_count": true,
+            "pass_word_count": true,
+            "pass_no_nested": true,
+            "pass_no_menu_offer": true,
+            "pass_direct_answer": true,
+            "pass_asks_after_answer": true,
+            "pass_overall": true
+          },
+          "voice_rule_violations": [],
+          "severity": "PASS",
+          "fail_reasons": []
+        },
+        {
+          "voice_id": "hearth",
+          "turn_id": "T5",
+          "prompt_type": "direct_q",
+          "narrator_input": "what do you know about me",
+          "lori_reply": "What I know about you so far:\n\nIdentity\n- Name: (not on record yet)\n- Date of birth: (not on record yet)\n- Place of birth: (not on record yet)\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none",
+          "elapsed_ms": 2093,
+          "metrics": {
+            "question_count": 0,
+            "nested_question_count": 0,
+            "word_count": 40,
+            "menu_offer_count": 0,
+            "direct_answer_first": true,
+            "active_reflection_present": true,
+            "asks_question_after_user_question": false,
+            "user_turn_had_direct_question": true,
+            "pass_question_count": true,
+            "pass_word_count": true,
+            "pass_no_nested": true,
+            "pass_no_menu_offer": true,
+            "pass_direct_answer": true,
+            "pass_asks_after_answer": true,
+            "pass_overall": true
+          },
+          "voice_rule_violations": [],
+          "severity": "PASS",
+          "fail_reasons": []
+        },
+        {
+          "voice_id": "hearth",
+          "turn_id": "T6",
+          "prompt_type": "correction",
+          "narrator_input": "no, I said Williston, not Bismarck",
+          "lori_reply": "I heard that as a correction, but I'm not fully certain which field it changes yet. You can say it one piece at a time \u2014 for example, 'I was born in ...' or 'My father's name was ...'.",
+          "elapsed_ms": 2201,
+          "metrics": {
+            "question_count": 0,
+            "nested_question_count": 0,
+            "word_count": 38,
+            "menu_offer_count": 0,
+            "direct_answer_first": true,
+            "active_reflection_present": true,
+            "asks_question_after_user_question": false,
+            "user_turn_had_direct_question": false,
+            "pass_question_count": true,
+            "pass_word_count": true,
+            "pass_no_nested": true,
+            "pass_no_menu_offer": true,
+            "pass_direct_answer": true,
+            "pass_asks_after_answer": true,
+            "pass_overall": true
+          },
+          "voice_rule_violations": [],
+          "severity": "PASS",
+          "fail_reasons": []
+        }
+      ],
+      "severity": "AMBER",
+      "fail_count": 0,
+      "amber_count": 1,
+      "pass_count": 5
+    }
+  ],
+  "lifemap_results": [
+    {
+      "era_label": "Coming of Age",
+      "era_id": "coming_of_age",
+      "expected_framing": "past",
+      "ui_active": true,
+      "session_current_era": "coming_of_age",
+      "session_active_focus_era": "coming_of_age",
+      "era_click_log_seen": true,
+      "lori_prompt_log_seen": true,
+      "lori_replied": false,
+      "lori_reply_text": "",
+      "era_appropriate": false,
+      "metrics": {},
+      "severity": "RED",
+      "fail_reasons": [
+        "RED: era click produced no Lori response"
+      ]
+    }
+  ],
+  "silence_result": {
+    "pause_seconds": 30,
+    "visual_cue_present": false,
+    "visual_cue_text": "Take your time. I'm listening.",
+    "visual_cue_classes": [
+      "lv-presence-cue"
+    ],
+    "spoken_cue_fired": false,
+    "spoken_cue_text": "",
+    "transcript_ignored": true,
+    "idle_block_log_seen": true,
+    "severity": "AMBER",
+    "fail_reasons": [
+      "AMBER: visual presence cue not visible during pause"
+    ]
+  },
+  "runtime_hygiene": [
+    {
+      "name": "kawa_mode absent from runtime71",
+      "expected": "absent",
+      "actual": "absent",
+      "passed": true
+    },
+    {
+      "name": "current_era key present in runtime71",
+      "expected": "present",
+      "actual": "present",
+      "passed": true
+    }
+  ],
+  "cross_divergence": [],
+  "shatner_cascade": {
+    "narrator_added": true,
+    "narrator_name": "Test_301351",
+    "narrator_person_id": "473a841e-7e27-47e5-8ada-e908b367fea6",
+    "identity_complete": false,
+    "identity_fail_reason": "identity intake threw: intake stalled \u2014 no Lori reply after sending 'William Shatner'",
+    "today": null,
+    "coming_of_age": null,
+    "downstream_wiring_known_gap": true,
+    "severity": "RED",
+    "fail_reasons": [
+      "Identity intake did not complete \u2014 historical era click would be gated. Aborting cascade to avoid downstream noise."
+    ]
+  },
+  "long_life_cascade": null,
+  "fix_list": [
+    "BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 regression \u2014 era coming_of_age clicked but Lori produced no reply. Check _lvInterviewSelectEra sendSystemPrompt path."
+  ]
+}
