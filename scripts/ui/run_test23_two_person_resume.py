@@ -235,8 +235,8 @@ class RecallResult:
     contains_name: bool = False
     contains_dob_or_year: bool = False
     contains_pob: bool = False
-    era_facts_recalled: int = 0
-    era_facts_total: int = 0
+    era_stories_in_readback: int = 0
+    era_stories_total: int = 0
     cross_contamination: bool = False
     onboarding_restart: bool = False
     severity: str = "PASS"
@@ -869,8 +869,8 @@ def _grade_recall(
             if t.lower() in rl:
                 facts_hit += 1
                 break  # one hit per era is enough; move on
-    rr.era_facts_recalled = facts_hit
-    rr.era_facts_total = len(plan.expected_era_facts)  # 7 eras
+    rr.era_stories_in_readback = facts_hit
+    rr.era_stories_total = len(plan.expected_era_facts)  # 7 eras
     # Cross-contamination check — does THIS narrator's reply contain the
     # OTHER narrator's distinctive tokens?
     if other_plan is not None:
@@ -898,8 +898,13 @@ def _grade_recall(
         issues.append("name not recalled")
     if not rr.contains_pob:
         issues.append("place of birth not recalled")
-    if rr.era_facts_recalled < 3:
-        issues.append(f"only {rr.era_facts_recalled}/{rr.era_facts_total} eras recalled (<3)")
+    if rr.era_stories_in_readback < 3:
+        issues.append(
+            f"only {rr.era_stories_in_readback}/{rr.era_stories_total} "
+            f"era stories surfaced in readback (<3) — this measures whether "
+            f"'what do you know about me' includes era memories, NOT whether "
+            f"era-click navigation works"
+        )
     if rr.cross_contamination:
         issues.append("CROSS-CONTAMINATION: other narrator's data leaked")
     if rr.onboarding_restart:
@@ -1330,7 +1335,7 @@ def _phase_earliest_recall(ui: UI, plan: NarratorPlan, nr: NarratorReport,
     nr.pre_restart_recall = rr
     nr.bb_state_after_session1 = _capture_bb_state(ui.page)
     print(f"  [{plan.key}/recall_pre] name={rr.contains_name} dob/yr={rr.contains_dob_or_year} "
-          f"pob={rr.contains_pob} eras={rr.era_facts_recalled}/{rr.era_facts_total} "
+          f"pob={rr.contains_pob} story_recall={rr.era_stories_in_readback}/{rr.era_stories_total} "
           f"contam={rr.cross_contamination} restart={rr.onboarding_restart} severity={rr.severity}")
     if rr.notes:
         for n in rr.notes:
@@ -1359,7 +1364,7 @@ def _phase_resume(
     )
     nr.post_restart_recall = rr
     print(f"  [{plan.key}/resume/recall] name={rr.contains_name} pob={rr.contains_pob} "
-          f"eras={rr.era_facts_recalled}/{rr.era_facts_total} contam={rr.cross_contamination} "
+          f"story_recall={rr.era_stories_in_readback}/{rr.era_stories_total} contam={rr.cross_contamination} "
           f"restart={rr.onboarding_restart} severity={rr.severity}")
     if rr.notes:
         for n in rr.notes:
@@ -1725,7 +1730,10 @@ def _build_md_report(report: RunReport, telemetry_summary: Optional[Dict[str, An
             lines.append(f"- name recalled: {rr.contains_name}")
             lines.append(f"- DOB/year recalled: {rr.contains_dob_or_year}")
             lines.append(f"- POB recalled: {rr.contains_pob}")
-            lines.append(f"- era facts recalled: {rr.era_facts_recalled}/{rr.era_facts_total}")
+            lines.append(
+                f"- era stories in readback: {rr.era_stories_in_readback}/{rr.era_stories_total}  "
+                f"(memory_echo readback content; NOT a measure of era-click navigation)"
+            )
             lines.append(f"- cross-contamination: {rr.cross_contamination}")
             lines.append(f"- onboarding restart: {rr.onboarding_restart}")
             lines.append(f"- severity: **{rr.severity}**")
@@ -1751,7 +1759,10 @@ def _build_md_report(report: RunReport, telemetry_summary: Optional[Dict[str, An
             lines.append(f"- name recalled: {rr.contains_name}")
             lines.append(f"- DOB/year recalled: {rr.contains_dob_or_year}")
             lines.append(f"- POB recalled: {rr.contains_pob}")
-            lines.append(f"- era facts recalled: {rr.era_facts_recalled}/{rr.era_facts_total}")
+            lines.append(
+                f"- era stories in readback: {rr.era_stories_in_readback}/{rr.era_stories_total}  "
+                f"(memory_echo readback content; NOT a measure of era-click navigation)"
+            )
             lines.append(f"- cross-contamination: {rr.cross_contamination}")
             lines.append(f"- onboarding restart: {rr.onboarding_restart}")
             lines.append(f"- severity: **{rr.severity}**")
