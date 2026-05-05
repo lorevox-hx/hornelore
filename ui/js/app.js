@@ -2709,7 +2709,16 @@ async function saveProfile(){
       body:JSON.stringify({profile:{basics:state.profile.basics,kinship:state.profile.kinship,pets:state.profile.pets}})});
     if(!r.ok) throw new Error();
     profileSaved=true;
-    sysBubble("💾 Profile saved.");
+    // WO-PROVISIONAL-TRUTH-01 Phase C (2026-05-04):
+    // Operator-tone status bubble retired from narrator surface by default.
+    // Locked principle #3 (no system-tone narrator outputs) applies — "💾
+    // Profile saved." is dev/operator language, not narrator language.
+    // Re-enable for dev observation by setting localStorage[
+    // 'LV_INLINE_OPERATOR_BUBBLES']='true' or window.LV_INLINE_OPERATOR_BUBBLES=true.
+    if (window.LV_INLINE_OPERATOR_BUBBLES === true ||
+        (typeof localStorage !== "undefined" && localStorage.getItem("LV_INLINE_OPERATOR_BUBBLES") === "true")) {
+      sysBubble("💾 Profile saved.");
+    }
     updateProfileStatus();
     // v7.1 — initialize timeline spine when DOB + birthplace are present
     if (getTimelineSeedReady()) {
@@ -5797,7 +5806,17 @@ function initTimelineSpine() {
   renderRoadmap();
   renderTimeline();
   updateArchiveReadiness();
-  sysBubble("◉ Timeline spine initialized — Pass 2A (Timeline Walk) ready.");
+  // WO-PROVISIONAL-TRUTH-01 Phase C (2026-05-04):
+  // Operator-tone status bubble retired from narrator surface by default.
+  // Locked principle #3 (no system-tone narrator outputs) applies — "◉
+  // Timeline spine initialized — Pass 2A (Timeline Walk) ready." reads
+  // like a debug log, not a warm narrator-facing message. Re-enable for
+  // dev observation by setting localStorage['LV_INLINE_OPERATOR_BUBBLES']
+  // ='true' or window.LV_INLINE_OPERATOR_BUBBLES=true.
+  if (window.LV_INLINE_OPERATOR_BUBBLES === true ||
+      (typeof localStorage !== "undefined" && localStorage.getItem("LV_INLINE_OPERATOR_BUBBLES") === "true")) {
+    sysBubble("◉ Timeline spine initialized — Pass 2A (Timeline Walk) ready.");
+  }
 
   // WO-CR-01: Initialize chronology accordion after spine is ready
   if (typeof crInitAccordion === "function") {

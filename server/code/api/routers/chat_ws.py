@@ -790,32 +790,53 @@ async def ws_chat(ws: WebSocket):
         runtime71: Dict[str, Any] = params.get("runtime71") or {}
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
 
-        if turn_mode == "memory_echo":
-            from ..prompt_composer import compose_memory_echo, _build_profile_seed
-
-            # WO-LORI-SESSION-AWARENESS-01 Phase 1b: server-side profile_seed
-            # data wiring. UI may already populate runtime71["profile_seed"]
-            # via buildRuntime71 (preferred — sees Bio Builder questionnaire
-            # + projection state in real time). Server fills the gap when
-            # UI didn't (or sent only a subset). Server source: profile_json
-            # blob in profiles DB, hydrated from templates at preload time.
+        # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
+        # profile_seed bridge runs for ALL turn modes, not just memory_echo.
+        # Phase A originally added the bridge inside the memory_echo branch
+        # only — that was sufficient to fix Mary's "what do you know about
+        # me?" readback, but the same provisional values (childhood_home,
+        # heritage, etc. from interview_projections.projection_json) need
+        # to reach compose_system_prompt for interview turns too, so that
+        # the era-walk and identity-collection directives can REFRAME
+        # known values as confirmation ("I have Minot, ND on record —
+        # does that still feel right?") rather than asking from scratch.
+        # Without this lift, Lori greets Mary by name correctly (memory_echo
+        # path) but then asks "where were you born?" on the next interview
+        # turn (interview path can't see the seed).
+        #
+        # Risk: pure expansion of an already-tested read. _build_profile_seed
+        # is byte-stable when both profile_json and projection_json are
+        # absent. UI seed still takes precedence per-bucket.
+        try:
+            from ..prompt_composer import _build_profile_seed
             ui_seed = runtime71.get("profile_seed") if isinstance(runtime71.get("profile_seed"), dict) else {}
             server_seed = _build_profile_seed(person_id) if person_id else {}
-            # UI takes precedence per-bucket (real-time signal), server fills
-            # only the buckets UI didn't populate.
+            # UI takes precedence per-bucket (real-time signal), server
+            # fills only the buckets UI didn't populate.
             merged_seed = dict(server_seed)
             merged_seed.update({k: v for k, v in (ui_seed or {}).items() if v})
             if merged_seed:
                 runtime71 = dict(runtime71)
                 runtime71["profile_seed"] = merged_seed
                 logger.info(
-                    "[chat_ws][memory-echo] profile_seed sources: ui=%d server=%d merged=%d conv=%s person=%s",
+                    "[chat_ws][profile-seed] sources: ui=%d server=%d merged=%d turn_mode=%s conv=%s person=%s",
                     len([k for k, v in (ui_seed or {}).items() if v]),
                     len(server_seed),
                     len(merged_seed),
+                    turn_mode,
                     conv_id,
                     person_id or "(none)",
                 )
+        except Exception as _seed_exc:
+            # Never let the seed bridge fail the turn — fall through to
+            # behavior identical to pre-Phase-A (UI seed only, if any).
+            logger.warning(
+                "[chat_ws][profile-seed] bridge failed conv=%s person=%s: %s",
+                conv_id, person_id, _seed_exc,
+            )
+
+        if turn_mode == "memory_echo":
+            from ..prompt_composer import compose_memory_echo
 
             # ── WO-LORI-SESSION-AWARENESS-01 Phase 1c-wire (2026-05-03) ──
             # Pull promoted_truth + recent_turns via the peek_at_memoir

@@ -1962,6 +1962,44 @@ def compose_system_prompt(
         directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
         directive_lines.append("")
 
+        # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
+        # ERA EXPLAINER — narrator-friendly definitions of the seven
+        # canonical life-spine eras. Lori draws on these ONLY when the
+        # narrator asks what an era means (e.g. "what do you mean by
+        # coming of age?" / "what's adolescence again?" / "what's earliest
+        # years?"). Older narrators — especially those new to the
+        # interview — should not have to guess at the labels. Don't lecture
+        # unprompted; this is a glossary Lori reaches for if asked.
+        # Source of truth for the labels: server/code/api/lv_eras.py
+        # (mirrored at ui/js/lv-eras.js).
+        directive_lines.append(
+            "ERA EXPLAINER — If the narrator asks what an era label means, "
+            "answer warmly in one sentence drawn from this glossary, then "
+            "return to the question at hand:\n"
+            "  - Earliest Years: the first memories you have, before school "
+            "started — birth, first home, the people who held you.\n"
+            "  - Early School Years: roughly age six to twelve — primary "
+            "school, the neighborhood, the routines of a young child's "
+            "world.\n"
+            "  - Adolescence: the teen years, around thirteen to "
+            "seventeen — middle school and early high school, growing "
+            "independence, the friends who shaped you.\n"
+            "  - Coming of Age: late teens through your twenties — leaving "
+            "home, first work or service, finding your adult self.\n"
+            "  - Building Years: adulthood from your thirties through your "
+            "fifties — career, family, responsibility, the years you were "
+            "building a life.\n"
+            "  - Later Years: from sixty onward — what you've learned, "
+            "what you've kept, what matters most after a long life.\n"
+            "  - Today: right now, current life — the room you're in, the "
+            "people you see most, the unfinished stories you carry.\n"
+            "RULES: Use these only when the narrator asks. Keep your answer "
+            "brief — one or two sentences. Never list all seven unprompted. "
+            "After answering, gently return to the era you were asking "
+            "about."
+        )
+        directive_lines.append("")
+
         # WO-LORI-SOFTENED-RESPONSE-01 — inject SOFTENED MODE directive
         # when the session is in softened state (set by an acute safety
         # trigger in a recent prior turn). chat_ws threads the state
@@ -1992,6 +2030,28 @@ def compose_system_prompt(
             # fall through to normal interview prompt.
             pass
 
+        # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
+        # Pull provisional values from profile_seed (now threaded for ALL
+        # turn modes via chat_ws.py post-Phase-A bridge). When canonical
+        # profile_json is empty but interview_projections.projection_json
+        # has a chat-extracted childhood_home / preferred_name / etc., we
+        # surface those here so the identity-collection and era-walk
+        # directives below can REFRAME the ask as confirmation rather
+        # than fresh-asking ("I have Minot, ND on record — does that
+        # still feel right?" vs "where were you born?").
+        _profile_seed = runtime71.get("profile_seed") if isinstance(runtime71.get("profile_seed"), dict) else {}
+        _seed_childhood_home = (_profile_seed.get("childhood_home") or "").strip() if _profile_seed else ""
+        _seed_preferred_name = (_profile_seed.get("preferred_name") or "").strip() if _profile_seed else ""
+        _seed_full_name = (_profile_seed.get("full_name") or "").strip() if _profile_seed else ""
+        # Effective childhood-home value: canonical UI runtime first
+        # (state.session.pob — narrator's most-current truth), falling back
+        # to provisional from projection_json. Empty string when neither
+        # is known.
+        _known_childhood_home = (
+            (str(runtime71.get("pob") or runtime71.get("place_of_birth") or "").strip())
+            or _seed_childhood_home
+        )
+
         # v7.4D Phase 6B — Identity mode gate.
         # If identity is not yet complete, replace the normal pass directives with a
         # gentle identity-collection directive that does NOT hijack emotional or
@@ -2007,8 +2067,37 @@ def compose_system_prompt(
                 _still_needed = "the narrator's place of birth"
             else:
                 _still_needed = "name, date of birth, and place of birth"
+
+            # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
+            # When the missing field already has a provisional value
+            # surfaced through profile_seed, REFRAME the ask as a
+            # confirmation. Lori has the value (because Phase A's
+            # read-bridge surfaces projection_json.pendingSuggestions);
+            # she should not ask cold. This is the principle #5
+            # follow-through — provisional truth persists; Lori uses
+            # it instead of treating the narrator as if they never
+            # said it.
+            _confirm_hint = ""
+            if _phase in ("askBirthplace", "resolving") and _known_childhood_home:
+                _confirm_hint = (
+                    f"\nALREADY ON RECORD (provisional): place of birth = '{_known_childhood_home}'.\n"
+                    "REFRAME RULE: Do NOT ask 'where were you born' from scratch. "
+                    "Instead, gently confirm the value by name. Example: "
+                    f"'I have {_known_childhood_home} on record as your earliest place — does that still feel right?' "
+                    "If they correct it, accept the correction warmly. If they confirm it, move on."
+                )
+            elif _phase == "askName" and (_seed_preferred_name or _seed_full_name):
+                _name_hint = _seed_preferred_name or _seed_full_name
+                _confirm_hint = (
+                    f"\nALREADY ON RECORD (provisional): name = '{_name_hint}'.\n"
+                    "REFRAME RULE: Do NOT ask for their name from scratch. "
+                    "Instead, gently confirm. Example: "
+                    f"'I have {_name_hint} on record — is that the name you'd like me to use?' "
+                    "If they correct it, accept warmly. If they confirm, move on."
+                )
+
             directive_lines.append(
-                f"IDENTITY MODE: Lori is gently gathering who the narrator is. Still needed: {_still_needed}.\n"
+                f"IDENTITY MODE: Lori is gently gathering who the narrator is. Still needed: {_still_needed}.{_confirm_hint}\n"
                 "RULE — EMOTIONAL STATEMENTS: If the narrator's message expresses sadness, difficulty, loss, "
                 "grief, fear, or any strong emotion — you MUST acknowledge the emotion FIRST. "
                 "Respond with warmth and empathy for 1–2 sentences before asking any identity question. "
@@ -2143,6 +2232,23 @@ def compose_system_prompt(
                         "Example: 'What does life look like for you these days — where are you, who do you see most, what does a normal day feel like?'"
                     )
                 else:
+                    # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
+                    # In earliest_years, if we already know the childhood
+                    # home (canonical OR provisional via profile_seed),
+                    # ground the question in that place by name rather
+                    # than asking generically "where were you living."
+                    # Lori knows; she shouldn't sound like she doesn't.
+                    _grounded_hint = ""
+                    if current_era == "earliest_years" and _known_childhood_home:
+                        _grounded_hint = (
+                            f"\nALREADY ON RECORD: earliest home = '{_known_childhood_home}'.\n"
+                            "GROUNDING RULE: Anchor your question in this place by name. "
+                            "Do NOT ask 'where did you live' as if you don't know — confirm or "
+                            "go deeper into the place we already have. Example: "
+                            f"'I have {_known_childhood_home} as your earliest home — what comes "
+                            f"to mind when you picture those years there?'"
+                        )
+
                     directive_lines.append(
                         f"DIRECTIVE: You are in Pass 2A — Chronological Timeline Walk.\n"
                         f"Current era: {era_label}.\n"
@@ -2152,6 +2258,7 @@ def compose_system_prompt(
                         "DO NOT use 'do you remember a time when' — ask about place and daily life.\n"
                         "DO NOT ask more than one question.\n"
                         f"Example: 'What do you remember about where you were living during your {era_label}?'"
+                        f"{_grounded_hint}"
                     )
             elif current_pass == "pass2b":
                 era_label = era_id_to_warm_label(current_era) if current_era != "not yet set" else "this period"
