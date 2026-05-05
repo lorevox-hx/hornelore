@@ -1951,7 +1951,20 @@ def main() -> int:
               "HORNELORE_OPERATOR_STACK_DASHBOARD=1 and HORNELORE_OPERATOR_CLEAR_KV=1)")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=args.headless, slow_mo=args.slow_mo_ms)
+        # WO-HARNESS-V4-VISIBILITY-01 (2026-05-05): force the Chromium
+        # window visible at screen origin. Without --start-maximized +
+        # --window-position=0,0 the window can open minimized or
+        # off-screen on WSL/Windows, and TEST-23 v4 hit exactly that —
+        # session_start threw post-restart because the operator's manual
+        # fallback click couldn't reach a window they couldn't see. The
+        # viewport stays explicit (1400x900) so element selectors render
+        # predictably, but the WINDOW chrome is maximized so the
+        # operator can see and interact with it if a fallback is needed.
+        browser = p.chromium.launch(
+            headless=args.headless,
+            slow_mo=args.slow_mo_ms,
+            args=["--start-maximized", "--window-position=0,0"],
+        )
         ctx = browser.new_context(viewport={"width": 1400, "height": 900}, permissions=["camera", "microphone"])
         page = ctx.new_page()
         console = ConsoleCollector(page)

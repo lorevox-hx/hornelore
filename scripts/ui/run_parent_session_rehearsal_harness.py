@@ -3490,10 +3490,20 @@ def main() -> int:
               f"HORNELORE_OPERATOR_STACK_DASHBOARD=1 and HORNELORE_OPERATOR_CLEAR_KV=1)")
 
     with sync_playwright() as pw:
+        # WO-HARNESS-V4-VISIBILITY-01 (2026-05-05): --start-maximized +
+        # --window-position=0,0 keeps the browser window visible at
+        # screen origin; no_viewport=True lets the page render at the
+        # full window size so the operator can see + click manually
+        # if a fallback is needed.
         browser: Browser = pw.chromium.launch(
-            headless=args.headless, slow_mo=args.slow_mo_ms,
+            headless=args.headless,
+            slow_mo=args.slow_mo_ms,
+            args=["--start-maximized", "--window-position=0,0"],
         )
-        context: BrowserContext = browser.new_context(accept_downloads=True)
+        context: BrowserContext = browser.new_context(
+            accept_downloads=True,
+            no_viewport=True,
+        )
         page: Page = context.new_page()
         console = ConsoleCollector(page)
         ui = UI(page, console, screenshots_dir, downloads_dir)

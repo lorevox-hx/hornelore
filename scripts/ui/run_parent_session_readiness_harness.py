@@ -511,8 +511,24 @@ class UI:
     # — Boot / posture / readiness —
     def boot(self, base_url: str) -> None:
         self.page.goto(base_url, wait_until="domcontentloaded")
+        # WO-HARNESS-V4-VISIBILITY-01 (2026-05-05): force the browser
+        # window to the foreground after navigation. Playwright on
+        # WSL/Windows occasionally opens Chromium minimized or behind
+        # other windows; without bring_to_front() the operator can't see
+        # the page and any manual-fallback clicks (popover dismissal,
+        # affect-consent, post-restart Start-Session) silently fail.
+        # Wrapped in try/except because bring_to_front() raises on
+        # headless contexts, which is fine — there's nothing to bring.
+        try:
+            self.page.bring_to_front()
+        except Exception:
+            pass
         # Hard reload to clear any cached state.
         self.page.reload(wait_until="domcontentloaded")
+        try:
+            self.page.bring_to_front()
+        except Exception:
+            pass
         # Wait for app boot — readiness module logs "[readiness] Model warm"
         # but we don't block on that; just give the shell time to mount.
         try:
@@ -2335,10 +2351,21 @@ def main() -> int:
     )
 
     with sync_playwright() as pw:
+        # WO-HARNESS-V4-VISIBILITY-01 (2026-05-05): --start-maximized
+        # forces the Chromium window to open at full screen size; combined
+        # with --window-position=0,0 the window is guaranteed visible at
+        # screen origin. Without these, Playwright on WSL/Windows can
+        # open the window minimized or off-screen, and no_viewport=True
+        # below lets the page render at the full window size so the
+        # operator can see and click manually.
         browser: Browser = pw.chromium.launch(
-            headless=args.headless, slow_mo=args.slow_mo_ms)
+            headless=args.headless,
+            slow_mo=args.slow_mo_ms,
+            args=["--start-maximized", "--window-position=0,0"],
+        )
         context: BrowserContext = browser.new_context(
             accept_downloads=True,
+            no_viewport=True,
         )
         page: Page = context.new_page()
 
