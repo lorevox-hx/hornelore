@@ -45,12 +45,25 @@ record.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List
 
 from .question_atomicity import classify_atomicity, enforce_question_atomicity
-from .lori_reflection import validate_memory_echo
+from .lori_reflection import validate_memory_echo, shape_reflection
+
+
+def _reflection_shaping_enabled() -> bool:
+    """WO-LORI-REFLECTION-02 — runtime reflection shaping is gated
+    DEFAULT-OFF behind HORNELORE_REFLECTION_SHAPING for the first eval
+    cycle. Per Phase 4 of the spec, flip the default to "1" in
+    .env.example after two consecutive golfball passes at ≥ 6/8 with
+    the flag ON.
+    """
+    return os.environ.get("HORNELORE_REFLECTION_SHAPING", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
 
 # Per-session-style word-count limits (Quantity maxim).
@@ -275,13 +288,46 @@ def _safety_path(
     if not has_safety_ack and word_count > SOFTENED_WORD_LIMIT:
         failures.append("softened_response_too_long")
 
+    # WO-LORI-REFLECTION-02 Layer 3: softened-mode runtime shaping.
+    # When softened_mode_active=True (post-acute, no fresh trigger) AND
+    # the response exceeds SHAPER_SOFTENED_TURN_BUDGET (30 words), AND
+    # the response is NOT carrying acute-safety-acknowledgment language
+    # (988 / hotline / etc — those legitimately run longer), truncate
+    # to the first sentence. Default-OFF behind the same flag as the
+    # ordinary-path shaper. Acute responses (has_safety_ack=True) are
+    # never shaped — their length is load-bearing for crisis pointers.
+    final_text = assistant_text
+    changed = False
+    warnings: List[str] = []
+    if (
+        _reflection_shaping_enabled()
+        and softened_mode_active
+        and not has_safety_ack
+        and word_count > 30  # SHAPER_SOFTENED_TURN_BUDGET
+    ):
+        try:
+            from .lori_reflection import shape_reflection as _shape
+            shaped, shape_actions = _shape(
+                assistant_text=assistant_text,
+                narrator_text="",  # softened-mode shaper doesn't need narrator content
+                softened_mode_active=True,
+            )
+            if shape_actions and shape_actions[0] == "shaped_softened_truncated":
+                final_text = shaped
+                changed = True
+                warnings.append("reflection_shaped:shaped_softened_truncated")
+                word_count = len(final_text.split())
+        except Exception:
+            # Shaper is best-effort — never break a safety-path turn
+            pass
+
     return CommunicationControlResult(
         original_text=assistant_text,
-        final_text=assistant_text,
-        changed=False,
+        final_text=final_text,
+        changed=changed,
         failures=failures,
-        warnings=[],
-        question_count=assistant_text.count("?"),
+        warnings=warnings,
+        question_count=final_text.count("?"),
         word_count=word_count,
         atomicity_failures=[],
         reflection_failures=[],
@@ -362,9 +408,31 @@ def enforce_lori_communication_control(
         current = _truncate_to_word_limit(current, word_limit)
         word_count = len(current.split())
 
+    # Step 3.5 (WO-LORI-REFLECTION-02): runtime shaping. Default-OFF
+    # behind HORNELORE_REFLECTION_SHAPING=1. The locked design
+    # constraint is: prompt-heavy reflection rules made Lori worse
+    # (Patch B regressed golfball 4/8 → 1/8), so the next iteration
+    # MUST be runtime shaping. shape_reflection() runs deterministic
+    # rules over the LLM's output — never invents a narrator fact, only
+    # re-arranges or trims what Lori already produced. Idempotent.
+    shape_actions: List[str] = []
+    if _reflection_shaping_enabled():
+        shaped, shape_actions = shape_reflection(
+            assistant_text=current,
+            narrator_text=user_text or "",
+            softened_mode_active=False,  # ordinary path; safety_path handles softened
+        )
+        if shape_actions and shape_actions[0] != "shaped_no_change":
+            warnings.append(f"reflection_shaped:{shape_actions[0]}")
+            current = shaped
+
     # Step 4: reflection validation (REPORT-ONLY per §5 of the spec —
     # reflection is content, deterministic rewrite would invent narrator
-    # facts. v1 logs failures only).
+    # facts. v1 logs failures only. WO-LORI-REFLECTION-02 adds the
+    # shaper above; this validator continues to flag any cases the
+    # shaper didn't catch — e.g. echo_contains_diagnostic_language is
+    # NOT in the shaper's lane (the shaper trims length, not content
+    # violations) and remains report-only here.).
     _passed, reflection_failures = validate_memory_echo(
         assistant_text=current,
         user_text=user_text or "",

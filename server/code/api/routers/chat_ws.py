@@ -1250,6 +1250,25 @@ async def ws_chat(ws: WebSocket):
                         _cc_result.word_count,
                     )
                     final_text = _cc_result.final_text
+                # WO-LORI-REFLECTION-02 — emit a dedicated reflection-
+                # shape log line whenever the shaper rewrote the turn.
+                # Easier to grep than parsing the comm_control failures
+                # list. Fires for both ordinary-path and softened-path
+                # shaping; only emits when HORNELORE_REFLECTION_SHAPING
+                # is on AND the shaper actually changed something.
+                _shape_warnings = [
+                    w for w in (_cc_result.warnings or [])
+                    if isinstance(w, str) and w.startswith("reflection_shaped:")
+                ]
+                if _shape_warnings:
+                    logger.info(
+                        "[lori][reflection-shape] conv=%s actions=%s "
+                        "softened=%s before_words=%d",
+                        conv_id,
+                        ",".join(w.split(":", 1)[1] for w in _shape_warnings),
+                        _softened_now,
+                        len((_cc_result.original_text or "").split()),
+                    )
                 elif _cc_result.failures or _cc_result.reflection_failures:
                     # Validation-only failures (reflection in v1, or
                     # safety-path "normal Q during safety"). No mutation.
