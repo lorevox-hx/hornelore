@@ -81,6 +81,10 @@ server/data/memory/
 .env
 .env.local
 .env.*.local
+# Timestamped .env backups (e.g. .env.bak_pre_merge_20260504_224854).
+# The generic *.bak rule below doesn't catch these because the timestamp
+# is a suffix after .bak, so add an explicit pattern here.
+.env.bak*
 
 # ── OS / tool junk ──
 *.orig
