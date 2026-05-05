@@ -4128,6 +4128,69 @@ def _parse_llm_json(raw: str) -> List[dict]:
     return valid
 
 
+# BUG-EX-LLM-COMMENTARY-AS-VALUE-01 (2026-05-05): pattern set for
+# detecting LLM meta-commentary that occasionally lands in the `value`
+# field instead of an actual value or null. The LLM, when asked about
+# an absent fact, sometimes emits a sentence explaining WHY the value
+# is missing — "Wife's first name is implied, not explicitly stated" —
+# and that string survives EXTRACTABLE_FIELDS + length checks. This
+# guard catches the common shapes deterministically. Live spec at
+# BUG-EX-LLM-COMMENTARY-AS-VALUE-01_Spec.md.
+#
+# Pattern policy: each branch is anchored on a META-MARKER token that
+# legitimate narrator answers almost never contain — "explicitly
+# stated", "based on the provided text", "narrator does not", etc.
+# A loose "is implied" alone would over-fire on legitimate narrator
+# content like "She was assumed to be Catholic"; we require a paired
+# explicit-marker phrase or a self-referential narrator-mention.
+_LLM_COMMENTARY_PATTERNS = re.compile(
+    r"\b("
+    # "(not) explicitly stated/mentioned/provided/specified" — the most
+    # common shape we've observed in production. Requires "explicitly"
+    # because narrator answers occasionally use "stated" / "mentioned"
+    # in non-meta contexts ("she stated her case", "as I mentioned").
+    r"(?:not\s+)?explicitly\s+(?:stated|mentioned|provided|specified)|"
+    # "based on the provided/given/narrator's text/answer/context"
+    r"based\s+on\s+the\s+(?:provided|given|narrator'?s)\s+"
+    r"(?:text|answer|context|response|utterance|statement)|"
+    # "narrator/user/speaker does/did not say/state/mention/provide"
+    r"(?:narrator|user|speaker)\s+(?:does\s+not|doesn'?t|did\s+not|didn'?t)\s+"
+    r"(?:say|state|mention|provide|specify|indicate)|"
+    # "no facts/information were/was extracted/provided/stated"
+    r"\bno\s+\w{3,15}\s+(?:were|was|are|is)\s+(?:extracted|provided|stated|"
+    r"specified|mentioned|available)|"
+    # "no facts to extract" (terse LLM output shape)
+    r"\bno\s+facts\s+to\s+(?:extract|provide)|"
+    # "information is missing/absent/unavailable/not available"
+    r"information\s+(?:is\s+)?(?:missing|absent|unavailable|not\s+available)|"
+    # "cannot/can't be determined/extracted/inferred"
+    r"(?:cannot|can'?t)\s+be\s+(?:determined|extracted|inferred|established)|"
+    # "is/are implied, not (explicitly) stated" — pairs the implied
+    # marker with the explicit-stated marker for the original live case
+    r"(?:is|are|was|were)\s+implied,?\s+not\s+(?:explicitly\s+)?stated"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_llm_commentary(value: str) -> bool:
+    """True if the value reads like LLM meta-commentary about the
+    absence of data, not the data itself.
+
+    Conservative on purpose — only fires when the value contains an
+    unambiguous meta-marker that legitimate narrator answers almost
+    never contain. False positives drop to suggest_only via Phase G;
+    false negatives leak into projection_json. We tilt toward the
+    latter and let downstream layers catch what we miss.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    if len(value) < 12:
+        # Too short to be a sentence about absence; treat as real value.
+        return False
+    return bool(_LLM_COMMENTARY_PATTERNS.search(value))
+
+
 def _validate_item(item: Any) -> Optional[dict]:
     """Validate and normalize a single extraction item."""
     if not isinstance(item, dict):
@@ -4627,6 +4690,26 @@ def _validate_item(item: Any) -> Optional[dict]:
             logger.info("[extract-validate] REJECT: fieldPath %r (base=%r) not in EXTRACTABLE_FIELDS", fp, base_path)
             return None
 
+    # BUG-EX-LLM-COMMENTARY-AS-VALUE-01 (2026-05-05): drop items whose
+    # value is meta-commentary about the absence of data, not the data
+    # itself. Live evidence (TEST-23 v4, 2026-05-04 21:42:15):
+    #   {"fieldPath": "family.spouse.firstName",
+    #    "value": "Wife's first name is implied, not explicitly stated.",
+    #    "confidence": 0.7}
+    # The string passed EXTRACTABLE_FIELDS (real schema field), survived
+    # the SHORT_VALUE length check (longer than 3 chars), and Patch H's
+    # length-normalize trimmed the trailing period — so it landed in
+    # projection_json.fields as if it were Marvin's wife's actual first
+    # name. This guard runs after fieldPath validation+aliasing so it
+    # only sees finalized items, and never invents a narrator fact —
+    # it only drops a string that's clearly LLM commentary.
+    if _is_llm_commentary(val):
+        logger.info(
+            "[extract][COMMENTARY-DROP] fieldPath=%s value=%r",
+            base_path, val[:80],
+        )
+        return None
+
     conf = item.get("confidence", 0.8)
     if not isinstance(conf, (int, float)):
         conf = 0.8
@@ -4672,6 +4755,28 @@ _NAME_FULL = re.compile(
     r"(?:my name is|I'm|I am|name was|called)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})",
     re.IGNORECASE
 )
+
+# BUG-EX-NAME-EXTRACTION-NOW-01 (2026-05-05): discourse-marker / filler
+# / pronoun blocklist for the rules-fallback name path. When the LLM
+# is unavailable and the regex above matches "I'm now talking..." or
+# "I am yes back" with IGNORECASE, it captures "now"/"yes"/etc as if
+# they were proper names. Phase G's protected-identity guard correctly
+# rejects the overwrite at write time, but the rules-fallback should
+# never emit a discourse marker as a name in the first place — that
+# created Phase G conflict spam in api.log on every Mary/Marvin run.
+# Words on this list never produce a personal.fullName item via the
+# rules path, regardless of capitalization or position. Live evidence:
+#   2026-05-04 21:27:55  Phase G: ... extracted='now' (Mary)
+#   2026-05-04 21:44:49  Phase G: ... extracted='now' (Marvin)
+_NAME_STOPWORD_BLOCKLIST = frozenset({
+    # Discourse markers / temporal hedges that aren't names
+    "now", "then", "well", "so", "okay", "yeah", "hmm", "uh", "um",
+    "today", "yesterday", "tomorrow", "earlier", "later",
+    # Filler / acks
+    "yes", "no", "maybe", "sure", "right", "really", "actually",
+    # Pronouns the rules path occasionally captures
+    "he", "she", "they", "we", "i",
+})
 
 # FIX-6a: Parent name regex — limit to first name + at most 2 last name words.
 # The old pattern used *? (lazy) which could still capture middle names when the
@@ -6730,7 +6835,22 @@ def _extract_via_rules(
     # Full name
     m = _NAME_FULL.search(answer)
     if m:
-        items.append({"fieldPath": "personal.fullName", "value": m.group(1).strip(), "confidence": 0.85})
+        _captured = m.group(1).strip()
+        # BUG-EX-NAME-EXTRACTION-NOW-01 (2026-05-05): drop the candidate
+        # if its first token is on the discourse-marker blocklist. With
+        # re.IGNORECASE the pattern catches "I'm now/yes/well/today/..."
+        # as if those were names. Check lowercase first token (and only
+        # the first token — multi-word names that happen to contain
+        # 'now' as a non-leading token like "Christopher Now" would be
+        # narrator-defensible and stay).
+        _first_tok = _captured.split()[0].lower() if _captured.split() else ""
+        if _first_tok and _first_tok in _NAME_STOPWORD_BLOCKLIST:
+            logger.info(
+                "[extract][NAME-BLOCKLIST] dropped fullName candidate value=%r reason=stopword_first_token",
+                _captured,
+            )
+        else:
+            items.append({"fieldPath": "personal.fullName", "value": _captured, "confidence": 0.85})
 
     # Date of birth — only fire when we're plausibly talking about birth
     if in_birth_context:
