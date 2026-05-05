@@ -4709,6 +4709,28 @@ function onAssistantReply(text){
   if(!text) return;
   lastAssistantText=text;
   document.getElementById("lastAssistantPanel").textContent=text;
+  // BUG-HARNESS-LORI-REPLY-CAPTURE-01 (2026-05-05): emit a reliable
+  // full-text lori_reply event for harness consumption. The legacy
+  // emit at hornelore1.0.html:8156 fires from _lv80MirrorStatus("ready")
+  // and is gated by _lv80IdleWasThinking — for memory_echo turns the
+  // gate occasionally misses (TEST-23 v5 evidence: Marvin's recall_pre
+  // captured 0 chars while Mary's same path captured 200 chars), AND
+  // it slices reply_text to 200 chars so longer readbacks lose their
+  // tail. This emit runs unconditionally at the top of every assistant
+  // reply with the FULL text. The harness's wait_for_lori_turn returns
+  // the first matching non-placeholder event, so this firing FIRST
+  // keeps the harness reliably bound to the real reply.
+  try {
+    if (typeof window.lv80LogTurnDebug === "function") {
+      window.lv80LogTurnDebug({
+        event: "lori_reply",
+        reply_text: text,  // FULL text, no slice — harness needs name/dob/pob anywhere in body
+        source: "onAssistantReply",
+      });
+    } else {
+      console.log("[lv80-turn-debug]", { event: "lori_reply", reply_text: text, source: "onAssistantReply" });
+    }
+  } catch (_) {}
   enqueueTts(text);
   // v7.4D — after one helper exchange, return Lori to interviewer role.
   // This means the next user message will go back to normal interview mode
@@ -5083,9 +5105,27 @@ function handleWsMessage(j){
     if(!currentAssistantBubble){
       currentAssistantBubble=appendBubble("ai","");
       setLoriState("drafting");
+      // BUG-CHAT-AUTOSCROLL-01 (2026-05-05): force the view to the
+      // newest bubble at the START of each AI reply, regardless of the
+      // user's current scroll position. This is the once-per-turn pin
+      // — after this initial force, the standard auto-scroll honors
+      // user scroll-up. Without this, a narrator who scrolled up to
+      // re-read a prior turn never sees Lori's new reply unless they
+      // scroll back down on their own — they think the system froze.
+      try { if (typeof window._scrollToLatest === "function") window._scrollToLatest(); } catch (_) {}
     }
     _bubbleBody(currentAssistantBubble).textContent+=(j.delta||j.token||"");
-    document.getElementById("chatMessages").scrollTop=99999;
+    // BUG-CHAT-AUTOSCROLL-01 (2026-05-05): scroll the OUTER container
+    // (#crChatInner is the one with overflow-y:auto). Pre-fix this
+    // line targeted #chatMessages which is the inner content wrapper
+    // and isn't scrollable — so per-token scroll attempts were silent
+    // no-ops, and the streaming reply visibly walked off-screen.
+    if (typeof window._scrollChatToBottom === "function") {
+      window._scrollChatToBottom();
+    } else {
+      var _crInner = document.getElementById("crChatInner");
+      if (_crInner) _crInner.scrollTop = _crInner.scrollHeight;
+    }
   }
   if(j.type==="error"){
     // Backend sent an error (e.g. model load failure, CUDA OOM)
@@ -5126,6 +5166,19 @@ function handleWsMessage(j){
     if(obitDraftType==="lori_pending") setObitDraftType("lori");
     setLoriState("ready");
     currentAssistantBubble=null;
+    // BUG-CHAT-AUTOSCROLL-01 (2026-05-05): final scroll-to-bottom after
+    // Lori's reply completes. Smooth-scrolling during streaming can
+    // land at the OLD scrollHeight if more content arrives mid-scroll
+    // (the "streaming chat gets stuck" classic). Re-trigger on done
+    // so the final position lines up with the final content height.
+    // Also covers the case where the user scrolled up mid-stream and
+    // back down — _scrollChatToBottom honors _autoScroll so it won't
+    // yank a user who deliberately stayed scrolled up.
+    try {
+      if (typeof window._scrollChatToBottom === "function") {
+        window._scrollChatToBottom();
+      }
+    } catch (_) {}
 
     // WO-deferred: Flush queued extraction now that Lori has finished
     if (typeof _runDeferredInterviewExtraction === "function") {
@@ -5179,11 +5232,24 @@ function appendBubble(role,text){
   body.textContent=text;
   d.appendChild(body);
   w.appendChild(d);
-  // N.1-02: Use smooth scroll via FocusCanvas scroll manager if available, else fallback
+  // N.1-02 / BUG-CHAT-AUTOSCROLL-01 (2026-05-05): use the FocusCanvas
+  // scroll manager when available; otherwise scroll the OUTER
+  // container (#crChatInner — the one with overflow-y:auto). Pre-fix
+  // the fallback set scrollTop on `w` (#chatMessages, the INNER
+  // content wrapper which isn't scrollable), so when scroll
+  // management hadn't initialized yet the auto-scroll silently
+  // no-op'd and new bubbles vanished below the fold.
   if(typeof window._scrollChatToBottom==="function"){
     window._scrollChatToBottom();
   } else {
-    w.scrollTop=w.scrollHeight;
+    var _crInner = document.getElementById("crChatInner");
+    if (_crInner) {
+      _crInner.scrollTop = _crInner.scrollHeight;
+    } else {
+      // Last-resort fallback — preserve legacy behavior for
+      // operator-side surfaces that don't have crChatInner.
+      w.scrollTop = w.scrollHeight;
+    }
   }
   return d;
 }
