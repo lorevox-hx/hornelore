@@ -706,12 +706,69 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         # profile_json may be {profile: {...}} or flat {...}
         root = blob.get("profile") if isinstance(blob.get("profile"), dict) else blob
         if not isinstance(root, dict):
-            return {}
+            root = {}
     except Exception as exc:
         logger.warning("[memory-echo][profile-seed] profile read failed for %s: %s", person_id, exc)
-        return {}
+        root = {}
 
     seed: Dict[str, Any] = {}
+
+    # ── WO-PROVISIONAL-TRUTH-01 Phase A (2026-05-04) ────────────────────
+    # Read interview_projections.projection_json as a SECONDARY source so
+    # chat-extracted candidates that landed in proj.pendingSuggestions or
+    # proj.fields can fill empty buckets in the profile_seed Lori reads.
+    #
+    # This is the load-bearing fix per CLAUDE.md principle #5
+    # (Provisional truth persists. Final truth waits for the operator.
+    #  The interview never waits.) The architecture audit at
+    # docs/reports/PROVISIONAL_TRUTH_ARCHITECTURE_AUDIT_2026-05-04.md
+    # found that pendingSuggestions persist correctly to the DB and
+    # survive cold restart, but Lori's read function never read them —
+    # so chat-extracted identity (Mary's name, Marvin's widower seed)
+    # was effectively invisible to memory_echo.
+    #
+    # Bridge rule:
+    #   - canonical (profile_json) wins when present
+    #   - provisional (projection_json fields + pendingSuggestions) fills
+    #     empty buckets
+    #   - both empty → bucket omitted (existing behavior preserved)
+    #
+    # No schema changes. No write-path changes. One read source added.
+    provisional: Dict[str, str] = {}
+    try:
+        from .db import get_projection
+        proj_blob = get_projection(person_id) or {}
+        proj_data = proj_blob.get("projection") or {}
+        proj_fields = proj_data.get("fields") or {}
+        proj_suggestions = proj_data.get("pendingSuggestions") or []
+
+        # Flat lookup keyed by fieldPath → value. Fields take priority
+        # over suggestions for the same path (a field has been written
+        # to projection.fields by a trusted source while a suggestion
+        # is awaiting operator review; the field is more committed).
+        if isinstance(proj_fields, dict):
+            for fp, entry in proj_fields.items():
+                if not isinstance(entry, dict):
+                    continue
+                v = entry.get("value")
+                if isinstance(v, str) and v.strip():
+                    provisional[fp] = v.strip()
+        if isinstance(proj_suggestions, list):
+            for sug in proj_suggestions:
+                if not isinstance(sug, dict):
+                    continue
+                fp = sug.get("fieldPath")
+                v = sug.get("value")
+                if not (isinstance(fp, str) and isinstance(v, str) and v.strip()):
+                    continue
+                # setdefault → suggestion only fills if field didn't already.
+                provisional.setdefault(fp, v.strip())
+    except Exception as exc:
+        logger.warning(
+            "[memory-echo][profile-seed] projection read failed for %s: %s",
+            person_id, exc,
+        )
+        provisional = {}
 
     # Phase 1b shape compat (2026-04-29 review): profile_json may be
     # template-shaped (`personal`/`parents`/`spouse`/`children`/`education`)
@@ -736,13 +793,39 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
                 return v.strip()
         return ""
 
+    # preferred_name / full_name — narrator's own name buckets.
+    # WO-PROVISIONAL-TRUTH-01 Phase A: surface the name from canonical or
+    # provisional. compose_memory_echo falls back to these buckets when
+    # runtime.speaker_name is empty (typical post-cold-restart state).
+    preferred = _first_str(
+        personal.get("preferredName"),
+        personal.get("preferred_name"),
+        basics.get("preferredName"),
+        basics.get("preferred_name"),
+        provisional.get("personal.preferredName"),
+    )
+    if preferred:
+        seed["preferred_name"] = preferred
+    full_name = _first_str(
+        personal.get("fullName"),
+        personal.get("full_name"),
+        basics.get("fullName"),
+        basics.get("full_name"),
+        provisional.get("personal.fullName"),
+    )
+    if full_name:
+        seed["full_name"] = full_name
+
     # childhood_home — placeOfBirth (template) or basics.pob/placeOfBirth
+    # WO-PROVISIONAL-TRUTH-01 Phase A: fall back to projection_json when
+    # canonical sources are empty.
     pob = _first_str(
         personal.get("placeOfBirth"),
         personal.get("place_of_birth"),
         basics.get("placeOfBirth"),
         basics.get("place_of_birth"),
         basics.get("pob"),
+        provisional.get("personal.placeOfBirth"),
     )
     if pob:
         seed["childhood_home"] = pob
@@ -777,14 +860,28 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     # heritage — personal.culture / basics.culture (overloaded; Schema-
     # Diversity Phase 3 will split into raceEthnicity[] / religiousAffiliation
     # / culturalAffiliations[] / spiritualBackground per the schema WO).
-    culture = _first_str(personal.get("culture"), basics.get("culture"))
+    # WO-PROVISIONAL-TRUTH-01 Phase A: fall back to projection_json.
+    culture = _first_str(
+        personal.get("culture"),
+        basics.get("culture"),
+        provisional.get("personal.culture"),
+    )
     if culture:
         seed["heritage"] = culture
 
     # education — schooling + higherEducation
+    # WO-PROVISIONAL-TRUTH-01 Phase A: fall back to projection_json.
     edu_parts = []
-    schooling = _first_str(education.get("schooling"), basics.get("schooling"))
-    higher = _first_str(education.get("higherEducation"), basics.get("higherEducation"))
+    schooling = _first_str(
+        education.get("schooling"),
+        basics.get("schooling"),
+        provisional.get("education.schooling"),
+    )
+    higher = _first_str(
+        education.get("higherEducation"),
+        basics.get("higherEducation"),
+        provisional.get("education.higherEducation"),
+    )
     if schooling:
         edu_parts.append(schooling)
     if higher and higher != schooling:
@@ -805,11 +902,15 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
             seed["military"] = mil
 
     # career — education.careerProgression OR community.role OR basics.career
+    # WO-PROVISIONAL-TRUTH-01 Phase A: fall back to projection_json.
     career = _first_str(
         education.get("careerProgression"),
         community.get("role") if isinstance(community, dict) else None,
         basics.get("career"),
         basics.get("occupation"),
+        provisional.get("education.careerProgression"),
+        provisional.get("community.role"),
+        provisional.get("education.earlyCareer"),
     )
     if career:
         seed["career"] = career
@@ -834,11 +935,14 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
             seed["children"] = labels
 
     # life_stage — coarse bucket from DOB age (no PII leak; only category)
+    # WO-PROVISIONAL-TRUTH-01 Phase A: fall back to projection_json so
+    # Mary's "2/29 1940" → "1940-02-29" surfaces age across restart.
     dob = _first_str(
         personal.get("dateOfBirth"),
         personal.get("date_of_birth"),
         basics.get("dateOfBirth"),
         basics.get("dob"),
+        provisional.get("personal.dateOfBirth"),
     )
     if dob and len(dob) >= 4 and dob[:4].isdigit():
         try:
@@ -1235,11 +1339,44 @@ def compose_memory_echo(
     """
     runtime = runtime or {}
 
-    speaker_name = (runtime.get("speaker_name") or "").strip() or "you"
+    speaker_name = (runtime.get("speaker_name") or "").strip()
     dob = runtime.get("dob") or None
     pob = runtime.get("pob") or None
     projection_family = runtime.get("projection_family") or {}
     profile_seed = runtime.get("profile_seed") or {}
+
+    # WO-PROVISIONAL-TRUTH-01 Phase A (2026-05-04):
+    # When runtime.speaker_name is empty (typical post-cold-restart state
+    # before narrator-preload hydrates state.session.speakerName), fall
+    # back to profile_seed.preferred_name / .full_name. _build_profile_seed
+    # surfaces those buckets from interview_projections.projection_json
+    # provisional values, so chat-extracted names like Mary's "mary Holts"
+    # → "Mary Holts" reach Lori's readback even when the canonical
+    # profile_json has nothing yet.
+    if not speaker_name:
+        seed_preferred = (profile_seed.get("preferred_name") or "").strip()
+        seed_full = (profile_seed.get("full_name") or "").strip()
+        if seed_preferred:
+            speaker_name = seed_preferred
+        elif seed_full:
+            # Use first token of full name as a friendlier address form,
+            # matching how speakerName is typically populated client-side.
+            speaker_name = seed_full.split()[0] if seed_full.split() else seed_full
+    speaker_name = speaker_name or "you"
+
+    # Same fallback for dob/pob — runtime values come from client state;
+    # profile_seed pulls them from canonical+provisional. life_stage and
+    # childhood_home are derived buckets we surface explicitly here.
+    if not dob:
+        # life_stage is a coarse derived label ("building years", etc.) so
+        # we DON'T use it as dob; only return None if no canonical dob.
+        # (DOB itself isn't in profile_seed; it's only used to derive
+        # life_stage. Future work: surface raw dob via profile_seed too.)
+        pass
+    if not pob:
+        seed_pob = (profile_seed.get("childhood_home") or "").strip()
+        if seed_pob:
+            pob = seed_pob
 
     parents = projection_family.get("parents") or []
     siblings = projection_family.get("siblings") or []
