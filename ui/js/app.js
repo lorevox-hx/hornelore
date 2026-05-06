@@ -969,15 +969,24 @@ function _lvInterviewSelectEra(eid) {
         + "the era explicitly: you may name it directly (e.g. 'During "
         + "your " + warmLabel.toLowerCase() + "...' or 'In your "
         + warmLabel.toLowerCase() + " years...') so the narrator hears "
-        + "you connect to the specific period they chose. "
-        + "BUG-LORI-ERA-FRAGMENT-COHERENCE-01 (2026-05-06): your question "
-        + "MUST be a complete sentence — start with a wh-word (What, "
-        + "Where, When, Who, How, Why) OR an auxiliary verb (Did, Were, "
-        + "Was, Had, Could) followed by a subject. A noun-phrase fragment "
-        + "ending in '?' (like 'The conversations you had?' or 'The "
-        + "changes during that time?') is NOT a question — write a full "
-        + "sentence with subject and verb. Aim for 12-55 words. ONE "
-        + "question only. No menu choices.]");
+        + "you connect to the specific period they chose. Maximum 55 "
+        + "words. ONE question only. No menu choices. No 'or we could' "
+        + "phrasing. No compound 'and how / and what' follow-ups.]");
+      // BUG-LORI-ERA-FRAGMENT-COHERENCE-01 v10 ROLLBACK (2026-05-06):
+      // The "MUST be a complete sentence — start with a wh-word..."
+      // tightening I added earlier today regressed v10: every Lori
+      // response across both narrators came back at exactly 20w with
+      // q=0 (no question marks). The long instructional block confused
+      // the local LLM into producing declarative sentences instead of
+      // questions. The v8/v9 directive (restored above) was already
+      // pretty good — failures were rare fragments (Mary's
+      // coming_of_age + later_years, 2/14 era prompts in v8). The
+      // post-LLM era-fragment-repair guard in chat_ws.py is the right
+      // safety net for those rare cases. Per Chris's architectural
+      // note (CLAUDE.md design principle 6): the deeper fix is the
+      // timeline-context composer hook surfacing real era-grounded
+      // events from timeline_context_events into the directive — see
+      // WO-TIMELINE-CONTEXT-COMPOSER-HOOK-01 (pending spec).
     try {
       sendSystemPrompt(directive);
       console.info("[life-map][era-click] Lori prompt dispatched for era=" + canonical);
@@ -1877,14 +1886,27 @@ function _looksLikeCorrection(text){
 function _looksLikeAgeQuestion(text){
   const t = _lvText(text).toLowerCase();
   if (!t) return false;
+  // BUG-LORI-LATE-AGE-RECALL-01 v10 fix (2026-05-06): the v10 detector
+  // required "how old [aux] i" with no intervening words, but the
+  // TEST-23 harness sends "How old do you think I am now?" — three
+  // words between "do" and "I". The detector missed it entirely and
+  // the deterministic age route never fired in v10. New detector
+  // covers BOTH direct ("how old am I?") and indirect ("how old do
+  // you think I am?") shapes via the second branch.
   return (
-    /\bhow\s+old\s+(am|are|do|would|will|might)\s+i\b/.test(t) ||
-    /\bwhat\s+(is|'s|was)\s+my\s+age\b/.test(t) ||
-    /\bdo\s+you\s+know\s+(my\s+age|how\s+old\s+i\s+am)\b/.test(t) ||
-    /\bwhen\s+(was|were)\s+i\s+born\b/.test(t) ||
-    /\bwhat\s+(is|'s|was)\s+my\s+(date\s+of\s+birth|birthday|dob)\b/.test(t) ||
-    /\bdo\s+you\s+(know|remember)\s+my\s+(birthday|date\s+of\s+birth|dob)\b/.test(t) ||
-    /\b(how\s+old|my\s+age|my\s+birthday|when\s+i\s+was\s+born)\s*\?/.test(t)
+    // Direct: "how old am/are/do/will/would/might I" (no filler words)
+    /\bhow\s+old\s+(?:am|are|do|will|would|might|did)\s+i\b/.test(t) ||
+    // Indirect: "how old [filler 0-6 words] I am/was/will be/would be"
+    /\bhow\s+old\b[^?.!]{0,40}?\bi\s+(?:am|was|will\s+be|would\s+be|might\s+be)\b/.test(t) ||
+    // Direct age questions
+    /\bwhat\s+(?:is|'s|was)\s+my\s+age\b/.test(t) ||
+    /\bdo\s+you\s+(?:know|remember)\s+(?:my\s+age|how\s+old\s+i\s+am)\b/.test(t) ||
+    // DOB / birthday questions
+    /\bwhen\s+(?:was|were)\s+i\s+born\b/.test(t) ||
+    /\bwhat\s+(?:is|'s|was)\s+my\s+(?:date\s+of\s+birth|birthday|dob)\b/.test(t) ||
+    /\bdo\s+you\s+(?:know|remember)\s+my\s+(?:birthday|date\s+of\s+birth|dob)\b/.test(t) ||
+    // Bare phrase + question mark (for typed shorthand)
+    /^\s*(?:how\s+old|my\s+age|my\s+birthday|when\s+i\s+was\s+born)\s*\?/.test(t)
   );
 }
 

@@ -2234,27 +2234,20 @@ def compose_system_prompt(
         )
         directive_lines.append("")
 
-        # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): age fact + answer
-        # directive. v8 evidence: both narrators dodged late-stage age
-        # questions ("How old do you think I am now?") with deflections
-        # like "Is there something else on your mind?" because the LLM
-        # had to infer age from DOB + today across a long context window.
-        # Making age a deterministic fact Lori reads on every turn —
-        # AND giving her an explicit directive to answer with the number,
-        # not deflect — closes that class of failure.
-        if _seed_age_years is not None and _seed_age_years > 0:
-            directive_lines.append(
-                f"NARRATOR AGE: {_seed_age_years} years old (computed from "
-                f"date of birth + today). When the narrator asks 'how old "
-                f"am I' / 'how old do you think I am' / similar, answer "
-                f"with the exact number warmly, in one short sentence. "
-                f"Example: 'You're {_seed_age_years} years old.' Do NOT "
-                f"deflect with 'is there something else on your mind' or "
-                f"'shall we continue our conversation' — answer the "
-                f"question directly, then return to whatever you were "
-                f"discussing."
-            )
-            directive_lines.append("")
+        # BUG-LORI-LATE-AGE-RECALL-01 v10 ROLLBACK (2026-05-06):
+        # The NARRATOR AGE directive block I added earlier today is now
+        # REMOVED. The deterministic age-recall route in chat_ws.py
+        # (turn_mode='age_recall' branch) is the actual fix — it
+        # bypasses the LLM entirely for age questions. The directive
+        # was redundant prompt-bloat that compounded the era-click
+        # directive over-tightening (~80w of constraints on top of
+        # ~75w of NARRATOR AGE block = 155w of extra system prompt
+        # per turn) and contributed to the v10 LLM-compliance regression
+        # (all 20w/q=0 outputs).
+        # Detection regex for age questions was also tightened in
+        # ui/js/app.js _looksLikeAgeQuestion to catch the harness's
+        # actual phrasing "How old do you think I am" (filler words
+        # between aux and 'I' weren't matched by the v10 detector).
 
         # WO-LORI-SOFTENED-RESPONSE-01 — inject SOFTENED MODE directive
         # when the session is in softened state (set by an acute safety
