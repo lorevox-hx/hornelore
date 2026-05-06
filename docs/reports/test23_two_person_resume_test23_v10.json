@@ -1,0 +1,1718 @@
+{
+  "tag": "test23_v10",
+  "started_at": "2026-05-06T13:48:20",
+  "finished_at": "2026-05-06T14:14:06",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api_base": "http://localhost:8000",
+  "commit_sha": "bbd7971",
+  "dirty_tree": false,
+  "mary": {
+    "plan_key": "mary",
+    "display_name": "Test_915947",
+    "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+    "onboarding_steps": [
+      {
+        "label": "onboard_name",
+        "narrator_input": "mary Holts",
+        "lori_reply": "It's lovely to meet you, mary. Knowing when you were born will really help me place your story in time, so could you tell me your date of birth?",
+        "elapsed_ms": 26188,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=9484ms tts_wait=15785ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "askDob",
+          "basicsComplete": false,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_dob",
+        "narrator_input": "2/29 1940",
+        "lori_reply": "February 29, 1940 - that's a unique birthday! Where were you born, mary?",
+        "elapsed_ms": 15720,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=7401ms tts_wait=7677ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "askBirthplace",
+          "basicsComplete": false,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_pob",
+        "narrator_input": "Minot ND",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 14646,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=4494ms tts_wait=9499ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_pob_correction",
+        "narrator_input": "Actually it's Minot, North Dakota \u2014 not just ND",
+        "lori_reply": "I heard that as a correction, but I'm not fully certain which field it changes yet. You can say it one piece at a time \u2014 for example, 'I was born in ...' or 'My father's name was ...'.",
+        "elapsed_ms": 15376,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=1229ms tts_wait=13497ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "early_inference_steps": [
+      {
+        "label": "early_age_guess",
+        "narrator_input": "How old do you think I am?",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 12314,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=1638ms tts_wait=9955ms tts_done=True",
+          "age guess miss (expected=86)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "early_residence_guess",
+        "narrator_input": "Where do you think I live now?",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 13257,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=2472ms tts_wait=9985ms tts_done=True",
+          "residence: ambiguous response (review manually)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "era_results": [
+      {
+        "era_id": "earliest_years",
+        "era_label": "Earliest Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "earliest_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "I was born during a storm \u2014 I think it was really cold that year.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "early_school_years",
+        "era_label": "Early School Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "early_school_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "We walked to school, me and my brother, through the snow most days.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "adolescence",
+        "era_label": "Adolescence",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "adolescence",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "I learned early on there were things you said in public and things you didn't.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "coming_of_age",
+        "era_label": "Coming of Age",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "coming_of_age",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "I met my husband at a county fair. He kept coming back to talk.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "building_years",
+        "era_label": "Building Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "building_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "We had kids and moved around a bit for his work. Those years went fast.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "Actually we only had two kids, not three.",
+        "extra_reply": "I heard that as a correction, but I'm not fully certain which field it changes yet. You can say it one piece at a time \u2014 for example, 'I was born in ...' or 'My father's name was ...'.",
+        "extra_handled_well": true,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "later_years",
+        "era_label": "Later Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "later_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "After he passed, the house got very quiet. I started spending more time outside.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      }
+    ],
+    "today_cycles": [
+      {
+        "label": "today_cycle_1",
+        "narrator_input": "These days I take things slower. I like sitting by the window in the morning.",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 26513,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=4059ms tts_wait=18777ms tts_done=True",
+          "no clear present-tense marker"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "today_cycle_2",
+        "narrator_input": "I still think about everything that came before, but I try to stay in the day.",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 18448,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=6513ms tts_wait=11241ms tts_done=True",
+          "no clear present-tense marker"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "today_factual": {
+      "label": "today_factual_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "elapsed_ms": 17361,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=7321ms tts_wait=9396ms tts_done=True"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "late_age_probe": {
+      "label": "late_age_probe",
+      "narrator_input": "How old do you think I am now?",
+      "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "elapsed_ms": 16846,
+      "severity": "AMBER",
+      "notes": [
+        "text_elapsed=3266ms tts_wait=12878ms tts_done=True",
+        "late age miss (expected=86)"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "pre_restart_recall": {
+      "label": "pre_restart_recall",
+      "question": "what do you know about me",
+      "reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "contains_name": false,
+      "contains_dob_or_year": false,
+      "contains_pob": false,
+      "era_stories_in_readback": 0,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "RED",
+      "notes": [
+        "name not recalled",
+        "place of birth not recalled",
+        "only 0/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "spouse_memory_probe": null,
+    "post_restart_recall": {
+      "label": "post_restart_recall",
+      "question": "what do you know about me",
+      "reply": "What I know about mary so far:\n\nIdentity\n- Name: mary\n- Date of birth: 1940-02-29\n- Place of birth: Minot ND\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none on record yet)\n\nNotes from our conversation\n- Childhood home: Minot ND\n- Life stage: senior elder\n\nWhat I'm less sure about\n- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.\n- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.\n\n(Based on: profile, session notes.)\n\nYou can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+      "contains_name": true,
+      "contains_dob_or_year": true,
+      "contains_pob": true,
+      "era_stories_in_readback": 1,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "AMBER",
+      "notes": [
+        "only 1/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "today_after_resume": {
+      "label": "post_restart_today_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "",
+      "elapsed_ms": 93298,
+      "severity": "RED",
+      "notes": [
+        "TTS not confirmed finished within 60s of text completion",
+        "text_elapsed=90278ms tts_wait=0ms tts_done=False",
+        "no Lori reply within 90s text-window",
+        "no reply post-restart"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+        "currentEra": null,
+        "state_person_keys": []
+      }
+    },
+    "apilog_signals_per_phase": {
+      "onboard": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 3,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "early_inference": {
+        "extract_attempts": 2,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "lifemap": {
+        "extract_attempts": 6,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 7,
+        "utterance_frame": 7,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 13,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "today": {
+        "extract_attempts": 0,
+        "extract_summary": 2,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 3,
+        "utterance_frame": 3,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 4,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "late_age": {
+        "extract_attempts": 0,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "recall_pre": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 2,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "resume": {
+        "extract_attempts": 1,
+        "extract_summary": 2,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      }
+    },
+    "bb_state_after_onboard": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_correction": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_status_seed": {},
+    "bb_state_after_session1": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_resume": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c813874b-95da-43b2-a738-7ff289340603",
+      "currentEra": null,
+      "state_person_keys": []
+    },
+    "memoir_artifacts": [
+      {
+        "phase": "session1_end",
+        "peek_chars": 0,
+        "export_chars": 414,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v10_mary_memoir_export_session1_end.txt"
+      },
+      {
+        "phase": "resume_start",
+        "peek_chars": 0,
+        "export_chars": 414,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v10_mary_memoir_export_resume_start.txt"
+      }
+    ],
+    "severity": "RED",
+    "notes": [
+      "firstName mismatch: got None, expected 'Mary'",
+      "lastName mismatch: got None, expected 'Holts'",
+      "DOB mismatch: got None, expected '1940-02-29'",
+      "POB partial: got '', expected 'Minot, North Dakota'",
+      "Today click failed post-restart",
+      "firstName != Mary",
+      "lastName != Holts",
+      "DOB != 1940-02-29",
+      "pre-restart recall RED",
+      "today after resume RED"
+    ]
+  },
+  "marvin": {
+    "plan_key": "marvin",
+    "display_name": "Test_685586",
+    "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+    "onboarding_steps": [
+      {
+        "label": "onboard_name",
+        "narrator_input": "Marvin Mann",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 11808,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=1644ms tts_wait=9463ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_dob",
+        "narrator_input": "December 6, 1949",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 11820,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=1655ms tts_wait=9466ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_pob",
+        "narrator_input": "Fargo, North Dakota",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 11791,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=1659ms tts_wait=9443ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "status_seed",
+        "narrator_input": "I am a widower now, I still think about my wife every morning.",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 11367,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=1228ms tts_wait=9484ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      }
+    ],
+    "early_inference_steps": [
+      {
+        "label": "early_age_guess",
+        "narrator_input": "How old do you think I am?",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 11365,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=1250ms tts_wait=9458ms tts_done=True",
+          "age guess miss (expected=76)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "early_residence_guess",
+        "narrator_input": "Where do you think I live now?",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 11766,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=1634ms tts_wait=9441ms tts_done=True",
+          "residence: ambiguous response (review manually)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      }
+    ],
+    "era_results": [
+      {
+        "era_id": "earliest_years",
+        "era_label": "Earliest Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "earliest_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "I grew up in a small house where the kitchen was always warm in the winter.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "early_school_years",
+        "era_label": "Early School Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "early_school_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "I liked arithmetic in school, but I was shy about reading out loud.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "adolescence",
+        "era_label": "Adolescence",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "adolescence",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "As a teenager, I worked after school and saved money for an old pickup.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "I think that was around 1965\u2026 or maybe a little later.",
+        "extra_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "extra_handled_well": true,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "coming_of_age",
+        "era_label": "Coming of Age",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "coming_of_age",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "I left home for my first steady job and learned how much responsibility costs.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "building_years",
+        "era_label": "Building Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "building_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "My wife and I built a life slowly. We bought a house, raised children, and worked hard.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "later_years",
+        "era_label": "Later Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "later_years",
+        "era_prompt_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 0,
+        "seed_text": "After my wife died, I kept some of her letters in the top drawer of my desk.",
+        "seed_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      }
+    ],
+    "today_cycles": [
+      {
+        "label": "today_cycle_1",
+        "narrator_input": "Today I keep a simple routine. Coffee, a short walk, and a little time reading.",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 27563,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=4074ms tts_wait=19795ms tts_done=True",
+          "no clear present-tense marker"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "today_cycle_2",
+        "narrator_input": "I still miss my wife, but I try to notice small good things each day.",
+        "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+        "elapsed_ms": 17178,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=5706ms tts_wait=10786ms tts_done=True",
+          "no clear present-tense marker"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": false,
+          "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "today_factual": {
+      "label": "today_factual_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "elapsed_ms": 15981,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=4901ms tts_wait=10409ms tts_done=True"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": false,
+        "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "late_age_probe": {
+      "label": "late_age_probe",
+      "narrator_input": "How old do you think I am now?",
+      "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "elapsed_ms": 18076,
+      "severity": "AMBER",
+      "notes": [
+        "text_elapsed=4092ms tts_wait=13259ms tts_done=True",
+        "late age miss (expected=76)"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": false,
+        "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "pre_restart_recall": {
+      "label": "pre_restart_recall",
+      "question": "what do you know about me",
+      "reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "contains_name": false,
+      "contains_dob_or_year": false,
+      "contains_pob": false,
+      "era_stories_in_readback": 0,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "RED",
+      "notes": [
+        "name not recalled",
+        "place of birth not recalled",
+        "only 0/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "spouse_memory_probe": {
+      "label": "spouse_memory_probe",
+      "narrator_input": "What do you remember about my wife?",
+      "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "elapsed_ms": 18180,
+      "severity": "RED",
+      "notes": [
+        "text_elapsed=7729ms tts_wait=9748ms tts_done=True",
+        "spouse tokens hit: []/['wife', 'widower', 'letters', 'drawer', 'morning']",
+        "FAILED emotional anchoring (0 spouse tokens recalled)"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": false,
+        "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+        "currentEra": "earliest_years",
+        "state_person_keys": []
+      }
+    },
+    "post_restart_recall": {
+      "label": "post_restart_recall",
+      "question": "what do you know about me",
+      "reply": "What I know about you so far:\n\nIdentity\n- Name: (not on record yet)\n- Date of birth: (not on record yet)\n- Place of birth: (not on record yet)\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none on record yet)\n\nWhat I'm less sure about\n- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.\n- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.\n\n(I don't have anything on record for you yet \u2014 would you like to start with your name?)\n\nYou can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+      "contains_name": false,
+      "contains_dob_or_year": false,
+      "contains_pob": false,
+      "era_stories_in_readback": 0,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "RED",
+      "notes": [
+        "name not recalled",
+        "place of birth not recalled",
+        "only 0/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "today_after_resume": {
+      "label": "post_restart_today_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "Chat error: Chat backend error: cannot access local variable '_seed_age_years' where it is not associated with a value. Try again.",
+      "elapsed_ms": 22802,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=8993ms tts_wait=10105ms tts_done=True"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": false,
+        "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "apilog_signals_per_phase": {
+      "onboard": {
+        "extract_attempts": 4,
+        "extract_summary": 3,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 3,
+        "utterance_frame": 3,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 3,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "early_inference": {
+        "extract_attempts": 2,
+        "extract_summary": 2,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 2,
+        "utterance_frame": 2,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 2,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "lifemap": {
+        "extract_attempts": 6,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 7,
+        "utterance_frame": 7,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 13,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "today": {
+        "extract_attempts": 1,
+        "extract_summary": 2,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 3,
+        "utterance_frame": 3,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 4,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "late_age": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "recall_pre": {
+        "extract_attempts": 0,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 2,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "spouse_probe": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "resume": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 2,
+        "utterance_frame": 2,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 3,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      }
+    },
+    "bb_state_after_onboard": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": false,
+      "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+      "currentEra": null,
+      "state_person_keys": []
+    },
+    "bb_state_after_correction": {},
+    "bb_state_after_status_seed": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": false,
+      "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+      "currentEra": null,
+      "state_person_keys": []
+    },
+    "bb_state_after_session1": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": false,
+      "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_resume": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": false,
+      "person_id": "3e0ec01d-97ed-4b94-8d8b-3aa35124f35a",
+      "currentEra": "today",
+      "state_person_keys": []
+    },
+    "memoir_artifacts": [
+      {
+        "phase": "session1_end",
+        "peek_chars": 0,
+        "export_chars": 414,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v10_marvin_memoir_export_session1_end.txt"
+      },
+      {
+        "phase": "resume_start",
+        "peek_chars": 0,
+        "export_chars": 414,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v10_marvin_memoir_export_resume_start.txt"
+      }
+    ],
+    "severity": "RED",
+    "notes": [
+      "firstName mismatch: got None, expected 'Marvin'",
+      "lastName mismatch: got None, expected 'Mann'",
+      "DOB mismatch: got None, expected '1949-12-06'",
+      "POB partial: got '', expected 'Fargo, North Dakota'",
+      "firstName != Marvin",
+      "lastName != Mann",
+      "DOB != 1949-12-06",
+      "pre-restart recall RED",
+      "spouse memory probe RED",
+      "post-restart recall RED"
+    ]
+  },
+  "cross_isolation_check": null,
+  "final_severity": "RED",
+  "final_failures": [
+    "Mary RED",
+    "Marvin RED"
+  ],
+  "telemetry_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_two_person_resume_test23_v10.telemetry.json"
+}

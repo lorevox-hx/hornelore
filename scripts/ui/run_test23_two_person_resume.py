@@ -1977,6 +1977,26 @@ def main() -> int:
             args=["--start-maximized", "--window-position=0,0"],
         )
         ctx = browser.new_context(viewport={"width": 1400, "height": 900}, permissions=["camera", "microphone"])
+        # BUG-HARNESS-FACIAL-CONSENT-OVERLAY-BLOCK-01 (2026-05-06):
+        # Playwright's permissions=["camera","microphone"] grants OS-
+        # level permissions but doesn't dismiss the application's
+        # FacialConsent overlay (ui/js/facial-consent.js LS_KEY =
+        # "lorevox_facial_consent_granted"). When narrator-room init
+        # fires the consent prompt, the harness blocks waiting for a
+        # human click — observed live during v10/v11 with Marvin's
+        # session leaving Chris stuck at the camera prompt for minutes
+        # until he manually clicked. Pre-seed both the granted key and
+        # the declined-suppression marker on every fresh context so
+        # the consent overlay never paints during automated runs.
+        # Real parent sessions (Janice/Kent) are unaffected because
+        # the operator handles consent in the UI per the WO-02 family-
+        # friendly policy.
+        ctx.add_init_script(
+            "try {"
+            "  localStorage.setItem('lorevox_facial_consent_granted', '1');"
+            "  localStorage.setItem('lorevox_facial_consent_declined', '0');"
+            "} catch (_) {}"
+        )
         page = ctx.new_page()
         console = ConsoleCollector(page)
         dblock = DbLockCounter(_REPO_ROOT)
@@ -2039,6 +2059,26 @@ def main() -> int:
             # Open fresh context for next narrator OR for closing
             if (key, plan) != plans[-1][:2]:
                 ctx = browser.new_context(viewport={"width": 1400, "height": 900}, permissions=["camera", "microphone"])
+        # BUG-HARNESS-FACIAL-CONSENT-OVERLAY-BLOCK-01 (2026-05-06):
+        # Playwright's permissions=["camera","microphone"] grants OS-
+        # level permissions but doesn't dismiss the application's
+        # FacialConsent overlay (ui/js/facial-consent.js LS_KEY =
+        # "lorevox_facial_consent_granted"). When narrator-room init
+        # fires the consent prompt, the harness blocks waiting for a
+        # human click — observed live during v10/v11 with Marvin's
+        # session leaving Chris stuck at the camera prompt for minutes
+        # until he manually clicked. Pre-seed both the granted key and
+        # the declined-suppression marker on every fresh context so
+        # the consent overlay never paints during automated runs.
+        # Real parent sessions (Janice/Kent) are unaffected because
+        # the operator handles consent in the UI per the WO-02 family-
+        # friendly policy.
+        ctx.add_init_script(
+            "try {"
+            "  localStorage.setItem('lorevox_facial_consent_granted', '1');"
+            "  localStorage.setItem('lorevox_facial_consent_declined', '0');"
+            "} catch (_) {}"
+        )
                 page = ctx.new_page()
                 console = ConsoleCollector(page)
                 dblock = DbLockCounter(_REPO_ROOT)

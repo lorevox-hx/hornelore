@@ -1,0 +1,182 @@
+{
+  "tag": "test23_two_person_resume_test23_v10",
+  "run_start": "2026-05-06T19:48:20.248076+00:00",
+  "run_end": "2026-05-06T20:14:06.227674+00:00",
+  "elapsed_seconds": 1553.0,
+  "snapshot_count": 18,
+  "kv_clear_count": 0,
+  "snapshots": [
+    {
+      "label": "run_start",
+      "ts": "2026-05-06T19:48:25.272879+00:00",
+      "elapsed_s_since_run_start": 5.025,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/session1_start",
+      "ts": "2026-05-06T19:49:05.169013+00:00",
+      "elapsed_s_since_run_start": 44.921,
+      "extra": {
+        "plan_key": "mary"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/onboard_done",
+      "ts": "2026-05-06T19:50:28.348873+00:00",
+      "elapsed_s_since_run_start": 128.101,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/early_inference_done",
+      "ts": "2026-05-06T19:51:05.429057+00:00",
+      "elapsed_s_since_run_start": 165.181,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/lifemap_done",
+      "ts": "2026-05-06T19:54:12.041912+00:00",
+      "elapsed_s_since_run_start": 351.794,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/today_done",
+      "ts": "2026-05-06T19:55:25.088835+00:00",
+      "elapsed_s_since_run_start": 424.841,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/session1_end",
+      "ts": "2026-05-06T19:57:03.877747+00:00",
+      "elapsed_s_since_run_start": 523.63,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/resume_started",
+      "ts": "2026-05-06T19:57:56.860908+00:00",
+      "elapsed_s_since_run_start": 576.613,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/resume_done",
+      "ts": "2026-05-06T20:00:50.375332+00:00",
+      "elapsed_s_since_run_start": 750.127,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/session1_start",
+      "ts": "2026-05-06T20:03:39.400862+00:00",
+      "elapsed_s_since_run_start": 919.153,
+      "extra": {
+        "plan_key": "marvin"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/onboard_done",
+      "ts": "2026-05-06T20:04:36.932854+00:00",
+      "elapsed_s_since_run_start": 976.685,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/early_inference_done",
+      "ts": "2026-05-06T20:05:09.708864+00:00",
+      "elapsed_s_since_run_start": 1009.461,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/lifemap_done",
+      "ts": "2026-05-06T20:08:20.285163+00:00",
+      "elapsed_s_since_run_start": 1200.037,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/today_done",
+      "ts": "2026-05-06T20:09:32.293849+00:00",
+      "elapsed_s_since_run_start": 1272.046,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/session1_end",
+      "ts": "2026-05-06T20:11:36.493289+00:00",
+      "elapsed_s_since_run_start": 1396.245,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/resume_started",
+      "ts": "2026-05-06T20:12:25.876818+00:00",
+      "elapsed_s_since_run_start": 1445.629,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/resume_done",
+      "ts": "2026-05-06T20:14:04.972840+00:00",
+      "elapsed_s_since_run_start": 1544.725,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "run_end",
+      "ts": "2026-05-06T20:14:11.232857+00:00",
+      "elapsed_s_since_run_start": 1550.985,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    }
+  ],
+  "kv_clears": [],
+  "derived_metrics": {
+    "api_log_scan": {
+      "fk_constraint_count": 58,
+      "comm_control_trim_count": 1,
+      "comm_control_validate_only_count": 3,
+      "send_system_prompt_timeouts": 0,
+      "phase_g_disconnect_count": 8,
+      "gpu_oom_count": 0,
+      "vram_guard_block_count": 0,
+      "_log_path": "/mnt/c/Users/chris/hornelore/.runtime/logs/api.log",
+      "_window_start": "2026-05-06T19:48:20.248076+00:00",
+      "_window_end": "2026-05-06T20:14:06.227674+00:00"
+    },
+    "prompt_tokens_summary": {
+      "n": 3,
+      "min": 3898,
+      "p25": 3898,
+      "median": 4108,
+      "p75": 4167,
+      "p95": 4167,
+      "max": 4167,
+      "histogram": {
+        "0-1000": 0,
+        "1000-2000": 0,
+        "2000-3000": 0,
+        "3000-4000": 1,
+        "4000-5000": 2,
+        "5000-6000": 0,
+        "6000-7000": 0,
+        "7000+": 0
+      },
+      "avg_pct_growth_per_turn": 3.41
+    },
+    "kv_clear_summary": {
+      "n": 0,
+      "total_freed_mb": 0.0,
+      "avg_freed_mb": 0.0,
+      "n_calls": 0
+    },
+    "vram_per_voice": {}
+  }
+}
