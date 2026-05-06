@@ -1,10 +1,10 @@
 # BUG-HARNESS-RECALL-DICT-FIELDS-01 — Recall fields scored at runtime but not persisted to result dict
 
-**Status:** OPEN — harness-only fix
-**Severity:** LOW (harness reporting gap; no product impact)
+**Status:** **CLOSED-VIA-DIAGNOSIS** (2026-05-05) — bug does NOT exist; v6 evidence was pre-rename. See "Resolution" section at the bottom of this file before reading the original analysis.
+**Severity:** LOW — was authored as harness-only fix; investigation closed the spec without code change
 **Surfaced by:** TEST-23 v6 audit (2026-05-05)
 **Author:** Chris + Claude (2026-05-05)
-**Lane:** Lane 2 / parent-session blockers — quick win, lands in ~5-line patch
+**Lane:** Lane 2 / parent-session blockers — closed via diagnosis
 
 ---
 
@@ -134,3 +134,85 @@ This is a quick-win that improves harness reporting fidelity for every subsequen
 ## Changelog
 
 - 2026-05-05: Spec authored after v6 audit caught the JSON-vs-print divergence. Diagnosis points to dataclass-field-vs-dict-key mismatch; fix is ~5-15 lines.
+
+---
+
+## Resolution (2026-05-05, post-authoring)
+
+**Bug does NOT exist.** Re-investigation before implementing the fix found:
+
+1. The current `RecallResult` dataclass at `scripts/ui/run_test23_two_person_resume.py:230-243` already uses the renamed fields (`era_stories_in_readback` / `era_stories_total`) per Chris's metric-rename commit landed earlier on 2026-05-05.
+2. `_to_serializable` at L1889-1891 calls `asdict(obj)` directly, which uses the live dataclass field names. No rename or alias logic is needed; serialization is correct.
+3. v6 JSON shows OLD field names (`era_facts_recalled = 2`, `era_facts_total = 7`) because **v6 was generated BEFORE the rename commit landed**. Chris ran v6 against a stale dataclass; the rename commit shipped after v6 finished.
+4. The "JSON shows None" interpretation in the original analysis was an audit-tool error — the audit code queried `pre.get('name_recalled')` etc. against a JSON that had `contains_name` etc. Three sets of field names were in flight simultaneously: (1) audit-name-list (`name_recalled` / `dob_year_recalled` / `pob_recalled`), (2) v6 JSON shape (`contains_name` / `contains_dob_or_year` / `contains_pob` / `era_facts_recalled` / `era_facts_total`), (3) current dataclass (`contains_name` / ... / `era_stories_in_readback` / `era_stories_total`). All three differ; the audit was reading list-#1 against JSON-list-#2.
+
+### Verification
+
+```python
+from dataclasses import dataclass, field, asdict
+
+@dataclass
+class RecallResult:
+    label: str = ""
+    contains_name: bool = False
+    contains_dob_or_year: bool = False
+    contains_pob: bool = False
+    era_stories_in_readback: int = 0
+    era_stories_total: int = 0
+    severity: str = "PASS"
+
+rr = RecallResult(contains_name=True, contains_dob_or_year=True, contains_pob=True, era_stories_in_readback=2, era_stories_total=7, severity="AMBER")
+print(asdict(rr))
+# Output:
+# {'label': '', 'contains_name': True, 'contains_dob_or_year': True, 'contains_pob': True,
+#  'era_stories_in_readback': 2, 'era_stories_total': 7, 'severity': 'AMBER'}
+```
+
+The dataclass shape + `asdict()` produces the expected JSON shape. v7 JSON will carry the renamed fields natively.
+
+### What v7 will show
+
+Post-rename JSON shape for `pre_restart_recall`:
+
+```json
+{
+  "label": "pre_restart_recall",
+  "question": "what do you know about me",
+  "reply": "Mary, you were born...",
+  "contains_name": true,
+  "contains_dob_or_year": true,
+  "contains_pob": true,
+  "era_stories_in_readback": 2,
+  "era_stories_total": 7,
+  "cross_contamination": false,
+  "onboarding_restart": false,
+  "severity": "AMBER",
+  "notes": ["only 2/7 era stories surfaced in readback (<3) — this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"]
+}
+```
+
+That is the correct shape and matches what the runtime print already shows. No code change needed.
+
+### Why this matters as a record
+
+The audit/spec/diagnose-first discipline caught the phantom before any code was changed. Without the verification step (running `asdict()` on the current dataclass to confirm what v7 would actually produce), this BUG would have shipped a no-op patch + a confused commit message. The spec stays in-tree as a record of:
+
+1. Misread evidence can produce real-looking BUGs
+2. Verifying the actual current state of the code BEFORE patching catches phantom bugs
+3. Field-name renames need careful audit-tool coordination — all three name-lists must be synchronized to a single canonical set, OR the audit tool must use list aliases
+
+### What this changes about Phase 0
+
+This BUG drops out of the Phase 0 queue. Five Phase 0 items remain (down from six):
+
+- BUG-UI-POSTRESTART-SESSION-START-01 (top of Track 1)
+- WO-PROVISIONAL-TRUTH-01 Phase E
+- BUG-LORI-MIDSTREAM-CORRECTION-01
+- BUG-LORI-LATE-AGE-RECALL-01
+- BUG-EX-DOB-LEAP-YEAR-FALLBACK-01 + BUG-EX-POB-CORRECTION-WRONG-PATH-01 implementation
+
+Master checklist gets updated accordingly.
+
+### Audit-tool fix (separate from this BUG)
+
+The audit-tool I authored in `docs/reports/MARY_POST_RESTART_AUDIT_2026-05-05.md` queried with the wrong field names. That's a one-line fix in any future audit script — use `pre.get('contains_name')` not `pre.get('name_recalled')`. No code change needed in the harness or product surface.
