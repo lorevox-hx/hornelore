@@ -723,6 +723,34 @@ class UI:
             except (PWTimeout, PWError):
                 continue
         else:
+            # BUG-HARNESS-SESSION-START-VISIBILITY-01 (2026-05-06):
+            # Post-restart resume case — narrator is already loaded + active
+            # (state.person_id set + chat input visible) so neither
+            # "Start Narrator Session" nor "Enter Interview Mode" button
+            # is rendered. The harness shouldn't error out; the session is
+            # already in the state we wanted session_start to produce.
+            # Detect via window.state.person_id (set by lv80SwitchPerson)
+            # OR window.state.narratorOpen.openStatus === 'ready' (the
+            # post-narrator-card-open ready state).
+            try:
+                already_active = self.page.evaluate(
+                    "!!(window.state && (window.state.person_id || "
+                    "(window.state.narratorOpen && "
+                    "window.state.narratorOpen.openStatus === 'ready')))"
+                )
+            except Exception:
+                already_active = False
+            if already_active:
+                # Session already active (typical post-restart state) — no
+                # button to click; emit a marker for harness observability.
+                try:
+                    self.page.evaluate(
+                        "console.log('[harness][session-start] tolerated: narrator already active')"
+                    )
+                except Exception:
+                    pass
+                self.page.wait_for_timeout(500)
+                return
             raise RuntimeError("session_start: neither Start Narrator Session nor Enter Interview Mode visible")
 
         # ── Handle v9-gate "Narrator record incomplete" interstitial ──

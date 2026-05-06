@@ -287,6 +287,135 @@ function _lvHydrateSessionStyle() {
   radios.forEach(r => { r.checked = (r.value === value); });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   WO-10C Cognitive Support Mode operator UI toggle (2026-05-06)
+   ═══════════════════════════════════════════════════════════════
+   Wires the `<input id="lvOperatorCsmToggle">` checkbox to
+   state.session.cognitiveSupportMode + a PER-NARRATOR localStorage
+   mirror so each narrator carries their own pacing preference.
+   Janice and Kent need CSM ON; Christopher might prefer OFF; the
+   operator's choice should follow the narrator they're talking to,
+   not the operator's session.
+
+   Storage key shape: `lv_csm:<person_id>` — namespaced per narrator.
+   On narrator switch, the narrator-load path calls
+   `lvHydrateCognitiveSupportModeForNarrator(person_id)` which
+   reads the per-narrator key and updates state + checkbox.
+
+   The mode immediately affects:
+     - lv80FireCheckIn idle-cue cadence:
+         CSM: 120s visual / 300s gentle invitation / 600s re-entry bridge
+         Standard (elderly default, _wo08IsElderly()=true):
+           60s visual / 120s gentle (open mode) or 90s (memory mode)
+         Standard (non-elderly):
+           30s visual / 75s gentle (open mode) or 55s (memory mode)
+       See ui/hornelore1.0.html WO10C_* constants + _LV80_IDLE_*
+       function definitions for the source of truth.
+     - runtime71's cognitive_support_mode field per app.js:2136
+       which propagates to Lori's prompt composition and silence
+       handling on the server.
+═══════════════════════════════════════════════════════════════ */
+
+const LV_CSM_KEY_PREFIX = "lv_csm:";  // followed by person_id
+// Operator-default fallback when no narrator is loaded yet (e.g.,
+// Operator tab open before any narrator card click). Migrating from
+// the old global "lv_cognitive_support_mode" key falls under
+// _lvHydrateCognitiveSupportMode below.
+const LV_CSM_KEY_OPERATOR_DEFAULT = "lv_csm:_operator_default_";
+const LV_CSM_KEY_LEGACY_GLOBAL    = "lv_cognitive_support_mode";
+
+function _lvCsmKeyFor(personId) {
+  const pid = (personId || (state && state.person_id) || "").trim();
+  if (!pid) return LV_CSM_KEY_OPERATOR_DEFAULT;
+  return LV_CSM_KEY_PREFIX + pid;
+}
+
+function lvSetCognitiveSupportModeFromUi(on){
+  const v = !!on;
+  if (typeof setCognitiveSupportMode === "function") {
+    setCognitiveSupportMode(v);
+  } else if (state && state.session) {
+    state.session.cognitiveSupportMode = v;
+  }
+  // Per-narrator persistence — namespaced by person_id (or operator-
+  // default when no narrator is loaded yet). When the operator
+  // switches narrators, lvHydrateCognitiveSupportModeForNarrator
+  // reads the new narrator's key and re-paints the checkbox.
+  try { localStorage.setItem(_lvCsmKeyFor(), v ? "1" : "0"); } catch (_) {}
+  // Update the runtime71 mirror immediately so the next chat turn
+  // carries the new mode (no waiting for narrator turn to refresh state).
+  if (state && state.runtime) {
+    state.runtime.cognitive_support_mode = v;
+  }
+  console.log("[wo10c][csm-toggle] cognitiveSupportMode =", v, " key=", _lvCsmKeyFor());
+  // Re-arm idle timers so the new cadence (or default cadence) takes
+  // effect immediately. lv80ClearIdle + lv80ArmIdle are defined in
+  // hornelore1.0.html. Wrap in try/catch in case timing is off and
+  // they aren't loaded yet during early hydration.
+  try {
+    if (typeof lv80ClearIdle === "function") lv80ClearIdle();
+    if (typeof lv80ArmIdle === "function") lv80ArmIdle();
+  } catch (e) {
+    console.warn("[wo10c][csm-toggle] idle-rearm threw:", e);
+  }
+}
+window.lvSetCognitiveSupportModeFromUi = lvSetCognitiveSupportModeFromUi;
+
+/** Hydrate CSM on page load (no narrator loaded yet). Reads operator-
+ *  default key and migrates the legacy global key if present. */
+function _lvHydrateCognitiveSupportMode() {
+  let saved = null;
+  try {
+    // One-time migration: if legacy global key is set and the new
+    // operator-default key is not, copy the value forward. Then drop
+    // the legacy key so subsequent reads use the new shape.
+    const legacy = localStorage.getItem(LV_CSM_KEY_LEGACY_GLOBAL);
+    const newDefault = localStorage.getItem(LV_CSM_KEY_OPERATOR_DEFAULT);
+    if (legacy != null && newDefault == null) {
+      localStorage.setItem(LV_CSM_KEY_OPERATOR_DEFAULT, legacy);
+      localStorage.removeItem(LV_CSM_KEY_LEGACY_GLOBAL);
+      console.log("[wo10c][csm-toggle] migrated legacy global key → operator default");
+    }
+    saved = localStorage.getItem(LV_CSM_KEY_OPERATOR_DEFAULT);
+  } catch (_) {}
+  const v = (saved === "1");
+  _lvApplyCognitiveSupportMode(v);
+}
+
+/** Hydrate CSM for a SPECIFIC narrator after their card opens. Called
+ *  from the narrator-switch path so each narrator carries their own
+ *  CSM preference. Falls back to the operator default if the narrator
+ *  has no per-narrator setting yet. */
+function lvHydrateCognitiveSupportModeForNarrator(personId) {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(_lvCsmKeyFor(personId));
+    if (saved == null) {
+      // Fall back to operator default for first-touch narrators.
+      saved = localStorage.getItem(LV_CSM_KEY_OPERATOR_DEFAULT);
+    }
+  } catch (_) {}
+  const v = (saved === "1");
+  _lvApplyCognitiveSupportMode(v);
+  console.log("[wo10c][csm-toggle] hydrated for narrator pid=" + (personId || "—") + " v=" + v);
+  return v;
+}
+window.lvHydrateCognitiveSupportModeForNarrator = lvHydrateCognitiveSupportModeForNarrator;
+
+/** Apply a CSM value to state + runtime71 + checkbox. Shared helper. */
+function _lvApplyCognitiveSupportMode(v) {
+  if (typeof setCognitiveSupportMode === "function") {
+    setCognitiveSupportMode(v);
+  } else if (state && state.session) {
+    state.session.cognitiveSupportMode = v;
+  }
+  if (state && state.runtime) {
+    state.runtime.cognitive_support_mode = v;
+  }
+  const cb = document.getElementById("lvOperatorCsmToggle");
+  if (cb) cb.checked = v;
+}
+
 /** Which tab is currently visible. */
 function lvShellGetActiveTab() {
   const active = document.querySelector("#lvShellTabs .lv-shell-tab-active");
@@ -353,6 +482,11 @@ window.lvShellShowTab = lvShellShowTab;
 /** One-shot init — hydrate session style, land on Operator, install tab handlers. */
 function lvShellInitTabs() {
   _lvHydrateSessionStyle();
+  // WO-10C: hydrate cognitive support mode toggle from localStorage so
+  // the operator's prior choice survives reload + paints the checkbox.
+  try { _lvHydrateCognitiveSupportMode(); } catch (e) {
+    console.warn("[wo10c][csm-toggle] hydrate threw (non-fatal):", e);
+  }
   lvShellShowTab("operator");
   // Mirror warmup banner state to the readiness card on boot.
   const banner = document.getElementById("lv80WarmupBanner");
@@ -1660,18 +1794,52 @@ function _looksLikeMemoryEchoRequest(text){
   ].some(p => t.includes(p));
 }
 
-function _looksLikeCorrection(text){
+// BUG-LORI-MIDSTREAM-CORRECTION-01 Phase 2 (2026-05-06): split correction
+// detection into "strong" (always-fire) and "weak" (fire only after
+// memory_echo). Strong markers: explicit correction openers + explicit
+// contradiction patterns ("X not Y") that almost certainly indicate a
+// narrator self-correction. Weak markers: biographical "I was born…"
+// "my father…" shapes that are corrections ONLY in the context of a
+// just-emitted memory_echo readback the narrator is fixing.
+//
+// Live evidence: Mary v6/v7/v8 mid-lifemap correction "Actually we only
+// had two kids, not three" routed as TURN_INTERVIEW because the prior
+// turn was a lifemap era prompt (not memory_echo). Lori plowed past the
+// correction. handled_well=False across runs.
+function _looksLikeStrongCorrection(text){
+  const t = _lvText(text).toLowerCase();
+  if (!t) return false;
+  // Explicit correction openers — high signal.
+  if (
+    t.startsWith("no,") ||
+    t.startsWith("no actually") ||
+    t.startsWith("actually,") ||
+    t.startsWith("actually ") ||
+    t.startsWith("correction,") ||
+    t.startsWith("that is wrong") ||
+    t.startsWith("that's wrong") ||
+    t.startsWith("that's not right") ||
+    t.startsWith("that is not right") ||
+    t.startsWith("change that") ||
+    t.startsWith("update that")
+  ) return true;
+  // Numerical / named contradiction: "we only had X, not Y" / "it was X
+  // not Y" / "X, not Y". Requires "not" with surrounding context.
+  // Match patterns where the narrator explicitly contradicts a prior
+  // claim — the comma-or-words-around-not heuristic catches Mary's
+  // "Actually we only had two kids, not three" + variants.
+  if (/\b(?:not|wasn't|weren't|didn't|wasnt|werent|didnt)\s+(?:\d+|that|him|her|them|me|my|the|a|an|in|on)\b/.test(t)) return true;
+  // "X was wrong" / "I got X wrong" — explicit error acknowledgment.
+  if (/\b(?:was|were|got|i was|that was)\s+wrong\b/.test(t)) return true;
+  return false;
+}
+
+function _looksLikeWeakCorrectionAfterEcho(text){
+  // Biographical re-statements that ONLY count as corrections in the
+  // context of a just-emitted memory_echo the narrator is fixing.
   const t = _lvText(text).toLowerCase();
   if (!t) return false;
   return (
-    t.startsWith("no,") ||
-    t.startsWith("actually") ||
-    t.startsWith("that is wrong") ||
-    t.startsWith("that's wrong") ||
-    t.startsWith("change that") ||
-    t.startsWith("add that") ||
-    t.includes(" not ") ||
-    t.includes(" wrong") ||
     t.includes("i was born in") ||
     t.includes("my father") ||
     t.includes("my mother") ||
@@ -1680,9 +1848,23 @@ function _looksLikeCorrection(text){
   );
 }
 
+// Backward-compat wrapper. Old callers expecting a single function get
+// the union of strong + weak detection (memory_echo gate handled by
+// lvRouteTurn).
+function _looksLikeCorrection(text){
+  return _looksLikeStrongCorrection(text) || _looksLikeWeakCorrectionAfterEcho(text);
+}
+
 function lvRouteTurn(text){
   if (_looksLikeMemoryEchoRequest(text)) return TURN_MEMORY_ECHO;
-  if (state?.session?.lastTurnMode === TURN_MEMORY_ECHO && _looksLikeCorrection(text)) return TURN_CORRECTION;
+  // Strong correction markers fire TURN_CORRECTION regardless of prior
+  // turn mode — narrators correct themselves mid-conversation, not just
+  // after memory_echo readbacks. BUG-LORI-MIDSTREAM-CORRECTION-01 Phase 2.
+  if (_looksLikeStrongCorrection(text)) return TURN_CORRECTION;
+  // Weak biographical re-statements only count as corrections when they
+  // immediately follow a memory_echo turn (the narrator is fixing the
+  // readback). Otherwise they're regular interview answers.
+  if (state?.session?.lastTurnMode === TURN_MEMORY_ECHO && _looksLikeWeakCorrectionAfterEcho(text)) return TURN_CORRECTION;
   return TURN_INTERVIEW;
 }
 
@@ -2542,6 +2724,19 @@ async function lvxSwitchNarratorSafe(pid){
     }
   } catch (e) {
     console.warn("[app] Phase G: state-snapshot fetch failed (proceeding with local data)", e);
+  }
+
+  // WO-10C cognitive-support-mode per-narrator hydration (2026-05-06):
+  // Each narrator carries their own CSM preference (Janice/Kent ON,
+  // Christopher might prefer OFF). Read the per-narrator localStorage
+  // key, apply to state + runtime71 + checkbox. Falls back to operator-
+  // default when the narrator has no per-narrator setting yet.
+  try {
+    if (typeof lvHydrateCognitiveSupportModeForNarrator === "function") {
+      lvHydrateCognitiveSupportModeForNarrator(pid);
+    }
+  } catch (e) {
+    console.warn("[wo10c][csm-toggle] per-narrator hydrate threw (non-fatal):", e);
   }
 
   // run a second hydration after profile is loaded
@@ -3593,13 +3788,61 @@ function startIdentityOnboarding(){
  *          "born in '62", "December 1962", "just 1962".
  * Returns an ISO date string "YYYY-MM-DD" or null.
  */
+// BUG-EX-DOB-LEAP-YEAR-FALLBACK-01 (2026-05-06): Feb 29 1940 / 1944 etc.
+// are real leap-year dates and must round-trip as YYYY-02-29 instead of
+// silently degrading to YYYY-01-01. Live evidence: Mary's TEST-23 v3
+// onboarding sent "2/29 1940" → was parsed as 1940-01-01 because (a) no
+// regex matched the slash+space form, so cascade fell to year-only pattern;
+// (b) even if a regex caught it, no leap-year validator existed. v8
+// reproduced the same: Mary's projection_json.fields shows
+// "personal.dateOfBirth": "1940-01-01". Mary herself sees "1940-01-01"
+// in the memory_echo readback — narrator-visible regression.
+//
+// Fix: add slash+space variant ("2/29 1940"), validate leap-year for
+// Feb 29, log warning on non-leap-year Feb 29 instead of silent fallback.
+function _isLeapYear(y){
+  return (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0);
+}
+function _validateAndFormatDate(year, month, day){
+  // Validate calendar date including leap-year handling. Returns
+  // "YYYY-MM-DD" on success, null on calendar-invalid.
+  const y = parseInt(year, 10);
+  const mo = parseInt(month, 10);
+  const d = parseInt(day, 10);
+  if(!y || !mo || !d) return null;
+  if(mo < 1 || mo > 12) return null;
+  if(d < 1 || d > 31) return null;
+  // Days-in-month check
+  const daysInMonth = [31, _isLeapYear(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if(d > daysInMonth[mo - 1]){
+    console.warn("[parseDob] calendar-invalid date "+y+"-"+mo+"-"+d+" (e.g. Feb 29 on non-leap year); rejecting");
+    return null;
+  }
+  return y+"-"+String(mo).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+}
+
 function _parseDob(text){
   const t = text.trim();
-  // Full ISO or US date
+  // Full ISO
   let m = t.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
-  if(m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  if(m){
+    const validated = _validateAndFormatDate(m[1], m[2], m[3]);
+    if(validated) return validated;
+  }
+  // US format with slashes: "2/29/1940"
   m = t.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
-  if(m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`;
+  if(m){
+    const validated = _validateAndFormatDate(m[3], m[1], m[2]);
+    if(validated) return validated;
+  }
+  // BUG-EX-DOB-LEAP-YEAR-FALLBACK-01 — slash + SPACE form: "2/29 1940"
+  // Mary's onboarding answer shape. Without this, cascade falls to
+  // year-only pattern → 1940-01-01 silent degrade.
+  m = t.match(/\b(\d{1,2})\/(\d{1,2})\s+(\d{4})\b/);
+  if(m){
+    const validated = _validateAndFormatDate(m[3], m[1], m[2]);
+    if(validated) return validated;
+  }
   // Month name forms: "December 24, 1962" / "24 December 1962"
   // BUG-210: accept ordinal suffixes (1st, 2nd, 3rd, 4th, ...) between
   // the day digit and the year separator.  Live evidence: Jake said
@@ -3618,8 +3861,19 @@ function _parseDob(text){
     // re3: month-and-year only ("December 1962") — day unknown, returns -01
     const re3 = new RegExp(name+"[,\\s]+(\\d{4})");
     let mm;
-    if((mm=lower.match(re1))) return `${mm[2]}-${num}-${mm[1].padStart(2,"0")}`;
-    if((mm=lower.match(re2))) return `${mm[2]}-${num}-${mm[1].padStart(2,"0")}`;
+    // BUG-EX-DOB-LEAP-YEAR-FALLBACK-01: route through _validateAndFormatDate
+    // so calendar-invalid dates (Feb 29 on non-leap year, Apr 31, etc.)
+    // get rejected instead of silently producing impossible YYYY-MM-DD.
+    // Returns null on calendar-invalid; we then fall through to the
+    // year-only / unparseable handlers.
+    if((mm=lower.match(re1))){
+      const v = _validateAndFormatDate(mm[2], num, mm[1]);
+      if(v) return v;
+    }
+    if((mm=lower.match(re2))){
+      const v = _validateAndFormatDate(mm[2], num, mm[1]);
+      if(v) return v;
+    }
     if((mm=lower.match(re3))) return `${mm[1]}-${num}-01`;  // partial date — day unknown
   }
   // Short year forms: "born in '62", "born 1962", just "1962"

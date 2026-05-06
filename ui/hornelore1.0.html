@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="css/bug-panel-eval.css">
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/bug-panel-story-review.css">
+  <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/affect.css">
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -3046,6 +3047,26 @@
         </div>
       </section>
 
+      <!-- WO-10C cognitive support mode operator toggle (2026-05-06).
+           Was set programmatically only; "Known gap: no operator UI
+           toggle yet" per the WO-10C landing report. This UI surfaces
+           the flag so operators can enable it per-narrator without
+           DevTools. CSM extends silence cadence to 120s visual / 300s
+           gentle invitation / 600s re-entry bridge — load-bearing for
+           older narrators (Janice, Kent) with cognitive load. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Cognitive support mode</h3>
+        <p class="lv-operator-section-sub">Slows pacing for older narrators or those who benefit from more silence and less pressure to recall. Extends Lori's silent-attentive window before she gently checks in.</p>
+        <label class="lv-operator-toggle-row">
+          <input type="checkbox" id="lvOperatorCsmToggle"
+                 onchange="lvSetCognitiveSupportModeFromUi(this.checked)">
+          <span class="lv-operator-toggle-label">
+            <strong>Cognitive support mode</strong>
+            <span class="lv-operator-toggle-sub">Lori waits longer in silence and uses softer invitations. Recommended for older narrators or anyone who tires easily.</span>
+          </span>
+        </label>
+      </section>
+
       <!-- Primary action: hand session to Lori -->
       <section class="lv-operator-section lv-operator-actions">
         <button id="lvOperatorStartBtn" class="lv-operator-start-btn" type="button"
@@ -4103,6 +4124,21 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-10C silence-ladder observability tile (2026-05-06)
+         Live readout of the silence cadence: time since last narrator
+         activity, current WO-10C stage (0=armed / 1=visual cue /
+         2=gentle invitation / 3=re-entry bridge), next-event ETA,
+         active suppressions (voice paused, Phase 3 ticker, narrator
+         turn-claim, protected conversation state).
+         Pure observability; no behavior change. NEVER narrator-visible
+         (lives inside the operator-only Bug Panel popover).
+         See ui/js/bug-panel-silence-ladder.js + .css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpSilenceLadder">
+      <div class="silence-ladder-empty">Loading silence ladder…</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-OPERATOR-RESOURCE-DASHBOARD-01 — Stack Dashboard.
          Live car-dashboard-style gauges for services, system, GPU,
          capture state, archive writes, and eval progress. Polls
@@ -4680,6 +4716,7 @@
 <script src="js/bug-panel-dashboard.js?v=2026-05-01"></script>
 <script src="js/bug-panel-story-review.js?v=2026-05-01"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js?v=2026-05-01"></script>
+<script src="js/bug-panel-silence-ladder.js?v=2026-05-06"></script>
 <!-- WO-INTERVIEW-CLOCK-01 (2026-05-02): narrator-visible orientation
      clock. Mounts inside #lvNarratorConversation lower-left, above
      the input bar, adjacent to the mic. Variant B (slate, 36px time)
@@ -6081,6 +6118,20 @@ const WO10C_GENTLE_INVITE_MS    = 300_000;   // 5 min: optional gentle invitatio
 const WO10C_REENTRY_BRIDGE_MS   = 600_000;   // 10 min: optional re-entry bridge
 let _wo10cIdleStage = 0;  // 0=armed, 1=visual shown, 2=gentle sent, 3=bridge sent
 
+// 2026-05-06: window-mirror the WO-10C constants + the _wo10cIdleStage
+// so external scripts (bug-panel-silence-ladder.js) can read the active
+// cadence values + current stage. const/let at top-level of an inline
+// <script> are scoped to the script block and do NOT window-attach;
+// without these mirrors, the silence-ladder tile would always fall
+// back to its hardcoded defaults (and silently lie if the constants
+// here ever change).
+window.WO10C_VISUAL_CUE_MS     = WO10C_VISUAL_CUE_MS;
+window.WO10C_GENTLE_INVITE_MS  = WO10C_GENTLE_INVITE_MS;
+window.WO10C_REENTRY_BRIDGE_MS = WO10C_REENTRY_BRIDGE_MS;
+// _wo10cIdleStage gets re-mirrored on every change in the helpers
+// below (search for "wo10c stage mirror"). Initial value seed:
+window._wo10cIdleStage = _wo10cIdleStage;
+
 let _lv80IdleSoftTimer    = null;
 let _lv80IdleCheckInTimer = null;
 let _lv80IdleCheckInFired = false;
@@ -6101,18 +6152,18 @@ function lv80ArmIdle(reason) {
      120s visual → 300s gentle invitation → 600s re-entry bridge. */
   const csm = typeof getCognitiveSupportMode === "function" && getCognitiveSupportMode();
   if (csm) {
-    _wo10cIdleStage = 0;
+    _wo10cIdleStage = 0; window._wo10cIdleStage = 0;  // wo10c stage mirror
     // Stage 1: visual cue at 2 minutes (not 30 seconds)
     _lv80IdleSoftTimer = setTimeout(() => {
       if (window._wo8VoicePaused) return;
       const lastGrowth = window._wo10bLastTranscriptGrowthTs || 0;
       if (lastGrowth > 0 && (Date.now() - lastGrowth) < 5000) return;
       document.getElementById("lv80IdleCue")?.classList.add("visible");
-      _wo10cIdleStage = 1;
+      _wo10cIdleStage = 1; window._wo10cIdleStage = 1;  // wo10c stage mirror
       lv80LogTurnDebug({ event: "wo10c_visual_cue", stage: 1 });
     }, WO10C_VISUAL_CUE_MS);
     // Stage 2: gentle invitation at 5 minutes
-    _lv80IdleCheckInTimer = setTimeout(() => { _wo10cIdleStage = 2; lv80FireCheckIn(); }, WO10C_GENTLE_INVITE_MS);
+    _lv80IdleCheckInTimer = setTimeout(() => { _wo10cIdleStage = 2; window._wo10cIdleStage = 2; lv80FireCheckIn(); }, WO10C_GENTLE_INVITE_MS);
     return;
   }
 
@@ -6143,7 +6194,7 @@ function lv80ClearIdle() {
   _lv80IdleSoftTimer = null;
   _lv80IdleCheckInTimer = null;
   // WO-10C: reset stage tracker on any clear (narrator spoke, new turn, etc.)
-  _wo10cIdleStage = 0;
+  _wo10cIdleStage = 0; window._wo10cIdleStage = 0;  // wo10c stage mirror
   document.getElementById("lv80IdleCue")?.classList.remove("visible");
 }
 
@@ -6206,8 +6257,8 @@ function lv80FireCheckIn() {
       lv80ClearIdle();
       sendSystemPrompt(gentlePrompt);
       // Arm stage 3: re-entry bridge at 10 minutes total
-      _wo10cIdleStage = 2;
-      _lv80IdleCheckInTimer = setTimeout(() => { _wo10cIdleStage = 3; lv80FireCheckIn(); }, WO10C_REENTRY_BRIDGE_MS - WO10C_GENTLE_INVITE_MS);
+      _wo10cIdleStage = 2; window._wo10cIdleStage = 2;  // wo10c stage mirror
+      _lv80IdleCheckInTimer = setTimeout(() => { _wo10cIdleStage = 3; window._wo10cIdleStage = 3; lv80FireCheckIn(); }, WO10C_REENTRY_BRIDGE_MS - WO10C_GENTLE_INVITE_MS);
       return;
     } else if (_wo10cIdleStage === 3) {
       // Stage 3: Re-entry bridge (at ~10 minutes of silence)
@@ -6217,7 +6268,7 @@ function lv80FireCheckIn() {
       lv80ClearIdle();
       sendSystemPrompt(bridgePrompt);
       // Stage 3 is the last nudge — infinite patience after this
-      _wo10cIdleStage = 4; // done, no more nudges
+      _wo10cIdleStage = 4; window._wo10cIdleStage = 4; // done, no more nudges  (wo10c stage mirror)
       return;
     } else {
       // Stage 4+: no more nudges — infinite patience
