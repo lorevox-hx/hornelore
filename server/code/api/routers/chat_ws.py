@@ -898,6 +898,30 @@ async def ws_chat(ws: WebSocket):
             await _ws_send(ws, {"type": "token", "delta": assistant_text})
             await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "memory_echo"})
             return
+        # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): deterministic age-recall
+        # branch. Mirrors memory_echo: bypasses LLM, reads age_years +
+        # DOB from profile_seed via compose_age_recall, persists the
+        # turn, returns. v8 evidence showed both narrators dodged late-
+        # age questions because the LLM had to infer age from DOB +
+        # today across a long context window. The deterministic branch
+        # can never deflect.
+        if turn_mode == "age_recall":
+            from ..prompt_composer import compose_age_recall
+            assistant_text = compose_age_recall(
+                person_id=person_id,
+                runtime=runtime71,
+            )
+            logger.info("[chat_ws][age-recall] turn for conv=%s", conv_id)
+            persist_turn_transaction(
+                conv_id=conv_id,
+                user_message=user_text,
+                assistant_message=assistant_text,
+                model_name="age-recall",
+                meta={"ws": True, "turn_mode": "age_recall"},
+            )
+            await _ws_send(ws, {"type": "token", "delta": assistant_text})
+            await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "age_recall"})
+            return
         if turn_mode == "correction":
             from ..prompt_composer import compose_correction_ack
             from ..memory_echo import parse_correction_rule_based
@@ -1343,6 +1367,154 @@ async def ws_chat(ws: WebSocket):
             logger.warning("[chat-ws] Turn cancelled/disconnected — skipping persistence (fail-closed)")
             await _ws_send(ws, {"type": "done", "final_text": final_text, "cancelled": True})
             return
+
+        # BUG-LORI-ERA-FRAGMENT-COHERENCE-01 (2026-05-06): post-generation
+        # repair guard for noun-phrase fragments masquerading as questions.
+        # v8 evidence: Mary's coming_of_age + later_years prompts produced
+        # "The conversations you had together back then?" / "The reflections
+        # that came as you looked back on your life?" — both noun phrases
+        # ending in '?', not actual questions. The era-click directive
+        # tightening (app.js, same date) reduces frequency; this guard
+        # catches the residual at output time. Pure repair: prepends
+        # "Can you tell me about" to convert the fragment to a full
+        # question. Skipped when the response already starts with a
+        # wh-word, auxiliary verb, or imperative.
+        try:
+            import re as _re
+            _ft_stripped = (final_text or "").strip()
+            # Detect: starts with "The ..." OR "Those ..." OR "Your ..."
+            # AND ends with "?" AND doesn't already have a wh-word or
+            # auxiliary verb starting it. Targets the exact failure shape.
+            # Detect the noun-phrase-fragment shape:
+            #   Article + noun-phrase + (relative clause: "you|that") + ...?
+            # Examples that match (true positives):
+            #   "The conversations you had together back then?"
+            #   "The reflections that came as you looked back on your life?"
+            #   "Your favorite memory from that time?"
+            # Excluded (full sentences with main verb after article):
+            #   "That was a special time, wasn't it?"   (was = main verb)
+            #   "The book is on the table?"             (is = main verb)
+            # Heuristic: the second token must NOT be a main copula/auxiliary
+            # in subject-verb-second position. Skip if (article noun) + "was/
+            # were/is/are/had/have/will/would" appears at sentence start.
+            # Match "Article + (zero or one noun) + main-verb" — i.e.,
+            # the main verb appears as 2nd or 3rd token. Skips:
+            #   "That was..."           ← That + was (skip-correct)
+            #   "Those days were..."    ← Those + days + were (skip-correct)
+            #   "The book is..."        ← The + book + is (skip-correct)
+            # Doesn't skip:
+            #   "The conversations you had..."   ← The + conversations + you + had (verb is 4th token, "you" between)
+            #   "The walk you took every morning?" ← (same shape)
+            _MAIN_VERB_RX = _re.compile(
+                r"^(?:The|Those|Your|That|These|This)\s+"
+                r"(?:\w+\s+)?"  # optional ONE noun
+                r"(?:was|were|is|are|had|have|will|would|should|"
+                r"could|might|may|do|does|did|can|won't|isn't|"
+                r"wasn't|weren't|aren't)\b",
+                _re.IGNORECASE,
+            )
+            if (
+                _ft_stripped
+                and _ft_stripped.endswith("?")
+                and _re.match(r"^(?:The|Those|Your|That)\s+\w", _ft_stripped)
+                and not _MAIN_VERB_RX.match(_ft_stripped)
+                and not _re.match(
+                    r"^(?:What|Where|When|Who|How|Why|Did|Were|Was|Had|Could|"
+                    r"Can|Do|Does|Is|Are|Will|Would|Should|May|Might|Tell|"
+                    r"Share|Say|Describe)\b",
+                    _ft_stripped,
+                    _re.IGNORECASE,
+                )
+            ):
+                # Lowercase the leading article so "The conversations..." →
+                # "the conversations..."
+                _repaired = "Can you tell me about " + _ft_stripped[0].lower() + _ft_stripped[1:]
+                logger.info(
+                    "[lori][era-fragment-repair] noun-phrase fragment repaired conv=%s "
+                    "original=%r → repaired=%r",
+                    conv_id, _ft_stripped[:80], _repaired[:100],
+                )
+                final_text = _repaired
+        except Exception as _frag_err:
+            logger.debug("[lori][era-fragment-repair] check failed (non-fatal): %s", _frag_err)
+
+        # BUG-LORI-DUPLICATE-RESPONSE-01 (2026-05-06): fingerprint guard
+        # with deterministic bridge fallback. v8 evidence: Mary's two
+        # consecutive Today cycles produced bit-identical replies. The
+        # LLM either context-matched too strongly OR sampled the same
+        # tokens. Without LLM-reroll access from this layer, the safe
+        # fix is: when bit-identical to the most recent prior reply,
+        # substitute a deterministic bridge phrase that gently moves
+        # the conversation forward without flagging the duplicate to
+        # the narrator. Per ChatGPT triage: "Do not make this narrator-
+        # visible as 'I already said that.'"
+        try:
+            import hashlib as _hashlib
+            _final_hash = _hashlib.sha256((final_text or "").encode("utf-8")).hexdigest()[:12]
+            _final_tokens = set((final_text or "").lower().split())
+            _prior_assistant = None
+            try:
+                _all_turns = db.export_turns(conv_id) or []
+                _prior_turns = _all_turns[-6:]
+            except Exception:
+                _prior_turns = []
+            for _t in reversed(_prior_turns):
+                if _t.get("role") == "assistant" and _t.get("content"):
+                    if _t.get("content") == final_text:
+                        continue
+                    _prior_assistant = _t.get("content")
+                    break
+            if _prior_assistant:
+                _prior_norm = " ".join((_prior_assistant or "").lower().split()).strip(" .!?")
+                _final_norm = " ".join((final_text or "").lower().split()).strip(" .!?")
+                _bit_identical = _final_norm == _prior_norm and len(_final_norm) > 0
+                _prior_tokens = set(_prior_assistant.lower().split())
+                _intersect = len(_final_tokens & _prior_tokens)
+                _union = max(len(_final_tokens | _prior_tokens), 1)
+                _jaccard = _intersect / _union
+                # Bridge phrases — deterministic, never invent narrator
+                # facts. Rotate by hash so consecutive duplicates don't
+                # produce the same bridge. ChatGPT-triage-approved set.
+                _BRIDGES = (
+                    "What part of that feels most present for you today?",
+                    "Would you like to stay with that for a moment, "
+                    "or move to another part of your story?",
+                    "What has that been like for you lately?",
+                    "Is there a particular memory from that time that "
+                    "still feels close?",
+                )
+                if _bit_identical:
+                    # Pick a bridge by hash so we don't always emit the
+                    # same one when this fires repeatedly in a session.
+                    _idx = int(_final_hash, 16) % len(_BRIDGES)
+                    _bridge = _BRIDGES[_idx]
+                    logger.warning(
+                        "[lori][duplicate-response] BIT-IDENTICAL "
+                        "substituted bridge=%d conv=%s — original_hash=%s",
+                        _idx, conv_id, _final_hash,
+                    )
+                    final_text = _bridge
+                elif _jaccard >= 0.85:
+                    # High-similarity but not bit-identical — log only.
+                    # Real fix would be LLM reroll; without that access
+                    # here, leave the response and trust shape_reflection
+                    # to handle minor variation.
+                    logger.warning(
+                        "[lori][duplicate-response] HIGH-SIMILARITY "
+                        "jaccard=%.3f hash=%s conv=%s — left as-is "
+                        "(reroll not available from this layer)",
+                        _jaccard, _final_hash, conv_id,
+                    )
+                else:
+                    logger.debug(
+                        "[lori][response-hash] hash=%s jaccard=%.3f conv=%s",
+                        _final_hash, _jaccard, conv_id,
+                    )
+            else:
+                logger.debug("[lori][response-hash] hash=%s no_prior conv=%s",
+                             _final_hash, conv_id)
+        except Exception as _dup_err:
+            logger.debug("[lori][duplicate-response] check failed (non-fatal): %s", _dup_err)
 
         try:
             persist_turn_transaction(

@@ -950,6 +950,26 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
             birth_year = int(dob[:4])
             current_year = datetime.utcnow().year
             age = current_year - birth_year
+            # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): also surface the
+            # exact integer age. Live evidence v8: both narrators dodged
+            # late-stage "How old do you think I am" with "Is there
+            # something else on your mind?" because the LLM had to infer
+            # age from DOB + today's date in a long context window — by
+            # the late_age turn the inference was failing or the LLM was
+            # over-deflecting on personal data. Making age a deterministic
+            # fact Lori can read directly closes that class of failure.
+            # Refine with month/day if available (saves the off-by-one
+            # error around birthdays).
+            if len(dob) >= 10 and dob[4] == "-" and dob[7] == "-":
+                try:
+                    today = datetime.utcnow().date()
+                    bd = datetime.strptime(dob[:10], "%Y-%m-%d").date()
+                    age = today.year - bd.year - (
+                        1 if (today.month, today.day) < (bd.month, bd.day) else 0
+                    )
+                except Exception:
+                    pass
+            seed["age_years"] = int(age)
             if age < 18:
                 seed["life_stage"] = "young (under 18)"
             elif age < 30:
@@ -1300,6 +1320,116 @@ def _trim_to_one_question(text: str) -> Tuple[str, bool, str]:
 
     # Multi-question or compound: keep first segment + bridge.
     return head + bridge, True, reason
+
+
+def compose_age_recall(
+    person_id: Optional[str],
+    *,
+    runtime: Optional[Dict[str, Any]] = None,
+    name_hint: Optional[str] = None,
+) -> str:
+    """Build a deterministic age-recall response. Mirrors compose_memory_echo
+    pattern: pure-deterministic, no LLM call, reads from profile_seed
+    (which carries age_years computed at _build_profile_seed time).
+
+    BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): replaces the LLM-driven
+    response to age questions, which v8 showed dodging both narrators
+    with "Is there something else on your mind?" The deterministic
+    composer can never deflect — it always produces a structured answer
+    from the known truth (or an explicit "I don't have your birthday
+    yet" when DOB is unknown).
+
+    Output shapes (per ChatGPT triage):
+      - DOB known + age computed:
+          "You were born on February 29, 1940, so you are 86 now."
+      - DOB partially known (year only):
+          "I have 1940 for your birth year, but I don't have the full
+           date yet."
+      - DOB unknown:
+          "I don't have your birthday written down yet — would you like
+           to share it?"
+    """
+    runtime = runtime or {}
+
+    # Pull age + DOB from runtime71's profile_seed (set by _build_profile_seed).
+    profile_seed = runtime.get("profile_seed") if isinstance(runtime.get("profile_seed"), dict) else {}
+
+    # Try to assemble the seed inline if runtime didn't carry it (e.g.,
+    # when chat_ws calls this with just person_id).
+    if not profile_seed and person_id:
+        try:
+            profile_seed = _build_profile_seed(person_id) or {}
+        except Exception as exc:
+            logger.warning("[age-recall] profile_seed lookup failed: %s", exc)
+            profile_seed = {}
+
+    # DOB sources (in priority order)
+    dob = (runtime.get("dob") or "").strip()
+    if not dob:
+        # Try the canonical truth first, then provisional via profile_seed
+        # didn't surface raw dob — but it computed age_years from it.
+        # Re-extract DOB through a defensive lookup.
+        try:
+            from . import db as _db
+            if person_id:
+                profile = _db.get_profile(person_id) or {}
+                if isinstance(profile, dict):
+                    p = profile.get("personal", {})
+                    dob = (p.get("dateOfBirth") or p.get("date_of_birth") or "").strip()
+        except Exception:
+            pass
+
+    age_years = profile_seed.get("age_years")
+    try:
+        age_years = int(age_years) if age_years is not None else None
+    except (TypeError, ValueError):
+        age_years = None
+
+    # Format the DOB nicely if available (YYYY-MM-DD → "Month D, YYYY")
+    dob_pretty = ""
+    if dob and len(dob) >= 10 and dob[4] == "-" and dob[7] == "-":
+        try:
+            from datetime import datetime
+            dt_obj = datetime.strptime(dob[:10], "%Y-%m-%d")
+            dob_pretty = dt_obj.strftime("%B %-d, %Y")
+        except (ValueError, TypeError):
+            try:
+                from datetime import datetime
+                dt_obj = datetime.strptime(dob[:10], "%Y-%m-%d")
+                # Windows-friendly: drop leading-zero manually
+                dob_pretty = dt_obj.strftime("%B {d}, %Y").format(d=dt_obj.day)
+            except (ValueError, TypeError):
+                dob_pretty = dob[:10]
+
+    # Resolve narrator name for warmth (optional).
+    name = (name_hint or "").strip()
+    if not name and profile_seed:
+        name = (profile_seed.get("preferred_name") or "").strip()
+        if not name:
+            full = (profile_seed.get("full_name") or "").strip()
+            if full:
+                name = full.split()[0]
+
+    if dob_pretty and age_years and age_years > 0:
+        return (
+            f"You were born on {dob_pretty}, so you are {age_years} now."
+        )
+    if dob and len(dob) >= 4 and dob[:4].isdigit() and not dob_pretty:
+        # Year-only DOB — partial knowledge.
+        return (
+            f"I have {dob[:4]} for your birth year, but I don't have the "
+            f"full date yet. Would you like to share the month and day?"
+        )
+    # No DOB at all.
+    if name:
+        return (
+            f"I don't have your birthday written down yet, {name} — "
+            f"would you like to share it?"
+        )
+    return (
+        "I don't have your birthday written down yet — would you "
+        "like to share it?"
+    )
 
 
 def compose_continuation_paraphrase(
@@ -2104,6 +2234,28 @@ def compose_system_prompt(
         )
         directive_lines.append("")
 
+        # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): age fact + answer
+        # directive. v8 evidence: both narrators dodged late-stage age
+        # questions ("How old do you think I am now?") with deflections
+        # like "Is there something else on your mind?" because the LLM
+        # had to infer age from DOB + today across a long context window.
+        # Making age a deterministic fact Lori reads on every turn —
+        # AND giving her an explicit directive to answer with the number,
+        # not deflect — closes that class of failure.
+        if _seed_age_years is not None and _seed_age_years > 0:
+            directive_lines.append(
+                f"NARRATOR AGE: {_seed_age_years} years old (computed from "
+                f"date of birth + today). When the narrator asks 'how old "
+                f"am I' / 'how old do you think I am' / similar, answer "
+                f"with the exact number warmly, in one short sentence. "
+                f"Example: 'You're {_seed_age_years} years old.' Do NOT "
+                f"deflect with 'is there something else on your mind' or "
+                f"'shall we continue our conversation' — answer the "
+                f"question directly, then return to whatever you were "
+                f"discussing."
+            )
+            directive_lines.append("")
+
         # WO-LORI-SOFTENED-RESPONSE-01 — inject SOFTENED MODE directive
         # when the session is in softened state (set by an acute safety
         # trigger in a recent prior turn). chat_ws threads the state
@@ -2147,6 +2299,17 @@ def compose_system_prompt(
         _seed_childhood_home = (_profile_seed.get("childhood_home") or "").strip() if _profile_seed else ""
         _seed_preferred_name = (_profile_seed.get("preferred_name") or "").strip() if _profile_seed else ""
         _seed_full_name = (_profile_seed.get("full_name") or "").strip() if _profile_seed else ""
+        # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): deterministic age from
+        # _build_profile_seed.age_years. Surfacing it here so the prompt
+        # can include it as a known fact and instruct Lori to state the
+        # age directly when asked. v8 evidence: both narrators dodged
+        # late-stage age questions with "Is there something else on your
+        # mind?" — making age a Lori-knows fact closes that class.
+        _seed_age_years = _profile_seed.get("age_years") if _profile_seed else None
+        try:
+            _seed_age_years = int(_seed_age_years) if _seed_age_years is not None else None
+        except (TypeError, ValueError):
+            _seed_age_years = None
         # Effective childhood-home value: canonical UI runtime first
         # (state.session.pob — narrator's most-current truth), falling back
         # to provisional from projection_json. Empty string when neither
