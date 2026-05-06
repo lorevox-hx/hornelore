@@ -1,0 +1,131 @@
+{
+  "_meta": {
+    "wo": "WO-TIMELINE-CONTEXT-EVENTS-01",
+    "scope": "Janice Horne (b. 1939) / Germans-from-Russia / North Dakota prairie cohort.",
+    "status": "DRAFT seed — expand with researched entries before promoting to live.",
+    "authored": "2026-05-05 (night-shift scaffolding)",
+    "expand_with": [
+      "ND state and county histories (state.nd.us, county historical society publications)",
+      "Bismarck Tribune / Stanley Sun / Minot Daily News archive searches",
+      "Germans from Russia Heritage Society publications",
+      "Garrison Diversion Project history",
+      "Local oral histories (named interview with date recorded)"
+    ],
+    "rule": "Every entry cites a real source. Seed entries below are placeholder shapes — operator must replace placeholder citations with real ones before flipping narrator_visible=1 on shared/regional entries. private_family entries can use 'Interview with Kent/Janice Horne, recorded YYYY' once captured."
+  },
+
+  "pack_kind": "private_family",
+  "pack_owner": "chris@hornelore",
+
+  "events": [
+    {
+      "id": "us_1939_wwii_outbreak",
+      "title": "World War II begins (Europe)",
+      "summary": "Germany invades Poland September 1939; Britain and France declare war. The US enters December 1941 after Pearl Harbor. For German-Russian families on the prairie this carried double weight — a war with Germany while their grandparents had fled the Russian empire, and many older neighbors still spoke German at home.",
+      "year_start": 1939,
+      "year_end": 1945,
+      "scope": "global",
+      "region_tags": [],
+      "heritage_tags": [],
+      "source_kind": "reference_work",
+      "source_citation": "World War II — standard reference (Encyclopedia Britannica, accessed 2026-05-05). Cohort context: Conzen, K. N. (1985), Germans from Russia in the United States.",
+      "narrator_visible": 1,
+      "created_by": "chris@hornelore",
+      "notes": "Seed; refine cohort context with a specific scholarly citation before shipping shared_regional version."
+    },
+
+    {
+      "id": "nd_1955_prairie_drought_start",
+      "title": "Northern Plains drought (1955–1959)",
+      "summary": "A multi-year drought hit the northern Great Plains hard. North Dakota saw substantially reduced wheat and barley yields. Farm auctions accelerated; some families that had homesteaded in the early 1900s did not survive the period as operators.",
+      "year_start": 1955,
+      "year_end": 1959,
+      "scope": "regional",
+      "region_tags": ["nd", "great_plains"],
+      "heritage_tags": ["germans_from_russia", "rural_us"],
+      "source_kind": "operator_research_note",
+      "source_citation": "DRAFT — refine with USDA drought year records + ND State Climate Office data + a county-level source (e.g., McLean County agricultural extension reports).",
+      "narrator_visible": 0,
+      "created_by": "chris@hornelore",
+      "notes": "Operator-only until the source is upgraded to academic / historical_society + narrator_visible flipped to 1."
+    },
+
+    {
+      "id": "nd_1956_garrison_dam_completion",
+      "title": "Garrison Dam completed",
+      "summary": "Garrison Dam on the Missouri River was completed in 1953 and impoundment of Lake Sakakawea finished filling in the early 1960s. The project displaced communities along the river — including the Three Affiliated Tribes (Mandan, Hidatsa, Arikara) — and reshaped agricultural and recreational life for the region.",
+      "year_start": 1953,
+      "year_end": 1956,
+      "scope": "regional",
+      "region_tags": ["nd", "great_plains"],
+      "heritage_tags": ["rural_us"],
+      "source_kind": "operator_research_note",
+      "source_citation": "DRAFT — replace with Bureau of Reclamation completion records + a State Historical Society of North Dakota citation. Verify exact completion year (1953 vs 1956 — appears in different sources differently depending on whether 'completion' means structure or full impoundment).",
+      "narrator_visible": 0,
+      "created_by": "chris@hornelore"
+    },
+
+    {
+      "id": "us_1957_sputnik_satellite",
+      "title": "Sputnik launched",
+      "summary": "October 1957 — the Soviet Union launched the first artificial satellite. The US response shaped Cold War prairie life through missile-silo construction across the northern plains, education-funding shifts, and increased rural civil-defense exercises.",
+      "year_start": 1957,
+      "year_end": 1957,
+      "scope": "global",
+      "region_tags": [],
+      "heritage_tags": [],
+      "source_kind": "reference_work",
+      "source_citation": "Sputnik launch (Encyclopedia Britannica, accessed 2026-05-05). Cohort consequence: NK Wilford, J. N. (1989), 'How Sputnik Changed America' — refine with academic source.",
+      "narrator_visible": 1,
+      "created_by": "chris@hornelore",
+      "notes": "Cohort-relevant because of the missile-silo build-out across ND/MT/SD that started in 1959–1962."
+    },
+
+    {
+      "id": "germans_from_russia_society_founded_nd",
+      "title": "Germans from Russia Heritage Society founded",
+      "summary": "The Germans from Russia Heritage Society was founded in Bismarck, North Dakota, in 1971. Its formation reflected a generational push to preserve language, foodways, recipes, and migration history before the elders who carried it as living memory passed.",
+      "year_start": 1971,
+      "year_end": 1971,
+      "scope": "cultural",
+      "region_tags": ["nd", "great_plains", "bismarck_nd"],
+      "heritage_tags": ["germans_from_russia"],
+      "source_kind": "historical_society",
+      "source_citation": "Germans from Russia Heritage Society of North Dakota — official founding date publication.",
+      "narrator_visible": 1,
+      "created_by": "chris@hornelore",
+      "notes": "Verify exact founding date with the society's own publications before flipping shared_regional."
+    },
+
+    {
+      "id": "us_1973_oil_crisis",
+      "title": "1973 oil crisis",
+      "summary": "OPEC oil embargo October 1973. Gas prices rose sharply; rural communities dependent on automobile transit and farm machinery felt the cost squeeze especially hard. For families running grain operations the season's profitability shifted overnight.",
+      "year_start": 1973,
+      "year_end": 1974,
+      "scope": "global",
+      "region_tags": [],
+      "heritage_tags": [],
+      "source_kind": "reference_work",
+      "source_citation": "1973 oil crisis (Encyclopedia Britannica, accessed 2026-05-05).",
+      "narrator_visible": 1,
+      "created_by": "chris@hornelore"
+    },
+
+    {
+      "id": "us_1980s_farm_crisis",
+      "title": "1980s farm crisis",
+      "summary": "Sharply falling commodity prices, high interest rates, and over-leveraged land caused widespread farm foreclosures across the upper Midwest. Communities that had survived the 1955–1959 drought lost generations-old operations during this period. Bank closures, farm auctions, and rural-population decline accelerated.",
+      "year_start": 1981,
+      "year_end": 1988,
+      "scope": "regional",
+      "region_tags": ["nd", "great_plains", "midwest"],
+      "heritage_tags": ["rural_us", "germans_from_russia"],
+      "source_kind": "operator_research_note",
+      "source_citation": "DRAFT — refine with USDA Economic Research Service publications + a North Dakota State University agricultural extension citation.",
+      "narrator_visible": 0,
+      "created_by": "chris@hornelore",
+      "notes": "Operator-only pending citation upgrade."
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "_meta": {
+    "wo": "WO-TIMELINE-CONTEXT-EVENTS-01",
+    "scope": "Phase A — locked v1 vocabulary, extensible.",
+    "rules": [
+      "Adding a tag is a small PR: append + reviewer signoff.",
+      "Removing or renaming a tag requires a migration that updates all downstream entries — rare, painful, document carefully.",
+      "Validator (Phase B) enforces tag membership at load time. Using an unrecognized tag fails the validator.",
+      "No narrator cohort gets force-mapped. If a new cohort doesn't fit any existing heritage_tag, ADD a new tag.",
+      "heritage_tags are operator-recorded at intake, NEVER inferred at runtime. Lori is a pattern-aware listener, not an identity-detector (CLAUDE.md design principles 6 + 8)."
+    ],
+    "version": "1.0",
+    "last_updated": "2026-05-05"
+  },
+
+  "region_tags": {
+    "us_states": [
+      "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga",
+      "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md",
+      "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj",
+      "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc",
+      "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
+      "dc"
+    ],
+    "us_regions": [
+      "northeast",
+      "midwest",
+      "south",
+      "west",
+      "great_plains",
+      "pacific_northwest",
+      "new_england",
+      "southwest",
+      "deep_south",
+      "appalachia",
+      "rust_belt",
+      "california_central_valley",
+      "texas_borderlands",
+      "rocky_mountain_west",
+      "mid_atlantic",
+      "gulf_coast"
+    ],
+    "us_locales": [
+      "bismarck_nd",
+      "mandan_nd",
+      "stanley_nd",
+      "minot_nd",
+      "spokane_wa",
+      "mclean_county_nd",
+      "las_vegas_nm",
+      "santa_fe_nm",
+      "albuquerque_nm",
+      "stockton_ca",
+      "fresno_ca",
+      "sacramento_ca"
+    ],
+    "non_us": [
+      "mexico",
+      "canada",
+      "germany",
+      "germany_russia",
+      "ukraine",
+      "ukraine_central",
+      "european_jewish",
+      "punjab",
+      "north_india",
+      "south_asia",
+      "vietnam",
+      "philippines",
+      "mexico_central",
+      "el_salvador",
+      "guatemala"
+    ]
+  },
+
+  "heritage_tags": {
+    "voice_library_v1_spine": [
+      "germans_from_russia",
+      "adamic_urban_industrial",
+      "african_american_georgia",
+      "asian_american_california",
+      "native_american_new_mexico",
+      "hispano_tex_mex",
+      "crypto_jewish_new_mexico"
+    ],
+    "extensions": [
+      "south_asian_california",
+      "punjabi_central_valley",
+      "hispano_nm",
+      "rural_us",
+      "industrial_midwest",
+      "mennonite",
+      "catholic_polish_chicago",
+      "filipino_american_navy",
+      "vietnamese_american_gulf_coast",
+      "italian_american_northeast",
+      "irish_american_northeast",
+      "jewish_american_urban",
+      "black_great_migration",
+      "rural_appalachian",
+      "tejano_south_texas"
+    ],
+    "community": [
+      "rural_us",
+      "urban_us",
+      "military_family",
+      "mennonite",
+      "catholic",
+      "jewish",
+      "evangelical",
+      "lutheran_synod",
+      "methodist",
+      "baptist",
+      "orthodox_christian",
+      "muslim",
+      "hindu",
+      "buddhist",
+      "sikh",
+      "interfaith",
+      "secular"
+    ],
+    "cohort_period": [
+      "wwi_era",
+      "depression_era",
+      "wwii_home_front",
+      "wwii_combat",
+      "post_war_boom",
+      "korean_war_era",
+      "cold_war_prairie",
+      "civil_rights_era",
+      "vietnam_era",
+      "stagflation_70s",
+      "reagan_80s",
+      "post_cold_war_90s",
+      "post_911",
+      "great_recession",
+      "covid_era"
+    ],
+    "experience": [
+      "dust_bowl_displaced",
+      "redlined_neighborhood",
+      "deportation_era",
+      "internment_camp",
+      "boarding_school_era",
+      "great_migration",
+      "homestead_settlement",
+      "company_town",
+      "agricultural_labor",
+      "factory_labor",
+      "mining_community",
+      "fishing_community",
+      "logging_community",
+      "ranching_community"
+    ]
+  }
+}
