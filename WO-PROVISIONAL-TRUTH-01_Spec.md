@@ -165,17 +165,53 @@ cd /mnt/c/Users/chris/hornelore && python -m scripts.ui.run_test23_two_person_re
 
 **Scope:** ~1.5 days. Optional — Phase A is sufficient for the data-persistence fix; this phase formalizes operator-side review without requiring it.
 
+### Phase E — Frontend BB state mirror sync (PROMOTED FROM PARKED 2026-05-05)
+
+**Goal:** close the v6 audit gap where `state.bioBuilder.personal.firstName=None` despite `identityPhase=complete` and `basicsComplete=true`. Phase A fixed Lori's runtime knowledge (server-side prompt-composer reads from both surfaces). Phase E fixes the frontend's BB UI mirror so the narrator-room display reflects what the server already knows.
+
+**Why this is now required, not optional:** the v6 TEST-23 evidence (2026-05-05) showed BB state firstName=None for both Mary and Marvin even though their identity values DO live in the backing stores. The harness scores narrator identity by reading `state.bioBuilder.personal.firstName` — and graded both narrators RED on identity even though Lori knew the values fine via memory_echo. Without Phase E, the harness can't grade narrator identity correctly AND the operator-facing BB UI looks broken to anyone looking at it.
+
+**Scope:** when `projection_json` or `profile_json` gains a value (via narrator confirmation, operator promotion, or extractor projection update), mirror the value into the frontend `state.bioBuilder.personal` so the BB display surfaces match.
+
+**Files:**
+- `ui/js/projection-sync.js` — extend to write protected identity fields into `state.bioBuilder.personal` after the projection-sync round-trip completes successfully (subject to the BUG-312 protected_identity gate that already lives there)
+- `ui/js/state.js` — possibly add a `_mirrorBioBuilderFromProjection()` helper that the projection-sync code calls
+- `ui/js/app.js` — on narrator load (initial + post-restart re-select), trigger a one-shot hydrate from the latest `profile_json` + `projection_json.fields` into `state.bioBuilder.personal`
+- New unit test fixture verifying that mirror is bidirectional + protected-identity-gated
+
+**Acceptance:**
+
+- After narrator onboarding completes (Mary types `mary Holts` → `2/29 1940` → `Minot ND` → correction), `state.bioBuilder.personal.firstName === "Mary"` is observable via `_capture_bb_state(page)` in the harness
+- Same for `lastName`, `dateOfBirth`, `placeOfBirth` (the four BB-state-probe fields the v6 audit flagged)
+- After cold-restart + re-select, the same fields are populated from `profile_json` (canonical) WITHOUT requiring an interview turn to fire — hydration happens at narrator-load time
+- BUG-312 protected_identity gate continues to enforce that protected fields require a trusted source (`human_edit` / `preload` / `profile_hydrate` / `projection_promote`) — no silent overwrite via stochastic provisional values
+- TEST-23 v7+ shows Mary's `bb_state_after_onboard.firstName === "Mary"` (was None in v4-v6); same for Marvin
+- TEST-23 v7+ shows `bb_state_after_resume.firstName === "Mary"` post-restart (was None)
+
+**Scope:** ~half day to one day. The protected-identity gate already exists (BUG-312, banked 2026-04-29); Phase E adds the WRITE side that BUG-312's READ guards already protect against.
+
+**Risks:**
+
+- **Mirror drift** — frontend `state.bioBuilder.personal` and backend `profile_json` could desync if the mirror logic has bugs. Mitigation: mirror is one-way (projection → BB display), never the reverse. BB display is read-only from the narrator's perspective in v1 (no narrator-side BB editing surface for protected identity).
+- **Protected-identity gate friction** — if an extractor candidate has confidence ≥ 0.65 (provisional threshold) but the value is wrong, the mirror could surface wrong data to the BB display. Mitigation: BUG-312 gate already requires trusted source for write; mirror calls through that gate.
+- **Resume hydration race** — on cold-restart, the mirror might fire before profile_json has loaded. Mitigation: hydration runs after `loadNarrator()` completes its profile_json fetch.
+
+**Rollback:** revert the mirror logic. BB state mirror returns to v6 baseline (firstName=None despite truth being persisted). No regression on Lori's runtime knowledge (Phase A read-bridge stays intact).
+
+**Sequencing:** lands AFTER BUG-UI-POSTRESTART-SESSION-START-01 because Phase E's acceptance includes post-restart BB state, and post-restart phases can't run until the cold-restart resume UI bug is fixed. Compose with WO-TIMELINE-RENDER-01 — the timeline reads from `profile_json` directly (NOT from `state.bioBuilder`), so Phase E doesn't gate the timeline lane.
+
 ---
 
 ## Total revised scope
 
 | Phase | Estimate | Required? |
 |---|---|---|
-| **A — Read-bridge in `_build_profile_seed`** | ~half day | **YES** |
-| **B — TEST-23 v3 acceptance** | ~half day | **YES** |
+| **A — Read-bridge in `_build_profile_seed`** | ~half day | **LANDED 2026-05-04** |
+| **B — TEST-23 v3 acceptance** | ~half day | **LANDED 2026-05-04** |
 | C — Inline widget retirement | ~half day | optional |
 | D — Operator promotion surface | ~1.5 days | optional |
-| **Required total** | **~1 day** | |
+| **E — Frontend BB state mirror sync (PROMOTED 2026-05-05)** | **~half to one day** | **YES — pre-parent-session blocker** |
+| **Required remaining** | **~half to one day (Phase E)** | |
 | **Full scope all phases** | **~3 days** | |
 
 Down from the original 7-10 working day estimate. The architecture audit found that the persistence layer was already complete; what was missing was a single function-level bridge.
