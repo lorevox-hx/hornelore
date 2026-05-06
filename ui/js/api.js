@@ -23,7 +23,22 @@ const API = {
   CHAT_SSE:   ORIGIN + "/api/chat/stream",
   CHAT_WS:    ORIGIN.replace(/^http/,"ws") + "/api/chat/ws",
   IV_START:   ORIGIN + "/api/interview/start",
-  IV_OPENER:  (pid) => `${ORIGIN}/api/interview/opener?person_id=${encodeURIComponent(pid)}`,
+  IV_OPENER:  (pid, opts) => {
+    // WO-BUG-LORI-SWITCH-FRESH-GREETING-01 Phase 2 Slice 2a:
+    // Optional opts={last_era_id, session_id} append as query params
+    // when present. Backend uses these when HORNELORE_CONTINUATION_PARAPHRASE=1
+    // to produce an era-aware welcome-back. Default-off path ignores them.
+    let url = `${ORIGIN}/api/interview/opener?person_id=${encodeURIComponent(pid)}`;
+    if (opts && typeof opts === "object") {
+      if (opts.last_era_id) {
+        url += `&last_era_id=${encodeURIComponent(opts.last_era_id)}`;
+      }
+      if (opts.session_id) {
+        url += `&session_id=${encodeURIComponent(opts.session_id)}`;
+      }
+    }
+    return url;
+  },
   IV_ANSWER:  ORIGIN + "/api/interview/answer",
   TIMELINE:   (id) => `${ORIGIN}/api/timeline/list?person_id=${encodeURIComponent(id)}`,
   TL_ADD:     ORIGIN + "/api/timeline/add",

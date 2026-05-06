@@ -5153,6 +5153,27 @@ async function lv80SwitchPerson(personId) {
       // different value the operator just selected.
       sessionStyle: (state.session && state.session.sessionStyle)
         || (typeof getSessionStyle === "function" ? getSessionStyle() : "warm_storytelling"),
+      // BUG-LORI-SWITCH-PRIORTURNS-WIPE-01 (2026-05-06):
+      // Preserve priorUserTurns hydrated by Phase G in app.js:2505 from
+      // /api/narrator/state-snapshot. Without this preservation, the
+      // state.session reassignment here wipes priorUserTurns to undefined,
+      // and the welcome-back gate at L5178 reads it as 0 → falls through
+      // to the cold-start opener path. That regressed the welcome-back
+      // path on EVERY narrator switch (and every narrator card open via
+      // this code path). Live evidence 2026-05-06 12:31+ — Mary's switch-
+      // back showed "Hi mary, I'm Lori. I'm here to help you capture your
+      // life story..." instead of the expected welcome-back greeting.
+      priorUserTurns: (state.session && Number(state.session.priorUserTurns)) || 0,
+      // Same preservation for currentEra so the Phase 2 Slice 2a Tier C
+      // continuation paraphrase composer can fire on switch-back when the
+      // narrator already has a known era. NOTE: app.js loadPerson at
+      // L2447 nulls currentEra during Phase G hydration with a WO-11
+      // narrator-scope-isolation rationale, so this preservation only
+      // recovers the value if something downstream re-populates it
+      // (Life Map era click writes state.session.currentEra). For
+      // first-turn era recovery on resume, BUG-LORI-CURRENT-ERA-PERSIST-01
+      // tracks adding localStorage["lv_era_" + pid] persistence.
+      currentEra: (state.session && state.session.currentEra) || null,
     };
     setAssistantRole("interviewer");
     lv80RefreshCaptureBar();
@@ -5177,19 +5198,74 @@ async function lv80SwitchPerson(personId) {
     // opener-greeting fallback below.
     const _wo13PriorUserTurns = Number((state.session && state.session.priorUserTurns) || 0);
     const _ssIsQF = (state.session && state.session.sessionStyle) === "questionnaire_first";
-    if (_ssIsQF) {
-      console.log("[WO-13] questionnaire_first override — skipping welcome-back/opener so session-loop owns first prompt");
+    // WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01 Phase 1 (2026-05-05):
+    // welcome-back/opener is the live narrator path's first prompt.
+    // Legacy QF override only fires when localStorage.lv_qf_live_ownership=1
+    // (Phase 4 structured-intake-mode). Default-off inverts the prior
+    // _ssIsQF gate so the existing /api/interview/opener welcome-back
+    // template at interview.py:486-489 fires for returning narrators
+    // regardless of session style.
+    let _qfLegacyLiveOwnership = false;
+    try {
+      _qfLegacyLiveOwnership = (typeof localStorage !== "undefined") &&
+                               localStorage.getItem("lv_qf_live_ownership") === "1";
+    } catch (_) {}
+    if (_ssIsQF && _qfLegacyLiveOwnership) {
+      console.log("[QF-RETIRE] LV_QF_LIVE_OWNERSHIP=1 — legacy QF override active, skipping welcome-back/opener");
       // WO-UI-HEALTH-CHECK-02: side-channel for harness observation.
       try { window._lv80WelcomeBackSuppressedForQF = true; } catch (_) {}
     } else if (_wo13PriorUserTurns > 0) {
-      // WO-9: Use queue-safe sender to survive startup race
-      wo9SendOrQueueSystemPrompt(
-        `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
-        `born ${basics.dob}${pob ? " in " + pob : ""}.${_decFrame} ` +
-        "Welcome them back warmly by name in one sentence, then immediately ask your " +
-        "next most meaningful interview question. Do not re-introduce yourself. " +
-        "Do not repeat the onboarding flow. Do not ask for name or DOB again.]"
-      );
+      // WO-BUG-LORI-SWITCH-FRESH-GREETING-01 Phase 2 Slice 2a (revised 2026-05-06):
+      // ALWAYS fetch the deterministic opener for returning narrators.
+      // Backend returns Tier C (era-aware) when currentEra is set + flag
+      // on; Tier D (bare welcome-back) otherwise. Both are deterministic
+      // and avoid the LLM-driven "Hi mary. It's lovely to meet you."
+      // first-meeting drift Chris flagged on 2026-05-06 — the LLM was
+      // ignoring the "Do not re-introduce yourself" instruction and
+      // emitting first-meeting tone for returning narrators.
+      //
+      // Per CLAUDE.md design principle 6 (Lorevox is the memory system;
+      // Lori is the conversational interface to it) — the welcome-back
+      // is structural, not conversational. Lori's next turn is the warm
+      // interview question, driven by the regular composer when the
+      // narrator responds to the greeting. The legacy LLM-driven SYSTEM
+      // prompt path is retained as a defensive fallback ONLY when the
+      // opener fetch fails (network error / backend down).
+      const _lastEraId = (state.session && state.session.currentEra) || null;
+      const _currentSessionId = (state.session && (state.session.conv_id || state.session.session_id)) || null;
+      console.log("[continuation-paraphrase] returning narrator (priorUserTurns=" + _wo13PriorUserTurns +
+        ") — fetching deterministic opener (era=" + _lastEraId + ")");
+      fetch(API.IV_OPENER(personId, { last_era_id: _lastEraId, session_id: _currentSessionId }))
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.opener_text) {
+            appendBubble("ai", data.opener_text);
+          } else {
+            // Defensive fallback only when backend returns empty
+            console.warn("[continuation-paraphrase] opener returned empty; falling back to legacy LLM-driven welcome-back");
+            wo9SendOrQueueSystemPrompt(
+              `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
+              `born ${basics.dob}${pob ? " in " + pob : ""}.${_decFrame} ` +
+              "Welcome them back warmly by name in one short sentence. " +
+              "Do NOT introduce yourself. Do NOT say 'It's lovely to meet you' " +
+              "or any first-meeting language — they have already met you. " +
+              "Then ask one warm interview question. Do not re-introduce yourself. " +
+              "Do not repeat the onboarding flow. Do not ask for name or DOB again.]"
+            );
+          }
+        })
+        .catch(e => {
+          console.warn("[continuation-paraphrase] opener fetch failed; falling back to legacy LLM-driven welcome-back:", e);
+          wo9SendOrQueueSystemPrompt(
+            `[SYSTEM: You are resuming a life-archive session with ${name}, ` +
+            `born ${basics.dob}${pob ? " in " + pob : ""}.${_decFrame} ` +
+            "Welcome them back warmly by name in one short sentence. " +
+            "Do NOT introduce yourself. Do NOT say 'It's lovely to meet you' " +
+            "or any first-meeting language — they have already met you. " +
+            "Then ask one warm interview question. Do not re-introduce yourself. " +
+            "Do not repeat the onboarding flow. Do not ask for name or DOB again.]"
+          );
+        });
     } else {
       console.log("[WO-13] lv80SwitchPerson: no prior user turns — fetching opener greeting");
       // WO-GREETING-01: First-time narrator gets Lori's canned greeting

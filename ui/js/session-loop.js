@@ -114,9 +114,32 @@
       return;
     }
 
+    // WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01 Phase 1 (2026-05-05):
+    // QF and clear_direct walks are retired from the live narrator path
+    // per CLAUDE.md design principle 8 ("Live Lori sessions must not
+    // auto-advance questionnaire fields"). The walks remain in-tree and
+    // reactivate via localStorage["lv_qf_live_ownership"]="1" for the
+    // optional structured-intake-mode scoped in Phase 4 of this WO.
+    const _qfLegacyLiveOwnership = (function () {
+      try {
+        return (typeof localStorage !== "undefined") &&
+               localStorage.getItem("lv_qf_live_ownership") === "1";
+      } catch (_) { return false; }
+    })();
+
     switch (style) {
-      case "questionnaire_first": return _routeQuestionnaireFirst(event);
-      case "clear_direct":        return _routeClearDirect(event);
+      case "questionnaire_first":
+        if (_qfLegacyLiveOwnership) return _routeQuestionnaireFirst(event);
+        state.session.loop.lastAction = "qf_retired:routed_to_warm_storytelling";
+        console.log("[QF-RETIRE] questionnaire_first → warm_storytelling (live path); " +
+          "set localStorage.lv_qf_live_ownership=1 for legacy walk");
+        return _routeWarmStorytelling(event);
+      case "clear_direct":
+        if (_qfLegacyLiveOwnership) return _routeClearDirect(event);
+        state.session.loop.lastAction = "qf_retired:clear_direct_directive_only";
+        console.log("[QF-RETIRE] clear_direct → directive-only (live path); " +
+          "tier-2 directive still applies via runtime71");
+        return _routeWarmStorytelling(event);
       // memory_exercise REMOVED 2026-04-25 — picker option dropped after
       // live test showed it was a no-op (prompt suffix only, no real
       // routing). Legacy redirect in session-style-router coerces any

@@ -232,6 +232,41 @@ function lvSetSessionStyle(value) {
     return;
   }
   if (!state.session) state.session = {};
+  // BUG-SESSION-STYLE-SWITCH-STALE-QF-STATE-01 (2026-05-06):
+  // Clear stale QF/loop state when transitioning AWAY from a lane.
+  // Without this, switching questionnaire_first → clear_direct (or any
+  // other style) leaves behind:
+  //   - state.session.questionnaireFirst.{active, segment, currentSection,
+  //     currentField, askedKeys}
+  //   - state.session.loop.{activeIntent, currentSection, currentField,
+  //     askedKeys, savedKeys, tellingStoryOnce, lastAction}
+  // which causes downstream behavior (subsequent narrator turns, opener
+  // dispatch, runtime71 builders) to read stale ownership flags and
+  // act as if the prior lane were still active. Live evidence
+  // 2026-05-06 12:30+ — operator switched QF → clear_direct mid-session
+  // and Lori's responses showed mixed behavior: deterministic era
+  // explainer fired sometimes, generic LLM improvisation other times.
+  // Diagnosis: stale QF substate biased the LLM context even after the
+  // dispatcher routed through warm_storytelling.
+  const _prevStyle = state.session.sessionStyle || null;
+  if (_prevStyle && _prevStyle !== value) {
+    console.log("[session-style] transition", _prevStyle, "→", value, "— clearing stale lane state");
+    // Clear QF substate completely; it will re-init on next QF entry
+    if (state.session.questionnaireFirst) {
+      delete state.session.questionnaireFirst;
+    }
+    // Clear loop substate selectively — preserve the dispatcher's
+    // ledgers but reset lane-ownership flags. lvSessionLoopOnTurn will
+    // re-init missing fields lazily.
+    if (state.session.loop) {
+      state.session.loop.activeIntent = null;
+      state.session.loop.currentSection = null;
+      state.session.loop.currentField = null;
+      state.session.loop.askedKeys = [];
+      state.session.loop.tellingStoryOnce = false;
+      state.session.loop.lastAction = "lane_transition_reset:" + _prevStyle + "_to_" + value;
+    }
+  }
   state.session.sessionStyle = value;
   try { localStorage.setItem(LV_SESSION_STYLE_KEY, value); } catch (_) {}
   // Sync the radio group in case this was a programmatic call.
