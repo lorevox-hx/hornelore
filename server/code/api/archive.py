@@ -126,9 +126,19 @@ def append_event(
     section_id: Optional[str] = None,
     anchor_id: str = "",
     meta: Optional[Dict[str, Any]] = None,
+    current_era: Optional[str] = None,
 ) -> None:
     """
     Append a single event to transcript.jsonl (append-only — never rewrites).
+
+    WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1 (2026-05-06):
+    `current_era` (canonical era_id from lv_eras: earliest_years /
+    early_school_years / adolescence / coming_of_age / building_years /
+    later_years / today) gets persisted with the event when supplied.
+    Backward-compatible: turns without current_era are still readable;
+    they just don't bin into era groups when memory_echo era-stories
+    rendering fires. chat_ws threads runtime71.current_era into this
+    parameter on every turn write.
     """
     root = session_root(person_id, session_id)
     root.mkdir(parents=True, exist_ok=True)
@@ -146,6 +156,15 @@ def append_event(
         event["anchor_id"] = anchor_id
     if meta:
         event["meta"] = meta
+    # Era binding (WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1) — only
+    # written when supplied; absence means the writer didn't know the
+    # active era at the time. peek_at_memoir's era binner (Phase 2)
+    # silently skips turns missing this field, so old turns and turns
+    # written outside the era flow degrade gracefully.
+    if current_era:
+        ce = str(current_era).strip()
+        if ce:
+            event["current_era"] = ce
 
     jsonl_path = root / "transcript.jsonl"
     with jsonl_path.open("a", encoding="utf-8") as f:

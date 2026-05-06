@@ -155,6 +155,16 @@ def summarize_for_runtime(peek_data: Dict[str, Any]) -> Dict[str, Any]:
         "promoted_facts": [],
         "recent_user_turns": [],
         "sources_used": [],
+        # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 2 (2026-05-06):
+        # Era-binned recent turns. Keys are canonical era_ids
+        # (earliest_years / early_school_years / adolescence /
+        # coming_of_age / building_years / later_years / today) and
+        # values are chronological lists of {text, ts, role} dicts.
+        # Empty era buckets are omitted from the dict. Turns missing
+        # a current_era field (older turns, or turns written when the
+        # active era was unknown) are silently skipped. Consumed by
+        # compose_memory_echo's era-stories renderer (Phase 3).
+        "recent_turns_by_era": {},
     }
     if not isinstance(peek_data, dict):
         return out
@@ -203,6 +213,45 @@ def summarize_for_runtime(peek_data: Dict[str, Any]) -> Dict[str, Any]:
         out["sources_used"].append("promoted truth")
     if sources.get("session_transcript"):
         out["sources_used"].append("session transcript")
+
+    # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 2: era-binned recent
+    # turns. Walk the safety-filtered transcript (already filtered
+    # in build_peek_at_memoir; sensitive turns can never reach here),
+    # group by canonical era_id. Skip turns without era binding.
+    # Limit per-era list length to a reasonable cap so a long-running
+    # session doesn't bloat runtime71.
+    #
+    # USER TURNS ONLY (guardrail #1): the readback section is meant
+    # to surface "what the narrator said" — not what Lori asked,
+    # summarized, or guessed. Assistant turns are filtered out HERE
+    # at bin time so any future consumer of recent_turns_by_era
+    # cannot accidentally render Lori's own utterances back at her.
+    # System-style messages (text starting with [SYSTEM) are also
+    # dropped — those are operator directives, not narrator content.
+    PER_ERA_CAP = 8
+    era_buckets: Dict[str, List[Dict[str, Any]]] = {}
+    for turn in recent:
+        if not isinstance(turn, dict):
+            continue
+        role = (turn.get("role") or "").strip().lower()
+        if role != "user":
+            continue
+        era = (turn.get("current_era") or "").strip()
+        if not era:
+            continue
+        text = (turn.get("content") or turn.get("text") or "").strip()
+        if not text:
+            continue
+        if text.startswith("[SYSTEM"):
+            continue
+        bucket = era_buckets.setdefault(era, [])
+        if len(bucket) < PER_ERA_CAP:
+            bucket.append({
+                "text": text,
+                "ts": turn.get("ts") or "",
+                "role": role,
+            })
+    out["recent_turns_by_era"] = era_buckets
 
     return out
 

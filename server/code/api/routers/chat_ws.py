@@ -198,6 +198,27 @@ async def ws_chat(ws: WebSocket):
         # Extract person_id from params (sent by UI)
         person_id: Optional[str] = params.get("person_id") or None
 
+        # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1 (2026-05-06):
+        # Pull current_era from runtime71 once at the top of the turn so
+        # both archive writes (user @ L454, assistant @ L1534) bind the
+        # same era to both halves of the turn. Canonicalize via lv_eras
+        # to absorb any legacy / "era:" prefixed values from older UI
+        # bookmarks. None when no era is set (e.g., onboarding before
+        # first Life Map click) — gracefully degrades; turns simply
+        # don't bin into era groups in memory_echo readback.
+        _current_era_for_archive: Optional[str] = None
+        try:
+            _rt71 = params.get("runtime71") or {}
+            if isinstance(_rt71, dict):
+                _raw_era = _rt71.get("current_era") or _rt71.get("currentEra")
+                if _raw_era:
+                    from ..lv_eras import legacy_key_to_era_id as _legacy_key_to_era_id
+                    _canon = _legacy_key_to_era_id(str(_raw_era))
+                    if _canon:
+                        _current_era_for_archive = _canon
+        except Exception as _era_exc:
+            logger.debug("[chat_ws][era-binding] failed to canonicalize: %s", _era_exc)
+
         # ── WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b: story preservation hook ──
         # Path 1 entry point. Decoupled from the rest of the chat path:
         # a preservation failure logs CRITICAL but does NOT stop the
@@ -457,6 +478,7 @@ async def ws_chat(ws: WebSocket):
                 role="user",
                 content=user_text,
                 meta={"ws": True},
+                current_era=_current_era_for_archive,  # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1
             )
 
         # ── WO-LORI-SOFTENED-RESPONSE-01: per-turn turn_count + softened read ─
@@ -1537,6 +1559,7 @@ async def ws_chat(ws: WebSocket):
                     role="assistant",
                     content=final_text,
                     meta={"ws": True, "cancelled": ev.is_set()},
+                    current_era=_current_era_for_archive,  # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1
                 )
                 archive_rebuild_txt(person_id=person_id, session_id=conv_id)
             except Exception as arch_err:

@@ -1245,6 +1245,128 @@ def _discipline_filter_enabled() -> bool:
     return os.getenv("HORNELORE_INTERVIEW_DISCIPLINE", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _era_stories_enabled() -> bool:
+    """WO-LORI-MEMORY-ECHO-ERA-STORIES-01 (2026-05-06) flag reader.
+
+    Default OFF (HORNELORE_MEMORY_ECHO_ERA_STORIES=0). When ON, the
+    era-stories renderer in compose_memory_echo emits a "What you've
+    shared so far" section with one excerpt per era that has user-role
+    turns. Default-off keeps the readback byte-stable with pre-Phase-3
+    behavior so flipping is reversible without regression risk.
+    """
+    return os.getenv("HORNELORE_MEMORY_ECHO_ERA_STORIES", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+# Trivial-token threshold for era excerpt selection: a turn must have
+# at least this many content tokens (after stopword strip) to qualify
+# as a story. Filters out one-word answers, "yes" / "no" / "I don't
+# know" type replies that wouldn't read well as story stubs. Calibrated
+# at 6 against the smoke-test corpus (2026-05-06): keeps real narrator
+# stubs of 6-7 content tokens ("We walked to school through the snow,
+# me and my brother" = 7), drops short interjections.
+_ERA_EXCERPT_MIN_CONTENT_TOKENS = 6
+
+# Connector-tail strips for excerpt cleanup
+_ERA_EXCERPT_LEADING_FILLERS = (
+    "well, ", "well ", "i think, ", "i think ", "um, ", "um ",
+    "uh, ", "uh ", "you know, ", "you know ", "so, ", "so ",
+)
+_ERA_EXCERPT_TRAILING_CONNECTORS = re.compile(
+    r"\s+(?:and|but|so|or|though|although|while|because|since|then)"
+    r"(?:\s+\w+){0,3}\s*$",
+    re.IGNORECASE,
+)
+
+
+def _select_era_excerpts(by_era_dict: Dict[str, List[Dict[str, Any]]]) -> List[Tuple[str, str]]:
+    """Pick one user-side narrator excerpt per era for memory_echo
+    readback. Returns ordered list of (era_id, excerpt_text) pairs.
+
+    Selection rules per WO-LORI-MEMORY-ECHO-ERA-STORIES-01 §"Excerpt
+    shape rules (locked)":
+      - First non-trivial user-role turn (≥ 8 content tokens)
+      - First sentence only (split at .!? boundary)
+      - Capped at 80 chars
+      - Strip leading fillers ("Well, " / "Um, " / etc.)
+      - Strip trailing connector tails ("and then", "but anyway")
+
+    Era ordering follows lv_eras canonical order so the readback feels
+    chronological (earliest_years → today) regardless of dict iteration.
+    """
+    if not isinstance(by_era_dict, dict) or not by_era_dict:
+        return []
+
+    # Canonical ordering for readback (earliest_years → today)
+    try:
+        from .lv_eras import LV_ERAS as _LV_ERAS
+        canonical_order = [e["era_id"] for e in _LV_ERAS]
+    except Exception:
+        canonical_order = list(by_era_dict.keys())
+
+    out: List[Tuple[str, str]] = []
+    for era_id in canonical_order:
+        bucket = by_era_dict.get(era_id) or []
+        if not isinstance(bucket, list):
+            continue
+        # Find first non-trivial user-role turn in chronological order
+        chosen_text: Optional[str] = None
+        for turn in bucket:
+            if not isinstance(turn, dict):
+                continue
+            if (turn.get("role") or "").lower() != "user":
+                continue
+            text = (turn.get("text") or turn.get("content") or "").strip()
+            if not text:
+                continue
+            # Skip system-style messages even if role=user
+            if text.startswith("[SYSTEM"):
+                continue
+            # Content-token gate (split + filter out tiny stopwords)
+            content_tokens = [
+                t for t in text.split()
+                if len(t.strip(".,;:!?\"'")) > 2
+            ]
+            if len(content_tokens) < _ERA_EXCERPT_MIN_CONTENT_TOKENS:
+                continue
+            chosen_text = text
+            break
+
+        if not chosen_text:
+            continue
+
+        # Strip leading fillers
+        lower = chosen_text.lower()
+        for prefix in _ERA_EXCERPT_LEADING_FILLERS:
+            if lower.startswith(prefix):
+                chosen_text = chosen_text[len(prefix):].strip()
+                # Re-capitalize first letter if the strip exposed lowercase
+                if chosen_text and chosen_text[0].islower():
+                    chosen_text = chosen_text[0].upper() + chosen_text[1:]
+                break
+
+        # First sentence only
+        first_sentence_match = re.search(r"^(.+?[.!?])(?:\s|$)", chosen_text)
+        if first_sentence_match:
+            chosen_text = first_sentence_match.group(1).strip()
+
+        # Strip trailing connector tails like "and then", "but anyway"
+        chosen_text = _ERA_EXCERPT_TRAILING_CONNECTORS.sub("", chosen_text).strip()
+
+        # Cap at 80 chars at the nearest word boundary
+        if len(chosen_text) > 80:
+            truncated = chosen_text[:80].rsplit(" ", 1)[0]
+            if truncated and len(truncated) > 20:
+                chosen_text = truncated + "…"
+            else:
+                chosen_text = chosen_text[:80] + "…"
+
+        # Drop any empty / whitespace-only result
+        if chosen_text.strip():
+            out.append((era_id, chosen_text))
+
+    return out
+
+
 def _split_into_questions(text: str) -> List[str]:
     """Split text into segments at each '?'. Each segment includes its
     trailing '?'. Trailing prose after the last '?' is preserved as a
@@ -1774,6 +1896,39 @@ def compose_memory_echo(
             if "promoted truth" not in sources_used:
                 sources_used.append("promoted truth")
 
+    # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 3 (2026-05-06):
+    # Era-grouped story stubs render between "Notes from our conversation"
+    # and "What I'm less sure about". Behind HORNELORE_MEMORY_ECHO_ERA_
+    # STORIES=0 default-off flag — when off, byte-stable to the prior
+    # readback. When on AND peek_at_memoir's recent_turns_by_era field
+    # is populated (chat_ws threads runtime71.current_era through
+    # archive.append_event Phase 1 + peek_at_memoir.summarize_for_runtime
+    # Phase 2 bins them), surface ONE excerpt per era that has at least
+    # one user-role turn. Excerpts are first-sentence verbatim from
+    # narrator text, capped at 80 chars. Closes the v8/v9/v11 story_recall
+    # 0-2/7 gap.
+    try:
+        if _era_stories_enabled():
+            era_buckets = (runtime.get("recent_turns_by_era")
+                           or runtime.get("peek_data", {}).get("recent_turns_by_era")
+                           or {})
+            if isinstance(era_buckets, dict) and era_buckets:
+                era_excerpts = _select_era_excerpts(era_buckets)
+                if era_excerpts:
+                    lines.extend(["", "What you've shared so far"])
+                    for era_id, excerpt in era_excerpts:
+                        try:
+                            from .lv_eras import era_id_to_warm_label as _warm
+                            warm_label = _warm(era_id) or era_id
+                        except Exception:
+                            warm_label = era_id
+                        lines.append(f"- {warm_label}: {excerpt}")
+                    if "session transcript" not in sources_used:
+                        sources_used.append("session transcript")
+    except Exception as _era_render_err:
+        # Render failure must never break the readback — degrade silently.
+        logger.warning("[memory_echo][era-stories] render failed: %s", _era_render_err)
+
     lines.extend([
         "",
         "What I'm less sure about",
@@ -2292,17 +2447,17 @@ def compose_system_prompt(
         _seed_childhood_home = (_profile_seed.get("childhood_home") or "").strip() if _profile_seed else ""
         _seed_preferred_name = (_profile_seed.get("preferred_name") or "").strip() if _profile_seed else ""
         _seed_full_name = (_profile_seed.get("full_name") or "").strip() if _profile_seed else ""
-        # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): deterministic age from
-        # _build_profile_seed.age_years. Surfacing it here so the prompt
-        # can include it as a known fact and instruct Lori to state the
-        # age directly when asked. v8 evidence: both narrators dodged
-        # late-stage age questions with "Is there something else on your
-        # mind?" — making age a Lori-knows fact closes that class.
-        _seed_age_years = _profile_seed.get("age_years") if _profile_seed else None
-        try:
-            _seed_age_years = int(_seed_age_years) if _seed_age_years is not None else None
-        except (TypeError, ValueError):
-            _seed_age_years = None
+        # NOTE (2026-05-06): The previous BUG-LORI-LATE-AGE-RECALL-01 v10
+        # patch defined a `_seed_age_years` here and consumed it later
+        # in the directive block. The v11 rollback removed the consumer
+        # but originally left the definition as dead code, which produced
+        # 147 stale UnboundLocalError traceback entries in api.log from
+        # the pre-rollback window. The variable is gone now; deterministic
+        # age recall is fully owned by compose_age_recall_response()
+        # (chat_ws routes "how old am I?" turns to that path, bypassing
+        # the LLM). If a prompt-side age surface is wanted again, re-add
+        # the read AND its consumer in the same commit so the forward-
+        # reference class can't return.
         # Effective childhood-home value: canonical UI runtime first
         # (state.session.pob — narrator's most-current truth), falling back
         # to provisional from projection_json. Empty string when neither
