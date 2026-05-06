@@ -1,0 +1,227 @@
+{
+  "tag": "test23_two_person_resume_test23_v7",
+  "run_start": "2026-05-06T02:03:27.966053+00:00",
+  "run_end": "2026-05-06T02:37:06.218894+00:00",
+  "elapsed_seconds": 2024.6,
+  "snapshot_count": 19,
+  "kv_clear_count": 1,
+  "snapshots": [
+    {
+      "label": "run_start",
+      "ts": "2026-05-06T02:03:32.991844+00:00",
+      "elapsed_s_since_run_start": 5.026,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/session1_start",
+      "ts": "2026-05-06T02:04:16.265234+00:00",
+      "elapsed_s_since_run_start": 48.299,
+      "extra": {
+        "plan_key": "mary"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/onboard_done",
+      "ts": "2026-05-06T02:06:17.653121+00:00",
+      "elapsed_s_since_run_start": 169.687,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/early_inference_done",
+      "ts": "2026-05-06T02:06:59.145182+00:00",
+      "elapsed_s_since_run_start": 211.179,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/lifemap_done",
+      "ts": "2026-05-06T02:13:25.689181+00:00",
+      "elapsed_s_since_run_start": 597.723,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/today_done",
+      "ts": "2026-05-06T02:15:05.665215+00:00",
+      "elapsed_s_since_run_start": 697.699,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/session1_end",
+      "ts": "2026-05-06T02:16:38.230457+00:00",
+      "elapsed_s_since_run_start": 790.264,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/resume_started",
+      "ts": "2026-05-06T02:17:04.309137+00:00",
+      "elapsed_s_since_run_start": 816.343,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "mary/resume_done",
+      "ts": "2026-05-06T02:20:58.777144+00:00",
+      "elapsed_s_since_run_start": 1050.811,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "after_clear_kv:between_narrators_after_mary",
+      "ts": "2026-05-06T02:21:10.352481+00:00",
+      "elapsed_s_since_run_start": 1062.386,
+      "extra": {
+        "freed_mb": 0.0,
+        "elapsed_ms": 251
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/session1_start",
+      "ts": "2026-05-06T02:21:41.041186+00:00",
+      "elapsed_s_since_run_start": 1093.075,
+      "extra": {
+        "plan_key": "marvin"
+      },
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/onboard_done",
+      "ts": "2026-05-06T02:23:53.139148+00:00",
+      "elapsed_s_since_run_start": 1225.173,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/early_inference_done",
+      "ts": "2026-05-06T02:24:37.389165+00:00",
+      "elapsed_s_since_run_start": 1269.423,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/lifemap_done",
+      "ts": "2026-05-06T02:29:10.041206+00:00",
+      "elapsed_s_since_run_start": 1542.075,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/today_done",
+      "ts": "2026-05-06T02:30:29.369155+00:00",
+      "elapsed_s_since_run_start": 1621.403,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/session1_end",
+      "ts": "2026-05-06T02:32:38.513098+00:00",
+      "elapsed_s_since_run_start": 1750.547,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/resume_started",
+      "ts": "2026-05-06T02:33:05.277160+00:00",
+      "elapsed_s_since_run_start": 1777.311,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "marvin/resume_done",
+      "ts": "2026-05-06T02:36:59.765286+00:00",
+      "elapsed_s_since_run_start": 2011.799,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    },
+    {
+      "label": "run_end",
+      "ts": "2026-05-06T02:37:11.221130+00:00",
+      "elapsed_s_since_run_start": 2023.255,
+      "extra": {},
+      "error": "TimeoutError: timed out"
+    }
+  ],
+  "kv_clears": [
+    {
+      "label": "between_narrators_after_mary",
+      "ts": "2026-05-06T02:21:05.347071+00:00",
+      "wall_ms": 258,
+      "_status": 200,
+      "ok": true,
+      "before": {
+        "vram_used_mb": 6171.0,
+        "vram_free_mb": 9807.0,
+        "vram_total_mb": 16303.0,
+        "util_percent": 0.0,
+        "temperature_c": 40.0
+      },
+      "after": {
+        "vram_used_mb": 6171.0,
+        "vram_free_mb": 9807.0,
+        "vram_total_mb": 16303.0,
+        "util_percent": 0.0,
+        "temperature_c": 40.0
+      },
+      "freed_mb": 0.0,
+      "elapsed_ms": 251,
+      "gc_collected_objects": 92,
+      "ops_completed": [
+        "synchronize_pre",
+        "gc_collect",
+        "empty_cache",
+        "ipc_collect",
+        "synchronize_post"
+      ],
+      "errors": []
+    }
+  ],
+  "derived_metrics": {
+    "api_log_scan": {
+      "fk_constraint_count": 55,
+      "comm_control_trim_count": 9,
+      "comm_control_validate_only_count": 35,
+      "send_system_prompt_timeouts": 0,
+      "phase_g_disconnect_count": 8,
+      "gpu_oom_count": 0,
+      "vram_guard_block_count": 0,
+      "_log_path": "/mnt/c/Users/chris/hornelore/.runtime/logs/api.log",
+      "_window_start": "2026-05-06T02:03:27.966053+00:00",
+      "_window_end": "2026-05-06T02:37:06.218894+00:00"
+    },
+    "prompt_tokens_summary": {
+      "n": 53,
+      "min": 3898,
+      "p25": 7236,
+      "median": 8023,
+      "p75": 8789,
+      "p95": 9080,
+      "max": 9442,
+      "histogram": {
+        "0-1000": 0,
+        "1000-2000": 0,
+        "2000-3000": 0,
+        "3000-4000": 2,
+        "4000-5000": 4,
+        "5000-6000": 0,
+        "6000-7000": 0,
+        "7000+": 47
+      },
+      "avg_pct_growth_per_turn": 2.88
+    },
+    "kv_clear_summary": {
+      "n": 1,
+      "n_calls": 1,
+      "total_freed_mb": 0.0,
+      "avg_freed_mb": 0.0,
+      "min_freed_mb": 0.0,
+      "max_freed_mb": 0.0
+    },
+    "vram_per_voice": {}
+  }
+}

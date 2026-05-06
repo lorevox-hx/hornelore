@@ -1,0 +1,1704 @@
+{
+  "tag": "test23_v7",
+  "started_at": "2026-05-05T20:03:27",
+  "finished_at": "2026-05-05T20:37:06",
+  "base_url": "http://localhost:8082/ui/hornelore1.0.html",
+  "api_base": "http://localhost:8000",
+  "commit_sha": "932a0d8",
+  "dirty_tree": false,
+  "mary": {
+    "plan_key": "mary",
+    "display_name": "Test_023906",
+    "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+    "onboarding_steps": [
+      {
+        "label": "onboard_name",
+        "narrator_input": "mary Holts",
+        "lori_reply": "It's wonderful to meet you, mary! Knowing your date of birth will help me get a sense of the world you grew up in and the story you'll share with me. What's your date of birth?",
+        "elapsed_ms": 29604,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=10626ms tts_wait=18141ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "askDob",
+          "basicsComplete": false,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_dob",
+        "narrator_input": "2/29 1940",
+        "lori_reply": "That's lovely, mary - February 29, 1940, a special birthday indeed! Now, I'd love to get a sense of where you started your journey. Where were you born, if you remember?",
+        "elapsed_ms": 23829,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=8572ms tts_wait=14617ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "askBirthplace",
+          "basicsComplete": false,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_pob",
+        "narrator_input": "Minot ND",
+        "lori_reply": "Type away - whatever feels most comfortable for you. If you'd like, you can also turn on the camera, and I can use that to get a sense of your expressions and pace our conversation. But don't worry, the camera is completely optional, and you can turn it on or off at any time. Do...",
+        "elapsed_ms": 44380,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=24450ms tts_wait=19242ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_pob_correction",
+        "narrator_input": "Actually it's Minot, North Dakota \u2014 not just ND",
+        "lori_reply": "Do you have any questions for me before we get started?",
+        "elapsed_ms": 14204,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=9349ms tts_wait=4092ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "early_inference_steps": [
+      {
+        "label": "early_age_guess",
+        "narrator_input": "How old do you think I am?",
+        "lori_reply": "Do you have any questions for me before we get started?",
+        "elapsed_ms": 20055,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=6521ms tts_wait=12850ms tts_done=True",
+          "age guess miss (expected=86)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "early_residence_guess",
+        "narrator_input": "Where do you think I live now?",
+        "lori_reply": "Last time we were talking about how old you think I am. Shall we continue there?",
+        "elapsed_ms": 12351,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=5697ms tts_wait=5967ms tts_done=True",
+          "residence: ambiguous response (review manually)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "era_results": [
+      {
+        "era_id": "earliest_years",
+        "era_label": "Earliest Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "earliest_years",
+        "era_prompt_reply": "I have Minot, North Dakota as your earliest home. What do you remember about where you lived during your earliest years in Minot?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "I was born during a storm \u2014 I think it was really cold that year.",
+        "seed_reply": "Being born during a storm can be a dramatic and memorable experience, mary. That stormy arrival must have left a strong impression on you. What comes to mind when you think about the early days after your birth, in Minot?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "early_school_years",
+        "era_label": "Early School Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "early_school_years",
+        "era_prompt_reply": "Now that we've touched on your earliest years, let's explore your Early School Years. What do you remember about where you were living during your elementary school years in Minot?",
+        "era_prompt_anchored": true,
+        "era_prompt_question_count": 1,
+        "seed_text": "We walked to school, me and my brother, through the snow most days.",
+        "seed_reply": "Walking to school with your brother through the snow must have been a daily routine for you during those early school years. What do you remember about the neighborhood you lived in, or the streets you walked along to get to school?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "adolescence",
+        "era_label": "Adolescence",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "adolescence",
+        "era_prompt_reply": "Now that we've explored your early school years, let's delve into your Adolescence. What do you remember about your daily life during your teenage years, mary, perhaps the places you hung out, the friends you made, or the interests that sparked in you?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "I learned early on there were things you said in public and things you didn't.",
+        "seed_reply": "To keep private can be a valuable lesson. During your adolescence, what do you remember about your family dynamics and how they influenced your sense of expression and reserve? (We can come back to the rest in a moment.)",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "coming_of_age",
+        "era_label": "Coming of Age",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "coming_of_age",
+        "era_prompt_reply": "Now that we've explored your adolescence, let's consider your Coming of Age years. What do you remember about where you were living and the daily life you experienced as you began to transition into adulthood?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "I met my husband at a county fair. He kept coming back to talk.",
+        "seed_reply": "Meeting your future partner at a county fair can be a charming and memorable experience, mary. Did you and your husband have any close friends or family members who were also involved in the fair or the community that brought you together?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "building_years",
+        "era_label": "Building Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "building_years",
+        "era_prompt_reply": "Now that we've touched on your coming of age years, let's explore your Building Years. What do you remember about your family dynamics and responsibilities during this time, mary, perhaps the ways you contributed to your household or supported your loved ones?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "We had kids and moved around a bit for his work. Those years went fast.",
+        "seed_reply": "How they impacted your family's daily life?",
+        "era_anchored": false,
+        "extra_text": "Actually we only had two kids, not three.",
+        "extra_reply": "How they impacted your family's daily life?",
+        "extra_handled_well": false,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed",
+          "mid-stream correction not clearly acknowledged"
+        ]
+      },
+      {
+        "era_id": "later_years",
+        "era_label": "Later Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "later_years",
+        "era_prompt_reply": "Now that we've explored your building years, let's consider your Later Years. What do you remember about where you were living and the daily life you experienced as you looked back on your life and reflected on the years that had passed?",
+        "era_prompt_anchored": true,
+        "era_prompt_question_count": 1,
+        "seed_text": "After he passed, the house got very quiet. I started spending more time outside.",
+        "seed_reply": "It sounds like the quietness of the house after your loss led you to find solace in nature. What do you remember about the outdoors becoming a source of comfort for you during that difficult time?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      }
+    ],
+    "today_cycles": [
+      {
+        "label": "today_cycle_1",
+        "narrator_input": "These days I take things slower. I like sitting by the window in the morning.",
+        "lori_reply": "It sounds like simplicity and quiet moments are bringing you peace these days. What do you appreciate most about your mornings, mary, sitting by the window, perhaps the light, the view, or the stillness?",
+        "elapsed_ms": 35649,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=17540ms tts_wait=14455ms tts_done=True",
+          "present-tense marker present"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "today_cycle_2",
+        "narrator_input": "I still think about everything that came before, but I try to stay in the day.",
+        "lori_reply": "It's beautiful that you're acknowledging the past while focusing on the present. It sounds like mindfulness is helping you navigate your thoughts. How do you typically handle the quiet moments when memories or regrets creep in, mary?",
+        "elapsed_ms": 25921,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=8982ms tts_wait=16258ms tts_done=True",
+          "present-tense marker present"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "today_factual": {
+      "label": "today_factual_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "It's beautiful that you're acknowledging the past while focusing on the present. It sounds like mindfulness is helping you navigate your thoughts. How do you typically handle the quiet moments when me",
+      "elapsed_ms": 28252,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=4476ms tts_wait=23132ms tts_done=True"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "late_age_probe": {
+      "label": "late_age_probe",
+      "narrator_input": "How old do you think I am now?",
+      "lori_reply": "Based on your birthdate, February 29, 1940, I believe you are currently 86 years old. Am I correct, mary?",
+      "elapsed_ms": 18817,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=7777ms tts_wait=10351ms tts_done=True",
+        "late age hit (expected=86, found=[86])",
+        "IMPROVEMENT: early probe missed; late probe hit (memory consolidating)"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "pre_restart_recall": {
+      "label": "pre_restart_recall",
+      "question": "what do you know about me",
+      "reply": "What I know about mary so far:\n\nIdentity\n- Name: mary\n- Date of birth: 1940-01-01\n- Place of birth: Minot ND\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none on record yet)\n\nNotes from our conversation\n- Childhood home: Minot ND\n- Education: walked to school\n- Life stage: senior elder\n\nWhat I'm less sure about\n- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.\n- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.\n\n(Based on: profile, session notes.)\n\nYou can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+      "contains_name": true,
+      "contains_dob_or_year": true,
+      "contains_pob": true,
+      "era_stories_in_readback": 2,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "AMBER",
+      "notes": [
+        "only 2/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "spouse_memory_probe": null,
+    "post_restart_recall": {
+      "label": "post_restart_recall",
+      "question": "what do you know about me",
+      "reply": "",
+      "contains_name": false,
+      "contains_dob_or_year": false,
+      "contains_pob": false,
+      "era_stories_in_readback": 0,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "RED",
+      "notes": [
+        "name not recalled",
+        "place of birth not recalled",
+        "only 0/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "today_after_resume": {
+      "label": "post_restart_today_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "",
+      "elapsed_ms": 93279,
+      "severity": "RED",
+      "notes": [
+        "TTS not confirmed finished within 60s of text completion",
+        "text_elapsed=90269ms tts_wait=0ms tts_done=False",
+        "no Lori reply within 90s text-window",
+        "no reply post-restart"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+        "currentEra": null,
+        "state_person_keys": []
+      }
+    },
+    "apilog_signals_per_phase": {
+      "onboard": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 3,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "early_inference": {
+        "extract_attempts": 2,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "lifemap": {
+        "extract_attempts": 7,
+        "extract_summary": 6,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 7,
+        "utterance_frame": 7,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 12,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "today": {
+        "extract_attempts": 3,
+        "extract_summary": 4,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 3,
+        "utterance_frame": 3,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 4,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "late_age": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "recall_pre": {
+        "extract_attempts": 1,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "resume": {
+        "extract_attempts": 0,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 0,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      }
+    },
+    "bb_state_after_onboard": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_correction": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_status_seed": {},
+    "bb_state_after_session1": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_resume": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "c7c3f9b0-85d0-40ca-9df7-b7d4bb515c2c",
+      "currentEra": null,
+      "state_person_keys": []
+    },
+    "memoir_artifacts": [
+      {
+        "phase": "session1_end",
+        "peek_chars": 0,
+        "export_chars": 414,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v7_mary_memoir_export_session1_end.txt"
+      },
+      {
+        "phase": "resume_start",
+        "peek_chars": 0,
+        "export_chars": 399,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v7_mary_memoir_export_resume_start.txt"
+      }
+    ],
+    "severity": "RED",
+    "notes": [
+      "firstName mismatch: got None, expected 'Mary'",
+      "lastName mismatch: got None, expected 'Holts'",
+      "DOB mismatch: got None, expected '1940-02-29'",
+      "POB partial: got '', expected 'Minot, North Dakota'",
+      "Today click failed post-restart",
+      "firstName != Mary",
+      "lastName != Holts",
+      "DOB != 1940-02-29",
+      "post-restart recall RED",
+      "today after resume RED"
+    ]
+  },
+  "marvin": {
+    "plan_key": "marvin",
+    "display_name": "Test_079639",
+    "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+    "onboarding_steps": [
+      {
+        "label": "onboard_name",
+        "narrator_input": "Marvin Mann",
+        "lori_reply": "Welcome, Marvin Mann. I'm so glad to be here to help you build your Life Archive. Knowing when you were born is really helpful for me, as it lets me place your story in history and ask questions that match the world you grew up in. What's your date of birth?",
+        "elapsed_ms": 32808,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=14006ms tts_wait=17987ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "askDob",
+          "basicsComplete": false,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_dob",
+        "narrator_input": "December 6, 1949",
+        "lori_reply": "Marvin, you were born on December 6, 1949. I've got that down. Now, I'd love to know a bit more about where you started your life. Where were you born?",
+        "elapsed_ms": 23624,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=9817ms tts_wait=13066ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "askBirthplace",
+          "basicsComplete": false,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": null,
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "onboard_pob",
+        "narrator_input": "Fargo, North Dakota",
+        "lori_reply": "Type away - whatever feels more natural to you. If you'd like, you can also see my responses come to life as spoken words, but feel free to ignore that if you prefer. As for the camera, it's completely up to you - if you decide to turn it on, it will help me gauge...",
+        "elapsed_ms": 40418,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=22371ms tts_wait=17379ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "status_seed",
+        "narrator_input": "I am a widower now, I still think about my wife every morning.",
+        "lori_reply": "Marvin, I'm so sorry for your loss. It's beautiful that you still think about your wife every morning. That means a lot to her, I'm sure. Shall we continue there, or is there something else you'd like to explore?",
+        "elapsed_ms": 25781,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=9776ms tts_wait=15374ms tts_done=True"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "early_inference_steps": [
+      {
+        "label": "early_age_guess",
+        "narrator_input": "How old do you think I am?",
+        "lori_reply": "Marvin, I can calculate that from your birthdate, but I'd rather you tell me. What do you think your age is?",
+        "elapsed_ms": 14993,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=6529ms tts_wait=7827ms tts_done=True",
+          "age guess miss (expected=76)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "early_residence_guess",
+        "narrator_input": "Where do you think I live now?",
+        "lori_reply": "We talked about your birthplace earlier, Marvin. You were born in Fargo, North Dakota. What do you remember about where you lived during your Earliest Years?",
+        "elapsed_ms": 20411,
+        "severity": "PASS",
+        "notes": [
+          "text_elapsed=7755ms tts_wait=11909ms tts_done=True",
+          "residence: admits-or-asks (good)"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": "earliest_years",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "era_results": [
+      {
+        "era_id": "earliest_years",
+        "era_label": "Earliest Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "earliest_years",
+        "era_prompt_reply": "I have Fargo, North Dakota as your earliest home - what comes to mind when you picture those years there?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "I grew up in a small house where the kitchen was always warm in the winter.",
+        "seed_reply": "The warmth of that small house kitchen in the winters stands out to you, Marvin. What kind of warmth do you associate with that time, was it the fireplace, the oven, or something else that made it cozy?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "early_school_years",
+        "era_label": "Early School Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "early_school_years",
+        "era_prompt_reply": "What do you remember about where you were living during your Early School Years, Marvin?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "I liked arithmetic in school, but I was shy about reading out loud.",
+        "seed_reply": "Arithmetic and reading aloud - two distinct experiences from your early school years. What do you think helped you enjoy arithmetic, was it the teacher, the subject matter, or something else that sparked your interest?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "adolescence",
+        "era_label": "Adolescence",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "adolescence",
+        "era_prompt_reply": "What do you remember about where you were living during your Adolescence, Marvin?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "As a teenager, I worked after school and saved money for an old pickup.",
+        "seed_reply": "You worked hard as a teenager to save money for that old pickup - that shows dedication. What do you remember about your daily routine during those high school years, was there a particular time of day or activity that stands out to you?",
+        "era_anchored": true,
+        "extra_text": "I think that was around 1965\u2026 or maybe a little later.",
+        "extra_reply": "You worked hard as a teenager to save money for that old pickup - that shows dedication. What do you remember about your daily routine during those high school years, was there a particular time of da",
+        "extra_handled_well": true,
+        "severity": "PASS",
+        "notes": []
+      },
+      {
+        "era_id": "coming_of_age",
+        "era_label": "Coming of Age",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "coming_of_age",
+        "era_prompt_reply": "What do you remember about your living situation during your Coming of Age years, Marvin?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "I left home for my first steady job and learned how much responsibility costs.",
+        "seed_reply": "How did you handle them?",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "building_years",
+        "era_label": "Building Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "building_years",
+        "era_prompt_reply": "What do you remember about where you were living during your Building Years, Marvin?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "My wife and I built a life slowly. We bought a house, raised children, and worked hard.",
+        "seed_reply": "\u2026What do you remember about where you were living during your Building Years, Marvin?",
+        "era_anchored": false,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "AMBER",
+        "notes": [
+          "Lori replied but didn't echo any era-fact token in prompt or seed"
+        ]
+      },
+      {
+        "era_id": "later_years",
+        "era_label": "Later Years",
+        "click_log_seen": true,
+        "prompt_log_seen": true,
+        "current_era_after": "later_years",
+        "era_prompt_reply": "What do you remember about your daily life during your Later Years, Marvin, now that you've had time to reflect on your life and accomplishments?",
+        "era_prompt_anchored": false,
+        "era_prompt_question_count": 1,
+        "seed_text": "After my wife died, I kept some of her letters in the top drawer of my desk.",
+        "seed_reply": "Those letters from your wife must hold a special place for you. What do you remember about the daily routines or habits that you and she shared during your Later Years together?",
+        "era_anchored": true,
+        "extra_text": "",
+        "extra_reply": "",
+        "extra_handled_well": null,
+        "severity": "PASS",
+        "notes": []
+      }
+    ],
+    "today_cycles": [
+      {
+        "label": "today_cycle_1",
+        "narrator_input": "Today I keep a simple routine. Coffee, a short walk, and a little time reading.",
+        "lori_reply": "A quiet and peaceful routine sounds comforting. How has that routine changed since your wife passed away, Marvin?",
+        "elapsed_ms": 21565,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=9364ms tts_wait=8507ms tts_done=True",
+          "no clear present-tense marker"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      },
+      {
+        "label": "today_cycle_2",
+        "narrator_input": "I still miss my wife, but I try to notice small good things each day.",
+        "lori_reply": "A quiet and peaceful routine sounds comforting. How has that routine changed since your wife passed away, Marvin?",
+        "elapsed_ms": 25709,
+        "severity": "AMBER",
+        "notes": [
+          "text_elapsed=11432ms tts_wait=13477ms tts_done=True",
+          "no clear present-tense marker"
+        ],
+        "state_after": {
+          "fullName": null,
+          "firstName": null,
+          "lastName": null,
+          "preferredName": null,
+          "dateOfBirth": null,
+          "placeOfBirth": null,
+          "spouse": null,
+          "bb_path": "state.bioBuilder",
+          "bb_probe": [
+            {
+              "path": "state.bioBuilder",
+              "non_null": 0
+            },
+            null,
+            null,
+            null,
+            null
+          ],
+          "identityPhase": "complete",
+          "basicsComplete": true,
+          "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+          "currentEra": "today",
+          "state_person_keys": []
+        }
+      }
+    ],
+    "today_factual": {
+      "label": "today_factual_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "That's beautiful, Marvin. It's clear that you're finding ways to honor your wife's memory and move forward with care. What does it feel like to focus on the small joys in life right now?",
+      "elapsed_ms": 22035,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=4489ms tts_wait=16904ms tts_done=True"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "late_age_probe": {
+      "label": "late_age_probe",
+      "narrator_input": "How old do you think I am now?",
+      "lori_reply": "I can do the math, Marvin. Based on your birthdate, December 6, 1949, I believe you are currently 76 years old.",
+      "elapsed_ms": 19148,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=7740ms tts_wait=10712ms tts_done=True",
+        "late age hit (expected=76, found=[76])",
+        "IMPROVEMENT: early probe missed; late probe hit (memory consolidating)"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+        "currentEra": "today",
+        "state_person_keys": []
+      }
+    },
+    "pre_restart_recall": {
+      "label": "pre_restart_recall",
+      "question": "what do you know about me",
+      "reply": "What I know about Marvin Mann so far:\n\nIdentity\n- Name: Marvin Mann\n- Date of birth: 1949-12-06\n- Place of birth: Fargo, North Dakota\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none on record yet)\n\nNotes from our conversation\n- Childhood home: Fargo, North Dakota\n- Career: worked after school\n- Life stage: elder / retirement years\n\nWhat I'm less sure about\n- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.\n- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.\n\n(Based on: profile, session notes.)\n\nYou can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+      "contains_name": true,
+      "contains_dob_or_year": true,
+      "contains_pob": true,
+      "era_stories_in_readback": 1,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "AMBER",
+      "notes": [
+        "only 1/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "spouse_memory_probe": {
+      "label": "spouse_memory_probe",
+      "narrator_input": "What do you remember about my wife?",
+      "lori_reply": "That she was an important part of your life. You also mentioned that she passed away, and that you keep some of her letters in the top drawer of your desk. Would you like to talk more about her, or share some memories you have of her?",
+      "elapsed_ms": 27959,
+      "severity": "PASS",
+      "notes": [
+        "text_elapsed=12610ms tts_wait=14694ms tts_done=True",
+        "spouse tokens hit: ['letters', 'drawer']/['wife', 'widower', 'letters', 'drawer', 'morning']",
+        "emotional anchoring intact (\u22652 spouse tokens recalled)"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+        "currentEra": "earliest_years",
+        "state_person_keys": []
+      }
+    },
+    "post_restart_recall": {
+      "label": "post_restart_recall",
+      "question": "what do you know about me",
+      "reply": "",
+      "contains_name": false,
+      "contains_dob_or_year": false,
+      "contains_pob": false,
+      "era_stories_in_readback": 0,
+      "era_stories_total": 7,
+      "cross_contamination": false,
+      "onboarding_restart": false,
+      "severity": "RED",
+      "notes": [
+        "name not recalled",
+        "place of birth not recalled",
+        "only 0/7 era stories surfaced in readback (<3) \u2014 this measures whether 'what do you know about me' includes era memories, NOT whether era-click navigation works"
+      ]
+    },
+    "today_after_resume": {
+      "label": "post_restart_today_what_day",
+      "narrator_input": "what day is it",
+      "lori_reply": "",
+      "elapsed_ms": 93278,
+      "severity": "RED",
+      "notes": [
+        "TTS not confirmed finished within 60s of text completion",
+        "text_elapsed=90268ms tts_wait=0ms tts_done=False",
+        "no Lori reply within 90s text-window",
+        "no reply post-restart"
+      ],
+      "state_after": {
+        "fullName": null,
+        "firstName": null,
+        "lastName": null,
+        "preferredName": null,
+        "dateOfBirth": null,
+        "placeOfBirth": null,
+        "spouse": null,
+        "bb_path": "state.bioBuilder",
+        "bb_probe": [
+          {
+            "path": "state.bioBuilder",
+            "non_null": 0
+          },
+          null,
+          null,
+          null,
+          null
+        ],
+        "identityPhase": "complete",
+        "basicsComplete": true,
+        "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+        "currentEra": null,
+        "state_person_keys": []
+      }
+    },
+    "apilog_signals_per_phase": {
+      "onboard": {
+        "extract_attempts": 1,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 3,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "early_inference": {
+        "extract_attempts": 2,
+        "extract_summary": 2,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "lifemap": {
+        "extract_attempts": 7,
+        "extract_summary": 6,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 7,
+        "utterance_frame": 7,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 12,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "today": {
+        "extract_attempts": 3,
+        "extract_summary": 4,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 3,
+        "utterance_frame": 3,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 3,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "late_age": {
+        "extract_attempts": 1,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 0,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "recall_pre": {
+        "extract_attempts": 1,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "spouse_probe": {
+        "extract_attempts": 1,
+        "extract_summary": 1,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 1,
+        "utterance_frame": 1,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 1,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      },
+      "resume": {
+        "extract_attempts": 0,
+        "extract_summary": 0,
+        "life_map_era_click": 0,
+        "life_map_lori_prompt": 0,
+        "story_trigger": 0,
+        "utterance_frame": 0,
+        "era_normalize": 0,
+        "phase_g_disconnect": 0,
+        "ws_connected": 0,
+        "fk_constraint": 0,
+        "send_system_prompt_timeout": 0,
+        "vram_guard": 0,
+        "comm_control_trim": 0,
+        "spantag_flag_on": 0,
+        "value_coerce": 0,
+        "memory_echo": 0,
+        "safety_event": 0
+      }
+    },
+    "bb_state_after_onboard": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_correction": {},
+    "bb_state_after_status_seed": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_session1": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+      "currentEra": "earliest_years",
+      "state_person_keys": []
+    },
+    "bb_state_after_resume": {
+      "fullName": null,
+      "firstName": null,
+      "lastName": null,
+      "preferredName": null,
+      "dateOfBirth": null,
+      "placeOfBirth": null,
+      "spouse": null,
+      "bb_path": "state.bioBuilder",
+      "bb_probe": [
+        {
+          "path": "state.bioBuilder",
+          "non_null": 0
+        },
+        null,
+        null,
+        null,
+        null
+      ],
+      "identityPhase": "complete",
+      "basicsComplete": true,
+      "person_id": "ad228e82-ff15-4452-b579-b087773df980",
+      "currentEra": null,
+      "state_person_keys": []
+    },
+    "memoir_artifacts": [
+      {
+        "phase": "session1_end",
+        "peek_chars": 0,
+        "export_chars": 418,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v7_marvin_memoir_export_session1_end.txt"
+      },
+      {
+        "phase": "resume_start",
+        "peek_chars": 0,
+        "export_chars": 418,
+        "export_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_test23_v7_marvin_memoir_export_resume_start.txt"
+      }
+    ],
+    "severity": "RED",
+    "notes": [
+      "firstName mismatch: got None, expected 'Marvin'",
+      "lastName mismatch: got None, expected 'Mann'",
+      "DOB mismatch: got None, expected '1949-12-06'",
+      "POB partial: got '', expected 'Fargo, North Dakota'",
+      "Today click failed post-restart",
+      "firstName != Marvin",
+      "lastName != Mann",
+      "DOB != 1949-12-06",
+      "post-restart recall RED",
+      "today after resume RED"
+    ]
+  },
+  "cross_isolation_check": null,
+  "final_severity": "RED",
+  "final_failures": [
+    "Mary RED",
+    "Marvin RED"
+  ],
+  "telemetry_path": "/mnt/c/Users/chris/hornelore/docs/reports/test23_two_person_resume_test23_v7.telemetry.json"
+}
