@@ -1,10 +1,10 @@
 # BUG-UI-POSTRESTART-SESSION-START-01 — `session_start` post-restart UI flow blocks resume for both narrators
 
-**Status:** OPEN — pre-parent-session blocker
-**Severity:** RED (blocks every cold-restart resume; affects both Mary and Marvin)
-**Surfaced by:** TEST-23 v6 (2026-05-05)
+**Status:** **REOPENED 2026-05-05 evening with refined hypothesis space.** Earlier same-day premature flip toward BUG-UI-API-BASE-RESET-01 was overfitting — API works correctly in production (manual switch transcripts confirm). The post-restart RED is Playwright-specific, not a production architecture failure. Real diagnostic question now: *after backend restart, does the real production UI restore narrator/interview state correctly, or only the Playwright harness fail?* Three new candidate hypotheses replace the original four (which all assumed production breakage).
+**Severity:** AMBER for production — UNKNOWN until tested manually; RED for harness — blocks v7+ post-restart scoring
+**Surfaced by:** TEST-23 v6 (2026-05-05); refined 2026-05-05 evening after manual transcript review
 **Author:** Chris + Claude (2026-05-05)
-**Lane:** Lane 2 / parent-session blockers (top of queue, sequenced before WO-PROVISIONAL-TRUTH-01 Phase D because Phase D's harness verification depends on resume working)
+**Lane:** Lane 2 / parent-session blockers — priority depends on whether production reproduces (high if yes, harness-cleanup if no)
 
 ---
 
@@ -118,3 +118,46 @@ After this fix lands, re-run TEST-23 to get a clean v7 baseline before continuin
 ## Changelog
 
 - 2026-05-05: Spec authored after v6 evidence + Mary post-restart audit revision. Initial diagnostic plan ranked four hypotheses by confidence; resolution gated on read-only DOM/state capture before any code change.
+
+---
+
+## Refined hypothesis space (2026-05-05 evening, after manual transcript review)
+
+The original four hypotheses (post-session UI state / popover-state race / state hydration race / BB hydration not complete) all assumed the failure was production-side. Manual switch transcripts on the same day showed the real UI working correctly (Lori reads identity, age math works, wife memory comes from session history). So the post-restart RED is likely harness-specific. Three replacement hypotheses:
+
+**H1 — Playwright cold-restart timing differs from real-user reload.** The harness closes the browser context entirely and opens a fresh one with `_select_narrator_by_pid()` immediately. A real user reloading after a backend restart presses F5 on an existing tab; the page-load lifecycle is different. Things that survive an F5 (some in-memory state, cookies, http connection reuse) don't survive a Playwright context.close()/new_context(). Likely cause: harness's `_select_narrator_by_pid()` hits a state path the real UI never exercises.
+
+**H2 — Backend WebSocket session not rebound after restart.** Backend restart breaks all open WebSocket connections. Real users' browser auto-reconnects on next page action (the existing chat_ws router handles reconnect). Playwright might not trigger that auto-reconnect until specific actions fire, and `_select_narrator_by_pid()` may run before the WS reconnects, returning stale state. The `[chat-ws] Phase G: WebSocket disconnected — cancelled in-flight, no stale replay` log entries in api.log between v7 phases support this.
+
+**H3 — Narrator-room session resurrection logic doesn't fully fire under harness conditions.** The narrator-room has session resurrection logic (load latest session for this pid, restore turn count, restore era state, etc.) that may depend on certain DOM events or page lifecycle hooks. Playwright's `page.goto()` + `_select_narrator_by_pid()` + `_close_popovers()` may skip events the real UI relies on.
+
+## Diagnostic plan (revised)
+
+**Step 1 — manual cold-restart reproduction.** Run a real-browser test: start Marvin's session pre-restart in a regular browser, do some interview turns, wrap session, stop the backend stack, start it again, refresh the page. Does the narrator session restore correctly? If yes → bug is harness-specific (H1). If no → production has a real issue that needs investigation.
+
+**Step 2 — if production reproduces:** capture DOM tree + state snapshot at the failure point in the real browser, compare to working pre-restart state. Same diagnostic as the original spec planned.
+
+**Step 3 — if production does NOT reproduce:** narrow to harness fix. Likely candidates: increase post-context-restart wait time, add explicit WebSocket-reconnect probe before `session_start()`, add explicit page-event wait (e.g., wait for `state.session.identityPhase === "complete"` via `page.evaluate()` polling) instead of fixed timeouts.
+
+## Acceptance gate (revised)
+
+**If production reproduces (H2/H3):** real-user cold-restart resume succeeds for both narrators. Lori reads identity correctly post-restart. session_start UI buttons render reliably.
+
+**If only harness reproduces (H1):** TEST-23 v8 post-restart phase reaches scoring (PASS/AMBER/RED on actual Lori behavior, not on missing buttons). The fix is in `scripts/ui/run_test23_two_person_resume.py:_restart_browser_and_resume()` — likely a wait-for-state-complete probe rather than fixed timeouts.
+
+## Sequencing (revised)
+
+The first action is the manual reproduction in step 1. Cheap (~5 min) and tells us whether this is parent-session-blocking (production bug) or harness-only (cleanup). Don't write any code until that's known.
+
+If production reproduces → top of Track 1.
+If harness-only → low priority, harness fix anytime.
+
+## What changed from the original spec
+
+The original spec's four hypotheses were all about the UI being in a wrong state (post-session view, popover-state race, etc.). Those are still possible but the manual transcripts make them less likely — real users go through the same UI states the harness goes through, and real users get working sessions. The remaining hypothesis space is about the *harness's specific path* through that UI, which differs from real-user navigation in ways that may matter (Playwright context close, WebSocket reconnect timing, page-event lifecycle).
+
+The original spec is preserved above this section for reference.
+
+## Cross-references
+
+- **BUG-UI-API-BASE-RESET-01** — initially flipped to "actual root cause," reverted to "production hardening" after Chris pointed out the 404s only appeared in Playwright runs. Mistake captured in that spec's status block as a discipline note: don't promote a single log signal to "actual root cause" without checking whether the real production traffic shows the same symptom.
