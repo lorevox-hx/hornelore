@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db, flags
+
+logger = logging.getLogger(__name__)
 from ..db import save_section_summary, get_interview_progress
 from ..archive import (
     ensure_session as archive_ensure_session,
@@ -471,8 +475,30 @@ def _identity_complete(person: dict, profile_basics: dict) -> bool:
     return name_ok and dob_ok and pob_ok
 
 
-def _build_opener_text(kind: str, name: str) -> str:
-    """Compose the opener utterance Lori should say as her first turn."""
+def _build_opener_text(
+    kind: str,
+    name: str,
+    *,
+    person_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    last_era_id: Optional[str] = None,
+) -> str:
+    """Compose the opener utterance Lori should say as her first turn.
+
+    Args:
+      kind: "first_time" | "welcome_back" | "onboarding_incomplete"
+      name: best-available greeting name (preferred / first / fullName)
+      person_id: optional, used by Phase 2 continuation paraphrase composer
+      session_id: optional, used by Phase 2 continuation paraphrase composer
+                  (Slice 2b — currently unused; reserved for transcript-
+                  grounded story-anchor extraction once Phase 1c lands)
+      last_era_id: optional canonical era_id from state.session.currentEra.
+                   When passed AND HORNELORE_CONTINUATION_PARAPHRASE=1,
+                   the welcome_back kind routes through
+                   compose_continuation_paraphrase() Tier C (era-aware).
+                   When absent OR flag off, falls back to the legacy
+                   bare welcome-back template.
+    """
     safe_name = name or "friend"
     if kind == "first_time":
         return (
@@ -484,6 +510,29 @@ def _build_opener_text(kind: str, name: str) -> str:
             "What would you like to start with?"
         )
     if kind == "welcome_back":
+        # WO-BUG-LORI-SWITCH-FRESH-GREETING-01 Phase 2 Slice 2a (2026-05-05):
+        # When HORNELORE_CONTINUATION_PARAPHRASE=1 AND person_id is
+        # available, route through the four-tier cascade composer for
+        # an era-aware greeting. Falls back to the legacy bare welcome-
+        # back on any failure (Tier D byte-stable with the template
+        # below). Default off keeps behavior identical to pre-Slice-2a.
+        if (
+            os.getenv("HORNELORE_CONTINUATION_PARAPHRASE", "0") == "1"
+            and person_id
+        ):
+            try:
+                from ..prompt_composer import compose_continuation_paraphrase
+                return compose_continuation_paraphrase(
+                    person_id=person_id,
+                    session_id=session_id,
+                    last_era_id=last_era_id,
+                    name_hint=safe_name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[opener] continuation paraphrase failed; "
+                    "falling back to bare welcome-back: %s", exc
+                )
         return (
             f"Welcome back, {safe_name}. Where would you like to continue today?"
         )
@@ -493,7 +542,11 @@ def _build_opener_text(kind: str, name: str) -> str:
 
 
 @router.get("/opener", response_model=OpenerResponse)
-def get_opener(person_id: str) -> OpenerResponse:
+def get_opener(
+    person_id: str,
+    last_era_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> OpenerResponse:
     """Return a narrator-aware first-turn opener for Lori.
 
     Frontend should call this when a narrator card is opened, before
@@ -501,6 +554,16 @@ def get_opener(person_id: str) -> OpenerResponse:
     first utterance. An empty `opener_text` with
     `kind="onboarding_incomplete"` tells the frontend to skip the
     injected greeting and let the existing onboarding prompt path run.
+
+    WO-BUG-LORI-SWITCH-FRESH-GREETING-01 Phase 2 Slice 2a:
+      Optional ?last_era_id=<canonical_era_id> query param. When passed
+      AND the kind resolves to "welcome_back" AND
+      HORNELORE_CONTINUATION_PARAPHRASE=1 server-side, the response
+      uses the era-aware Tier C continuation greeting. Frontend can
+      pass state.session.currentEra; legacy keys are accepted (the
+      composer canonicalizes via lv_eras.legacy_key_to_era_id).
+      Optional ?session_id reserved for Slice 2b transcript grounding;
+      currently unused.
 
     Never raises for a missing-but-valid person_id; returns 404 only
     when the narrator record itself cannot be found. Returns an empty
@@ -533,7 +596,13 @@ def get_opener(person_id: str) -> OpenerResponse:
     else:
         kind = "welcome_back"
 
-    opener_text = _build_opener_text(kind, name)
+    opener_text = _build_opener_text(
+        kind,
+        name,
+        person_id=person_id,
+        session_id=session_id,
+        last_era_id=last_era_id,
+    )
 
     return OpenerResponse(
         person_id=person_id,

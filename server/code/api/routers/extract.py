@@ -4774,9 +4774,45 @@ _NAME_STOPWORD_BLOCKLIST = frozenset({
     "today", "yesterday", "tomorrow", "earlier", "later",
     # Filler / acks
     "yes", "no", "maybe", "sure", "right", "really", "actually",
+    # BUG-EX-DISCOURSE-AS-NAME-01 (2026-05-06): negation/uncertainty words
+    # that begin a refusal phrase. Live evidence: Mary said "i am not
+    # sure what day is it" → _NAME_FULL captured "not sure what day"
+    # → first token "not" was not blocked → emitted as fullName candidate
+    # → Shadow Review noise. With these added, "not"/"don't"/etc. as
+    # the FIRST token of a captured name dropped at the first-token gate.
+    "not", "don't", "dont", "can't", "cant", "won't", "wont",
+    "shouldn't", "shouldnt", "haven't", "havent", "didn't", "didnt",
+    "isn't", "isnt", "aren't", "arent", "doesn't", "doesnt",
     # Pronouns the rules path occasionally captures
     "he", "she", "they", "we", "i",
 })
+
+# BUG-EX-DISCOURSE-AS-NAME-01 (2026-05-06): substring-level guard for
+# common refusal / uncertainty / non-answer phrases that the first-token
+# blocklist alone can't catch. Examples:
+#   "I am not really sure" → captured "not really sure" → first token
+#                            "not" already blocked, but defense-in-depth
+#   "My name is uh I don't know" → captured "uh I don't know" → first
+#                                  token "uh" blocked, but if pattern
+#                                  shifts (e.g. "called Don't Know"),
+#                                  the regex catches the phrase
+# Pattern matches anywhere in the captured value, case-insensitive.
+# Also catches "what day", "what time", "who knows", etc. — questions
+# the narrator was asking back, not name candidates.
+_NAME_DISCOURSE_FRAGMENT_RX = re.compile(
+    r"\b("
+    r"not\s+sure|"
+    r"don'?t\s+know|"
+    r"no\s+idea|"
+    r"who\s+knows|"
+    r"can'?t\s+remember|"
+    r"can'?t\s+recall|"
+    r"haven'?t\s+(?:said|told|decided)|"
+    r"what\s+(?:day|time|date|year|month|week)|"
+    r"i\s+(?:dunno|donno)"
+    r")\b",
+    re.IGNORECASE,
+)
 
 # FIX-6a: Parent name regex — limit to first name + at most 2 last name words.
 # The old pattern used *? (lazy) which could still capture middle names when the
@@ -6847,6 +6883,13 @@ def _extract_via_rules(
         if _first_tok and _first_tok in _NAME_STOPWORD_BLOCKLIST:
             logger.info(
                 "[extract][NAME-BLOCKLIST] dropped fullName candidate value=%r reason=stopword_first_token",
+                _captured,
+            )
+        elif _NAME_DISCOURSE_FRAGMENT_RX.search(_captured):
+            # BUG-EX-DISCOURSE-AS-NAME-01: defense-in-depth substring
+            # guard for refusal / uncertainty / question fragments
+            logger.info(
+                "[extract][NAME-BLOCKLIST] dropped fullName candidate value=%r reason=discourse_fragment",
                 _captured,
             )
         else:

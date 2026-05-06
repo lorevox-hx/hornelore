@@ -1302,6 +1302,110 @@ def _trim_to_one_question(text: str) -> Tuple[str, bool, str]:
     return head + bridge, True, reason
 
 
+def compose_continuation_paraphrase(
+    person_id: str,
+    *,
+    session_id: Optional[str] = None,
+    last_era_id: Optional[str] = None,
+    name_hint: Optional[str] = None,
+) -> str:
+    """Build a deterministic active-listening continuation greeting for a
+    returning narrator. Mirrors compose_memory_echo's pattern: pure-
+    deterministic, no LLM call, no DB write.
+
+    Tier cascade (Slice 2a — landed 2026-05-05; Tier A+B reserved for
+    Slice 2b after WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1c lands):
+
+      Tier A — era + story stub + unfinished thread → full paraphrase
+               (Slice 2b — currently degrades to Tier B/C/D)
+      Tier B — era + story stub                     → no-thread paraphrase
+               (Slice 2b — currently degrades to Tier C)
+      Tier C — era only                             → era-aware welcome-back
+               (Slice 2a — landed)
+      Tier D — no era, no story stub                → bare welcome-back fallback
+               (Slice 2a — landed; matches the legacy interview.py:486-489
+                template byte-for-byte so default-off behavior is stable)
+
+    Args:
+      person_id: narrator id used to look up identity scaffold.
+      session_id: optional session id for transcript-grounded context
+                  (consumed by Tier B+ in Slice 2b; ignored in Slice 2a).
+      last_era_id: canonical era_id from state.session.currentEra
+                   (passed by frontend opener call). Used by Tier C.
+      name_hint: optional preferred name from upstream caller; takes
+                 precedence over identity scaffold lookup.
+
+    Returns a non-empty string suitable as opener_text. Always degrades
+    gracefully — Tier D guarantees a fallback.
+
+    Pure-stdlib + lazy imports of services. LAW 3 — does NOT import from
+    extract / chat_ws / llm_api.
+
+    Behind HORNELORE_CONTINUATION_PARAPHRASE flag at the caller site
+    (interview.py:_build_opener_text). When the flag is off, the legacy
+    interview.py:486-489 bare welcome-back fires — byte-stable with
+    Tier D below.
+    """
+    # ── 1. Resolve narrator name ──────────────────────────────────────
+    name = ""
+    if name_hint and isinstance(name_hint, str) and name_hint.strip():
+        name = name_hint.strip()
+    if not name and person_id:
+        try:
+            seed = _build_profile_seed(person_id) or {}
+            preferred = (seed.get("preferred_name") or "").strip()
+            full = (seed.get("full_name") or "").strip()
+            if preferred:
+                name = preferred
+            elif full:
+                name = full.split()[0] if full.split() else full
+        except Exception as exc:
+            logger.warning(
+                "[continuation-paraphrase] profile_seed lookup failed; "
+                "falling back to bare welcome-back: %s", exc
+            )
+    safe_name = name or "friend"
+
+    # ── 2. Resolve warm era phrase (Tier C signal) ────────────────────
+    warm_era_phrase: Optional[str] = None
+    if last_era_id:
+        try:
+            from .lv_eras import era_id_to_continuation_phrase
+            warm_era_phrase = era_id_to_continuation_phrase(last_era_id)
+        except Exception as exc:
+            logger.warning(
+                "[continuation-paraphrase] era phrase lookup failed: %s", exc
+            )
+            warm_era_phrase = None
+
+    # ── 3. Tier selection ─────────────────────────────────────────────
+    # Slice 2a ships Tier C + Tier D only.
+    # Slice 2b will add Tier A + Tier B once Phase 1c data feed lands
+    # (peek_at_memoir.summarize_for_runtime.recent_turns_by_era + the
+    # new db.get_last_lori_question_with_response_state accessor).
+
+    if warm_era_phrase:
+        # Tier C — era-aware welcome-back
+        # Special-case the "today" phrase to avoid awkward "in today" —
+        # render as "we were talking about today" which reads natural.
+        if warm_era_phrase == "today":
+            return (
+                f"Welcome back, {safe_name}. Last time we were talking "
+                f"about today. Would you like to continue there, or "
+                f"start somewhere else?"
+            )
+        return (
+            f"Welcome back, {safe_name}. Last time we were in "
+            f"{warm_era_phrase}. Would you like to continue there, "
+            f"or start somewhere else?"
+        )
+
+    # Tier D — bare welcome-back (regression-safe fallback; matches
+    # legacy interview.py:486-489 byte-for-byte so flag-off path is
+    # byte-stable)
+    return f"Welcome back, {safe_name}. Where would you like to continue today?"
+
+
 def compose_memory_echo(
     text: str,
     runtime: Optional[Dict[str, Any]] = None,

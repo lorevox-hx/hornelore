@@ -198,6 +198,43 @@ def era_id_to_lori_focus(era_id: Optional[str]) -> str:
     return e["loriFocus"] if e else ""
 
 
+# Sentence-shaped warm phrases for use INSIDE Lori's narrator-facing
+# prose — fit naturally in templates like "Last time we were in {phrase}…"
+# Distinct from era_id_to_warm_label which returns the title-cased label
+# ("Earliest Years") suitable for headings, NOT inside a sentence.
+#
+# Used by WO-BUG-LORI-SWITCH-FRESH-GREETING-01 Phase 2 continuation
+# paraphrase composer (Slice 2a — Tier C era-only template).
+_LV_ERA_CONTINUATION_PHRASES: Dict[str, str] = {
+    "earliest_years":     "the years before you started school",
+    "early_school_years": "your early school years",
+    "adolescence":        "your adolescence",
+    "coming_of_age":      "the years when you were coming of age",
+    "building_years":     "your building years",
+    "later_years":        "the later years",
+    "today":              "today",
+}
+
+
+def era_id_to_continuation_phrase(era_id: Optional[str]) -> Optional[str]:
+    """Return a sentence-shaped warm phrase for an era_id, suitable for
+    inclusion inside Lori's narrator-facing prose. Returns None when
+    era_id is unknown so callers can degrade gracefully (e.g. fall back
+    to a bare "Welcome back, {name}." template).
+
+    Examples:
+      era_id_to_continuation_phrase("earliest_years") → "the years before you started school"
+      era_id_to_continuation_phrase("building_years") → "your building years"
+      era_id_to_continuation_phrase("today")          → "today"
+      era_id_to_continuation_phrase(None)             → None
+      era_id_to_continuation_phrase("unknown_era")    → None
+    """
+    canonical = legacy_key_to_era_id(era_id)
+    if canonical is None:
+        return None
+    return _LV_ERA_CONTINUATION_PHRASES.get(canonical)
+
+
 def era_id_from_age(age: Union[int, float, str, None]) -> Optional[str]:
     """Map age in years to a canonical era_id.
 
@@ -265,6 +302,7 @@ __all__ = [
     "era_id_to_warm_label",
     "era_id_to_memoir_title",
     "era_id_to_lori_focus",
+    "era_id_to_continuation_phrase",
     "era_id_from_age",
     "era_id_from_year",
     "all_eras",
