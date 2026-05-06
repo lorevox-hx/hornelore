@@ -93,3 +93,8 @@ server/data/memory/
 
 # ── Word temp files (created while .docx is open) ──
 ~$*
+
+# TEST-23 harness Playwright artifacts (regenerated per run; structured
+# reports in docs/reports/test23_*.{json,md,csv,txt} carry the evidence)
+docs/reports/test23_*_*.downloads/
+docs/reports/test23_*_*.screenshots/
