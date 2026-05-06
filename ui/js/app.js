@@ -969,9 +969,15 @@ function _lvInterviewSelectEra(eid) {
         + "the era explicitly: you may name it directly (e.g. 'During "
         + "your " + warmLabel.toLowerCase() + "...' or 'In your "
         + warmLabel.toLowerCase() + " years...') so the narrator hears "
-        + "you connect to the specific period they chose. Maximum 55 "
-        + "words. ONE question only. No menu choices. No 'or we could' "
-        + "phrasing. No compound 'and how / and what' follow-ups.]");
+        + "you connect to the specific period they chose. "
+        + "BUG-LORI-ERA-FRAGMENT-COHERENCE-01 (2026-05-06): your question "
+        + "MUST be a complete sentence — start with a wh-word (What, "
+        + "Where, When, Who, How, Why) OR an auxiliary verb (Did, Were, "
+        + "Was, Had, Could) followed by a subject. A noun-phrase fragment "
+        + "ending in '?' (like 'The conversations you had?' or 'The "
+        + "changes during that time?') is NOT a question — write a full "
+        + "sentence with subject and verb. Aim for 12-55 words. ONE "
+        + "question only. No menu choices.]");
     try {
       sendSystemPrompt(directive);
       console.info("[life-map][era-click] Lori prompt dispatched for era=" + canonical);
@@ -1768,6 +1774,14 @@ const TURN_MEMORY_ECHO = "memory_echo";
 const TURN_CORRECTION  = "correction";
 const TURN_CLARIFY     = "clarify";
 const TURN_TRAINER     = "trainer";
+// BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): deterministic age-question
+// route. v8 evidence: both narrators dodged late-age questions with "Is
+// there something else on your mind?" because the LLM had to infer age
+// from DOB + today across a long context window and either failed
+// inference or over-deflected on personal data. New route bypasses the
+// LLM entirely — uses age_years from profile_seed via the chat_ws
+// memory_echo-style branch (compose_age_recall in prompt_composer).
+const TURN_AGE_RECALL  = "age_recall";
 
 function _lvText(s){
   return String(s || "").trim();
@@ -1855,8 +1869,31 @@ function _looksLikeCorrection(text){
   return _looksLikeStrongCorrection(text) || _looksLikeWeakCorrectionAfterEcho(text);
 }
 
+// BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): age-question intent detector.
+// Strong shape so we don't false-positive on biographical statements
+// like "I was old enough to know better". Requires explicit age-asking
+// pattern: "how old", "what is my age", "when was I born", "what's my
+// birthday", or DOB-asking variants.
+function _looksLikeAgeQuestion(text){
+  const t = _lvText(text).toLowerCase();
+  if (!t) return false;
+  return (
+    /\bhow\s+old\s+(am|are|do|would|will|might)\s+i\b/.test(t) ||
+    /\bwhat\s+(is|'s|was)\s+my\s+age\b/.test(t) ||
+    /\bdo\s+you\s+know\s+(my\s+age|how\s+old\s+i\s+am)\b/.test(t) ||
+    /\bwhen\s+(was|were)\s+i\s+born\b/.test(t) ||
+    /\bwhat\s+(is|'s|was)\s+my\s+(date\s+of\s+birth|birthday|dob)\b/.test(t) ||
+    /\bdo\s+you\s+(know|remember)\s+my\s+(birthday|date\s+of\s+birth|dob)\b/.test(t) ||
+    /\b(how\s+old|my\s+age|my\s+birthday|when\s+i\s+was\s+born)\s*\?/.test(t)
+  );
+}
+
 function lvRouteTurn(text){
   if (_looksLikeMemoryEchoRequest(text)) return TURN_MEMORY_ECHO;
+  // Age-question intent fires TURN_AGE_RECALL regardless of prior turn.
+  // v8 dodge "Is there something else on your mind?" was the LLM
+  // deflecting; a deterministic route bypasses LLM drift entirely.
+  if (_looksLikeAgeQuestion(text)) return TURN_AGE_RECALL;
   // Strong correction markers fire TURN_CORRECTION regardless of prior
   // turn mode — narrators correct themselves mid-conversation, not just
   // after memory_echo readbacks. BUG-LORI-MIDSTREAM-CORRECTION-01 Phase 2.
