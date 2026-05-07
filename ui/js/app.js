@@ -6210,13 +6210,36 @@ function toggleRecording(){
   //
   // Phases B/C/D layer visual polish (Send/Cancel buttons, confidence
   // overlay, vertical expansion) on top of this trigger wiring.
-  var _modalDisabled = false;
-  try { _modalDisabled = (localStorage.getItem("lv_mic_modal_disabled") === "1"); } catch (_) {}
+  // BUG-LORI-MIC-MODAL-DROP+CHATINPUT-AUTOGROW-01 (2026-05-07):
+  // Phase A's FocusCanvas mic-modal routing is now DEFAULT-OFF.
+  //
+  // Why: live test 2026-05-07 showed the modal opening with a
+  // "Listening…" placeholder but never rendering captured speech in
+  // its fcTranscript pane (root cause to be diagnosed separately —
+  // recognition.onresult interceptor in FocusCanvas._hookRecognition
+  // is racing with the WhisperSTT engine swap path). On a smaller
+  // laptop viewport the bottom of the modal is also clipped, so the
+  // narrator can't even see the "Listening…" indicator.
+  //
+  // Chris's directive (verbatim 2026-05-07): "drop the modal and fix
+  // the text area so we can see the bottom as the text grows." The
+  // textarea fix is the companion CSS / setv autogrow patch in this
+  // commit. The modal itself stays in tree (preserved code surface
+  // for a future Whisper-modal redesign) but mic clicks now route
+  // STRAIGHT to startRecording, which appends speech text directly
+  // into #chatInput where it auto-grows + auto-scrolls-to-bottom.
+  //
+  // Operator escape hatch (re-enable for development / testing):
+  //   localStorage.setItem("lv_mic_modal_enabled", "1");
+  //   location.reload();
+  // Or remove to revert to default-off.
+  var _modalEnabled = false;
+  try { _modalEnabled = (localStorage.getItem("lv_mic_modal_enabled") === "1"); } catch (_) {}
   var _modalAvailable = typeof FocusCanvas !== "undefined" &&
                         typeof FocusCanvas.open === "function" &&
                         typeof FocusCanvas.isOpen === "function";
-  if (!_modalDisabled && _modalAvailable && !FocusCanvas.isOpen() && !isRecording) {
-    console.log("[mic-modal] routing mic-button click through FocusCanvas (Phase A)");
+  if (_modalEnabled && _modalAvailable && !FocusCanvas.isOpen() && !isRecording) {
+    console.log("[mic-modal] routing mic-button click through FocusCanvas (lv_mic_modal_enabled=1)");
     try {
       FocusCanvas.open("mic");
       return;
@@ -7917,7 +7940,46 @@ stopRecording = function() {
    UTILITIES
 ═══════════════════════════════════════════════════════════════ */
 function getv(id){ const el=document.getElementById(id); return el?el.value:""; }
-function setv(id,v){ const el=document.getElementById(id); if(el&&v!==undefined) el.value=v||""; }
+function setv(id,v){
+  const el=document.getElementById(id);
+  if(el&&v!==undefined) el.value=v||"";
+  // BUG-LORI-MIC-MODAL-DROP+CHATINPUT-AUTOGROW-01 (2026-05-07):
+  // Programmatic value changes (e.g. recognition.onresult appending
+  // speech text via setv("chatInput", ...)) do NOT trigger the inline
+  // oninput handler. Without this hook, the textarea's height stayed
+  // at the row=1 baseline + content grew past max-height + bottom
+  // got clipped. Symptom: laptop test where narrator dictated several
+  // sentences and could not see the latest one. The autogrow helper
+  // is idempotent — recalculates height from scrollHeight + scrolls
+  // to bottom so the most recent content is always visible.
+  if (id === "chatInput" && el && typeof _chatInputAutogrow === "function") {
+    try { _chatInputAutogrow(el); } catch (_) {}
+  }
+}
+
+// BUG-LORI-MIC-MODAL-DROP+CHATINPUT-AUTOGROW-01 (2026-05-07):
+// Single source of truth for chatInput resize behavior. Called from:
+//   - the inline oninput handler in hornelore1.0.html (typing path)
+//   - setv("chatInput", ...) above (speech-append + programmatic
+//     state restore paths)
+//   - any future caller that mutates chatInput.value directly
+// Behavior:
+//   1. reset height to "auto" so scrollHeight reflects actual content
+//   2. set height to scrollHeight (CSS max-height: min(40vh, 240px)
+//      caps at viewport-responsive ceiling)
+//   3. scroll to bottom so the latest content is always visible —
+//      THIS IS THE LOAD-BEARING PIECE that fixes the 2026-05-07
+//      laptop regression where narrators couldn't see what they were
+//      saying as text grew past the visible region.
+function _chatInputAutogrow(el) {
+  el = el || document.getElementById("chatInput");
+  if (!el) return;
+  try {
+    el.style.height = "auto";
+    el.style.height = (el.scrollHeight) + "px";
+    el.scrollTop = el.scrollHeight;
+  } catch (_) {}
+}
 function esc(s){ const d=document.createElement("div"); d.textContent=String(s||""); return d.innerHTML; }
 function escAttr(s){ return String(s||"").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 function ctype(){ return {"Content-Type":"application/json"}; }

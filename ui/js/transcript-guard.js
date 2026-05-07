@@ -153,6 +153,14 @@
     lt.confirmation_required = !!fields.confirmation_required;
     lt.confirmation_prompt   = fields.confirmation_prompt || null;
     lt.turn_id               = fields.turn_id || null;
+    // WO-ML-03B (Phase 3 of the multilingual project, 2026-05-07):
+    // ISO-639-1 language code detected by the STT engine. WhisperSTT
+    // emits this on each result event; Web Speech currently doesn't,
+    // so this stays null on the legacy path. Threaded through to the
+    // chat WS payload so chat_ws.py can persist language on each
+    // archive turn + story_candidate row + projection write.
+    lt.language              = fields.language || null;
+    lt.language_probability  = (typeof fields.language_probability === "number") ? fields.language_probability : null;
     lt.ts                    = _now();
   }
 
@@ -185,14 +193,27 @@
     var normalized = (typeof opts.normalize === "function")
       ? opts.normalize(rawFinal) : rawFinal;
     var flags = classifyFragileFacts(normalized);
+    // WO-ML-03B (Phase 3 multilingual, 2026-05-07): when the engine is
+    // WhisperSTT, the synthetic event carries `language` /
+    // `languageProbability` extension fields (per
+    // ui/js/whisper-stt.js:_dispatchResult). When the engine is the
+    // browser's Web Speech API, those fields are absent — we default
+    // to null and chat_ws.py treats null as "unknown / unspecified."
+    // The `source` field already distinguishes which engine produced
+    // the transcript.
+    var detectedLang  = (e && typeof e.language === "string") ? e.language : null;
+    var detectedProb  = (e && typeof e.languageProbability === "number") ? e.languageProbability : null;
+    var engineSource  = (e && (e.engine || e.source)) ? String(e.engine || e.source) : "web_speech";
     var staged = {
-      raw_text:            rawFinal,
-      normalized_text:     normalized,
-      source:              "web_speech",
-      is_final:            true,
-      confidence:          confFinal,
-      fragile_fact_flags:  flags,
-      turn_id:             opts.turnId || null,
+      raw_text:             rawFinal,
+      normalized_text:      normalized,
+      source:               engineSource,
+      is_final:             true,
+      confidence:           confFinal,
+      fragile_fact_flags:   flags,
+      turn_id:              opts.turnId || null,
+      language:             detectedLang,
+      language_probability: detectedProb,
     };
     staged.confirmation_required = shouldConfirm(staged);
     _stageTranscript(staged);
@@ -270,6 +291,10 @@
         normalized_text:      sendText || "",
         fragile_fact_flags:   classifyFragileFacts(sendText || ""),
         confirmation_required:false,
+        // WO-ML-03B: stale transcript loses language signal; null
+        // tells chat_ws "unknown" rather than echoing a stale code.
+        language:             null,
+        language_probability: null,
       };
     }
     var needle = (lt.normalized_text || "").trim().toLowerCase();
@@ -282,6 +307,10 @@
         normalized_text:      sendText || "",
         fragile_fact_flags:   classifyFragileFacts(sendText || ""),
         confirmation_required:false,
+        // WO-ML-03B: hand-edited content; the staged language no
+        // longer reliably describes what the user is sending.
+        language:             null,
+        language_probability: null,
       };
     }
     // Full or prefix match — use staged transcript. Re-classify flags
@@ -294,6 +323,10 @@
       raw_text:             lt.raw_text || sendText || "",
       normalized_text:      sendText || lt.normalized_text || "",
       fragile_fact_flags:   flags,
+      // WO-ML-03B: passthrough the detected language for the chat
+      // WS payload + downstream archive/story persistence.
+      language:             lt.language || null,
+      language_probability: (typeof lt.language_probability === "number") ? lt.language_probability : null,
     };
     out.confirmation_required = shouldConfirm(out);
     return out;
@@ -321,6 +354,24 @@
         confirmation_required:!!s.lastTranscript.confirmation_required,
       };
     }
+    // WO-ML-03B (Phase 3 multilingual, 2026-05-07): also surface the
+    // ISO-639-1 language detected by WhisperSTT (or null on Web Speech).
+    // chat_ws.py threads this into archive.append_event(language=...)
+    // and story_preservation.preserve_turn(language=...) so each
+    // transcript turn + story_candidate row carries language metadata.
+    var lang = null;
+    var langProb = null;
+    if (t && typeof t.language === "string") {
+      lang = t.language;
+      langProb = (typeof t.language_probability === "number") ? t.language_probability : null;
+    } else {
+      var s2 = _safeState();
+      if (s2 && s2.lastTranscript) {
+        lang     = s2.lastTranscript.language || null;
+        langProb = (typeof s2.lastTranscript.language_probability === "number")
+          ? s2.lastTranscript.language_probability : null;
+      }
+    }
     return {
       transcript_source:      t.source || null,
       transcript_confidence:  (typeof t.confidence === "number") ? t.confidence : null,
@@ -328,6 +379,8 @@
       normalized_transcript:  t.normalized_text || null,
       fragile_fact_flags:     Array.isArray(t.fragile_fact_flags) ? t.fragile_fact_flags.slice() : [],
       confirmation_required:  !!t.confirmation_required,
+      transcript_language:    lang,
+      transcript_language_probability: langProb,
     };
   }
 
@@ -361,6 +414,8 @@
     s.lastTranscript.confirmation_required = false;
     s.lastTranscript.confirmation_prompt   = null;
     s.lastTranscript.turn_id               = null;
+    s.lastTranscript.language              = null;
+    s.lastTranscript.language_probability  = null;
     s.lastTranscript.ts                    = 0;
   }
 

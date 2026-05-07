@@ -582,8 +582,22 @@
       color: #e2e8f0;
       outline: none;
       resize: none;
-      overflow: hidden;
-      max-height: 128px;
+      /* BUG-LORI-MIC-MODAL-DROP+CHATINPUT-AUTOGROW-01 (2026-05-07):
+         was `overflow: hidden; max-height: 128px;` — when the
+         textarea grew past 128px (long dictation OR small viewport),
+         the bottom of the content was clipped silently because
+         overflow was hidden. Live evidence: laptop test where
+         narrator dictated 3-4 sentences and could not see the most
+         recent sentence — it had grown past the cap and was stuck
+         off-screen below the visible textarea.
+         Fix: overflow-y:auto so a scrollbar shows when needed AND
+         the textarea height is responsive to viewport (40vh on
+         taller screens, hard-capped at 240px so it doesn't push the
+         chat above off-screen on tiny windows). The
+         _chatInputAutogrow() helper in app.js scrolls to the bottom
+         after every value change so the latest text stays visible. */
+      overflow-y: auto;
+      max-height: min(40vh, 240px);
       font-size: 15px;
       font-family: inherit;
       line-height: 1.5;
@@ -3339,7 +3353,7 @@
         rows="1"
         placeholder="Type or speak…"
         onkeydown="onChatKey(event)"
-        oninput="this.style.height='auto'; this.style.height=(this.scrollHeight)+'px'; if(typeof _wo10hOnNarratorActivity==='function') _wo10hOnNarratorActivity();"
+        oninput="if(typeof _chatInputAutogrow==='function') _chatInputAutogrow(this); else { this.style.height='auto'; this.style.height=(this.scrollHeight)+'px'; this.scrollTop=this.scrollHeight; } if(typeof _wo10hOnNarratorActivity==='function') _wo10hOnNarratorActivity();"
       ></textarea>
 
       <!-- Status dot — replaces text badge; pulses while thinking -->

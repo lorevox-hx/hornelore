@@ -92,6 +92,13 @@ let state = {
     confirmation_required: false,
     confirmation_prompt:   null,
     turn_id:               null,
+    // WO-ML-03B (Phase 3 multilingual, 2026-05-07): ISO-639-1 language
+    // detected by the STT engine (WhisperSTT emits this; Web Speech
+    // doesn't, so it stays null on the legacy path). Threaded into
+    // the chat WS payload so chat_ws.py persists language on each
+    // archive turn + story_candidate row.
+    language:              null,
+    language_probability:  null,
     ts:                    0,
   },
 

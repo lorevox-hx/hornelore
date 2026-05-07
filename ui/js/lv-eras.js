@@ -193,14 +193,94 @@
     return raw;
   }
 
-  function eraIdToWarmLabel(id) {
-    var eraId = legacyKeyToEraId(id);
-    var era = _findById(eraId);
-    return era ? era.label : (id ? String(id) : "");
+  /* WO-ML-03A (Phase 3 of the multilingual project, 2026-05-07) —
+     locale-aware era warm labels + memoir titles. Mirrors the backend
+     dicts in server/code/api/lv_eras.py exactly; keep the two in sync.
+
+     Default locale ('en') falls through to the canonical LV_ERAS
+     entries above, preserving byte-stable behavior for every existing
+     caller that doesn't pass a locale arg.
+
+     Adding a new locale: drop a key into all three dicts (LABELS,
+     MEMOIR_TITLES, CONTINUATION_PHRASES) covering all seven era_ids.
+     The lookups fall back to 'en' on any missing locale-or-era_id
+     entry, so a partial translation degrades to English, not crash.
+
+     es translations are best-effort first pass — final wording for
+     narrator-facing surfaces (Life Map era buttons, memoir headings,
+     Lori's continuation greetings) should be reviewed by a native
+     Spanish speaker before production launch. Same posture as the
+     Phase 4 safety patterns. */
+  var _LV_ERA_LABELS_BY_LOCALE = {
+    en: {
+      earliest_years:     "Earliest Years",
+      early_school_years: "Early School Years",
+      adolescence:        "Adolescence",
+      coming_of_age:      "Coming of Age",
+      building_years:     "Building Years",
+      later_years:        "Later Years",
+      today:              "Today"
+    },
+    es: {
+      earliest_years:     "Primeros Años",
+      early_school_years: "Primeros Años Escolares",
+      adolescence:        "Adolescencia",
+      coming_of_age:      "Mayoría de Edad",
+      building_years:     "Años de Construcción",
+      later_years:        "Años Posteriores",
+      today:              "Hoy"
+    }
+  };
+
+  var _LV_ERA_MEMOIR_TITLES_BY_LOCALE = {
+    en: {
+      earliest_years:     "The Legend Begins",
+      early_school_years: "Formative Years",
+      adolescence:        "Adolescence",
+      coming_of_age:      "Crossroads",
+      building_years:     "Peaks & Valleys",
+      later_years:        "The Compass",
+      today:              "Current Horizon"
+    },
+    es: {
+      earliest_years:     "Comienza la Leyenda",
+      early_school_years: "Años Formativos",
+      adolescence:        "Adolescencia",
+      coming_of_age:      "Encrucijada",
+      building_years:     "Cumbres y Valles",
+      later_years:        "La Brújula",
+      today:              "Horizonte Actual"
+    }
+  };
+
+  function _resolveLocale(locale) {
+    if (locale == null) return "en";
+    var s = String(locale).trim().toLowerCase();
+    if (!s) return "en";
+    if (s.indexOf("-") >= 0) s = s.split("-")[0];
+    if (_LV_ERA_LABELS_BY_LOCALE[s]) return s;
+    return "en";
   }
 
-  function eraIdToMemoirTitle(id) {
+  function eraIdToWarmLabel(id, locale) {
     var eraId = legacyKeyToEraId(id);
+    if (!eraId) return id ? String(id) : "";
+    var loc = _resolveLocale(locale);
+    var table = _LV_ERA_LABELS_BY_LOCALE[loc] || _LV_ERA_LABELS_BY_LOCALE.en;
+    if (table[eraId] != null) return table[eraId];
+    // Locale-specific translation missing — fall back to canonical en.
+    if (_LV_ERA_LABELS_BY_LOCALE.en[eraId] != null) return _LV_ERA_LABELS_BY_LOCALE.en[eraId];
+    var era = _findById(eraId);
+    return era ? era.label : String(id);
+  }
+
+  function eraIdToMemoirTitle(id, locale) {
+    var eraId = legacyKeyToEraId(id);
+    if (!eraId) return "";
+    var loc = _resolveLocale(locale);
+    var table = _LV_ERA_MEMOIR_TITLES_BY_LOCALE[loc] || _LV_ERA_MEMOIR_TITLES_BY_LOCALE.en;
+    if (table[eraId] != null) return table[eraId];
+    if (_LV_ERA_MEMOIR_TITLES_BY_LOCALE.en[eraId] != null) return _LV_ERA_MEMOIR_TITLES_BY_LOCALE.en[eraId];
     var era = _findById(eraId);
     return era ? era.memoirTitle : "";
   }

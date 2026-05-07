@@ -177,18 +177,127 @@ def legacy_key_to_era_id(value: Optional[str]) -> Optional[str]:
     return raw
 
 
-def era_id_to_warm_label(era_id: Optional[str]) -> str:
-    """Return the user-facing warm label for an era_id (e.g. 'Earliest Years')."""
-    canonical = legacy_key_to_era_id(era_id)
-    e = _BY_ID.get(canonical) if canonical else None
-    return e["label"] if e else (str(era_id) if era_id else "")
+# WO-ML-03A (Phase 3 of the multilingual project, 2026-05-07) —
+# locale-aware era warm labels + memoir titles. Default locale 'en'
+# falls through to the canonical LV_ERAS entries above, preserving
+# byte-stable behavior for every existing caller. Other locales are
+# additive translation tables consulted ONLY when the caller passes
+# locale=...
+#
+# Initial locale support: 'en' (canonical, defaults), 'es' (Spanish).
+# es translations are the agent's best-effort first pass; final
+# wording for narrator-facing surfaces (Life Map era buttons, memoir
+# headings, Lori's continuation greetings) should be reviewed by a
+# native Spanish speaker before production launch — same posture as
+# the Phase 4 safety patterns. Captured here as a TODO so future
+# contributors see why this isn't already locked: see the
+# multilingual project plan §Phase 3 + the cultural-context cases at
+# data/evals/sentence_diagram_cultural_context_cases_sd044_sd065.json.
+#
+# Adding a new locale: drop a new key into each of the three dicts
+# below (LABELS, MEMOIR_TITLES, CONTINUATION_PHRASES) covering all
+# seven era_ids. The lookup helpers fall back to 'en' on any missing
+# locale-or-era_id entry, so a partial translation degrades to
+# English rather than crashing.
+_LV_ERA_LABELS_BY_LOCALE: Dict[str, Dict[str, str]] = {
+    "en": {
+        "earliest_years":     "Earliest Years",
+        "early_school_years": "Early School Years",
+        "adolescence":        "Adolescence",
+        "coming_of_age":      "Coming of Age",
+        "building_years":     "Building Years",
+        "later_years":        "Later Years",
+        "today":              "Today",
+    },
+    "es": {
+        # Best-effort first pass — pending native review.
+        "earliest_years":     "Primeros Años",
+        "early_school_years": "Primeros Años Escolares",
+        "adolescence":        "Adolescencia",
+        "coming_of_age":      "Mayoría de Edad",
+        "building_years":     "Años de Construcción",
+        "later_years":        "Años Posteriores",
+        "today":              "Hoy",
+    },
+}
+
+_LV_ERA_MEMOIR_TITLES_BY_LOCALE: Dict[str, Dict[str, str]] = {
+    "en": {
+        "earliest_years":     "The Legend Begins",
+        "early_school_years": "Formative Years",
+        "adolescence":        "Adolescence",
+        "coming_of_age":      "Crossroads",
+        "building_years":     "Peaks & Valleys",
+        "later_years":        "The Compass",
+        "today":              "Current Horizon",
+    },
+    "es": {
+        # Best-effort first pass — pending native review.
+        "earliest_years":     "Comienza la Leyenda",
+        "early_school_years": "Años Formativos",
+        "adolescence":        "Adolescencia",
+        "coming_of_age":      "Encrucijada",
+        "building_years":     "Cumbres y Valles",
+        "later_years":        "La Brújula",
+        "today":              "Horizonte Actual",
+    },
+}
 
 
-def era_id_to_memoir_title(era_id: Optional[str]) -> str:
-    """Return the memoir literary subtitle for an era_id (e.g. 'The Legend Begins')."""
+def _resolve_locale(locale: Optional[str]) -> str:
+    """Normalize a locale tag for the BY_LOCALE lookup tables.
+    Accepts 'en', 'en-US', 'es', 'es-MX', 'ES', None, '' — collapses to
+    a 2-letter language code. Falls back to 'en' on unknown or
+    unsupported locales so callers don't have to special-case.
+    """
+    if not locale:
+        return "en"
+    s = str(locale).strip().lower()
+    if not s:
+        return "en"
+    if "-" in s:
+        s = s.split("-", 1)[0]
+    if s in _LV_ERA_LABELS_BY_LOCALE:
+        return s
+    return "en"
+
+
+def era_id_to_warm_label(era_id: Optional[str], locale: Optional[str] = None) -> str:
+    """Return the user-facing warm label for an era_id (e.g. 'Earliest Years').
+
+    locale (optional): ISO-639-1 language code ('en' default, 'es' supported).
+    Falls back to English on unknown locales or untranslated era_ids so
+    legacy callers (no locale param) preserve byte-stable English output.
+    """
     canonical = legacy_key_to_era_id(era_id)
-    e = _BY_ID.get(canonical) if canonical else None
-    return e["memoirTitle"] if e else ""
+    if not canonical:
+        return str(era_id) if era_id else ""
+    loc = _resolve_locale(locale)
+    table = _LV_ERA_LABELS_BY_LOCALE.get(loc) or _LV_ERA_LABELS_BY_LOCALE["en"]
+    if canonical in table:
+        return table[canonical]
+    # Locale-specific translation missing for this era_id — fall back to
+    # the canonical English label rather than echoing the raw era_id.
+    return _LV_ERA_LABELS_BY_LOCALE["en"].get(canonical) or (
+        _BY_ID[canonical]["label"] if canonical in _BY_ID else str(era_id)
+    )
+
+
+def era_id_to_memoir_title(era_id: Optional[str], locale: Optional[str] = None) -> str:
+    """Return the memoir literary subtitle for an era_id (e.g. 'The Legend Begins').
+
+    locale (optional): see era_id_to_warm_label for behavior.
+    """
+    canonical = legacy_key_to_era_id(era_id)
+    if not canonical:
+        return ""
+    loc = _resolve_locale(locale)
+    table = _LV_ERA_MEMOIR_TITLES_BY_LOCALE.get(loc) or _LV_ERA_MEMOIR_TITLES_BY_LOCALE["en"]
+    if canonical in table:
+        return table[canonical]
+    return _LV_ERA_MEMOIR_TITLES_BY_LOCALE["en"].get(canonical) or (
+        _BY_ID[canonical]["memoirTitle"] if canonical in _BY_ID else ""
+    )
 
 
 def era_id_to_lori_focus(era_id: Optional[str]) -> str:
@@ -215,24 +324,67 @@ _LV_ERA_CONTINUATION_PHRASES: Dict[str, str] = {
     "today":              "today",
 }
 
+# WO-ML-03A (Phase 3, 2026-05-07) — locale-aware continuation phrases.
+# Same posture as _LV_ERA_LABELS_BY_LOCALE above: 'en' is canonical
+# (mirrors _LV_ERA_CONTINUATION_PHRASES exactly so legacy code without
+# locale param is byte-stable), 'es' is best-effort first pass pending
+# native review. Phrases are designed to fit naturally inside Lori's
+# narrator-facing prose, e.g. "La última vez estábamos en {phrase}…"
+# — preserve that grammatical fit when reviewing translations.
+_LV_ERA_CONTINUATION_PHRASES_BY_LOCALE: Dict[str, Dict[str, str]] = {
+    "en": dict(_LV_ERA_CONTINUATION_PHRASES),
+    "es": {
+        # Best-effort first pass — pending native review.
+        # Designed to slot into "La última vez estábamos en {phrase}…"
+        # except 'today' which uses present-tense framing.
+        "earliest_years":     "los años antes de que empezaras la escuela",
+        "early_school_years": "tus primeros años escolares",
+        "adolescence":        "tu adolescencia",
+        "coming_of_age":      "los años en los que estabas alcanzando la mayoría de edad",
+        "building_years":     "tus años de construcción",
+        "later_years":        "los años posteriores",
+        "today":              "hoy",
+    },
+}
 
-def era_id_to_continuation_phrase(era_id: Optional[str]) -> Optional[str]:
+
+def era_id_to_continuation_phrase(
+    era_id: Optional[str],
+    locale: Optional[str] = None,
+) -> Optional[str]:
     """Return a sentence-shaped warm phrase for an era_id, suitable for
     inclusion inside Lori's narrator-facing prose. Returns None when
     era_id is unknown so callers can degrade gracefully (e.g. fall back
     to a bare "Welcome back, {name}." template).
 
-    Examples:
+    locale (optional): ISO-639-1 language code ('en' default, 'es'
+    supported). Falls back to English on unknown locales or untranslated
+    era_ids — legacy callers without locale param are byte-stable.
+
+    Examples (en, default):
       era_id_to_continuation_phrase("earliest_years") → "the years before you started school"
       era_id_to_continuation_phrase("building_years") → "your building years"
       era_id_to_continuation_phrase("today")          → "today"
       era_id_to_continuation_phrase(None)             → None
       era_id_to_continuation_phrase("unknown_era")    → None
+
+    Examples (es):
+      era_id_to_continuation_phrase("earliest_years", locale="es")
+        → "los años antes de que empezaras la escuela"
+      era_id_to_continuation_phrase("today", locale="es") → "hoy"
     """
     canonical = legacy_key_to_era_id(era_id)
     if canonical is None:
         return None
-    return _LV_ERA_CONTINUATION_PHRASES.get(canonical)
+    loc = _resolve_locale(locale)
+    table = _LV_ERA_CONTINUATION_PHRASES_BY_LOCALE.get(loc) or _LV_ERA_CONTINUATION_PHRASES_BY_LOCALE["en"]
+    phrase = table.get(canonical)
+    if phrase is not None:
+        return phrase
+    # Locale-specific translation missing — fall back to English rather
+    # than returning None (None means era_id unknown, which is a
+    # different signal callers may handle differently).
+    return _LV_ERA_CONTINUATION_PHRASES_BY_LOCALE["en"].get(canonical)
 
 
 def era_id_from_age(age: Union[int, float, str, None]) -> Optional[str]:

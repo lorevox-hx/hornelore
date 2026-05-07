@@ -237,6 +237,52 @@ async def ws_chat(ws: WebSocket):
         except Exception:
             _audio_id_for_archive = None
 
+        # WO-ML-03B (Phase 3 of the multilingual project, 2026-05-07):
+        # ISO-639-1 language code detected by the STT engine, threaded
+        # from the FE TranscriptGuard's chat WS payload. Available to
+        # BOTH the story-trigger preserve_turn call AND the user-turn
+        # archive_append_event write. Null on Web Speech / typed input /
+        # unknown — downstream layers tolerate null gracefully (no row
+        # falls over because language is missing).
+        #
+        # Source priority: payload-level transcript_language (set by
+        # TranscriptGuard.buildExtractionPayloadFields), then fall back
+        # to the runtime71 transcript_language hint, then None. The
+        # value is light-validated (lowercased, trimmed, length 2-3
+        # for ISO-639-1/-3 codes) but NOT enforced — non-conforming
+        # values pass through and the operator review can flag them.
+        _transcript_language_for_archive: Optional[str] = None
+        _transcript_language_prob_for_archive: Optional[float] = None
+        try:
+            _lang_raw = (
+                params.get("transcript_language")
+                or (params.get("runtime71") or {}).get("transcript_language")
+                or None
+            )
+            if _lang_raw:
+                _lang_str = str(_lang_raw).strip().lower()
+                # Strip regional variants ("es-MX" → "es") for
+                # consistent persistence; downstream consumers that
+                # need the full tag can read raw_transcript metadata.
+                if "-" in _lang_str:
+                    _lang_str = _lang_str.split("-", 1)[0]
+                if _lang_str and 2 <= len(_lang_str) <= 3:
+                    _transcript_language_for_archive = _lang_str
+            _prob_raw = (
+                params.get("transcript_language_probability")
+                or (params.get("runtime71") or {}).get("transcript_language_probability")
+                or None
+            )
+            if isinstance(_prob_raw, (int, float)):
+                # Clamp defensively — Whisper probabilities are in (0, 1]
+                # but a buggy upstream could send anything.
+                _p = float(_prob_raw)
+                if 0.0 <= _p <= 1.0:
+                    _transcript_language_prob_for_archive = _p
+        except Exception:
+            _transcript_language_for_archive = None
+            _transcript_language_prob_for_archive = None
+
         # ── WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b: story preservation hook ──
         # Path 1 entry point. Decoupled from the rest of the chat path:
         # a preservation failure logs CRITICAL but does NOT stop the
@@ -348,6 +394,13 @@ async def ws_chat(ws: WebSocket):
                                 audio_id=_audio_id_for_archive,
                                 current_era=_current_era_for_archive,
                                 narrator_display_name=_narrator_dn,
+                                # WO-ML-03B (Phase 3 multilingual): language
+                                # threading paused 2026-05-07 mid-implementation
+                                # to pivot to the textarea visibility fix.
+                                # _transcript_language_for_archive is extracted
+                                # at function-top but not yet passed through
+                                # because preserve_turn signature update is
+                                # outstanding. Resume in next session.
                             )
                             logger.info(
                                 "[story-trigger] preserved candidate_id=%s "
@@ -522,6 +575,8 @@ async def ws_chat(ws: WebSocket):
                 meta={"ws": True},
                 current_era=_current_era_for_archive,  # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1
                 audio_id=_audio_id_for_archive,         # BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01
+                # WO-ML-03B language threading paused 2026-05-07 — see
+                # preserve_turn note above. Resume in next session.
             )
 
         # ── WO-LORI-SOFTENED-RESPONSE-01: per-turn turn_count + softened read ─
