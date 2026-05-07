@@ -4205,6 +4205,45 @@ function _parseBirthplaceFromUtterance(text){
 }
 
 /**
+ * BUG-LORI-IDENTITY-NAME-ABSORPTION-NO-VALIDATION-01 (2026-05-07):
+ * Structural sanity validator for captured names. Catches Web Speech
+ * interim-drop artifacts (all-same-char repeats like "iii"/"aaa"/"ooo",
+ * all-vowel or all-consonant strings, sub-2-char) that previously passed
+ * the _NOT_A_NAME word blocklist and were written as personal.firstName.
+ *
+ * Live evidence: 2026-05-07 19:25 — narrator spoke a longer utterance,
+ * Web Speech only finalized "iii" before mic stopped, "iii" passed all
+ * existing guards and was absorbed as firstName. Operator log narrator
+ * label flipped to "iii"; subsequent SYSTEM_INFO directive locked it in.
+ *
+ * Returns true if `s` looks like a structurally plausible name:
+ *   - length ≥ 2 after stripping non-letter/apostrophe/hyphen chars
+ *   - not all-the-same-character (rejects "iii", "aaa", "OOO")
+ *   - contains at least one vowel  (rejects "tttt", "shhh")
+ *   - contains at least one consonant  (rejects "ooo", "aaa", all-vowel)
+ *
+ * Real 2- and 3-character names ("Ann", "Bob", "Sam", "Tim", "Joe",
+ * "Liz", "Pat", "Roy", "Ali", "Noa", "Jo", "Mo", "Vi") all pass — they
+ * have mixed characters + at least one vowel + at least one consonant.
+ *
+ * Filler words ("uhh", "umm", "hmm", "ehh", "ahh", "ohh") are caught
+ * separately by extended _NOT_A_NAME blocklist; this validator catches
+ * the all-same-character class the blocklist can't enumerate.
+ */
+function _isStructurallyValidName(s){
+  if (!s || typeof s !== "string") return false;
+  const c = s.replace(/[^a-zA-Z'\-]/g, "");
+  if (c.length < 2) return false;
+  // All-same character (after lowercasing): "iii", "AAA", "OoO" → set size 1
+  if (new Set(c.toLowerCase()).size < 2) return false;
+  // Must contain at least one vowel
+  if (!/[aeiouy]/i.test(c)) return false;
+  // Must contain at least one consonant
+  if (!/[bcdfghjklmnpqrstvwxz]/i.test(c)) return false;
+  return true;
+}
+
+/**
  * BUG-227: Shared name extractor — pulls a plausible first/preferred
  * name from intro patterns: "my name is X", "call me X", "I'm X",
  * "I am X", "I go by X", "preferred name is X".
@@ -4222,12 +4261,17 @@ function _parseNameFromUtterance(text){
   const t = text.trim();
   if (t.length < 2) return null;
 
+  // BUG-LORI-IDENTITY-NAME-ABSORPTION-NO-VALIDATION-01 (2026-05-07):
+  // Extended filler-word entries (uhh/umm/hmm/ehh/ahh/ohh/mmm/shh) catch
+  // the class of utterances Web Speech occasionally finalizes as the
+  // ONLY surviving segment when interim text gets dropped on mic-stop.
   const _NOT_A_NAME = new Set([
     "that","it","i","the","a","an","this","there","here","yes","no","yeah","nope",
     "okay","ok","well","so","hi","hello","hey","oh","ah","uh","um","my","mine",
     "what","when","where","why","how","who","which","they","we","you","he","she",
     "just","not","but","and","or","if","then","was","were","is","am","are",
     "had","have","has","did","do","does","would","could","should","will","can",
+    "uhh","umm","hmm","ehh","ahh","ohh","mmm","shh","huh","duh","ugh","eep",
   ]);
   const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken)\b/i;
   if (_EMOTIONAL_MARKERS.test(t)) return null;
@@ -4259,6 +4303,11 @@ function _parseNameFromUtterance(text){
     const cand = nm[1].trim();
     const firstWord = cand.split(/\s+/)[0];
     if (_NOT_A_NAME.has(firstWord.toLowerCase()) || firstWord.length < 2) continue;
+    // BUG-LORI-IDENTITY-NAME-ABSORPTION-NO-VALIDATION-01: structural sanity
+    if (!_isStructurallyValidName(firstWord)) {
+      console.warn("[name-guard] _parseNameFromUtterance Pass 1 rejected:", firstWord);
+      continue;
+    }
     return cand;
   }
 
@@ -4286,6 +4335,11 @@ function _parseNameFromUtterance(text){
     if (_capTokens.length >= 2) {
       const first = _capTokens[0];
       if (!_NOT_A_NAME.has(first.toLowerCase()) && first.length >= 2) {
+        // BUG-LORI-IDENTITY-NAME-ABSORPTION-NO-VALIDATION-01: structural sanity
+        if (!_isStructurallyValidName(first)) {
+          console.warn("[name-guard] _parseNameFromUtterance Pass 2 rejected:", first);
+          return null;
+        }
         return _capTokens.join(" ");
       }
     }
@@ -4320,12 +4374,16 @@ async function _advanceIdentityPhase(text){
   if(phase === "askName"){
     // v7.4D BUG-FIX: Do not extract a name from an emotional or non-name response.
     // Common-word guard: single-word replies that are NOT valid names.
+    // BUG-LORI-IDENTITY-NAME-ABSORPTION-NO-VALIDATION-01 (2026-05-07):
+    // Extended with filler-word entries to catch Web Speech interim-drop
+    // residues (uhh/umm/hmm/etc.) that previously passed through.
     const _NOT_A_NAME = new Set([
       "that","it","i","the","a","an","this","there","here","yes","no","yeah","nope",
       "okay","ok","well","so","hi","hello","hey","oh","ah","uh","um","my","mine",
       "what","when","where","why","how","who","which","they","we","you","he","she",
       "just","not","but","and","or","if","then","was","were","is","am","are",
       "had","have","has","did","do","does","would","could","should","will","can",
+      "uhh","umm","hmm","ehh","ahh","ohh","mmm","shh","huh","duh","ugh","eep",
     ]);
     // Emotional-content guard: message looks like a statement, not a name
     const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken|never|always|sometimes|really|very|so much)\b/i;
@@ -4368,6 +4426,30 @@ async function _advanceIdentityPhase(text){
         return false;
       }
       name = candidate;
+    }
+    // BUG-LORI-IDENTITY-NAME-ABSORPTION-NO-VALIDATION-01 (2026-05-07):
+    // Final structural sanity gate before writing the name anywhere.
+    // Catches Web Speech interim-drop residues that passed the word
+    // blocklist (e.g. "iii", "aaa") because they aren't enumerable
+    // pronouns/fillers. Live evidence: 2026-05-07 19:25 narrator's
+    // utterance was lost to interim-drop, only "iii" finalized,
+    // pre-this-fix it was absorbed as personal.firstName.
+    // Apply to the FIRST WORD of any captured name (multi-word names
+    // like "Test Harness Sarah Reed" are valid as long as the first
+    // token is a real name).
+    const _firstWord = String(name).trim().split(/\s+/)[0] || "";
+    if (!_isStructurallyValidName(_firstWord)) {
+      console.warn(
+        "[name-guard][askName] rejected captured name=",
+        JSON.stringify(name),
+        "first_word=", _firstWord,
+        "reason=structural_sanity (length<2, all-same-char, no-vowel, or no-consonant)"
+      );
+      // Return false → message flows to LLM with the IDENTITY MODE directive
+      // already in prompt_composer.py, which instructs Lori to warmly re-ask
+      // when the narrator's reply doesn't contain a recognizable name.
+      // No write to identityCapture, profile, projection, or speakerName.
+      return false;
     }
     state.session.identityCapture.name = name;
     state.session.speakerName = name;  // v7.4E — persist for runtime71 anchor
