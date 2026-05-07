@@ -3552,6 +3552,17 @@
         <button id="memoirExportTxtBtn" class="scroll-action-btn">
           ⬇️ Save TXT
         </button>
+        <!-- WO-ML-04 / Phase 4B (2026-05-07): language picker for the
+             docx export. Default 'en' is byte-stable with pre-4B
+             behavior. 'es' or 'bilingual' triggers server-side Llama
+             translation; export may take 30-90s on first run, faster
+             on re-export thanks to translation cache. -->
+        <label for="memoirExportLang" style="font-size:0.85rem;color:rgba(148,163,184,0.85);">Language</label>
+        <select id="memoirExportLang" class="scroll-action-btn" style="padding:8px 10px;">
+          <option value="en" selected>English</option>
+          <option value="es">Spanish (translated)</option>
+          <option value="bilingual">Bilingual (English + Spanish)</option>
+        </select>
         <button id="memoirExportDocxBtn" class="scroll-action-btn">
           ⬇️ Save DOCX
         </button>
@@ -7420,6 +7431,24 @@ async function memoirExportDOCX() {
     });
   }
 
+  // WO-ML-04 / Phase 4B (2026-05-07): pull the target language from
+  // the export language picker (id="memoirExportLang"). When the
+  // picker is absent OR set to "en", behavior is byte-stable with
+  // pre-Phase-4B exports. "es" → Spanish-only docx via Llama
+  // translation. "bilingual" → both languages in one docx.
+  var _exportLangEl = document.getElementById("memoirExportLang");
+  var _exportLang = "en";
+  if (_exportLangEl && typeof _exportLangEl.value === "string") {
+    var _v = _exportLangEl.value.trim().toLowerCase();
+    if (_v === "es" || _v === "bilingual" || _v === "en") _exportLang = _v;
+  }
+  // Source language: prefer the narrator's preferred / detected
+  // language when known, otherwise default 'en'. (Future hook: read
+  // from state.profile.basics.primary_language when that field
+  // lands; for now narrators are English-content even if they speak
+  // Spanish, since extraction-side multilingual is Phase 5.)
+  var _sourceLang = "en";
+
   const body = {
     narrator_name:   narName,
     memoir_state:    _memoirState,
@@ -7427,7 +7456,16 @@ async function memoirExportDOCX() {
     prose:           prose,
     arc_roles:       arcRoleLabels,
     attached_photos: attachedPhotos,
+    source_language: _sourceLang,
+    target_language: _exportLang,
   };
+
+  // Operator visibility: language picker can sit far from this
+  // function and silently drift. Log what we're sending so the
+  // browser console shows whether translation will fire on this
+  // export. Non-en exports may take 30-90s to complete (Llama
+  // translation per section); the delay is expected.
+  console.log("[memoir-docx] export →", { lang: _exportLang, narrator: narName, state: _memoirState });
 
   try {
     const resp = await fetch((typeof ORIGIN !== "undefined" ? ORIGIN : (window.LOREVOX_API || "http://localhost:8000")) + "/api/memoir/export-docx", {
@@ -7443,7 +7481,8 @@ async function memoirExportDOCX() {
     }
     const blob = await resp.blob();
     const safeName = narName.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_\-]/g, "");
-    const filename = `lorevox_memoir_${safeName}_${_memoirState}.docx`;
+    const _langSuffix = (_exportLang === "en") ? "" : ("_" + _exportLang);
+    const filename = `lorevox_memoir_${safeName}_${_memoirState}${_langSuffix}.docx`;
     const url = URL.createObjectURL(blob);
     const a   = document.createElement("a");
     a.href = url; a.download = filename;
