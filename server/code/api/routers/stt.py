@@ -13,6 +13,7 @@ Model size and device controlled by env vars:
 """
 from __future__ import annotations
 
+import math
 import os
 import pathlib
 import shutil
@@ -112,13 +113,41 @@ async def stt_transcribe(
     """
     Accept a browser audio blob (webm, ogg, mp4, wav) and return transcribed text.
     Optional form fields:
-      lang            language code (default "en")
+      lang            language code (default "en"). Accepts ISO-639-1 codes
+                      ("en", "es", "fr", ...) OR "auto" / "" to let Whisper
+                      auto-detect the language. Auto-detect is required for
+                      multilingual narrators and code-switching capture per
+                      WO-ML-01 (the multilingual project plan).
       initial_prompt  hint to help Whisper with proper nouns / names
+
+    Response shape (WO-ML-01 Phase 1A response contract):
+      {
+        "ok": true,
+        "text": "<transcribed string, trimmed>",
+        "language": "en|es|fr|...",         # ISO-639-1, detected by Whisper
+        "language_probability": 0.0-1.0,    # null if openai-whisper fallback
+        "confidence": 0.0-1.0,              # exp(weighted-mean avg_logprob); null if no segments
+        "avg_logprob": -inf-0,              # raw weighted-mean log-probability; null if openai-whisper
+        "duration_sec": 0.0,                # null if openai-whisper fallback
+        "engine": "faster_whisper|whisper",
+        "model": "<resolved STT_MODEL>"
+      }
+
+    Response is strictly additive vs the pre-WO-ML-01 shape ({ok, text}). Existing
+    callers that read only `text` continue to behave byte-identically.
     """
     try:
         kind, engine = _load_engine()
     except Exception as e:
+        # [ml-stt][error] engine load failed
+        print(f"[ml-stt][error] engine_load_failed err={e}")
         raise HTTPException(501, f"STT engine not available: {e}")
+
+    # Resolve language: "auto" / "" / None → faster-whisper auto-detect.
+    # Anything else passes through verbatim (Whisper validates ISO codes).
+    lang_in = (lang or "").strip().lower()
+    auto_detect = lang_in in ("", "auto")
+    resolved_lang = None if auto_detect else lang_in
 
     tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="stt_"))
     try:
@@ -127,28 +156,93 @@ async def stt_transcribe(
         content = await file.read()
         audio_path.write_bytes(content)
 
+        # [ml-stt][route] entry — file size + lang resolution
+        print(
+            f"[ml-stt][route] file={len(content)}B lang_in={lang_in or '(empty)'} "
+            f"resolved_lang={resolved_lang or 'auto'}"
+        )
+
+        model_name = os.getenv("STT_MODEL", "medium").strip() or "medium"
+        detected_language: str | None = None
+        language_probability: float | None = None
+        avg_logprob: float | None = None
+        confidence: float | None = None
+        duration_sec: float | None = None
+
         if kind == "faster_whisper":
-            segments, _info = engine.transcribe(
+            segments, info = engine.transcribe(
                 str(audio_path),
-                language=lang or "en",
+                language=resolved_lang,           # None → auto-detect
                 initial_prompt=initial_prompt or None,
                 vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 500},
             )
-            text = " ".join(s.text.strip() for s in segments).strip()
+            # Iterate once: collect text + duration-weighted avg_logprob.
+            text_parts: list[str] = []
+            logprob_weighted_sum = 0.0
+            duration_total = 0.0
+            for s in segments:
+                text_parts.append(s.text.strip())
+                seg_dur = max(0.0, float(getattr(s, "end", 0.0)) - float(getattr(s, "start", 0.0)))
+                seg_logprob = getattr(s, "avg_logprob", None)
+                if seg_dur > 0.0 and isinstance(seg_logprob, (int, float)):
+                    logprob_weighted_sum += float(seg_logprob) * seg_dur
+                    duration_total += seg_dur
+            text = " ".join(text_parts).strip()
+
+            detected_language = getattr(info, "language", None)
+            lp = getattr(info, "language_probability", None)
+            language_probability = float(lp) if isinstance(lp, (int, float)) else None
+            d = getattr(info, "duration", None)
+            duration_sec = float(d) if isinstance(d, (int, float)) else None
+
+            if duration_total > 0.0:
+                avg_logprob = logprob_weighted_sum / duration_total
+                # exp(avg_logprob) maps log-prob in (-inf, 0] to probability in (0, 1].
+                # Clamp to [0, 1] for safety in case of pathological segment data.
+                try:
+                    confidence = max(0.0, min(1.0, math.exp(avg_logprob)))
+                except (OverflowError, ValueError):
+                    confidence = None
         else:
-            # openai-whisper
+            # openai-whisper fallback (CPU-friendly; less metadata available)
             result = engine.transcribe(
                 str(audio_path),
-                language=lang or "en",
+                language=resolved_lang,           # None → auto-detect
                 initial_prompt=initial_prompt or None,
                 fp16=False,
             )
             text = (result.get("text") or "").strip()
+            # openai-whisper sets `language` on the result dict; other fields
+            # are not exposed by default. Leave probability/confidence as None.
+            detected_language = result.get("language") or resolved_lang or None
 
-        return {"ok": True, "text": text}
+        # [ml-stt][result] success readout
+        print(
+            f"[ml-stt][result] engine={kind} language={detected_language or 'unknown'} "
+            f"lang_prob={language_probability if language_probability is not None else 'na'} "
+            f"confidence={confidence if confidence is not None else 'na'} "
+            f"duration={duration_sec if duration_sec is not None else 'na'}s "
+            f"text_len={len(text)}"
+        )
 
+        return {
+            "ok": True,
+            "text": text,
+            "language": detected_language,
+            "language_probability": language_probability,
+            "confidence": confidence,
+            "avg_logprob": avg_logprob,
+            "duration_sec": duration_sec,
+            "engine": kind,
+            "model": model_name,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
+        # [ml-stt][error] transcription failure (post-engine-load)
+        print(f"[ml-stt][error] transcribe_failed err={e}")
         raise HTTPException(500, f"Transcription failed: {e}")
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
