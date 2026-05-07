@@ -66,7 +66,20 @@
 
     // Clear prior content
     _el("fcTranscript").textContent = "";
-    _el("fcInterim").textContent = "";
+    // BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01 Phase B (2026-05-07):
+    // Show an immediate "Listening…" placeholder so the narrator
+    // sees feedback the moment the modal opens, before the first
+    // Web Speech / Whisper chunk arrives. The placeholder is
+    // overwritten as soon as any interim or final transcript text
+    // comes in via _handleRecognitionResult. Without this, the
+    // narrator clicks mic, the modal opens, and there's a 1-2s
+    // silent gap before any text appears — for older narrators
+    // that gap reads as "the system isn't hearing me."
+    var _intEl = _el("fcInterim");
+    if (_intEl) {
+      _intEl.textContent = (trigger === "mic") ? "Listening…" : "";
+      _intEl.classList.toggle("fc-listening-placeholder", trigger === "mic");
+    }
     _el("fcTextarea").value = "";
     _el("fcPostCapture").innerHTML = "";
     _el("fcPostCapture").classList.add("fc-hidden");
@@ -361,14 +374,35 @@
       }
     }
 
+    // BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01 Phase B (2026-05-07):
+    // Clear the "Listening…" placeholder the moment ANY speech
+    // (interim or final) arrives. After that, the interim element
+    // shows live text (Web Speech) or stays empty (WhisperSTT, which
+    // only emits final chunks; the modal still feels responsive
+    // because the chunk text appears in fcTranscript every ~1.5s).
+    var intEl = _el("fcInterim");
+    if (intEl && intEl.classList.contains("fc-listening-placeholder")) {
+      intEl.classList.remove("fc-listening-placeholder");
+      intEl.textContent = "";
+    }
+
     if (final) {
       _inputText += (_inputText ? " " : "") + final.trim();
       var txEl = _el("fcTranscript");
       if (txEl) txEl.textContent = _inputText;
     }
 
-    var intEl = _el("fcInterim");
     if (intEl) intEl.textContent = interim;
+
+    // BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01 Phase B: log the
+    // engine-agnostic event shape so operators can grep mic-modal
+    // activity. Carries language metadata when WhisperSTT is the
+    // engine (Web Speech omits it; field shows as null/undefined).
+    console.log("[mic-modal][result]",
+      "final=", JSON.stringify(final).slice(0, 60),
+      "interim=", JSON.stringify(interim).slice(0, 40),
+      "lang=", (e && e.language) || "?",
+      "engine=", (e && e.engine) || (e && e.source) || "web_speech");
   }
 
   // ── Actions ───────────────────────────────────────────────────

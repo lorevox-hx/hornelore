@@ -6264,9 +6264,47 @@ let _wo9VoiceSendEnabled = window._wo9VoiceSendEnabled || false;
 
 function _ensureRecognition(){
   if(recognition) return recognition;
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){ sysBubble("Voice input not supported in this browser."); return null; }
-  recognition=new SR(); recognition.continuous=true; recognition.interimResults=true;
+
+  // BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01 + WO-ML-01 Phase 1B
+  // (2026-05-07): when LV_USE_WHISPER_STT=1 (localStorage flag,
+  // OR runtime71 flag passed from the server-side env), use the
+  // Whisper-backed STT engine that POSTs MediaRecorder chunks to
+  // /api/stt/transcribe and emits SpeechRecognition-shaped events.
+  // The rest of this function (onresult handler, onend auto-restart,
+  // FocusCanvas hook, isLoriSpeaking guard) works identically because
+  // WhisperSTT exposes the same API surface.
+  // Default OFF — Web Speech remains the engine until smoke-validated.
+  let _useWhisper = false;
+  try { _useWhisper = (localStorage.getItem("lv_use_whisper_stt") === "1"); } catch(_) {}
+  if (!_useWhisper) {
+    try {
+      _useWhisper = !!(state.session && state.session.useWhisperStt);
+    } catch(_) {}
+  }
+  if (_useWhisper && typeof window.WhisperSTT === "function" && (typeof window.WhisperSTTAvailable !== "function" || window.WhisperSTTAvailable())) {
+    console.log("[whisper-stt] using Whisper backend STT engine (LV_USE_WHISPER_STT=1)");
+    recognition = new window.WhisperSTT();
+    recognition.continuous = true;
+    recognition.interimResults = false;  // Whisper chunks are all final
+    recognition.lang = "auto";            // route through Phase 1A auto-detect
+    // Continue to the shared onresult/onend wiring below — synthetic
+    // events match the SpeechRecognitionEvent shape the existing
+    // handlers expect (resultIndex + results[i].isFinal +
+    // results[i][0].transcript + results[i][0].confidence).
+  } else {
+    if (_useWhisper) {
+      console.warn("[whisper-stt] flag set but WhisperSTT unavailable — falling back to Web Speech");
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){ sysBubble("Voice input not supported in this browser."); return null; }
+    recognition=new SR(); recognition.continuous=true; recognition.interimResults=true;
+  }
+  // Engine-agnostic wiring — onresult / onend / etc. below this line
+  // work for both Web Speech and WhisperSTT instances. WhisperSTT
+  // implements the SpeechRecognition API surface so the original
+  // handler shape (e.resultIndex / e.results[i].isFinal /
+  // e.results[i][0].transcript / e.results[i][0].confidence) is
+  // honored unchanged.
   recognition.onresult=e=>{
     // v7.4D — if Lori is speaking, discard all recognition results entirely.
     // This is the primary guard against self-transcription.
