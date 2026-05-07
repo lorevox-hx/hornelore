@@ -993,12 +993,47 @@ async def ws_chat(ws: WebSocket):
             parsed = parse_correction_rule_based(user_text)
             logger.info("[chat_ws][WO-ARCH-07A] correction turn for conv=%s parsed=%s", conv_id, parsed)
 
+            # BUG-LORI-CORRECTION-ABSORBED-NOT-APPLIED-01 Phase 3 (2026-05-07):
+            # Apply parsed corrections to projection_json BEFORE sending
+            # the ack response. Without this, corrections were detected
+            # and acknowledged in prose but never mutated the canonical
+            # provisional-truth surface — Lori's "noted, let's continue"
+            # without an actual data update was the failure mode Melanie
+            # Zollner hit (her "we only had two children, not three"
+            # never propagated to family.children.count). Best-effort:
+            # apply_correction logs warnings but never raises into the
+            # chat path. Summary goes into the persisted turn meta for
+            # operator-side observability.
+            apply_summary: Optional[Dict[str, Any]] = None
+            if parsed and person_id:
+                try:
+                    from ..services import projection_writer as _projection_writer
+                    apply_summary = _projection_writer.apply_correction(
+                        person_id=person_id,
+                        parsed=parsed,
+                        source_turn_id=(params.get("turn_id") or None),
+                    )
+                    logger.info(
+                        "[chat_ws][correction-apply] applied=%d retracted=%d skipped=%d errors=%d",
+                        len(apply_summary.get("applied") or []),
+                        len(apply_summary.get("retracted") or []),
+                        len(apply_summary.get("skipped") or []),
+                        len(apply_summary.get("errors") or []),
+                    )
+                except Exception as _apply_exc:
+                    logger.warning(
+                        "[chat_ws][correction-apply] apply_correction threw "
+                        "(chat continues): %s", _apply_exc,
+                    )
+                    apply_summary = {"errors": [str(_apply_exc)]}
+
             # WO-ARCH-07A PS2 — emit structured correction payload for client write-back
             await _ws_send(ws, {
                 "type": "correction_payload",
                 "parsed": parsed,
                 "source_text": user_text,
                 "turn_mode": "correction",
+                "apply_summary": apply_summary,
             })
 
             assistant_text = compose_correction_ack(
@@ -1010,7 +1045,12 @@ async def ws_chat(ws: WebSocket):
                 user_message=user_text,
                 assistant_message=assistant_text,
                 model_name="correction-ack",
-                meta={"ws": True, "turn_mode": "correction", "parsed_corrections": parsed},
+                meta={
+                    "ws": True,
+                    "turn_mode": "correction",
+                    "parsed_corrections": parsed,
+                    "apply_summary": apply_summary,
+                },
             )
             await _ws_send(ws, {"type": "token", "delta": assistant_text})
             await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "correction"})

@@ -2020,17 +2020,104 @@ def compose_correction_ack(
     text: str,
     runtime: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Parse correction and acknowledge specific fields, or ask for clarification."""
+    """Parse correction and acknowledge the SPECIFIC change, or ask for
+    clarification when nothing parses.
+
+    BUG-LORI-CORRECTION-ABSORBED-NOT-APPLIED-01 Phase 3 (2026-05-07):
+    upgraded from a labels-only acknowledgment ("I've updated the
+    working read-back for: family.children.count") to a value-aware
+    acknowledgment ("Got it \u2014 two children, not three. Apologies for
+    the confusion."). Field-path labels are operator-tone leakage to
+    a narrator; specific values are warmer + verifiable.
+
+    Pattern shapes the parser produces:
+      family.children.count = N         \u2192 "Got it \u2014 N children..."
+      family.parents.father.name = X    \u2192 "Got it \u2014 your father was X..."
+      family.parents.mother.name = X    \u2192 "Got it \u2014 your mother was X..."
+      identity.place_of_birth = X       \u2192 "Got it \u2014 born in X..."
+      _retracted = [X, Y]               \u2192 "Thanks for catching that \u2014
+                                            I shouldn't have said X."
+      _meant = X                        \u2192 "Got it \u2014 X. Apologies."
+    """
     parsed = parse_correction_rule_based(text)
-    if parsed:
-        labels = ", ".join(parsed.keys())
+    if not parsed:
         return (
-            f"Got it \u2014 I've updated the working read-back for: {labels}. "
-            "Ask me again what I know about you, or keep going."
+            "I heard that as a correction, but I'm not fully certain which "
+            "field it changes yet. You can say it one piece at a time "
+            "\u2014 for example, 'I was born in ...' or 'My father's name "
+            "was ...'."
         )
+
+    # Pull the structured updates out of the parsed dict. Sentinel keys
+    # starting with '_' are control flags, not field paths.
+    fields = {k: v for k, v in parsed.items() if not k.startswith("_")}
+    retracted = parsed.get("_retracted") or []
+    meant = parsed.get("_meant")
+
+    parts: List[str] = []
+
+    # Field-by-field warm phrasing. Map field path \u2192 narrator-facing
+    # acknowledgment shape. New fields land here; keep mapping shallow
+    # so it's obvious what each correction sounds like to the narrator.
+    if "family.children.count" in fields:
+        n = fields["family.children.count"]
+        word = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+                6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}.get(n, str(n))
+        parts.append(f"Got it \u2014 {word} children, not the number I had down")
+    if "family.parents.father.name" in fields:
+        parts.append(f"Got it \u2014 your father was {fields['family.parents.father.name']}")
+    if "family.parents.mother.name" in fields:
+        parts.append(f"Got it \u2014 your mother was {fields['family.parents.mother.name']}")
+    if "identity.place_of_birth" in fields:
+        parts.append(f"Got it \u2014 born in {fields['identity.place_of_birth']}")
+    if "education_work.retirement" in fields:
+        parts.append(f"Got it \u2014 you never fully retired")
+
+    # _meant pattern: "I meant X not Y" \u2014 narrator told us they used
+    # word X, not Y. We acknowledge by name without mapping to a field
+    # because the field is context-dependent. The prior turn (Lori's
+    # last reflection) is where the correction lands, but the parser
+    # doesn't have prior-turn context. Composer just confirms the
+    # word substitution so narrator hears their choice respected.
+    if meant and not parts:
+        # Only fire _meant ack when no field-correction also fired \u2014
+        # otherwise the field correction is the primary signal and
+        # _meant is redundant noise.
+        parts.append(f"Got it \u2014 {meant}")
+
+    # _retracted handling \u2014 mention the first retraction in narrator-
+    # facing prose. Multiple retractions get rolled into "those words"
+    # collectively so the response stays a single sentence.
+    retraction_clause = ""
+    if retracted:
+        retracted_unique: List[str] = []
+        for r in retracted:
+            r_str = str(r).strip()
+            if r_str and r_str not in retracted_unique:
+                retracted_unique.append(r_str)
+        if len(retracted_unique) == 1:
+            retraction_clause = f"I shouldn't have said {retracted_unique[0]}"
+        elif len(retracted_unique) > 1:
+            retraction_clause = "I shouldn't have used those words"
+
+    # Compose the final response. Always close with a brief apology so
+    # the correction lands as a felt acknowledgment, not a database log.
+    if parts:
+        head = " and ".join(parts) + "."
+        if retraction_clause:
+            head += f" Thanks for catching that \u2014 {retraction_clause}."
+        else:
+            head += " Apologies for the confusion."
+        return head
+    if retraction_clause:
+        return f"Thanks for catching that \u2014 {retraction_clause}. Apologies for the confusion."
+
+    # Fallback \u2014 parser fired but the dict was empty after stripping
+    # control sentinels. Treat as the no-parse case so the narrator
+    # still gets a helpful response shape.
     return (
-        "I heard that as a correction, but I'm not fully certain which field it changes yet. "
-        "You can say it one piece at a time \u2014 for example, 'I was born in ...' or 'My father's name was ...'."
+        "I heard that as a correction. Could you say what you'd like me "
+        "to change \u2014 just the one piece, in your own words?"
     )
 
 
