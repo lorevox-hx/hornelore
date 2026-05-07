@@ -560,5 +560,237 @@ class TriggerDiagnosticTest(unittest.TestCase):
         self.assertIn("borderline_anchor_count", d["thresholds"])
 
 
+# ── WO-ML-05A (Phase 5A multilingual capture, 2026-05-07) ─────────────
+# Spanish anchor patterns + code-switching coverage. Always-run-both
+# posture — English patterns continue to fire on English content;
+# Spanish patterns fire on Spanish content; both fire on code-
+# switched content. No language gating, no narrator-profile lookup.
+
+class SpanishAnchorTest(unittest.TestCase):
+    """Spanish-monolingual anchor detection. Each axis (place / time
+    / person) contributes at most 1 to the anchor count; total range
+    is 0–3 per turn — same as English. These cases mirror the English
+    canonical scenarios so we can verify equivalent coverage."""
+
+    def test_place_only_proper_noun_after_prep_es(self):
+        # "en Lima" — Spanish prep + capitalized place.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Nací en Lima."),
+            1,
+        )
+
+    def test_place_only_bare_es(self):
+        # "iglesia" alone — Tier 1 BARE noun in Spanish.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La iglesia estaba llena."),
+            1,
+        )
+
+    def test_place_prep_required_es(self):
+        # "cocina" alone is NOT a place anchor; "en la cocina" IS.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La cocina estaba limpia."), 0
+        )
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Estábamos en la cocina."), 1
+        )
+
+    def test_time_only_cuando_era_nina(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Cuando era niña, vivíamos en el campo."),
+            2,  # time (cuando era niña) + place (en el campo)
+        )
+
+    def test_time_only_en_aquellos_tiempos(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("En aquellos tiempos no había luz."),
+            1,
+        )
+
+    def test_time_durante_la_guerra(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Durante la guerra todo cambió."),
+            1,
+        )
+
+    def test_person_only_mi_mama(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Mi mamá cocinaba todos los domingos."),
+            1,
+        )
+
+    def test_person_only_mi_abuela(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Mi abuela me enseñó a tejer."),
+            1,
+        )
+
+    def test_person_bare_capital_papa(self):
+        # Bare-capital relation noun used as proper noun. Same convention
+        # as English "Dad walked nights" → Spanish "Papá trabajaba de noche".
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Papá trabajaba de noche en la fábrica."),
+            2,  # person (Papá) + place (la fábrica — Tier 1 bare)
+        )
+
+    def test_three_axes_canonical_spanish(self):
+        # The Spanish parallel of Janice's mastoidectomy story:
+        # place (en Sonora), time (cuando era niña), person (mi papá).
+        text = (
+            "Cuando era niña, me operaron del oído en Sonora. "
+            "Mi papá trabajaba de noche en la fábrica."
+        )
+        self.assertEqual(story_trigger.count_scene_anchors(text), 3)
+
+    def test_axis_caps_at_one_per_dimension_es(self):
+        # Multiple Spanish person references, only 1 from person axis.
+        text = "Mi mamá, mi papá, mi tío, mi tía, mi abuela todos vivían juntos."
+        self.assertEqual(story_trigger.count_scene_anchors(text), 1)
+
+
+class SpanishFalsePositiveResistanceTest(unittest.TestCase):
+    """Same posture as the English false-positive resistance suite —
+    short conversational Spanish answers should NOT fire anchors.
+    Bare common nouns ("escuela was hard" pattern in Spanish:
+    "escuela era difícil") stay below the place-anchor threshold."""
+
+    def test_yes_no_answer_es(self):
+        for short_answer in ("sí", "no", "tal vez", "no sé", "creo que sí"):
+            self.assertEqual(
+                story_trigger.count_scene_anchors(short_answer),
+                0,
+                f"unexpected anchor on bare Spanish answer: {short_answer!r}",
+            )
+
+    def test_bare_escuela_no_place_anchor(self):
+        # Same Tier 2 posture as English "school was hard" → no anchor.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La escuela era difícil."), 0
+        )
+
+    def test_bare_casa_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La casa estaba tranquila."), 0
+        )
+
+    def test_bare_cocina_no_place_anchor(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La cocina estaba limpia."), 0
+        )
+
+    def test_bare_lowercase_mama_no_fire_without_mi(self):
+        # Lowercase bare "mamá" without "mi" — not an anchor.
+        # ("mamá" alone is too loose; only "mi mamá" or capitalized
+        # "Mamá" as a proper noun fires.)
+        self.assertEqual(
+            story_trigger.count_scene_anchors("la mamá llegó tarde."), 0
+        )
+
+
+class CodeSwitchingAnchorTest(unittest.TestCase):
+    """Code-switched narration mixes English + Spanish within a single
+    utterance. Always-run-both posture means anchors from BOTH sides
+    fire together. These cases verify a code-switched narrator gets
+    full coverage (no axis lost to language gating)."""
+
+    def test_english_place_spanish_person(self):
+        # "I was born in Spokane. Mi mamá cocinaba todos los días."
+        text = "I was born in Spokane. Mi mamá cocinaba todos los días."
+        # place (Spokane via en prep), person (mi mamá), no time anchor.
+        self.assertEqual(story_trigger.count_scene_anchors(text), 2)
+
+    def test_spanish_place_english_person(self):
+        # Inverse: "Nos mudamos a Sonora. My dad worked at the plant."
+        text = "Nos mudamos a Sonora. My dad worked at the plant."
+        self.assertEqual(story_trigger.count_scene_anchors(text), 2)
+
+    def test_three_axes_split_languages(self):
+        # Place from Spanish, time from English, person from Spanish.
+        text = (
+            "Cuando era niña, en Sonora, my dad worked at the plant. "
+            "Mi abuela vivía con nosotros."
+        )
+        self.assertEqual(story_trigger.count_scene_anchors(text), 3)
+
+    def test_mid_utterance_switch(self):
+        # Single sentence, mid-utterance switch.
+        text = "I was born in Spokane pero nos mudamos a Sonora cuando era pequeña."
+        # place (Spokane OR Sonora — either fires), time (cuando era pequeña).
+        self.assertEqual(story_trigger.count_scene_anchors(text), 2)
+
+
+class SpanishClassifyStoryCandidateTest(unittest.TestCase):
+    """End-to-end trigger classification with Spanish content — verify
+    full_threshold AND borderline paths fire on Spanish-monolingual
+    narration."""
+
+    def test_full_threshold_spanish(self):
+        # Long-enough + 1 anchor → full_threshold. Word count must
+        # clear the 60-default floor; Spanish sentences run shorter
+        # word-count than English (more polysyllabic words), so the
+        # fixture text deliberately lists multiple memories to push
+        # past the floor without padding fillers.
+        text = " ".join([
+            "Cuando era niña vivíamos en Sonora en una casa pequeña con techo de lámina.",
+            "Mi papá trabajaba en la fábrica todas las noches y mi mamá cuidaba la casa durante el día.",
+            "Mi mamá hacía tortillas frescas en la cocina cada mañana antes de que saliera el sol.",
+            "Aprendí a leer cuando tenía cinco años con la ayuda de mi abuela paterna.",
+            "La iglesia estaba al final de la calle y los domingos íbamos toda la familia.",
+            "Mi abuela me enseñó a coser durante el invierno cuando hacía mucho frío en la casa.",
+            "Recuerdo que mi tío llegaba los sábados con dulces para todos los niños del barrio.",
+        ])
+        # Make sure the word count clears the floor (60 default).
+        self.assertGreaterEqual(len(text.split()), 60)
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=45.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "full_threshold")
+
+    def test_borderline_spanish_short_but_anchored(self):
+        # Three axes fire on a short turn → borderline.
+        text = (
+            "Cuando era niña, en Sonora, mi papá trabajaba de noche."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=12.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "borderline_scene_anchor")
+
+    def test_no_trigger_short_spanish(self):
+        # Short answer with one anchor → neither path fires.
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=3.0,
+            transcript="Sí, mi mamá.",
+        )
+        self.assertIsNone(result)
+
+
+class EnglishRegressionAfterSpanishLandedTest(unittest.TestCase):
+    """Confirm the Spanish patterns don't introduce false-positives
+    on the existing English fixture content. These cases mirror the
+    canonical English-only checks above."""
+
+    def test_existing_english_canonical_still_three(self):
+        text = (
+            "I had a mastoidectomy when I was little, in Spokane. "
+            "My dad worked nights at the aluminum plant."
+        )
+        self.assertEqual(story_trigger.count_scene_anchors(text), 3)
+
+    def test_existing_english_yes_still_zero(self):
+        for short_answer in ("yes", "no", "I think so", "maybe", "no idea"):
+            self.assertEqual(
+                story_trigger.count_scene_anchors(short_answer), 0,
+                f"unexpected anchor on bare English answer: {short_answer!r}",
+            )
+
+    def test_existing_school_was_hard_still_zero(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("School was hard."), 0,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

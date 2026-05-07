@@ -122,6 +122,93 @@ _PLACE_NOUN_PREP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ── WO-ML-05A (Phase 5A multilingual capture, 2026-05-07) ─────────────
+# Spanish parallel pattern sets. Always run alongside the English
+# patterns above (no language gating) so code-switched narrators
+# ("I was born in Spokane pero nos mudamos a Sonora") get full
+# coverage and pure English narrators are byte-stable (Spanish words
+# never appear in pure English prose, so Spanish patterns produce
+# zero false positives on the existing English fixture set).
+#
+# Trade-off: each anchor matcher runs ~2x the regex evaluations per
+# turn. Acceptable — story_trigger fires once per turn, not per chunk.
+
+# Tier 1 BARE (es): institutional / industrial nouns whose bare
+# mention is overwhelmingly locational. Same posture as the English
+# Tier 1 set. Conservative — common Spanish nouns that ALSO denote
+# objects (e.g. "fábrica de chocolate" vs "fábrica" alone is locational)
+# stay in Tier 2.
+_PLACE_NOUNS_BARE_ES = {
+    "hospital",        # same form as English; cognate
+    "iglesia",         # church
+    "fábrica",         # factory
+    "parroquia",       # parish (church)
+    "capilla",         # chapel
+    "monasterio",      # monastery
+    "cementerio",      # cemetery
+    "feria",           # fair / fairgrounds
+}
+
+# Tier 2 PREP_REQUIRED (es): common nouns that denote places. Only
+# count as place anchors after a Spanish place preposition.
+_PLACE_NOUNS_PREP_REQUIRED_ES = {
+    "casa",            # house / home
+    "granja",          # farm
+    "rancho",          # ranch
+    "finca",           # estate / farm (rural)
+    "hacienda",        # plantation / estate
+    "tienda",          # shop / store
+    "mercado",         # market
+    "cocina",          # kitchen
+    "patio",           # courtyard / patio
+    "porche",          # porch
+    "río",             # river
+    "lago",            # lake
+    "parque",          # park
+    "barrio",          # neighborhood
+    "vecindario",      # neighborhood (alt)
+    "pueblo",          # town / village
+    "aldea",           # small village
+    "ciudad",          # city
+    "condado",         # county
+    "escuela",         # school
+    "colegio",         # school (esp. Catholic / private school)
+    "biblioteca",      # library
+    "granero",         # barn
+    "garaje",          # garage
+    "callejón",        # alley
+    "cuadra",          # block (city block / stable)
+    "establo",         # stable
+    "campo",           # field / countryside
+    "milpa",           # corn field (Mexican / Central American)
+}
+
+_PLACE_NOUN_BARE_ES_RE = re.compile(
+    r"\b(?:" + "|".join(sorted(_PLACE_NOUNS_BARE_ES)) + r")\b",
+    re.IGNORECASE,
+)
+
+# Spanish place prepositions: en (in/at), a (to), de (from), cerca de
+# (near), fuera de (outside of), dentro de (inside of), detrás de
+# (behind), por (around/through), sobre (over), a través de (across),
+# hacia (toward), desde (from), pasando (past). The compound preps
+# (cerca de / fuera de / etc.) are matched as multi-word alternatives.
+#
+# Adjective slot is bounded at 0-2 lowercase tokens, same posture as
+# English. The optional determiner set ('el', 'la', 'los', 'las',
+# 'un', 'una', 'unos', 'unas', 'mi', 'mis', 'nuestra', 'nuestro',
+# 'nuestras', 'nuestros', 'su', 'sus') matches Spanish article +
+# possessive forms before the noun.
+_PLACE_NOUN_PREP_ES_RE = re.compile(
+    r"\b(?:en|a|de|cerca\s+de|fuera\s+de|dentro\s+de|detr[áa]s\s+de|"
+    r"por|sobre|a\s+trav[ée]s\s+de|hacia|desde|pasando|junto\s+a)\s+"
+    r"(?:(?:el|la|los|las|un|una|unos|unas|mi|mis|"
+    r"nuestra|nuestro|nuestras|nuestros|su|sus)\s+)?"
+    r"(?:[a-záéíóúñ]+\s+){0,2}"
+    r"(?:" + "|".join(sorted(_PLACE_NOUNS_PREP_REQUIRED_ES)) + r")\b",
+    re.IGNORECASE,
+)
+
 # Relative-time phrasing — these are the elder-narrator markers that
 # place a memory without forcing precision. Multi-word patterns must
 # match as bigrams or trigrams; single tokens like "remember" are too
@@ -191,6 +278,79 @@ _PROPER_NOUN_MULTI_WORD = re.compile(
     r"\b([A-Z][a-zA-Z]+)\s+([A-Z][a-zA-Z]+)\b",
 )
 
+# WO-ML-05A (Phase 5A): Spanish counterpart. Capitalized place name
+# after a Spanish place preposition: "en Lima", "a México", "de Cuba",
+# "cerca de Buenos Aires", "fuera de Madrid". Compound preps are
+# matched as alternatives. The capitalized noun slot is the same as
+# the English version — accepts multi-word place names like "Buenos
+# Aires", "Ciudad de México", "Las Cruces".
+_PROPER_NOUN_PLACE_AFTER_PREP_ES = re.compile(
+    r"\b(?i:en|a|de|cerca\s+de|fuera\s+de|dentro\s+de|hacia|desde)\s+"
+    r"([A-Z][a-záéíóúñA-Z]+(?:[ \-][A-Z][a-záéíóúñA-Z]+)*)",
+)
+
+# Spanish relative-time phrasing — elder-narrator markers that anchor
+# a memory in time. Bigram / trigram patterns; single tokens like
+# "recordar" are too loose. Mirrors the English set's coverage:
+# childhood, "back then", before/after-X, during-summer, day/night.
+_RELATIVE_TIME_PATTERNS_ES = (
+    # "cuando era niña/niño" / "cuando éramos niños"
+    re.compile(r"\bcuando era (?:ni[ñn][oa]|peque[ñn][oa]|chiquit[oa]|joven|chico|chica)\b", re.IGNORECASE),
+    re.compile(r"\bcuando ten[íi]a\b", re.IGNORECASE),  # "cuando tenía cinco años"
+    re.compile(r"\bcuando [ée]ramos (?:ni[ñn]os|peque[ñn]os|j[óo]venes)\b", re.IGNORECASE),
+    # "de niña/niño" / "de joven" / "de adolescente"
+    re.compile(r"\bde (?:ni[ñn][oa]|peque[ñn][oa]|joven|adolescente|chico|chica|muchach[oa])\b", re.IGNORECASE),
+    # "en aquellos tiempos" / "en aquellos días" / "en ese entonces"
+    re.compile(r"\ben (?:aquellos|esos|los) (?:tiempos|d[íi]as|a[ñn]os)\b", re.IGNORECASE),
+    re.compile(r"\ben (?:ese|aquel) entonces\b", re.IGNORECASE),
+    # "antes de la guerra" / "antes de casarme" / "antes de los niños"
+    re.compile(r"\bantes de (?:la |mi |los |el )?(?:guerra|escuela|boda|casarme|los\s+ni[ñn]os|eso|entonces)\b", re.IGNORECASE),
+    # "después de la guerra" / "después del funeral" / "después de la boda"
+    re.compile(r"\bdespu[ée]s d(?:e|el) (?:la |mi |los )?(?:guerra|boda|funeral|servicio|entierro)\b", re.IGNORECASE),
+    # "durante la guerra" / "durante el verano"
+    re.compile(r"\bdurante (?:la |el |mi )?(?:guerra|verano|invierno|primavera|oto[ñn]o|infancia|ni[ñn]ez|juventud)\b", re.IGNORECASE),
+    # "un verano / un día / una noche / una mañana"
+    re.compile(r"\b(?:un|una) (?:d[íi]a|noche|ma[ñn]ana|tarde|verano|invierno|primavera|oto[ñn]o)\b", re.IGNORECASE),
+    # "creciendo" / "mientras crecía"
+    re.compile(r"\b(?:creciendo|mientras crec[íi]a)\b", re.IGNORECASE),
+    # "por causa de la guerra" / "debido a la guerra" / "desde la guerra"
+    re.compile(r"\b(?:por causa de|debido a|desde|a causa de) (?:la |mi |el )?(?:guerra|depresi[óo]n|sequ[íi]a|gripe|epidemia|hambruna)\b", re.IGNORECASE),
+    # "hace mucho tiempo" / "hace años" — vague but elder-narrator-typical
+    re.compile(r"\bhace (?:mucho tiempo|muchos a[ñn]os|tantos a[ñn]os|tiempo)\b", re.IGNORECASE),
+)
+
+# Spanish person-relation phrasing — narrator-volunteered family
+# references with possessive ("mi mamá", "mi abuela"). Same posture
+# as English: bare pronouns and common names don't fire.
+_PERSON_RELATION_PATTERNS_ES = (
+    re.compile(r"\bmi (?:padre|pap[áa]|papi|tata|jefe)\b", re.IGNORECASE),
+    re.compile(r"\bmi (?:madre|mam[áa]|mami|jefa)\b", re.IGNORECASE),
+    re.compile(r"\bmis? hermanos?\b", re.IGNORECASE),
+    re.compile(r"\bmis? hermanas?\b", re.IGNORECASE),
+    re.compile(r"\bmi (?:abuela|abuelita|nana|abue)\b", re.IGNORECASE),
+    re.compile(r"\bmi (?:abuelo|abuelito|tata|abue)\b", re.IGNORECASE),
+    re.compile(r"\bmis? (?:t[íi]as?|t[íi]os?|primos?|primas?|sobrinos?|sobrinas?)\b", re.IGNORECASE),
+    re.compile(r"\bmi (?:esposo|esposa|marido|mujer|pareja)\b", re.IGNORECASE),
+    re.compile(r"\bmis? (?:hijos?|hijas?|ni[ñn]os?|ni[ñn]as?|chamacos?|chamacas?)\b", re.IGNORECASE),
+    re.compile(r"\bmis? (?:padrinos?|padrino|madrina|madrinas?|compadres?|comadres?)\b", re.IGNORECASE),
+)
+
+# Bare-capital relation usage in Spanish. Convention: relation nouns
+# capitalize when used as proper nouns referring to the speaker's
+# actual parent ("Papá trabajaba de noche"). Case-sensitive (no
+# IGNORECASE flag) so we only fire on the proper-noun form.
+#
+# Caveat: "Madre" and "Padre" can also be religious titles
+# (priest/nun). In context that rarely produces a false positive,
+# but worth noting. The patterns lean toward the diminutive /
+# affectionate forms that elder narrators use when speaking about
+# their own family.
+_BARE_CAPITAL_RELATION_ES_RE = re.compile(
+    r"\b(?:Pap[áa]|Mam[áa]|Mami|Papi|Madre|Padre|Tata|Nana|"
+    r"Abuela|Abuelo|Abuelita|Abuelito|Abue|"
+    r"T[íi]a|T[íi]o|Madrina|Padrino|Comadre|Compadre)\b"
+)
+
 
 def _matches_place(text: str) -> bool:
     """Does this text contain a place reference?
@@ -198,15 +358,20 @@ def _matches_place(text: str) -> bool:
     Order matters for clarity, not correctness — any single hit fires:
       1. Tier 1 institutional / industrial noun (bare mention OK)
       2. Tier 2 common-noun place word PRECEDED by a place preposition
-      3. Proper noun after a place preposition ("in Spokane")
-      4. Multi-word capitalized run ("Grand Forks", "North Dakota")
+      3. Proper noun after a place preposition ("in Spokane" / "en Lima")
+      4. Multi-word capitalized run ("Grand Forks", "Buenos Aires")
 
     2026-04-30 polish: STT output and quick narrator typing often produce
     all-lowercase text ("in spokane" instead of "in Spokane"). When the
     incoming text contains NO uppercase at all, we retry the proper-noun
     matchers against title-cased text. The "no uppercase anywhere"
     condition keeps mixed-case narrator typing from being modified.
+
+    WO-ML-05A (2026-05-07): Spanish patterns run in parallel — code-
+    switched narrators ("I was born in Spokane pero nos mudamos a
+    Sonora") get full coverage from both sides.
     """
+    # English patterns
     if _PLACE_NOUN_BARE_RE.search(text):
         return True
     if _PLACE_NOUN_PREP_RE.search(text):
@@ -215,11 +380,20 @@ def _matches_place(text: str) -> bool:
         return True
     if _PROPER_NOUN_MULTI_WORD.search(text):
         return True
+    # WO-ML-05A: Spanish patterns
+    if _PLACE_NOUN_BARE_ES_RE.search(text):
+        return True
+    if _PLACE_NOUN_PREP_ES_RE.search(text):
+        return True
+    if _PROPER_NOUN_PLACE_AFTER_PREP_ES.search(text):
+        return True
 
     # All-lowercase fallback for STT-style input.
     if text and text == text.lower():
         title = text.title()
         if _PROPER_NOUN_PLACE_AFTER_PREP.search(title):
+            return True
+        if _PROPER_NOUN_PLACE_AFTER_PREP_ES.search(title):
             return True
         # Note: skip _PROPER_NOUN_MULTI_WORD on title-case fallback —
         # title-casing every word would make "every dad worked" read
@@ -229,24 +403,45 @@ def _matches_place(text: str) -> bool:
 
 
 def _matches_relative_time(text: str) -> bool:
-    """Does this text contain time-anchoring phrasing?"""
-    return any(pat.search(text) for pat in _RELATIVE_TIME_PATTERNS)
+    """Does this text contain time-anchoring phrasing?
+
+    WO-ML-05A (2026-05-07): Spanish patterns run alongside English so
+    code-switched / Spanish-monolingual narrators trigger when they
+    use elder-narrator time markers ("cuando era niña", "en aquellos
+    tiempos", "durante la guerra").
+    """
+    if any(pat.search(text) for pat in _RELATIVE_TIME_PATTERNS):
+        return True
+    if any(pat.search(text) for pat in _RELATIVE_TIME_PATTERNS_ES):
+        return True
+    return False
 
 
 def _matches_person_relation(text: str) -> bool:
     """Does this text reference a family/role person?
 
-    Two pattern families:
+    English pattern families:
       1. "my X" patterns (case-insensitive) — narrator explicitly names
          the relation with a possessive.
       2. Bare-capital relation noun (case-sensitive) — narrator uses
          the relation as a proper noun referring to their own parent
          ("Dad walked nights", "Mom sang in the choir"). 2026-04-30
          polish addition.
+
+    WO-ML-05A (2026-05-07): Spanish patterns run in parallel.
+    Possessive form ("mi mamá", "mi abuela", "mis tíos") and the
+    bare-capital proper-noun form ("Papá trabajaba en la mina")
+    both fire. Spanish "mi mamá" and English "my mom" both trigger
+    on a code-switched turn.
     """
     if any(pat.search(text) for pat in _PERSON_RELATION_PATTERNS):
         return True
     if _BARE_CAPITAL_RELATION_RE.search(text):
+        return True
+    # WO-ML-05A: Spanish patterns
+    if any(pat.search(text) for pat in _PERSON_RELATION_PATTERNS_ES):
+        return True
+    if _BARE_CAPITAL_RELATION_ES_RE.search(text):
         return True
     return False
 
