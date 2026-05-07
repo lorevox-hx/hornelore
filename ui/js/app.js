@@ -6100,6 +6100,50 @@ function toggleRecording(){
     _wo10hClaimTurn();
     return;
   }
+
+  // BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01 Phase A (2026-05-07):
+  // Route mic-button click through FocusCanvas so the narrator sees a
+  // full-screen modal with the live STT transcript as they dictate.
+  // Pre-fix, the mic button started background recognition that fed
+  // chatInput silently — narrators who talked for more than a sentence
+  // had no visual feedback and couldn't see STT errors (e.g., Melanie
+  // Zollner's "Hannah" mishear of "hold my hand").
+  //
+  // FocusCanvas.open("mic") drives the full flow: _setMode("listening")
+  // + _hookRecognition + toggleRecording → recognition events flow
+  // into the modal's fcTranscript / fcInterim displays. When narrator
+  // closes the modal (Esc / Cancel) FocusCanvas.close() handles
+  // _stopListening + _unhookRecognition cleanup.
+  //
+  // Behavior contract for Phase A:
+  //   - Narrator clicks mic when NOT recording AND modal NOT open
+  //     → open modal in listening mode (FocusCanvas internally fires
+  //     recognition start; we return early to avoid the legacy
+  //     startRecording call below)
+  //   - Narrator clicks mic again while recording → fall through to
+  //     legacy stopRecording (modal close hooks via its own onstop)
+  //   - Modal not loaded OR localStorage["lv_mic_modal_disabled"]="1"
+  //     → fall through to legacy direct toggleRecording (preserved as
+  //     the safety escape hatch).
+  //
+  // Phases B/C/D layer visual polish (Send/Cancel buttons, confidence
+  // overlay, vertical expansion) on top of this trigger wiring.
+  var _modalDisabled = false;
+  try { _modalDisabled = (localStorage.getItem("lv_mic_modal_disabled") === "1"); } catch (_) {}
+  var _modalAvailable = typeof FocusCanvas !== "undefined" &&
+                        typeof FocusCanvas.open === "function" &&
+                        typeof FocusCanvas.isOpen === "function";
+  if (!_modalDisabled && _modalAvailable && !FocusCanvas.isOpen() && !isRecording) {
+    console.log("[mic-modal] routing mic-button click through FocusCanvas (Phase A)");
+    try {
+      FocusCanvas.open("mic");
+      return;
+    } catch (e) {
+      console.warn("[mic-modal] FocusCanvas.open threw — falling back to legacy:", e);
+      // fall through to startRecording below
+    }
+  }
+
   isRecording?stopRecording():startRecording();
 }
 // HTML button calls toggleMic() — alias to toggleRecording.
