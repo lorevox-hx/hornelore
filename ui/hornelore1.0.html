@@ -7386,6 +7386,37 @@ async function memoirExportDOCX() {
       const secId = sec.dataset.section || "";
       if (items.length) sectionsPayload.push({ id: secId, label, items });
     }
+  } else if (_memoirState === "structured") {
+    // BUG-MEMOIR-EXPORT-STRUCTURED-STATE-01 (2026-05-07):
+    // Structured state ships the canonical-life-spine renderer
+    // (per WO-CANONICAL-LIFE-SPINE-01, 2026-04-29). It uses
+    // .memoir-structured-item elements + .memoir-placeholder-section
+    // wrapper classes — NOT mark.new-fact spans. Pre-this-fix the
+    // export read zero items from any structured-state narrator
+    // (Mary, Marvin, Christopher, Janice, Kent — all 7-era spine
+    // narrators) and produced an empty docx body.
+    //
+    // Harvest rules:
+    //   1. Iterate every .memoir-section.
+    //   2. Skip sections marked .memoir-placeholder-section
+    //      ("Lori will gather this section as you talk — ..." stub
+    //      copy from lv80RenderEra* — never export scaffold).
+    //   3. Read the section heading (English label, threaded into
+    //      the WO-ML-04 translation pipeline downstream).
+    //   4. Harvest every .memoir-structured-item as a separate
+    //      bullet item — the renderer puts one fact per element so
+    //      one-to-one mapping is correct.
+    //   5. Skip the section entirely if no items survive (parity
+    //      with the threads-state branch's "if (items.length)").
+    const domSections = Array.from(content?.querySelectorAll(".memoir-section") || []);
+    for (const sec of domSections) {
+      if (sec.classList.contains("memoir-placeholder-section")) continue;
+      const label = sec.querySelector(".memoir-section-heading")?.textContent?.trim() || "";
+      const items = Array.from(sec.querySelectorAll(".memoir-structured-item"))
+        .map(el => el.textContent.trim()).filter(Boolean);
+      const secId = sec.dataset.eraId || sec.dataset.section || "";
+      if (items.length) sectionsPayload.push({ id: secId, label, items });
+    }
   }
 
   // Arc roles for the header line
