@@ -104,6 +104,17 @@ def preserve_turn(
     audio_id: Optional[str] = None,
     current_era: Optional[str] = None,
     narrator_display_name: Optional[str] = None,
+    # WO-ML-03B (Phase 3 multilingual, 2026-05-07): ISO-639-1 language
+    # code detected by the STT engine for THIS narrator turn (not the
+    # narrator's primary language — that's a profile-level setting).
+    # Whisper bubbles `info.language` per chunk; FE TranscriptGuard
+    # threads it through to chat_ws.py to here. Persisted in
+    # story_candidates.language so operator review can group / filter
+    # by language and Phase 4 memoir export can render the correct
+    # template. Web Speech doesn't emit language, so legacy-path
+    # rows continue to land with language=None.
+    language: Optional[str] = None,
+    language_probability: Optional[float] = None,
 ) -> str:
     """Path 1 entry point. Persists a story_candidate row. Returns the
     new candidate id. Synchronous — must complete before the caller
@@ -174,6 +185,24 @@ def preserve_turn(
     # operator says otherwise.
     initial_confidence = "medium" if trigger_reason == "full_threshold" else "low"
 
+    # WO-ML-03B Phase 3 multilingual: light-validate language before
+    # writing. Strip regional variants ("es-MX" → "es"), require 2-3
+    # alpha chars, lowercase. Invalid values get coerced to None
+    # (story_candidates.language NULL is meaningful: "language not
+    # known / not detected").
+    _lang_db: Optional[str] = None
+    if language:
+        _lang = str(language).strip().lower()
+        if "-" in _lang:
+            _lang = _lang.split("-", 1)[0]
+        if _lang and 2 <= len(_lang) <= 3 and _lang.isalpha():
+            _lang_db = _lang
+    _lang_prob_db: Optional[float] = None
+    if isinstance(language_probability, (int, float)):
+        _p = float(language_probability)
+        if 0.0 <= _p <= 1.0:
+            _lang_prob_db = _p
+
     try:
         _db.story_candidate_insert(
             candidate_id=candidate_id,
@@ -193,6 +222,8 @@ def preserve_turn(
             estimated_year_high=None,
             confidence=initial_confidence,
             scene_anchors=[],
+            language=_lang_db,
+            language_probability=_lang_prob_db,
         )
     except Exception:
         logger.exception(
@@ -234,6 +265,8 @@ def preserve_turn(
                 current_era=current_era,
                 narrator_display_name=narrator_display_name,
                 initial_confidence=initial_confidence,
+                language=_lang_db,
+                language_probability=_lang_prob_db,
             )
         except Exception:
             logger.exception(
@@ -319,6 +352,12 @@ def _write_stories_captured_dir(
     current_era: Optional[str],
     narrator_display_name: Optional[str],
     initial_confidence: str,
+    # WO-ML-03B (Phase 3 multilingual, 2026-05-07): operator browsing
+    # the filesystem mirror should see the detected language without
+    # opening the DB. Both fields surface in metadata.json AND in the
+    # transcript.txt header. None passes through cleanly.
+    language: Optional[str] = None,
+    language_probability: Optional[float] = None,
 ) -> "Optional[Path]":
     """Build a self-contained captured-story folder.
 
@@ -351,6 +390,7 @@ def _write_stories_captured_dir(
         f"# narrator_id: {narrator_id}",
         f"# captured_at: {ts_iso}",
         f"# era:         {current_era or '(unset)'}",
+        f"# language:    {language or '(unknown)'}",
         f"# trigger:     {trigger_reason}",
         f"# anchors:     {scene_anchor_count}",
         f"# words:       {word_count}",
@@ -395,8 +435,11 @@ def _write_stories_captured_dir(
         "scene_anchor_count": int(scene_anchor_count or 0),
         "word_count": int(word_count or 0),
         "initial_confidence": initial_confidence,
+        # WO-ML-03B Phase 3 multilingual (2026-05-07).
+        "language": language,
+        "language_probability": language_probability,
         "captured_at": ts_iso,
-        "schema_version": 1,
+        "schema_version": 2,
     }
     metadata_path = root / "metadata.json"
     metadata_path.write_text(

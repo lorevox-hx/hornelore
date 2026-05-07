@@ -5140,8 +5140,40 @@ async function sendUserMessage(){
     // segment was actually captured, the file at audio/<id>.webm just
     // won't exist and the backend's stories-captured copy step skips
     // cleanly via _resolve_audio_source returning None.
+    //
+    // WO-ML-03B (Phase 3 multilingual, 2026-05-07): pull transcript
+    // language metadata from TranscriptGuard's staged state. When the
+    // STT engine is WhisperSTT, this carries the ISO-639-1 code + the
+    // model's confidence in the language detection. Web Speech doesn't
+    // emit language, so on the legacy path these stay null and chat_ws
+    // treats null as "language unknown / not detected" gracefully.
+    var _transcript_language = null;
+    var _transcript_language_probability = null;
+    try {
+      if (window.TranscriptGuard && typeof window.TranscriptGuard.buildExtractionPayloadFields === "function") {
+        var _tg = window.TranscriptGuard.buildExtractionPayloadFields(text);
+        if (_tg) {
+          _transcript_language = _tg.transcript_language || null;
+          if (typeof _tg.transcript_language_probability === "number") {
+            _transcript_language_probability = _tg.transcript_language_probability;
+          }
+        }
+      }
+    } catch (_tgErr) {
+      console.warn("[whisper-stt] transcript-guard read failed for chat WS:", _tgErr && _tgErr.message);
+    }
+
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
-      message:payload,turn_mode:routedMode,params:{person_id:state.person_id,temperature:_llmT,max_new_tokens:_llmM,runtime71:_rt71,audio_id:_audioTurnId,turn_id:_audioTurnId}}));
+      message:payload,turn_mode:routedMode,params:{
+        person_id:state.person_id,
+        temperature:_llmT,
+        max_new_tokens:_llmM,
+        runtime71:_rt71,
+        audio_id:_audioTurnId,
+        turn_id:_audioTurnId,
+        transcript_language:_transcript_language,
+        transcript_language_probability:_transcript_language_probability,
+      }}));
     // Safety timeout: if no response within 30s, unstick the UI
     // WO-S3: Guard against stacked unavailable messages — only show once
     // WO-11: Only show unavailable if WS is genuinely disconnected

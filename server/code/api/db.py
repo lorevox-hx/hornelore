@@ -1032,6 +1032,9 @@ _CRITICAL_SCHEMA: Dict[str, set] = {
         "scene_anchors", "extraction_status", "extracted_fields",
         "review_status", "review_notes", "reviewed_at", "reviewed_by",
         "session_id", "conversation_id", "turn_id", "created_at",
+        # WO-ML-03B Phase 3 multilingual (2026-05-07) — added by
+        # migration 0006_story_candidates_language.sql.
+        "language", "language_probability",
     },
 }
 
@@ -4837,6 +4840,14 @@ def story_candidate_insert(
     estimated_year_high: Optional[int] = None,
     confidence: str = "low",
     scene_anchors: Optional[List[str]] = None,
+    # WO-ML-03B (Phase 3 multilingual, 2026-05-07): ISO-639-1 language
+    # code detected by the STT engine for THIS turn. Migration
+    # 0006_story_candidates_language.sql adds the columns. Default
+    # None preserves byte-stable behavior for callers that don't pass
+    # the kwarg. Light-validated by the caller (story_preservation);
+    # this writer treats whatever it gets as authoritative.
+    language: Optional[str] = None,
+    language_probability: Optional[float] = None,
 ) -> str:
     """Insert a story_candidate row (Path 1 / preservation). Returns the
     candidate id on success.
@@ -4868,7 +4879,8 @@ def story_candidate_insert(
                 estimated_year_low, estimated_year_high, confidence,
                 scene_anchors,
                 extraction_status, extracted_fields,
-                review_status
+                review_status,
+                language, language_probability
             ) VALUES (
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -4877,7 +4889,8 @@ def story_candidate_insert(
                 ?, ?, ?,
                 ?,
                 'pending', '{}',
-                'unreviewed'
+                'unreviewed',
+                ?, ?
             );
             """,
             (
@@ -4887,6 +4900,7 @@ def story_candidate_insert(
                 _json_dump(era_candidates or []), age_bucket,
                 estimated_year_low, estimated_year_high, confidence,
                 _json_dump(scene_anchors or []),
+                language, language_probability,
             ),
         )
         con.commit()

@@ -128,6 +128,7 @@ def append_event(
     meta: Optional[Dict[str, Any]] = None,
     current_era: Optional[str] = None,
     audio_id: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> None:
     """
     Append a single event to transcript.jsonl (append-only — never rewrites).
@@ -150,6 +151,17 @@ def append_event(
     turns to their source audio without timestamp guesswork.
     Backward-compatible: turns without audio_id (typed input, system
     directives, server-emitted bubbles) are unchanged.
+
+    WO-ML-03B (Phase 3 of the multilingual project, 2026-05-07):
+    `language` is the ISO-639-1 code detected by the STT engine
+    (WhisperSTT bubbles `info.language` from faster-whisper into each
+    chunk's response per Phase 1A; FE TranscriptGuard threads the
+    value through the chat WS payload to chat_ws.py to here).
+    Persisted on the JSONL turn so memoir export, cross-language
+    semantic search, and Phase 4 safety routing can read the language
+    of each preserved turn directly. Web Speech doesn't emit language,
+    so legacy-path turns continue to land without this field.
+    Backward-compatible: turns without `language` are unchanged.
     """
     root = session_root(person_id, session_id)
     root.mkdir(parents=True, exist_ok=True)
@@ -183,6 +195,17 @@ def append_event(
         aid = str(audio_id).strip()
         if aid and len(aid) >= 8 and all(c in "0123456789abcdefABCDEF-" for c in aid):
             event["audio_id"] = aid
+    # Language tagging (WO-ML-03B Phase 3 multilingual) — written
+    # when supplied + light-validated as a 2- or 3-letter ISO code.
+    # chat_ws.py already lowercases, trims, and strips regional
+    # variants before passing this value, so the validation here is
+    # paranoia in case a different caller sends a raw locale tag.
+    if language:
+        lang = str(language).strip().lower()
+        if "-" in lang:
+            lang = lang.split("-", 1)[0]
+        if lang and 2 <= len(lang) <= 3 and lang.isalpha():
+            event["language"] = lang
 
     jsonl_path = root / "transcript.jsonl"
     with jsonl_path.open("a", encoding="utf-8") as f:
