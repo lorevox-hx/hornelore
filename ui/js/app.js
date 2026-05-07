@@ -4943,21 +4943,40 @@ async function sendUserMessage(){
   // }
 
   // WO-AUDIO-NARRATOR-ONLY-01: stop in-progress audio segment + upload.
-  // Generate a client-side turn_id; backend stores audio under that id
-  // in audio/<turn_id>.webm regardless of whether the chat_ws transcript
-  // row eventually links it.  Operator can correlate by timestamp at
-  // review time.  A no-op if audio recorder isn't loaded or recordVoice
-  // is OFF or there's no live segment.
-  if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.stop) {
+  // Backend stores audio under <_audioTurnId>.webm. The same id is now
+  // also threaded into the WebSocket start_turn params so chat_ws can
+  // pass it to archive.append_event + story_preservation.preserve_turn,
+  // closing the FE half of BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01
+  // (#58). Pre-fix, _audioTurnId was scoped inside this block and never
+  // reached the WS payload — audio webm files lived as filesystem
+  // orphans with no linkage to their transcript turn. Stories-captured/
+  // folders had transcript+metadata but never an audio.webm.
+  //
+  // Generated for EVERY send (typed or mic-driven) so the audio_id is
+  // present even when there's no active recording — chat_ws's UUID
+  // shape guard rejects values that don't look UUID-ish, so a freshly
+  // generated UUID for a typed send is harmless: no audio file exists
+  // with that name, but the linkage field is still well-formed for
+  // future replay tooling.
+  if (typeof window._lvLastAudioTurnId === "undefined") {
+    window._lvLastAudioTurnId = null;
+  }
+  let _audioTurnId = null;
+  try {
+    _audioTurnId = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : ("t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10));
+    window._lvLastAudioTurnId = _audioTurnId;
+  } catch (e) {
+    console.warn("[narrator-audio] turn_id gen threw:", e);
+  }
+  if (typeof window.lvNarratorAudioRecorder === "object" && window.lvNarratorAudioRecorder.stop && _audioTurnId) {
     try {
-      const _audioTurnId = (typeof crypto !== "undefined" && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : ("t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10));
       // Fire-and-forget — don't block sendUserMessage on upload.
       window.lvNarratorAudioRecorder.stop(_audioTurnId).catch((e) => {
         console.warn("[narrator-audio] stop+upload threw:", e && e.message || e);
       });
-    } catch (e) { console.warn("[narrator-audio] turn_id gen threw:", e); }
+    } catch (e) { console.warn("[narrator-audio] stop call threw:", e); }
   }
 
   // v7.4D — helper-mode detection. If the user appears to be asking how to use
@@ -5030,8 +5049,17 @@ async function sendUserMessage(){
     console.log("[Lori 7.1] runtime71 → model:", JSON.stringify(_rt71, null, 2));
     const _llmT = (window._lv10dLlmParams && window._lv10dLlmParams.temperature) || 0.7;
     const _llmM = (window._lv10dLlmParams && window._lv10dLlmParams.max_new_tokens) || 512;
+    // BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01 (2026-05-07) — FE half:
+    // include _audioTurnId in the start_turn params so chat_ws threads it
+    // to archive.append_event (audio_id field on the transcript turn) AND
+    // story_preservation.preserve_turn (so stories-captured/<ts>__<id>/
+    // audio.webm gets copied from the matching <_audioTurnId>.webm under
+    // the archive layout). Generated unconditionally above; if no audio
+    // segment was actually captured, the file at audio/<id>.webm just
+    // won't exist and the backend's stories-captured copy step skips
+    // cleanly via _resolve_audio_source returning None.
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
-      message:payload,turn_mode:routedMode,params:{person_id:state.person_id,temperature:_llmT,max_new_tokens:_llmM,runtime71:_rt71}}));
+      message:payload,turn_mode:routedMode,params:{person_id:state.person_id,temperature:_llmT,max_new_tokens:_llmM,runtime71:_rt71,audio_id:_audioTurnId,turn_id:_audioTurnId}}));
     // Safety timeout: if no response within 30s, unstick the UI
     // WO-S3: Guard against stacked unavailable messages — only show once
     // WO-11: Only show unavailable if WS is genuinely disconnected
