@@ -66,6 +66,276 @@ def _reflection_shaping_enabled() -> bool:
     )
 
 
+def _phantom_noun_guard_enabled() -> bool:
+    """BUG-STT-PHANTOM-PROPER-NOUNS-01 Layer 2 (2026-05-07) — runtime
+    behavioral guard that catches Lori inventing proper nouns the
+    narrator never said. Default OFF for first ship — observe how
+    often the guard would have fired before flipping. Set
+    HORNELORE_PHANTOM_NOUN_GUARD=1 to enable flag-only mode (logs
+    warnings, no mutation). Set HORNELORE_PHANTOM_NOUN_SCRUB=1 to
+    additionally drop sentences containing flagged proper nouns.
+    """
+    return os.environ.get("HORNELORE_PHANTOM_NOUN_GUARD", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _phantom_noun_scrub_enabled() -> bool:
+    """When BOTH this flag AND _phantom_noun_guard_enabled are on,
+    flagged proper nouns trigger sentence-drop in the reply text
+    (mutation). When only the guard flag is on, behavior is flag-only
+    (logs warnings, no mutation). Default OFF — flag-only first.
+    """
+    return os.environ.get("HORNELORE_PHANTOM_NOUN_SCRUB", "0").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+# False-positive whitelist for the phantom-noun guard. Capitalized
+# tokens in this set are NEVER flagged, regardless of whether the
+# narrator said them. Categories: pronouns, common articles + Lori's
+# own name, day/month names, season names, religious references that
+# narrators commonly invoke without naming, generic family terms,
+# US-specific place names that frequently appear in reflective prose.
+_PHANTOM_NOUN_WHITELIST = frozenset({
+    # Pronouns + I-contractions (capitalized at sentence start anyway
+    # but captured here as belt-and-suspenders for the case where
+    # they appear mid-sentence in dialect or quotation).
+    "I", "I'm", "I'll", "I've", "I'd",
+    # Common articles + possessives that may appear capitalized in
+    # the middle of sentences after dashes / em-dashes.
+    "A", "An", "The", "Your", "My", "Our", "His", "Her", "Their",
+    "Yes", "No", "OK", "Okay", "So", "Now", "Well",
+    # System / brand references — Lori is allowed to refer to herself.
+    "Lori", "Lorevox", "Hornelore",
+    # Calendar names — generic, narrators reference dates without
+    # introducing them as characters.
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+    "Spring", "Summer", "Fall", "Autumn", "Winter",
+    # Religious / cultural references that elder narrators commonly
+    # use as concepts rather than as named individuals.
+    "God", "Lord", "Christ", "Jesus", "Heaven",
+    # Generic family terms — Lori echoes these as kinship roles, not
+    # as characters with names.
+    "Mom", "Mother", "Mama", "Dad", "Father", "Papa",
+    "Grandma", "Grandmother", "Grandpa", "Grandfather",
+    "Sis", "Sister", "Bro", "Brother",
+    "Aunt", "Uncle", "Cousin",
+    "Wife", "Husband", "Son", "Daughter", "Child",
+    # Holidays and major shared events.
+    "Christmas", "Easter", "Hanukkah", "Passover", "Ramadan", "Diwali",
+    "Thanksgiving", "Halloween", "Valentine's",
+    # America / U.S. references that appear in life-story prose.
+    "America", "American", "United", "States", "USA",
+    # Common warm reflection phrases Lori uses.
+    "Take", "Could", "Would", "Should", "Tell", "Share",
+    "What", "When", "Where", "Why", "How", "Who", "Which",
+})
+
+
+# Pattern: capitalized word ≥3 chars NOT at sentence start. Sentence
+# starts include: very beginning of text, after period+space,
+# question-mark+space, exclam+space, newline. Mid-sentence capitalized
+# tokens are real proper-noun candidates.
+_MID_SENTENCE_PROPER_NOUN_RX = re.compile(
+    r"(?<![.!?]\s)(?<![.!?]\n)(?<!\n)(?<!^)"
+    r"\b([A-Z][a-z'-]{2,})\b"
+)
+
+
+def _extract_proper_noun_candidates(text: str) -> List[str]:
+    """Find proper-noun-shaped tokens in `text` that are NOT at
+    sentence start and NOT in the false-positive whitelist.
+
+    Returns a deduplicated list of candidate tokens (preserving
+    first-appearance order for stable test output).
+    """
+    if not text:
+        return []
+    seen: List[str] = []
+    seen_lower: set = set()
+    # Walk the text sentence-by-sentence so we can correctly identify
+    # mid-sentence vs sentence-start positions. Splitting on the
+    # standard sentence terminators preserves the first-word-after-
+    # punctuation rule that capitalization always allows.
+    sentence_parts = re.split(r"([.!?]+\s+)", text)
+    # sentence_parts alternates: [sentence, separator, sentence, separator, ...]
+    sentences: List[str] = []
+    for i in range(0, len(sentence_parts), 2):
+        if i < len(sentence_parts):
+            sentences.append(sentence_parts[i])
+    for sent in sentences:
+        if not sent.strip():
+            continue
+        # Within a sentence: skip the first word (sentence-start cap
+        # is mandatory per English rules). Look at every subsequent
+        # capitalized word ≥3 chars.
+        words = re.findall(r"\b([A-Za-z][A-Za-z'-]*)\b", sent)
+        for idx, w in enumerate(words):
+            if idx == 0:
+                continue  # sentence start — capitalization allowed
+            if not w or len(w) < 3:
+                continue
+            if not w[0].isupper():
+                continue  # not capitalized
+            # Reject all-caps tokens (likely acronyms) — too noisy
+            # to flag confidently. Adjust later if needed.
+            if w.isupper() and len(w) > 2:
+                continue
+            if w in _PHANTOM_NOUN_WHITELIST:
+                continue
+            wl = w.lower()
+            if wl in seen_lower:
+                continue
+            seen.append(w)
+            seen_lower.add(wl)
+    return seen
+
+
+def _build_known_names(profile_seed: Dict[str, object]) -> List[str]:
+    """Pull canonical names from the profile_seed dict so the guard
+    doesn't flag them. Looks at common keys that may carry strings:
+    preferred_name, full_name, parents/children/spouse names, plus
+    any list of person dicts with firstName/lastName/preferredName.
+    """
+    if not isinstance(profile_seed, dict):
+        return []
+    out: List[str] = []
+    # Direct-string keys
+    for k in ("preferred_name", "full_name", "speaker_name",
+              "childhood_home", "partner", "spouse_name",
+              "father_name", "mother_name"):
+        v = profile_seed.get(k)
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+    # Comma/space-joined list keys (parents_work, children, etc.)
+    for k in ("parents_work", "children", "siblings", "education", "career"):
+        v = profile_seed.get(k)
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, str):
+                    out.append(item)
+                elif isinstance(item, dict):
+                    for kk in ("firstName", "preferredName", "fullName",
+                               "first_name", "preferred_name", "full_name"):
+                        vv = item.get(kk)
+                        if isinstance(vv, str) and vv.strip():
+                            out.append(vv.strip())
+    return out
+
+
+def _verify_proper_noun(
+    token: str,
+    narrator_corpus: str,
+    known_names: List[str],
+) -> bool:
+    """True if `token` is justified by appearing in narrator's recent
+    turns OR in canonical profile names. Case-insensitive substring
+    match — tolerant to declension and partial appearance ("David"
+    matches "David's", etc.).
+    """
+    token_lower = token.lower()
+    if narrator_corpus and token_lower in narrator_corpus.lower():
+        return True
+    for name in known_names:
+        if name and token_lower in str(name).lower():
+            return True
+    return False
+
+
+def scrub_phantom_proper_nouns(
+    reply: str,
+    *,
+    narrator_corpus: str,
+    profile_seed: Dict[str, object],
+    scrub_mode: bool = False,
+) -> Dict[str, object]:
+    """Scan `reply` for proper-noun-shaped tokens, verify each
+    against `narrator_corpus` (recent narrator turns concatenated)
+    and `profile_seed` (canonical names). Tokens that fail BOTH
+    checks are flagged as phantom (likely STT mishearings or LLM
+    hallucinations).
+
+    Args:
+        reply:           Lori's reply text
+        narrator_corpus: concatenated narrator turn(s) — most recent
+                         2-3 turns is enough; longer hurts precision
+        profile_seed:    profile_seed dict from runtime71
+        scrub_mode:      when False (default), flag-only — returns
+                         the reply unchanged + flagged list. When
+                         True, drop sentences containing any flagged
+                         token from the returned text.
+
+    Returns dict:
+        {
+          "final_text": str,        # possibly-scrubbed reply
+          "flagged":    List[str],  # phantom proper nouns found
+          "scrubbed":   bool,       # True if final_text != reply
+          "dropped_sentences": List[str],  # only populated when
+                                            scrub_mode=True
+        }
+
+    Conservative drop strategy: when scrub_mode=True, find every
+    sentence containing a flagged token, drop the whole sentence.
+    Preserves Lori's other content (acknowledgment + follow-up
+    question) when only one sentence carries the phantom noun.
+    """
+    out: Dict[str, object] = {
+        "final_text": reply,
+        "flagged": [],
+        "scrubbed": False,
+        "dropped_sentences": [],
+    }
+    if not reply or not reply.strip():
+        return out
+
+    candidates = _extract_proper_noun_candidates(reply)
+    if not candidates:
+        return out
+
+    known_names = _build_known_names(profile_seed or {})
+
+    flagged: List[str] = []
+    for tok in candidates:
+        if not _verify_proper_noun(tok, narrator_corpus or "", known_names):
+            flagged.append(tok)
+
+    out["flagged"] = flagged
+
+    if not flagged or not scrub_mode:
+        return out
+
+    # Scrub mode — drop sentences containing flagged tokens.
+    # Split reply into sentences; rebuild without any sentence whose
+    # tokens overlap with flagged.
+    flagged_lower = {f.lower() for f in flagged}
+    parts = re.split(r"([.!?]+\s+|\n+)", reply)
+    rebuilt: List[str] = []
+    dropped: List[str] = []
+    for i in range(0, len(parts), 2):
+        sentence = parts[i] if i < len(parts) else ""
+        sep = parts[i + 1] if i + 1 < len(parts) else ""
+        # Any token in this sentence overlap with flagged?
+        words = re.findall(r"\b([A-Za-z][A-Za-z'-]*)\b", sentence)
+        if any(w.lower() in flagged_lower for w in words):
+            dropped.append(sentence.strip())
+            # Skip BOTH the sentence and its separator — sentence is gone.
+            continue
+        rebuilt.append(sentence)
+        rebuilt.append(sep)
+
+    final = "".join(rebuilt).strip()
+    if final != reply:
+        out["final_text"] = final
+        out["scrubbed"] = True
+        out["dropped_sentences"] = dropped
+    return out
+
+
 # Per-session-style word-count limits (Quantity maxim).
 # clear_direct stays tight; warm_storytelling allows more narrative
 # breath; companion sits between.

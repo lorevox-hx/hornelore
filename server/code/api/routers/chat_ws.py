@@ -1356,6 +1356,77 @@ async def ws_chat(ws: WebSocket):
                     (params.get("session_style") if isinstance(params, dict) else None)
                     or "clear_direct"
                 )
+                # BUG-STT-PHANTOM-PROPER-NOUNS-01 Layer 2 (2026-05-07):
+                # Scrub Lori's reply for proper nouns the narrator never
+                # said and that aren't in the canonical profile_seed.
+                # Default-OFF behind HORNELORE_PHANTOM_NOUN_GUARD=1
+                # (flag-only — logs warnings but doesn't mutate). With
+                # HORNELORE_PHANTOM_NOUN_SCRUB=1 also on, drops the
+                # offending sentence from final_text. Best-effort: any
+                # exception here is logged + reply unchanged. Layer 1
+                # is the mic-modal (#50 Phase A landed); Layer 3 is
+                # the extractor verbatim guard (parked).
+                #
+                # Builds narrator_corpus by concatenating the most
+                # recent narrator turns from comm-control's user_text
+                # (current turn) + last 2 archive turns when available.
+                # profile_seed comes straight from runtime71.
+                try:
+                    from ..services.lori_communication_control import (
+                        scrub_phantom_proper_nouns as _scrub_phantom,
+                        _phantom_noun_guard_enabled as _phantom_guard_on,
+                        _phantom_noun_scrub_enabled as _phantom_scrub_on,
+                    )
+                except Exception as _imp_exc:
+                    _scrub_phantom = None
+                    _phantom_guard_on = lambda: False
+                    _phantom_scrub_on = lambda: False
+                    logger.debug("[chat_ws][phantom-noun] import failed: %s", _imp_exc)
+
+                if _scrub_phantom is not None and _phantom_guard_on():
+                    try:
+                        # Build narrator_corpus from current turn + recent archive
+                        _narrator_parts = [user_text or ""]
+                        try:
+                            _recent = export_turns(conv_id) or []
+                            # Take last 4 user turns, skip the current one (head)
+                            _user_turns = [
+                                t.get("content", "") for t in _recent
+                                if isinstance(t, dict) and (t.get("role") or "").lower() == "user"
+                            ]
+                            _narrator_parts = _user_turns[-3:] + _narrator_parts
+                        except Exception:
+                            pass
+                        _narrator_corpus = " ".join(p for p in _narrator_parts if p).strip()
+
+                        _profile_seed = (
+                            runtime71.get("profile_seed")
+                            if isinstance(runtime71, dict) else {}
+                        ) or {}
+
+                        _phantom_result = _scrub_phantom(
+                            final_text,
+                            narrator_corpus=_narrator_corpus,
+                            profile_seed=_profile_seed,
+                            scrub_mode=_phantom_scrub_on(),
+                        )
+                        if _phantom_result.get("flagged"):
+                            logger.warning(
+                                "[chat_ws][phantom-noun] flagged=%s scrub_mode=%s "
+                                "scrubbed=%s conv=%s",
+                                _phantom_result["flagged"],
+                                _phantom_scrub_on(),
+                                _phantom_result["scrubbed"],
+                                conv_id,
+                            )
+                            if _phantom_result.get("scrubbed"):
+                                final_text = _phantom_result["final_text"]
+                    except Exception as _phantom_exc:
+                        logger.warning(
+                            "[chat_ws][phantom-noun] guard threw (chat continues): %s",
+                            _phantom_exc,
+                        )
+
                 _cc_result = enforce_lori_communication_control(
                     assistant_text=final_text,
                     user_text=user_text or "",
