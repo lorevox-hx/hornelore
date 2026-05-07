@@ -219,6 +219,24 @@ async def ws_chat(ws: WebSocket):
         except Exception as _era_exc:
             logger.debug("[chat_ws][era-binding] failed to canonicalize: %s", _era_exc)
 
+        # BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01 (2026-05-07):
+        # Audio_id extraction lifted to function-top scope so it's
+        # available to BOTH the story-trigger preserve_turn call AND
+        # the user-turn archive_append_event write. Earlier fix had
+        # it scoped inside the archive block (later in the function),
+        # which made the variable unreachable from the story-trigger
+        # block above. Defensive: shape-guards keep garbage values
+        # from reaching the archive layer.
+        _audio_id_for_archive: Optional[str] = None
+        try:
+            _ai_raw = params.get("audio_id") or params.get("turn_id") or None
+            if _ai_raw:
+                _ai_str = str(_ai_raw).strip()
+                if _ai_str and len(_ai_str) >= 8:
+                    _audio_id_for_archive = _ai_str
+        except Exception:
+            _audio_id_for_archive = None
+
         # ── WO-LORI-STORY-CAPTURE-01 Phase 1A Commit 3b: story preservation hook ──
         # Path 1 entry point. Decoupled from the rest of the chat path:
         # a preservation failure logs CRITICAL but does NOT stop the
@@ -300,6 +318,22 @@ async def ws_chat(ws: WebSocket):
                         # so a sloppy "  " from the UI cleanly becomes None
                         # rather than a sentinel that won't match any row.
                         _turn_id = (params.get("turn_id") or "").strip() or None
+
+                        # Stories-captured-fs (2026-05-07): resolve
+                        # narrator_display_name + audio_id + current_era
+                        # so preserve_turn can write the operator-friendly
+                        # filesystem mirror (DATA_DIR/stories-captured/...).
+                        # All three are best-effort: if any lookup fails,
+                        # the DB row still goes through; only the FS mirror
+                        # may have less context.
+                        _narrator_dn = None
+                        try:
+                            from .. import db as _db_for_dn
+                            _person = _db_for_dn.get_person(person_id) or {}
+                            if isinstance(_person, dict):
+                                _narrator_dn = (_person.get("display_name") or "").strip() or None
+                        except Exception:
+                            _narrator_dn = None
                         try:
                             _candidate_id = _story_preservation.preserve_turn(
                                 narrator_id=person_id,
@@ -308,8 +342,12 @@ async def ws_chat(ws: WebSocket):
                                 scene_anchor_count=int(
                                     _trigger_diag.get("anchor_count") or 0
                                 ),
+                                session_id=conv_id,
                                 conversation_id=conv_id,
                                 turn_id=_turn_id,
+                                audio_id=_audio_id_for_archive,
+                                current_era=_current_era_for_archive,
+                                narrator_display_name=_narrator_dn,
                             )
                             logger.info(
                                 "[story-trigger] preserved candidate_id=%s "
@@ -472,24 +510,9 @@ async def ws_chat(ws: WebSocket):
                 title="Chat (WS)",
                 extra_meta={"ws": True},
             )
-            # BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01 (2026-05-07):
-            # if the WebSocket payload carried an audio_id (UUID matching
-            # the webm file under sessions/<sid>/audio/<audio_id>.webm
-            # uploaded by narrator-audio-recorder), thread it through to
-            # archive_append_event so the transcript turn carries the
-            # linkage. UI wiring (passing audio_id with start_turn) is
-            # tracked under #50 (mic modal) and the narrator-audio-
-            # recorder integration. Until the UI ships that, audio_id
-            # stays None and behavior is unchanged.
-            _audio_id_for_archive = None
-            try:
-                _ai_raw = params.get("audio_id") or params.get("turn_id") or None
-                if _ai_raw:
-                    _ai_str = str(_ai_raw).strip()
-                    if _ai_str and len(_ai_str) >= 8:
-                        _audio_id_for_archive = _ai_str
-            except Exception:
-                _audio_id_for_archive = None
+            # _audio_id_for_archive is extracted at function top so it
+            # reaches both the story-trigger preserve_turn call and this
+            # archive write. See BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01.
 
             archive_append_event(
                 person_id=person_id,

@@ -55,7 +55,9 @@ from __future__ import annotations
 # here, stop and re-read §0.5 of the WO. Path 1 cannot reach into
 # Path 2.
 
+import json
 import logging
+import os
 import uuid
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -99,6 +101,9 @@ def preserve_turn(
     session_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
     turn_id: Optional[str] = None,
+    audio_id: Optional[str] = None,
+    current_era: Optional[str] = None,
+    narrator_display_name: Optional[str] = None,
 ) -> str:
     """Path 1 entry point. Persists a story_candidate row. Returns the
     new candidate id. Synchronous — must complete before the caller
@@ -202,7 +207,209 @@ def preserve_turn(
         candidate_id, narrator_id, trigger_reason,
         word_count, scene_anchor_count,
     )
+
+    # ── Stories-captured filesystem persistence (2026-05-07) ──────
+    # Per Chris's directive: each captured story should also land as
+    # a self-contained folder under DATA_DIR/stories-captured/ with
+    # audio + transcript + metadata grouped together. The DB
+    # story_candidate row remains the canonical record; this is an
+    # operator-friendly mirror that lets a non-developer find the
+    # story content by browsing the filesystem (Janice's family,
+    # not a SQL client). Best-effort — logs warning on failure but
+    # does NOT raise (LAW 3: chat path must not be interrupted by
+    # filesystem trouble).
+    if _stories_captured_fs_enabled():
+        try:
+            _write_stories_captured_dir(
+                narrator_id=narrator_id,
+                candidate_id=candidate_id,
+                transcript=transcript,
+                trigger_reason=trigger_reason,
+                word_count=word_count or 0,
+                scene_anchor_count=scene_anchor_count,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                audio_id=audio_id,
+                current_era=current_era,
+                narrator_display_name=narrator_display_name,
+                initial_confidence=initial_confidence,
+            )
+        except Exception:
+            logger.exception(
+                "[preserve][stories-captured-fs] write failed candidate_id=%s "
+                "narrator=%s — DB row preserved; filesystem mirror skipped",
+                candidate_id, narrator_id,
+            )
+
     return candidate_id
+
+
+# ── Stories-captured filesystem persistence (2026-05-07) ──────────────────
+
+def _stories_captured_fs_enabled() -> bool:
+    """Default-on. Set HORNELORE_STORIES_CAPTURED_FS=0 to disable."""
+    return os.getenv("HORNELORE_STORIES_CAPTURED_FS", "1").strip().lower() not in (
+        "0", "false", "no", "off", ""
+    )
+
+
+def _stories_captured_root() -> "Path":
+    """Filesystem root for the captured-stories mirror.
+
+    Honors DATA_DIR (same env var the rest of the stack uses for
+    transcripts/DB). The folder is created lazily — first preserved
+    story creates DATA_DIR/stories-captured/.
+    """
+    from pathlib import Path
+    data_dir = Path(os.getenv("DATA_DIR", "data")).expanduser()
+    return data_dir / "stories-captured"
+
+
+def _safe_iso_for_path(ts_iso: str) -> str:
+    """ISO timestamp made filesystem-safe — colons and dots replaced
+    with hyphens. '2026-05-07T08:30:15.123456' → '2026-05-07T08-30-15'."""
+    if not ts_iso:
+        ts_iso = _now_iso()
+    # Drop sub-second precision and any timezone suffix for a cleaner
+    # directory name.
+    head = ts_iso.split(".")[0].split("+")[0].split("Z")[0]
+    return head.replace(":", "-")
+
+
+def _now_iso() -> str:
+    from datetime import datetime
+    return datetime.utcnow().isoformat()
+
+
+def _resolve_audio_source(
+    narrator_id: str,
+    session_id: Optional[str],
+    audio_id: Optional[str],
+) -> "Optional[Path]":
+    """Locate the source webm file for this audio_id under the
+    archive layout: DATA_DIR/memory/archive/people/<pid>/sessions/
+    <sid>/audio/<audio_id>.webm. Returns None if any component is
+    missing or the file does not exist."""
+    if not audio_id or not session_id:
+        return None
+    from pathlib import Path
+    data_dir = Path(os.getenv("DATA_DIR", "data")).expanduser()
+    candidate = (
+        data_dir / "memory" / "archive" / "people" / narrator_id
+        / "sessions" / session_id / "audio" / (audio_id + ".webm")
+    )
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _write_stories_captured_dir(
+    *,
+    narrator_id: str,
+    candidate_id: str,
+    transcript: str,
+    trigger_reason: str,
+    word_count: int,
+    scene_anchor_count: int,
+    session_id: Optional[str],
+    conversation_id: Optional[str],
+    turn_id: Optional[str],
+    audio_id: Optional[str],
+    current_era: Optional[str],
+    narrator_display_name: Optional[str],
+    initial_confidence: str,
+) -> "Optional[Path]":
+    """Build a self-contained captured-story folder.
+
+    Layout (per-story, sorted chronologically by name):
+
+      DATA_DIR/stories-captured/<narrator_id>/<ts_safe>__<short_id>/
+        transcript.txt   — human-readable narrator text + header
+        audio.webm       — copied from archive audio if audio_id linked
+        metadata.json    — narrator + candidate ids, ts, era, trigger
+
+    Returns the created directory path, or None on any failure.
+    Operator can drop a story folder into Dropbox / share with family
+    directly; nothing in here references DB row IDs the recipient
+    can't make sense of.
+    """
+    from pathlib import Path
+    import shutil
+
+    ts_iso = _now_iso()
+    ts_safe = _safe_iso_for_path(ts_iso)
+    short_id = (candidate_id or "")[:8] or "unknown"
+
+    root = _stories_captured_root() / narrator_id / f"{ts_safe}__{short_id}"
+    root.mkdir(parents=True, exist_ok=True)
+
+    # ── transcript.txt — narrator content with a small human header ──
+    header_lines = [
+        f"# Captured story",
+        f"# narrator:    {narrator_display_name or narrator_id}",
+        f"# narrator_id: {narrator_id}",
+        f"# captured_at: {ts_iso}",
+        f"# era:         {current_era or '(unset)'}",
+        f"# trigger:     {trigger_reason}",
+        f"# anchors:     {scene_anchor_count}",
+        f"# words:       {word_count}",
+        f"# confidence:  {initial_confidence}",
+        f"# candidate:   {candidate_id}",
+        "",
+    ]
+    transcript_path = root / "transcript.txt"
+    transcript_path.write_text(
+        "\n".join(header_lines) + (transcript or ""),
+        encoding="utf-8",
+    )
+
+    # ── audio.webm — best-effort copy from the archive audio folder ──
+    audio_dest: Optional[Path] = None
+    audio_src = _resolve_audio_source(narrator_id, session_id, audio_id)
+    if audio_src is not None:
+        try:
+            audio_dest = root / "audio.webm"
+            shutil.copy2(audio_src, audio_dest)
+        except Exception as exc:
+            logger.warning(
+                "[preserve][stories-captured-fs] audio copy failed "
+                "candidate_id=%s audio_id=%s err=%s",
+                candidate_id, audio_id, exc,
+            )
+            audio_dest = None
+
+    # ── metadata.json — programmatic record alongside the human files ──
+    metadata = {
+        "candidate_id": candidate_id,
+        "narrator_id": narrator_id,
+        "narrator_display_name": narrator_display_name,
+        "session_id": session_id,
+        "conversation_id": conversation_id,
+        "turn_id": turn_id,
+        "audio_id": audio_id,
+        "audio_present": audio_dest is not None,
+        "audio_source": str(audio_src) if audio_src else None,
+        "current_era": current_era,
+        "trigger_reason": trigger_reason,
+        "scene_anchor_count": int(scene_anchor_count or 0),
+        "word_count": int(word_count or 0),
+        "initial_confidence": initial_confidence,
+        "captured_at": ts_iso,
+        "schema_version": 1,
+    }
+    metadata_path = root / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    logger.info(
+        "[preserve][stories-captured-fs] wrote candidate_id=%s "
+        "dir=%s audio_present=%s",
+        candidate_id, root, (audio_dest is not None),
+    )
+    return root
 
 
 # ── Placement update (after the bucket question) ──────────────────────────
