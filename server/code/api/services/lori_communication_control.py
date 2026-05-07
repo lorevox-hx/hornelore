@@ -210,21 +210,64 @@ def _truncate_to_first_question(text: str) -> str:
 
 
 def _truncate_to_word_limit(text: str, limit: int) -> str:
-    """Truncate to `limit` words. If the text contains a '?', preserve
-    the first complete question rather than chopping mid-sentence."""
+    """Truncate to `limit` words. Strategy ladder:
+
+      1. If text fits, return as-is.
+      2. If the first '?' fits within the limit, return up to that '?'
+         (preserve a complete question — the most useful single-turn
+         shape for the narrator).
+      3. If no question fits, walk backward from the word-budget edge
+         to the last sentence-ending punctuation ('.', '!', '?') and
+         end cleanly there. This preserves at least one complete
+         thought rather than chopping mid-sentence.
+      4. Last resort: truncate mid-sentence and append '…' so the
+         narrator at least sees the response was clipped.
+
+    BUG-LORI-RESPONSE-MID-SENTENCE-CUT-01 (2026-05-07): Melanie Zollner
+    live session 03:23 had three Lori turns ending with mid-question
+    truncation — "What do you remember about...", "How did you feel
+    about being the center of attention like...", "Does that..." —
+    because the first '?' fell past the 55-word clear_direct cap and
+    the old truncator went straight to mid-sentence chop. New strategy
+    3 catches all three: walk back to the previous '.'/'!'/'?' and
+    end the response there with a complete thought.
+    """
     words = text.split()
     if len(words) <= limit:
         return text
 
-    # Try to preserve the first complete question.
+    # Strategy 2: preserve first complete question if it fits.
     first_q = text.find("?")
     if first_q != -1:
         candidate = text[: first_q + 1].strip()
         if len(candidate.split()) <= limit:
             return candidate
 
-    # No question fits within budget — return first N words + ellipsis.
-    return " ".join(words[:limit]).rstrip(".,;: ") + "..."
+    # Strategy 3: walk backward from word-budget edge to last clean
+    # sentence boundary. Build the budget-window text, then scan for
+    # the last '.', '!', or '?' inside it (skip ellipsis '...' so we
+    # don't pretend a chopped truncation was a complete sentence).
+    budget_text = " ".join(words[:limit])
+    last_sent_end = -1
+    for i in range(len(budget_text) - 1, -1, -1):
+        ch = budget_text[i]
+        if ch in (".", "!", "?"):
+            # Reject if this is part of an ellipsis '...'.
+            if ch == "." and i >= 2 and budget_text[i-2:i+1] == "...":
+                continue
+            last_sent_end = i
+            break
+
+    if last_sent_end != -1:
+        clean = budget_text[: last_sent_end + 1].strip()
+        # Guard against absurdly short cuts (e.g., a stray "Yes." in
+        # the first sentence). Require at least 6 words in the kept
+        # portion or fall through to ellipsis chop.
+        if len(clean.split()) >= 6:
+            return clean
+
+    # Strategy 4: last resort — truncate mid-sentence + ellipsis.
+    return budget_text.rstrip(".,;: ") + "…"
 
 
 def _safety_path(
@@ -400,8 +443,27 @@ def enforce_lori_communication_control(
         current = _truncate_to_first_question(current)
         question_count = current.count("?")
 
-    # Step 3: word-count limit per session_style
-    word_limit = _SESSION_STYLE_WORD_LIMITS.get(session_style, _DEFAULT_WORD_LIMIT)
+    # Step 3: word-count limit per session_style (adaptive on narrator length).
+    #
+    # BUG-LORI-RESPONSE-CAP-FIXED-FOR-RICH-NARRATOR-01 (2026-05-07,
+    # Chris's observation from Melanie Zollner live session): when the
+    # narrator shares a rich multi-sentence turn, Lori legitimately
+    # needs room to (a) reflect a concrete anchor back, (b) acknowledge
+    # the substance, (c) ask one focused follow-up. A flat 55-word cap
+    # for clear_direct can't fit all three when the narrator just gave
+    # 80 words of story. Pre-fix, three Lori turns hit the cap and got
+    # truncated mid-question.
+    #
+    # Solution: when the narrator's turn is rich (>= 50 words), allow
+    # Lori an extra 35-word headroom on top of the base session-style
+    # cap. Short narrator turns keep the tight original cap so brevity
+    # discipline still applies for thin replies.
+    base_word_limit = _SESSION_STYLE_WORD_LIMITS.get(session_style, _DEFAULT_WORD_LIMIT)
+    narrator_word_count = len((user_text or "").split())
+    if narrator_word_count >= 50:
+        word_limit = base_word_limit + 35
+    else:
+        word_limit = base_word_limit
     word_count = len(current.split())
     if word_count > word_limit:
         failures.append("too_long")

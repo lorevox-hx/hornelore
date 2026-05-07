@@ -233,15 +233,33 @@
         _autoScroll = true;
         _scrollPauseByUser = false;
         if (_newMsgBtnEl) _newMsgBtnEl.classList.add("fc-hidden");
-      } else if (chatWrap.scrollTop < _lastScrollTop) {
-        // User scrolled up
+      } else if (chatWrap.scrollTop < _lastScrollTop - 50) {
+        // BUG-LORI-CHAT-SCROLL-REGRESSION-01 (2026-05-07): require a
+        // MEANINGFUL upward scroll (>50px) before pausing auto-scroll.
+        // Pre-fix this fired on any scrollTop decrease, including the
+        // micro-jitter the browser produces when layout reflows during
+        // Lori's streaming reply (multiple appendBubble calls in
+        // succession). Symptom: a few seconds into Lori's response,
+        // _autoScroll silently flipped to false and the chat froze
+        // mid-scroll for the rest of the session — the parent-session
+        // blocker reported by Chris 2026-05-07.
         _autoScroll = false;
         _scrollPauseByUser = true;
       }
       _lastScrollTop = chatWrap.scrollTop;
     });
 
-    // Expose a smooth-scroll function that appendBubble will call
+    // Expose a scroll function that appendBubble will call.
+    // BUG-LORI-CHAT-SCROLL-REGRESSION-01 (2026-05-07): switched from
+    // smooth-scroll (500ms animation) to instant scroll. Smooth
+    // animation overlapped with rapid appendBubble streaming during
+    // Lori's reply — multiple smooth-scrolls queued, the
+    // _programmaticScroll guard window kept resetting before any
+    // scroll completed, and the scroll handler caught a scroll-up
+    // event between transitions, silently disabling auto-scroll for
+    // the rest of the session. Instant scroll is reliable across
+    // streaming and matches what older narrators expect (Lori's
+    // reply just appears at the bottom — no animation distraction).
     window._scrollChatToBottom = function () {
       if (!_autoScroll) {
         // User is scrolled up — show "See New Message" button
@@ -249,8 +267,13 @@
         return;
       }
       _programmaticScroll = true;
-      chatWrap.scrollTo({ top: chatWrap.scrollHeight, behavior: "smooth" });
-      setTimeout(function () { _programmaticScroll = false; }, 500);
+      chatWrap.scrollTop = chatWrap.scrollHeight;
+      _lastScrollTop = chatWrap.scrollTop;
+      // Short guard so the scroll-event listener (debounced by the
+      // browser) doesn't see this layout-shift-driven scroll as a
+      // user gesture. 100ms covers the next animation frame plus
+      // typical mid-stream content arrivals.
+      setTimeout(function () { _programmaticScroll = false; }, 100);
     };
 
     // Click handler for "See New Message" button

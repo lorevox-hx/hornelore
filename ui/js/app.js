@@ -928,6 +928,32 @@ function _lvInterviewSelectEra(eid) {
       { detail: { era_id: canonical, era_label: _lvInterviewActiveFocusLabel(canonical) } }));
   } catch (_) {}
 
+  // BUG-LORI-IDENTITY-MUST-BLOCK-LIFEMAP-01 (2026-05-07): if identity
+  // basics (name + DOB + POB) aren't captured yet, do NOT dispatch the
+  // era SYSTEM directive. State writes above still apply (life-map
+  // highlight, currentEra cursor, focus event) so operator-side
+  // surfaces reflect the click — but Lori stays in identity-mode and
+  // continues collecting name/DOB/POB. Once identity completes a
+  // fresh click dispatches normally.
+  //
+  // Evidence: Melanie Zollner 2026-05-07 live session. She clicked
+  // 'Today' on Life Map FIRST. Lori asked "What brings joy to you
+  // these days?" without knowing her name. Narrator's literal first
+  // reply: "he never asked when my birthday is or my name and you
+  // say you don't know it." Three more era clicks followed before
+  // identity was ever captured. The whole session was poisoned in
+  // 22 seconds.
+  //
+  // Per CLAUDE.md design principle 8: "If the operator seeded it,
+  // Lori knows it. If Lori knows it, she does not ask for it as
+  // intake." The inverse holds: if Lori doesn't know the narrator's
+  // name, she cannot start an era walk for a stranger.
+  if (canonical && typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74()) {
+    console.info("[life-map][era-click] BLOCKED Lori dispatch — identity incomplete " +
+      "(state preserved; era=" + canonical + " awaiting name/DOB/POB before era walk)");
+    return;
+  }
+
   // BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 (2026-05-03): produce ONE Lori
   // prompt about the selected era. This is the missing 4th step from
   // the bug spec — without it the era click was behaviorally dead
@@ -1113,6 +1139,60 @@ function lvEnterInterviewMode() {
     try { window.lvShellShowTab("narrator"); } catch (_) {}
   }
   console.info("[lv-interview] entered");
+
+  // BUG-LORI-FIRST-SESSION-INTRO-MISSING-01 (2026-05-07): when the
+  // narrator enters interview mode and identity basics aren't yet
+  // complete, kick off the identity-onboarding intro flow. This used
+  // to be owned by session-style-router._enterQuestionnaireFirst,
+  // but WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01 Phase 1 retired that
+  // path for live narrator sessions and didn't re-route the intro
+  // trigger to a default-style entry point. Net effect: any narrator
+  // entering interview mode with identity NOT pre-set (the common
+  // first-session case) saw no Lori intro at all — Lori sat silent
+  // until the operator clicked something or the narrator started
+  // talking blind.
+  //
+  // Live evidence (2026-05-07): Melanie Zollner session, Chris's
+  // wife — narrator was created with display_name only (no DOB/POB).
+  // Operator entered Interview Mode. Lori never said hello.
+  // Narrator clicked Earliest Years on Life Map, started talking.
+  // First captured turn: a SYSTEM era directive — no introduction,
+  // no name request. Same pattern for Marvin and Mary across
+  // multiple TEST-23 runs when the harness was bypassed.
+  //
+  // Per CLAUDE.md design principle 8 ("If the operator seeded it,
+  // Lori knows it"): if the operator did NOT seed name/DOB/POB,
+  // Lori must ask for them as her first action — no era walk, no
+  // questionnaire, no SYSTEM directive can come before identity is
+  // set. Pairs with BUG-LORI-IDENTITY-MUST-BLOCK-LIFEMAP-01 (#53)
+  // which prevents era-click bypass; this fix triggers the intro
+  // proactively so the narrator hears Lori's voice on entry rather
+  // than facing a blank chat pane.
+  //
+  // Defensive: only fires on FIRST entry, only when both
+  // hasIdentityBasics74() returns false AND identityPhase isn't
+  // already mid-flow (askName / askDob / askBirthplace / resolving).
+  // setTimeout 200ms lets the UI finish rendering before the
+  // dispatcher fires so the intro bubble lands cleanly.
+  try {
+    const _basicsComplete = (typeof hasIdentityBasics74 === "function") && hasIdentityBasics74();
+    const _phase = (state.session && state.session.identityPhase) || null;
+    const _midFlow = _phase && _phase !== "complete";
+    if (!_basicsComplete && !_midFlow && typeof startIdentityOnboarding === "function") {
+      console.info("[lv-interview] no identity basics + no mid-flow phase — " +
+        "kicking off startIdentityOnboarding (first-session intro)");
+      setTimeout(function () {
+        try { startIdentityOnboarding(); }
+        catch (e) { console.warn("[lv-interview] startIdentityOnboarding threw:", e); }
+      }, 200);
+    } else if (_midFlow) {
+      console.info("[lv-interview] identity already in progress (phase=" + _phase + ") — leaving running");
+    } else {
+      console.info("[lv-interview] identity already complete — skipping intro");
+    }
+  } catch (e) {
+    console.warn("[lv-interview] first-session intro check threw:", e);
+  }
 }
 window.lvEnterInterviewMode = lvEnterInterviewMode;
 
@@ -1519,6 +1599,24 @@ function lvNarratorReturnToOperator() {
 window.lvNarratorReturnToOperator = lvNarratorReturnToOperator;
 
 /* ── Chat scroll helpers (delegate to FocusCanvas's existing plumbing). ── */
+
+/**
+ * BUG-LORI-DOUBLE-SEND-WHILE-GENERATING-01 (2026-05-07): true when Lori
+ * is mid-reply (thinking or drafting badge active). Used by
+ * sendUserMessage to drop a second send rather than letting it reach
+ * the WebSocket where the Phase G cancellation logic was silently
+ * dropping the FIRST in-flight turn. Melanie Zollner evidence:
+ * narrator double-sent during a 75s cold-start LLM wait, second send
+ * silently replaced the first — memory_echo for the first send lost.
+ * Tied to setLoriState badge classes so it auto-releases when the
+ * 30s safety timeout calls setLoriState("ready").
+ */
+function _loriIsBusy() {
+  const el = document.getElementById("loriStatus");
+  if (!el) return false;
+  return el.classList.contains("thinking") || el.classList.contains("drafting");
+}
+window._loriIsBusy = _loriIsBusy;
 
 function lvNarratorIsNearBottom() {
   const el = document.getElementById("crChatInner");
@@ -4705,6 +4803,24 @@ async function sendUserMessage(){
     if (typeof sysBubble === "function") {
       sysBubble("Complete the trainer first, then we\u2019ll begin your interview.");
     }
+    return;
+  }
+  // BUG-LORI-DOUBLE-SEND-WHILE-GENERATING-01 (2026-05-07): block sends
+  // while Lori is mid-reply. Pre-fix, a second send during Lori's
+  // generation collided at the WebSocket layer and the first
+  // in-flight turn was silently dropped. Melanie Zollner session
+  // 03:19:27 → 03:20:30 → 03:20:42: narrator typed "what do you
+  // know about me", then "who are you" 63 seconds later while Lori
+  // was still generating, and Lori's eventual reply matched the
+  // SECOND message — memory_echo for the first one was lost. Per
+  // Chris 2026-05-07: "this is not supposed to be possible" —
+  // confirmed: no existing guard blocked send while Lori was busy.
+  // Visual feedback is the existing "Thinking" badge; send-button
+  // visual disable is parked as polish. This guard is load-bearing.
+  if (typeof _loriIsBusy === "function" && _loriIsBusy()) {
+    console.log("[chat] sendUserMessage() BLOCKED — Lori is generating " +
+      "(narrator double-send while reply in flight; second send dropped to " +
+      "preserve the first turn)");
     return;
   }
   unlockAudio();
