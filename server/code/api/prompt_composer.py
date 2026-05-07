@@ -770,6 +770,48 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         )
         provisional = {}
 
+    # ── BUG-LORI-IDENTITY-CROSS-SESSION-NOT-PERSISTED-01 (2026-05-07) ──
+    # Tertiary fallback to the `people` table (display_name + date_of_birth +
+    # place_of_birth columns). Why this layer exists: the front-end
+    # _resolveOrCreatePerson flow PATCHes /api/people/{id} on identity
+    # capture (writing display_name, date_of_birth, place_of_birth), but
+    # does NOT separately PUT /api/profiles/{id} to write profile_json.
+    # Net effect prior to this read-bridge: identity captured in session 1
+    # was committed to the people row but invisible to _build_profile_seed
+    # in session 2 — the disconnect Melanie Zollner hit (DOB Dec 20 1972 +
+    # POB Lima Peru captured at 03:03/03:04 of session 1, session 2 opened
+    # 21 minutes later asking "what's your name" all over again).
+    #
+    # Bridge rule (preserves canonical-wins ordering):
+    #   1. profile_json (canonical) — wins if present
+    #   2. projection_json fields/pendingSuggestions — fills empty buckets
+    #   3. people row (this layer) — last-resort floor; covers narrators
+    #      that were created via _resolveOrCreatePerson without ever
+    #      having profile_json hydrated
+    #
+    # Defensive: any read failure leaves people_row empty and the
+    # composer falls through to its existing (not on record yet) state.
+    people_row: Dict[str, str] = {}
+    try:
+        from .db import get_person
+        person = get_person(person_id) or {}
+        if isinstance(person, dict):
+            dn = (person.get("display_name") or "").strip()
+            dob = (person.get("date_of_birth") or "").strip()
+            pob = (person.get("place_of_birth") or "").strip()
+            if dn:
+                people_row["display_name"] = dn
+            if dob:
+                people_row["date_of_birth"] = dob
+            if pob:
+                people_row["place_of_birth"] = pob
+    except Exception as exc:
+        logger.warning(
+            "[memory-echo][profile-seed] people row read failed for %s: %s",
+            person_id, exc,
+        )
+        people_row = {}
+
     # Phase 1b shape compat (2026-04-29 review): profile_json may be
     # template-shaped (`personal`/`parents`/`spouse`/`children`/`education`)
     # OR basics-shaped (`basics.dob`/`basics.pob`/`basics.placeOfBirth`)
@@ -803,6 +845,12 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         basics.get("preferredName"),
         basics.get("preferred_name"),
         provisional.get("personal.preferredName"),
+        # BUG-LORI-IDENTITY-CROSS-SESSION-NOT-PERSISTED-01 fallback:
+        # use the people-row display_name as preferred when nothing
+        # else is set. This is a last-resort floor so a narrator
+        # created via _resolveOrCreatePerson is recognized by name
+        # in session 2 even if profile_json never got hydrated.
+        people_row.get("display_name"),
     )
     if preferred:
         seed["preferred_name"] = preferred
@@ -812,6 +860,10 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         basics.get("fullName"),
         basics.get("full_name"),
         provisional.get("personal.fullName"),
+        # Same rationale — display_name is what _resolveOrCreatePerson
+        # writes for both preferred + full when narrator gives a single
+        # name during identity intake.
+        people_row.get("display_name"),
     )
     if full_name:
         seed["full_name"] = full_name
@@ -826,6 +878,9 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         basics.get("place_of_birth"),
         basics.get("pob"),
         provisional.get("personal.placeOfBirth"),
+        # BUG-LORI-IDENTITY-CROSS-SESSION-NOT-PERSISTED-01 fallback —
+        # people row's place_of_birth as last-resort floor.
+        people_row.get("place_of_birth"),
     )
     if pob:
         seed["childhood_home"] = pob
@@ -943,6 +998,11 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         basics.get("dateOfBirth"),
         basics.get("dob"),
         provisional.get("personal.dateOfBirth"),
+        # BUG-LORI-IDENTITY-CROSS-SESSION-NOT-PERSISTED-01 fallback —
+        # people row's date_of_birth as last-resort floor. Sufficient
+        # to drive seed["age_years"] + seed["life_stage"] computations
+        # in session 2 even when profile_json never got hydrated.
+        people_row.get("date_of_birth"),
     )
     if dob and len(dob) >= 4 and dob[:4].isdigit():
         try:

@@ -6,6 +6,137 @@ This document is a step-by-step bring-up so you can clone Hornelore on a fresh l
 
 ---
 
+## Daily handoff — 2026-05-07 (full day + autonomous night-shift, Melanie Zollner live-test triage — 11 bugs fixed, 3 specs banked)
+
+**TL;DR for next session:** First real-narrator parent-session test happened today (Chris's wife Melanie Zollner, ELL Spanish-from-Peru background). Surfaced a stack of compounding parent-session blockers. **Eleven bugs landed end-to-end across morning + evening + autonomous night-shift; three more specced for design eyeball before code.** The most important architectural finding: the WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01 retirement orphaned the identity-onboarding trigger — any narrator who entered Interview Mode without going through the "Complete profile basics" gate saw NO Lori intro, ever. Fixed via universal pre-style intro fire in `lvEnterInterviewMode()`. Cross-narrator corroboration: Mary + Marvin (TEST-23 v11) only got intros because the harness simulates the right entry path; manual operator entry skipped the intro for everyone except Melanie Carter (auto-test) who clicked "Complete profile basics" by chance.
+
+### What landed end-to-end (11 fixes)
+
+**Morning + evening (committed by Chris):**
+1. **#53 IDENTITY-MUST-BLOCK-LIFEMAP** — `_lvInterviewSelectEra` gates era SYSTEM directive behind `hasIdentityBasics74()`. Era state writes still apply; only Lori dispatch blocked until name+DOB+POB exist.
+2. **#51 CHAT-AUTO-SCROLL-REGRESSION** — `_scrollChatToBottom` smooth→instant + scroll-handler requires >50px upward scroll before disabling. Streaming-bubble race fixed.
+3. **#60 RESPONSE-MID-SENTENCE-CUT** — `_truncate_to_word_limit` walks backward to last `.`/`!`/`?` boundary. Three Melanie examples ("What do you remember about…", etc.) cleanly resolve.
+4. **#61 DOUBLE-SEND-WHILE-GENERATING** — new `_loriIsBusy()` + early-return guard. Prevents Phase G WS cancellation from silently dropping the FIRST in-flight turn.
+5. **#62 RESPONSE-CAP-FIXED-FOR-RICH-NARRATOR** — adaptive word cap: narrator turn ≥50 words → Lori +35 word headroom. Short turns keep tight cap.
+6. **#63 FIRST-SESSION-INTRO-MISSING** — `lvEnterInterviewMode()` fires `startIdentityOnboarding()` when `!hasIdentityBasics74()` and no mid-flow phase. Closes QF-retirement gap.
+
+**Autonomous night-shift (uncommitted at handoff time — single commit pending below):**
+7. **#54 IDENTITY-CROSS-SESSION-NOT-PERSISTED** — TWO layers: read-bridge in `_build_profile_seed` adds `people_row` tertiary fallback (display_name/date_of_birth/place_of_birth as last-resort floor); write-side `_resolveOrCreatePerson` now calls `saveProfile()` after PATCH so canonical `profile_json` gets hydrated. Belt-and-suspenders.
+8. **#58 ARCHIVE-AUDIO-NOT-LINKED** — `archive.append_event()` accepts `audio_id` kwarg; chat_ws threads it from WS params. Backend complete; FE wiring (passing `turn_id` in start_turn payload) is part of #50 mic modal Phase E.
+9. **#52 MEMORY-ECHO-ERA-STORIES Phase 1d** — cross-session readback. `peek_at_memoir.build_peek_at_memoir` enumerates prior sessions via `archive.list_sessions`, reads each transcript, merges chronologically (current session at tail), caps at `transcript_limit`. Verified PASS via isolated unit test.
+10. **#57 CAMERA-MIC-CONSENT-INCONSISTENT** — `facial-consent.js` switched from global localStorage key to per-narrator `lorevox_facial_consent:<person_id>`. New `setNarrator()` method + narrator-switch hook in `lv80SwitchPerson`. Legacy-key migration window inherits global grant once for active narrator only.
+11. **#59 MEMORY-ECHO-TRIGGER-MISS** — closed without code change. Reframed: regex DOES include "what do you know about me"; original failure was actually #61's double-send dropping the first turn. Now mitigated upstream.
+
+### What's specced (parked for design / sequencing)
+
+- **#56 CORRECTION-ABSORBED-NOT-APPLIED** — Phase 3 spec at `BUG-LORI-CORRECTION-ABSORBED-NOT-APPLIED-01_Spec.md`. Needs `correction_parser.py` (regex-first) + `projection_writer.apply_correction` + new composer that surfaces actual change ("Got it — I've changed that to two children"). ~4-6 hrs work; sequence behind #50 (which absorbs many corrections at the source).
+- **#50 MIC-MODAL-NO-LIVE-TRANSCRIPT** — Spec at `BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01_Spec.md`. FocusCanvas skeleton already exists; needs auto-trigger on mic button + visual polish + Send/Cancel + audio_id pass-through. ~10-13 hrs across 5 phases.
+- **#55 STT-PHANTOM-PROPER-NOUNS** — Spec at `BUG-STT-PHANTOM-PROPER-NOUNS-01_Spec.md`. Three layers: #50 modal absorbs at source (Layer 1), Lori behavioral guard against speculative proper nouns (Layer 2), extractor verbatim guard (Layer 3). ~6-9 hrs after #50 lands.
+
+### Stack state
+
+- Stack DOWN at handoff. Tonight's autonomous fixes (#52 #54 #57 #58) uncommitted on Chris's tree. **Single commit covering all four pending in commit-block form below:**
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+git add server/code/api/services/peek_at_memoir.py \
+        server/code/api/prompt_composer.py \
+        server/code/api/archive.py \
+        server/code/api/routers/chat_ws.py \
+        ui/js/app.js \
+        ui/js/facial-consent.js \
+        BUG-LORI-CORRECTION-ABSORBED-NOT-APPLIED-01_Spec.md \
+        BUG-LORI-MIC-MODAL-NO-LIVE-TRANSCRIPT-01_Spec.md \
+        BUG-STT-PHANTOM-PROPER-NOUNS-01_Spec.md \
+        HANDOFF.md \
+        MASTER_WORK_ORDER_CHECKLIST.md
+git status
+git commit -m "$(cat <<'EOF'
+fix: cross-session identity + audio link + per-narrator camera consent + Phase 1d cross-session readback (autonomous night-shift)
+
+  #54 IDENTITY-CROSS-SESSION-NOT-PERSISTED — read-bridge in
+  _build_profile_seed adds people_row tertiary fallback for
+  name/DOB/POB. Write-side _resolveOrCreatePerson now calls
+  saveProfile() after the people PATCH so profile_json gets
+  hydrated. Both layers prevent Melanie-Zollner-style "session 2
+  Lori has no idea who I am" failures.
+
+  #58 ARCHIVE-AUDIO-NOT-LINKED — archive.append_event accepts
+  audio_id kwarg; chat_ws threads it from WS start_turn params.
+  Backend complete. FE wiring deferred to #50 mic modal Phase E.
+
+  #52 MEMORY-ECHO-ERA-STORIES Phase 1d — peek_at_memoir reads
+  across sessions: enumerates prior sessions via list_sessions,
+  reads each transcript, merges chronologically, caps at
+  transcript_limit. Returning narrator now sees era stories
+  from prior sessions in memory_echo readback. Verified via
+  isolated unit test (PASS).
+
+  #57 CAMERA-MIC-CONSENT-INCONSISTENT — facial-consent.js per-
+  narrator localStorage keys (was single global). New
+  setNarrator() method + narrator-switch hook. Legacy-key
+  migration inherits global grant ONCE for active narrator only.
+
+  Plus 3 specs banked: #56 correction-applied (Phase 3),
+  #50 mic modal, #55 STT phantom proper nouns.
+
+  AST/syntax verified green for all 6 source files.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+### Tomorrow plan 2026-05-08
+
+When Chris boots tomorrow:
+
+1. **Env audit on laptop FIRST.** Default-off feature flags are likely missing. Run from `/mnt/c/Users/chris/hornelore`:
+   ```bash
+   ls -la .env .env.example 2>&1
+   echo "--- HORNELORE_* / DATA_DIR / DB_NAME ---"
+   grep -E "^(HORNELORE_|DATA_DIR|DB_NAME|LV_|LOREVOX_)" .env 2>/dev/null | head -40
+   ```
+   - If `.env` doesn't exist → `cp .env.example .env`, then add the active flags
+   - Active flags Chris likely wants ON for parent-session work:
+     - `HORNELORE_MEMORY_ECHO_ERA_STORIES=1` (Phase 1c era stories in readback)
+     - `HORNELORE_CONTINUATION_PARAPHRASE=1` (returning-narrator era-aware welcome)
+     - `HORNELORE_REFLECTION_SHAPING=1` (Patch C runtime shaping)
+     - `HORNELORE_OPERATOR_STORY_REVIEW=1` (Bug Panel story queue)
+     - `HORNELORE_OPERATOR_EVAL_HARNESS=1` (Bug Panel eval card)
+     - `LOREVOX_NARRATOR_LOCATION=` (operator's city for clock widget)
+     - `DATA_DIR=/mnt/c/hornelore_data` (so transcripts persist outside the repo dir)
+2. **Cycle stack.** Wait full 4 minutes for warmup (LLM weights take 2-3 min after HTTP listener comes up at 60-70s).
+3. **Verify tonight's fixes via clean dry-run:**
+   - Create fresh test narrator "Smoke 12 Test" via "+ Add Test Narrator"
+   - Click "Enter Interview Mode" → **expect Lori intro** ("Hello! I'm Lori...") **— this is #63 verification**
+   - Answer name "Test Narrator" → DOB "April 1 1950" → POB "Phoenix Arizona"
+   - Click "Today" on Life Map → **expect era-appropriate question (NOT identity question — #53 verifies this)**
+   - Type a 100-word story → **expect Lori reflection ≤90 words (#62 adaptive cap)**
+   - Type "what do you know about me?" → **expect memory_echo with name+DOB+POB (#54 + #63 + #52 chain)**
+   - Open Bug Panel → **expect Story Review + Eval Harness sections visible (env flags)**
+   - Exit interview mode, re-enter → **expect "welcome back" not cold-start (#63 idempotent)**
+   - Switch to a SECOND narrator + enter their interview mode → **expect camera consent prompt (NOT inheriting first narrator's grant — #57 per-narrator key)**
+4. **Land #56 correction-applied** if dry-run is clean. Spec ready. ~4-6 hrs.
+5. **Real Janice or Kent session** if dry-run + #56 are both clean.
+
+### Bug-hunt findings (proactive scan, autonomous night-shift)
+
+- **`narrator-audio-recorder.js` does NOT pass `turn_id` into the WebSocket `start_turn` payload.** Audio uploads to `/api/memory-archive/audio` with the right turn_id, but the chat turn doesn't reference it. Even with #58 backend wiring, linkage won't materialize until FE wires `turn_id` into `start_turn`. Fix is part of #50 spec Phase E.
+- **`hasIdentityBasics74()` uses `state.profile.basics`** which loads only after `loadPerson()` completes. Race condition possible during narrator-switch → Interview-Mode-entry sequence. Tonight's #63 fix has 200ms setTimeout buffer; consider longer or signal-based gating in future.
+- **`_qfLegacyLiveOwnership` env flag check uses localStorage** — operator must DevTools `localStorage.setItem('lv_qf_live_ownership','1')` to re-enable QF for legacy-path testing. Worth a Bug Panel toggle.
+- **3-narrator switch test for #57** — first narrator after this fix gets legacy-key migration; second narrator also inherits via migration; third narrator should NOT inherit. Worth verifying explicitly during tomorrow's dry-run.
+- **`docs/HANDOFF_LAPTOP_PARITY_2026-05-04.md`** is older content that may have been superseded by HANDOFF.md daily entries. Worth a cleanup pass or "see HANDOFF.md" pointer.
+
+### Risks for tomorrow
+
+- The `saveProfile` call in `_resolveOrCreatePerson` (#54 write-side) is `await`'d. Network/backend hangs would stall identity completion. Existing try/except catches but user-visible behavior is delay. Worth a 5s timeout on saveProfile if the issue manifests.
+- Intro-fire in `lvEnterInterviewMode` has 200ms render delay before `startIdentityOnboarding()`. If Chrome render takes longer (slow laptop, lots of state), timing might miss. Defensive but not bulletproof.
+- Cross-session readback in `peek_at_memoir` reads up to 8 prior sessions. For Janice/Kent who'll have many sessions over time, this caps but doesn't prioritize most-recent. Future iteration: weight by mtime so old empty sessions don't crowd out content.
+- **Camera/mic consent on first-narrator-after-fix:** the migration window writes the legacy global grant into the active narrator's per-narrator key. If localStorage was clean (first ever camera use), no migration fires and modal shows correctly. Both paths are tested; verify in dry-run.
+
+---
+
 ## Daily handoff — 2026-05-03 (late evening, parent-session readiness lane — 7 commits banked)
 
 **TL;DR for next session:** Six lanes landed end-to-end this evening on top of the Phase 3 milestone. Active baseline `r5h-followup-guard-v1` (78/114) unchanged. Parent-session readiness moves materially forward: the OLD `[SYSTEM: quiet for a while]` spoken silence-cue is now gated when Phase 3 ticker is on (Lane A); BUG-LIFEMAP-ERA-CLICK-NO-LORI-01 patched at the source — era click now produces ONE warm Lori prompt + sets `state.session.currentEra` (Lane E); kawa_mode scrubbed from runtime71 + Kawa directive block retired (Lane C); WO-PARENT-SESSION-REHEARSAL-HARNESS-01 built as a narrator-experience harness with 3 cultural voices drawn from VOICE_LIBRARY_v1.md (Lane G); first run `rehearsal_quick_v1` was RED with 3 findings (1 product / 2 harness) — Lane G.1 stabilization patches address all three; operator-visible Countdown Timer mounted beside the clock with mm:ss format + tier color-coding (Lane H, 22 Node tests). **Phase 4 (Adaptive Silence Ladder) STAYS PARKED** per Chris's locked rule: wait for one real Janice/Kent observation of Phase 3 before scoping. Stack was DOWN at end of session — Chris will bring up + re-run `--quick` (now `rehearsal_quick_v2` after Lane G.1 fixes) on his next return. Tree clean post all 7 commits (Phase 3 milestone, Lane C, Lane E, Lane A, Lane G, Lane G.1, Lane H + scan_answer #325 verification close).

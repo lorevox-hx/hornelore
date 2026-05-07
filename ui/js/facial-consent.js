@@ -18,15 +18,37 @@
   'use strict';
 
   /* ── Constants ──────────────────────────────────────────────── */
-  const LS_KEY = 'lorevox_facial_consent_granted';
+  // BUG-LORI-CAMERA-MIC-CONSENT-INCONSISTENT-01 (2026-05-07): consent
+  // state is now PER-NARRATOR keyed by person_id, not a single global
+  // flag. Pre-fix: any narrator granting consent inherited that
+  // consent for ALL other narrators on the same device — a real
+  // privacy violation. Janice grants → Kent's first session inherits
+  // her grant → Kent's expressions get recorded without his explicit
+  // consent. Per-narrator key fixes this; legacy global key kept as
+  // a one-time migration source for the active narrator.
+  const LS_KEY_LEGACY = 'lorevox_facial_consent_granted';   // global, retired
+  const LS_KEY_PREFIX = 'lorevox_facial_consent:';          // per-narrator
 
   /* ── State ─────────────────────────────────────────────────── */
-  // WO-02: Check localStorage for prior consent (family-friendly persistence).
-  // On a family machine, narrators should not have to re-confirm every session.
-  let _storedConsent   = false;
-  try { _storedConsent = localStorage.getItem(LS_KEY) === 'true'; } catch(_){}
+  // _currentPersonId is set via setNarrator() on narrator switch. Until
+  // it's set, FacialConsent reads only the legacy global key (preserves
+  // pre-fix behavior for the very first session before person_id resolves).
+  let _currentPersonId = null;
 
-  let _consentGranted  = _storedConsent;  // auto-grant if previously consented
+  function _activeKey() {
+    return _currentPersonId ? (LS_KEY_PREFIX + _currentPersonId) : LS_KEY_LEGACY;
+  }
+
+  function _readStored() {
+    try { return localStorage.getItem(_activeKey()) === 'true'; }
+    catch (_) { return false; }
+  }
+
+  // WO-02: Check localStorage for prior consent (family-friendly persistence).
+  // On a family machine, narrators should not have to re-confirm every
+  // session — but they DO need to be asked the first time per narrator.
+  let _storedConsent   = _readStored();
+  let _consentGranted  = _storedConsent;  // auto-grant if previously consented for this narrator
   let _consentDeclined = false;           // true if user explicitly declined
   let _pendingResolve  = null;            // Promise resolver waiting on consent answer
 
@@ -69,10 +91,46 @@
       _consentGranted  = true;
       _consentDeclined = false;
       _storedConsent   = true;
-      try { localStorage.setItem(LS_KEY, 'true'); } catch(_){}
+      try { localStorage.setItem(_activeKey(), 'true'); } catch(_){}
       _hideOverlay();
-      console.log('[Lorevox] Facial expression consent: GRANTED (persisted)');
+      console.log('[Lorevox] Facial expression consent: GRANTED (persisted, key=' +
+        (_currentPersonId ? 'per-narrator' : 'legacy-global') + ')');
       if (_pendingResolve) { _pendingResolve(true); _pendingResolve = null; }
+    },
+
+    /**
+     * BUG-LORI-CAMERA-MIC-CONSENT-INCONSISTENT-01 (2026-05-07):
+     * Set the active narrator. Called on narrator switch / session
+     * start so consent state is scoped to the right person. If no
+     * person_id is given (or empty), falls back to legacy global key.
+     *
+     * Migration window: the very first call for a narrator who only
+     * has the legacy global key set will treat that as a grant for
+     * the current narrator (one-time inherit). Subsequent narrators
+     * each have their own per-narrator key and won't inherit again.
+     */
+    setNarrator(personId) {
+      const next = (personId || "").trim() || null;
+      if (next === _currentPersonId) return;
+      _currentPersonId = next;
+      _consentDeclined = false;  // each narrator starts fresh on decline
+      _storedConsent   = _readStored();
+      // Migration path: if the new per-narrator key has no record but the
+      // legacy global key does, accept the legacy grant for THIS narrator
+      // ONCE so they aren't re-prompted right after the upgrade. Then
+      // write the per-narrator key so future narrators don't inherit.
+      if (!_storedConsent && next) {
+        try {
+          if (localStorage.getItem(LS_KEY_LEGACY) === 'true') {
+            _storedConsent = true;
+            localStorage.setItem(_activeKey(), 'true');
+            console.log('[Lorevox] Facial consent: migrated legacy grant to per-narrator key for ' + next.slice(0, 8));
+          }
+        } catch (_) {}
+      }
+      _consentGranted = _storedConsent;
+      console.log('[Lorevox] Facial consent: setNarrator(' +
+        (next ? next.slice(0, 8) : 'null') + ') stored=' + _storedConsent);
     },
 
     /**
@@ -91,6 +149,7 @@
      * Does NOT clear localStorage — use revokeStored() for that.
      */
     reset() {
+      _storedConsent   = _readStored();   // re-read from active narrator key
       _consentGranted  = _storedConsent;  // WO-02: preserve stored consent on narrator switch
       _consentDeclined = false;
       _pendingResolve  = null;
@@ -99,13 +158,29 @@
     /**
      * WO-02: Revoke stored consent entirely (from settings panel).
      * Next camera activation will show the full consent overlay again.
+     * BUG-LORI-CAMERA-MIC-CONSENT-INCONSISTENT-01 (2026-05-07):
+     * revokes for ACTIVE narrator only by default. Pass scope='all'
+     * to also wipe the legacy global key + every per-narrator key.
      */
-    revokeStored() {
+    revokeStored(scope) {
       _consentGranted  = false;
       _consentDeclined = false;
       _storedConsent   = false;
-      try { localStorage.removeItem(LS_KEY); } catch(_){}
-      console.log('[Lorevox] Facial expression consent: stored consent revoked.');
+      try {
+        localStorage.removeItem(_activeKey());
+        if (scope === 'all') {
+          // Wipe legacy + every per-narrator key.
+          localStorage.removeItem(LS_KEY_LEGACY);
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && k.indexOf(LS_KEY_PREFIX) === 0) {
+              localStorage.removeItem(k);
+            }
+          }
+        }
+      } catch (_) {}
+      console.log('[Lorevox] Facial consent: stored consent revoked' +
+        (scope === 'all' ? ' (all narrators)' : ''));
     },
   };
 

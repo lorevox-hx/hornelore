@@ -2848,6 +2848,21 @@ async function lvxSwitchNarratorSafe(pid){
   if (typeof _memoirClearContent === "function") _memoirClearContent();
 
   console.log("[narrator-switch] Hard reset complete — loading new narrator:", pid);
+
+  // BUG-LORI-CAMERA-MIC-CONSENT-INCONSISTENT-01 (2026-05-07): swap
+  // facial-consent state to the new narrator's per-narrator key.
+  // Without this, narrators inherited each other's consent grants
+  // (privacy violation: Janice's "yes" became Kent's "yes" silently).
+  // setNarrator() handles the legacy-key migration window for the
+  // first call per narrator after this fix lands.
+  try {
+    if (typeof FacialConsent !== "undefined" && typeof FacialConsent.setNarrator === "function") {
+      FacialConsent.setNarrator(pid);
+    }
+  } catch (e) {
+    console.warn("[narrator-switch] FacialConsent.setNarrator threw:", e);
+  }
+
   await loadPerson(pid);
 
   // Phase G: hydrate canonical state from backend state-snapshot
@@ -4670,6 +4685,29 @@ async function _resolveOrCreatePerson(){
   }catch(e){
     console.error("[identity] create/patch person failed:", e);
     sysBubble("Could not reach the server to save this narrator. The API may be down.");
+  }
+
+  // BUG-LORI-IDENTITY-CROSS-SESSION-NOT-PERSISTED-01 (2026-05-07): write-side
+  // companion to the prompt_composer read-bridge fix. Identity intake used
+  // to ONLY PATCH the people row (display_name + date_of_birth +
+  // place_of_birth), but the chat path's _build_profile_seed reads from
+  // profiles.profile_json + interview_projections.projection_json — so a
+  // narrator captured fresh in session 1 was invisible to Lori in session
+  // 2 (Melanie Zollner symptom). saveProfile() PUTs to /api/profiles/{id}
+  // and writes basics.preferred / basics.fullname / basics.dob /
+  // basics.pob into profile_json. After this call lands, session 2 reads
+  // canonical from profile_json directly without needing the people-row
+  // fallback to fire. Both layers exist as belt-and-suspenders.
+  try {
+    if (state.person_id && typeof saveProfile === "function") {
+      // saveProfile() reads from state.profile.basics which we just
+      // patched above (preferred/fullname/dob/pob), then PUTs to the
+      // profile endpoint. Errors are sysBubble'd; we let them propagate.
+      await saveProfile();
+      console.log("[identity] profile_json hydrated post-intake — cross-session reads will see canonical");
+    }
+  } catch (e) {
+    console.warn("[identity] saveProfile after intake threw:", e);
   }
 
   state.session.identityPhase = "complete";

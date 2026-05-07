@@ -111,12 +111,73 @@ def build_peek_at_memoir(
         logger.warning("[peek_at_memoir] %s person_id=%s", msg, person_id)
         result["errors"].append(msg)
 
-    # ── Session transcript read (only if session_id given) ──
+    # ── Session transcript read (current + cross-session for era readback) ──
     if session_id:
         try:
             from .. import archive as _archive
             from ..safety import filter_safety_flagged_turns as _filter_sensitive
-            raw_turns = _archive.read_transcript(person_id=person_id, session_id=session_id)
+
+            # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1d (2026-05-07):
+            # Cross-session readback. Pre-fix, this only read the single
+            # passed-in session_id, so era stories the narrator told in
+            # session 1 were invisible in session 2's memory_echo
+            # (Melanie Carter Smoke 11 evidence — era walk in
+            # switch_moumhein_1mru, probe in switch_mouvp9ki_8des,
+            # "What you've shared so far" section rendered empty).
+            #
+            # Per CLAUDE.md design principle 5 ("Provisional truth
+            # persists. The interview never waits."): narrator memory
+            # MUST reach across sessions. Strategy:
+            #   1. Read prior sessions (chronologically oldest first
+            #      via index.json `sessions` ordering — already
+            #      append-ordered by start time).
+            #   2. Append current session last so it's the most recent
+            #      tail when the transcript_limit cap applies.
+            #   3. Apply safety filter to the merged list (single pass).
+            #   4. Tail-cap at transcript_limit so a long-running
+            #      narrator with many sessions doesn't bloat runtime71.
+            #
+            # Defensive: per-session read failures are non-fatal —
+            # captured in errors[] but the rest still merge cleanly.
+            # If list_sessions returns empty (orphaned narrator with
+            # no index), fall back to current-session-only behavior.
+            raw_turns: List[Dict[str, Any]] = []
+            try:
+                _all_sessions = _archive.list_sessions(person_id) or []
+            except Exception:
+                _all_sessions = []
+            _other_sids: List[str] = []
+            for _s in _all_sessions:
+                if not isinstance(_s, dict):
+                    continue
+                _sid = (_s.get("session_id") or "").strip()
+                if _sid and _sid != session_id:
+                    _other_sids.append(_sid)
+            # Cap prior sessions read to a reasonable horizon to keep
+            # disk I/O bounded for narrators with many short sessions.
+            _MAX_PRIOR_SESSIONS = 8
+            for _prior_sid in _other_sids[-_MAX_PRIOR_SESSIONS:]:
+                try:
+                    _prior_turns = _archive.read_transcript(
+                        person_id=person_id, session_id=_prior_sid,
+                    ) or []
+                    raw_turns.extend(_prior_turns)
+                except Exception as exc:
+                    result["errors"].append(
+                        f"prior_session_read_failed:{_prior_sid}:{type(exc).__name__}"
+                    )
+            # Now the current session — appended last so tail-cap
+            # preserves the most recent turns.
+            try:
+                _current_turns = _archive.read_transcript(
+                    person_id=person_id, session_id=session_id,
+                ) or []
+                raw_turns.extend(_current_turns)
+            except Exception as exc:
+                result["errors"].append(
+                    f"current_session_read_failed:{type(exc).__name__}"
+                )
+
             # Apply Phase 5c safety filter — drops any turn marked sensitive.
             filtered = _filter_sensitive(raw_turns or [])
             # Cap to most recent transcript_limit; transcripts are

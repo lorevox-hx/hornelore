@@ -127,6 +127,7 @@ def append_event(
     anchor_id: str = "",
     meta: Optional[Dict[str, Any]] = None,
     current_era: Optional[str] = None,
+    audio_id: Optional[str] = None,
 ) -> None:
     """
     Append a single event to transcript.jsonl (append-only — never rewrites).
@@ -139,6 +140,16 @@ def append_event(
     they just don't bin into era groups when memory_echo era-stories
     rendering fires. chat_ws threads runtime71.current_era into this
     parameter on every turn write.
+
+    BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01 (2026-05-07):
+    `audio_id` is the UUID of the webm audio clip captured for this
+    turn (filename without extension under sessions/<sid>/audio/). When
+    supplied, it gets persisted on the event so operator-side tooling
+    (Shadow Review, "play this turn" affordances, STT correction
+    audits per BUG-STT-PHANTOM-PROPER-NOUNS-01) can match transcript
+    turns to their source audio without timestamp guesswork.
+    Backward-compatible: turns without audio_id (typed input, system
+    directives, server-emitted bubbles) are unchanged.
     """
     root = session_root(person_id, session_id)
     root.mkdir(parents=True, exist_ok=True)
@@ -165,6 +176,13 @@ def append_event(
         ce = str(current_era).strip()
         if ce:
             event["current_era"] = ce
+    # Audio linkage (BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01) —
+    # written when supplied. Defensive: ignore obvious garbage values
+    # (must look UUID-ish — at minimum 8 chars, hex+dashes only).
+    if audio_id:
+        aid = str(audio_id).strip()
+        if aid and len(aid) >= 8 and all(c in "0123456789abcdefABCDEF-" for c in aid):
+            event["audio_id"] = aid
 
     jsonl_path = root / "transcript.jsonl"
     with jsonl_path.open("a", encoding="utf-8") as f:

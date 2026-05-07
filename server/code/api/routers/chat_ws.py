@@ -472,6 +472,25 @@ async def ws_chat(ws: WebSocket):
                 title="Chat (WS)",
                 extra_meta={"ws": True},
             )
+            # BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01 (2026-05-07):
+            # if the WebSocket payload carried an audio_id (UUID matching
+            # the webm file under sessions/<sid>/audio/<audio_id>.webm
+            # uploaded by narrator-audio-recorder), thread it through to
+            # archive_append_event so the transcript turn carries the
+            # linkage. UI wiring (passing audio_id with start_turn) is
+            # tracked under #50 (mic modal) and the narrator-audio-
+            # recorder integration. Until the UI ships that, audio_id
+            # stays None and behavior is unchanged.
+            _audio_id_for_archive = None
+            try:
+                _ai_raw = params.get("audio_id") or params.get("turn_id") or None
+                if _ai_raw:
+                    _ai_str = str(_ai_raw).strip()
+                    if _ai_str and len(_ai_str) >= 8:
+                        _audio_id_for_archive = _ai_str
+            except Exception:
+                _audio_id_for_archive = None
+
             archive_append_event(
                 person_id=person_id,
                 session_id=conv_id,
@@ -479,6 +498,7 @@ async def ws_chat(ws: WebSocket):
                 content=user_text,
                 meta={"ws": True},
                 current_era=_current_era_for_archive,  # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1
+                audio_id=_audio_id_for_archive,         # BUG-ARCHIVE-AUDIO-NOT-LINKED-TO-TRANSCRIPT-01
             )
 
         # ── WO-LORI-SOFTENED-RESPONSE-01: per-turn turn_count + softened read ─
