@@ -1670,6 +1670,27 @@ async def ws_chat(ws: WebSocket):
         except Exception as _frag_err:
             logger.debug("[lori][era-fragment-repair] check failed (non-fatal): %s", _frag_err)
 
+        # BUG-ML-LORI-SPANISH-PERSPECTIVE-01 (2026-05-07): post-LLM
+        # Spanish output guards. Two repairs:
+        #   1. Perspective: rewrite "Mi abuela/mamá/papá" → "Tu X" when
+        #      Lori is reflecting the narrator's family. Quote-safe.
+        #   2. Fragment: trim Spanish sentences ending on a dangling
+        #      connector ("su", "que", "cuando", "después de que").
+        # English responses are no-ops — the helper detects Spanish
+        # via accent chars / function-word density before firing.
+        # Failure is non-fatal; falls through to legacy behavior.
+        try:
+            from ..services.lori_spanish_guard import apply_spanish_guards as _apply_es_guards
+            _es_repaired, _es_changes = _apply_es_guards(final_text, user_text)
+            if _es_changes:
+                logger.info(
+                    "[lori][es-guard] conv=%s changes=%s original=%r → repaired=%r",
+                    conv_id, _es_changes, final_text[:120], _es_repaired[:120],
+                )
+                final_text = _es_repaired
+        except Exception as _es_err:
+            logger.debug("[lori][es-guard] check failed (non-fatal): %s", _es_err)
+
         # BUG-LORI-DUPLICATE-RESPONSE-01 (2026-05-06): fingerprint guard
         # with deterministic bridge fallback. v8 evidence: Mary's two
         # consecutive Today cycles produced bit-identical replies. The
