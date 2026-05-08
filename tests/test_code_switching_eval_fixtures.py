@@ -92,12 +92,13 @@ class CasesExerciseExpectedSurfaces(unittest.TestCase):
         case = self.cases["cs_004_pure_spanish_birthplace_correction"]
         parsed = parse_correction_rule_based(case["user_text"])
         self.assertIn("identity.place_of_birth", parsed)
-        # NOTE: current parser captures "Lima, no en Cuzco" verbatim
-        # because the value-capture regex doesn't stop at "no en X"
-        # retraction clause. Filed as
-        # BUG-ML-LORI-CORRECTION-PARSER-VALUE-OVERCAPTURE-01. Until
-        # that lands, we accept any value that starts with "Lima".
-        self.assertTrue(parsed["identity.place_of_birth"].startswith("Lima"))
+        # BUG-ML-LORI-CORRECTION-PARSER-VALUE-OVERCAPTURE-01 (LANDED
+        # 2026-05-07): parser now correctly stops value-capture at the
+        # ", no en X" retraction clause. Strict assertion restored.
+        self.assertEqual(parsed["identity.place_of_birth"], "Lima")
+        # Retraction now goes into _retracted as expected.
+        self.assertIn("_retracted", parsed)
+        self.assertIn("Cuzco", parsed["_retracted"])
 
     def test_cs_005_meant_pattern(self):
         case = self.cases["cs_005_es_quería_decir_pattern"]

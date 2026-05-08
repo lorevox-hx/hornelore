@@ -93,10 +93,43 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
     t = (text or "").strip()
     out: Dict[str, Any] = {}
 
-    # Birthplace: "I was born in <place>"
-    m = re.search(r"\bi was born in ([A-Za-z .,'-]+)$", t, re.I)
+    # BUG-ML-LORI-CORRECTION-PARSER-VALUE-OVERCAPTURE-01 (2026-05-07):
+    # Eight value-capture patterns below previously over-greedy-captured
+    # the retraction clause ("Lima, no en Cuzco" → place="Lima, no en
+    # Cuzco" instead of place="Lima" + _retracted=["Cuzco"]). The fix:
+    # non-greedy value capture + optional retraction-clause group at the
+    # end of the regex. When the retraction group fires, its captured
+    # value is added to _retracted via _capture_retraction(). Comma is
+    # KEPT in the value char class so legitimate "Buenos Aires, Argentina"
+    # cases still parse correctly.
+    #
+    # Retraction markers:
+    #   English: ", not <retracted>"
+    #   Spanish: ", no <retracted>"  OR  ", no en <retracted>" (place form)
+    _EN_VALUE_CC = r"A-Za-z .,'\-"
+    _ES_VALUE_CC = r"A-Za-zÁÉÍÓÚÑáéíóúñ .,'\-"
+    # English retraction tail: ", not X" — captures retraction value as group
+    _EN_RETRACT_TAIL = r"(?:,\s+not\s+([A-Za-z .'\-]+?))?"
+    # Spanish retraction tail: ", no [en] X" — `en` optional for places
+    _ES_RETRACT_TAIL = r"(?:,\s+no(?:\s+en)?\s+([A-Za-zÁÉÍÓÚÑáéíóúñ .'\-]+?))?"
+
+    def _capture_retraction(retracted_raw: Optional[str]) -> None:
+        """Append a retraction value (from the optional group) to
+        out['_retracted'] when present + non-empty."""
+        if not retracted_raw:
+            return
+        val = retracted_raw.strip()
+        if val:
+            out.setdefault("_retracted", []).append(val)
+
+    # Birthplace: "I was born in <place>" — with optional ", not <retracted>"
+    m = re.search(
+        r"\bi was born in ([" + _EN_VALUE_CC + r"]+?)" + _EN_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["identity.place_of_birth"] = m.group(1).strip()
+        _capture_retraction(m.group(2))
 
     # WO-ML-05B (Phase 5B multilingual capture, 2026-05-07):
     # Spanish birthplace — "nací en X" / "yo nací en X". Accent-
@@ -107,39 +140,67 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
     # patterns fire on Spanish content; both fire on a code-switched
     # turn. Pure English never produces a Spanish false-positive
     # because "nací" doesn't appear in English prose.
-    m = re.search(r"\b(?:yo\s+)?nac[íi] en ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    m = re.search(
+        r"\b(?:yo\s+)?nac[íi] en ([" + _ES_VALUE_CC + r"]+?)" + _ES_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["identity.place_of_birth"] = m.group(1).strip()
+        _capture_retraction(m.group(2))
 
     # Father's name: "my father was <name>" or "my father's name was <name>"
-    m = re.search(r"\bmy father(?:'s name)? was ([A-Za-z .,'-]+)$", t, re.I)
+    m = re.search(
+        r"\bmy father(?:'s name)? was ([" + _EN_VALUE_CC + r"]+?)" + _EN_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["family.parents.father.name"] = m.group(1).strip()
+        _capture_retraction(m.group(2))
 
     # WO-ML-05B Spanish father's name — natural Spanish constructions:
     #   "mi padre se llamaba X"  / "mi papá se llamaba X"  / "mi papi
     #    se llamaba X"
     #   "el nombre de mi padre era X"  / "el nombre de mi papá era X"
     # Accent-flexible on "papá" (Whisper may drop the accent → "papa").
-    m = re.search(r"\bmi (?:padre|pap[áa]|papi) se llamaba ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    m = re.search(
+        r"\bmi (?:padre|pap[áa]|papi) se llamaba ([" + _ES_VALUE_CC + r"]+?)" + _ES_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["family.parents.father.name"] = m.group(1).strip()
-    m = re.search(r"\bel nombre de mi (?:padre|pap[áa]|papi) era ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+        _capture_retraction(m.group(2))
+    m = re.search(
+        r"\bel nombre de mi (?:padre|pap[áa]|papi) era ([" + _ES_VALUE_CC + r"]+?)" + _ES_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["family.parents.father.name"] = m.group(1).strip()
+        _capture_retraction(m.group(2))
 
     # Mother's name
-    m = re.search(r"\bmy mother(?:'s name)? was ([A-Za-z .,'-]+)$", t, re.I)
+    m = re.search(
+        r"\bmy mother(?:'s name)? was ([" + _EN_VALUE_CC + r"]+?)" + _EN_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["family.parents.mother.name"] = m.group(1).strip()
+        _capture_retraction(m.group(2))
 
     # WO-ML-05B Spanish mother's name — same construction set as father.
-    m = re.search(r"\bmi (?:madre|mam[áa]|mami) se llamaba ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    m = re.search(
+        r"\bmi (?:madre|mam[áa]|mami) se llamaba ([" + _ES_VALUE_CC + r"]+?)" + _ES_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["family.parents.mother.name"] = m.group(1).strip()
-    m = re.search(r"\bel nombre de mi (?:madre|mam[áa]|mami) era ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+        _capture_retraction(m.group(2))
+    m = re.search(
+        r"\bel nombre de mi (?:madre|mam[áa]|mami) era ([" + _ES_VALUE_CC + r"]+?)" + _ES_RETRACT_TAIL + r"\s*$",
+        t, re.I,
+    )
     if m:
         out["family.parents.mother.name"] = m.group(1).strip()
+        _capture_retraction(m.group(2))
 
     # Child count: "I had N children/kids/sons/daughters"
     m = re.search(r"\bi had (\d+) (?:children|kids|sons|daughters)\b", t, re.I)

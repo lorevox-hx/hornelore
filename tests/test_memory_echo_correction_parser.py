@@ -316,5 +316,108 @@ class CodeSwitchingTest(unittest.TestCase):
         # future tightening would add stop-words.
 
 
+class ValueOvercaptureFixTest(unittest.TestCase):
+    """BUG-ML-LORI-CORRECTION-PARSER-VALUE-OVERCAPTURE-01 (LANDED 2026-05-07).
+
+    Eight value-capture patterns previously included the retraction
+    clause inside the value (e.g. "Lima, no en Cuzco" → place="Lima,
+    no en Cuzco"). Fix: non-greedy capture + optional retraction-clause
+    group. Regression-safe for legitimate multi-part values like
+    "Buenos Aires, Argentina".
+    """
+
+    # ── Spanish — birthplace ───────────────────────────────────────────
+
+    def test_es_birthplace_with_retraction(self):
+        out = parse_correction_rule_based("no, nací en Lima, no en Cuzco")
+        self.assertEqual(out.get("identity.place_of_birth"), "Lima")
+        self.assertIn("Cuzco", out.get("_retracted", []))
+
+    def test_es_birthplace_with_retraction_no_en_form(self):
+        # "no, no en X" form (without explicit "en" in the retraction)
+        out = parse_correction_rule_based("Nací en Lima, no Cuzco")
+        self.assertEqual(out.get("identity.place_of_birth"), "Lima")
+        self.assertIn("Cuzco", out.get("_retracted", []))
+
+    def test_es_birthplace_multipart_preserved(self):
+        # Legitimate "Lima, Perú" (no retraction) must still capture full
+        out = parse_correction_rule_based("Nací en Lima, Perú")
+        self.assertEqual(out.get("identity.place_of_birth"), "Lima, Perú")
+        self.assertNotIn("_retracted", out)
+
+    # ── Spanish — parent names ─────────────────────────────────────────
+
+    def test_es_father_with_retraction(self):
+        out = parse_correction_rule_based(
+            "no, mi padre se llamaba José, no Roberto"
+        )
+        self.assertEqual(out.get("family.parents.father.name"), "José")
+        self.assertIn("Roberto", out.get("_retracted", []))
+
+    def test_es_father_nombre_era_with_retraction(self):
+        out = parse_correction_rule_based(
+            "el nombre de mi padre era Juan, no Pedro"
+        )
+        self.assertEqual(out.get("family.parents.father.name"), "Juan")
+        self.assertIn("Pedro", out.get("_retracted", []))
+
+    def test_es_mother_with_retraction(self):
+        out = parse_correction_rule_based(
+            "no, mi madre se llamaba Carmen, no Lucía"
+        )
+        self.assertEqual(out.get("family.parents.mother.name"), "Carmen")
+        self.assertIn("Lucía", out.get("_retracted", []))
+
+    def test_es_mother_nombre_era_with_retraction(self):
+        out = parse_correction_rule_based(
+            "el nombre de mi madre era Ana, no Sofía"
+        )
+        self.assertEqual(out.get("family.parents.mother.name"), "Ana")
+        self.assertIn("Sofía", out.get("_retracted", []))
+
+    # ── English — same shape ───────────────────────────────────────────
+
+    def test_en_birthplace_with_retraction(self):
+        out = parse_correction_rule_based("no, I was born in Lima, not Cuzco")
+        self.assertEqual(out.get("identity.place_of_birth"), "Lima")
+        self.assertIn("Cuzco", out.get("_retracted", []))
+
+    def test_en_father_with_retraction(self):
+        out = parse_correction_rule_based(
+            "my father was Robert, not Charles"
+        )
+        self.assertEqual(out.get("family.parents.father.name"), "Robert")
+        self.assertIn("Charles", out.get("_retracted", []))
+
+    def test_en_mother_with_retraction(self):
+        out = parse_correction_rule_based(
+            "my mother was Carmen, not Lucia"
+        )
+        self.assertEqual(out.get("family.parents.mother.name"), "Carmen")
+        self.assertIn("Lucia", out.get("_retracted", []))
+
+    def test_en_birthplace_multipart_preserved(self):
+        # "Buenos Aires, Argentina" (no retraction) — still captures full
+        out = parse_correction_rule_based("I was born in Buenos Aires, Argentina")
+        self.assertEqual(
+            out.get("identity.place_of_birth"), "Buenos Aires, Argentina"
+        )
+        self.assertNotIn("_retracted", out)
+
+    # ── Regression: simple cases (no retraction) byte-stable ───────────
+
+    def test_simple_birthplace_en_unchanged(self):
+        out = parse_correction_rule_based("I was born in Lima")
+        self.assertEqual(out, {"identity.place_of_birth": "Lima"})
+
+    def test_simple_birthplace_es_unchanged(self):
+        out = parse_correction_rule_based("Nací en Lima")
+        self.assertEqual(out, {"identity.place_of_birth": "Lima"})
+
+    def test_simple_father_es_unchanged(self):
+        out = parse_correction_rule_based("Mi padre se llamaba José")
+        self.assertEqual(out, {"family.parents.father.name": "José"})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
