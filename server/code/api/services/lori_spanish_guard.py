@@ -72,12 +72,40 @@ _SPANISH_FUNCTION_WORDS = (
     "yo", "tú", "él", "ella", "nosotros", "ellos", "ellas",
     "este", "esta", "estos", "estas", "ese", "esa", "esos", "esas",
     "aquel", "aquella", "aquellos", "aquellas", "eso", "esto", "aquello",
-    # common verb forms
+    # common verb forms (present)
     "es", "son", "fue", "era", "eran", "hay", "había", "está", "estaba",
-    "tiene", "tuvo", "ser", "estar",
+    "tiene", "tienen", "tenemos", "tengo", "tienes",
+    "tuvo", "tuve", "tuvimos", "tuvieron",
+    "ser", "estar",
+    # common verb forms (imperfect) — distinctively Spanish
+    "vivía", "vivian", "vivía", "vivíamos",
+    "hablaba", "hablaban", "hablábamos",
+    "trabajaba", "trabajaban", "trabajábamos",
+    "llamaba", "llamaban",
+    "decía", "decían", "decíamos",
+    "iba", "iban", "íbamos",
+    # common verb forms (preterite) — distinctively Spanish
+    "dijo", "dije", "dijeron", "dijimos",
+    "fue", "fui", "fueron", "fuimos",
+    "hizo", "hice", "hicieron", "hicimos",
+    "vino", "vine", "vinieron", "vinimos",
+    "quiso", "quise", "quisieron", "quisimos",
+    # common verb infinitives — Spanish-only spellings
+    "decir", "hablar", "vivir", "escribir", "comer", "saber",
+    "querer", "poder", "tener", "venir", "pensar",
+    # number words 2-10 — Spanish-only spellings (1 = "uno" is risky
+    # since it overlaps with the card game name)
+    "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez",
+    "once", "doce", "trece", "catorce", "quince",
+    "veinte", "treinta", "cuarenta", "cincuenta",
+    "cien", "ciento", "mil",
     # common adverbs / Q-words
     "que", "qué", "como", "cómo", "donde", "dónde", "cuando", "cuándo",
     "porque", "muy", "más", "menos", "también", "ya",
+    "siempre", "nunca", "ahora", "luego", "aquí", "allí",
+    # common Spanish particles / connectors
+    "así", "asi", "entonces", "después", "antes",
+    "bueno", "claro", "pues",
 )
 _SPANISH_FUNCTION_RX = re.compile(
     r"\b(?:" + "|".join(_SPANISH_FUNCTION_WORDS) + r")\b",
@@ -267,6 +295,13 @@ def repair_spanish_perspective(
 # sentence ending on one of these is an incomplete fragment.
 # Ordered longest-first so multi-word connectors are matched before
 # their leading single-word components.
+#
+# BUG-ML-LORI-SPANISH-FRAGMENT-REPAIR-02 (2026-05-07): added demonstrative
+# determiners (esas/esos/esa/ese/esta/este/estas/estos/aquel/aquella/
+# aquellos/aquellas) — these require a following noun, so a Spanish
+# sentence ending on one is dangling. Live failure: "...cuando contaba
+# esas." should have continued "esas historias?" but Llama truncated the
+# noun. Repair = trim the demonstrative + close the question.
 _FRAGMENT_CONNECTORS = (
     "después de que",
     "antes de que",
@@ -295,6 +330,28 @@ _FRAGMENT_CONNECTORS = (
     "y",
     "o",
     "pero",
+    # Demonstrative determiners (BUG-ML-LORI-SPANISH-FRAGMENT-REPAIR-02)
+    "esas",
+    "esos",
+    "esa",
+    "ese",
+    "estas",
+    "estos",
+    "esta",
+    "este",
+    "aquellas",
+    "aquellos",
+    "aquella",
+    "aquel",
+    # Possessive determiners (overlap with "su"/"sus" already covered)
+    "mi",
+    "mis",
+    "tu",
+    "tus",
+    "nuestra",
+    "nuestro",
+    "nuestras",
+    "nuestros",
 )
 _FRAGMENT_CONNECTORS_GROUP = "|".join(
     re.escape(c) for c in sorted(_FRAGMENT_CONNECTORS, key=len, reverse=True)
@@ -309,11 +366,32 @@ _FRAGMENT_TAIL_RX = re.compile(
 )
 
 
+def _has_unclosed_spanish_question(text: str) -> bool:
+    """Detect an open ¿ that hasn't been closed by ?.
+
+    Counts opening ¿ and closing ? and returns True if there are
+    more openers than closers. Used by the fragment guard to decide
+    whether to close a trimmed fragment with "?" (question-aware) or
+    "." (default).
+
+    BUG-ML-LORI-SPANISH-FRAGMENT-REPAIR-02 (2026-05-07): live evidence
+    showed "¿Qué recuerdas de cómo sonaba su voz cuando contaba esas."
+    where the demonstrative "esas" was the truncation point and the
+    question was opened with ¿ but never closed. Closing the trimmed
+    output with "." instead of "?" leaves a malformed Spanish question.
+    """
+    if not text:
+        return False
+    return text.count("¿") > text.count("?")
+
+
 def repair_spanish_fragment(lori_text: str) -> Tuple[str, List[str]]:
     """Detect and repair Spanish dangling-fragment endings.
 
     The repair: trim the trailing connector + any trailing punctuation
-    and end the sentence cleanly with a period. We do NOT attempt to
+    and end the sentence cleanly with a period (or "?" if there's an
+    unclosed Spanish question opener "¿" upstream — see
+    BUG-ML-LORI-SPANISH-FRAGMENT-REPAIR-02). We do NOT attempt to
     complete the fragment because we'd be inventing narrator content.
     Truncation is the conservative repair.
 
@@ -353,9 +431,13 @@ def repair_spanish_fragment(lori_text: str) -> Tuple[str, List[str]]:
         return (lori_text, [])
 
     # If the pre-fragment text already ends with punctuation, keep it
-    # as-is (the fragment was the only remnant). Otherwise add a period.
+    # as-is (the fragment was the only remnant). Otherwise add a period
+    # — UNLESS there's an unclosed ¿ upstream, in which case close with
+    # "?" to keep the Spanish question well-formed.
     if pre_fragment[-1] in ".!?":
         repaired = pre_fragment
+    elif _has_unclosed_spanish_question(pre_fragment):
+        repaired = pre_fragment + "?"
     else:
         repaired = pre_fragment + "."
 

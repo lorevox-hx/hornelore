@@ -249,6 +249,85 @@ class FragmentGuardTest(unittest.TestCase):
         repaired, _ = repair_spanish_fragment(lori)
         self.assertEqual(repaired, lori)
 
+    # ── BUG-ML-LORI-SPANISH-FRAGMENT-REPAIR-02 ──────────────────────────
+    # Live evidence 2026-05-07 (Melanie Carter Spanish session):
+    #   "¿Qué recuerdas de cómo sonaba su voz cuando contaba esas."
+    # The demonstrative "esas" is a dangling determiner — it requires a
+    # following noun (esas historias / esas tardes / etc.).  Llama
+    # truncated mid-phrase.  Repair: trim "esas." and close with "?"
+    # because the question was opened with "¿" but never closed.
+
+    def test_dangling_demonstrative_esas_closes_with_question_mark(self):
+        # The exact 2026-05-07 live failure.
+        lori = "¿Qué recuerdas de cómo sonaba su voz cuando contaba esas."
+        repaired, changes = repair_spanish_fragment(lori)
+        self.assertFalse(repaired.endswith("esas."))
+        self.assertFalse(repaired.endswith("esas"))
+        # Question opened with ¿ → must close with ?
+        self.assertTrue(
+            repaired.endswith("?"),
+            f"Expected closing '?' for unclosed ¿; got: {repaired!r}",
+        )
+        self.assertTrue(any("fragment_trim" in c for c in changes))
+
+    def test_dangling_demonstrative_esos(self):
+        lori = "¿Tienes algún recuerdo de esos."
+        repaired, _ = repair_spanish_fragment(lori)
+        self.assertFalse(repaired.endswith("esos."))
+        self.assertTrue(repaired.endswith("?"))
+
+    def test_dangling_demonstrative_esa(self):
+        lori = "Eso es muy bonito. ¿Cómo sentiste esa."
+        repaired, _ = repair_spanish_fragment(lori)
+        self.assertFalse(repaired.endswith("esa."))
+        self.assertTrue(repaired.endswith("?"))
+
+    def test_dangling_demonstrative_aquellas(self):
+        lori = "¿Qué recuerdas de aquellas."
+        repaired, _ = repair_spanish_fragment(lori)
+        self.assertFalse(repaired.endswith("aquellas."))
+        self.assertTrue(repaired.endswith("?"))
+
+    def test_dangling_possessive_mi_in_question(self):
+        # "mi" as a dangling possessive in a question
+        lori = "¿Y qué pasó con mi."
+        repaired, _ = repair_spanish_fragment(lori)
+        self.assertFalse(repaired.endswith("mi."))
+        # Has unclosed ¿ → closes with ?
+        self.assertTrue(repaired.endswith("?"))
+
+    def test_dangling_demonstrative_in_statement_closes_with_period(self):
+        # When NO ¿ is upstream, fall back to "." (existing behavior).
+        lori = "Tu abuela siempre hablaba de aquellos."
+        repaired, _ = repair_spanish_fragment(lori)
+        self.assertFalse(repaired.endswith("aquellos."))
+        # Statement context — no ¿ means close with .
+        self.assertTrue(repaired.endswith("."))
+        self.assertFalse(repaired.endswith("?"))
+
+    def test_balanced_question_marks_no_extra_question(self):
+        # ¿X? ¿Y dangling-Z. → the second question is unclosed; close ?.
+        lori = "¿Es eso correcto? ¿Qué pasaba después de eso, esas."
+        repaired, _ = repair_spanish_fragment(lori)
+        self.assertTrue(repaired.endswith("?"))
+        # The first ¿X? balanced; the second ¿ unclosed → +1 ?
+
+    def test_demonstrative_followed_by_noun_not_treated_as_fragment(self):
+        # Well-formed sentence ending on demonstrative + noun + ".".
+        # Should NOT trim because the determiner has its noun.
+        lori = "Tu abuela contaba esas historias."
+        repaired, changes = repair_spanish_fragment(lori)
+        self.assertEqual(repaired, lori)
+        self.assertEqual(changes, [])
+
+    def test_demonstrative_idempotent(self):
+        # Running twice produces same result.
+        lori = "¿Qué recuerdas de cómo sonaba su voz cuando contaba esas."
+        once, _ = repair_spanish_fragment(lori)
+        twice, twice_changes = repair_spanish_fragment(once)
+        self.assertEqual(once, twice)
+        self.assertEqual(twice_changes, [])  # no changes second pass
+
 
 class ApplySpanishGuardsTest(unittest.TestCase):
     """Integrated public-surface tests."""
