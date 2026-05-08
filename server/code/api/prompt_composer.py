@@ -2139,6 +2139,12 @@ def compose_correction_ack(
     the confusion."). Field-path labels are operator-tone leakage to
     a narrator; specific values are warmer + verifiable.
 
+    WO-ML-05E (2026-05-07): Spanish acknowledgments for Spanish-speaking
+    narrators.  Detection via looks_spanish() heuristic on the narrator's
+    correction text \u2014 if Spanish, the entire ack is composed in Spanish
+    so the narrator hears the correction in their own language, not a
+    code-switched English fallback.
+
     Pattern shapes the parser produces:
       family.children.count = N         \u2192 "Got it \u2014 N children..."
       family.parents.father.name = X    \u2192 "Got it \u2014 your father was X..."
@@ -2148,8 +2154,23 @@ def compose_correction_ack(
                                             I shouldn't have said X."
       _meant = X                        \u2192 "Got it \u2014 X. Apologies."
     """
+    # WO-ML-05E: detect Spanish narrator text and route to Spanish ack
+    # composition.  Lazy import so module load order stays clean.
+    is_spanish = False
+    try:
+        from .services.lori_spanish_guard import looks_spanish  # type: ignore
+        is_spanish = bool(looks_spanish(text or ""))
+    except Exception:
+        is_spanish = False
+
     parsed = parse_correction_rule_based(text)
     if not parsed:
+        if is_spanish:
+            return (
+                "O\u00ed eso como una correcci\u00f3n, pero no estoy completamente "
+                "segura de qu\u00e9 cambia. Puedes decirlo paso a paso \u2014 "
+                "por ejemplo, 'Yo nac\u00ed en ...' o 'Mi padre se llamaba ...'."
+            )
         return (
             "I heard that as a correction, but I'm not fully certain which "
             "field it changes yet. You can say it one piece at a time "
@@ -2165,6 +2186,59 @@ def compose_correction_ack(
 
     parts: List[str] = []
 
+    if is_spanish:
+        # \u2500\u2500 Spanish phrasings \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        # Field-by-field warm phrasing. Same field paths, Spanish prose.
+        # "Lo entiendo \u2014 ..." opener mirrors "Got it \u2014 ..." in tone.
+        if "family.children.count" in fields:
+            n = fields["family.children.count"]
+            word = {1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco",
+                    6: "seis", 7: "siete", 8: "ocho", 9: "nueve", 10: "diez"}.get(n, str(n))
+            # Use "hijos" (mixed/masculine plural \u2014 neutral Spanish
+            # convention for a child count without specified gender).
+            unit = "hijo" if n == 1 else "hijos"
+            parts.append(f"Lo entiendo \u2014 {word} {unit}, no el n\u00famero que ten\u00eda")
+        if "family.parents.father.name" in fields:
+            parts.append(f"Lo entiendo \u2014 tu padre era {fields['family.parents.father.name']}")
+        if "family.parents.mother.name" in fields:
+            parts.append(f"Lo entiendo \u2014 tu madre era {fields['family.parents.mother.name']}")
+        if "identity.place_of_birth" in fields:
+            parts.append(f"Lo entiendo \u2014 naciste en {fields['identity.place_of_birth']}")
+        if "education_work.retirement" in fields:
+            parts.append(f"Lo entiendo \u2014 nunca te jubilaste del todo")
+
+        if meant and not parts:
+            parts.append(f"Lo entiendo \u2014 {meant}")
+
+        retraction_clause = ""
+        if retracted:
+            retracted_unique: List[str] = []
+            for r in retracted:
+                r_str = str(r).strip()
+                if r_str and r_str not in retracted_unique:
+                    retracted_unique.append(r_str)
+            if len(retracted_unique) == 1:
+                retraction_clause = f"no deb\u00ed haber dicho {retracted_unique[0]}"
+            elif len(retracted_unique) > 1:
+                retraction_clause = "no deb\u00ed haber usado esas palabras"
+
+        if parts:
+            head = " y ".join(parts) + "."
+            if retraction_clause:
+                head += f" Gracias por corregirme \u2014 {retraction_clause}."
+            else:
+                head += " Disculpa la confusi\u00f3n."
+            return head
+        if retraction_clause:
+            return f"Gracias por corregirme \u2014 {retraction_clause}. Disculpa la confusi\u00f3n."
+
+        return (
+            "O\u00ed eso como una correcci\u00f3n. \u00bfPodr\u00edas decirme qu\u00e9 "
+            "te gustar\u00eda que cambie \u2014 solo una cosa a la vez, "
+            "en tus propias palabras?"
+        )
+
+    # \u2500\u2500 English phrasings (existing path) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     # Field-by-field warm phrasing. Map field path \u2192 narrator-facing
     # acknowledgment shape. New fields land here; keep mapping shallow
     # so it's obvious what each correction sounds like to the narrator.
