@@ -1827,10 +1827,183 @@ def compose_continuation_paraphrase(
     return f"Welcome back, {safe_name}. Where would you like to continue today?"
 
 
+# BUG-ML-LORI-DETERMINISTIC-COMPOSERS-ENGLISH-ONLY-01 Phase 1 (2026-05-07):
+#
+# Locale pack for compose_memory_echo. The composer emits text DIRECTLY to
+# the narrator (no LLM round-trip → LANGUAGE MIRRORING RULE doesn't apply
+# to its output). Spanish narrators asking "¿qué sabes de mí?" must hear
+# the readback in Spanish, not in code-switched English. Locale pack keeps
+# all narrator-facing strings centralized so future locales (Portuguese,
+# French, etc.) only need to add a new pack entry.
+#
+# Detection happens at the chat_ws.py call site via looks_spanish(user_text)
+# → target_language="es"; default "en" preserves existing behavior byte-
+# stable for English narrators.
+_MEMORY_ECHO_LOCALE: Dict[str, Dict[str, str]] = {
+    "en": {
+        "header_what_i_know": "What I know about {name} so far:",
+        "section_identity": "Identity",
+        "field_name": "Name",
+        "field_dob": "Date of birth",
+        "field_pob": "Place of birth",
+        "section_family": "Family",
+        "default_relation_parent": "Parent",
+        "default_relation_sibling": "Sibling",
+        "fallback_parents_none": "- Parents: (none on record yet)",
+        "fallback_siblings_none": "- Siblings: (none on record yet)",
+        "missing_value": "(not on record yet)",
+        "missing_name_on_file": "(on file, name not yet captured)",
+        "incomplete": "(incomplete)",
+        "section_seed_notes": "Notes from our conversation",
+        "section_promoted": "From our records",
+        "section_era_stories": "What you've shared so far",
+        "section_uncertain": "What I'm less sure about",
+        "uncertain_blank_line": "- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.",
+        "uncertain_draft_line": "- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.",
+        "footer_based_on": "(Based on: {sources}.)",
+        "footer_no_records": "(I don't have anything on record for you yet — would you like to start with your name?)",
+        "footer_corrections": "You can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+        # Profile-seed labels
+        "seed_childhood_home": "Childhood home",
+        "seed_parents_work": "Parents' work",
+        "seed_heritage": "Heritage",
+        "seed_education": "Education",
+        "seed_military": "Military service",
+        "seed_career": "Career",
+        "seed_partner": "Partner",
+        "seed_children": "Children",
+        "seed_life_stage": "Life stage",
+        # Promoted-truth field labels
+        "field_date_of_birth": "date of birth",
+        "field_place_of_birth": "place of birth",
+        "field_full_name": "name",
+        "field_first_name": "first name",
+        "field_last_name": "last name",
+        "field_occupation": "occupation",
+        "field_employment": "work",
+        "field_residence": "lived in",
+        "field_marriage_date": "married",
+        "field_ethnicity": "heritage",
+        "field_religion": "faith",
+        # Source labels
+        "source_profile": "profile",
+        "source_projection": "interview projection",
+        "source_session_notes": "session notes",
+        "source_promoted": "promoted truth",
+        "source_session_transcript": "session transcript",
+        # Possessive templates
+        "possessive_narrator_named": "- {name}'s {field}: {value}",
+        "possessive_narrator_generic": "- Your {field}: {value}",
+        "possessive_other": "- {subject}'s {field}: {value}",
+        # Generic fallback name (when speaker_name is unknown)
+        "generic_you": "you",
+    },
+    "es": {
+        "header_what_i_know": "Esto es lo que sé de {name} hasta ahora:",
+        "section_identity": "Identidad",
+        "field_name": "Nombre",
+        "field_dob": "Fecha de nacimiento",
+        "field_pob": "Lugar de nacimiento",
+        "section_family": "Familia",
+        "default_relation_parent": "Padre o madre",
+        "default_relation_sibling": "Hermano o hermana",
+        "fallback_parents_none": "- Padres: (ninguno aún registrado)",
+        "fallback_siblings_none": "- Hermanos: (ninguno aún registrado)",
+        "missing_value": "(aún sin registrar)",
+        "missing_name_on_file": "(en archivo, nombre aún no capturado)",
+        "incomplete": "(incompleto)",
+        "section_seed_notes": "Notas de nuestra conversación",
+        "section_promoted": "De nuestros registros",
+        "section_era_stories": "Lo que has compartido hasta ahora",
+        "section_uncertain": "Lo que aún no tengo claro",
+        "uncertain_blank_line": "- Algunas partes aún están en blanco, y eso está completamente bien. Puedes corregir o agregar una cosa a la vez, cuando quieras.",
+        "uncertain_draft_line": "- Lo que mencione ahora lo mantendré como borrador hasta que lo confirmes. Los datos confirmados vienen de tu perfil.",
+        "footer_based_on": "(Basado en: {sources}.)",
+        "footer_no_records": "(Aún no tengo nada registrado para ti — ¿te gustaría empezar con tu nombre?)",
+        "footer_corrections": "Puedes corregir cualquier cosa que esté equivocada, falte, o sea demasiado vaga. Una corrección a la vez funciona mejor.",
+        # Profile-seed labels
+        "seed_childhood_home": "Hogar de la infancia",
+        "seed_parents_work": "Trabajo de los padres",
+        "seed_heritage": "Herencia",
+        "seed_education": "Educación",
+        "seed_military": "Servicio militar",
+        "seed_career": "Carrera",
+        "seed_partner": "Pareja",
+        "seed_children": "Hijos",
+        "seed_life_stage": "Etapa de la vida",
+        # Promoted-truth field labels
+        "field_date_of_birth": "fecha de nacimiento",
+        "field_place_of_birth": "lugar de nacimiento",
+        "field_full_name": "nombre",
+        "field_first_name": "primer nombre",
+        "field_last_name": "apellido",
+        "field_occupation": "ocupación",
+        "field_employment": "trabajo",
+        "field_residence": "vivió en",
+        "field_marriage_date": "se casó",
+        "field_ethnicity": "herencia",
+        "field_religion": "fe",
+        # Source labels
+        "source_profile": "perfil",
+        "source_projection": "proyección de entrevista",
+        "source_session_notes": "notas de sesión",
+        "source_promoted": "datos confirmados",
+        "source_session_transcript": "transcripción de sesión",
+        # Possessive templates — Spanish uses "X de Y" instead of "Y's X"
+        "possessive_narrator_named": "- {field} de {name}: {value}",
+        "possessive_narrator_generic": "- Tu {field}: {value}",
+        "possessive_other": "- {field} de {subject}: {value}",
+        "generic_you": "ti",
+    },
+}
+
+# Relation-name translation map for projection_family entries.
+# Projection emits English relations ("Father", "Mother", "Brother",
+# "Sister"); render in narrator's language.
+_RELATION_TRANSLATIONS_ES: Dict[str, str] = {
+    "father": "Padre",
+    "mother": "Madre",
+    "brother": "Hermano",
+    "sister": "Hermana",
+    "parent": "Padre o madre",
+    "sibling": "Hermano o hermana",
+    "son": "Hijo",
+    "daughter": "Hija",
+    "spouse": "Cónyuge",
+    "wife": "Esposa",
+    "husband": "Esposo",
+    "grandfather": "Abuelo",
+    "grandmother": "Abuela",
+    "grandparent": "Abuelo o abuela",
+    "uncle": "Tío",
+    "aunt": "Tía",
+    "cousin": "Primo o prima",
+    "nephew": "Sobrino",
+    "niece": "Sobrina",
+    "stepfather": "Padrastro",
+    "stepmother": "Madrastra",
+    "stepbrother": "Hermanastro",
+    "stepsister": "Hermanastra",
+}
+
+
+def _translate_relation(label: str, target_language: str) -> str:
+    """Translate a projection relation label to the narrator's language.
+    English passthrough; Spanish maps via _RELATION_TRANSLATIONS_ES.
+    Unknown relations pass through verbatim (better than dropping)."""
+    if not label or target_language == "en":
+        return label
+    if target_language == "es":
+        return _RELATION_TRANSLATIONS_ES.get(label.strip().lower(), label)
+    return label
+
+
 def compose_memory_echo(
     text: str,
     runtime: Optional[Dict[str, Any]] = None,
     state_snapshot: Optional[Dict[str, Any]] = None,
+    *,
+    target_language: str = "en",
 ) -> str:
     """Build a deterministic structured read-back from current runtime state.
 
@@ -1864,6 +2037,13 @@ def compose_memory_echo(
     """
     runtime = runtime or {}
 
+    # WO-ML-05G (2026-05-07): resolve locale pack early so all narrator-
+    # facing strings come from a single source. Default "en" preserves
+    # byte-stable behavior for English narrators.
+    if target_language not in _MEMORY_ECHO_LOCALE:
+        target_language = "en"
+    _pack = _MEMORY_ECHO_LOCALE[target_language]
+
     speaker_name = (runtime.get("speaker_name") or "").strip()
     dob = runtime.get("dob") or None
     pob = runtime.get("pob") or None
@@ -1887,7 +2067,11 @@ def compose_memory_echo(
             # Use first token of full name as a friendlier address form,
             # matching how speakerName is typically populated client-side.
             speaker_name = seed_full.split()[0] if seed_full.split() else seed_full
-    speaker_name = speaker_name or "you"
+    # _generic_you is the locale-appropriate fallback for missing names
+    # ("you" in English, "ti" in Spanish). Used both for the heading
+    # interpolation and the name-known check below.
+    _generic_you = _pack["generic_you"]
+    speaker_name = speaker_name or _generic_you
 
     # Same fallback for dob/pob — runtime values come from client state;
     # profile_seed pulls them from canonical+provisional. life_stage and
@@ -1907,11 +2091,12 @@ def compose_memory_echo(
     siblings = projection_family.get("siblings") or []
 
     # Track which sources contributed so we can name them in the footer.
-    sources_used = []
-    if dob or pob or speaker_name != "you":
-        sources_used.append("profile")
+    # WO-ML-05G: source labels keyed by locale.
+    sources_used: List[str] = []
+    if dob or pob or speaker_name != _generic_you:
+        sources_used.append(_pack["source_profile"])
     if parents or siblings:
-        sources_used.append("interview projection")
+        sources_used.append(_pack["source_projection"])
     # 2026-04-29 review fix: source detection now covers list + dict
     # values too, not only strings. Without this, a Phase 1b seed where
     # the only populated bucket is `children: ["Gretchen", "Amelia"]`
@@ -1927,32 +2112,33 @@ def compose_memory_echo(
                 return True
         return False
     if _seed_has_value(profile_seed):
-        sources_used.append("session notes")
+        sources_used.append(_pack["source_session_notes"])
 
     lines = [
-        f"What I know about {speaker_name} so far:",
+        _pack["header_what_i_know"].format(name=speaker_name),
         "",
-        "Identity",
+        _pack["section_identity"],
     ]
 
     # Speaker name surfaced in body (not just heading) when known and not
     # the generic "you" fallback — narrator should see their own name
     # echoed back, not just the prompt phrasing.
-    if speaker_name and speaker_name != "you":
-        lines.append(f"- Name: {speaker_name}")
+    if speaker_name and speaker_name != _generic_you:
+        lines.append(f"- {_pack['field_name']}: {speaker_name}")
     else:
-        lines.append("- Name: (not on record yet)")
-    lines.append(_fmt_line_explicit("Date of birth", dob))
-    lines.append(_fmt_line_explicit("Place of birth", pob))
+        lines.append(f"- {_pack['field_name']}: {_pack['missing_value']}")
+    lines.append(_fmt_line_explicit(_pack["field_dob"], dob, target_language=target_language))
+    lines.append(_fmt_line_explicit(_pack["field_pob"], pob, target_language=target_language))
 
     lines.extend([
         "",
-        "Family",
+        _pack["section_family"],
     ])
 
     if parents:
         for p in parents:
-            label = (p.get("relation") or "Parent").strip() or "Parent"
+            raw_relation = (p.get("relation") or "").strip() or _pack["default_relation_parent"]
+            label = _translate_relation(raw_relation, target_language)
             name = (p.get("name") or "").strip()
             occ = (p.get("occupation") or "").strip()
             extra = f" ({occ})" if occ else ""
@@ -1960,39 +2146,44 @@ def compose_memory_echo(
                 lines.append(f"- {label}: {name}{extra}")
             else:
                 # Projection has the slot but no name yet — say so explicitly.
-                lines.append(f"- {label}: (on file, name not yet captured){extra}")
+                lines.append(f"- {label}: {_pack['missing_name_on_file']}{extra}")
     else:
-        lines.append("- Parents: (none on record yet)")
+        lines.append(_pack["fallback_parents_none"])
 
     if siblings:
         for s in siblings:
-            label = (s.get("relation") or "Sibling").strip() or "Sibling"
+            raw_relation = (s.get("relation") or "").strip() or _pack["default_relation_sibling"]
+            label = _translate_relation(raw_relation, target_language)
             name = (s.get("name") or "").strip()
             if name:
                 lines.append(f"- {label}: {name}")
             else:
-                lines.append(f"- {label}: (on file, name not yet captured)")
+                lines.append(f"- {label}: {_pack['missing_name_on_file']}")
     else:
-        lines.append("- Siblings: (none on record yet)")
+        lines.append(_pack["fallback_siblings_none"])
 
     # WO-LORI-SESSION-AWARENESS-01 Phase 1a — render any profile_seed
     # values that are populated. The seed is part of runtime71 today
     # (visible in [Lori 7.1] runtime71 log lines) but most fields are
     # null in current builds. When upstream wiring (Phase 1b) starts
     # populating them, the read path is already here.
-    seed_lines = []
-    seed_labels = {
-        "childhood_home": "Childhood home",
-        "parents_work": "Parents' work",
-        "heritage": "Heritage",
-        "education": "Education",
-        "military": "Military service",
-        "career": "Career",
-        "partner": "Partner",
-        "children": "Children",
-        "life_stage": "Life stage",
-    }
-    for key, label in seed_labels.items():
+    seed_lines: List[str] = []
+    # WO-ML-05G: seed labels resolved from locale pack. Key order
+    # preserved (childhood_home → life_stage) so render order is
+    # locale-stable.
+    _seed_label_keys = [
+        ("childhood_home", "seed_childhood_home"),
+        ("parents_work", "seed_parents_work"),
+        ("heritage", "seed_heritage"),
+        ("education", "seed_education"),
+        ("military", "seed_military"),
+        ("career", "seed_career"),
+        ("partner", "seed_partner"),
+        ("children", "seed_children"),
+        ("life_stage", "seed_life_stage"),
+    ]
+    for key, label_key in _seed_label_keys:
+        label = _pack[label_key]
         val = profile_seed.get(key)
         if isinstance(val, str) and val.strip():
             seed_lines.append(f"- {label}: {val.strip()}")
@@ -2004,10 +2195,10 @@ def compose_memory_echo(
             if items:
                 seed_lines.append(f"- {label}: {', '.join(items)}")
             else:
-                seed_lines.append(f"- {label}: (incomplete)")
+                seed_lines.append(f"- {label}: {_pack['incomplete']}")
 
     if seed_lines:
-        lines.extend(["", "Notes from our conversation"])
+        lines.extend(["", _pack["section_seed_notes"]])
         lines.extend(seed_lines)
 
     # WO-LORI-SESSION-AWARENESS-01 Phase 1c-wire (2026-05-03):
@@ -2026,18 +2217,20 @@ def compose_memory_echo(
         # Field-name humanization for narrator-facing surface. Operator
         # field names like "date_of_birth" don't read well to a
         # narrator; render them as natural-language labels.
-        _PROMOTED_FIELD_LABELS = {
-            "date_of_birth": "date of birth",
-            "place_of_birth": "place of birth",
-            "full_name": "name",
-            "first_name": "first name",
-            "last_name": "last name",
-            "occupation": "occupation",
-            "employment": "work",
-            "residence": "lived in",
-            "marriage_date": "married",
-            "ethnicity": "heritage",
-            "religion": "faith",
+        # WO-ML-05G (2026-05-07): keys map to locale pack entries so
+        # Spanish narrators see "fecha de nacimiento" not "date of birth".
+        _PROMOTED_FIELD_LABEL_KEYS = {
+            "date_of_birth": "field_date_of_birth",
+            "place_of_birth": "field_place_of_birth",
+            "full_name": "field_full_name",
+            "first_name": "field_first_name",
+            "last_name": "field_last_name",
+            "occupation": "field_occupation",
+            "employment": "field_employment",
+            "residence": "field_residence",
+            "marriage_date": "field_marriage_date",
+            "ethnicity": "field_ethnicity",
+            "religion": "field_religion",
         }
         promoted_lines = []
         for fact in promoted_facts:
@@ -2048,22 +2241,48 @@ def compose_memory_echo(
             value = (fact.get("value") or "").strip()
             if not field or not value:
                 continue
-            label = _PROMOTED_FIELD_LABELS.get(field, field.replace("_", " "))
-            if subject in ("", "self", "narrator"):
-                # Narrator's own fact — use speaker_name when known
-                if speaker_name and speaker_name != "you":
-                    promoted_lines.append(f"- {speaker_name}'s {label}: {value}")
-                else:
-                    promoted_lines.append(f"- Your {label}: {value}")
+            label_key = _PROMOTED_FIELD_LABEL_KEYS.get(field)
+            if label_key:
+                label = _pack[label_key]
             else:
-                # Someone else (parent, spouse, etc.)
-                promoted_lines.append(f"- {subject.capitalize()}'s {label}: {value}")
+                # Unknown field — render the operator key with underscores
+                # replaced. Rare path; not worth a per-locale translation
+                # because the field name is non-canonical anyway.
+                label = field.replace("_", " ")
+            if subject in ("", "self", "narrator"):
+                # Narrator's own fact — use speaker_name when known.
+                # Spanish flips possessive form: "nombre de María: María"
+                # vs English "María's name: María".
+                if speaker_name and speaker_name != _generic_you:
+                    promoted_lines.append(
+                        _pack["possessive_narrator_named"].format(
+                            name=speaker_name, field=label, value=value,
+                        )
+                    )
+                else:
+                    promoted_lines.append(
+                        _pack["possessive_narrator_generic"].format(
+                            field=label, value=value,
+                        )
+                    )
+            else:
+                # Someone else (parent, spouse, etc.). Translate the
+                # subject relation to narrator's language when it's a
+                # known kinship term; otherwise pass through capitalized.
+                rendered_subject = _translate_relation(subject, target_language)
+                if rendered_subject == subject:
+                    rendered_subject = subject.capitalize()
+                promoted_lines.append(
+                    _pack["possessive_other"].format(
+                        subject=rendered_subject, field=label, value=value,
+                    )
+                )
         if promoted_lines:
-            lines.extend(["", "From our records"])
+            lines.extend(["", _pack["section_promoted"]])
             lines.extend(promoted_lines)
-            # Track in the source footer
-            if "promoted truth" not in sources_used:
-                sources_used.append("promoted truth")
+            # Track in the source footer (locale-keyed label)
+            if _pack["source_promoted"] not in sources_used:
+                sources_used.append(_pack["source_promoted"])
 
     # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 3 (2026-05-06):
     # Era-grouped story stubs render between "Notes from our conversation"
@@ -2084,44 +2303,67 @@ def compose_memory_echo(
             if isinstance(era_buckets, dict) and era_buckets:
                 era_excerpts = _select_era_excerpts(era_buckets)
                 if era_excerpts:
-                    lines.extend(["", "What you've shared so far"])
+                    lines.extend(["", _pack["section_era_stories"]])
                     for era_id, excerpt in era_excerpts:
+                        # WO-ML-05G: era_id_to_warm_label already accepts
+                        # a locale parameter; pass narrator's language.
                         try:
                             from .lv_eras import era_id_to_warm_label as _warm
-                            warm_label = _warm(era_id) or era_id
+                            warm_label = _warm(era_id, target_language) or era_id
+                        except TypeError:
+                            # Older signature without locale arg — fall
+                            # back to single-arg call.
+                            try:
+                                from .lv_eras import era_id_to_warm_label as _warm
+                                warm_label = _warm(era_id) or era_id
+                            except Exception:
+                                warm_label = era_id
                         except Exception:
                             warm_label = era_id
                         lines.append(f"- {warm_label}: {excerpt}")
-                    if "session transcript" not in sources_used:
-                        sources_used.append("session transcript")
+                    if _pack["source_session_transcript"] not in sources_used:
+                        sources_used.append(_pack["source_session_transcript"])
     except Exception as _era_render_err:
         # Render failure must never break the readback — degrade silently.
         logger.warning("[memory_echo][era-stories] render failed: %s", _era_render_err)
 
     lines.extend([
         "",
-        "What I'm less sure about",
-        "- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.",
-        "- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.",
+        _pack["section_uncertain"],
+        _pack["uncertain_blank_line"],
+        _pack["uncertain_draft_line"],
         "",
     ])
 
     if sources_used:
-        lines.append(f"(Based on: {', '.join(sources_used)}.)")
+        lines.append(_pack["footer_based_on"].format(sources=", ".join(sources_used)))
     else:
-        lines.append("(I don't have anything on record for you yet — would you like to start with your name?)")
+        lines.append(_pack["footer_no_records"])
 
     lines.append("")
-    lines.append("You can correct anything that is wrong, missing, or too vague. One correction at a time works best.")
+    lines.append(_pack["footer_corrections"])
     return "\n".join(lines)
 
 
-def _fmt_line_explicit(label: str, value: Any) -> str:
+def _fmt_line_explicit(
+    label: str,
+    value: Any,
+    *,
+    target_language: str = "en",
+) -> str:
     """Like _fmt_line but always emits the label with explicit '(not on record yet)'
     when the value is empty — so the narrator sees the gap rather than silent omission.
-    Used by the WO-LORI-SESSION-AWARENESS-01 Phase 1a memory-echo upgrade."""
+    Used by the WO-LORI-SESSION-AWARENESS-01 Phase 1a memory-echo upgrade.
+
+    WO-ML-05G (2026-05-07): accepts target_language to render the
+    placeholder in narrator's language ("(not on record yet)" /
+    "(aún sin registrar)"). Default "en" preserves byte-stable behavior.
+    """
     if value is None or value == "":
-        return f"- {label}: (not on record yet)"
+        if target_language not in _MEMORY_ECHO_LOCALE:
+            target_language = "en"
+        placeholder = _MEMORY_ECHO_LOCALE[target_language]["missing_value"]
+        return f"- {label}: {placeholder}"
     return f"- {label}: {value}"
 
 

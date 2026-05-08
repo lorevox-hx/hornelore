@@ -1004,11 +1004,27 @@ async def ws_chat(ws: WebSocket):
                         conv_id, person_id, _peek_exc,
                     )
 
+            # BUG-ML-LORI-DETERMINISTIC-COMPOSERS-ENGLISH-ONLY-01 Phase 1
+            # (2026-05-07): detect Spanish narrator via looks_spanish on the
+            # incoming user_text and route memory_echo composer to the
+            # Spanish locale pack. Failure is non-fatal — defaults to "en"
+            # which preserves byte-stable behavior on any error.
+            _memory_echo_lang = "en"
+            try:
+                from ..services.lori_spanish_guard import looks_spanish as _looks_es
+                if _looks_es(user_text or ""):
+                    _memory_echo_lang = "es"
+            except Exception:
+                _memory_echo_lang = "en"
             assistant_text = compose_memory_echo(
                 text=user_text,
                 runtime=runtime71,
+                target_language=_memory_echo_lang,
             )
-            logger.info("[chat_ws][WO-ARCH-07A] memory_echo turn for conv=%s", conv_id)
+            logger.info(
+                "[chat_ws][WO-ARCH-07A] memory_echo turn conv=%s lang=%s",
+                conv_id, _memory_echo_lang,
+            )
             persist_turn_transaction(
                 conv_id=conv_id,
                 user_message=user_text,
