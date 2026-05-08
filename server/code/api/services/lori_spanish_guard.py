@@ -397,9 +397,108 @@ def apply_spanish_guards(
         return (lori_text, [f"error:{exc!r}"])
 
 
+# ── BUG-ML-LORI-SPANISH-ACTIVE-LISTENING-QUESTION-01 (2026-05-07) ────
+#
+# Detector-only quality probe — does NOT rewrite content. Locked
+# principle from BUG-LORI-REFLECTION-02 Patch B postmortem: "prompt-
+# heavy reflection rules made Lori worse, not better. The next
+# reflection iteration MUST be runtime shaping, NOT more prompt
+# paragraphs." Same posture for Spanish: prompt-side rules tell Lori
+# what to do; this detector tells the operator log when she didn't.
+# Operators see violations in api.log and can decide whether to
+# tighten the prompt OR add runtime shaping later.
+#
+# Two specific failure modes detected:
+#   1. Yes/no closer endings: ¿verdad? / ¿no? / ¿cierto? / ¿no es
+#      cierto? / ¿no es así? / ¿sí?
+#   2. No Q-word in the trailing question: a Spanish question that
+#      doesn't begin with Qué / Cómo / Cuándo / Dónde / Quién /
+#      Por qué / Cuál.
+#
+# Returns a list of issue tags (empty list = clean response). The
+# detector is purely diagnostic — it does NOT mutate the response.
+
+# Yes/no closer patterns. Match a trailing closer at end of string
+# (with optional trailing punctuation). Most are simple bigrams or
+# trigrams. Case-insensitive — narrators won't see the casing.
+_YES_NO_CLOSER_PATTERNS = (
+    re.compile(r"[¿,]\s*verdad\s*\?\s*$", re.IGNORECASE),
+    re.compile(r"[¿,]\s*no\s*\?\s*$", re.IGNORECASE),
+    re.compile(r"[¿,]\s*cierto\s*\?\s*$", re.IGNORECASE),
+    re.compile(r"[¿,]\s*no es cierto\s*\?\s*$", re.IGNORECASE),
+    re.compile(r"[¿,]\s*no es as[íi]\s*\?\s*$", re.IGNORECASE),
+    re.compile(r"[¿,]\s*s[íi]\s*\?\s*$", re.IGNORECASE),
+)
+
+# Spanish open-question Q-words. A well-formed Spanish question
+# starts (or has its question content begin) with one of these.
+# Includes accented + accent-stripped variants for Whisper-degraded
+# narrator input that may also influence Llama's output.
+_SPANISH_Q_WORDS = (
+    "qué", "que", "cómo", "como", "cuándo", "cuando",
+    "dónde", "donde", "quién", "quien", "quiénes", "quienes",
+    "por qué", "porqué", "porque", "cuál", "cual", "cuáles", "cuales",
+    "cuánto", "cuanto", "cuánta", "cuanta", "cuántos", "cuantos",
+    "cuántas", "cuantas",
+)
+# Detect Q-word inside a Spanish question span. Accepts the Q-word
+# anywhere AFTER an opening ¿ or after a sentence-final period.
+_SPANISH_QUESTION_BLOCK_RX = re.compile(
+    r"¿([^?]+)\?",
+)
+
+
+def detect_question_quality(text: str) -> List[str]:
+    """Detector-only — return list of issue tags found in `text`.
+
+    Issue tags:
+      - "yes_no_closer:¿verdad?"  (or whichever closer)
+      - "no_q_word_in_question"  (Spanish question lacks Qué/Cómo/...)
+
+    Empty list = clean response. Caller (chat_ws.py) logs the issues
+    via [lori][es-active-listening] log marker. The chat path
+    proceeds with the response unchanged — no rewrite, no block.
+
+    English text returns [] (no-op for pure English Lori responses).
+    """
+    if not text or not looks_spanish(text):
+        return []
+
+    issues: List[str] = []
+    stripped = text.rstrip()
+
+    # 1. Yes/no closer detection — check the LAST sentence only.
+    #    A response can have multiple sentences; only the trailing
+    #    one matters because that's the question Lori is leaving on
+    #    the table for the narrator.
+    for pat in _YES_NO_CLOSER_PATTERNS:
+        m = pat.search(stripped)
+        if m:
+            issues.append(f"yes_no_closer:{m.group(0).strip()}")
+            break  # first match is enough; don't double-tag
+
+    # 2. Q-word presence inside any Spanish question block. We scan
+    #    every "¿...?" span and check whether at least ONE of them
+    #    contains a Spanish Q-word. This is conservative — a
+    #    response with ZERO question marks doesn't trip this rule
+    #    (it just isn't asking a question, which is a different
+    #    concern handled by interview-mode directives elsewhere).
+    question_blocks = _SPANISH_QUESTION_BLOCK_RX.findall(stripped)
+    if question_blocks:
+        # Build a single regex of all Spanish Q-words for quick check
+        q_word_alt = "|".join(re.escape(w) for w in _SPANISH_Q_WORDS)
+        q_word_rx = re.compile(r"\b(?:" + q_word_alt + r")\b", re.IGNORECASE)
+        any_q_word = any(q_word_rx.search(block) for block in question_blocks)
+        if not any_q_word:
+            issues.append("no_q_word_in_question")
+
+    return issues
+
+
 __all__ = [
     "looks_spanish",
     "repair_spanish_perspective",
     "repair_spanish_fragment",
     "apply_spanish_guards",
+    "detect_question_quality",
 ]

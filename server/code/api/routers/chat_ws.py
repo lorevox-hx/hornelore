@@ -1680,7 +1680,10 @@ async def ws_chat(ws: WebSocket):
         # via accent chars / function-word density before firing.
         # Failure is non-fatal; falls through to legacy behavior.
         try:
-            from ..services.lori_spanish_guard import apply_spanish_guards as _apply_es_guards
+            from ..services.lori_spanish_guard import (
+                apply_spanish_guards as _apply_es_guards,
+                detect_question_quality as _detect_es_q_quality,
+            )
             _es_repaired, _es_changes = _apply_es_guards(final_text, user_text)
             if _es_changes:
                 logger.info(
@@ -1688,6 +1691,22 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _es_changes, final_text[:120], _es_repaired[:120],
                 )
                 final_text = _es_repaired
+            # BUG-ML-LORI-SPANISH-ACTIVE-LISTENING-QUESTION-01
+            # (2026-05-07): detector-only — log yes/no closers and
+            # missing Q-words but DO NOT rewrite the response. Locked
+            # principle from BUG-LORI-REFLECTION-02 Patch B postmortem:
+            # prompt-heavy reflection rules backfire; runtime content-
+            # rewriting on questions risks the same regression. The
+            # operator log captures violations so we can decide
+            # whether to tighten prompt rules OR add deterministic
+            # runtime question-rewrite later. Spanish-only: detector
+            # short-circuits to [] on English.
+            _es_q_issues = _detect_es_q_quality(final_text)
+            if _es_q_issues:
+                logger.info(
+                    "[lori][es-active-listening] conv=%s issues=%s text=%r",
+                    conv_id, _es_q_issues, final_text[:160],
+                )
         except Exception as _es_err:
             logger.debug("[lori][es-guard] check failed (non-fatal): %s", _es_err)
 

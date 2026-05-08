@@ -24,6 +24,7 @@ if str(_SERVER_CODE) not in sys.path:
 
 from api.services.lori_spanish_guard import (  # noqa: E402
     apply_spanish_guards,
+    detect_question_quality,
     looks_spanish,
     repair_spanish_fragment,
     repair_spanish_perspective,
@@ -307,6 +308,83 @@ class ApplySpanishGuardsTest(unittest.TestCase):
         # Should never crash even on weird input.
         repaired, _ = apply_spanish_guards("", None)
         self.assertEqual(repaired, "")
+
+
+class DetectQuestionQualityTest(unittest.TestCase):
+    """BUG-ML-LORI-SPANISH-ACTIVE-LISTENING-QUESTION-01 — detector
+    only, returns issue tags. No content rewrites."""
+
+    def test_yes_no_verdad_closer(self):
+        # The exact 2026-05-07 live failure.
+        text = "Esas imágenes de Perú son muy queridas para ti, ¿verdad?"
+        issues = detect_question_quality(text)
+        self.assertTrue(any("yes_no_closer" in i for i in issues))
+        self.assertTrue(any("verdad" in i for i in issues))
+
+    def test_yes_no_no_closer(self):
+        text = "Era un momento muy especial, ¿no?"
+        issues = detect_question_quality(text)
+        self.assertTrue(any("yes_no_closer" in i for i in issues))
+
+    def test_yes_no_cierto_closer(self):
+        text = "Esas memorias son tuyas, ¿cierto?"
+        issues = detect_question_quality(text)
+        self.assertTrue(any("yes_no_closer" in i for i in issues))
+
+    def test_yes_no_no_es_cierto(self):
+        text = "Tu abuela era muy importante para ti, ¿no es cierto?"
+        issues = detect_question_quality(text)
+        self.assertTrue(any("yes_no_closer" in i for i in issues))
+
+    def test_open_question_qué_clean(self):
+        text = "Tu abuela y la voz — qué imagen tan tierna. ¿Qué recuerdas de cómo sonaba su voz?"
+        issues = detect_question_quality(text)
+        # No yes/no closer, has Q-word in question — clean.
+        self.assertEqual(issues, [])
+
+    def test_open_question_cómo_clean(self):
+        text = "Tu mamá hacía tortillas — qué hermoso. ¿Cómo era el olor de la cocina los domingos?"
+        issues = detect_question_quality(text)
+        self.assertEqual(issues, [])
+
+    def test_open_question_cuándo_clean(self):
+        text = "Tu papá y las tardes — eso suena especial. ¿Cuándo fue la última vez que pensaste en eso?"
+        issues = detect_question_quality(text)
+        self.assertEqual(issues, [])
+
+    def test_question_without_q_word(self):
+        # Question without a Q-word — should be flagged.
+        text = "Las tardes con tu abuela suenan hermosas. ¿Tu abuela te enseñó a hacer tortillas?"
+        issues = detect_question_quality(text)
+        # Yes/no question structure without a Q-word → flagged.
+        self.assertTrue(any("no_q_word_in_question" in i for i in issues))
+
+    def test_no_question_no_flag(self):
+        # Reflective response with no question at all — not the
+        # detector's concern (interview-mode requires questions but
+        # that's enforced elsewhere).
+        text = "Tu abuela y las montañas de Perú — qué hermoso recuerdo."
+        issues = detect_question_quality(text)
+        self.assertEqual(issues, [])
+
+    def test_english_response_passthrough(self):
+        # English text returns [] — detector is Spanish-only.
+        text = "Your grandmother and the corn — what a beautiful memory, right?"
+        issues = detect_question_quality(text)
+        self.assertEqual(issues, [])
+
+    def test_empty(self):
+        self.assertEqual(detect_question_quality(""), [])
+        self.assertEqual(detect_question_quality(None), [])  # type: ignore[arg-type]
+
+    def test_live_failure_full_response(self):
+        # The full Lori response from the 2026-05-07 live test.
+        text = "Esas imágenes de Perú son muy queridas para ti, ¿verdad?"
+        issues = detect_question_quality(text)
+        # Should flag yes/no closer AND no Q-word (¿verdad? has no
+        # Q-word inside the question span)
+        self.assertTrue(any("yes_no_closer" in i for i in issues))
+        self.assertTrue(any("no_q_word" in i for i in issues))
 
 
 if __name__ == "__main__":
