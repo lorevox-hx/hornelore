@@ -435,6 +435,39 @@ Code contributions go through the license terms below (assignment-based, by invi
 
 ---
 
+## Multilingual narrator support (English + Spanish, code-switching)
+
+Lorevox supports older narrators who speak Spanish, English, or both — including bilingual narrators who code-switch between languages mid-sentence the way Hispanic/Latino US elders, second-generation immigrants, and Spanish-speaking caregivers actually talk.
+
+The architecture posture is **always-run-both, never-translate-to-correct**. The system mirrors whatever language the narrator is using at that moment; it does not auto-translate the narrator's words back at them in English; it does not "correct" code-switching as if it were a defect.
+
+**What's wired (as of 2026-05-07):**
+
+- **STT — auto-detect** — `WhisperSTT` frontend wrapper (`ui/js/whisper-stt.js`) calls `/api/stt/transcribe` with `lang=auto` so faster-whisper picks English or Spanish per-chunk. No manual language toggle for the narrator.
+- **Lori responses — language-mirroring** — `prompt_composer.py` carries a `LANGUAGE MIRRORING RULE` block. When the narrator's most recent turn is Spanish (detected via accents OR ≥2 distinct Spanish function words via `looks_spanish()`), Lori responds in Spanish; English narrators get English responses. Code-switched turns are mirrored in either language (both are valid responses to a code-switched prompt).
+- **Spanish output guards** — `services/lori_spanish_guard.py` runs two post-LLM repair passes:
+  - **Perspective guard** — when the narrator says "mi abuela" / "mi mamá" and Lori echoes "Mi abuela" / "Mi mamá" (claiming the narrator's family as her own), rewrite to "Tu abuela" / "Tu mamá". Quote-safe: text inside «», "", ‘’ is preserved verbatim.
+  - **Fragment guard** — Spanish sentences ending on a connector (`que`, `cuando`, `después de que`) or a dangling demonstrative (`esas`, `esos`, `aquellas`) get the dangling token trimmed and the sentence closed with `?` if there's an unclosed `¿` upstream, otherwise `.`.
+- **Spanish question-quality detector** — `detect_question_quality()` flags yes/no closers (`¿verdad?`, `¿no?`, `¿cierto?`) and Spanish questions that lack a Q-word (`Qué`, `Cómo`, `Cuándo`, `Dónde`). Detector-only — no rewrite, no block. Operators see violations in `api.log` via `[lori][es-active-listening]` log marker. Per the locked principle from BUG-LORI-REFLECTION-02 Patch B postmortem: prompt-side rules tell Lori what to do; this detector tells the operator log when she didn't.
+- **Phantom-noun guard, Spanish-aware** — `services/lori_communication_control.py` extends the proper-noun detector regex to accept Spanish accent capitals (`Á É Í Ó Ú Ñ`) so multi-word Spanish proper nouns like "María Núñez" or "Jesús" are detected as candidates the same way English ones are. Whitelist filters Spanish kinship (`Mamá`, `Abuela`, `Tía`), calendar (`Lunes`, `Enero`), religious (`Dios`, `Cristo`, `Virgen`), holiday (`Navidad`, `Pascua`), and Q-word (`Qué`, `Cuándo`) tokens so they don't trip false-positive flags. Real personal names (`María`, `José`, `Núñez`) and country names (`México`, `España`, `Perú`) are deliberately NOT whitelisted — those go through the narrator-corpus / profile-seed verification gate instead.
+- **Name extraction, Spanish-aware** — `_parseNameFromUtterance()` in `ui/js/app.js` accepts both English (`my name is`, `call me`, `I'm`) and Spanish (`me llamo`, `mi nombre es`, `yo soy`, `me llaman`, `me dicen`, `puedes llamarme`, `prefiero`, `mi apodo es`) introduction triggers. Name-capture regex preserves accents — "María Pérez" / "José Núñez" / "Lucía Martínez" capture with accents intact, not stripped to "Maria Perez".
+- **Correction parser, Spanish-aware** — `memory_echo.parse_correction_rule_based()` carries 11 Spanish correction patterns (Phase 5B): birthplace (`nací en X`), parent names (`mi padre se llamaba X`), child counts (`tuve N hijos` / `tengo N hijos`, written or digit), compound corrections (`tuve N, no M`), retracts (`no era X`), `quería decir X, no Y`, retirement (`nunca me jubilé`).
+- **Correction acknowledgments, Spanish** — `compose_correction_ack()` detects Spanish narrator text via `looks_spanish()` and emits Spanish acknowledgments ("Lo entiendo — dos hijos, no el número que tenía. Disculpa la confusión.") instead of code-switched English fallbacks. Spanish narrators hear their corrections respected in their own language.
+- **Place-as-birthplace guard** — `extract.py` `_drop_place_as_birthplace()` blocks the extractor from routing places mentioned only in narrative-connection context ("hablaba de Perú" / "extrañaba Perú" / "talked about Peru" / "missed Peru") to `*.birthPlace`. Birth-evidence patterns (`nació en X`, `era de X`, `was born in X`) preserve the candidate. Sibling lane to BUG-EX-PLACE-LASTNAME-01.
+- **Story trigger, Spanish anchors** — `services/story_trigger.py` Phase 5A added Spanish place / time / person anchor patterns parallel to the English set (`extrañaba`, `cuando era niña`, `mi abuela`, accentless variants for Whisper-degraded transcripts, `al`/`del` contractions for proper nouns).
+- **Memoir export, bilingual** — `routers/memoir_export.py` Phase 4B accepts `target_language=es`; the `services/translation.py` Llama-driven translator (voice-preserving system prompt, no summarization, names verbatim, filesystem cache keyed by source_text + target_lang) renders memoirs in Spanish from English source content. Live-verified on the Mary canonical sample.
+- **TTS — pluggable bilingual engine** — `WO-ML-TTS-EN-ES-01` spec authored. Kokoro-82M (Apache 2.0) is the locked primary engine; the `LORI_TTS_ENGINE` env flag selects between `coqui` (English-only, current default), `kokoro`, `melotts`, `piper`, `parler`. Engine-swap is byte-stable for English narrators when the flag stays on `coqui`. **Runtime patches deferred** until live verification of the perspective + fragment fixes lands.
+
+**What's not yet wired:**
+
+- Spanish-monolingual evaluation suite (parallel to the 114-case master eval) — needs a Spanish-corpus expansion lane.
+- Code-switching evaluation pack landed (`data/evals/lori_code_switching_eval.json`, 12 cases) but live runtime grading happens after stack restart.
+- Kokoro TTS engine is specced but not yet wired — runtime patches gated on perspective-fix live verification.
+
+**The standing rule for any Spanish lane addition:** Spanish coverage is built parallel to English (always-run-both posture), never as a translation layer that lets the English path get sloppy. Every Spanish addition must produce the same `(repaired_text, list_of_changes_applied)` shape, the same idempotency contract, and the same English-passthrough behavior its English sibling has. That's why the implementation phases are paired: 5A anchors / 5B parser / 5C name extraction / 5D phantom-noun / 5E correction-ack / 5F code-switching fixtures.
+
+---
+
 ## Listening before hearing
 
 Lorevox is not a transcription product. It is a memory-preservation system for older narrators.
