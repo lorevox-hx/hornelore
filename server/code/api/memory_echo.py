@@ -98,13 +98,46 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
     if m:
         out["identity.place_of_birth"] = m.group(1).strip()
 
+    # WO-ML-05B (Phase 5B multilingual capture, 2026-05-07):
+    # Spanish birthplace — "nací en X" / "yo nací en X". Accent-
+    # flexible (Whisper STT may drop the accent on "nací" → "naci").
+    # Spanish proper-noun chars (á/é/í/ó/ú/ñ) accepted in the
+    # captured place name. Always-run-both posture parallel to 5A:
+    # English patterns continue to fire on English content; Spanish
+    # patterns fire on Spanish content; both fire on a code-switched
+    # turn. Pure English never produces a Spanish false-positive
+    # because "nací" doesn't appear in English prose.
+    m = re.search(r"\b(?:yo\s+)?nac[íi] en ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    if m:
+        out["identity.place_of_birth"] = m.group(1).strip()
+
     # Father's name: "my father was <name>" or "my father's name was <name>"
     m = re.search(r"\bmy father(?:'s name)? was ([A-Za-z .,'-]+)$", t, re.I)
     if m:
         out["family.parents.father.name"] = m.group(1).strip()
 
+    # WO-ML-05B Spanish father's name — natural Spanish constructions:
+    #   "mi padre se llamaba X"  / "mi papá se llamaba X"  / "mi papi
+    #    se llamaba X"
+    #   "el nombre de mi padre era X"  / "el nombre de mi papá era X"
+    # Accent-flexible on "papá" (Whisper may drop the accent → "papa").
+    m = re.search(r"\bmi (?:padre|pap[áa]|papi) se llamaba ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    if m:
+        out["family.parents.father.name"] = m.group(1).strip()
+    m = re.search(r"\bel nombre de mi (?:padre|pap[áa]|papi) era ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    if m:
+        out["family.parents.father.name"] = m.group(1).strip()
+
     # Mother's name
     m = re.search(r"\bmy mother(?:'s name)? was ([A-Za-z .,'-]+)$", t, re.I)
+    if m:
+        out["family.parents.mother.name"] = m.group(1).strip()
+
+    # WO-ML-05B Spanish mother's name — same construction set as father.
+    m = re.search(r"\bmi (?:madre|mam[áa]|mami) se llamaba ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
+    if m:
+        out["family.parents.mother.name"] = m.group(1).strip()
+    m = re.search(r"\bel nombre de mi (?:madre|mam[áa]|mami) era ([A-Za-zÁÉÍÓÚÑáéíóúñ .,'-]+)$", t, re.I)
     if m:
         out["family.parents.mother.name"] = m.group(1).strip()
 
@@ -117,6 +150,37 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
     m = re.search(r"\bi have (\d+) (?:children|kids|sons|daughters)\b", t, re.I)
     if m:
         out["family.children.count"] = int(m.group(1))
+
+    # WO-ML-05B Spanish child count — past + present tense, singular
+    # + plural narrator. Verb forms:
+    #   tuve     — I had       (preterite, 1st person singular)
+    #   tuvimos  — we had      (preterite, 1st person plural)
+    #   tengo    — I have      (present, 1st person singular)
+    #   tenemos  — we have     (present, 1st person plural)
+    # Noun forms cover hijos / hijas / niños / niñas / chamacos
+    # (Mexican Spanish for "kids"); ñ is accent-flexible. The
+    # compound-correction pattern further down handles "tuvimos N,
+    # no M"; this simpler pattern catches the bare declaration.
+    # Spanish written numbers (uno..diez) accepted alongside digits.
+    m = re.search(
+        r"\b(?:yo\s+)?(?:tuve|tuvimos|tengo|tenemos)\s+"
+        r"(\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+"
+        r"(?:hijos?|hijas?|ni[ñn]os?|ni[ñn]as?|chamacos?|chamacas?)\b",
+        t, re.I,
+    )
+    if m:
+        _bare_word_to_int_es = {
+            "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+            "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+        }
+        s = m.group(1).strip().lower()
+        if s.isdigit():
+            try:
+                out["family.children.count"] = int(s)
+            except Exception:
+                pass
+        elif s in _bare_word_to_int_es:
+            out["family.children.count"] = _bare_word_to_int_es[s]
 
     # Phase 3 (2026-05-07): "we only had N children/kids, not M" —
     # the Melanie Zollner pattern. Captures both corrected count AND
@@ -147,6 +211,59 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
             if retracted is not None and retracted != corrected:
                 out.setdefault("_retracted", []).append(retracted)
 
+    # WO-ML-05B Spanish compound count correction — the Melanie Zollner
+    # pattern in Spanish:
+    #   "Sólo tuvimos dos hijos, no tres"
+    #   "Tuvimos dos hijos, no tres"
+    #   "Eran tres no dos" (preterite copula form)
+    #   "No eran tres, eran dos" (negation-first form)
+    # Spanish written numbers (uno/una..diez) accepted alongside digits.
+    # Accent-flexible on "sólo" → "solo" (RAE accepts both).
+    _word_to_int_es = {
+        "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+        "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+    }
+    def _to_int_es(s: str) -> Optional[int]:
+        s = (s or "").strip().lower()
+        if s.isdigit():
+            try: return int(s)
+            except Exception: return None
+        return _word_to_int_es.get(s)
+
+    # Pattern 1: "(sólo) tuvimos/tuve N hijos, no M" — corrected first
+    m = re.search(
+        r"\b(?:s[óo]lo\s+)?(?:tuvimos|tuve|tengo|tenemos)\s+"
+        r"(\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+"
+        r"(?:hijos?|hijas?|ni[ñn]os?|ni[ñn]as?|chamacos?|chamacas?)"
+        r"(?:[\s,]+no\s+(\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez))?",
+        t, re.I,
+    )
+    if m:
+        corrected = _to_int_es(m.group(1))
+        retracted = _to_int_es(m.group(2)) if m.group(2) else None
+        if corrected is not None:
+            out["family.children.count"] = corrected
+            if retracted is not None and retracted != corrected:
+                out.setdefault("_retracted", []).append(retracted)
+
+    # Pattern 2: "no eran/fueron M, eran/fueron N" — negation-first
+    # form. Captures retracted (M, the wrong count) and corrected
+    # (N, the right count).
+    m = re.search(
+        r"\bno\s+(?:eran|fueron|hab[íi]a|hubo)\s+"
+        r"(\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)"
+        r"[\s,]+(?:eran|fueron|hab[íi]a|hubo|fue)\s+"
+        r"(\d+|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)",
+        t, re.I,
+    )
+    if m:
+        retracted = _to_int_es(m.group(1))
+        corrected = _to_int_es(m.group(2))
+        if corrected is not None:
+            out["family.children.count"] = corrected
+            if retracted is not None and retracted != corrected:
+                out.setdefault("_retracted", []).append(retracted)
+
     # Phase 3 (2026-05-07): "there was no <X>" — narrator retracting
     # something Lori (or STT) introduced as a fact. Captures up to 3
     # words of <X> as the retracted token (covers single names, short
@@ -163,10 +280,57 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
         if len(token) >= 2 and token.lower() not in {"way", "one", "more", "such", "doubt"}:
             out.setdefault("_retracted", []).append(token)
 
+    # WO-ML-05B Spanish "no había/no hubo <X>" / "no era <X>" —
+    # narrator retracting a fact Lori (or STT) introduced. The two
+    # most natural Spanish copular negations:
+    #   "no había Hannah, dije sostén la mano"  (there wasn't Hannah)
+    #   "no era Sonora, era Sinaloa"            (it wasn't Sonora)
+    # Accent-flexible "había" → "habia" (Whisper-degraded). Accept
+    # Spanish proper-noun chars (á/é/í/ó/ú/ñ) in the captured token.
+    # Stop-word-only matches rejected per the English equivalent.
+    # Spanish written number words also rejected — "no eran tres,
+    # eran dos" is handled by the count-correction pattern above
+    # and the bare "tres" captured here would be a duplicate signal
+    # the projection_writer would have to disambiguate. Cleaner to
+    # block at source.
+    _ES_RETRACT_STOPWORDS = {
+        "nadie", "nada", "ninguno", "ninguna", "más", "mas",
+        # Spanish number words (handled by count-correction pattern)
+        "uno", "una", "dos", "tres", "cuatro", "cinco",
+        "seis", "siete", "ocho", "nueve", "diez",
+    }
+    for m in re.finditer(
+        r"\bno\s+(?:hab[íi]a|hubo|era|fue|son|eran|fueron)\s+"
+        r"([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]{1,30}"
+        r"(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]{1,30}){0,2})\b",
+        t, re.I,
+    ):
+        token = m.group(1).strip()
+        # Reject pure-digit or Spanish-number-word matches and
+        # stop-words from above. The token's FIRST word is what we
+        # check against the number set since multi-word captures
+        # like "tres dos" would still want to be rejected.
+        first_word = token.split()[0].lower() if token else ""
+        if len(token) >= 2 and first_word not in _ES_RETRACT_STOPWORDS and not token.replace(" ", "").isdigit():
+            out.setdefault("_retracted", []).append(token)
+
     # Phase 3 (2026-05-07): "I never said <X>" — narrator retracting
     # a word Lori or STT attributed to them. Captures a short phrase.
     for m in re.finditer(
         r"\bi\s+never\s+said\s+([A-Za-z][A-Za-z'-]{1,30}(?:\s+[A-Za-z][A-Za-z'-]{1,30}){0,2})\b",
+        t, re.I,
+    ):
+        token = m.group(1).strip()
+        if len(token) >= 2:
+            out.setdefault("_retracted", []).append(token)
+
+    # WO-ML-05B Spanish "nunca dije <X>" / "yo nunca dije <X>" —
+    # narrator retracting a word the system attributed to them.
+    # Mirrors the English shape; same up-to-3-word capture.
+    for m in re.finditer(
+        r"\b(?:yo\s+)?nunca\s+dije\s+"
+        r"([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]{1,30}"
+        r"(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]{1,30}){0,2})\b",
         t, re.I,
     ):
         token = m.group(1).strip()
@@ -189,9 +353,64 @@ def parse_correction_rule_based(text: str) -> Dict[str, Any]:
         # for the composer to acknowledge ("Got it — pinch, not paint").
         out["_meant"] = m.group(1).strip()
 
+    # WO-ML-05B Spanish "quería decir <X>, no <Y>" / "quise decir
+    # <X>, no <Y>" / "lo que quise decir fue <X>, no <Y>" — explicit
+    # substitution mirroring the English shape. Two preterite forms
+    # accepted ("quería" imperfect, "quise" preterite). Accent-
+    # flexible on "quería" → "queria". Captures up to 2 capital-led
+    # words for both _meant and _retracted so multi-word place names
+    # ("Buenos Aires", "Ciudad de México", "Lima Perú") survive.
+    # The corrected token populates _meant; the retracted token (if
+    # present) joins _retracted.
+    _ES_MEANT_TOKEN = (
+        r"([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]{1,30}"
+        r"(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]{1,30}){0,1})"
+    )
+    m = re.search(
+        r"\b(?:lo\s+que\s+)?quer[íi]a\s+decir\s+"
+        + _ES_MEANT_TOKEN
+        + r"(?:\s*,?\s+no\s+" + _ES_MEANT_TOKEN + r")?",
+        t, re.I,
+    )
+    if m and m.group(1):
+        if m.group(2):
+            out.setdefault("_retracted", []).append(m.group(2).strip())
+        # Composer downstream will acknowledge: "Entendido — X, no Y."
+        out["_meant"] = m.group(1).strip()
+    else:
+        m = re.search(
+            r"\bquise\s+decir\s+"
+            + _ES_MEANT_TOKEN
+            + r"(?:\s*,?\s+no\s+" + _ES_MEANT_TOKEN + r")?",
+            t, re.I,
+        )
+        if m and m.group(1):
+            if m.group(2):
+                out.setdefault("_retracted", []).append(m.group(2).strip())
+            out["_meant"] = m.group(1).strip()
+
     # Retirement: "I never really retired"
     m = re.search(r"\bi never (?:really )?retired\b", t, re.I)
     if m:
         out["education_work.retirement"] = "never fully retired"
+
+    # WO-ML-05B Spanish retirement — "nunca me jubilé" / "nunca me
+    # retiré" / "no me jubilé realmente". Two verb forms accepted
+    # (jubilar / retirar — both used for retirement in Spanish, with
+    # regional + register variation). Accent-flexible "jubilé" →
+    # "jubile" / "retiré" → "retire" for Whisper-degraded input.
+    m = re.search(
+        r"\b(?:nunca|jam[áa]s)\s+me\s+(?:jubil[ée]|retir[ée])\b",
+        t, re.I,
+    )
+    if m:
+        out["education_work.retirement"] = "never fully retired"
+    else:
+        m = re.search(
+            r"\bno\s+me\s+(?:jubil[ée]|retir[ée])\s+(?:realmente|de\s+verdad|del\s+todo)\b",
+            t, re.I,
+        )
+        if m:
+            out["education_work.retirement"] = "never fully retired"
 
     return out
