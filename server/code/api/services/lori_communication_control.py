@@ -132,6 +132,58 @@ _PHANTOM_NOUN_WHITELIST = frozenset({
     # Common warm reflection phrases Lori uses.
     "Take", "Could", "Would", "Should", "Tell", "Share",
     "What", "When", "Where", "Why", "How", "Who", "Which",
+    # WO-ML-05D (2026-05-07) — Spanish phantom-noun whitelist entries.
+    # Same posture as 5A/5B/5C: always-run-both. Spanish-monolingual or
+    # code-switching narrators use these tokens routinely; flagging them
+    # as phantom proper nouns would create false positives in Spanish
+    # Lori reflections.
+    # Calendar names (Spanish — capitalized in some style guides, common
+    # in dates):
+    "Lunes", "Martes", "Miércoles", "Miercoles", "Jueves", "Viernes",
+    "Sábado", "Sabado", "Domingo",
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Setiembre", "Octubre", "Noviembre", "Diciembre",
+    "Primavera", "Verano", "Otoño", "Otono", "Invierno",
+    # Religious / cultural Spanish references.
+    "Dios", "Señor", "Senor", "Cristo", "Jesús", "Jesus", "Cielo",
+    "Virgen",
+    # NOTE: "María" / "Maria" deliberately NOT whitelisted — most common
+    # Spanish female name; whitelisting would cause real-narrator names
+    # to bypass the phantom-noun guard. Religious-reference cases (e.g.
+    # "la Virgen María") will pass the verification step via narrator
+    # corpus or profile_seed.
+    # Generic family terms (Spanish kinship). Lori echoes these as
+    # kinship roles, not as characters with names.
+    "Mamá", "Mama", "Madre", "Mami", "Mamita",
+    "Papá", "Papa", "Padre", "Papi", "Papito",
+    "Abuela", "Abuelita", "Abuelo", "Abuelito",
+    "Hermana", "Hermano", "Hermanita", "Hermanito",
+    "Tía", "Tia", "Tío", "Tio", "Prima", "Primo",
+    "Sobrina", "Sobrino", "Madrina", "Padrino",
+    "Esposa", "Esposo", "Marido", "Mujer",
+    "Hija", "Hijo", "Hijita", "Hijito",
+    "Niña", "Nina", "Niño", "Nino",
+    # Holidays + major shared events (Spanish).
+    "Navidad", "Pascua", "Hanukkah",
+    "Día", "Dia",  # "el día de" — common reflective phrase opener
+    "Semana", "Santa",  # "Semana Santa" — Holy Week
+    "Año", "Ano",  # "Año Nuevo" / "el año pasado"
+    "Nuevo",  # common in "Año Nuevo"
+    # NOTE: country/place names (España, México, Cuba, Perú, etc.)
+    # deliberately NOT whitelisted — these are real proper nouns the
+    # narrator may or may not have said. Verification via narrator
+    # corpus + profile_seed is the correct gate, NOT a blanket
+    # whitelist that would mask real LLM hallucinations.
+    "Estados", "Unidos",  # "Estados Unidos" — US reference in Spanish
+    # Common warm Spanish reflection phrases Lori uses (sentence-mid
+    # capitalization in compound questions).
+    "Cuéntame", "Cuentame", "Dime", "Comparte",
+    "Qué", "Que", "Cuándo", "Cuando", "Dónde", "Donde",
+    "Cómo", "Como", "Quién", "Quien", "Cuál", "Cual",
+    "Cuánto", "Cuanto", "Cuánta", "Cuanta",
+    # Generic Spanish capitalized openers / continuations seen in
+    # warm reflection.
+    "Sí", "Si", "No", "Bueno", "Pues", "Vale", "Claro",
 })
 
 
@@ -139,9 +191,15 @@ _PHANTOM_NOUN_WHITELIST = frozenset({
 # starts include: very beginning of text, after period+space,
 # question-mark+space, exclam+space, newline. Mid-sentence capitalized
 # tokens are real proper-noun candidates.
+#
+# WO-ML-05D (2026-05-07): extended character class to include Spanish
+# accented capitals (Á É Í Ó Ú Ñ) and lowercase accents/ñ so multi-word
+# Spanish proper nouns ("María", "Núñez", "Jesús") are detected as
+# candidates the same way English ones are. The whitelist filters out
+# Spanish kinship/religious/calendar terms before they're flagged.
 _MID_SENTENCE_PROPER_NOUN_RX = re.compile(
     r"(?<![.!?]\s)(?<![.!?]\n)(?<!\n)(?<!^)"
-    r"\b([A-Z][a-z'-]{2,})\b"
+    r"\b([A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ'-]{2,})\b"
 )
 
 
@@ -172,13 +230,19 @@ def _extract_proper_noun_candidates(text: str) -> List[str]:
         # Within a sentence: skip the first word (sentence-start cap
         # is mandatory per English rules). Look at every subsequent
         # capitalized word ≥3 chars.
-        words = re.findall(r"\b([A-Za-z][A-Za-z'-]*)\b", sent)
+        # WO-ML-05D (2026-05-07): extended char class to cover Spanish
+        # accents + ñ for multi-word proper-noun detection.
+        words = re.findall(
+            r"\b([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]*)\b",
+            sent,
+        )
         for idx, w in enumerate(words):
             if idx == 0:
                 continue  # sentence start — capitalization allowed
             if not w or len(w) < 3:
                 continue
-            if not w[0].isupper():
+            # Capitalization check: ASCII uppercase OR Spanish accent caps.
+            if not (w[0].isupper() or w[0] in "ÁÉÍÓÚÑ"):
                 continue  # not capitalized
             # Reject all-caps tokens (likely acronyms) — too noisy
             # to flag confidently. Adjust later if needed.
