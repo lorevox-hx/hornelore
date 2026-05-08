@@ -4265,16 +4265,37 @@ function _parseNameFromUtterance(text){
   // Extended filler-word entries (uhh/umm/hmm/ehh/ahh/ohh/mmm/shh) catch
   // the class of utterances Web Speech occasionally finalizes as the
   // ONLY surviving segment when interim text gets dropped on mic-stop.
+  // WO-ML-05C (2026-05-07): Spanish stopword + filler entries added.
+  // Same posture as 5A/5B: always-run-both. A Spanish-monolingual or
+  // code-switching narrator's stopwords ("yo", "soy", "claro", "pues",
+  // "vale") shouldn't pass as names; English narrators won't see
+  // these words appear so no regression.
   const _NOT_A_NAME = new Set([
+    // English (existing)
     "that","it","i","the","a","an","this","there","here","yes","no","yeah","nope",
     "okay","ok","well","so","hi","hello","hey","oh","ah","uh","um","my","mine",
     "what","when","where","why","how","who","which","they","we","you","he","she",
     "just","not","but","and","or","if","then","was","were","is","am","are",
     "had","have","has","did","do","does","would","could","should","will","can",
     "uhh","umm","hmm","ehh","ahh","ohh","mmm","shh","huh","duh","ugh","eep",
+    // WO-ML-05C: Spanish stopwords + fillers
+    "yo","tu","tú","él","el","ella","nosotros","ustedes","ellos","ellas",
+    "soy","eres","es","somos","son","fue","era","sea",
+    "mi","mis","su","sus","tus",
+    "sí","si","no","tal","quizás","quizas","claro","cierto",
+    "pues","bueno","vale","ok","entonces","ahora","luego",
+    "este","esta","estos","estas","ese","esa","esos","esas","aquel","aquella",
+    "aquí","aqui","ahí","ahi","allí","alli","allá","alla",
+    "qué","que","cómo","como","cuándo","cuando","dónde","donde","quién","quien",
+    "porqué","porque",
+    "hola","adiós","adios","gracias","perdón","perdon","disculpa",
+    "ehh","ehhh","ehmm","ehmmm","ay","oh","ah","uy",
   ]);
   const _EMOTIONAL_MARKERS = /\b(hard|difficult|sad|scared|lost|hurt|pain|grief|suffered|struggling|terrible|awful|horrible|tough|heartbroken|afraid|worried|anxious|miss|missed|died|death|trauma|abuse|alone|lonely|crying|tears|broke|broken)\b/i;
-  if (_EMOTIONAL_MARKERS.test(t)) return null;
+  // WO-ML-05C: Spanish emotional markers — same idea: distress-shape
+  // narrator answers shouldn't be parsed for names.
+  const _EMOTIONAL_MARKERS_ES = /\b(difícil|dificil|triste|asustad[oa]|perdid[oa]|herid[oa]|dolor|sufrió|sufrio|terrible|horrible|preocupad[oa]|ansios[oa]|extraño|extraño|murió|murio|muerte|trauma|abuso|sol[oa]|llorando|lágrimas|lagrimas|roto|rota)\b/i;
+  if (_EMOTIONAL_MARKERS.test(t) || _EMOTIONAL_MARKERS_ES.test(t)) return null;
 
   // BUG-231: split trigger detection (case-insensitive, /i) from name
   // capture (case-sensitive). Earlier attempt used /i on the whole regex
@@ -4285,15 +4306,44 @@ function _parseNameFromUtterance(text){
   // Real names range 1-4 capital-led words (Christopher Todd Horne / Janice
   // Josephine Horne / Test Harness Sarah Reed). Capture 1-4 capital-led
   // words AFTER the trigger position; stop at any lowercase-led word.
+  //
+  // WO-ML-05C (2026-05-07): Spanish triggers added in parallel. Same
+  // posture as 5A/5B — both pattern sets fire; either match captures.
+  // Code-switched narrators ("Hi, me llamo María") get hits from
+  // either side. Spanish-monolingual narrators get full coverage.
   const _triggers = [
+    // English
     /\bmy\s+(?:\w+\s+)*name\s+is\s+/i,
     /\bcall\s+me\s+/i,
     /\bi(?:'m|\s+am)\s+(?:called\s+)?/i,
     /\bi\s+go\s+by\s+/i,
     /\byou\s+can\s+call\s+me\s+/i,
     /\bprefer(?:red)?\s+(?:name\s+is\s+|to\s+be\s+called\s+)?/i,
+    // WO-ML-05C Spanish triggers — natural Spanish narrator
+    // introductions:
+    //   "me llamo X"        (I'm called X — most common)
+    //   "yo me llamo X"     (with explicit pronoun)
+    //   "mi nombre es X"    (my name is X)
+    //   "yo soy X" / "soy X" (I am X — preserves accent flexibility)
+    //   "me llaman X"       (they call me X)
+    //   "me dicen X"        (informal dialectal: they call me X)
+    //   "puedes llamarme X" / "me puedes llamar X"  (you can call me X)
+    //   "prefiero X"         (I prefer X)
+    //   "mi apodo es X" / "mi sobrenombre es X"  (my nickname is X)
+    /\b(?:yo\s+)?me\s+llamo\s+/i,
+    /\bmi\s+nombre\s+es\s+/i,
+    /\b(?:yo\s+)?soy\s+/i,
+    /\bme\s+(?:llaman|dicen)\s+/i,
+    /\b(?:me\s+)?puedes\s+llamarme\s+/i,
+    /\bprefiero\s+(?:que\s+me\s+(?:llames|digas)\s+)?/i,
+    /\bmi\s+(?:apodo|sobrenombre)\s+es\s+/i,
   ];
-  const _NAME_CAP = /^([A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,3})/;  // case-SENSITIVE: stops at lowercase word
+  // WO-ML-05C: name-capture regex extended to allow Spanish accented
+  // chars (Á É Í Ó Ú Ñ + lowercase). Multi-word names with accents
+  // like "María Elena", "José Luis", "Núñez" capture correctly.
+  // Still case-SENSITIVE: stops at lowercase word so "soy Marina y i"
+  // captures only "Marina".
+  const _NAME_CAP = /^([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ'-]+){0,3})/;
   for (const trig of _triggers) {
     const m = t.match(trig);
     if (!m) continue;
@@ -4328,8 +4378,13 @@ function _parseNameFromUtterance(text){
   if (_allTokens.length >= 2 && _allTokens.length <= 5) {
     const _capTokens = [];
     for (let i = 0; i < Math.min(_allTokens.length, 4); i++) {
-      const w = _allTokens[i].replace(/[^A-Za-z'\-]/g, "");
-      if (!w || !/^[A-Z]/.test(w)) break;
+      // WO-ML-05C: accept Spanish accented chars + ñ in the capital-
+      // led check. Strip non-letter punctuation but PRESERVE accents
+      // and ñ so "María Pérez" captures the full names with accents.
+      // The capital-led check at the start works on ASCII A-Z OR
+      // Spanish capital accents Á É Í Ó Ú Ñ.
+      const w = _allTokens[i].replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ'\-]/g, "");
+      if (!w || !/^[A-ZÁÉÍÓÚÑ]/.test(w)) break;
       _capTokens.push(w);
     }
     if (_capTokens.length >= 2) {
@@ -4419,7 +4474,15 @@ async function _advanceIdentityPhase(text){
       name = patternName;
     } else {
       // Fallback: first-word extraction (works for short direct answers like "Christopher")
-      const candidate = words[0].replace(/[^a-zA-Z'\-]/g, "").trim();
+      // WO-ML-05C (2026-05-07): preserve Spanish accents (María, José,
+      // Núñez, Lucía) in the captured candidate. Pre-fix: `[^a-zA-Z'\-]`
+      // stripped accent chars and "María" became "Mara" — a structurally
+      // valid name (passes BUG #75 validator) but lossy. Post-fix:
+      // accented Latin chars Á É Í Ó Ú Ñ + lowercase variants kept.
+      // The structural validator below still strips accents internally
+      // when checking length / vowel-consonant balance, but the
+      // captured CANDIDATE retains the accent chars for DB write.
+      const candidate = words[0].replace(/[^a-zA-ZÁÉÍÓÚÑáéíóúñ'\-]/g, "").trim();
       const isCommonWord = _NOT_A_NAME.has(candidate.toLowerCase());
       if (isEmotional || isLongSentence || isCommonWord || !candidate) {
         // Not a name answer — let it flow through to the LLM (IDENTITY MODE directive handles it)
