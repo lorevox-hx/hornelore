@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "description": "WO-ML-05F code-switching eval. Tests Lori's behavior when narrators mix English + Spanish in a single turn or alternate languages across turns. Real bilingual narrators (Hispanic/Latino US elders, second-generation immigrants, Spanish-speaking caregivers) routinely code-switch — sometimes mid-sentence, sometimes by topic, sometimes by emotional register. The mirror rule (LANGUAGE MIRRORING RULE in prompt_composer) says Lori should answer in the dominant language of the most recent turn, NOT translate or correct the narrator's language choice. These cases probe that behavior + downstream guards (Spanish perspective, fragment, name extraction, phantom-noun, correction-ack).",
+  "no_truth_write": false,
+  "cases": [
+    {
+      "id": "cs_001_es_then_en_intro",
+      "user_text": "Hola, me llamo María. I just moved here from Lima, Peru.",
+      "expected_dominant_language": "code_switched",
+      "expected_name_capture": "María",
+      "expected_lori_language": "english_or_spanish",
+      "comment": "Code-switched intro. Name should capture as 'María' (accent preserved). Lori may answer in either language — both are valid mirrors of the most recent dominant span. Expected to NOT auto-translate.",
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_002_en_then_es_emotional_shift",
+      "user_text": "I came to this country in 1972. Mi mamá nunca aprendió inglés.",
+      "expected_dominant_language": "spanish",
+      "expected_lori_language": "spanish",
+      "expected_perspective_repair": true,
+      "comment": "Narrator shifts to Spanish for the emotionally-loaded family detail. Lori should mirror the Spanish span. The 'mi mamá' phrase MUST trigger the perspective guard — Lori must not echo 'Mi mamá' as if it's hers.",
+      "max_questions": 1
+    },
+    {
+      "id": "cs_003_es_correction_after_en_lori",
+      "user_text": "no, tengo dos hijos, no tres",
+      "lori_prior_turn": "It sounds like you raised three children together.",
+      "expected_correction_field": "family.children.count",
+      "expected_correction_value": 2,
+      "expected_correction_ack_language": "spanish",
+      "comment": "Lori speaks English; narrator corrects in Spanish. The compose_correction_ack composer must emit the ack in Spanish ('Lo entiendo — dos hijos...') so the narrator hears their correction respected in their own language.",
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_004_pure_spanish_birthplace_correction",
+      "user_text": "no, nací en Lima, no en Cuzco",
+      "expected_correction_field": "identity.place_of_birth",
+      "expected_correction_value": "Lima",
+      "expected_retracted": ["Cuzco"],
+      "expected_correction_ack_language": "spanish",
+      "comment": "Pure Spanish birthplace correction. Compose ack in Spanish.",
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_005_es_quería_decir_pattern",
+      "user_text": "Quería decir Lima, no Cuzco",
+      "expected_meant": "Lima",
+      "expected_retracted": ["Cuzco"],
+      "expected_correction_ack_language": "spanish",
+      "comment": "Spanish 'quería decir X, no Y' pattern. Composer ack must be Spanish.",
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_006_es_grandmother_narrative_no_birthplace_inference",
+      "user_text": "Cuando mi abuela hablaba de Perú, decía que extrañaba las montañas, el mercado donde compraba maíz, y el sonido de las campanas por la mañana.",
+      "expected_perspective_repair": true,
+      "expected_extractor_blocked_field": "grandparents.birthPlace",
+      "comment": "Narrative-connection context. Extractor must NOT route 'Perú' to grandparents.birthPlace (BUG-ML-SHADOW-EXTRACT-PLACE-AS-BIRTHPLACE-01). Lori must mirror Spanish AND repair perspective ('Mi abuela' → 'Tu abuela' if she echoes). Should NOT yes/no-close ('¿verdad?').",
+      "max_questions": 1,
+      "forbidden_response_patterns": ["¿verdad?", "¿no?", "¿cierto?"]
+    },
+    {
+      "id": "cs_007_en_to_es_kinship_term",
+      "user_text": "My grandmother — mi abuela — used to make tortillas every Sunday.",
+      "expected_dominant_language": "code_switched",
+      "expected_lori_language": "english_or_spanish",
+      "comment": "Bilingual narrators sometimes use both kinship terms in the same sentence as a translation aid for themselves. Lori should NOT echo 'Mi abuela' (perspective guard) and should NOT correct the code-switch. The english-leading version 'My grandmother' is the dominant subject; Spanish 'mi abuela' is a translation gloss.",
+      "max_questions": 1
+    },
+    {
+      "id": "cs_008_es_phantom_proper_noun_avoidance",
+      "user_text": "Mi mamá tomaba mi mano cuando teníamos miedo.",
+      "lori_must_not_invent": ["Hannah", "Mona", "Pena", "Maria"],
+      "comment": "STT may mishear 'mi mano' / 'mi miedo' as a proper noun. Phantom-noun guard must not let Lori invent a person who isn't there. Note: Whisper accent-strip variants of common Spanish words must not become proper-noun candidates.",
+      "max_questions": 1,
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_009_es_short_yes_no_with_followup",
+      "user_text": "Sí, eso es",
+      "lori_prior_turn": "¿Naciste en Lima?",
+      "expected_correction_field": null,
+      "comment": "Spanish narrator confirms Lori's prior question. No correction parsing should fire. Composer should treat as a confirmation, not a no-parse fallback. This is a regression check that 'sí' alone doesn't trip Spanish detection + correction-ack pipeline.",
+      "max_questions": 0,
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_010_mid_sentence_language_flip",
+      "user_text": "I worked in la fábrica for thirty years and tuve dos hijos.",
+      "expected_dominant_language": "code_switched",
+      "expected_correction_field": "family.children.count",
+      "expected_correction_value": 2,
+      "comment": "Heavy code-switching: English verb + Spanish noun + English count + Spanish verb + Spanish count. Phase 5B parser SHOULD catch 'tuve dos hijos' even with English context surrounding it. Composer ack should be Spanish (looks_spanish detects function words).",
+      "no_truth_write": false
+    },
+    {
+      "id": "cs_011_dangling_demonstrative_question",
+      "user_text": "Mi abuelo siempre contaba esas historias de cuando era joven en el campo.",
+      "lori_expected_question_pattern": "open_q_word_followed_by_substantive",
+      "comment": "Narrator tells a story; Lori's question MUST close cleanly with '?', NOT trail on a dangling demonstrative ('esas.' / 'esos.'). BUG-ML-LORI-SPANISH-FRAGMENT-REPAIR-02 closes with '?' when ¿ is unclosed. Verify the live output is well-formed Spanish.",
+      "max_questions": 1
+    },
+    {
+      "id": "cs_012_spanish_only_intro_full",
+      "user_text": "Hola Lori, soy Carmen Núñez. Tengo setenta y dos años. Vivo en Albuquerque.",
+      "expected_dominant_language": "spanish",
+      "expected_name_capture": "Carmen Núñez",
+      "expected_lori_language": "spanish",
+      "comment": "Pure Spanish multi-detail intro. Name capture must preserve accent ('Núñez' not 'Nunez'). Lori should respond in Spanish. Numbers in Spanish words ('setenta y dos años') MUST NOT be parsed as a child count.",
+      "max_questions": 1,
+      "no_truth_write": false
+    }
+  ]
+}
