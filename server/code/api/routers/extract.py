@@ -7461,6 +7461,200 @@ def _is_followup_place_as_lastname(
     return (prefix_lower, v.lower()) in emitted_places
 
 
+# ── BUG-ML-SHADOW-EXTRACT-PLACE-AS-BIRTHPLACE-01 (2026-05-07) ──────────────
+#
+# Live evidence (Melanie Carter Spanish session):
+#   Narrator: "Cuando mi abuela hablaba de Perú, decía que extrañaba las
+#              montañas, el mercado donde compraba maíz, y el sonido de
+#              las campanas por la mañana."
+#   Extractor: grandparents.birthPlace = Peru
+#
+# This is a Type C binding error per Architecture Spec v1 §7.1: the LLM
+# routes a place mentioned in narrative-connection context (talked about /
+# missed / remembered) to .birthPlace because the schema slot is the
+# closest "place + family-member" combination available. The narrator
+# never said the grandmother was born in Peru — only that she talked
+# about Peru and missed it.
+#
+# Guard architecture mirrors BUG-EX-PLACE-LASTNAME-01:
+#   1. fieldPath ends in .birthPlace / .placeOfBirth
+#   2. source text contains value AFTER a narrative-connection verb
+#      (English: talked about / missed / remembered; Spanish: hablaba
+#      de / extrañaba / recordaba / contaba historias de)
+#   3. source text does NOT contain explicit birth-evidence
+#      (English: born in/at/near; Spanish: nació en, era de, viene de,
+#      vino al mundo en)
+# All three required → drop.  Otherwise keep.
+
+_BIRTHPLACE_GUARDED_FIELD_SUFFIXES = (".birthPlace", ".placeOfBirth")
+
+# Narrative-connection patterns: place is talked about / missed /
+# remembered in the source text.  English + Spanish (Whisper accent-strip
+# variants included).  Conservative: require an explicit verb phrase, NOT
+# just "in X" or "of X" (those are too generic and would over-trigger).
+_NARRATIVE_CONNECTION_PHRASES = (
+    # English — narrative connection
+    r"talked\s+about",
+    r"talking\s+about",
+    r"talked\s+of",
+    r"spoke\s+of",
+    r"spoke\s+about",
+    r"speaking\s+of",
+    r"speaking\s+about",
+    r"would\s+talk\s+about",
+    r"missed",
+    r"missing",
+    r"remembered",
+    r"remembering",
+    r"reminisced\s+about",
+    r"told\s+stories\s+(?:of|about)",
+    r"stories\s+(?:of|about)",
+    r"tales\s+(?:of|about)",
+    r"longed\s+for",
+    r"yearned\s+for",
+    r"dreamed\s+(?:of|about)",
+    # Spanish — narrative connection
+    r"hablaba\s+de",
+    r"hablaban\s+de",
+    r"hablaba\s+sobre",
+    r"hablaban\s+sobre",
+    r"habl[óo]\s+de",
+    r"habl[óo]\s+sobre",
+    r"hablar\s+de",
+    r"contaba\s+historias\s+de",
+    r"contaba\s+historias\s+sobre",
+    r"contaba\s+sobre",
+    r"contaba\s+de",
+    r"historias\s+de",
+    r"historias\s+sobre",
+    r"extra[ñn]aba",
+    r"extra[ñn]aban",
+    r"extra[ñn]ar",
+    r"extra[ñn]o",
+    r"recordaba",
+    r"recordaban",
+    r"recordar",
+    r"se\s+acordaba\s+de",
+    r"so[ñn]aba\s+con",
+    r"a[ñn]oraba",
+    r"a[ñn]orar",
+    r"dec[íi]a\s+que\s+extra[ñn]aba",
+)
+_NARRATIVE_CONNECTION_ALTERNATION = r"|".join(_NARRATIVE_CONNECTION_PHRASES)
+
+# Explicit birth-evidence patterns. English + Spanish.
+_BIRTH_EVIDENCE_PHRASES = (
+    # English
+    r"was\s+born\s+(?:in|at|near|on)",
+    r"were\s+born\s+(?:in|at|near|on)",
+    r"is\s+born\s+(?:in|at|near|on)",
+    r"born\s+(?:in|at|near|on)",
+    r"birthplace\s+(?:was|is|of)",
+    r"place\s+of\s+birth",
+    # Spanish
+    r"naci[óo]\s+en",
+    r"naci[óo]\s+cerca\s+de",
+    r"nacid[ao]\s+en",
+    r"nacido\s+cerca\s+de",
+    r"nacida\s+cerca\s+de",
+    r"vino\s+al\s+mundo\s+en",
+    r"era\s+de",
+    r"eran\s+de",
+    r"viene\s+de",
+    r"vienen\s+de",
+    r"originario\s+de",
+    r"originaria\s+de",
+    r"oriunda\s+de",
+    r"oriundo\s+de",
+    r"lugar\s+de\s+nacimiento",
+)
+_BIRTH_EVIDENCE_ALTERNATION = r"|".join(_BIRTH_EVIDENCE_PHRASES)
+
+
+def _looks_like_narrative_connection_for_value(text: str, value: str) -> bool:
+    """Return True if value appears in text after a narrative-connection
+    verb phrase (talked about / missed / hablaba de / extrañaba / etc.).
+
+    Used by _drop_place_as_birthplace to detect bindings like
+    "talked about Peru" → grandparents.birthPlace=Peru.
+    """
+    if not text or not value:
+        return False
+    v = re.escape(str(value).strip())
+    if not v:
+        return False
+    # Allow up to 3 generic tokens between the connection verb and the
+    # place value, so phrases like "stories of growing up in Peru" or
+    # "talked about going to Peru" still match.  Conservative: tokens
+    # cannot include sentence terminators (.!?).
+    pattern = (
+        r"\b(?:" + _NARRATIVE_CONNECTION_ALTERNATION + r")\b"
+        + r"(?:\s+\w+){0,3}"
+        + r"\s+" + v + r"\b"
+    )
+    try:
+        return bool(re.search(pattern, text, re.IGNORECASE))
+    except re.error:
+        return False
+
+
+def _has_explicit_birth_evidence(text: str, value: str) -> bool:
+    """Return True if the source text says "was born in X" / "nació en X"
+    / "era de X" / similar explicit birth-or-origin marker for the value.
+    """
+    if not text or not value:
+        return False
+    v = re.escape(str(value).strip())
+    if not v:
+        return False
+    # Allow optional articles/prepositions between marker and value:
+    # "was born in the city of Lima" / "nació en la ciudad de Lima".
+    pattern = (
+        r"\b(?:" + _BIRTH_EVIDENCE_ALTERNATION + r")\b"
+        + r"(?:\s+(?:la|el|los|las|the|a|an|un|una)?\s+\w+(?:\s+\w+){0,2})?"
+        + r"\s*" + v + r"\b"
+    )
+    try:
+        return bool(re.search(pattern, text, re.IGNORECASE))
+    except re.error:
+        return False
+
+
+def _drop_place_as_birthplace(item: Dict[str, Any], source_text: str) -> bool:
+    """Return True if this item is a misbound narrative-connection-as-
+    birthplace and should be dropped from the accepted-items list.
+
+    Three required conditions:
+      1. fieldPath ends in .birthPlace / .placeOfBirth
+      2. source text DOES contain value in a narrative-connection phrase
+         (talked about / missed / remembered / hablaba de / extrañaba)
+      3. source text does NOT contain explicit birth-evidence for value
+    All three required → drop.  Otherwise keep.
+
+    Live failure mode: "Cuando mi abuela hablaba de Perú, decía que
+    extrañaba las montañas..." → grandparents.birthPlace=Peru. Narrator
+    never said the grandmother was born in Peru.
+    """
+    field = item.get("fieldPath") or ""
+    if not field.endswith(_BIRTHPLACE_GUARDED_FIELD_SUFFIXES):
+        return False
+    raw_value = item.get("value")
+    if not isinstance(raw_value, str):
+        return False
+    value = raw_value.strip()
+    if not value:
+        return False
+    if _has_explicit_birth_evidence(source_text, value):
+        return False
+    if not _looks_like_narrative_connection_for_value(source_text, value):
+        return False
+    logger.info(
+        "[extract][place-birthplace-guard] drop fieldPath=%s value=%r reason=narrative_connection_no_birth_evidence",
+        field, value,
+    )
+    return True
+
+
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
 def _apply_transcript_safety_layer(
@@ -7728,6 +7922,15 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             # other processing. See _drop_place_as_lastname() for the three
             # required conditions.
             if _drop_place_as_lastname(item, answer or ""):
+                continue
+
+            # BUG-ML-SHADOW-EXTRACT-PLACE-AS-BIRTHPLACE-01: drop misbound
+            # narrative-connection-as-birthplace candidates ("hablaba de Perú"
+            # → grandparents.birthPlace=Peru etc.) before further processing.
+            # See _drop_place_as_birthplace() for the three required conditions.
+            # Sibling lane to PLACE-LASTNAME-01; runs independently (no SPANTAG
+            # gate).
+            if _drop_place_as_birthplace(item, answer or ""):
                 continue
 
             meta = EXTRACTABLE_FIELDS.get(item["fieldPath"], {})
