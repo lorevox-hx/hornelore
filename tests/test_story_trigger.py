@@ -647,6 +647,56 @@ class SpanishAnchorTest(unittest.TestCase):
         text = "Mi mamá, mi papá, mi tío, mi tía, mi abuela todos vivían juntos."
         self.assertEqual(story_trigger.count_scene_anchors(text), 1)
 
+    # ── WO-ML-05A.1 hardening (2026-05-07) ─────────────────────────
+    # Whisper STT occasionally drops Spanish diacritics. These cases
+    # verify the unaccented-alias additions for fábrica/río/callejón
+    # keep firing the place anchor when the input is accent-stripped.
+
+    def test_place_bare_fabrica_unaccented_es(self):
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La fabrica estaba llena."),
+            1,
+        )
+
+    def test_place_prep_rio_unaccented_es(self):
+        # "cerca del rio" — also tests the new "cerca del" contraction.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Jugábamos cerca del rio."),
+            1,
+        )
+
+    def test_place_prep_callejon_unaccented_es(self):
+        # "junto al callejon" — also tests the "junto al" contraction.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Vivíamos junto al callejon."),
+            1,
+        )
+
+    def test_place_prep_del_contraction_es(self):
+        # "del" contraction with an accented Tier-2 noun.
+        self.assertEqual(
+            story_trigger.count_scene_anchors("La iglesia estaba detrás del pueblo."),
+            1,
+        )
+
+    def test_place_prep_al_contraction_es(self):
+        # "al" contraction. "Granja" is Tier-2; "junto al granero".
+        self.assertEqual(
+            story_trigger.count_scene_anchors("Cuando éramos niños jugábamos junto al granero."),
+            2,  # place (junto al granero) + time (cuando éramos niños)
+        )
+
+    def test_three_axes_canonical_spanish_unaccented_stt(self):
+        # Whisper-degraded variant of the canonical 3-axis Spanish
+        # story — accents stripped, contraction "del" used. Should
+        # still fire all three anchors so a Whisper-output Spanish
+        # narrator's stories aren't silently dropped.
+        text = (
+            "Cuando era nina, me operaron del oido en Sonora. "
+            "Mi papa trabajaba de noche en la fabrica."
+        )
+        self.assertEqual(story_trigger.count_scene_anchors(text), 3)
+
 
 class SpanishFalsePositiveResistanceTest(unittest.TestCase):
     """Same posture as the English false-positive resistance suite —

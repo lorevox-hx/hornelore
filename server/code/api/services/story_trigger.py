@@ -138,10 +138,20 @@ _PLACE_NOUN_PREP_RE = re.compile(
 # Tier 1 set. Conservative — common Spanish nouns that ALSO denote
 # objects (e.g. "fábrica de chocolate" vs "fábrica" alone is locational)
 # stay in Tier 2.
+#
+# WO-ML-05A.1 hardening (2026-05-07): Whisper STT occasionally drops
+# Spanish diacritics — outputs "fabrica" instead of "fábrica", "rio"
+# instead of "río", "callejon" instead of "callejón". The bare/prep
+# regexes are case-insensitive but accent-sensitive in Python's re
+# module by default, so without the unaccented variants below the
+# anchor would silently miss on STT-degraded transcripts. Adding the
+# unaccented form as a parallel alias is cheaper than running a full
+# diacritic-stripper before matching, and keeps the regex set
+# transparent for review.
 _PLACE_NOUNS_BARE_ES = {
     "hospital",        # same form as English; cognate
     "iglesia",         # church
-    "fábrica",         # factory
+    "fábrica", "fabrica",   # factory (accent + Whisper-degraded)
     "parroquia",       # parish (church)
     "capilla",         # chapel
     "monasterio",      # monastery
@@ -162,7 +172,7 @@ _PLACE_NOUNS_PREP_REQUIRED_ES = {
     "cocina",          # kitchen
     "patio",           # courtyard / patio
     "porche",          # porch
-    "río",             # river
+    "río", "rio",      # river (accent + Whisper-degraded)
     "lago",            # lake
     "parque",          # park
     "barrio",          # neighborhood
@@ -176,7 +186,7 @@ _PLACE_NOUNS_PREP_REQUIRED_ES = {
     "biblioteca",      # library
     "granero",         # barn
     "garaje",          # garage
-    "callejón",        # alley
+    "callejón", "callejon",  # alley (accent + Whisper-degraded)
     "cuadra",          # block (city block / stable)
     "establo",         # stable
     "campo",           # field / countryside
@@ -199,9 +209,24 @@ _PLACE_NOUN_BARE_ES_RE = re.compile(
 # 'un', 'una', 'unos', 'unas', 'mi', 'mis', 'nuestra', 'nuestro',
 # 'nuestras', 'nuestros', 'su', 'sus') matches Spanish article +
 # possessive forms before the noun.
+#
+# WO-ML-05A.1 hardening (2026-05-07): Spanish contracts "a + el = al"
+# and "de + el = del". So "junto al callejón", "cerca del río", "fuera
+# del pueblo", "dentro del granero" are all valid Spanish place
+# constructions that the prior pattern missed because it required
+# explicit "a el" / "de el" forms. Adding the contracted variants as
+# alternatives keeps single-arg preps ("en", "a", "de") working AND
+# adds the contracted compound forms ("al", "del", "junto al",
+# "cerca del", etc.). When a contraction is used, the determiner
+# slot below should NOT also fire (Spanish doesn't say "del el río"),
+# but the regex is forgiving — the determiner branch is optional so
+# excess matches don't accumulate falsely.
 _PLACE_NOUN_PREP_ES_RE = re.compile(
-    r"\b(?:en|a|de|cerca\s+de|fuera\s+de|dentro\s+de|detr[áa]s\s+de|"
-    r"por|sobre|a\s+trav[ée]s\s+de|hacia|desde|pasando|junto\s+a)\s+"
+    r"\b(?:en|a|al|de|del|cerca\s+de|cerca\s+del|"
+    r"fuera\s+de|fuera\s+del|dentro\s+de|dentro\s+del|"
+    r"detr[áa]s\s+de|detr[áa]s\s+del|"
+    r"por|sobre|a\s+trav[ée]s\s+de|a\s+trav[ée]s\s+del|"
+    r"hacia|desde|pasando|junto\s+a|junto\s+al)\s+"
     r"(?:(?:el|la|los|las|un|una|unos|unas|mi|mis|"
     r"nuestra|nuestro|nuestras|nuestros|su|sus)\s+)?"
     r"(?:[a-záéíóúñ]+\s+){0,2}"
@@ -284,8 +309,15 @@ _PROPER_NOUN_MULTI_WORD = re.compile(
 # matched as alternatives. The capitalized noun slot is the same as
 # the English version — accepts multi-word place names like "Buenos
 # Aires", "Ciudad de México", "Las Cruces".
+#
+# WO-ML-05A.1 hardening (2026-05-07): same al/del contraction support
+# applied here so "fuera del Sonora" / "cerca del Río Bravo" /
+# "junto al Lago Atitlán" all anchor on the proper-noun pattern.
 _PROPER_NOUN_PLACE_AFTER_PREP_ES = re.compile(
-    r"\b(?i:en|a|de|cerca\s+de|fuera\s+de|dentro\s+de|hacia|desde)\s+"
+    r"\b(?i:en|a|al|de|del|"
+    r"cerca\s+de|cerca\s+del|fuera\s+de|fuera\s+del|"
+    r"dentro\s+de|dentro\s+del|junto\s+a|junto\s+al|"
+    r"hacia|desde)\s+"
     r"([A-Z][a-záéíóúñA-Z]+(?:[ \-][A-Z][a-záéíóúñA-Z]+)*)",
 )
 
