@@ -659,6 +659,59 @@ async def ws_chat(ws: WebSocket):
                 _meta_question_answer = None
                 _is_meta_question = False
 
+        # ── BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 ──────────────────────
+        # Witness mode + meta-feedback deterministic intercept. Kent's
+        # 2026-05-09 session walked him out: Lori responded to his
+        # 5-fact basic-training answer by asking about scenery, then
+        # responded to "stop the sensory probes" by asking for sights/
+        # sounds/smells. Sibling lane to the meta-question intercept
+        # above — same architecture, different detection set.
+        #
+        # Detection types:
+        #   META_FEEDBACK — narrator told Lori her behavior is wrong
+        #     ("you are being vague", "stop sensory", "I want facts")
+        #   STRUCTURED_NARRATIVE — multi-event chronological factual
+        #     turn (admissions test → train → exam → score → ...)
+        #
+        # When fires: skip LLM, emit deterministic continuation
+        # invitation with NO sensory/feeling/scenery/camaraderie probe.
+        # Skipped if meta-question already fired (mutually exclusive).
+        _witness_answer = None  # type: ignore[assignment]
+        _is_witness_mode = False
+        if (
+            user_text and user_text.strip()
+            and not _is_system_directive
+            and not _is_meta_question
+        ):
+            try:
+                from ..services.lori_witness_mode import detect_and_compose as _wm_dac
+                _wm_lang = "en"
+                try:
+                    from ..services.lori_spanish_guard import looks_spanish as _wm_looks_es
+                    if _wm_looks_es(user_text or ""):
+                        _wm_lang = "es"
+                except Exception:
+                    _wm_lang = "en"
+                _witness_answer = _wm_dac(user_text, target_language=_wm_lang)
+                if _witness_answer is not None:
+                    _is_witness_mode = True
+                    logger.info(
+                        "[chat_ws][witness][deterministic] conv=%s "
+                        "type=%s sub=%s anchor=%r lang=%s",
+                        conv_id,
+                        _witness_answer.detection_type,
+                        _witness_answer.sub_type,
+                        _witness_answer.factual_anchor,
+                        _witness_answer.language,
+                    )
+            except Exception as _wm_exc:
+                logger.warning(
+                    "[chat_ws][witness] detect failed conv=%s: %s",
+                    conv_id, _wm_exc,
+                )
+                _witness_answer = None
+                _is_witness_mode = False
+
         _session_turn_count: int = 0
         _softened_state: Dict[str, Any] = {
             "interview_softened": False, "softened_until_turn": 0, "turn_count": 0,
@@ -984,6 +1037,12 @@ async def ws_chat(ws: WebSocket):
         if _is_meta_question and _meta_question_answer is not None:
             turn_mode = "meta_question"
 
+        # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 — same posture for the
+        # witness-mode intercept. Mutually exclusive with meta_question
+        # (the upstream detector already gated on _is_meta_question).
+        if _is_witness_mode and _witness_answer is not None:
+            turn_mode = "witness"
+
         # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
         # profile_seed bridge runs for ALL turn modes, not just memory_echo.
         # Phase A originally added the bridge inside the memory_echo branch
@@ -1058,6 +1117,40 @@ async def ws_chat(ws: WebSocket):
                 "final_text": assistant_text,
                 "turn_mode": "meta_question",
                 "meta_question_category": _meta_question_answer.primary_category,
+            })
+            return
+
+        # ── BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 ──────────────────────
+        # Witness mode dispatcher branch. Sibling to meta_question.
+        # Detection upstream populated _witness_answer when the narrator
+        # turn matched META_FEEDBACK ("you are being vague", "stop
+        # sensory") OR STRUCTURED_NARRATIVE (multi-event chronological
+        # factual recounting like Kent's basic-training answer). The
+        # composed deterministic text NEVER includes sensory probes,
+        # feeling probes, scenery questions, or topic shifts.
+        if turn_mode == "witness" and _witness_answer is not None:
+            assistant_text = _witness_answer.text
+            persist_turn_transaction(
+                conv_id=conv_id,
+                user_message=user_text,
+                assistant_message=assistant_text,
+                model_name="witness-deterministic",
+                meta={
+                    "ws": True,
+                    "turn_mode": "witness",
+                    "witness_detection_type": _witness_answer.detection_type,
+                    "witness_sub_type": _witness_answer.sub_type,
+                    "witness_anchor": _witness_answer.factual_anchor,
+                    "witness_lang": _witness_answer.language,
+                },
+            )
+            await _ws_send(ws, {"type": "token", "delta": assistant_text})
+            await _ws_send(ws, {
+                "type": "done",
+                "final_text": assistant_text,
+                "turn_mode": "witness",
+                "witness_detection_type": _witness_answer.detection_type,
+                "witness_sub_type": _witness_answer.sub_type,
             })
             return
 
