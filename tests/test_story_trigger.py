@@ -482,6 +482,219 @@ class ClassifyStoryCandidateTest(unittest.TestCase):
         self.assertEqual(result, "borderline_scene_anchor")
 
 
+class RichShortNarrativeTest(unittest.TestCase):
+    """The rich_short_narrative trigger path (added 2026-05-09) catches
+    compact emotive turns common in Spanish elder-narrator speech where
+    the content is rich but the word/duration floor is below
+    full_threshold and only 2 anchor types fire (so borderline_scene
+    _anchor's 3-axis floor doesn't catch them either).
+
+    Real motivating example: María's first turn —
+        "Hola Lori, me llamo María. Cuando mi abuela hablaba de Perú,
+         yo escuchaba su voz y me sentía cerca de ella."
+    21 words, ~15s, place anchor (Perú) + person anchor (mi abuela) =
+    2 anchors. Old logic: no trigger. New logic: rich_short_narrative.
+
+    Required signature: PLACE + (PERSON or TIME) AND words ≥ 15 AND
+    duration ≥ 10s. The dual-anchor floor (place + at least one other)
+    is what distinguishes a real memory from a mention.
+    """
+
+    def test_maria_spanish_abuela_peru_fires(self):
+        # The motivating real-narrator failure.
+        text = (
+            "Hola Lori, me llamo María. Cuando mi abuela hablaba de "
+            "Perú, yo escuchaba su voz y me sentía cerca de ella."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=15.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "rich_short_narrative")
+
+    def test_below_duration_floor_does_not_fire(self):
+        # Same text, half the duration (8s) — falls below the 10s floor.
+        text = (
+            "Hola Lori, me llamo María. Cuando mi abuela hablaba de "
+            "Perú, yo escuchaba su voz y me sentía cerca de ella."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=8.0,
+            transcript=text,
+        )
+        self.assertIsNone(result)
+
+    def test_below_word_floor_does_not_fire(self):
+        # Compact 12-word turn with PLACE + PERSON — below the 15-word
+        # floor for rich_short_narrative.
+        text = "Mi abuela cocinaba en Lima cuando yo era pequeña sí."
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=15.0,
+            transcript=text,
+        )
+        self.assertIsNone(result)
+
+    def test_place_only_does_not_fire(self):
+        # 17 words, 15s, PLACE anchor only — needs a PERSON or TIME
+        # partner. Place mention without context = "I went to Lima",
+        # not a memory.
+        text = (
+            "Lima es una ciudad bonita y grande con mucha gente y "
+            "comida buena y buena vista."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=15.0,
+            transcript=text,
+        )
+        self.assertIsNone(result)
+
+    def test_person_only_does_not_fire(self):
+        # PERSON anchor only — no place to anchor the scene.
+        text = (
+            "Mi abuela siempre fue muy cariñosa conmigo y con todos "
+            "mis primos y hermanos también."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=15.0,
+            transcript=text,
+        )
+        self.assertIsNone(result)
+
+    def test_time_only_does_not_fire(self):
+        # TIME anchor only — no place.
+        text = (
+            "Cuando era niña pasaban muchas cosas todos los días sin "
+            "parar y siempre era diferente."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=15.0,
+            transcript=text,
+        )
+        self.assertIsNone(result)
+
+    def test_place_plus_time_no_person_DOES_fire(self):
+        # PLACE + TIME (no PERSON) — still satisfies the dual-anchor
+        # floor. Must fire as rich_short_narrative.
+        text = (
+            "Cuando era niña vivíamos en Spokane y siempre nevaba "
+            "mucho durante el invierno frío del norte."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=12.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "rich_short_narrative")
+
+    def test_english_short_narrative_also_fires(self):
+        # The trigger is language-agnostic — English compact narratives
+        # benefit too, not just Spanish. PLACE ("in Spokane") + PERSON
+        # ("My mother") = 2 anchors, below the 3-axis borderline floor
+        # but above the rich_short dual-anchor floor.
+        text = (
+            "My mother used to talk about her days in Spokane and "
+            "the old neighborhood she loved there."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=12.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "rich_short_narrative")
+
+    def test_borderline_takes_priority_over_rich_short(self):
+        # Janice's mastoidectomy text fires BORDERLINE (3 anchors),
+        # which takes priority over rich_short_narrative even though
+        # this text would also satisfy rich_short.
+        text = (
+            "I had a mastoidectomy when I was little, in Spokane. "
+            "My dad worked nights at the aluminum plant."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=10.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "borderline_scene_anchor")
+
+    def test_full_threshold_takes_priority_over_rich_short(self):
+        # A long narrative with anchors fires full_threshold, even if
+        # it would also match rich_short_narrative's softer floor.
+        text = (
+            "When I was a child growing up in Stanley, North Dakota, "
+            "we had a small house on the edge of town. My dad was a "
+            "farmer and my mom raised four of us. Every summer we'd "
+            "drive into Minot to see my grandmother. The trip felt "
+            "longer than it was. I remember the dust on the dashboard "
+            "and the songs on the radio and the way the wheat looked."
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=60.0,
+            transcript=text,
+        )
+        self.assertEqual(result, "full_threshold")
+
+
+class RichShortNarrativeEnvTunableTest(unittest.TestCase):
+    """Operator can re-tune the rich_short_narrative thresholds via
+    env vars without a code change."""
+
+    def setUp(self):
+        self._snap = {
+            k: os.environ.get(k)
+            for k in (
+                "STORY_TRIGGER_RICH_SHORT_MIN_WORDS",
+                "STORY_TRIGGER_RICH_SHORT_MIN_DURATION_SEC",
+            )
+        }
+
+    def tearDown(self):
+        for k, v in self._snap.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_lowering_word_floor_admits_more(self):
+        # 12-word turn — below default 15-word floor.
+        text = "Mi abuela cocinaba en Lima cuando yo era niña pequeña feliz contenta."
+        # Default: should NOT fire.
+        baseline = story_trigger.classify_story_candidate(
+            audio_duration_sec=12.0, transcript=text,
+        )
+        self.assertIsNone(baseline)
+        # Lower word floor to 10 → should fire.
+        os.environ["STORY_TRIGGER_RICH_SHORT_MIN_WORDS"] = "10"
+        adjusted = story_trigger.classify_story_candidate(
+            audio_duration_sec=12.0, transcript=text,
+        )
+        self.assertEqual(adjusted, "rich_short_narrative")
+
+    def test_raising_duration_floor_blocks(self):
+        # María's text at 11s — fires by default (>= 10s floor).
+        text = (
+            "Hola Lori, me llamo María. Cuando mi abuela hablaba de "
+            "Perú, yo escuchaba su voz."
+        )
+        baseline = story_trigger.classify_story_candidate(
+            audio_duration_sec=11.0, transcript=text,
+        )
+        self.assertEqual(baseline, "rich_short_narrative")
+        # Raise duration floor to 30s → should disappear.
+        os.environ["STORY_TRIGGER_RICH_SHORT_MIN_DURATION_SEC"] = "30"
+        adjusted = story_trigger.classify_story_candidate(
+            audio_duration_sec=11.0, transcript=text,
+        )
+        self.assertIsNone(adjusted)
+
+    def test_diagnostic_reports_rich_short_thresholds(self):
+        d = story_trigger.trigger_diagnostic(
+            audio_duration_sec=15.0,
+            transcript=(
+                "Cuando mi abuela hablaba de Perú yo me sentía cerca."
+            ),
+        )
+        self.assertIn("rich_short_min_words", d["thresholds"])
+        self.assertIn("rich_short_min_duration_sec", d["thresholds"])
+
+
 class EnvTunableThresholdsTest(unittest.TestCase):
     """Operator can re-tune thresholds without a code change.
     Tests verify env var changes flow through."""

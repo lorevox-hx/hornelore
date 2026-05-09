@@ -56,6 +56,32 @@ def _borderline_anchor_count() -> int:
     return _env_int("STORY_TRIGGER_BORDERLINE_ANCHOR_COUNT", 3)
 
 
+# ── WO-ML-EX-RICH-SHORT-NARRATIVE-01 (2026-05-09) ───────────────────────
+# Spanish narrators (and elder narrators in general) often speak in
+# shorter, more compact emotive bursts than the English-test-corpus
+# thresholds were tuned for. A turn like
+#   "Hola Lori, me llamo María. Cuando mi abuela hablaba de Perú,
+#    yo escuchaba su voz y me sentía cerca de ella."
+# (21 words, 15s, 2 anchors) is rich content but fails ALL three
+# existing trigger gates (min_words=60, min_duration=30s, borderline=3).
+# Result: Mary's grandmother story never reached story_candidates table.
+#
+# Add a third trigger that catches "rich short narratives": a turn with
+# at least ONE place anchor AND at least ONE other anchor type (person
+# or relative-time), plus a minimum word + duration floor to avoid
+# false-positive on greetings / short confirmations.
+#
+# Tunable via env so operator can tighten/loosen without code change:
+#   STORY_TRIGGER_RICH_SHORT_MIN_WORDS=15
+#   STORY_TRIGGER_RICH_SHORT_MIN_DURATION_SEC=10
+def _rich_short_min_words() -> int:
+    return _env_int("STORY_TRIGGER_RICH_SHORT_MIN_WORDS", 15)
+
+
+def _rich_short_min_duration_sec() -> float:
+    return _env_float("STORY_TRIGGER_RICH_SHORT_MIN_DURATION_SEC", 10.0)
+
+
 # ── Scene-anchor detection ────────────────────────────────────────────────
 #
 # Conservative bigram detection, NOT loose keyword presence. Janice
@@ -518,7 +544,7 @@ def classify_story_candidate(
     risk drift between the trigger threshold and the persisted
     word_count.
 
-    Two trigger paths:
+    Three trigger paths:
         full_threshold (medium confidence)
             duration ≥ MIN_DURATION_SEC
             AND words ≥ MIN_WORDS
@@ -526,6 +552,15 @@ def classify_story_candidate(
 
         borderline_scene_anchor (low confidence)
             scene_anchor_count ≥ BORDERLINE_ANCHOR_COUNT (default 3)
+
+        rich_short_narrative (low-medium confidence — added 2026-05-09)
+            place anchor AND (person OR time anchor)
+            AND words ≥ RICH_SHORT_MIN_WORDS (default 15)
+            AND duration ≥ RICH_SHORT_MIN_DURATION_SEC (default 10s)
+            Catches the Spanish elder-narrator "compact rich story" shape
+            (e.g. María's "abuela / Perú" 21-word 15s memory). Requires
+            BOTH place + (person OR time) so single-mention turns like
+            "I saw the river" don't trigger.
 
     The borderline path catches Janice's actual mastoidectomy story,
     which is below the duration/word floor but rich in anchors.
@@ -550,6 +585,23 @@ def classify_story_candidate(
     # MAX dimensions (3) by default — all three axes must fire.
     if anchors >= _borderline_anchor_count():
         return "borderline_scene_anchor"
+
+    # Rich short narrative path (WO-ML-EX-RICH-SHORT-NARRATIVE-01,
+    # 2026-05-09). Catches compact emotive turns common in Spanish
+    # elder-narrator speech where the content is rich but the
+    # word/duration floor is below full_threshold and only 2 anchor
+    # types fire. Requires PLACE + (PERSON or TIME) — that pairing is
+    # the empirical signature of "this is a memory, not a greeting."
+    has_place = _matches_place(transcript)
+    has_person = _matches_person_relation(transcript)
+    has_time = _matches_relative_time(transcript)
+    if (
+        has_place
+        and (has_person or has_time)
+        and word_count >= _rich_short_min_words()
+        and duration >= _rich_short_min_duration_sec()
+    ):
+        return "rich_short_narrative"
 
     return None
 
@@ -588,6 +640,8 @@ def trigger_diagnostic(
             "min_duration_sec": _min_duration_sec(),
             "min_words": _min_words(),
             "borderline_anchor_count": _borderline_anchor_count(),
+            "rich_short_min_words": _rich_short_min_words(),
+            "rich_short_min_duration_sec": _rich_short_min_duration_sec(),
         },
     }
 
