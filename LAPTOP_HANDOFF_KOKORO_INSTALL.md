@@ -114,31 +114,107 @@ explorer.exe "$(wslpath -w /tmp/kokoro_smoke_es.wav)"
 
 Same EN + ES voices MAG-Chris already validated — should sound the same. If not, ping Chris.
 
-### Step 8 — Append the 3 TTS env vars to laptop's `.env`
+### Step 8 — Update laptop's `.env` to match MAG-Chris
+
+**Coqui is RETIRED. Kokoro is the sole engine on both machines** (locked 2026-05-08 after live verification on MAG-Chris). Set `LORI_TTS_ENGINE=kokoro` directly — do not stage as coqui-first.
+
+#### 8a — Inspect what's already in laptop's `.env`
 
 ```bash
-cat >> .env <<'EOF'
-
-# WO-ML-TTS-EN-ES-01 — pluggable TTS engine (do not flip until Melanie verify)
-LORI_TTS_ENGINE=coqui
-LORI_TTS_KOKORO_VOICE_EN=af_heart
-LORI_TTS_KOKORO_VOICE_ES=ef_dora
-EOF
-
-# Verify HF_HUB_OFFLINE=1 is in .env (your locked-rule)
-grep "^HF_HUB_OFFLINE" .env || echo "HF_HUB_OFFLINE=1" >> .env
+cd /mnt/c/Users/chris/hornelore   # or wherever laptop's path is
+grep -E "^LORI_TTS|^HF_HUB|^HUGGINGFACE|^TRANSFORMERS|^HF_HOME" .env
 ```
 
-`LORI_TTS_ENGINE=coqui` is correct for now — laptop should default to Coqui too. Do not flip to kokoro until both machines have done a Melanie Spanish-session live verify of the Phase 5 guards.
+You should see Llama-related vars from the laptop's existing setup:
+- `HF_HOME=/mnt/c/...` (some Llama-cache path)
+- `HF_HUB_OFFLINE=1`
+- `TRANSFORMERS_OFFLINE=1`
+- maybe `HF_HUB_ENABLE_HF_TRANSFER=1`
 
-### Step 9 — STOP HERE on the laptop
+If `LORI_TTS_ENGINE` is already there from a stale install attempt, note its value — you'll overwrite it.
 
-Do not:
-- Run `flip_kokoro_test.sh`
-- Restart the live stack
-- Flip `LORI_TTS_ENGINE=kokoro`
+#### 8b — Apply the TTS block
 
-Save those for after Melanie's session, same as MAG-Chris.
+The required end-state in `.env`:
+
+```
+LORI_TTS_ENGINE=kokoro
+LORI_TTS_KOKORO_VOICE_EN=af_heart
+LORI_TTS_KOKORO_VOICE_ES=ef_dora
+HF_HUB_CACHE=/home/chris/.cache/huggingface/hub
+HUGGINGFACE_HUB_CACHE=/home/chris/.cache/huggingface/hub
+HF_HUB_OFFLINE=1
+```
+
+The two `*_HUB_CACHE` lines are CRITICAL — they pin Kokoro's cache to `~/.cache/huggingface/hub` so it doesn't fight Llama's `HF_HOME` (which lives elsewhere). Without them, the TTS uvicorn process inherits `HF_HOME` from `.env` and looks for Kokoro files at `${HF_HOME}/hub` — wrong place — `LocalEntryNotFoundError`. Surfaced live on MAG-Chris 2026-05-08.
+
+**If laptop's home dir isn't `/home/chris`**, replace the two paths above with `/home/$(whoami)/.cache/huggingface/hub`.
+
+#### 8c — Apply via heredoc append (non-destructive)
+
+If `.env` doesn't yet have any `LORI_TTS_*` or `HF_HUB_CACHE` lines, append cleanly:
+
+```bash
+cat >> .env <<EOF
+
+# WO-ML-TTS-EN-ES-01 (locked 2026-05-08): Kokoro is sole engine. Coqui retired.
+LORI_TTS_ENGINE=kokoro
+LORI_TTS_KOKORO_VOICE_EN=af_heart
+LORI_TTS_KOKORO_VOICE_ES=ef_dora
+
+# Pin Kokoro cache to user cache dir so Llama HF_HOME doesn't redirect
+# Kokoro file lookups. CRITICAL — without these the TTS service hits
+# LocalEntryNotFoundError on Spanish KPipeline init.
+HF_HUB_CACHE=/home/$(whoami)/.cache/huggingface/hub
+HUGGINGFACE_HUB_CACHE=/home/$(whoami)/.cache/huggingface/hub
+EOF
+```
+
+The `$(whoami)` substitution at heredoc time picks up the laptop's actual user. Don't quote the EOF marker — quoting prevents substitution.
+
+If `.env` ALREADY has any of these lines (e.g. from a stale install), edit them directly with `sed`:
+
+```bash
+# Flip any existing LORI_TTS_ENGINE=coqui → kokoro
+grep -q '^LORI_TTS_ENGINE=' .env && \
+  sed -i 's|^LORI_TTS_ENGINE=.*|LORI_TTS_ENGINE=kokoro|' .env || \
+  echo "LORI_TTS_ENGINE=kokoro" >> .env
+
+# Same pattern for the voice + cache vars
+grep -q '^LORI_TTS_KOKORO_VOICE_EN=' .env || echo "LORI_TTS_KOKORO_VOICE_EN=af_heart" >> .env
+grep -q '^LORI_TTS_KOKORO_VOICE_ES=' .env || echo "LORI_TTS_KOKORO_VOICE_ES=ef_dora" >> .env
+grep -q '^HF_HUB_CACHE=' .env || echo "HF_HUB_CACHE=/home/$(whoami)/.cache/huggingface/hub" >> .env
+grep -q '^HUGGINGFACE_HUB_CACHE=' .env || echo "HUGGINGFACE_HUB_CACHE=/home/$(whoami)/.cache/huggingface/hub" >> .env
+grep -q '^HF_HUB_OFFLINE=' .env || echo "HF_HUB_OFFLINE=1" >> .env
+```
+
+#### 8d — Verify the env block matches MAG-Chris
+
+```bash
+grep -E "^LORI_TTS|^HF_HUB_CACHE|^HUGGINGFACE_HUB_CACHE|^HF_HUB_OFFLINE" .env
+```
+
+Expected (in any order — all 6 lines must be present):
+```
+LORI_TTS_ENGINE=kokoro
+LORI_TTS_KOKORO_VOICE_EN=af_heart
+LORI_TTS_KOKORO_VOICE_ES=ef_dora
+HF_HUB_CACHE=/home/chris/.cache/huggingface/hub
+HUGGINGFACE_HUB_CACHE=/home/chris/.cache/huggingface/hub
+HF_HUB_OFFLINE=1
+```
+
+**Do NOT remove existing `HF_HOME=` from `.env`** — that's pinned for Llama. The `HF_HUB_CACHE` you just added overrides it for HF Hub library lookups (Kokoro), but Llama still uses `HF_HOME` directly.
+
+### Step 9 — Stop here for tonight
+
+The laptop install + smoke + env are done. Don't restart the live stack until Chris explicitly says go. The TTS launcher will start cleanly with Kokoro on next stack start because:
+- `.env` says `LORI_TTS_ENGINE=kokoro`
+- Patched launcher (`hornelore_run_tts_8001.sh`) reads that and activates `.venv` (Kokoro)
+- Cache is pinned to the right dir
+- Both EN + ES voices are pre-cached
+
+When Chris greenlights: `bash launchers/hornelore_run_all_dev.sh` (the patched one — fixed path typos). The TTS log line should read `[launcher] LORI_TTS_ENGINE=kokoro — using .venv (Kokoro multilingual)`.
 
 ---
 

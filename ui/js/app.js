@@ -5864,6 +5864,25 @@ function handleWsMessage(j){
       state.session.pendingCorrection = (j.turn_mode === TURN_MEMORY_ECHO);
     }
 
+    // BUG-ML-LORI-CHAT-BUBBLE-RAW-STREAM-01 (2026-05-09): replace
+    // streamed bubble content with the backend's final_text whenever
+    // post-LLM repair guards (Spanish perspective / fragment-repair-02
+    // / safety / phantom-noun) modified the response. Without this
+    // the bubble shows raw streamed tokens while TTS, transcript, and
+    // archive get the repaired version — a display vs audio mismatch.
+    // Also closes the lori_reply double-event mismatch where one event
+    // (onAssistantReply) carried the repaired text and a second event
+    // (hornelore1.0.html:8390 reading bubble.textContent) carried the
+    // raw streamed text.
+    try {
+      if (j.final_text && currentAssistantBubble) {
+        const _bubbleBodyEl = _bubbleBody(currentAssistantBubble);
+        if (_bubbleBodyEl && _bubbleBodyEl.textContent !== j.final_text) {
+          _bubbleBodyEl.textContent = j.final_text;
+        }
+      }
+    } catch (_) { /* non-fatal — bubble update is cosmetic-only */ }
+
     onAssistantReply(text);
     if(text){
       setv("ivAnswer",text);
