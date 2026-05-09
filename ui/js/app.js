@@ -6081,12 +6081,73 @@ function _splitIntoTtsChunks(text, maxLen=1000){
   return chunks.length ? chunks : [text.slice(0, maxLen)];
 }
 
+// BUG-ML-TTS-FE-LANGUAGE-PAYLOAD-01 (2026-05-08):
+// Frontend TTS request must carry the language of Lori's response so
+// the backend Kokoro adapter routes to the right pipeline (English
+// 'a' / Spanish 'e' / etc.) AND picks the right per-language voice
+// (af_heart / ef_dora / etc.). Pre-fix the FE was sending only
+//   { text: chunk, voice: "p335" }
+// which (a) tells Kokoro nothing about language → defaults to English
+// even when Lori responded in Spanish, AND (b) sends the legacy Coqui
+// VCTK speaker name "p335" which Kokoro doesn't have. Result was
+// Spanish text rendered through English phonemes (garbled / silent).
+//
+// Architecture: sniff the FULL Lori response ONCE in enqueueTts before
+// chunking. Per-chunk sniff misclassifies short Spanish fragments
+// (e.g. "Sí.") as English. Store on a module-level var; drainTts uses
+// it for every speak_stream request in the queue.
+let _ttsCurrentLang = "en";
+
+// Spanish detector — same cues as backend api/services/lori_spanish_guard.py
+// looks_spanish(). Triggers on EITHER:
+//   - any of á é í ó ú ñ ¿ ¡ (definitive)
+//   - ≥2 distinct Spanish function words (no-accent fallback for STT-
+//     stripped text)
+const _LV_SPANISH_CHARS_RX = /[áéíóúñ¿¡]/i;
+const _LV_SPANISH_FN_RX = new RegExp(
+  "\\b(?:" +
+  "el|la|los|las|un|una|unos|unas|" +
+  "de|del|al|en|con|para|por|hacia|desde|sin|sobre|" +
+  "y|o|u|pero|porque|aunque|cuando|mientras|" +
+  "tu|tus|su|sus|mi|mis|yo|tú|él|ella|nosotros|ellos|ellas|" +
+  "este|esta|estos|estas|ese|esa|esos|esas|aquel|aquella|aquellos|aquellas|" +
+  "es|son|fue|era|eran|hay|había|está|estaba|tiene|tienen|tengo|tienes|" +
+  "ser|estar|decir|hablar|vivir|tener|" +
+  "que|qué|como|cómo|donde|dónde|cuando|cuándo|porque|porqué|" +
+  "muy|más|menos|también|ya|siempre|nunca|ahora|" +
+  "hola|gracias|adiós|cuéntame|cuentame|recuerdas|recuerda|recuerdo|recuerdos|" +
+  "abuela|abuelo|papá|papa|mamá|mama|padre|madre|hijo|hijos|hija|hijas|" +
+  "hermano|hermana|esposo|esposa|" +
+  "perú|peru|méxico|mexico|españa|espana|cuba|colombia|argentina|" +
+  "prisa|quieres|quiero|nací|naci|llamaba|llamo|" +
+  "dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|" +
+  "sí|si|no" +
+  ")\\b",
+  "gi"
+);
+function _lvSniffTtsLang(s){
+  if(!s || typeof s !== "string") return "en";
+  if(_LV_SPANISH_CHARS_RX.test(s)) return "es";
+  const matches = s.match(_LV_SPANISH_FN_RX) || [];
+  const distinct = new Set(matches.map(m => m.toLowerCase())).size;
+  return distinct >= 2 ? "es" : "en";
+}
+
 function enqueueTts(text){
   // WO-11E: Clear stale abort flag from a previous stopAllTts() call.
   // Without this, a stop→enqueue sequence leaves the flag set and the
   // new drainTts() immediately aborts.
   _ttsAbortRequested = false;
   const cleaned = _stripMarkdownForTts(text);
+  // BUG-ML-TTS-FE-LANGUAGE-PAYLOAD-01: sniff full text once (NOT per
+  // chunk — short fragments misclassify). Set the module-level
+  // _ttsCurrentLang so drainTts uses it on every speak_stream call.
+  _ttsCurrentLang = _lvSniffTtsLang(cleaned);
+  try {
+    console.log("[ml-tts][fe] lang=" + _ttsCurrentLang +
+                " chars=" + cleaned.length +
+                " preview=" + JSON.stringify(cleaned.slice(0, 80)));
+  } catch(_) {}
   _splitIntoTtsChunks(cleaned).forEach(c => ttsQueue.push(c));
   if(!ttsBusy) drainTts();
 }
@@ -6110,8 +6171,14 @@ async function drainTts(){
       if (_ttsAbortRequested) { console.log("[WO-11E] TTS abort — breaking drain loop"); break; }
       const chunk=ttsQueue.shift();
       try{
+        // BUG-ML-TTS-FE-LANGUAGE-PAYLOAD-01 (2026-05-08): send detected
+        // language so backend Kokoro routes to the right pipeline AND
+        // picks the right per-language voice (af_heart for en, ef_dora
+        // for es). The legacy Coqui "p335" voice key is retired —
+        // Hornelore is Kokoro-only for bilingual support. No "voice"
+        // field is sent: backend per-language default wins.
         const r=await fetch(TTS_ORIG+"/api/tts/speak_stream",{method:"POST",headers:ctype(),
-          body:JSON.stringify({text:chunk,voice:"p335"})});
+          body:JSON.stringify({text:chunk, language:_ttsCurrentLang})});
         if(!r.ok) continue;
         // Server returns NDJSON: {"wav_b64":"<base64 WAV>"}
         const ndjson = await r.text();
