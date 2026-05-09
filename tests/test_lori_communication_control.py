@@ -269,5 +269,53 @@ class GolfballRegressionTests(unittest.TestCase):
         self.assertNotIn(", or", r.final_text)
 
 
+class StubCollapseDetectionTest(unittest.TestCase):
+    """BUG-LORI-RESPONSE-STUB-COLLAPSE-01 (2026-05-09) — Mary's session
+    surfaced the LLM emitting ~3-character stubs ("AI.") in response to
+    substantive narrator questions. The detection here is operator-
+    visibility only (failure label, not rewrite); the meta-question
+    deterministic intercept upstream handles the known failure shapes.
+    """
+
+    def test_three_char_response_to_substantive_question_flags(self):
+        # Mary's literal: "what is an AI?" → Lori "AI."
+        r = enforce_lori_communication_control(
+            assistant_text="AI.",
+            user_text="what is an AI? you tell me that like i know what AI is?",
+        )
+        self.assertIn("response_stub_collapse", r.failures)
+
+    def test_one_word_response_to_long_narrator_question_flags(self):
+        r = enforce_lori_communication_control(
+            assistant_text="Spokane.",
+            user_text="tell me what you know about my time growing up there",
+        )
+        self.assertIn("response_stub_collapse", r.failures)
+
+    def test_normal_response_does_not_flag(self):
+        r = enforce_lori_communication_control(
+            assistant_text="That sounds like a meaningful memory. What stays with you most about it?",
+            user_text="I remember the long winters in Spokane.",
+        )
+        self.assertNotIn("response_stub_collapse", r.failures)
+
+    def test_short_response_to_trivial_narrator_does_not_flag(self):
+        # Yes/no narrator → short Lori is fine
+        r = enforce_lori_communication_control(
+            assistant_text="Got it.",
+            user_text="yes",
+        )
+        self.assertNotIn("response_stub_collapse", r.failures)
+
+    def test_short_response_to_three_word_narrator_does_not_flag(self):
+        # Below the 4-word floor — narrator's question is too short to
+        # demand elaboration
+        r = enforce_lori_communication_control(
+            assistant_text="Okay.",
+            user_text="that's right yes",
+        )
+        self.assertNotIn("response_stub_collapse", r.failures)
+
+
 if __name__ == "__main__":
     unittest.main()

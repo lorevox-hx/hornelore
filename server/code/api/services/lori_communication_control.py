@@ -842,6 +842,34 @@ def enforce_lori_communication_control(
     if _detect_push_after_resistance(user_text or "", current):
         failures.append("push_after_resistance")
 
+    # Step 6: BUG-LORI-RESPONSE-STUB-COLLAPSE-01 (2026-05-09) — detect
+    # the "AI." 3-char failure class. Mary asked "what is an AI?" twice
+    # and got `"AI."` as the entire response (chars=3). The LLM was
+    # stub-collapsing under directive pressure ("acknowledge briefly,
+    # then move on" + interview-track gravity).
+    #
+    # The meta-question deterministic intercept upstream (in chat_ws.py)
+    # now handles the known meta-question failure modes — narrator
+    # asking about Lori herself, AI, safety, identity. This step
+    # catches anything the upstream regex missed: a substantive narrator
+    # turn followed by a Lori response of ≤3 words.
+    #
+    # Detection-only in v1 — emits warning, no rewrite. Replacing real
+    # short answers with fabricated content would backfire on
+    # legitimate short responses to direct questions. The warning gives
+    # operators visibility (api.log marker) for any class that escapes
+    # the meta-question intercept; iteration is to add deterministic
+    # rescue composer for specific failure shapes once they're
+    # characterized.
+    _stub_word_count = len((current or "").split())
+    _narrator_word_count = len((user_text or "").split())
+    if (
+        _stub_word_count <= 3
+        and _narrator_word_count >= 4
+        and not safety_triggered  # safety paths legitimately emit short responses
+    ):
+        failures.append("response_stub_collapse")
+
     return CommunicationControlResult(
         original_text=assistant_text,
         final_text=current,
