@@ -602,6 +602,63 @@ async def ws_chat(ws: WebSocket):
         # latent bug surfaced during this WO's code review; init here
         # fixes it for both the new softened path and the legacy path.
         _safety_result = None  # type: ignore[assignment]
+
+        # ── BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 ───────
+        # 2026-05-09 (Mary's session) — three stacked failures from one
+        # class of question: identity-denial ("I don't have a name"),
+        # 988 false-positive on "are you safe to talk to?", and the
+        # "AI." 3-char stub on "what is an AI?". All three vanish when
+        # we intercept narrator meta-questions BEFORE the safety
+        # classifier and BEFORE the LLM, and reply deterministically
+        # in the narrator's language with a warm locked answer.
+        #
+        # The detection module is pure-stdlib (LAW 3 isolated, no LLM,
+        # no DB). When it matches, we:
+        #   (1) Skip the safety scan entirely — Mary's "are you safe"
+        #       must NOT route to 988
+        #   (2) Override turn_mode to "meta_question" so the dispatcher
+        #       below emits the deterministic text
+        #   (3) Carry the composed answer in _meta_question_answer for
+        #       the dispatcher to use
+        #
+        # Default-on, no env flag — this is a correctness fix, not a
+        # feature. Failure of detection or composition is non-fatal:
+        # the turn falls through to normal safety + LLM behavior.
+        _meta_question_answer = None  # type: ignore[assignment]
+        _is_meta_question = False
+        if user_text and user_text.strip() and not _is_system_directive:
+            try:
+                from ..services.lori_meta_question import detect_and_compose as _meta_dac
+                # Detect narrator language for locale routing. Mirrors
+                # the same posture as compose_memory_echo Spanish branch.
+                _meta_lang = "en"
+                try:
+                    from ..services.lori_spanish_guard import looks_spanish as _meta_looks_es
+                    if _meta_looks_es(user_text or ""):
+                        _meta_lang = "es"
+                except Exception:
+                    _meta_lang = "en"
+                _meta_question_answer = _meta_dac(user_text, target_language=_meta_lang)
+                if _meta_question_answer is not None:
+                    _is_meta_question = True
+                    logger.info(
+                        "[chat_ws][meta-question][deterministic] conv=%s "
+                        "primary=%s categories=%s lang=%s",
+                        conv_id,
+                        _meta_question_answer.primary_category,
+                        ",".join(_meta_question_answer.categories_matched),
+                        _meta_question_answer.language,
+                    )
+            except Exception as _meta_exc:
+                # Detection failure must not break the turn. Fall through
+                # to normal safety + LLM behavior.
+                logger.warning(
+                    "[chat_ws][meta-question] detect failed conv=%s: %s",
+                    conv_id, _meta_exc,
+                )
+                _meta_question_answer = None
+                _is_meta_question = False
+
         _session_turn_count: int = 0
         _softened_state: Dict[str, Any] = {
             "interview_softened": False, "softened_until_turn": 0, "turn_count": 0,
@@ -702,7 +759,14 @@ async def ws_chat(ws: WebSocket):
                 "DEVELOPER MODE ONLY. conv=%s",
                 conv_id,
             )
-        if _safety_enabled and user_text and user_text.strip():
+        # BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 — when
+        # the upstream meta-question detector matched, skip safety scan
+        # entirely. Mary's literal "are you safe to talk to?" must NOT
+        # route to the LLM safety classifier (which 988'd her on
+        # 2026-05-09); the deterministic warm answer composed above
+        # handles it. The dispatcher branch below short-circuits before
+        # the LLM is invoked.
+        if _safety_enabled and not _is_meta_question and user_text and user_text.strip():
             _safety_scan_failed = False
             try:
                 _safety_result = scan_answer(user_text)
@@ -911,6 +975,15 @@ async def ws_chat(ws: WebSocket):
         runtime71: Dict[str, Any] = params.get("runtime71") or {}
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
 
+        # BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 — if the
+        # upstream detector matched, override whatever the FE asked for.
+        # The "meta_question" turn_mode is handled by a dedicated branch
+        # below that emits the deterministic warm answer with no LLM
+        # call, mirroring the memory_echo / age_recall / correction
+        # composer pattern.
+        if _is_meta_question and _meta_question_answer is not None:
+            turn_mode = "meta_question"
+
         # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
         # profile_seed bridge runs for ALL turn modes, not just memory_echo.
         # Phase A originally added the bridge inside the memory_echo branch
@@ -955,6 +1028,38 @@ async def ws_chat(ws: WebSocket):
                 "[chat_ws][profile-seed] bridge failed conv=%s person=%s: %s",
                 conv_id, person_id, _seed_exc,
             )
+
+        # ── BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 ──────
+        # 2026-05-09 (Mary's session) — narrator meta-questions get a
+        # deterministic warm answer composed above by lori_meta_question
+        # .detect_and_compose. Bypasses the LLM, the safety classifier,
+        # and all the directive layers that produced "I don't have a
+        # name" / "AI." stub / 988-on-"are-you-safe" failures. Persisted
+        # via the same persist_turn_transaction path so memory_echo,
+        # archive, transcript, and operator visibility all see the turn
+        # cleanly.
+        if turn_mode == "meta_question" and _meta_question_answer is not None:
+            assistant_text = _meta_question_answer.text
+            persist_turn_transaction(
+                conv_id=conv_id,
+                user_message=user_text,
+                assistant_message=assistant_text,
+                model_name="meta-question-deterministic",
+                meta={
+                    "ws": True,
+                    "turn_mode": "meta_question",
+                    "meta_question_category": _meta_question_answer.primary_category,
+                    "meta_question_lang": _meta_question_answer.language,
+                },
+            )
+            await _ws_send(ws, {"type": "token", "delta": assistant_text})
+            await _ws_send(ws, {
+                "type": "done",
+                "final_text": assistant_text,
+                "turn_mode": "meta_question",
+                "meta_question_category": _meta_question_answer.primary_category,
+            })
+            return
 
         if turn_mode == "memory_echo":
             from ..prompt_composer import compose_memory_echo
