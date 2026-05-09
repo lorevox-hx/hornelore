@@ -120,12 +120,34 @@ distress or suicidal ideation that simple keyword detection might miss.
 Distinguish PRESENT-TENSE distress from PAST-TENSE memory ("I felt that \
 way back then" is reflective, NOT acute).
 
+CRITICAL DISTINCTION (added 2026-05-09 after Mary's session): \
+"scared / afraid / anxious / worried / nervous OF or ABOUT something \
+external" is NOT distress in the suicidal-ideation sense. These are \
+narrator anxieties about the world, the technology, a memory, a \
+person, an event. They MUST be classified as 'none'. Examples that \
+must classify as none:
+  - "I am kind of scared, are you safe to talk to?" (afraid of the AI)
+  - "I'm scared of dogs" (specific external fear)
+  - "is this safe?" / "are you safe?" / "can I trust you?" (asking \
+about trust)
+  - "I'm worried about my grandson" (concern for someone else)
+  - "I was anxious about the surgery" (past-tense or external event)
+  - "I'm afraid to fly" (specific situational fear)
+
+Distress and ideation categories are reserved for SELF-DIRECTED \
+present-tense psychological pain. The narrator must be expressing \
+something about THEMSELVES feeling unbearable, not asking a question \
+or describing a fear of an outside thing.
+
 Return STRICT JSON with exactly these keys: category, confidence.
 
 category MUST be one of (lowercase, no quotes around the word):
-  - none       (normal narrative, no distress signal)
+  - none       (normal narrative; OR external/specific fear; OR a \
+question about safety; OR concern for someone else)
   - reflective (past-tense reference to dark times, narrator is processing)
-  - distressed (present-tense emotional pain without ideation language)
+  - distressed (present-tense SELF-DIRECTED emotional pain without \
+ideation language — narrator describing their own current suffering, \
+not asking a question, not describing fear of an external thing)
   - ideation   (indirect language suggesting the narrator wishes they \
 weren't here, e.g. "everyone would be better off without me", "no point", \
 "want it to be over", "what's the use anymore")
@@ -133,7 +155,11 @@ weren't here, e.g. "everyone would be better off without me", "no point", \
 be caught by the pattern layer, but if you see it, return acute)
 
 confidence MUST be a number 0.0-1.0. Be conservative; default low when \
-uncertain.
+uncertain. If you are unsure between none and distressed/ideation, \
+return none with low confidence — the pattern layer is the primary \
+detector and will catch explicit cases. The cost of a false positive \
+(routing a frightened-of-AI elder to a suicide hotline) is far higher \
+than a false negative on subtle ideation.
 
 Return ONLY the JSON object. No prose, no preamble, no code fences.
 Example: {"category": "ideation", "confidence": 0.7}"""
@@ -314,6 +340,40 @@ def classify_safety_llm(text: str) -> SafetyClassification:
 
 # ── Composition helper ────────────────────────────────────────────────────
 
+# BUG-LORI-SAFETY-FALSE-POSITIVE-EXTERNAL-FEAR-01 (2026-05-09): minimum
+# LLM-side confidence required before routing to the 988-dispatching
+# safety pipeline. The LLM classifier under Llama-3.1-8B-Instruct
+# false-positived Mary's "I am kind of scared, are you safe to talk
+# to?" turn into the distressed/ideation bucket and dispatched 988 to
+# an 86yo who was anxious about the AI. The pattern detector did not
+# fire on this turn (rightly) — the LLM second-layer was the sole
+# trigger. Raising the floor to 0.65 prevents low-confidence false
+# positives from reaching crisis-resource dispatch.
+#
+# Pattern-side detections still bypass this floor (they have their own
+# 0.70 confidence threshold built into the regex set in safety.py).
+# This floor is LLM-only.
+#
+# 0.65 chosen empirically: high enough to filter Llama's chatty
+# medium-confidence guesses on ambiguous narrator anxiety, low enough
+# to still catch a confident classification on indirect ideation
+# language ("everyone would be better off without me" should easily
+# cross 0.65 even on a small model).
+#
+# Tunable via env without redeploy.
+import os as _os  # late-import to keep module top clean
+
+
+def _llm_confidence_floor() -> float:
+    raw = _os.environ.get("HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR", "0.65")
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 0.65
+    # Clamp 0.0-1.0
+    return max(0.0, min(1.0, v))
+
+
 def should_route_to_safety(
     pattern_triggered: bool,
     llm_classification: SafetyClassification,
@@ -322,20 +382,33 @@ def should_route_to_safety(
 
     Returns True if EITHER:
       - pattern detector triggered (always wins), OR
-      - LLM classifier returned distressed / ideation / acute
+      - LLM classifier returned distressed / ideation / acute AND
+        confidence ≥ HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR (default 0.65)
 
     Returns False for:
       - pattern=False AND llm=none
       - pattern=False AND llm=reflective (logged but not routed)
       - pattern=False AND llm parse_ok=False (fail-open to pattern's None)
+      - pattern=False AND llm category triggers but confidence below floor
+        (BUG-LORI-SAFETY-FALSE-POSITIVE-EXTERNAL-FEAR-01: low-confidence
+        Llama false positives on external-fear narrator turns must not
+        dispatch 988)
     """
     if pattern_triggered:
         return True
     if not llm_classification.parse_ok:
         return False
-    if llm_classification.category in ("distressed", "ideation", "acute"):
+    if llm_classification.category not in ("distressed", "ideation", "acute"):
+        return False
+    # Acute always routes regardless of confidence — explicit self-harm
+    # language must never be filtered by a confidence floor.
+    if llm_classification.category == "acute":
         return True
-    return False
+    # Distressed / ideation must clear the confidence floor. Mary's
+    # "scared of AI" turn typically classified at confidence 0.4-0.6;
+    # a 0.65 floor blocks that class while still admitting confident
+    # ideation flags like "no point anymore" at 0.7+.
+    return llm_classification.confidence >= _llm_confidence_floor()
 
 
 __all__ = [

@@ -159,9 +159,25 @@ class CompositionRuleTest(unittest.TestCase):
         self.assertTrue(should_route_to_safety(True, cls))
 
     def test_llm_distressed_ideation_acute_route_when_pattern_none(self):
+        # BUG-LORI-SAFETY-FALSE-POSITIVE-EXTERNAL-FEAR-01 (2026-05-09):
+        # distressed/ideation now require confidence ≥ 0.65 to route
+        # (was: any confidence). Acute is the floor exception — always
+        # routes regardless of confidence. This test was tightened
+        # alongside Mary's external-fear class fix; the high-confidence
+        # path here uses 0.75 so distressed/ideation still cross the
+        # new floor.
         for cat in ("distressed", "ideation", "acute"):
-            cls = SafetyClassification(category=cat, parse_ok=True, confidence=0.5)
+            cls = SafetyClassification(category=cat, parse_ok=True, confidence=0.75)
             self.assertTrue(should_route_to_safety(False, cls), f"failed for {cat}")
+        # Acute at low confidence still routes (no floor on acute).
+        low_acute = SafetyClassification(category="acute", parse_ok=True, confidence=0.30)
+        self.assertTrue(should_route_to_safety(False, low_acute))
+        # Distressed at 0.5 (Mary's class) must NOT route — this is the
+        # exact behavior change from BUG-LORI-SAFETY-FALSE-POSITIVE-
+        # EXTERNAL-FEAR-01. See SafetyFalsePositiveExternalFearTest below
+        # for full coverage.
+        low_distress = SafetyClassification(category="distressed", parse_ok=True, confidence=0.5)
+        self.assertFalse(should_route_to_safety(False, low_distress))
 
     def test_llm_reflective_does_not_route(self):
         cls = SafetyClassification(category="reflective", parse_ok=True, confidence=0.5)
@@ -412,6 +428,161 @@ class IndirectIdeationRedTeamMiniPack(unittest.TestCase):
             category="none", confidence=0.0, parse_ok=False, reason="parse_fail",
         )
         self.assertFalse(should_route_to_safety(False, parse_fail))
+
+
+# ── BUG-LORI-SAFETY-FALSE-POSITIVE-EXTERNAL-FEAR-01 (2026-05-09) ─────────
+# Mary's literal turn was "I am kind of scared, are you safe to talk
+# to?" — Lori dispatched 988 because the LLM second-layer bucketed it
+# into distressed/ideation. These tests lock in the new defensive
+# layers: (a) a 0.65 LLM-only confidence floor, (b) external-fear
+# exclusion in the prompt, (c) acute-always-routes regardless of
+# floor.
+class SafetyFalsePositiveExternalFearTest(unittest.TestCase):
+    def setUp(self):
+        _skip_if_no_import()
+
+    def test_external_fear_low_confidence_does_not_route(self):
+        """Mary's 'are you safe to talk to' class — typically classifies
+        at confidence 0.4-0.6 because the LLM sees 'scared' and 'safe'
+        and hesitantly buckets it. Must NOT route at < 0.65 floor."""
+        low_conf = SafetyClassification(
+            category="distressed", confidence=0.50, parse_ok=True,
+        )
+        self.assertFalse(
+            should_route_to_safety(False, low_conf),
+            "Low-confidence distressed (Mary's external-fear class) must NOT route",
+        )
+
+    def test_high_confidence_ideation_still_routes(self):
+        """The floor must NOT block confident ideation flags. 'I see
+        no point anymore' should classify with high confidence and
+        still reach 988."""
+        high_conf = SafetyClassification(
+            category="ideation", confidence=0.85, parse_ok=True,
+        )
+        self.assertTrue(should_route_to_safety(False, high_conf))
+
+    def test_acute_always_routes_regardless_of_floor(self):
+        """Acute is explicit self-harm language. A confidence floor
+        must NEVER filter it — even at 0.30 the LLM saying 'acute'
+        means 988-now."""
+        low_acute = SafetyClassification(
+            category="acute", confidence=0.30, parse_ok=True,
+        )
+        self.assertTrue(
+            should_route_to_safety(False, low_acute),
+            "Acute must always route, regardless of confidence floor",
+        )
+
+    def test_floor_at_exact_threshold_routes(self):
+        """Boundary: at exactly 0.65 (the default floor), should route."""
+        at_floor = SafetyClassification(
+            category="distressed", confidence=0.65, parse_ok=True,
+        )
+        self.assertTrue(should_route_to_safety(False, at_floor))
+
+    def test_floor_just_below_threshold_does_not_route(self):
+        """Boundary: at 0.64999 (just below floor), should NOT route."""
+        below_floor = SafetyClassification(
+            category="distressed", confidence=0.64, parse_ok=True,
+        )
+        self.assertFalse(should_route_to_safety(False, below_floor))
+
+    def test_env_can_lower_floor_for_dev(self):
+        """Operator can lower the floor via env (e.g. for sensitivity
+        testing). Value is read fresh per call, so env changes apply."""
+        with mock.patch.dict(
+            "os.environ",
+            {"HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR": "0.30"},
+        ):
+            low_class = SafetyClassification(
+                category="distressed", confidence=0.40, parse_ok=True,
+            )
+            self.assertTrue(should_route_to_safety(False, low_class))
+
+    def test_env_can_raise_floor_to_block_more(self):
+        """Operator can raise the floor to be even more conservative."""
+        with mock.patch.dict(
+            "os.environ",
+            {"HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR": "0.95"},
+        ):
+            high_class = SafetyClassification(
+                category="ideation", confidence=0.85, parse_ok=True,
+            )
+            self.assertFalse(should_route_to_safety(False, high_class))
+
+    def test_invalid_env_falls_back_to_default(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR": "not_a_number"},
+        ):
+            mid_class = SafetyClassification(
+                category="distressed", confidence=0.70, parse_ok=True,
+            )
+            # Default 0.65 → 0.70 routes
+            self.assertTrue(should_route_to_safety(False, mid_class))
+
+    def test_env_clamps_to_valid_range(self):
+        """Out-of-range env values clamp to [0.0, 1.0]."""
+        with mock.patch.dict(
+            "os.environ",
+            {"HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR": "5.0"},
+        ):
+            # Floor clamped to 1.0; nothing < 1.0 routes for distressed/ideation
+            high_class = SafetyClassification(
+                category="ideation", confidence=0.99, parse_ok=True,
+            )
+            self.assertFalse(should_route_to_safety(False, high_class))
+
+    def test_pattern_trigger_ignores_floor(self):
+        """Pattern-side detections always route. The floor is LLM-only."""
+        with mock.patch.dict(
+            "os.environ",
+            {"HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR": "0.99"},
+        ):
+            none_class = SafetyClassification(
+                category="none", confidence=0.0, parse_ok=True,
+            )
+            # Pattern triggered → always True
+            self.assertTrue(should_route_to_safety(True, none_class))
+
+
+class SafetyPromptExternalFearGuidanceTest(unittest.TestCase):
+    """Prompt-level defense — the LLM should learn to classify
+    Mary's class of turn as 'none' from the prompt itself, even if
+    the confidence floor weren't there. This is the second line of
+    defense per BUG-LORI-SAFETY-FALSE-POSITIVE-EXTERNAL-FEAR-01."""
+
+    def setUp(self):
+        _skip_if_no_import()
+
+    def test_prompt_mentions_external_fear_exclusion(self):
+        """Prompt must explicitly tell the LLM that 'scared of [external
+        thing]' is none, not distressed/ideation."""
+        from api.safety_classifier import _SYSTEM_PROMPT
+        # Loose check — prompt must include key teaching phrases
+        prompt_lower = _SYSTEM_PROMPT.lower()
+        self.assertIn("external", prompt_lower,
+                      "prompt must teach external-fear distinction")
+        self.assertIn("none", prompt_lower)
+        # Must include at least one of Mary's phrasings as guidance
+        self.assertTrue(
+            "scared" in prompt_lower or "afraid" in prompt_lower,
+            "prompt should reference scared/afraid in the exclusion guidance",
+        )
+
+    def test_prompt_includes_mary_class_example(self):
+        """Mary's literal phrasing should appear as a 'must classify
+        as none' example so the LLM has the exact pattern."""
+        from api.safety_classifier import _SYSTEM_PROMPT
+        # The literal Mary quote OR an explicit AI-fear example
+        self.assertTrue(
+            "are you safe" in _SYSTEM_PROMPT.lower()
+            or "afraid of the ai" in _SYSTEM_PROMPT.lower()
+            or "is this safe" in _SYSTEM_PROMPT.lower()
+            or "scared of dogs" in _SYSTEM_PROMPT.lower(),
+            "prompt must include a representative external-fear example",
+        )
 
 
 if __name__ == "__main__":
