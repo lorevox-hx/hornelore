@@ -974,6 +974,71 @@ function _lvInterviewSelectEra(eid) {
   if (canonical && typeof sendSystemPrompt === "function") {
     const warmLabel = _lvInterviewActiveFocusLabel(canonical);
     const isToday = (canonical === "today");
+
+    // BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01-E + 01-F (2026-05-09 — Kent's
+    // session walked him out because Coming of Age and Later Years
+    // defaulted to relational/sensory framing): per-era LANE HINT block
+    // gives Lori concrete factual lanes (career, military service, work,
+    // training, marriage, retirement, health, caregiving) up front, so a
+    // narrator like Kent can say "Army" naturally and Lori follows the
+    // factual arc instead of inventing "people who supported you" or
+    // "duty and responsibility" framings.
+    //
+    // Each lane hint MUST:
+    //   - Include 5-7 concrete adult-path anchors as a "what came first"
+    //     style menu (not a list-of-questions menu, a single question
+    //     with named lanes)
+    //   - Tell Lori NOT to default to feelings/sensory/legacy/wisdom
+    //   - Stay under the era directive's 55-word total cap
+    const _laneHints = {
+      "earliest_years": (
+        "Concrete-life-detail anchors for this era: home, neighborhood, "
+        + "family members, daily routine, first memories, language spoken "
+        + "at home. Prefer concrete event/place questions over feelings."
+      ),
+      "early_school_years": (
+        "Concrete-life-detail anchors for this era: school, teachers, "
+        + "subjects, friends, daily walk to school, chores, jobs, family "
+        + "moves. Prefer concrete event questions over feelings/sensory."
+      ),
+      "adolescence": (
+        "Concrete-life-detail anchors for this era: school, sports, work, "
+        + "first jobs, dating, friends, family responsibilities, faith, "
+        + "music, cars. Prefer concrete event/role questions."
+      ),
+      "coming_of_age": (
+        "Concrete-life-path anchors for this era: military service, work, "
+        + "school, training, marriage, first major responsibilities, "
+        + "moving out. Frame the opener as: what major adult path came "
+        + "first — the Army/military, work, school, marriage, or "
+        + "another responsibility? Do NOT default to feelings/sensory/"
+        + "people-who-supported-you framings unless the narrator "
+        + "volunteers them."
+      ),
+      "building_years": (
+        "Concrete-life-arc anchors for this era: career, jobs, raising "
+        + "family, where you lived, professional milestones, deployments, "
+        + "moves, caregiving, faith/community roles. Prefer concrete "
+        + "event/role questions over emotional reflection."
+      ),
+      "later_years": (
+        "Concrete-life-structure anchors for this era: retirement, work "
+        + "ending, health events, caregiving, grandchildren, moves, "
+        + "travel, daily routine, community, faith. Frame the opener as: "
+        + "what changed first — retirement, work, health, family, home, "
+        + "travel, or another responsibility? Do NOT default to legacy/"
+        + "wisdom/feelings/sensory unless the narrator volunteers them."
+      ),
+      "today": (
+        "Concrete-present-day anchors: daily routine, health, family, "
+        + "home, current responsibilities, things you still care about "
+        + "doing. Frame the opener as: what are the main parts of your "
+        + "life now — routine, health, family, home, or the things you "
+        + "still care about? Do NOT default to feelings/legacy/wisdom."
+      ),
+    };
+    const _laneHint = _laneHints[canonical] || "";
+
     // 2026-05-04 BUG-LIFEMAP-ERA-FRAMING-01 — directive now requires past-tense
     // framing for historical eras AND explicitly names the warm label so the
     // reply anchors to the era. Without this, LLM produced era-neutral replies
@@ -984,9 +1049,9 @@ function _lvInterviewSelectEra(eid) {
         + "they want to talk about life NOW, in the present. Ask ONE warm, "
         + "open question about something in their life today. Frame the "
         + "question in PRESENT TENSE — use words like 'today', 'now', "
-        + "'these days', 'right now'. Maximum 55 words. ONE question only. "
-        + "No menu choices. No 'or we could' phrasing. No compound 'and "
-        + "how / and what' follow-ups.]")
+        + "'these days', 'right now'. " + _laneHint + " Maximum 55 words. "
+        + "ONE question only. No menu choices. No 'or we could' phrasing. "
+        + "No compound 'and how / and what' follow-ups.]")
       : ("[SYSTEM: The narrator just selected '" + warmLabel + "' on the "
         + "Life Map — they want to talk about this era of their life. "
         + "Ask ONE warm, open question about this period. Frame the "
@@ -995,9 +1060,10 @@ function _lvInterviewSelectEra(eid) {
         + "the era explicitly: you may name it directly (e.g. 'During "
         + "your " + warmLabel.toLowerCase() + "...' or 'In your "
         + warmLabel.toLowerCase() + " years...') so the narrator hears "
-        + "you connect to the specific period they chose. Maximum 55 "
-        + "words. ONE question only. No menu choices. No 'or we could' "
-        + "phrasing. No compound 'and how / and what' follow-ups.]");
+        + "you connect to the specific period they chose. " + _laneHint
+        + " Maximum 55 words. ONE question only. No menu choices. No "
+        + "'or we could' phrasing. No compound 'and how / and what' "
+        + "follow-ups.]");
       // BUG-LORI-ERA-FRAGMENT-COHERENCE-01 v10 ROLLBACK (2026-05-06):
       // The "MUST be a complete sentence — start with a wh-word..."
       // tightening I added earlier today regressed v10: every Lori
