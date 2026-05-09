@@ -7655,6 +7655,136 @@ def _drop_place_as_birthplace(item: Dict[str, Any], source_text: str) -> bool:
     return True
 
 
+# ── BUG-EX-PROTECTED-IDENTITY-FRAGMENT-WRITE-01 (2026-05-09) ─────────────
+#
+# Mary's session 14:02:50: narrator said "I am kind of scared about
+# talking to an AI..." and the extractor wrote `personal.fullName =
+# "scared about talking to"` — a Type C span-binding error per
+# Architecture Spec v1. The LLM took her panic phrase and routed it
+# to an identity slot, surfacing it as a Shadow Review candidate.
+#
+# Sibling lane to BUG-EX-PLACE-LASTNAME-01 + BUG-ML-SHADOW-EXTRACT-
+# PLACE-AS-BIRTHPLACE-01. Pure post-LLM regex guard. Two checks:
+#
+#   (1) Value starts with affect/distress vocabulary
+#       → "scared about talking to" / "afraid because"
+#   (2) Value appears after distress prefix in source text
+#       → "I'm scared of [name]" → drop name candidate
+#
+# EITHER condition alone drops the candidate. Identity-field values
+# (fullName / firstName / lastName / middleName / maidenName /
+# preferredName) almost never legitimately start with distress
+# vocabulary, so the value-prefix check is conservative-by-design.
+#
+# Bilingual (EN + ES). Whisper accent-strip variants included for
+# robustness against STT.
+
+_AFFECT_DISTRESS_TOKENS = (
+    # English present-tense self-affect
+    "scared", "afraid", "anxious", "worried", "frightened", "nervous",
+    "upset", "terrified", "panicked", "stressed", "overwhelmed",
+    # Spanish present-tense self-affect
+    "asustada", "asustado", "asustadas", "asustados",
+    "aterrada", "aterrado", "aterradas", "aterrados",
+    "miedo",  # "tengo miedo" — bare "miedo" as a fragment-prefix
+    "preocupada", "preocupado", "preocupadas", "preocupados",
+    "ansiosa", "ansioso", "ansiosas", "ansiosos",
+    "nerviosa", "nervioso", "nerviosas", "nerviosos",
+    # Whisper accent-strip variants
+    "asustada", "asustado",  # already accent-free
+)
+_AFFECT_DISTRESS_PHRASES = (
+    # Common phrase prefixes
+    r"i\s+am\s+(?:kind\s+of\s+|sort\s+of\s+|really\s+|so\s+)?scared",
+    r"i\s+am\s+(?:kind\s+of\s+|really\s+|so\s+)?afraid",
+    r"i'?m\s+(?:kind\s+of\s+|really\s+|so\s+)?(?:scared|afraid|anxious|worried)",
+    r"i\s+feel\s+(?:scared|afraid|anxious|worried|nervous)",
+    r"tengo\s+miedo",
+    r"estoy\s+(?:asustada|asustado|preocupada|preocupado|ansiosa|ansioso|nerviosa|nervioso)",
+    r"me\s+da\s+miedo",
+)
+_AFFECT_DISTRESS_PHRASE_ALTERNATION = r"|".join(_AFFECT_DISTRESS_PHRASES)
+
+_AFFECT_GUARDED_FIELD_SUFFIXES = (
+    ".fullName", ".firstName", ".lastName",
+    ".middleName", ".maidenName", ".preferredName",
+)
+
+
+def _value_starts_with_affect_token(value: str) -> bool:
+    """Return True if the candidate value begins with an affect/distress
+    token. Defensive: case-insensitive, whitespace-tolerant."""
+    if not value:
+        return False
+    text = value.strip().lower()
+    if not text:
+        return False
+    # Split off the first word and check.
+    first = text.split(maxsplit=1)[0] if text else ""
+    return first in _AFFECT_DISTRESS_TOKENS
+
+
+def _looks_like_affect_phrase_for_value(text: str, value: str) -> bool:
+    """Return True if value appears in source text after a distress
+    phrase ("I'm scared of {value}"). Used for the indirect case where
+    the LLM grabs a name following narrator's distress declaration."""
+    if not text or not value:
+        return False
+    v = re.escape(str(value).strip())
+    if not v:
+        return False
+    pattern = (
+        r"\b(?:" + _AFFECT_DISTRESS_PHRASE_ALTERNATION + r")"
+        r"(?:\s+\w+){0,4}\s+"
+        + v
+        + r"\b"
+    )
+    try:
+        return bool(re.search(pattern, text, re.IGNORECASE))
+    except re.error:
+        return False
+
+
+def _drop_affect_phrase_as_name(item: Dict[str, Any], source_text: str) -> bool:
+    """Return True if this item is a misbound distress-fragment-as-
+    identity write and should be dropped from the accepted-items list.
+
+    Two independent triggers — EITHER fires the drop:
+      1. Value starts with affect/distress vocabulary
+         (Mary's literal failure mode: value="scared about talking to")
+      2. Value appears in source text after a distress phrase
+         (indirect: "I'm scared of [name]")
+
+    Field must be a guarded identity suffix (fullName / firstName /
+    lastName / middleName / maidenName / preferredName).
+    """
+    field = item.get("fieldPath") or ""
+    if not field.endswith(_AFFECT_GUARDED_FIELD_SUFFIXES):
+        return False
+    raw_value = item.get("value")
+    if not isinstance(raw_value, str):
+        return False
+    value = raw_value.strip()
+    if not value:
+        return False
+    # Trigger 1: value starts with distress token (catches Mary's
+    # literal "scared about talking to" failure mode directly)
+    if _value_starts_with_affect_token(value):
+        logger.info(
+            "[extract][affect-name-guard] drop fieldPath=%s value=%r reason=value_starts_with_distress_token",
+            field, value,
+        )
+        return True
+    # Trigger 2: value appears after distress phrase in source text
+    if _looks_like_affect_phrase_for_value(source_text or "", value):
+        logger.info(
+            "[extract][affect-name-guard] drop fieldPath=%s value=%r reason=distress_phrase_in_source",
+            field, value,
+        )
+        return True
+    return False
+
+
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
 def _apply_transcript_safety_layer(
@@ -7931,6 +8061,16 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             # Sibling lane to PLACE-LASTNAME-01; runs independently (no SPANTAG
             # gate).
             if _drop_place_as_birthplace(item, answer or ""):
+                continue
+
+            # BUG-EX-PROTECTED-IDENTITY-FRAGMENT-WRITE-01 (2026-05-09):
+            # drop misbound distress-fragment-as-identity candidates
+            # (Mary's literal: "scared about talking to" → personal
+            # .fullName="scared about talking to"). Either the value
+            # starts with affect/distress vocabulary, OR the value
+            # appears in source text after a distress phrase. Sibling
+            # lane to PLACE-LASTNAME-01 / PLACE-AS-BIRTHPLACE-01.
+            if _drop_affect_phrase_as_name(item, answer or ""):
                 continue
 
             meta = EXTRACTABLE_FIELDS.get(item["fieldPath"], {})
