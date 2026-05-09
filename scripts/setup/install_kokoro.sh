@@ -74,12 +74,44 @@ echo
 echo "[3/5] Upgrading pip / setuptools / wheel inside venv..."
 $PYTHON -m pip install --upgrade pip setuptools wheel
 
-# 4. pip install kokoro + phonemizer
+# 4. pip install kokoro + soundfile + numpy + web-server deps
+#    NOTE: Do NOT install standalone `phonemizer` here. Kokoro's misaki
+#    dependency requires `phonemizer-fork` which provides
+#    EspeakWrapper.set_data_path(). The PyPI `phonemizer` (no -fork) is
+#    older and lacks that method. Both register the same `phonemizer`
+#    namespace, so installing both produces a conflict where the older
+#    package can win the import resolution and Kokoro crashes with:
+#      AttributeError: type object 'EspeakWrapper' has no attribute 'set_data_path'
+#    Kokoro pulls in `phonemizer-fork` transitively via misaki — let pip
+#    resolve it from the kokoro install line alone.
+#
+#    fastapi + uvicorn + python-multipart are required because the
+#    Hornelore TTS service (server/code/api/tts_service.py) is a FastAPI
+#    app served via uvicorn. The launcher activates this venv and runs
+#    `python -m uvicorn code.api.tts_service:app --port 8001`, so without
+#    these the service can't even start. .venv-tts (the legacy Coqui venv)
+#    had them via Coqui's transitive deps; the fresh .venv doesn't.
 echo
-echo "[4/5] Installing kokoro + phonemizer + soundfile + numpy..."
-$PYTHON -m pip install kokoro phonemizer soundfile numpy
+echo "[4/5] Installing kokoro + soundfile + numpy + fastapi + uvicorn..."
+$PYTHON -m pip install kokoro soundfile numpy fastapi 'uvicorn[standard]' python-multipart
 
-# 5. Verify imports
+# Defensive repair: if a previous (buggy) run installed standalone
+# `phonemizer`, remove it AND force-reinstall phonemizer-fork +
+# espeakng-loader. Reason: phonemizer 3.3.0 and phonemizer-fork 3.3.2
+# both write into the same `phonemizer/` namespace dir; whichever
+# wrote LAST wins on file content but pip metadata tracks both.
+# A bare `pip uninstall phonemizer` removes files listed in
+# phonemizer-3.3.0/RECORD — some of which were overwritten by the
+# fork — leaving phonemizer-fork's RECORD pointing at missing files.
+# Force-reinstall restores the correct fork files. Idempotent: if no
+# phonemizer is present, uninstall is a no-op and the reinstall
+# upgrades fork + loader to their latest compatible versions.
+echo
+echo "[4a/5] Defensive repair: drop standalone phonemizer; force-reinstall fork + loader..."
+$PYTHON -m pip uninstall -y phonemizer 2>/dev/null || echo "  phonemizer not installed (OK)"
+$PYTHON -m pip install --upgrade --force-reinstall phonemizer-fork espeakng-loader
+
+# 5. Verify imports + that the fork's API surface is actually present
 echo
 echo "[5/5] Verifying imports..."
 $PYTHON -c "
@@ -87,10 +119,16 @@ from kokoro import KPipeline
 import phonemizer
 import soundfile
 import numpy as np
-print('  kokoro:     ' + str(KPipeline.__module__))
-print('  phonemizer: ' + phonemizer.__version__)
-print('  soundfile:  ' + soundfile.__version__)
-print('  numpy:      ' + np.__version__)
+# Confirm we got phonemizer-fork (has set_data_path), not the old one.
+from phonemizer.backend.espeak.wrapper import EspeakWrapper
+assert hasattr(EspeakWrapper, 'set_data_path'), \\
+    'phonemizer is missing set_data_path() — phonemizer-fork is required'
+assert hasattr(EspeakWrapper, 'set_library'), \\
+    'phonemizer is missing set_library() — phonemizer-fork is required'
+print('  kokoro:          ' + str(KPipeline.__module__))
+print('  phonemizer:      ' + phonemizer.__version__ + '  (fork verified)')
+print('  soundfile:       ' + soundfile.__version__)
+print('  numpy:           ' + np.__version__)
 print()
 print('  All imports OK.')
 "

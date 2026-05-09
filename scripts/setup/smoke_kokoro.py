@@ -46,6 +46,45 @@ def _is_wsl() -> bool:
     return False
 
 
+def _extract_audio_from_chunk(chunk):
+    """Defensively extract audio from a Kokoro pipeline chunk.
+
+    Kokoro 0.9.x yields `KPipeline.Result` objects with public attrs:
+        graphemes, phonemes, audio, output, pred_dur, text_index, tokens
+    Older Kokoro (pre-0.9) yielded plain tuples (graphemes, phonemes, audio).
+
+    Verified live on Kokoro 0.9.4 (MAG-Chris probe 2026-05-07):
+        type(chunk).__name__ == 'Result'
+        len(chunk) == 3                       # tuple-like via __iter__
+        chunk.audio                           # FloatTensor, what we want
+        chunk.output                          # alternate audio holder
+
+    Order of preference:
+      1. chunk.audio          — Kokoro 0.9.x canonical attribute
+      2. chunk.output         — Kokoro 0.9.x alt attribute
+      3. chunk[2]             — pre-0.9 tuple position
+      4. chunk itself         — last-ditch fallback (raw tensor case)
+
+    Raises ValueError if none of the above yield a tensor-shaped object.
+    """
+    # Preferred path — Kokoro 0.9.x Result.audio
+    audio = getattr(chunk, "audio", None)
+    if audio is not None:
+        return audio
+    # Alternate — some 0.9.x paths populate .output instead
+    audio = getattr(chunk, "output", None)
+    if audio is not None:
+        return audio
+    # Pre-0.9 tuple shape
+    try:
+        if len(chunk) >= 3:
+            return chunk[2]
+    except (TypeError, AttributeError):
+        pass
+    # Last-ditch — chunk IS the audio tensor
+    return chunk
+
+
 ENGLISH_TEXT = (
     "Hello, this is a Kokoro smoke test. The voice should sound warm and "
     "conversational, suitable for an older narrator hearing reflections "
@@ -127,7 +166,7 @@ def main() -> int:
     en_audio = []
     for chunk in chunks:
         try:
-            audio = chunk[2] if isinstance(chunk, tuple) else chunk
+            audio = _extract_audio_from_chunk(chunk)
             if hasattr(audio, "detach"):
                 audio = audio.detach().cpu().numpy()
             en_audio.append(np.asarray(audio, dtype=np.float32))
@@ -170,7 +209,7 @@ def main() -> int:
     es_audio = []
     for chunk in chunks:
         try:
-            audio = chunk[2] if isinstance(chunk, tuple) else chunk
+            audio = _extract_audio_from_chunk(chunk)
             if hasattr(audio, "detach"):
                 audio = audio.detach().cpu().numpy()
             es_audio.append(np.asarray(audio, dtype=np.float32))

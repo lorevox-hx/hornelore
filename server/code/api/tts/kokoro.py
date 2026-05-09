@@ -140,8 +140,14 @@ class KokoroEngine(TTSEngine):
                 f"Supported: {sorted(_LANG_TO_KOKORO.keys())}"
             )
 
-        # Resolve voice: caller-provided > per-language default > engine default
-        if not voice:
+        # Resolve voice: caller-provided > per-language default > engine default.
+        # If voice is provided but isn't a known Kokoro voice key (e.g. "lori"
+        # from Coqui-default callers, or any FE that hardcodes a voice name),
+        # fall back to per-language default. This prevents
+        #   LocalEntryNotFoundError('lori.pt')
+        # when the live TTS service receives a Coqui-shaped request body.
+        _known_keys = {v["key"] for v in self.available_voices()}
+        if not voice or voice not in _known_keys:
             voice = _DEFAULT_VOICE_BY_LANG.get(lang) or _DEFAULT_VOICE_EN
 
         pipeline = self._kpipeline_for(kokoro_lang)
@@ -165,12 +171,24 @@ class KokoroEngine(TTSEngine):
                 f"Kokoro returned no audio chunks for text={text[:60]!r}"
             )
 
-        # Each chunk's audio is a numpy array (or torch tensor — coerce).
+        # Each chunk's audio is a numpy array OR torch tensor.
+        # Kokoro 0.9.x yields KPipeline.Result objects with public attrs
+        # (.audio, .graphemes, .phonemes, .output, .pred_dur, .text_index,
+        # .tokens). Pre-0.9 yielded plain (graphemes, phonemes, audio)
+        # tuples. Verified shape live on 0.9.4 MAG-Chris 2026-05-07.
+        # Try .audio first, then .output, then the legacy tuple position.
         audio_arrays = []
         for chunk in chunks:
             try:
-                # Tuple shape: (graphemes, phonemes, audio) — audio is index 2
-                audio = chunk[2] if isinstance(chunk, tuple) else chunk
+                audio = getattr(chunk, "audio", None)
+                if audio is None:
+                    audio = getattr(chunk, "output", None)
+                if audio is None:
+                    # Pre-0.9 tuple fallback
+                    try:
+                        audio = chunk[2] if len(chunk) >= 3 else chunk
+                    except (TypeError, AttributeError):
+                        audio = chunk
                 # Coerce torch.Tensor → np.ndarray if needed
                 if hasattr(audio, "detach"):
                     audio = audio.detach().cpu().numpy()

@@ -26,12 +26,12 @@ echo "[launcher] Starting LLM backend on port 8000..."
 gnome-terminal --title="Hornelore Backend (8000)" -- bash -c "
   cd \"$REPO_DIR\"
   echo '── Hornelore LLM Backend ───────────────────────────'
-  bash launchers/run_gpu_8000.sh
+  bash launchers/hornelore_run_gpu_8000.sh
   exec bash
 " 2>/dev/null || {
   echo "[launcher] gnome-terminal not found — starting backend in background"
   cd "$REPO_DIR"
-  bash launchers/run_gpu_8000.sh &
+  bash launchers/hornelore_run_gpu_8000.sh &
   BACKEND_PID=$!
   echo "[launcher] Backend PID: $BACKEND_PID"
 }
@@ -40,12 +40,12 @@ echo "[launcher] Starting TTS server on port 8001..."
 gnome-terminal --title="Hornelore TTS (8001)" -- bash -c "
   cd \"$REPO_DIR\"
   echo '── Hornelore TTS Server ───────────────────────────'
-  bash launchers/run_tts_8001.sh
+  bash launchers/hornelore_run_tts_8001.sh
   exec bash
 " 2>/dev/null || {
   echo "[launcher] gnome-terminal not found — starting TTS in background"
   cd "$REPO_DIR"
-  bash launchers/run_tts_8001.sh &
+  bash launchers/hornelore_run_tts_8001.sh &
   TTS_PID=$!
   echo "[launcher] TTS PID: $TTS_PID"
 }
