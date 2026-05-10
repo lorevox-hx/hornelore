@@ -114,7 +114,15 @@ _META_WANT_FACTS_EN = [
     re.compile(r"\b(?:facts?|details?|specifics?)\s+not\s+(?:feelings?|emotions?|sensory|sights?\s+sounds?)\b", re.IGNORECASE),
     re.compile(r"\byou\s+want\s+to\s+know\s+how\s+i\s+felt\b", re.IGNORECASE),
     re.compile(r"\b(?:i'?m|i\s+am)\s+trying\s+to\s+(?:tell|describe)\b", re.IGNORECASE),
-    re.compile(r"\blet\s+me\s+(?:tell|finish|describe|explain)\b", re.IGNORECASE),
+    # BUG-LORI-WANT-FACTS-FALSE-POSITIVE-01 (2026-05-10): "let me
+    # tell" alone matches narrator's own framing ("Let me tell it
+    # in order because one thing led to the next" — Kent's K-COMBINED
+    # opener triggered want_facts deterministic ack). Tightened to
+    # require finish/describe/explain (which signal "Lori, get out
+    # of my way") OR tell paired with you-stop pattern. Bare "let me
+    # tell" / "let me tell my story" no longer trigger.
+    re.compile(r"\blet\s+me\s+(?:finish|describe|explain)\b", re.IGNORECASE),
+    re.compile(r"\blet\s+me\s+tell\s+(?:you\s+)?(?:without|before)\s+(?:you\s+)?(?:interrupt|asking|stopping)", re.IGNORECASE),
 ]
 
 _META_WANT_FACTS_ES = [
@@ -144,6 +152,108 @@ _META_ASK_ABOUT_X_NOT_Y_EN = [
     re.compile(r"\bask\s+about\s+\w+(?:\s+\w+){0,5}\s+not\s+(?:the\s+)?(?:sensory|sights|sounds|smells|feelings|emotions)\b", re.IGNORECASE),
     re.compile(r"\bnot\s+asking\s+about\s+\w+(?:\s+\w+){0,3}\s+rather\s+the\s+sensory\b", re.IGNORECASE),
 ]
+
+
+# ── Detection: TYPE C — CORRECTION (NEW 2026-05-10) ───────────────────────
+#
+# BUG-LORI-CORRECTION-PERSPECTIVE-INVERSION-01 — Kent's K10 turn was
+# "you have the name of the hospital wrong not Lansdale Army hospital
+# but landstuhl air force hospital ramstein air force base". Lori
+# responded by FIRST-PERSON ECHOING the correction as if she were
+# Kent: "So while we were in Kaiserslautern our son Vince was born at
+# Landstuhl Air Force Hospital, and we took care of all of the birth."
+# Kent: "you are talking like you are me." Then Lori got confused
+# about her role.
+#
+# The deterministic intercept extracts the correction (the AFTER value
+# in "not X but Y" / "actually Y" / "the name is Y") and emits a
+# strict second-person acknowledgment that NEVER uses "we" / "our" /
+# "I" perspective markers. Like meta-feedback, this fires before the
+# LLM, so the perspective-mimicry failure mode becomes structurally
+# impossible.
+_META_CORRECTION_EN = [
+    # "you have/got the name of X wrong"
+    re.compile(r"\byou\s+(?:have|got)\s+(?:the\s+)?(?:name\s+of\s+)?(?:the\s+)?\w+(?:\s+\w+){0,5}\s+wrong\b", re.IGNORECASE),
+    # "not X but Y" / "not X, it was Y"
+    re.compile(r"\bnot\s+\w+(?:\s+\w+){1,8}\s+but\s+(?:the\s+)?\w+", re.IGNORECASE),
+    # "actually it was/is Y" / "actually, Y"
+    re.compile(r"\bactually\s+(?:it\s+(?:was|is|'s)\s+)?[A-Z]?\w+", re.IGNORECASE),
+    # "I meant Y" / "I said Y not"
+    re.compile(r"\bi\s+(?:meant|said)\s+\w+", re.IGNORECASE),
+    # "the [thing] was/is Y" — strong signal it's a correction
+    re.compile(r"\bthe\s+(?:name|hospital|base|place|year|date|number|address)\s+(?:was|is|'s)\s+\w+", re.IGNORECASE),
+    # "that's wrong" / "that is wrong" / "incorrect"
+    re.compile(r"\b(?:that'?s|that\s+is|you\s+are|you'?re)\s+(?:wrong|incorrect|mistaken)\b", re.IGNORECASE),
+]
+_META_CORRECTION_ES = [
+    re.compile(r"\bno\s+es\s+\w+(?:\s+\w+){0,5}\s+(?:es|sino)\s+\w+", re.IGNORECASE),
+    re.compile(r"\bestá[s]?\s+equivocad[oa]s?\b", re.IGNORECASE),
+    re.compile(r"\bquise\s+decir\b", re.IGNORECASE),
+]
+
+
+# Pattern to extract the CORRECTION (the AFTER value) from a correction
+# turn. We look for "not X but Y" / "not X, Y" forms where Y is the
+# correct value. Captures multi-word values up to 8 tokens.
+_CORRECTION_AFTER_RX = (
+    # "not [X] but/, [Y]" — stops at first terminator after Y
+    re.compile(
+        r"\bnot\s+[A-Za-z][A-Za-z\s]{2,40}?\s+(?:but|,)\s+([A-Za-z][A-Za-z\s]{2,80}?)(?:\.|,|;|$)",
+        re.IGNORECASE,
+    ),
+    # "actually [Y]" / "actually it was [Y]"
+    # Y stops at first " not " / punctuation / end
+    re.compile(
+        r"\bactually\s+(?:it\s+(?:was|is|'s)\s+)?([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+not\s+|[\.\?!,;]|$)",
+        re.IGNORECASE,
+    ),
+    # "I meant [Y]" / "I said [Y]" — Y stops at " not " / punct / end
+    re.compile(
+        r"\bi\s+(?:meant|said)\s+([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+not\s+|[\.\?!,;]|$)",
+        re.IGNORECASE,
+    ),
+    # "the [thing] was/is [Y]" — Y stops at " not " / punct / end
+    re.compile(
+        r"\bthe\s+(?:name|hospital|base|place)\s+(?:was|is|'s)\s+([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+not\s+|[\.\?!,;]|$)",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _extract_correction_value(text: str) -> str:
+    """Extract the corrected (AFTER) value from a correction turn.
+
+    For Kent's K10: "you have the name of the hospital wrong not
+    Lansdale Army hospital but landstuhl air force hospital ramstein
+    air force base" → returns "Landstuhl Air Force Hospital Ramstein
+    Air Force Base".
+
+    Returns "" if no clean AFTER value can be extracted (the composer
+    falls back to a generic acknowledgment).
+
+    Note: narrators often type corrected proper nouns in lowercase
+    ("landstuhl air force hospital ramstein air force base"). We
+    Title-Case BEFORE sanitizing so the standard sanitizer's
+    proper-noun heuristic accepts longer multi-word place names
+    instead of rejecting them as pronoun-heavy fragments.
+    """
+    if not text:
+        return ""
+    cleaned = re.sub(r"\[SYSTEM:.*?\]", " ", text or "", flags=re.DOTALL)
+    for rx in _CORRECTION_AFTER_RX:
+        m = rx.search(cleaned)
+        if m:
+            value = m.group(1).strip().rstrip(".,;:")
+            if not value:
+                continue
+            # Title-case BEFORE sanitize so multi-word lowercase
+            # corrections (Kent typed "landstuhl air force hospital
+            # ramstein air force base") pass the proper-noun heuristic.
+            value_titled = value.title()
+            sanitized = _sanitize_anchor(value_titled)
+            if sanitized:
+                return sanitized
+    return ""
 
 
 # ── Detection: TYPE B — STRUCTURED NARRATIVE ──────────────────────────────
@@ -238,8 +348,15 @@ class WitnessDetection:
     """The detection result. detection_type is the primary label;
     sub_type is the META-FEEDBACK refinement when applicable."""
     detection_type: str = ""  # "META_FEEDBACK" | "STRUCTURED_NARRATIVE" | ""
-    sub_type: str = ""  # "stop_sensory" | "want_facts" | "being_vague" | "ask_x_not_y" | "structured" | ""
-    factual_anchor: str = ""  # last factual anchor pulled from text
+    sub_type: str = ""  # "stop_sensory" | "want_facts" | "being_vague" | "ask_x_not_y" | "structured" | "correction" | ""
+    factual_anchor: str = ""  # last factual anchor pulled from text (single)
+    multi_anchors: tuple = ()  # ordered tuple of up to 3 anchors for
+                                # multi-anchor composer (BUG-LORI-WITNESS
+                                # -MULTI-ANCHOR-01, 2026-05-10)
+    event_phrases: tuple = ()  # ordered tuple of up to 4 narrator-action
+                                # event clauses for active-receipt
+                                # composer (BUG-LORI-WITNESS-ACTIVE
+                                # -RECEIPT-01, 2026-05-10)
     word_count: int = 0
     chronological_connector_count: int = 0
     action_verb_count: int = 0
@@ -375,6 +492,180 @@ def _extract_meta_feedback_topic(text: str) -> str:
     return ""
 
 
+# BUG-LORI-WITNESS-ACTIVE-RECEIPT-01 (2026-05-10) — multi-event
+# extractor for active-listening receipts. Pulls narrator-action
+# clauses ("you went from Stanley to Fargo", "you scored expert on
+# the M1") so the witness composer can produce a multi-fact sentence
+# instead of a bare label list.
+#
+# Each event is a (verb_phrase, object_phrase) tuple. The composer
+# joins 3-5 events into a single second-person sentence:
+#   "You went from Stanley to Fargo, scored high on the induction
+#   tests, and were put in charge of the meal tickets to the West
+#   Coast. What happened on the train?"
+#
+# Detection is heuristic + tolerant. We extract verbs from a curated
+# narrator-action list, pair each with a short following object/place
+# phrase, and skip clauses that don't yield both a verb and a target.
+
+# Narrator-action verbs (past tense, common in oral-history narrative)
+_EVENT_VERBS = (
+    "went", "got", "took", "drove", "drove", "rode", "flew", "sailed",
+    "enlisted", "joined", "served", "trained", "moved", "transferred",
+    "started", "finished", "arrived", "departed", "left", "returned",
+    "deployed", "stationed", "assigned", "promoted", "graduated",
+    "passed", "qualified", "received", "earned", "scored", "made",
+    "selected", "picked", "chosen", "appointed",
+    "became", "worked", "met", "married", "had", "raised",
+    "taught", "studied", "learned", "practiced", "built", "wrote",
+    "remembered", "told", "asked", "said", "decided", "chose",
+    "saw", "knew", "ended", "came", "completed", "finished", "began",
+    "shipped", "boarded", "landed", "rented", "bought", "sold",
+    "spent", "lived", "stayed", "filed", "registered",
+)
+_EVENT_VERB_RX = re.compile(
+    r"\bI\s+("
+    + "|".join(re.escape(v) for v in _EVENT_VERBS)
+    + r")\b",
+    re.IGNORECASE,
+)
+# Also catch passive "they put me in charge of X" / "I was put in
+# charge of X" / "got selected for X"
+_PASSIVE_NARRATOR_RX = re.compile(
+    r"\b(?:I\s+(?:was|got|had been)|they\s+(?:put|made|sent|chose|"
+    r"selected|assigned|told|gave|let|let me))\s+"
+    r"(\w+(?:\s+\w+){0,5})",
+    re.IGNORECASE,
+)
+
+
+def _extract_event_phrases(text: str, max_n: int = 4) -> List[str]:
+    """Extract narrator-action event phrases for active-receipt
+    composition. Each phrase is short ('went to Fargo for induction',
+    'scored expert on the M1', 'put in charge of meal tickets').
+
+    Returns ordered list, deduped, truncated to max_n. Empty list if
+    no clean events extractable.
+    """
+    if not text:
+        return []
+    cleaned = re.sub(r"\[SYSTEM:.*?\]", " ", text or "", flags=re.DOTALL)
+    events: List[str] = []
+    seen_lower: set = set()
+
+    def _try_add(phrase: str) -> None:
+        # Trim to 6-8 tokens for compactness
+        toks = phrase.strip().split()
+        if len(toks) > 8:
+            toks = toks[:8]
+        elif len(toks) < 2:
+            return
+        compact = " ".join(toks).rstrip(".,;:")
+        # Reject if too generic / contains forbidden vocab
+        compact_lower = compact.lower()
+        for bad in ("you want", "how i felt", "the sensory"):
+            if bad in compact_lower:
+                return
+        # Substring dedupe
+        for existing in seen_lower:
+            if compact_lower in existing or existing in compact_lower:
+                return
+        seen_lower.add(compact_lower)
+        events.append(compact)
+
+    # Pass 1: "I [verb] [next 4-7 tokens]"
+    for m in _EVENT_VERB_RX.finditer(cleaned):
+        verb = m.group(1).lower()
+        # Take verb + next 5-7 tokens as the event phrase
+        start = m.start()
+        # Skip the "I " prefix; phrase begins at verb
+        verb_start = m.start(1)
+        # Pull 6 following tokens (or until punctuation)
+        tail = cleaned[verb_start:verb_start + 80]
+        # Stop at chronological connectors / punctuation
+        tail_clipped = re.split(
+            r"(?:\s+(?:and|then|after|but|so|when|while|because|until|"
+            r"before|then|once|so)\s+|[\.\?!;])",
+            tail, maxsplit=1
+        )[0]
+        _try_add(tail_clipped)
+        if len(events) >= max_n:
+            break
+
+    return events[:max_n]
+
+
+def _extract_top_anchors(text: str, max_n: int = 3) -> List[str]:
+    """Pull the top-N most useful continuation anchors from a narrator
+    turn, ordered by appearance position. Used by composer for STRUCTURED
+    _NARRATIVE responses to reflect MULTIPLE concrete facts back ("Stanley
+    to Fargo, the induction tests, and the meal-ticket assignment") so
+    Lori demonstrates active listening, not just acknowledgment.
+
+    BUG-LORI-WITNESS-MULTI-ANCHOR-01 (2026-05-10) — Kent's session
+    showed that a single-anchor "Tell me more about West Coast" template
+    feels dismissive after a 100-200 word narrative. Multi-anchor
+    extraction lets the witness composer reflect substance without
+    invoking the LLM.
+
+    Selection logic:
+      1. All proper-noun phrases in order of appearance (skip stopword
+         starters, skip sentence-initial)
+      2. Append definite-noun phrases ("the meal tickets", "the
+         induction test") that aren't already covered by a proper noun
+      3. Sanitize each via _sanitize_anchor
+      4. Dedupe (case-insensitive substring containment)
+      5. Return first max_n
+
+    Empty input → empty list. No anchors found → empty list.
+    """
+    if not text or not text.strip():
+        return []
+    cleaned = re.sub(r"\[SYSTEM:.*?\]", " ", text or "", flags=re.DOTALL)
+
+    found: List[str] = []
+    seen_lower: set = set()
+
+    def _try_add(candidate: str) -> None:
+        s = _sanitize_anchor(candidate)
+        if not s:
+            return
+        s_lower = s.lower()
+        # Dedupe — skip if a previous anchor already contains this one
+        # (or vice versa). "Fargo" subsumed by "Stanley to Fargo" etc.
+        for existing in seen_lower:
+            if s_lower in existing or existing in s_lower:
+                return
+        seen_lower.add(s_lower)
+        found.append(s)
+
+    # Pass 1: proper-noun phrases in narrative order
+    for m in _PROPER_NOUN_RX.finditer(cleaned):
+        token = m.group(1).strip()
+        first_word = token.split()[0]
+        if first_word in _NOT_AN_ANCHOR:
+            continue
+        start = m.start()
+        if start == 0:
+            continue
+        prefix = cleaned[max(0, start - 2):start]
+        if prefix in (". ", "! ", "? ", "\n\n"):
+            continue
+        _try_add(token)
+        if len(found) >= max_n * 2:  # cap exploration; we'll trim below
+            break
+
+    # Pass 2: definite-noun phrases in narrative order
+    if len(found) < max_n:
+        for m in _DEFINITE_NOUN_RX.finditer(cleaned):
+            phrase = m.group(0).strip()
+            _try_add(phrase)
+            if len(found) >= max_n * 2:
+                break
+
+    return found[:max_n]
+
+
 def _extract_factual_anchor(text: str) -> str:
     """Pull the most useful continuation-anchor from the narrator's
     turn. Heuristic priority:
@@ -501,7 +792,28 @@ def detect_witness_event(text: Optional[str]) -> WitnessDetection:
             factual_anchor=_meta_anchor(),
         )
 
+    # ── TYPE C: CORRECTION (BUG-LORI-CORRECTION-PERSPECTIVE-INVERSION-01)
+    # Narrator is correcting a fact Lori got wrong. The composer emits
+    # a strict second-person acknowledgment with the corrected value,
+    # never first-person echoing. This fires AFTER meta-feedback
+    # (meta-feedback handles "you are being vague" — broader behavior
+    # critique) and BEFORE structured-narrative.
+    if _matches_any(_META_CORRECTION_EN + _META_CORRECTION_ES, cleaned):
+        corrected = _extract_correction_value(cleaned)
+        return WitnessDetection(
+            detection_type="META_FEEDBACK",
+            sub_type="correction",
+            # Use corrected value as the factual anchor when we got one;
+            # otherwise fall back to a generic anchor extraction.
+            factual_anchor=corrected or _sanitize_anchor(_extract_factual_anchor(cleaned)),
+        )
+
     # ── TYPE B: STRUCTURED NARRATIVE ──
+    # Pull multi-anchor list for richer composer response. Falls back
+    # to single anchor (last meaningful proper noun) when narrator's
+    # turn doesn't yield 2+ distinct anchors.
+    structured_anchors = _extract_top_anchors(cleaned, max_n=3)
+
     word_count = len(cleaned.split())
     # 25-word floor. Below that we treat as a fragment/sentence — even
     # if it has chronological shape, the response should be a normal
@@ -536,10 +848,17 @@ def detect_witness_event(text: Optional[str]) -> WitnessDetection:
         or total_signals >= 4
     )
     if is_structured:
+        # Multi-anchor extraction was pre-computed above; pull top
+        # anchor for backward compat single-anchor template fallback.
+        primary = structured_anchors[0] if structured_anchors else _sanitize_anchor(_extract_factual_anchor(cleaned))
+        # Event-phrase extraction for active-receipt composer
+        event_phrases = _extract_event_phrases(cleaned, max_n=4)
         return WitnessDetection(
             detection_type="STRUCTURED_NARRATIVE",
             sub_type="structured",
-            factual_anchor=_sanitize_anchor(_extract_factual_anchor(cleaned)),
+            factual_anchor=primary,
+            multi_anchors=tuple(structured_anchors),
+            event_phrases=tuple(event_phrases),
             word_count=word_count,
             chronological_connector_count=chrono_count,
             action_verb_count=action_count,
@@ -573,10 +892,56 @@ _RESPONSES_EN = {
         "You're right — I missed what you said. "
         "Please tell me again{anchor_clause}."
     ),
+    # BUG-LORI-CORRECTION-PERSPECTIVE-INVERSION-01 (2026-05-10):
+    # Strict second-person acknowledgment. NEVER uses "we" / "our" /
+    # "I" perspective markers — that's the failure mode this template
+    # is built to prevent. Format: "Got it — {corrected value}. What
+    # happened next?" When anchor_clause is empty (no value extracted),
+    # the template still reads naturally.
+    "correction": (
+        "Got it{anchor_clause}. What happened next?"
+    ),
+    # BUG-LORI-WITNESS-PROPER-NOUN-CONFIRM-01 (2026-05-10): when the
+    # narrator corrects a proper noun (Kent's K10: "Landstuhl Air
+    # Force Hospital Ramstein Air Force Base"), Lori should verify
+    # accuracy like a careful oral historian — ask spelling
+    # confirmation. Used when the corrected value contains 2+ tokens
+    # (likely a multi-word place/institution name where exact spelling
+    # matters for archive accuracy).
+    "correction_spelling": (
+        "Got it{anchor_clause}. Did I get that name right? "
+        "What happened next?"
+    ),
     # STRUCTURED-NARRATIVE response — continuation invitation only.
     # Cap at ~12-15 words. Stay on the thread.
     "structured": (
         "Tell me more{anchor_clause}. What happened next?"
+    ),
+    # BUG-LORI-WITNESS-MULTI-ANCHOR-01 (2026-05-10) — multi-anchor
+    # template for STRUCTURED_NARRATIVE turns where Lori can reflect
+    # MULTIPLE concrete facts the narrator just said. Demonstrates
+    # active listening without invoking the LLM. Used when the
+    # detector pulled 2+ anchors from the turn.
+    #
+    # Shape: "{Anchor list}. What happened next?"
+    # Example: "Stanley to Fargo, the induction tests, and the meal-
+    #          ticket assignment. What happened next?"
+    "structured_multi": (
+        "I caught {anchor_list}. What happened next?"
+    ),
+    # BUG-LORI-WITNESS-ACTIVE-RECEIPT-01 (2026-05-10) — active receipt
+    # template using narrator-action event phrases. Used when the
+    # detector pulled 2+ event clauses from the turn ("went from
+    # Stanley to Fargo for induction", "scored expert on the M1",
+    # "got put in charge of meal tickets"). Demonstrates Lori
+    # followed the SEQUENCE, not just grabbed words.
+    #
+    # Shape: "You {event1}, {event2}, and {event3}. What happened next?"
+    # Example: "You went from Stanley to Fargo for induction, scored
+    #          expert on the M1, and got put in charge of meal tickets.
+    #          What happened on the train?"
+    "structured_receipt": (
+        "You {event_list}. What happened next?"
     ),
 }
 
@@ -597,8 +962,21 @@ _RESPONSES_ES = {
         "Tienes razón — me perdí lo que dijiste. "
         "Por favor, cuéntame otra vez{anchor_clause}."
     ),
+    "correction": (
+        "Entendido{anchor_clause}. ¿Qué pasó después?"
+    ),
+    "correction_spelling": (
+        "Entendido{anchor_clause}. ¿Capté bien el nombre? "
+        "¿Qué pasó después?"
+    ),
     "structured": (
         "Cuéntame más{anchor_clause}. ¿Qué pasó después?"
+    ),
+    "structured_multi": (
+        "Capté {anchor_list}. ¿Qué pasó después?"
+    ),
+    "structured_receipt": (
+        "Tú {event_list}. ¿Qué pasó después?"
     ),
 }
 
@@ -609,14 +987,75 @@ def _resolve_locale(target_language: Optional[str]) -> str:
     return "en"
 
 
-def _format_anchor_clause(anchor: str, lang: str) -> str:
-    """Build the " about X" continuation clause from the anchor.
+def _format_anchor_clause(anchor: str, lang: str, sub_type: str = "") -> str:
+    """Build the continuation clause from the anchor. Shape depends on
+    sub_type:
+      - "correction" / "correction_spelling": " — {anchor}" (em dash
+        + value, second-person)
+      - default: " about {anchor}" (continuation invitation)
     Empty anchor → empty clause (template still reads naturally)."""
     if not anchor:
         return ""
+    if sub_type in ("correction", "correction_spelling"):
+        return f" — {anchor}"
     if lang == "es":
         return f" sobre {anchor}"
     return f" about {anchor}"
+
+
+def _events_quality_pass(events: List[str]) -> bool:
+    """Quality gate for event-receipt composition. Returns True only
+    when the extracted event phrases produce a clean response. Falls
+    through to multi-anchor when the narrator's text was disfluent
+    (Kent's K4/K5 verbatim had self-repeating phrases like "I had
+    made I scored expert on the M1 rifle M1 rifle" that produced
+    overlapping event extractions).
+
+    Rejects if:
+      - Total event tokens > 24 (response would exceed ~30 words)
+      - Any pair of events overlaps >50% in token set
+      - Any single event has >8 tokens (too long, likely noisy clip)
+    """
+    if not events:
+        return False
+    total_tokens = sum(len(e.split()) for e in events)
+    if total_tokens > 24:
+        return False
+    for e in events:
+        if len(e.split()) > 8:
+            return False
+    # Pairwise overlap check
+    for i in range(len(events)):
+        e1_tokens = set(events[i].lower().split())
+        for j in range(i + 1, len(events)):
+            e2_tokens = set(events[j].lower().split())
+            if not e1_tokens or not e2_tokens:
+                continue
+            overlap = len(e1_tokens & e2_tokens)
+            min_size = min(len(e1_tokens), len(e2_tokens))
+            if min_size > 0 and overlap / min_size > 0.5:
+                return False
+    return True
+
+
+def _format_multi_anchor_list(anchors: List[str], lang: str) -> str:
+    """Build a comma-separated list of anchors with proper conjunction.
+    "A, B, and C" or "A and B" or "A". Empty list returns "".
+
+    Used by structured-narrative composer to demonstrate active
+    listening — "Stanley to Fargo, the induction tests, and the
+    meal-ticket assignment" instead of single-anchor "West Coast"."""
+    if not anchors:
+        return ""
+    if len(anchors) == 1:
+        return anchors[0]
+    if len(anchors) == 2:
+        joiner = " and " if lang == "en" else " y "
+        return f"{anchors[0]}{joiner}{anchors[1]}"
+    # 3+ anchors — Oxford-style "A, B, and C"
+    body = ", ".join(anchors[:-1])
+    final_joiner = ", and " if lang == "en" else ", y "
+    return f"{body}{final_joiner}{anchors[-1]}"
 
 
 def compose_witness_response(
@@ -629,8 +1068,55 @@ def compose_witness_response(
 
     lang = _resolve_locale(target_language)
     pack = _RESPONSES_ES if lang == "es" else _RESPONSES_EN
-    template = pack.get(detection.sub_type) or pack.get("structured", "")
-    anchor_clause = _format_anchor_clause(detection.factual_anchor, lang)
+
+    # BUG-LORI-WITNESS-ACTIVE-RECEIPT-01 (2026-05-10) — for STRUCTURED
+    # _NARRATIVE turns, prefer multi-FACT receipt over multi-anchor
+    # label list. Receipt demonstrates Lori followed the SEQUENCE of
+    # narrator events (active listening), not just grabbed words.
+    #
+    # Composer ladder (most-engaged → least):
+    #   1. event_phrases ≥ 2 → "structured_receipt" template
+    #      "You went from Stanley to Fargo for induction, scored
+    #       expert on the M1, and got put in charge of meal tickets.
+    #       What happened next?"
+    #   2. multi_anchors ≥ 2 → "structured_multi" template (label list
+    #      with active intro: "I caught Stanley, Fargo, and the meal
+    #      tickets. What happened next?")
+    #   3. Single anchor → "structured" template (legacy fallback)
+    if detection.detection_type == "STRUCTURED_NARRATIVE":
+        events = list(detection.event_phrases or ())
+        anchors = list(detection.multi_anchors or ())
+        if len(events) >= 2 and _events_quality_pass(events):
+            event_list = _format_multi_anchor_list(events, lang)
+            receipt_template = pack.get("structured_receipt") or pack.get("structured", "")
+            return receipt_template.format(event_list=event_list)
+        if len(anchors) >= 2:
+            multi_list = _format_multi_anchor_list(anchors, lang)
+            multi_template = pack.get("structured_multi") or pack.get("structured", "")
+            return multi_template.format(anchor_list=multi_list)
+        # 0 or 1 anchor → fall through to single-anchor template
+
+    # BUG-LORI-WITNESS-PROPER-NOUN-CONFIRM-01 — for correction turns
+    # where the corrected value LOOKS LIKE a proper-noun multi-word
+    # name (place / institution / person), use the spelling-confirm
+    # template. Trigger requires:
+    #   - 2+ tokens AND
+    #   - 50%+ of tokens start with uppercase letters
+    #
+    # This prevents false-fire on "the year was" (which would be
+    # extracted as a 2-token phrase but isn't a proper noun).
+    sub_type = detection.sub_type
+    if sub_type == "correction" and detection.factual_anchor:
+        anchor_tokens = detection.factual_anchor.split()
+        if len(anchor_tokens) >= 2:
+            cap_count = sum(1 for t in anchor_tokens if t and t[0].isupper())
+            if cap_count >= max(1, len(anchor_tokens) // 2):
+                sub_type = "correction_spelling"
+
+    template = pack.get(sub_type) or pack.get("structured", "")
+    anchor_clause = _format_anchor_clause(
+        detection.factual_anchor, lang, sub_type,
+    )
     return template.format(anchor_clause=anchor_clause)
 
 
@@ -655,10 +1141,188 @@ def detect_and_compose(
     )
 
 
+# ── BUG-LORI-WITNESS-LLM-RECEIPT-01 (2026-05-10) ─────────────────────────
+#
+# LLM-witness-receipt validator. Used by chat_ws.py AFTER the LLM
+# composes a STRUCTURED_NARRATIVE response under the WITNESS RECEIPT
+# directive injected by prompt_composer. If validation fails, chat_ws
+# falls back to the deterministic compose_witness_response path.
+#
+# Failure modes the validator catches:
+#   - Forbidden tokens (sights/sounds/smells/scenery/camaraderie/
+#     "how did that feel"/etc.)
+#   - First-person mimicry ("we were in Germany", "our son", "my wife")
+#   - Length out of bounds (35-110 words for clean witness receipt)
+#   - Multiple questions (witness mode = ONE question)
+#   - Insufficient fact reflection (<3 narrator-named anchors echoed)
+#
+# All four checks must pass for the LLM output to be accepted. Any
+# failure routes to the deterministic fallback so Kent never sees a
+# sensory probe even when the LLM drifts under directive pressure.
+
+# Forbidden tokens — case-insensitive substring match. These are the
+# exact failure terms from Kent's earlier sessions plus the broader
+# active-listening forbidden list (ChatGPT 2026-05-10 review).
+_VALIDATOR_FORBIDDEN_TOKENS = (
+    "scenery", "sights", "sounds", "smells", "sensory",
+    "how did that feel", "how did you feel",
+    "what did that feel like", "what was that like emotionally",
+    "must have been", "must have felt",
+    "camaraderie", "teamwork", "culture among",
+    "sense of duty", "pivotal", "resilience",
+)
+
+# First-person mimicry — narrator's voice leaking into Lori's response.
+# Kent's K10/K11 failure: Lori echoed "we were in Germany"/"our son".
+_VALIDATOR_FIRST_PERSON = (
+    "our son", "my son", "my wife", "our wife",
+    "we were in germany", "we were in kaiserslautern",
+    "we took care", "we got married", "we had to",
+    "we were on", "we went through", "we had the",
+    "i was assigned to germany", "i went to germany",
+    "i contacted janice", "i contacted my fiancée",
+    "while we were", "our oldest son",
+    # Generic "we [past-action]" first-person plural narration —
+    # Lori speaking AS Kent. Trim list to action verbs that are
+    # almost always narrator-voice when used after "we".
+    "we drilled", "we qualified", "we drove", "we sailed",
+    "we landed", "we married", "we moved",
+)
+
+
+# Proper-noun extractor for fact-counting. Pulls capitalized words
+# (names, places, military units) from narrator text. Used by
+# validator to count how many narrator-named anchors Lori echoed.
+_FACT_PROPER_NOUN_RX = re.compile(
+    r"\b([A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]+){0,3})\b"
+)
+# Stopword list — capitalized words that aren't real anchors
+_FACT_STOPWORDS = frozenset({
+    "I", "Im", "Ive", "We", "The", "A", "An", "And", "Or", "But",
+    "When", "Where", "Why", "How", "What", "Who", "Yes", "No",
+    "Maybe", "Sure", "Okay", "OK", "Then", "Now", "Today",
+    "Tomorrow", "Yesterday", "First", "Second", "Last", "Next",
+    "Tell", "Let", "Give", "Take", "Make", "USA", "US", "AI",
+    "Army", "Navy",  # too generic when standalone — only credit
+                      # when combined ("Army Security Agency")
+})
+
+
+def _count_narrator_facts_echoed(narrator_text: str, lori_text: str) -> int:
+    """Count distinct narrator-named anchors echoed in Lori's response.
+
+    Strategy:
+      1. Extract all capitalized proper-noun phrases from narrator text
+         (skipping stopword starters and sentence-initial position)
+      2. Plus key definite phrases ("the meal tickets", "the
+         induction test")
+      3. Count how many of those (case-insensitive substring match)
+         appear in Lori's response
+
+    This is the receipt-quality measure: did Lori reflect what the
+    narrator actually said?
+    """
+    if not narrator_text or not lori_text:
+        return 0
+
+    # Strip SYSTEM directives
+    cleaned = re.sub(r"\[SYSTEM:.*?\]", " ", narrator_text, flags=re.DOTALL)
+    lori_lower = lori_text.lower()
+
+    found_facts: set = set()
+
+    # Pass 1: proper-noun phrases (skip sentence-start + stopwords)
+    for m in _FACT_PROPER_NOUN_RX.finditer(cleaned):
+        token = m.group(1).strip()
+        first_word = token.split()[0]
+        if first_word in _FACT_STOPWORDS:
+            continue
+        start = m.start()
+        if start == 0:
+            continue
+        prefix = cleaned[max(0, start - 2):start]
+        if prefix in (". ", "! ", "? ", "\n\n"):
+            continue
+        # Single significant token at minimum
+        if token.lower() in lori_lower:
+            found_facts.add(token.lower())
+
+    # Pass 2: definite-noun phrases ("the meal tickets")
+    for m in _DEFINITE_NOUN_RX.finditer(cleaned):
+        phrase = m.group(0).strip().lower()
+        # Strip "the" prefix for matching — Lori may rephrase
+        bare = re.sub(r"^(?:the|my|our|that|these|those)\s+", "", phrase)
+        if bare and bare in lori_lower:
+            found_facts.add(bare)
+
+    return len(found_facts)
+
+
+def validate_witness_receipt(
+    lori_text: str,
+    narrator_text: str = "",
+    *,
+    min_words: int = 35,
+    max_words: int = 110,
+    max_questions: int = 1,
+    min_facts: int = 3,
+) -> tuple:
+    """Validate an LLM-composed witness receipt response.
+
+    Returns (is_valid: bool, failures: List[str]).
+
+    On any failure, chat_ws.py routes the turn to the deterministic
+    fallback (compose_witness_response on the existing detection).
+
+    Failure labels:
+      - "forbidden_token:<token>"
+      - "first_person_mimicry:<phrase>"
+      - "too_short:<n>"
+      - "too_long:<n>"
+      - "too_many_questions:<n>"
+      - "too_few_facts:<n>/<min>"
+    """
+    failures: List[str] = []
+    if not lori_text or not lori_text.strip():
+        failures.append("empty_response")
+        return False, failures
+
+    text = lori_text
+    text_lower = text.lower()
+
+    for tok in _VALIDATOR_FORBIDDEN_TOKENS:
+        if tok in text_lower:
+            failures.append(f"forbidden_token:{tok}")
+            break
+
+    for phrase in _VALIDATOR_FIRST_PERSON:
+        if phrase in text_lower:
+            failures.append(f"first_person_mimicry:{phrase}")
+            break
+
+    word_count = len(text.split())
+    if word_count < min_words:
+        failures.append(f"too_short:{word_count}")
+    elif word_count > max_words:
+        failures.append(f"too_long:{word_count}")
+
+    q_count = text.count("?")
+    if q_count > max_questions:
+        failures.append(f"too_many_questions:{q_count}")
+
+    if narrator_text and min_facts > 0:
+        facts = _count_narrator_facts_echoed(narrator_text, text)
+        if facts < min_facts:
+            failures.append(f"too_few_facts:{facts}/{min_facts}")
+
+    return (len(failures) == 0), failures
+
+
 __all__ = [
     "WitnessDetection",
     "WitnessAnswer",
     "detect_witness_event",
     "compose_witness_response",
     "detect_and_compose",
+    "validate_witness_receipt",
 ]

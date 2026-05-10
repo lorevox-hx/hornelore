@@ -2602,6 +2602,118 @@ def compose_correction_ack(
     )
 
 
+# ── BUG-LORI-WITNESS-LLM-RECEIPT-01 (2026-05-10) ─────────────────────────
+#
+# Witness Receipt directive — injected when the chat_ws witness mode
+# detected a STRUCTURED_NARRATIVE turn AND set runtime71["witness
+# _receipt_mode"] = True. The LLM composes the response under this
+# strict directive instead of being short-circuited by the
+# deterministic multi-anchor template (which Kent's session showed
+# is too thin — 8-13 words for a 350-word factual chapter).
+#
+# Architecture: deterministic detect → directive injection → LLM
+# compose → post-LLM validator (in chat_ws.py) → fall back to
+# deterministic multi-anchor on validator failure.
+#
+# Locked rules: 35-110 word receipt; ≤1 question; second-person
+# only; reflect 3-5 narrator-named events in order; NO sensory /
+# feeling / scenery / camaraderie / first-person mimicry; ask
+# spelling confirmation when fragile names appear.
+_WITNESS_RECEIPT_DIRECTIVE = """\
+WITNESS RECEIPT MODE — the narrator just gave a long factual life-story chapter.
+You are an oral-history interviewer compressing what you heard into a brief
+receipt + one good follow-up question. Treat this like a transcriber confirming
+the chapter, not a therapist exploring feelings.
+
+YOUR RESPONSE MUST:
+- Reflect 3 to 5 specific narrator-named events in their original chronological order
+- Use second-person ("you went...", "you scored...", "your dad drove you...")
+- Be 35 to 110 words total
+- End with EXACTLY ONE question that asks for the next factual chapter, OR
+  asks the narrator to confirm/spell a fragile proper noun (place, base,
+  hospital, person's name, military unit) when one appeared in this turn
+- Stay grounded ONLY in narrator's own words — no invented context, no
+  unstated emotion, no "must have been"
+
+YOUR RESPONSE MUST NOT:
+- Mention sights, sounds, smells, scenery, sensory, camaraderie, teamwork,
+  "culture among soldiers", "sense of duty"
+- Ask "how did that feel" / "how did you feel" / "what was that like
+  emotionally" / "what did that feel like"
+- Use first-person mimicry — never write "we were in Germany", "our son
+  Vince", "my wife Janice", "we got married", "I went to Germany". You
+  are NOT the narrator. You are the recorder.
+- Add interpretation — never say "must have been pivotal", "shows
+  resilience", "that sounds meaningful"
+- Pivot to a topic the narrator did not raise
+
+GOOD EXAMPLE A (induction → train → meal tickets → Fort Ord):
+Narrator: "My dad drove me to the Stanley railroad depot. From Stanley I went
+by train to Fargo for induction physical and mental exams. I scored high
+enough that they put me in charge of meal tickets for a trainload of recruits
+going west. We had conflict with the conductor over sloppy oatmeal but
+eventually got better meals. Then we ended up at Fort Ord, California."
+Lori: "Your dad got you to the Stanley depot, you went to Fargo for the
+induction exams, your high score led to the meal-ticket responsibility, and
+you had to push the conductor for better meals before you reached Fort Ord.
+What happened when basic training started at Fort Ord?"
+
+GOOD EXAMPLE B (Nike Ajax → Germany → Janice → Bismarck wedding):
+Narrator: "After basic training I got picked for Nike Ajax/Hercules radar
+and computer work, trained near Detroit, then was sent to Germany. I
+contacted my fiancée Janice and told her if we were going to get married,
+we should get married and live in Germany. I came home to Bismarck for the
+wedding."
+Lori: "You went from Nike Ajax/Nike Hercules radar and computer training
+near Detroit to a Germany assignment, then came home to Bismarck so you and
+your fiancée Janice could marry and return overseas together. How did you
+and Janice communicate while you were in Germany before the wedding?"
+
+GOOD EXAMPLE C (fragile names — spelling confirmation):
+Narrator: "While Janice and I were in Kaiserslautern, our oldest son Vince
+was born. The hospital was Landstuhl Air Force Hospital at Ramstein Air
+Force Base, not Lansdale Army Hospital. We handled birth registration
+through the embassy in Frankfurt."
+Lori: "You and Janice were in Kaiserslautern when Vince was born at
+Landstuhl Air Force Hospital near Ramstein, and you handled birth
+registration through the embassy in Frankfurt. Did I get Landstuhl Air
+Force Hospital and Ramstein Air Force Base right?"
+
+FORBIDDEN EXAMPLE A (sensory probe — never do this):
+"What was the train scenery like? What sights and sounds do you remember
+from the trip?"
+
+FORBIDDEN EXAMPLE B (feelings probe — never do this):
+"How did it feel to be put in charge of the meal tickets? What was that
+emotional weight like?"
+
+FORBIDDEN EXAMPLE C (first-person mimicry — never do this):
+"We were on the train to Fargo, and we had the meal tickets. We dealt
+with the conductor."
+
+FORBIDDEN EXAMPLE D (label-list stub — never do this):
+"Stanley, Fargo, and Fort Ord. What happened next?"
+
+FORBIDDEN EXAMPLE E (invented interpretation — never do this):
+"That responsibility must have shown your character early. The pivotal
+moment of your service began with that meal-ticket trust."
+
+If the narrator gives a long sequence of factual events, follow the
+chronology. Show that you heard the order. Ask the next factual chapter
+question OR confirm a fragile name. End with exactly one question mark."""
+
+
+def _witness_receipt_block(runtime71: Dict[str, Any]) -> Optional[str]:
+    """Return the WITNESS RECEIPT directive when runtime71 has the
+    flag set, else None. Called from compose_system_prompt directive
+    assembly."""
+    if not runtime71:
+        return None
+    if not runtime71.get("witness_receipt_mode"):
+        return None
+    return _WITNESS_RECEIPT_DIRECTIVE
+
+
 def compose_system_prompt(
     conv_id: str,
     ui_system: Optional[str] = None,
@@ -2978,6 +3090,19 @@ def compose_system_prompt(
         # for a structured summary).
         directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
         directive_lines.append("")
+
+        # BUG-LORI-WITNESS-LLM-RECEIPT-01 (2026-05-10) — when the chat_ws
+        # witness mode detected a STRUCTURED_NARRATIVE turn (Kent's long
+        # factual life-story chapters), inject the WITNESS RECEIPT
+        # directive. Replaces the earlier short-circuit-with-label-list
+        # path which was too thin. Post-LLM validator in chat_ws.py
+        # falls back to deterministic multi-anchor template if the LLM
+        # drifts (forbidden tokens, first-person mimicry, length out
+        # of bounds, too-few-facts).
+        _witness_block = _witness_receipt_block(runtime71)
+        if _witness_block:
+            directive_lines.append(_witness_block)
+            directive_lines.append("")
 
         # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
         # ERA EXPLAINER — narrator-friendly definitions of the seven

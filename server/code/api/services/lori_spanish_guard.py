@@ -119,10 +119,21 @@ def looks_spanish(text: str) -> bool:
     'mi mom' or similar.
 
     A response is considered Spanish if EITHER:
-      - contains any of á/é/í/ó/ú/ñ/¿/¡  (definitive — accent path)
+      - contains ¿ or ¡  (definitive — Spanish-only punctuation)
+      - contains ≥2 distinct accent characters from á/é/í/ó/ú/ñ
+      - contains ≥1 accent character AND ≥1 Spanish function word
       - contains ≥2 distinct Spanish function words AND no obvious
         English-only signals  (heuristic — no-accent path covers
         Whisper-degraded output)
+
+    BUG-LORI-SPANISH-DETECT-OVER-TRIGGER-01 (2026-05-10):
+    Previously a single accent character was definitive. Kent's
+    Coming-of-Age narrative contains "fiancée" — one accent — and
+    that triggered Spanish-locale routing on every Lori response,
+    producing "Capté Nike, Detroit, y Michigan" Spanish-locale
+    multi-anchor instead of English. Tightened: single accent +
+    no function word = English (loanword). Two accents OR accent
+    + Spanish function word = Spanish.
 
     Threshold lowered from 3 to 2 (2026-05-07): real Lori reflections
     are often short ("Las tardes con tu abuela cuando.") and only hit
@@ -130,10 +141,24 @@ def looks_spanish(text: str) -> bool:
     """
     if not text:
         return False
-    if _SPANISH_CHARS_RX.search(text):
+    # Definitive: Spanish-only punctuation marks
+    if "¿" in text or "¡" in text:
         return True
+    # Count accent characters and function words
+    accent_chars = set(c for c in text if c in "áéíóúñÁÉÍÓÚÑ")
     fn_word_hits = set(m.group(0).lower() for m in _SPANISH_FUNCTION_RX.finditer(text))
-    return len(fn_word_hits) >= 2
+    # ≥2 distinct accents → Spanish (loanwords like "fiancée" only
+    # have é repeated, which counts as 1 distinct char)
+    if len(accent_chars) >= 2:
+        return True
+    # 1 accent + 1+ function word → Spanish
+    if accent_chars and fn_word_hits:
+        return True
+    # No accents but ≥2 distinct function words → Spanish (Whisper
+    # degraded output path)
+    if not accent_chars and len(fn_word_hits) >= 2:
+        return True
+    return False
 
 
 # ── Quote span detection (skip-region for repair guards) ─────────────────────
