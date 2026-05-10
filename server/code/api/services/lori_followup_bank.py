@@ -524,7 +524,16 @@ def _detect_communication_logistics_doors(narrator_text: str) -> List[Door]:
 # Priority 3: role transition mechanism.
 # Triggers: narrator describes a job-to-job pivot AND identifies the
 # bridge moment. Asked immediately because the mechanism IS the story.
-
+#
+# WARNING — these patterns compile EAGERLY at module import time. The
+# first pattern has nested optional groups (`(?:opened|led) (?:up )?
+# (?:to|into)`) three levels deep; an unbalanced edit will fail the
+# whole module import, not just this detector. If this list grows
+# beyond two entries, split it into smaller named patterns rather
+# than extending the alternation chain. The companion compile test in
+# `tests/test_lori_followup_bank.py` (LoadGateRoleTransitionTest) is
+# the discipline gate — keep it green and the module-load risk stays
+# bounded.
 _ROLE_TRANSITION_PATTERNS = (
     re.compile(
         r"\b(?:became|moved into|asked if (?:they had|there were)|"

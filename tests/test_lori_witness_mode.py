@@ -1163,5 +1163,92 @@ class StructuredReceiptStoryWeightedPreferenceTest(unittest.TestCase):
         self.assertNotIn("You went from", out)
 
 
+# ── _PASSIVE_NARRATOR_RX wire-up (item 2 of the 2026-05-10 cleanup) ────────
+#
+# Adult-competence / institutional-assignment grammar is dominant in
+# Kent's army arc and most older-narrator military / labor narratives.
+# Pass 2 of `_extract_event_phrases` consumes the existing
+# `_PASSIVE_NARRATOR_RX` matches (I-form only) under the
+# `_PASSIVE_ASSIGNMENT_VERBS` allowlist gate. These tests lock the
+# behavior:
+#
+#   - "I was put in charge of meal tickets" → extracted
+#   - "I was sent to Germany" / "I was selected for Nike" → extracted
+#   - "I was feeling tired" / "I was thinking about home" → NOT extracted
+#
+# Note on adverb forms: the existing `_PASSIVE_NARRATOR_RX` matches
+# `I\s+(?:was|got|had been)` literally, so "I had been" is covered but
+# "I had already been" is NOT. The simple-form tests below are the
+# locked contract; an adverb-tolerant variant ("had [adv] been") is a
+# follow-up if Kent's narration actually uses it.
+
+
+class PassiveNarratorWireupTest(unittest.TestCase):
+    """Pass 2 of _extract_event_phrases — institutional-assignment
+    phrases routed through _PASSIVE_NARRATOR_RX + the _PASSIVE_
+    ASSIGNMENT_VERBS allowlist."""
+
+    def test_passive_assignment_meal_tickets_is_extracted(self):
+        text = (
+            "I had been put in charge of meal tickets on the train."
+        )
+        phrases = wm._extract_event_phrases(text)
+        self.assertTrue(
+            any("put in charge of meal tickets" in p for p in phrases),
+            f"expected meal-ticket assignment phrase; got {phrases!r}",
+        )
+
+    def test_passive_assignment_sent_to_germany_is_extracted(self):
+        text = (
+            "I was notified I was being sent to Germany for the Nike "
+            "Hercules system."
+        )
+        phrases = wm._extract_event_phrases(text)
+        # Either the "I was notified..." phrase OR a "sent to Germany"
+        # phrase should appear; both are valid receipts of Kent's
+        # institutional assignment.
+        ok = any(
+            ("notified" in p.lower())
+            or ("sent to germany" in p.lower())
+            or ("being sent to germany" in p.lower())
+            for p in phrases
+        )
+        self.assertTrue(
+            ok,
+            f"expected sent-to-Germany / notified phrase; got {phrases!r}",
+        )
+
+    def test_passive_assignment_selected_for_nike_is_extracted(self):
+        """Bonus regression on Chris's other canonical example. Kent's
+        Nike Ajax / Nike Hercules selection is a marquee adult-
+        competence anchor — institutional recognition + role transition."""
+        text = "I was selected for Nike Hercules training in 1959."
+        phrases = wm._extract_event_phrases(text)
+        ok = any(
+            "selected for nike" in p.lower() for p in phrases
+        )
+        self.assertTrue(
+            ok,
+            f"expected Nike Hercules selection phrase; got {phrases!r}",
+        )
+
+    def test_passive_assignment_ignores_generic_feeling(self):
+        """The whole point of the allowlist: internal-state verbs
+        (feeling/thinking/hoping/wondering) must NOT be extracted as
+        institutional anchors. A turn that only contains internal-
+        state phrases should produce no Pass-2 event phrases."""
+        text = "I was feeling tired and I was thinking about home."
+        phrases = wm._extract_event_phrases(text)
+        bad = [
+            p for p in phrases
+            if "feeling tired" in p.lower()
+            or "thinking about home" in p.lower()
+        ]
+        self.assertFalse(
+            bad,
+            f"internal-state phrases must not be extracted; got {bad!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

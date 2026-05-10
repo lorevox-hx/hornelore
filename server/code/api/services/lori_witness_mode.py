@@ -305,6 +305,19 @@ _CHRONOLOGICAL_CONNECTORS_ES = (
     r"\bentonces\b",
 )
 
+# Precompiled forms — each pattern's IGNORECASE is baked in at module
+# load instead of being passed per re.search() call. Behavior is
+# identical to the prior `re.search(p_str, text, re.IGNORECASE)` form;
+# the win is one regex compile per pattern (at import) instead of one
+# per search hit on a hot loop. Keep the raw `_*_PATTERNS` tuples in
+# source for readability; downstream code consumes the compiled tuple.
+_COMPILED_CHRONOLOGICAL_CONNECTORS_EN = tuple(
+    re.compile(p, re.IGNORECASE) for p in _CHRONOLOGICAL_CONNECTORS_EN
+)
+_COMPILED_CHRONOLOGICAL_CONNECTORS_ES = tuple(
+    re.compile(p, re.IGNORECASE) for p in _CHRONOLOGICAL_CONNECTORS_ES
+)
+
 # Action-verb shapes — narrator describing things they did/were.
 # Each tuple element is its own pattern so _count_pattern_hits can
 # count distinct shape categories. Designed to catch both past-tense
@@ -340,6 +353,11 @@ _ACTION_VERBS_EN = (
     # Movement narrative ("sent to", "arrived at", "shipped out",
     # "transferred to")
     r"\b(?:sent|shipped|transferred|reassigned|deployed|stationed)\s+(?:to|in|at|overseas|home)\b",
+)
+
+# Precompiled form — see _COMPILED_CHRONOLOGICAL_CONNECTORS_EN comment.
+_COMPILED_ACTION_VERBS_EN = tuple(
+    re.compile(p, re.IGNORECASE) for p in _ACTION_VERBS_EN
 )
 
 
@@ -508,9 +526,13 @@ def _extract_meta_feedback_topic(text: str) -> str:
 # narrator-action list, pair each with a short following object/place
 # phrase, and skip clauses that don't yield both a verb and a target.
 
-# Narrator-action verbs (past tense, common in oral-history narrative)
+# Narrator-action verbs (past tense, common in oral-history narrative).
+# Ordered by approximate narrative-frequency category rather than
+# alphabetically; readability matters more than sort. Hygiene rule:
+# no duplicates — alternation regex below would compile fine with them
+# but the list signals carelessness and bloats the pattern.
 _EVENT_VERBS = (
-    "went", "got", "took", "drove", "drove", "rode", "flew", "sailed",
+    "went", "got", "took", "drove", "rode", "flew", "sailed",
     "enlisted", "joined", "served", "trained", "moved", "transferred",
     "started", "finished", "arrived", "departed", "left", "returned",
     "deployed", "stationed", "assigned", "promoted", "graduated",
@@ -519,7 +541,7 @@ _EVENT_VERBS = (
     "became", "worked", "met", "married", "had", "raised",
     "taught", "studied", "learned", "practiced", "built", "wrote",
     "remembered", "told", "asked", "said", "decided", "chose",
-    "saw", "knew", "ended", "came", "completed", "finished", "began",
+    "saw", "knew", "ended", "came", "completed", "began",
     "shipped", "boarded", "landed", "rented", "bought", "sold",
     "spent", "lived", "stayed", "filed", "registered",
 )
@@ -537,6 +559,29 @@ _PASSIVE_NARRATOR_RX = re.compile(
     r"(\w+(?:\s+\w+){0,5})",
     re.IGNORECASE,
 )
+
+# Allowlist of concrete-action verbs that mark an institutional
+# assignment / authority moving the narrator through a system. The
+# first token of a _PASSIVE_NARRATOR_RX I-form capture must be in this
+# set for the phrase to count as a real adult-competence anchor.
+#
+# Rejects internal-state verbs (`thinking`, `feeling`, `hoping`,
+# `wondering`, `worrying`, `planning`) so "I was feeling tired" / "I
+# was thinking about home" do NOT get extracted as event phrases.
+#
+# Per BANK_PRIORITY_REBUILD §3 + 2026-05-10 review: Kent's army arc
+# (and most older-narrator military / labor narratives) is dominated
+# by passive assignment grammar — "I was put in charge", "I was
+# selected for", "I was sent up". Active-only Pass 1 misses these
+# institutional-logic anchors by construction.
+_PASSIVE_ASSIGNMENT_VERBS = frozenset({
+    "put", "sent", "given", "told", "made", "asked", "ordered",
+    "instructed", "briefed", "chosen", "selected", "assigned",
+    "appointed", "moved", "transferred", "promoted", "deployed",
+    "stationed", "redirected", "reassigned", "trained", "qualified",
+    "certified", "picked", "notified", "shipped", "drafted",
+    "enlisted", "discharged", "commissioned",
+})
 
 
 def _extract_event_phrases(text: str, max_n: int = 4) -> List[str]:
@@ -591,6 +636,53 @@ def _extract_event_phrases(text: str, max_n: int = 4) -> List[str]:
         _try_add(tail_clipped)
         if len(events) >= max_n:
             break
+
+    # Pass 2: passive institutional-assignment phrases ("I was put in
+    # charge of meal tickets" / "I was selected for Nike Hercules" /
+    # "I was sent up into the mountains for CBR training"). These are
+    # the adult-competence / Army-system anchors Kent's narrative
+    # depends on — Pass 1's active "I [verb]" loop misses them by
+    # construction. Per BANK_PRIORITY_REBUILD §3 + 2026-05-10 review.
+    #
+    # Guardrails (narrow on purpose):
+    #   - Only consume the I-form branch ("I was/got/had been [VERB]
+    #     [REST]"). The they-form ("they put me in X") is also matched
+    #     by _PASSIVE_NARRATOR_RX but consuming it cleanly requires
+    #     verb extraction from the prefix — parked for a future
+    #     iteration once we have evidence Kent's narration uses it.
+    #   - The first captured token MUST be in _PASSIVE_ASSIGNMENT_VERBS;
+    #     rejects "I was thinking" / "I was feeling" / "I was hoping"
+    #     — internal-state verbs that don't denote institutional
+    #     movement.
+    #   - The existing _try_add length cap, dedupe, and forbidden-
+    #     vocab filters still apply on top of this gate.
+    if len(events) < max_n:
+        for m in _PASSIVE_NARRATOR_RX.finditer(cleaned):
+            full_low = (m.group(0) or "").lower().lstrip()
+            if not full_low.startswith(("i was", "i got", "i had been")):
+                # they-form match — skip, parked for future iteration
+                continue
+            captured = (m.group(1) or "").strip()
+            if not captured:
+                continue
+            tokens = captured.split()
+            if not tokens:
+                continue
+            first = tokens[0].lower().rstrip(",.;:")
+            if first not in _PASSIVE_ASSIGNMENT_VERBS:
+                continue
+            # Trim trailing noise the same way Pass 1 does — chronological
+            # connectors / punctuation cap the phrase. Preserves
+            # "put in charge of meal tickets" while clipping "and the
+            # next morning..." tails.
+            phrase = re.split(
+                r"(?:\s+(?:and|then|after|but|so|when|while|because|until|"
+                r"before|once)\s+|[\.\?!;])",
+                captured, maxsplit=1
+            )[0]
+            _try_add(phrase)
+            if len(events) >= max_n:
+                break
 
     return events[:max_n]
 
@@ -725,15 +817,18 @@ def _matches_any(patterns, text: str) -> bool:
     return any(p.search(text) for p in patterns)
 
 
-def _count_pattern_hits(patterns, text: str) -> int:
-    """Count distinct chronological connectors / action verbs."""
+def _count_pattern_hits(compiled_patterns, text: str) -> int:
+    """Count distinct chronological-connector / action-verb shapes
+    that appear in `text`. Accepts a sequence of pre-compiled regex
+    objects (re.IGNORECASE baked in at compile time). One increment
+    per pattern that fires at least once — repeated occurrences of
+    the same pattern do NOT inflate the count, by design (we measure
+    breadth of narrative shape, not raw frequency).
+    """
     count = 0
-    for p_str in patterns:
-        try:
-            if re.search(p_str, text, re.IGNORECASE):
-                count += 1
-        except re.error:
-            continue
+    for rx in compiled_patterns:
+        if rx.search(text):
+            count += 1
     return count
 
 
@@ -823,10 +918,11 @@ def detect_witness_event(text: Optional[str]) -> WitnessDetection:
         return WitnessDetection()
 
     chrono_count = _count_pattern_hits(
-        _CHRONOLOGICAL_CONNECTORS_EN + _CHRONOLOGICAL_CONNECTORS_ES,
+        _COMPILED_CHRONOLOGICAL_CONNECTORS_EN
+        + _COMPILED_CHRONOLOGICAL_CONNECTORS_ES,
         cleaned,
     )
-    action_count = _count_pattern_hits(_ACTION_VERBS_EN, cleaned)
+    action_count = _count_pattern_hits(_COMPILED_ACTION_VERBS_EN, cleaned)
 
     # Trigger thresholds (recalibrated 2026-05-09 after ChatGPT
     # review caught the action-verb tuple-of-one bug). Each

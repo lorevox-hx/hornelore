@@ -1095,5 +1095,45 @@ class FlushComposerTests(unittest.TestCase):
         )
 
 
+# ── Module-load discipline gate (item 5 of the 2026-05-10 cleanup) ─────────
+#
+# `_ROLE_TRANSITION_PATTERNS` compiles eagerly at import time and has
+# nested optional groups that are easy to break with a sloppy edit. The
+# import statement at the top of this file already provides the strict
+# compile gate (a malformed pattern fails the whole test module). The
+# explicit test below adds runtime exercise + a representative narrator
+# turn so a regression on Kent's photography/courier path surfaces as a
+# named test failure, not an opaque ImportError.
+
+
+class LoadGateRoleTransitionTest(unittest.TestCase):
+    """Exercise every _ROLE_TRANSITION_PATTERNS entry against a single
+    Nike/courier/photography sentence Kent could plausibly utter.
+
+    This isn't a behavior test — it doesn't assert which patterns fire
+    — only that each one (a) is a valid compiled regex object and (b)
+    can `.search()` arbitrary input without raising. If a future edit
+    breaks the alternation, this fails fast with a clear message."""
+
+    def test_role_transition_patterns_compile_and_run(self):
+        text = (
+            "The courier route took me to the 32nd Artillery Brigade, "
+            "and that opened up the photography work. Eventually they "
+            "asked if there were any of us who could replace Johnson."
+        )
+        self.assertGreater(
+            len(bank._ROLE_TRANSITION_PATTERNS), 0,
+            "_ROLE_TRANSITION_PATTERNS must be non-empty",
+        )
+        import re as _re  # local alias keeps the test self-contained
+        for rx in bank._ROLE_TRANSITION_PATTERNS:
+            self.assertIsInstance(rx, _re.Pattern)
+            # `.search()` raising would mean an invalid pattern slipped
+            # past compile (impossible for a Pattern object today, but
+            # the discipline is forward-compatible with future tuple-of-
+            # mixed-types regressions).
+            rx.search(text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

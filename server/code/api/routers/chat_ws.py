@@ -88,6 +88,13 @@ router = APIRouter(prefix="/api/chat", tags=["chat-ws"])
 # pinning is wired into Bug Panel, this constant should be reduced to
 # the empty set or deleted. Do not let it become the product design.
 #
+# TODO(REMOVE-EMERGENCY-ENGLISH-LOCK):
+# Remove this hardcoded narrator UUID set once session_language_mode is
+# persisted, selected at session start, and enforced through LLM,
+# witness fallback, validator repair, and TTS. Do NOT add more narrator
+# IDs to this set unless there is an explicit emergency note + dated
+# removal commitment recorded alongside the entry.
+#
 # Current entries (audited 2026-05-10):
 #   - 4aa0cc2b-1f27-433a-9152-203bb1f69a55 — Kent harness UUID. Locks
 #     against looks_spanish overfire on "fiancée" + "Once" /
