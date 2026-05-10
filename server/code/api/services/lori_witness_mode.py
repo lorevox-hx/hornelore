@@ -1663,22 +1663,60 @@ def compose_chronological_chain_receipt(
     )
 
 
+# Words that should NEVER be the last word of a snippet — they leave
+# the reader hanging mid-clause. Bare modals, articles, prepositions,
+# conjunctions, possessives. If the windowed snippet ends on one of
+# these, walk back to the previous natural boundary.
+_SNIPPET_BAD_TERMINAL_WORDS = frozenset({
+    # modals / auxiliaries
+    "could", "would", "should", "might", "may", "can", "will", "shall",
+    "must", "had", "have", "has", "is", "was", "were", "are", "be",
+    "been", "being", "do", "does", "did", "done", "going",
+    # articles / determiners
+    "the", "a", "an", "this", "that", "these", "those", "my", "your",
+    "his", "her", "its", "our", "their", "some", "any", "no", "every",
+    # prepositions
+    "of", "to", "in", "on", "at", "by", "for", "with", "from", "into",
+    "onto", "upon", "about", "as", "after", "before", "during", "over",
+    "under", "through", "between", "among", "against",
+    # coordinating / subordinating conjunctions
+    "and", "or", "but", "so", "yet", "nor", "if", "when", "while",
+    "because", "though", "although", "since", "until", "unless",
+    "whether", "which", "who", "whom", "whose", "what", "where", "why",
+    "how", "than",
+    # personal pronouns (subject form)
+    "i", "we", "you", "he", "she", "they", "it",
+    # personal pronouns (object form) — leave reader expecting more
+    "me", "us", "him", "them",  # "her" already in determiners list
+    # reflexive pronouns
+    "myself", "yourself", "himself", "herself", "ourselves",
+    "yourselves", "themselves", "itself",
+    # quantifiers / common dangling words
+    "any", "all", "every", "much", "more", "most", "less", "least",
+    "many", "few", "such", "very", "really", "just", "only", "even",
+    "still", "yet",
+})
+
+
 def _snippet_around_anchor(
     narrator_text: str,
     anchor: str,
-    max_words: int = 22,
+    max_words: int = 32,
 ) -> str:
-    """Return a short narrator-quoted snippet containing `anchor`.
+    """Return a short narrator-quoted snippet containing `anchor`,
+    ending on a natural boundary (sentence-end > clause-end > comma).
 
     Walks the narrator text sentence-by-sentence; the first sentence
-    containing `anchor` (case-insensitive) is the source. Trims to
-    `max_words` keeping the anchor's neighborhood. Returns "" when no
-    sentence contains the anchor or when the snippet would be empty.
+    containing `anchor` (case-insensitive) is the source. If the
+    sentence is ≤ max_words, returns the whole sentence (cleanest
+    case). Otherwise windows around the anchor and trims back to the
+    last natural boundary BEFORE a bad terminal word. Returns "" when
+    no sentence contains the anchor.
 
-    Per BANK_PRIORITY_REBUILD §3 named-particular reflection: this is
-    the "brief detail" that follows the anchor in the receipt, e.g.
-    "You said meal tickets: I had to account for every meal and deal
-    with the conductor."
+    BANK_PRIORITY_REBUILD §3 + 2026-05-10 polish: never end on bare
+    modal verb ("…the Army could.") or bare preposition / article /
+    pronoun. Either trim back to a comma / clause boundary, or extend
+    forward up to +6 words to find the next natural boundary.
     """
     if not narrator_text or not anchor:
         return ""
@@ -1688,33 +1726,93 @@ def _snippet_around_anchor(
         if anchor_lower not in sentence.lower():
             continue
         words = sentence.split()
+        # Cleanest case — whole sentence fits the budget.
         if len(words) <= max_words:
             return sentence.strip().rstrip(".!?")
-        # Find anchor's word index, then center a window of max_words
-        anchor_words = anchor.split()
-        anchor_word_count = len(anchor_words)
-        anchor_first = anchor_words[0].lower()
+
+        # Find anchor's word index, then center a window.
+        anchor_first = anchor.split()[0].lower().rstrip(",.;:!?")
         anchor_idx = -1
         for i, w in enumerate(words):
-            if w.lower().startswith(anchor_first.rstrip(",.;:!?")):
+            if w.lower().startswith(anchor_first):
                 anchor_idx = i
                 break
         if anchor_idx < 0:
-            return " ".join(words[:max_words]).rstrip(".!?")
-        # Window: prefer ~max_words/3 before, rest after
+            return _trim_to_natural_boundary(words[:max_words])
+
+        # Window: prefer ~max_words/3 before, rest after.
         before = max_words // 3
         start = max(0, anchor_idx - before)
         end = min(len(words), start + max_words)
-        # Re-shift if we ran out of room before
         if end - start < max_words:
             start = max(0, end - max_words)
-        snippet_words = words[start:end]
-        out = " ".join(snippet_words).rstrip(".!?,;: ")
-        # Strip leading conjunctions / fillers
-        out = re.sub(r"^(?:and|but|so|then|because|that|which)\s+", "",
-                     out, flags=re.IGNORECASE)
-        return out.strip()
+        snippet_words = list(words[start:end])
+
+        # Strip leading conjunction / filler so we open clean.
+        if snippet_words and snippet_words[0].lower().rstrip(",.;:!?") in (
+            "and", "but", "so", "then", "because", "that", "which",
+        ):
+            snippet_words = snippet_words[1:]
+
+        # Trim trailing punctuation, then walk back to a natural
+        # boundary BEFORE any bad terminal word.
+        out = _trim_to_natural_boundary(snippet_words)
+
+        # If we trimmed too aggressively (< 8 words), try extending
+        # forward up to +6 words to find a comma/period boundary.
+        if len(out.split()) < 8 and end < len(words):
+            extended = list(words[start:min(len(words), end + 6)])
+            extended_out = _trim_to_natural_boundary(extended)
+            if len(extended_out.split()) > len(out.split()):
+                out = extended_out
+        return out
     return ""
+
+
+def _trim_to_natural_boundary(snippet_words: List[str]) -> str:
+    """Trim a word list to end on a natural boundary — sentence-end >
+    clause-end-then-comma > anything-but-bad-terminal-word.
+
+    Never returns a snippet whose last word is in
+    _SNIPPET_BAD_TERMINAL_WORDS. Walks back from the end up to 8
+    positions; if no clean terminal found, returns the longest prefix
+    that ends in a comma; if no comma either, returns words up to
+    last non-bad terminal.
+    """
+    if not snippet_words:
+        return ""
+    # Strip trailing pure-punctuation tokens.
+    while snippet_words and re.fullmatch(r"[.!?,;:\-—'\"]+", snippet_words[-1]):
+        snippet_words = snippet_words[:-1]
+    if not snippet_words:
+        return ""
+
+    def _bare(w: str) -> str:
+        return w.lower().rstrip(".!?,;:'\"")
+
+    # Pass 1 — look for a sentence-ending word in the last 12 positions
+    # (any word ending in . ! ? — we already split on these but a
+    # mid-window period might still appear from abbreviations etc.).
+    for i in range(len(snippet_words) - 1, max(-1, len(snippet_words) - 13), -1):
+        w = snippet_words[i]
+        if w.endswith((".", "!", "?")) and _bare(w) not in _SNIPPET_BAD_TERMINAL_WORDS:
+            return " ".join(snippet_words[: i + 1]).rstrip(".!?,;: ")
+
+    # Pass 2 — last comma boundary in last 16 positions, where the
+    # word BEFORE the comma is not a bad terminal. Wider window than
+    # Pass 1 because clause boundaries are more common than sentence
+    # boundaries in long narrator paragraphs.
+    for i in range(len(snippet_words) - 1, max(-1, len(snippet_words) - 17), -1):
+        w = snippet_words[i]
+        if w.endswith(",") and _bare(w) not in _SNIPPET_BAD_TERMINAL_WORDS:
+            return " ".join(snippet_words[: i + 1]).rstrip(".!?,;: ")
+
+    # Pass 3 — walk back from end while last word is bad-terminal.
+    while snippet_words and _bare(snippet_words[-1]) in _SNIPPET_BAD_TERMINAL_WORDS:
+        snippet_words = snippet_words[:-1]
+    if not snippet_words:
+        return ""
+    return " ".join(snippet_words).rstrip(".!?,;: ")
 
 
 def compose_story_weighted_receipt(

@@ -910,15 +910,16 @@ def _detect_story_weighted_tier_1a_doors(narrator_text: str) -> List[Door]:
     if not narrator_text:
         return doors
 
-    candidates: List[Tuple[str, int]] = []  # (anchor_label, score)
+    candidates: List[Tuple[str, int, str]] = []  # (anchor, score, kind)
     seen: set = set()
 
-    # Pass 1 — explicit responsibility patterns
+    # Pass 1 — explicit responsibility patterns. These are practical-
+    # mechanism anchors: the narrator was IN CHARGE OF / RESPONSIBLE
+    # FOR / DOING something. Question shape = mechanism, not sensory.
     for rx, fixed_label in _RESPONSIBILITY_ANCHOR_PATTERNS:
         for m in rx.finditer(narrator_text):
             label = fixed_label
             if label is None:
-                # Generic capture group
                 try:
                     captured = m.group(1).strip()
                 except (IndexError, re.error):
@@ -931,37 +932,40 @@ def _detect_story_weighted_tier_1a_doors(narrator_text: str) -> List[Door]:
                 continue
             seen.add(label_key)
             score = _score_story_weight(label, narrator_text)
-            if score >= 2:  # minimum threshold for Tier 1A
-                candidates.append((label, score))
+            if score >= 2:
+                candidates.append((label, score, "responsibility"))
 
     # Pass 2 — narrator-named multi-word proper-noun phrases that
-    # recur 2+ times. These are the "named particular" anchors per
-    # Voice Library §10A row 1.
+    # recur 2+ times. Voice Library §10A row 1 — named-particular
+    # objects/people the narrator returned to.
     propnoun_rx = re.compile(
         r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})\b"
     )
     propnoun_counts: Dict[str, int] = {}
+    # BANK_PRIORITY_REBUILD 2026-05-10 fix — institutional-name tokens
+    # (Nike Ajax, Nike Hercules, Army Security Agency, 32nd Brigade)
+    # were previously hard-excluded from Tier 1A Pass 2. That was
+    # wrong: when the narrator returns to "Nike Hercules" 5+ times
+    # across a chapter, it IS the named particular and Tier 1A should
+    # pick it. The Tier-N spelling-confirm filter
+    # (_is_tier_n_spelling_confirm) handles the institutional-spelling
+    # case separately by intent name. Multi-turn Kent test 2026-05-10
+    # showed the Nike chapter falling through to the chronological-
+    # chain fallback because of this exclusion.
     for m in propnoun_rx.finditer(narrator_text):
         token = m.group(1).strip()
-        # Skip generic / well-known institutional names — those are
-        # Tier N, not Tier 1A. Per Chris's locked rule.
         if token.lower() in _FRAGILE_NAMES_TIER_B:
-            continue
-        if token.lower() in (
-            "army security agency", "nike ajax", "nike hercules",
-            "32nd brigade", "32nd artillery brigade",
-        ):
             continue
         propnoun_counts[token] = propnoun_counts.get(token, 0) + 1
     for token, count in propnoun_counts.items():
         if count < 2:
-            continue  # singletons aren't story-weighted
+            continue
         token_key = token.lower()
         if token_key in seen:
             continue
         score = _score_story_weight(token, narrator_text)
         if score >= 2:
-            candidates.append((token, score))
+            candidates.append((token, score, "named_particular"))
             seen.add(token_key)
 
     if not candidates:
@@ -969,24 +973,35 @@ def _detect_story_weighted_tier_1a_doors(narrator_text: str) -> List[Door]:
 
     # Pick the highest-scoring anchor
     candidates.sort(key=lambda p: -p[1])
-    best_anchor, best_score = candidates[0]
+    best_anchor, best_score, best_kind = candidates[0]
 
-    # Compose a "seek the particular" question — invite narrator to
-    # say more about THIS specific anchor. The wording follows
-    # Alshenqeeti's "always seek the particular" rule + Voice Library
-    # §10A "What was that anchor like?" shape.
+    # Compose a question that matches the anchor KIND.
+    # Per Chris's 2026-05-10 wording lock + Voice Library §10A:
+    #   - responsibility anchors → mechanism question (what did it
+    #     require you to do?)  — adult-competence shape, not sensory
+    #   - named-particular anchors → particular question (what was
+    #     that like for you?)  — voice-preserving, anti-sensory
+    if best_kind == "responsibility":
+        question = (
+            f"What did handling {best_anchor} actually require "
+            f"you to do?"
+        )
+    else:
+        question = (
+            f"You kept coming back to {best_anchor} — what was that "
+            f"actually like for you?"
+        )
+
     door = Door(
         intent="story_weighted_named_particular",
-        question_en=(
-            f"You came back to {best_anchor} more than once — what "
-            f"did it actually look like, day to day?"
-        ),
+        question_en=question,
         triggering_anchor=best_anchor,
         why_it_matters=(
             f"The narrator emphasized '{best_anchor}' (story-weight "
-            f"score {best_score}). Per Voice Library §10A, the named "
-            f"particular the narrator returned to is the strongest "
-            f"anchor for an active-listening response."
+            f"score {best_score}, kind={best_kind}). Per Voice "
+            f"Library §10A, the named particular the narrator "
+            f"returned to is the strongest anchor for an active-"
+            f"listening response."
         ),
         priority=1,
         tier="1A",

@@ -1265,6 +1265,66 @@ async def ws_chat(ws: WebSocket):
             turn_mode = "floor_hold"
         elif _is_meta_question and _meta_question_answer is not None:
             turn_mode = "meta_question"
+        else:
+            # BANK_PRIORITY_REBUILD 2026-05-10 — server-side memory-
+            # echo trigger detection. The FE sends turn_mode="interview"
+            # for every chat turn (no inspection of user_text); when
+            # the narrator asks "what did you learn about me", "what do
+            # you know about me", "tell me what you remember about me",
+            # etc., we MUST route to memory_echo regardless of FE's
+            # turn_mode. Multi-turn Kent test 2026-05-10 caught this:
+            # Turn 2 "What did you learn about me from that?" was
+            # treated as a regular interview turn and Lori asked a
+            # fresh era question instead of summarizing Turn 1.
+            #
+            # Detection is conservative: requires explicit "about me"
+            # OR "about [my name]" anchor + a remember/know/learn verb.
+            # Pure-stdlib regex; no LLM call.
+            try:
+                import re as _re_me
+                _ut_low = (user_text or "").lower().strip()
+                # Must be a question OR end with a question-word
+                _is_question_form = (
+                    "?" in _ut_low or _ut_low.endswith(("?",))
+                    or _ut_low.startswith((
+                        "what ", "tell me", "do you ",
+                        "can you ", "could you ", "would you ",
+                    ))
+                )
+                _memory_echo_anchors = (
+                    r"\babout\s+me\b",
+                    r"\babout\s+(?:my|our)\s+(?:life|story|past)\b",
+                    r"\bwho\s+i\s+am\b",
+                )
+                _memory_echo_verbs = (
+                    r"\b(?:know|knew|learn(?:ed|t)?|remember|recall|"
+                    r"hear(?:d)?|gather(?:ed)?|pick(?:ed)?\s+up)\b"
+                )
+                _has_anchor = any(
+                    _re_me.search(p, _ut_low) for p in _memory_echo_anchors
+                )
+                _has_verb = bool(_re_me.search(_memory_echo_verbs, _ut_low))
+                # Short-form turns only (≤ 30 words). Long monologues
+                # that happen to contain "what did you learn about me"
+                # in the middle are NOT memory-echo queries.
+                _is_short = len(_ut_low.split()) <= 30
+                if (
+                    _is_question_form and _has_anchor and _has_verb
+                    and _is_short
+                ):
+                    turn_mode = "memory_echo"
+                    logger.info(
+                        "[chat_ws][memory-echo][server-trigger] conv=%s "
+                        "user_text=%r — overriding turn_mode to "
+                        "memory_echo",
+                        conv_id, (user_text or "")[:120],
+                    )
+            except Exception as _me_exc:
+                logger.warning(
+                    "[chat_ws][memory-echo][server-trigger] detector "
+                    "raised conv=%s: %s — leaving turn_mode unchanged",
+                    conv_id, _me_exc,
+                )
 
         # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 + BUG-LORI-WITNESS-LLM-
         # RECEIPT-01 — witness-mode dispatch. Mutually exclusive with
@@ -1742,6 +1802,151 @@ async def ws_chat(ws: WebSocket):
                 runtime=runtime71,
                 target_language=_memory_echo_lang,
             )
+
+            # BANK_PRIORITY_REBUILD 2026-05-10 — recent-chapter summary
+            # prefix. When the narrator's question is "what did you
+            # learn about me from that?" / "from this chapter" / "from
+            # what I just said", canonical memory_echo (profile +
+            # promoted_facts) is the wrong shape — Kent wants to hear
+            # what Lori HEARD from the immediately-preceding narrator
+            # turn, not a profile recitation.
+            #
+            # Build a short deterministic summary from:
+            #   1. anchors detected in the previous narrator turn
+            #   2. banked doors persisted for this session
+            # and prepend to assistant_text.
+            #
+            # English only (Spanish path uses canonical compose_memory_
+            # echo which already supports both locales).
+            try:
+                _prev_user_text = ""
+                _bank_doors_for_summary: List[Any] = []
+                from ..db import (
+                    export_turns as _export_turns_me,
+                    followup_bank_get_unanswered as _bank_get_unanswered,
+                )
+                _hist_me = _export_turns_me(conv_id) or []
+                # Walk backwards for last user turn that's NOT the
+                # current memory-echo question.
+                for _t in reversed(_hist_me):
+                    if (
+                        isinstance(_t, dict)
+                        and _t.get("role") == "user"
+                        and not (_t.get("content") or "").startswith("[SYSTEM")
+                    ):
+                        _candidate = (_t.get("content") or "").strip()
+                        if _candidate and _candidate != (user_text or "").strip():
+                            _prev_user_text = _candidate
+                            break
+                try:
+                    _bank_rows = _bank_get_unanswered(conv_id) or []
+                    _bank_doors_for_summary = [
+                        r for r in _bank_rows if isinstance(r, dict)
+                    ]
+                except Exception:
+                    _bank_doors_for_summary = []
+
+                # Need previous turn AND English locale to compose.
+                if (
+                    _prev_user_text
+                    and _memory_echo_lang == "en"
+                    and len(_prev_user_text.split()) >= 60
+                ):
+                    from ..services.lori_followup_bank import (
+                        detect_doors as _detect_doors_me,
+                    )
+                    _prev_doors = _detect_doors_me(_prev_user_text)
+                    # Pull the Tier 1A anchor (highest story-weight).
+                    _tier_1a = next(
+                        (
+                            d for d in _prev_doors
+                            if (d.tier or "") == "1A"
+                            and (d.story_weight or 0) >= 1
+                        ),
+                        None,
+                    )
+                    # Up to 3 narrator-named anchors from the previous
+                    # turn to mention. Skip duplicates.
+                    _anchors_seen: List[str] = []
+                    if _tier_1a is not None and _tier_1a.triggering_anchor:
+                        _anchors_seen.append(_tier_1a.triggering_anchor)
+                    for _d in _prev_doors:
+                        _a = _d.triggering_anchor or ""
+                        if not _a or _a in _anchors_seen:
+                            continue
+                        if _a.lower() in (s.lower() for s in _anchors_seen):
+                            continue
+                        _anchors_seen.append(_a)
+                        if len(_anchors_seen) >= 4:
+                            break
+                    # Up to 2 bank doors to mention (anchors only —
+                    # don't read their full questions, just signal the
+                    # operator/Lori is holding them).
+                    _bank_anchors: List[str] = []
+                    for _row in _bank_doors_for_summary:
+                        _a = (_row.get("triggering_anchor") or "").strip()
+                        if not _a:
+                            continue
+                        if _a in _anchors_seen or _a in _bank_anchors:
+                            continue
+                        _bank_anchors.append(_a)
+                        if len(_bank_anchors) >= 2:
+                            break
+
+                    if _anchors_seen:
+                        _summary_parts: List[str] = []
+                        if len(_anchors_seen) == 1:
+                            _summary_parts.append(
+                                f"From what you just shared, I heard "
+                                f"about {_anchors_seen[0]}."
+                            )
+                        elif len(_anchors_seen) == 2:
+                            _summary_parts.append(
+                                f"From what you just shared, I heard "
+                                f"about {_anchors_seen[0]} and "
+                                f"{_anchors_seen[1]}."
+                            )
+                        else:
+                            _head = ", ".join(_anchors_seen[:-1])
+                            _summary_parts.append(
+                                f"From what you just shared, I heard "
+                                f"about {_head}, and {_anchors_seen[-1]}."
+                            )
+                        if _bank_anchors:
+                            if len(_bank_anchors) == 1:
+                                _summary_parts.append(
+                                    f"I'm holding a follow-up about "
+                                    f"{_bank_anchors[0]} for when you "
+                                    f"want to come back to it."
+                                )
+                            else:
+                                _summary_parts.append(
+                                    f"I'm holding follow-ups about "
+                                    f"{_bank_anchors[0]} and "
+                                    f"{_bank_anchors[1]} for when you "
+                                    f"want to come back to them."
+                                )
+                        _recent_summary = " ".join(_summary_parts)
+                        # Prepend with a blank line separator so the
+                        # canonical "What I know about Kent so far:"
+                        # block stays visually distinct.
+                        assistant_text = (
+                            f"{_recent_summary}\n\n{assistant_text}"
+                        )
+                        logger.info(
+                            "[chat_ws][memory-echo][recent-chapter] "
+                            "conv=%s anchors=%d bank=%d prev_words=%d",
+                            conv_id, len(_anchors_seen),
+                            len(_bank_anchors),
+                            len(_prev_user_text.split()),
+                        )
+            except Exception as _rec_exc:
+                logger.warning(
+                    "[chat_ws][memory-echo][recent-chapter] failed "
+                    "conv=%s: %s — falling back to canonical memory_echo",
+                    conv_id, _rec_exc,
+                )
+
             logger.info(
                 "[chat_ws][WO-ARCH-07A] memory_echo turn conv=%s lang=%s",
                 conv_id, _memory_echo_lang,
@@ -2066,11 +2271,31 @@ async def ws_chat(ws: WebSocket):
         # filter would only protect persistence, not visible behavior.
         # Buffer-then-send sacrifices token-by-token UX for parent-session
         # safety. Off-by-default; opt in via HORNELORE_INTERVIEW_DISCIPLINE=1.
+        #
+        # BANK_PRIORITY_REBUILD 2026-05-10 — witness-receipt mode is
+        # ALWAYS buffered, regardless of the discipline-filter flag.
+        # The 2026-05-10 Kent Fort Ord one-shot proved the LLM emits
+        # third-person narrator-voice mimicry ("The narrator shares a
+        # vivid account...") on long monologues; the post-stream
+        # validator catches that and swaps in the deterministic
+        # fallback at `done`, but raw tokens were already streamed to
+        # the client (and therefore TTS / chat bubble). For Kent's
+        # parent session that is unsafe — he could hear the bad
+        # response before validation. Buffer in witness-receipt mode
+        # by construction; client receives only the validated final.
         try:
             from ..prompt_composer import _discipline_filter_enabled
             _buffer_mode = _discipline_filter_enabled()
         except Exception:
             _buffer_mode = False
+        if _witness_use_llm_receipt:
+            _buffer_mode = True
+            logger.info(
+                "[chat_ws][witness][buffered-stream] conv=%s — "
+                "tokens buffered server-side; emitting only validated "
+                "final via done event",
+                conv_id,
+            )
 
         while True:
             if ev.is_set():
@@ -2322,14 +2547,32 @@ async def ws_chat(ws: WebSocket):
                     final_text = _trimmed
                 # Buffer mode: emit the cleaned text as a single delta so
                 # the client UI gets the same shape it expects (token + done).
-                await _ws_send(ws, {"type": "token", "delta": final_text})
+                #
+                # BANK_PRIORITY_REBUILD 2026-05-10 — EXCEPT when witness-
+                # receipt mode is active. The witness validator at L2541+
+                # runs AFTER this point and may replace final_text with
+                # the deterministic fallback. Emitting here would leak
+                # the LLM's pre-validation text (third-person mimicry,
+                # "Here is a response following the guidelines:", etc.)
+                # to the client BEFORE validation. Defer the single-
+                # delta emit to AFTER the validator (L2660+ via the
+                # post-validator block we add there).
+                if not _witness_use_llm_receipt:
+                    await _ws_send(ws, {"type": "token", "delta": final_text})
+                else:
+                    logger.info(
+                        "[chat_ws][witness][buffered-stream] conv=%s — "
+                        "deferring token emit until post-validator",
+                        conv_id,
+                    )
         except Exception as _disc_exc:
             # Filter is a safety net — never let it kill a turn. If trim
             # raised in buffer mode, send the untrimmed text so the narrator
             # still sees an answer.
             logger.warning("[lori][discipline] filter raised, passing through: %s", _disc_exc)
             if _buffer_mode_for_trim and final_text:
-                await _ws_send(ws, {"type": "token", "delta": final_text})
+                if not _witness_use_llm_receipt:
+                    await _ws_send(ws, {"type": "token", "delta": final_text})
 
         # Phase G: fail-closed — only persist if generation completed cleanly
         if ev.is_set():
@@ -2858,6 +3101,28 @@ async def ws_chat(ws: WebSocket):
                     "[chat_ws][followup-bank] outer wrapper raised "
                     "conv=%s: %s",
                     conv_id, _bank_outer_exc,
+                )
+
+        # BANK_PRIORITY_REBUILD 2026-05-10 — deferred token emit for
+        # witness-receipt mode. The pre-validator emit at L2345 was
+        # skipped (see comment there). Now that the validator + Spanish-
+        # repair + response-guards have all run, final_text is the
+        # validated/repaired text. Emit it as a single delta so the
+        # client UI gets the same token+done shape it expects, and
+        # Kent's chat-bubble fills with ONLY the validated text.
+        if _witness_use_llm_receipt and final_text:
+            try:
+                await _ws_send(ws, {"type": "token", "delta": final_text})
+                logger.info(
+                    "[chat_ws][witness][buffered-stream] conv=%s — "
+                    "deferred token emitted post-validator words=%d",
+                    conv_id, len(final_text.split()),
+                )
+            except Exception as _emit_exc:
+                logger.warning(
+                    "[chat_ws][witness][buffered-stream] deferred emit "
+                    "raised conv=%s: %s — done event still fires",
+                    conv_id, _emit_exc,
                 )
 
         await _ws_send(ws, {"type": "done", "final_text": final_text, "turn_mode": turn_mode})
