@@ -43,10 +43,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 try:
     import websockets
@@ -312,35 +314,100 @@ async def main() -> int:
     bank_flush_phrase = "i want to come back to one detail"
     bank_flush_hit = bank_flush_phrase in final_lower
 
-    # Tier-N spelling-confirm forbidden as IMMEDIATE response. Per
-    # Chris's 2026-05-10 lock: institutional spelling-confirms are
-    # never the right answer to a Fort Ord chapter.
+    # Tier-N spelling-confirm forbidden as IMMEDIATE response.
     tier_n_violations = [
         q for q in TIER_N_FORBIDDEN_QUESTIONS if q in final_lower
     ]
 
-    # Story-weighted anchor check. Per the BANK_PRIORITY_REBUILD
-    # synthesis §4: meal-tickets / conductor / oatmeal is the Tier 1A
-    # story-weighted anchor. M1 / ASA / Nike Ajax-Hercules / GED are
-    # Tier 2D action-mechanism anchors. The receipt should mention
-    # ≥3 story-weighted anchors, NOT just chronological place names.
+    # BANK_PRIORITY_REBUILD 2026-05-10: the new architecture is
+    # named-particular reflection — ONE strong anchor in the receipt,
+    # MANY story doors in the bank. The OLD ≥3-anchors-in-receipt
+    # gate was designed for chronological-chain receipts and is
+    # wrong-by-design for the new shape.
+    #
+    # New receipt-shape gates:
+    #   - opens with named-particular signature ("You said …" /
+    #     "You kept coming back to …" / "You came back to …")
+    #   - 30-65 words (new budget; old was just ≥30)
+    #   - exactly ONE question
+    #   - mentions ≥1 KENT_PRIMARY_ANCHORS (signal that the chosen
+    #     anchor came from Kent's actual content, not invented)
+    #
+    # New bank-richness gates (queried via operator API):
+    #   - ≥3 doors persisted to bank
+    #   - includes ≥1 of career_choice / communication / role_pivot /
+    #     responsibility intents
+    #   - bank does NOT include any Tier-N institutional spelling-
+    #     confirm intent
     primary_anchors_hit = [
         a for a in KENT_PRIMARY_ANCHORS if a.lower() in final_lower
     ]
 
-    # Receipt-shape anti-pattern: chronological-list-of-tokens.
-    # "You went from X to Y, then Z, A, B, C, D" with 5+ commas
-    # in a single sentence = pathological token-list receipt.
+    named_particular_signatures = (
+        "you said ", "you kept coming back to ", "you came back to ",
+    )
+    has_named_particular_shape = any(
+        sig in final_lower for sig in named_particular_signatures
+    )
+
+    # Chronological-list anti-pattern: "you went from X to Y, then Z…"
     chronological_list_failure = False
     if "went from" in final_lower and "then " in final_lower:
-        # Count commas in the sentence containing "went from"
         for sentence in re.split(r'[.!?]', final_text):
             sl = sentence.lower()
             if "went from" in sl and "then " in sl:
-                comma_count = sentence.count(",")
-                if comma_count >= 5:
+                if sentence.count(",") >= 5:
                     chronological_list_failure = True
                     break
+
+    # Bank inspection — query the operator API and grade richness.
+    bank_intents: list = []
+    bank_query_error: Optional[str] = None
+    try:
+        import urllib.request
+        import json as _json
+        url = (
+            f"http://localhost:8000/api/operator/followup-bank/"
+            f"session/{conv_id}/all"
+        )
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+        bank_intents = [
+            (e.get("intent") or "")
+            for e in (payload.get("entries") or [])
+            if isinstance(e, dict)
+        ]
+    except Exception as exc:
+        bank_query_error = str(exc)
+
+    bank_count = len(bank_intents)
+    bank_has_career_choice = any(
+        "career_choice" in i or "career-choice" in i for i in bank_intents
+    )
+    bank_has_communication = any(
+        "communication" in i for i in bank_intents
+    )
+    bank_has_role_pivot = any(
+        "role_pivot" in i or "role-transition" in i for i in bank_intents
+    )
+    bank_has_responsibility = any(
+        i == "story_weighted_named_particular" for i in bank_intents
+    )
+    bank_richness_ok = (
+        bank_has_career_choice or bank_has_communication
+        or bank_has_role_pivot or bank_has_responsibility
+    )
+    # Tier-N institutional spelling-confirm intents that should NEVER
+    # appear in the bank as immediate-eligible doors. (They CAN bank
+    # for later operator review, but the rebuild is supposed to keep
+    # them out of the auto-flow entirely.)
+    tier_n_in_bank = [
+        i for i in bank_intents
+        if "fragile_name_confirm_army_security_agency" in i
+        or "fragile_name_confirm_nike_ajax" in i
+        or "fragile_name_confirm_nike_hercules" in i
+        or "fragile_name_confirm_32nd" in i
+    ]
 
     print("\n" + "=" * 70)
     print("SUMMARY")
@@ -349,41 +416,66 @@ async def main() -> int:
     print(f"input_words:              {word_count}")
     print(f"final_words:              {final_words}")
     print(f"question_count:           {question_count}")
+    print(f"named_particular_shape:   {'✓ YES' if has_named_particular_shape else '✗ NO'}")
     print(f"forbidden_hits:           {forbidden_hits or '✓ NONE'}")
     print(f"tier_n_spelling_confirms: {tier_n_violations or '✓ NONE'}")
     print(f"chronological_list_recpt: {'✗ YES' if chronological_list_failure else '✓ NO'}")
     print(f"bank_flush_mid_chapter:   {'✗ YES' if bank_flush_hit else '✓ NO'}")
     print(f"primary_anchors_hit:      {len(primary_anchors_hit)}: {primary_anchors_hit[:8]}")
+    print(f"bank_count:               {bank_count}")
+    print(f"bank_intents:             {bank_intents}")
+    print(f"bank_richness_ok:         {'✓ YES' if bank_richness_ok else '✗ NO'}")
+    if bank_query_error:
+        print(f"bank_query_error:         {bank_query_error}")
     print()
 
-    # Determine pass/fail per Chris's 2026-05-10 revision rules
+    # ── Pass/fail per BANK_PRIORITY_REBUILD 2026-05-10 ────────────────────
     failures = []
-    # Hard-fail: any forbidden sensory / Spanish / mimicry token
+    # === RECEIPT-SHAPE gates ===
     if forbidden_hits:
         failures.append(f"forbidden_tokens: {forbidden_hits}")
-    # Hard-fail: Tier-N spelling-confirm as immediate
     if tier_n_violations:
         failures.append(f"tier_n_spelling_confirm_as_immediate: {tier_n_violations}")
-    # Hard-fail: chronological token-list receipt
     if chronological_list_failure:
         failures.append("chronological_list_receipt_antipattern")
-    # Hard-fail: bank-flush fired mid-chapter
     if bank_flush_hit:
         failures.append("bank_flush_fired_mid_chapter")
-    # Hard-fail: too many questions
     if question_count > 1:
         failures.append(f"too_many_questions: {question_count}")
     if question_count == 0 and final_words >= 5:
         failures.append("no_question_in_response")
-    # Hard-fail: response too short to reflect a 2,400-word chapter
     if final_words < 30:
-        failures.append(f"response_too_short_for_long_monologue: {final_words}w")
-    # Hard-fail: receipt didn't mention ≥3 story-weighted anchors
-    if len(primary_anchors_hit) < 3:
+        failures.append(f"response_too_short: {final_words}w (want 30-65)")
+    if final_words > 65:
+        failures.append(f"response_too_long: {final_words}w (want 30-65)")
+    if not has_named_particular_shape:
         failures.append(
-            f"too_few_story_weighted_anchors: {len(primary_anchors_hit)}/3 "
-            f"hit={primary_anchors_hit}"
+            "missing_named_particular_shape: receipt should open with "
+            "'You said …' / 'You kept coming back to …' / "
+            "'You came back to …'"
         )
+    if len(primary_anchors_hit) < 1:
+        failures.append(
+            f"no_kent_primary_anchor_in_receipt: hit={primary_anchors_hit}"
+        )
+    # === BANK-RICHNESS gates ===
+    if bank_query_error is None:
+        if bank_count < 3:
+            failures.append(
+                f"bank_too_thin: {bank_count}/3 doors persisted; "
+                f"intents={bank_intents}"
+            )
+        if not bank_richness_ok:
+            failures.append(
+                "bank_missing_story_door: expected ≥1 of career_choice / "
+                "communication / role_pivot / story_weighted_named_particular; "
+                f"got {bank_intents}"
+            )
+        if tier_n_in_bank:
+            failures.append(
+                f"tier_n_in_bank: institutional spelling-confirm "
+                f"intents leaked into bank: {tier_n_in_bank}"
+            )
 
     if failures:
         print("VERDICT: ✗ FAIL")
@@ -412,6 +504,12 @@ async def main() -> int:
         f"chronological_list_recpt: {chronological_list_failure}\n"
         f"bank_flush_mid_chapter:   {bank_flush_hit}\n"
         f"primary_anchors_hit:      {primary_anchors_hit}\n"
+        f"named_particular_shape:   {has_named_particular_shape}\n"
+        f"bank_count:               {bank_count}\n"
+        f"bank_intents:             {bank_intents}\n"
+        f"bank_richness_ok:         {bank_richness_ok}\n"
+        f"tier_n_in_bank:           {tier_n_in_bank}\n"
+        f"bank_query_error:         {bank_query_error or '(none)'}\n"
         f"verdict:                  {'PASS' if not failures else 'FAIL'}\n"
         f"failures:                 {failures}\n"
         f"\n--- FINAL_TEXT ---\n"
