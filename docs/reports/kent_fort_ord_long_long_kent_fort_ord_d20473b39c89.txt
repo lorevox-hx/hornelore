@@ -1,0 +1,15 @@
+ONE-SHOT KENT FORT ORD LONG MONOLOGUE
+=====================================
+conv_id:                long_kent_fort_ord_d20473b39c89
+person_id:              4aa0cc2b-1f27-433a-9152-203bb1f69a55
+input_words:            2401
+final_words:            26
+question_count:         1
+forbidden_hits:         []
+bank_flush_mid_chapter: False
+anchors_reflected:      ['Fort Ord', 'GED', 'Army Security Agency', 'Nike Ajax', 'Janice', 'Fargo']
+verdict:                PASS
+failures:               []
+
+--- FINAL_TEXT ---
+You went from Fort Ord to California, then Fargo, Sergeant Miller, Sergeant Mueller, GED, Janice, and Nike Ajax. Did I get Army Security Agency spelled right?
