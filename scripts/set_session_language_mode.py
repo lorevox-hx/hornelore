@@ -83,9 +83,11 @@ def _list_narrators() -> List[Dict[str, Any]]:
     from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
     con = _db._connect()
+    # Schema: people.id = primary key, profiles.person_id = FK to people.id.
+    # Column names differ across tables so the JOIN must be explicit.
     cur = con.execute(
-        "SELECT p.person_id, p.display_name, pr.profile_json "
-        "FROM people p LEFT JOIN profiles pr USING (person_id) "
+        "SELECT p.id, p.display_name, pr.profile_json "
+        "FROM people p LEFT JOIN profiles pr ON pr.person_id = p.id "
         "ORDER BY p.display_name;"
     )
     rows = []
@@ -114,12 +116,12 @@ def _resolve_person_id(name_or_id: str) -> Tuple[str, str]:
     from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
     if "-" in name_or_id and len(name_or_id) >= 32:
-        # Looks like a UUID
+        # Looks like a UUID. people.id is the PK column.
         prof = _db.get_profile(name_or_id)
         if prof:
             con = _db._connect()
             cur = con.execute(
-                "SELECT display_name FROM people WHERE person_id=?;",
+                "SELECT display_name FROM people WHERE id=?;",
                 (name_or_id,),
             )
             row = cur.fetchone()
@@ -127,10 +129,12 @@ def _resolve_person_id(name_or_id: str) -> Tuple[str, str]:
             display = row[0] if row else "(unknown)"
             return name_or_id, display
         raise ValueError(f"No narrator found for person_id={name_or_id}")
-    # Otherwise match display_name (case-insensitive substring)
+    # Otherwise match display_name (case-insensitive substring).
+    # SELECT p.id (the PK on people) — this is the value other accessors
+    # call "person_id" when working with profiles.
     con = _db._connect()
     cur = con.execute(
-        "SELECT person_id, display_name FROM people "
+        "SELECT id, display_name FROM people "
         "WHERE LOWER(display_name) LIKE ? "
         "ORDER BY display_name;",
         (f"%{name_or_id.lower()}%",),
