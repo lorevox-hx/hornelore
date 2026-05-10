@@ -1,0 +1,17 @@
+ONE-SHOT KENT FORT ORD LONG MONOLOGUE
+=====================================
+conv_id:                  long_kent_fort_ord_ade2bc4b5c06
+person_id:                4aa0cc2b-1f27-433a-9152-203bb1f69a55
+input_words:              2401
+final_words:              45
+question_count:           1
+forbidden_hits:           []
+tier_n_spelling_confirms: []
+chronological_list_recpt: False
+bank_flush_mid_chapter:   False
+primary_anchors_hit:      ['meal ticket', 'tickets']
+verdict:                  FAIL
+failures:                 ["too_few_story_weighted_anchors: 2/3 hit=['meal ticket', 'tickets']"]
+
+--- FINAL_TEXT ---
+You said meal tickets: had already been put in charge of meal tickets on the train, so I was learning right away that the Army could. You came back to meal tickets more than once — what did it actually look like, day to day?

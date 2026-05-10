@@ -1,0 +1,136 @@
+{
+  "conv_id": "kent_multi_fortord_nike_f61d815d1a99",
+  "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+  "turns": [
+    {
+      "label": "TURN 1 — KENT LONG FORT ORD MONOLOGUE",
+      "user_words": 2401,
+      "streamed_text": "Here is a response following the guidelines: You were eighteen when you arrived at Fort Ord, and you had been through Fargo and the train.",
+      "final_text": "You said meal tickets: had already been put in charge of meal tickets on the train. What did handling meal tickets actually require you to do?",
+      "final_words": 26,
+      "question_count": 1,
+      "forbidden_hits": [],
+      "bad_meta_stream_hits": [],
+      "bad_spelling_question_hits": []
+    },
+    {
+      "label": "TURN 2 — KENT MEMORY-ECHO CHECK",
+      "user_words": 8,
+      "streamed_text": "What do you remember about where you were living during your Coming of Age?",
+      "final_text": "What do you remember about where you were living during your Coming of Age?",
+      "final_words": 14,
+      "question_count": 1,
+      "forbidden_hits": [],
+      "bad_meta_stream_hits": [],
+      "bad_spelling_question_hits": []
+    },
+    {
+      "label": "TURN 3 — KENT NIKE MISSILE OPERATOR CHAPTER",
+      "user_words": 521,
+      "streamed_text": "What happened when you arrived at Fort Ord and started your basic training?",
+      "final_text": "You went from Nike Ajax to Nike Hercules, then Detroit, Michigan, Southridge, Selfridge Air Force Base, Germany, and States. What happened when you arrived at Fort Ord and started your basic training?",
+      "final_words": 32,
+      "question_count": 1,
+      "forbidden_hits": [],
+      "bad_meta_stream_hits": [],
+      "bad_spelling_question_hits": []
+    }
+  ],
+  "scores": [
+    {
+      "name": "TURN 1 Fort Ord",
+      "hits": [
+        "meal tickets"
+      ],
+      "failures": [
+        "too_short=26w (want ≥30)",
+        "too_few_expected_terms=['meal tickets'] (want ≥3 of ['Fort Ord', 'meal tickets', 'M1', 'GED', 'Army Security Agency', 'Nike Ajax', 'Nike Hercules'])"
+      ]
+    },
+    {
+      "name": "TURN 2 Memory echo",
+      "hits": [],
+      "failures": [
+        "too_few_expected_terms=[] (want ≥3 of ['Fort Ord', 'meal tickets', 'M1', 'GED', 'Army Security Agency', 'Nike Ajax', 'Nike Hercules'])"
+      ]
+    },
+    {
+      "name": "TURN 3 Nike",
+      "hits": [
+        "Nike Ajax",
+        "Nike Hercules",
+        "Germany"
+      ],
+      "failures": []
+    }
+  ],
+  "bank": {
+    "session_id": "kent_multi_fortord_nike_f61d815d1a99",
+    "count": 4,
+    "open": 4,
+    "asked": 0,
+    "answered": 0,
+    "questions": [
+      {
+        "id": "18e5030e-d4e0-4a26-8c86-b53c09c697ce",
+        "session_id": "kent_multi_fortord_nike_f61d815d1a99",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "communication_with_partner_overseas",
+        "question_en": "How did you and Janice keep in touch from overseas — letters, phone calls, telegrams?",
+        "triggering_anchor": "Janice overseas communication",
+        "why_it_matters": "Pre-text-era courtship logistics with Janice is core to a 1950s-60s memoir. Letters, phone calls, telegrams across an ocean are a story most narrators have rich detail on.",
+        "priority": 2,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T13:49:30.599688",
+        "updated_at": "2026-05-10T13:49:30.599688"
+      },
+      {
+        "id": "346933fb-9fea-40dc-b765-d27935f8ecd3",
+        "session_id": "kent_multi_fortord_nike_f61d815d1a99",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "career_choice_under_constraint",
+        "question_en": "How did the choice between waiting and pivoting actually feel at the time?",
+        "triggering_anchor": "ASA-vs-Nike career choice",
+        "why_it_matters": "Pivot-under-constraint decisions shape the next decades. The narrator's calculus at the moment is information memoir summaries lose.",
+        "priority": 3,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T13:49:30.723178",
+        "updated_at": "2026-05-10T13:49:30.723178"
+      },
+      {
+        "id": "000ab242-d848-43f5-bf40-2274868c2ced",
+        "session_id": "kent_multi_fortord_nike_f61d815d1a99",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "role_pivot_courier_bridge",
+        "question_en": "How did the courier route end up turning into the next assignment?",
+        "triggering_anchor": "courier route transition",
+        "why_it_matters": "A temporary substitution that became a permanent career pivot is the bridge moment of the chapter.",
+        "priority": 3,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T13:49:30.849565",
+        "updated_at": "2026-05-10T13:49:30.849565"
+      },
+      {
+        "id": "c2231a7a-c21b-43f9-8628-0b9431292a8b",
+        "session_id": "kent_multi_fortord_nike_f61d815d1a99",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "role_pivot_photography",
+        "question_en": "What kind of photography did the Brigade need you to do?",
+        "triggering_anchor": "photography role pivot",
+        "why_it_matters": "The day-to-day work of an Army photographer is the specific texture of a role pivot. What got photographed, for whom, and why.",
+        "priority": 3,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T13:49:30.977934",
+        "updated_at": "2026-05-10T13:49:30.977934"
+      }
+    ]
+  }
+}

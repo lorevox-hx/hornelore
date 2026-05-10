@@ -1,0 +1,137 @@
+{
+  "conv_id": "kent_multi_fortord_nike_74f7cfa368a7",
+  "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+  "turns": [
+    {
+      "label": "TURN 1 — KENT LONG FORT ORD MONOLOGUE",
+      "user_words": 2401,
+      "streamed_text": "You said meal tickets: had already been put in charge of meal tickets on the train. What did handling meal tickets actually require you to do?",
+      "final_text": "You said meal tickets: had already been put in charge of meal tickets on the train. What did handling meal tickets actually require you to do?",
+      "final_words": 26,
+      "question_count": 1,
+      "forbidden_hits": [],
+      "bad_meta_stream_hits": [],
+      "bad_spelling_question_hits": []
+    },
+    {
+      "label": "TURN 2 — KENT MEMORY-ECHO CHECK",
+      "user_words": 8,
+      "streamed_text": "What I know about Kent so far:\n\nIdentity\n- Name: Kent\n- Date of birth: (not on record yet)\n- Place of birth: Stanley, North Dakota\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none on record yet)\n\nNotes from our conversation\n- Childhood home: Stanley, North Dakota\n- Heritage: French (Alsace-Lorraine via Shong family), German (Bolley family), North Dakota\n- Career: Long career in construction and trades; built family life across multiple states including time in Germany\n- Life stage: senior elder\n\nWhat I'm less sure about\n- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.\n- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.\n\n(Based on: profile, session notes.)\n\nYou can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+      "final_text": "What I know about Kent so far:\n\nIdentity\n- Name: Kent\n- Date of birth: (not on record yet)\n- Place of birth: Stanley, North Dakota\n\nFamily\n- Parents: (none on record yet)\n- Siblings: (none on record yet)\n\nNotes from our conversation\n- Childhood home: Stanley, North Dakota\n- Heritage: French (Alsace-Lorraine via Shong family), German (Bolley family), North Dakota\n- Career: Long career in construction and trades; built family life across multiple states including time in Germany\n- Life stage: senior elder\n\nWhat I'm less sure about\n- Some parts are still blank, and that is completely fine. You can correct or add one thing at a time, whenever you'd like.\n- Anything you mention now I'll keep as a working draft until you confirm it. Confirmed facts come from your profile.\n\n(Based on: profile, session notes.)\n\nYou can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+      "final_words": 157,
+      "question_count": 0,
+      "forbidden_hits": [],
+      "bad_meta_stream_hits": [],
+      "bad_spelling_question_hits": []
+    },
+    {
+      "label": "TURN 3 — KENT NIKE MISSILE OPERATOR CHAPTER",
+      "user_words": 521,
+      "streamed_text": "You mentioned Southridge before. I should check that against Selfridge Air Force Base. What do you remember about the exact name of the base in Detroit, Michigan, where you trained for the Nike Ajax and Nike Hercules systems?",
+      "final_text": "You mentioned Southridge before. I should check that against Selfridge Air Force Base. What do you remember about the exact name of the base in Detroit, Michigan, where you trained for the Nike Ajax and Nike Hercules systems?",
+      "final_words": 38,
+      "question_count": 1,
+      "forbidden_hits": [],
+      "bad_meta_stream_hits": [],
+      "bad_spelling_question_hits": []
+    }
+  ],
+  "scores": [
+    {
+      "name": "TURN 1 Fort Ord",
+      "hits": [
+        "meal tickets"
+      ],
+      "failures": [
+        "too_short=26w (want ≥30)",
+        "too_few_expected_terms=['meal tickets'] (want ≥3 of ['Fort Ord', 'meal tickets', 'M1', 'GED', 'Army Security Agency', 'Nike Ajax', 'Nike Hercules'])"
+      ]
+    },
+    {
+      "name": "TURN 2 Memory echo",
+      "hits": [],
+      "failures": [
+        "too_few_expected_terms=[] (want ≥3 of ['Fort Ord', 'meal tickets', 'M1', 'GED', 'Army Security Agency', 'Nike Ajax', 'Nike Hercules'])"
+      ]
+    },
+    {
+      "name": "TURN 3 Nike",
+      "hits": [
+        "Nike Ajax",
+        "Nike Hercules"
+      ],
+      "failures": [
+        "too_few_expected_terms=['Nike Ajax', 'Nike Hercules'] (want ≥3 of ['Nike Ajax', 'Nike Hercules', 'radar', 'computer', 'operator', 'Germany', 'Janice'])"
+      ]
+    }
+  ],
+  "bank": {
+    "session_id": "kent_multi_fortord_nike_74f7cfa368a7",
+    "count": 4,
+    "open": 4,
+    "asked": 0,
+    "answered": 0,
+    "questions": [
+      {
+        "id": "649dcab3-5107-4ca2-b09d-e42dfe898779",
+        "session_id": "kent_multi_fortord_nike_74f7cfa368a7",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "communication_with_partner_overseas",
+        "question_en": "How did you and Janice keep in touch from overseas — letters, phone calls, telegrams?",
+        "triggering_anchor": "Janice overseas communication",
+        "why_it_matters": "Pre-text-era courtship logistics with Janice is core to a 1950s-60s memoir. Letters, phone calls, telegrams across an ocean are a story most narrators have rich detail on.",
+        "priority": 2,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T15:47:40.192796",
+        "updated_at": "2026-05-10T15:47:40.192796"
+      },
+      {
+        "id": "ad982029-7ad6-49f1-a723-4b40a463dce1",
+        "session_id": "kent_multi_fortord_nike_74f7cfa368a7",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "career_choice_under_constraint",
+        "question_en": "How did the choice between waiting and pivoting actually feel at the time?",
+        "triggering_anchor": "ASA-vs-Nike career choice",
+        "why_it_matters": "Pivot-under-constraint decisions shape the next decades. The narrator's calculus at the moment is information memoir summaries lose.",
+        "priority": 3,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T15:47:40.319579",
+        "updated_at": "2026-05-10T15:47:40.319579"
+      },
+      {
+        "id": "435e219f-35de-4394-b991-b4703b07f23e",
+        "session_id": "kent_multi_fortord_nike_74f7cfa368a7",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "role_pivot_courier_bridge",
+        "question_en": "How did the courier route end up turning into the next assignment?",
+        "triggering_anchor": "courier route transition",
+        "why_it_matters": "A temporary substitution that became a permanent career pivot is the bridge moment of the chapter.",
+        "priority": 3,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T15:47:40.447178",
+        "updated_at": "2026-05-10T15:47:40.447178"
+      },
+      {
+        "id": "5db9ec7c-fe3a-44d8-aa37-2e91429071dc",
+        "session_id": "kent_multi_fortord_nike_74f7cfa368a7",
+        "person_id": "4aa0cc2b-1f27-433a-9152-203bb1f69a55",
+        "intent": "role_pivot_photography",
+        "question_en": "What kind of photography did the Brigade need you to do?",
+        "triggering_anchor": "photography role pivot",
+        "why_it_matters": "The day-to-day work of an Army photographer is the specific texture of a role pivot. What got photographed, for whom, and why.",
+        "priority": 3,
+        "triggering_turn_index": 0,
+        "asked_at_turn": null,
+        "answered": false,
+        "created_at": "2026-05-10T15:47:40.572637",
+        "updated_at": "2026-05-10T15:47:40.572637"
+      }
+    ]
+  }
+}
