@@ -51,11 +51,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 def _setup_paths() -> None:
-    """Make the api module importable from the repo root."""
+    """Make the code.api module importable.
+
+    db.py uses ``from ..db.migrations_runner import run_pending_migrations``
+    which resolves up TWO package levels — so the import root must be
+    ``server/`` (not ``server/code/``) for the package path to be
+    ``code.api.db`` and `..db` to land at ``code.db``. This matches
+    how launchers run uvicorn (cd server/ ; python -m uvicorn
+    code.api.main:app).
+    """
     repo_root = Path(__file__).resolve().parent.parent
-    server_code = repo_root / "server" / "code"
-    if str(server_code) not in sys.path:
-        sys.path.insert(0, str(server_code))
+    server_root = repo_root / "server"
+    if str(server_root) not in sys.path:
+        sys.path.insert(0, str(server_root))
 
 
 def _normalize_mode(mode: str) -> str:
@@ -72,7 +80,7 @@ def _normalize_mode(mode: str) -> str:
 
 
 def _list_narrators() -> List[Dict[str, Any]]:
-    from api import db as _db  # type: ignore[import-not-found]
+    from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
     con = _db._connect()
     cur = con.execute(
@@ -103,7 +111,7 @@ def _list_narrators() -> List[Dict[str, Any]]:
 
 def _resolve_person_id(name_or_id: str) -> Tuple[str, str]:
     """Return (person_id, display_name) from either UUID or display-name match."""
-    from api import db as _db  # type: ignore[import-not-found]
+    from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
     if "-" in name_or_id and len(name_or_id) >= 32:
         # Looks like a UUID
@@ -147,7 +155,7 @@ def _apply_mode(
     primary: Optional[str] = None,
     code_switching: Optional[bool] = None,
 ) -> None:
-    from api import db as _db  # type: ignore[import-not-found]
+    from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
     cur = _db.get_profile(person_id) or {}
     prof = dict(cur.get("profile_json") or {})
