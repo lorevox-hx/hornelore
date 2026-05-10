@@ -98,3 +98,9 @@ server/data/memory/
 # reports in docs/reports/test23_*.{json,md,csv,txt} carry the evidence)
 docs/reports/test23_*_*.downloads/
 docs/reports/test23_*_*.screenshots/
+
+# agent session state
+.claude/
+
+# runtime DB (live narrator data)
+data/hornelore.sqlite
