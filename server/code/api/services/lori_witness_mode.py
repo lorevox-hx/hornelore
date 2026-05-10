@@ -1318,11 +1318,429 @@ def validate_witness_receipt(
     return (len(failures) == 0), failures
 
 
+# ── BUG-LORI-WITNESS-RICH-RECEIPT-01 (2026-05-10) ─────────────────────────
+#
+# Rich deterministic witness receipt. Replaces the thin "I caught X, Y,
+# and Z. What happened next?" structured_multi template that fired on
+# Kent's TEST-B / TEST-C / TEST-G / TEST-COMBINED in the deep-witness
+# replay. The thin template was correct in shape (multi-anchor + 1
+# question, no sensory probes) but completely failed the active-
+# listening rubric — Kent's induction story has 11 narrator-named
+# anchors and the thin receipt echoed only 3 of them.
+#
+# Architecture:
+#
+#   1. INTENT_BANK (ordered tuple) — pattern-match narrator anchors to
+#      a high-priority continuation question. First match wins.
+#      Falls through to "What happened next?" only when no intent
+#      pattern matches.
+#
+#   2. compose_structured_witness_receipt(narrator_text, llm_question=
+#      None, target_language="en") — produces 45–110 word receipt
+#      with chronologically ordered anchors echoed in second-person
+#      voice + the intent-priority question. When llm_question is
+#      provided AND clean (no forbidden tokens, no mimicry, no
+#      Spanish, exactly 1 ?), prefers the LLM's question over the
+#      intent-bank pick (salvage path). When no llm_question and no
+#      intent matches, the bank's default "What happened next?" fires.
+#
+# All composition is deterministic — no LLM call. Safe to run on every
+# STRUCTURED_NARRATIVE turn as the validator-fallback. English-only
+# for v1; Spanish receipts pending separate evidence pass.
+
+# Intent-priority question bank. Each entry is a tuple:
+#   (intent_label, anchor_signals_required_set,
+#    optional_context_signals_set, question_template_en)
+#
+# Match rule: ALL anchor_signals must appear (case-insensitive substring)
+# in narrator text. If optional_context_signals is non-empty, AT LEAST
+# ONE must also appear. Order matters — first match wins. The default
+# fallback is the last entry with empty signal sets.
+_INTENT_QUESTION_BANK: tuple = (
+    # 1. Communication-with-fiancée/wife from overseas (Kent TEST-COMMS,
+    #    TEST-D). Highest priority — this is the load-bearing oral-
+    #    history question in 1959 pre-text-era courtship logistics.
+    (
+        "communication_with_wife",
+        {"germany"},
+        {"contacted", "1959", "overseas", "letter", "wrote", "phone", "telegram", "fiancée", "fiancee"},
+        "How did you and Janice keep in touch while you were overseas — letters, phone calls, telegrams?",
+    ),
+    # 2. Travel/paperwork/housing logistics for spouse joining overseas
+    #    (Kent TEST-E follow-up).
+    (
+        "travel_paperwork_housing",
+        {"wedding", "germany"},
+        {"return", "back", "paperwork", "travel", "rules"},
+        "How did Janice travel to Germany after the wedding — military transport, or commercial?",
+    ),
+    # 3. Spelling confirmation on fragile names (Kent TEST-G,
+    #    TEST-COMBINED). Multiple anchors checked separately so a
+    #    single fragile name fires.
+    (
+        "spelling_confirmation_landstuhl",
+        {"landstuhl"},
+        set(),
+        "Can you spell Landstuhl for me so I get it down right?",
+    ),
+    (
+        "spelling_confirmation_ramstein",
+        {"ramstein"},
+        set(),
+        "Can you spell Ramstein for me so I record it correctly?",
+    ),
+    (
+        "spelling_confirmation_schmick",
+        {"schmick"},
+        set(),
+        "Can you spell General Schmick's name for me so I get it down right?",
+    ),
+    (
+        "spelling_confirmation_kaiserslautern",
+        {"kaiserslautern"},
+        set(),
+        "Can you spell Kaiserslautern for me so I record it correctly?",
+    ),
+    # 4. Photography work day-to-day (Kent TEST-F).
+    (
+        "photography_work",
+        {"photographer"},
+        {"brigade", "32nd", "general"},
+        "What did the photography work involve day-to-day?",
+    ),
+    (
+        "photography_work_alt",
+        {"photography"},
+        {"brigade", "32nd", "general"},
+        "What did the photography work involve day-to-day?",
+    ),
+    # 5. Wedding day at the Cathedral (Kent TEST-E).
+    (
+        "wedding_day",
+        {"cathedral"},
+        {"wedding", "ceremony", "duffy"},
+        "What did the day at the Cathedral feel like for you?",
+    ),
+    # 6. Premature birth + medical needs (Vince was premature with CP —
+    #    specific to Kent + Janice's actual story per Chris's note 2026-
+    #    05-10). When narrator mentions premature / preemie / CP /
+    #    cerebral palsy / medical needs alongside the son's name, the
+    #    door that just opened is medical care + family adjustment, not
+    #    paperwork. Highest priority among Vince doors so it wins over
+    #    citizenship-paperwork below.
+    (
+        "premature_medical_care",
+        {"vince"},
+        {"premature", "preemie", "cerebral palsy", "cp ", "medical needs",
+         "intensive care", "incubator", "specialist"},
+        "What was Vince's care like at Landstuhl — were the doctors there able to help?",
+    ),
+    (
+        "premature_family_adjustment",
+        {"premature"},
+        {"germany", "landstuhl", "ramstein", "vince", "son"},
+        "How did you and Janice adjust to caring for him in those first months?",
+    ),
+    # 7. Birth of son and hospital paperwork (Kent TEST-G follow-up).
+    (
+        "birth_paperwork",
+        {"vince"},
+        {"hospital", "citizenship", "embassy", "frankfurt", "paperwork"},
+        "How did the citizenship paperwork get sorted out for Vince?",
+    ),
+    # 7b. Medical career / doctor / education-to-profession door.
+    #    Per Chris's note: "if you open a door to being a doctor in
+    #    education later that is another door."
+    (
+        "medical_career",
+        {"doctor"},
+        {"medical school", "residency", "training", "education", "became a"},
+        "What drew you toward medicine?",
+    ),
+    (
+        "education_to_profession",
+        {"degree"},
+        {"work", "career", "profession", "first job"},
+        "What did you do with that degree once you finished?",
+    ),
+    # 7. Role transition / career pivot (Kent TEST-F primary).
+    (
+        "role_transition",
+        {"courier"},
+        {"photographer", "photography", "32nd", "brigade"},
+        "How did the courier route end up turning into the photography work?",
+    ),
+    # 8. Basic-training arc (Kent TEST-B / TEST-C).
+    (
+        "basic_training_arc",
+        {"fort ord"},
+        {"basic training", "m1", "rifle", "expert", "nike"},
+        "How did Fort Ord shape what came next for you?",
+    ),
+    # 9. Induction journey (Kent TEST-B opening).
+    (
+        "induction_journey",
+        {"induction"},
+        {"depot", "stanley", "fargo", "train", "meal ticket"},
+        "What do you remember about the train ride west after the induction?",
+    ),
+    # 10. Default — any structured narrative without specific intent.
+    #     Note: empty sets mean this matches anything. MUST be last.
+    (
+        "continuation",
+        set(),
+        set(),
+        "What happened next?",
+    ),
+)
+
+
+def _classify_intent(narrator_text: str) -> tuple:
+    """Return (intent_label, question_en) for the first matching
+    intent in _INTENT_QUESTION_BANK. Defaults to ("continuation",
+    "What happened next?") when no specific pattern matches."""
+    if not narrator_text:
+        return ("continuation", "What happened next?")
+    text_lower = narrator_text.lower()
+    for entry in _INTENT_QUESTION_BANK:
+        intent_label, anchor_sigs, ctx_sigs, q_en = entry
+        if anchor_sigs and not all(sig in text_lower for sig in anchor_sigs):
+            continue
+        if ctx_sigs and not any(sig in text_lower for sig in ctx_sigs):
+            continue
+        return (intent_label, q_en)
+    return ("continuation", "What happened next?")
+
+
+def _extract_chronological_anchors(
+    narrator_text: str, max_n: int = 8,
+) -> List[str]:
+    """Pull narrator-named anchors in chronological order (left-to-
+    right reading). Combines proper-noun phrases with definite-noun
+    phrases (e.g. "the meal tickets"). Dedupes substrings. Caps at
+    max_n. The output drives the rich receipt's fact list."""
+    if not narrator_text:
+        return []
+    anchors: List[str] = []
+    seen_lower: set = set()
+
+    # Pass 1: proper-noun phrases (skip sentence-start + stopwords)
+    for m in _FACT_PROPER_NOUN_RX.finditer(narrator_text):
+        token = m.group(1).strip()
+        first_word = token.split()[0]
+        if first_word in _FACT_STOPWORDS:
+            continue
+        start = m.start()
+        if start == 0:
+            continue
+        prefix = narrator_text[max(0, start - 2):start]
+        if prefix in (". ", "! ", "? ", "\n\n"):
+            continue
+        tl = token.lower()
+        # Substring dedupe — if we already have "Stanley North Dakota",
+        # don't add bare "Stanley" or "North Dakota".
+        if any(tl in seen or seen in tl for seen in seen_lower):
+            continue
+        anchors.append(token)
+        seen_lower.add(tl)
+        if len(anchors) >= max_n * 2:  # collect extra, prune later
+            break
+
+    # Pass 2: definite-noun phrases ("the meal tickets") for non-proper
+    # narrative anchors. Keeps quantity reasonable.
+    if len(anchors) < max_n:
+        for m in _DEFINITE_NOUN_RX.finditer(narrator_text):
+            phrase = m.group(0).strip()
+            bare = re.sub(r"^(?:the|my|our|that|these|those)\s+", "",
+                          phrase, flags=re.IGNORECASE)
+            if not bare:
+                continue
+            bl = bare.lower()
+            if any(bl in seen or seen in bl for seen in seen_lower):
+                continue
+            anchors.append(bare)
+            seen_lower.add(bl)
+            if len(anchors) >= max_n:
+                break
+
+    return anchors[:max_n]
+
+
+def _llm_question_is_clean(
+    llm_text: str, target_language: str = "en",
+) -> Optional[str]:
+    """If the LLM text contains a clean question we can salvage,
+    return that question string. Otherwise return None.
+
+    "Clean" means:
+      - exactly one '?' total
+      - no forbidden tokens (sensory / camaraderie / pivotal)
+      - no first-person mimicry (our son / we were / my wife)
+      - in english-mode: no Spanish scaffolding (Capté / ¿ / Tú / etc.)
+      - the question is at most 30 words (avoids salvaging walls of text)
+    """
+    if not llm_text:
+        return None
+    if llm_text.count("?") != 1:
+        return None
+    text_lower = llm_text.lower()
+    for tok in _VALIDATOR_FORBIDDEN_TOKENS:
+        if tok in text_lower:
+            return None
+    for phrase in _VALIDATOR_FIRST_PERSON:
+        if phrase in text_lower:
+            return None
+    if target_language == "en":
+        for tok in ("capté", "¿qué", "¿cómo", "¿dónde", "¿cuándo", "¡"):
+            if tok in text_lower:
+                return None
+        # "Tú" with capital T is the Spanish pronoun, not English usage
+        if "tú " in text_lower:
+            return None
+
+    # Extract the last sentence ending in '?' — that's the question.
+    # Use a simple split-on-? approach.
+    parts = llm_text.split("?")
+    if len(parts) < 2:
+        return None
+    question_body = parts[-2].strip()
+    if not question_body:
+        return None
+    # Walk back to find sentence start (last . ! ? before this segment).
+    # Simple approach: find last sentence boundary in the prefix.
+    last_boundary = max(
+        question_body.rfind(". "),
+        question_body.rfind("! "),
+        question_body.rfind("\n"),
+    )
+    if last_boundary >= 0:
+        question_body = question_body[last_boundary + 1:].strip()
+    question_text = question_body + "?"
+    if len(question_text.split()) > 30:
+        return None
+    return question_text
+
+
+def compose_chronological_chain_receipt(
+    narrator_text: str,
+    target_language: str = "en",
+    max_anchors: int = 8,
+) -> str:
+    """Compose JUST the receipt sentence — no question.
+
+    Output: "You went from {a1} to {a2}, then {a3}, {a4}, and {a5}."
+
+    Per WO-LORI-WITNESS-FOLLOWUP-BANK-01, the immediate response is
+    receipt + ONE door (chosen externally via lori_followup_bank
+    selector). This function is the receipt half — the door is
+    appended by the caller.
+
+    Returns "" when narrator text has fewer than 2 anchors OR
+    target_language is not English. v1 is English-first.
+    """
+    if target_language and target_language.lower().startswith("es"):
+        return ""
+    if not narrator_text or not narrator_text.strip():
+        return ""
+
+    anchors = _extract_chronological_anchors(narrator_text, max_n=max_anchors)
+    if len(anchors) < 2:
+        return ""
+
+    if len(anchors) == 2:
+        return f"You went from {anchors[0]} to {anchors[1]}."
+    if len(anchors) == 3:
+        return f"You went from {anchors[0]} to {anchors[1]}, then {anchors[2]}."
+    if len(anchors) == 4:
+        return (
+            f"You went from {anchors[0]} to {anchors[1]}, then {anchors[2]}, "
+            f"and {anchors[3]}."
+        )
+    head = ", ".join(anchors[2:-1])
+    return (
+        f"You went from {anchors[0]} to {anchors[1]}, then {head}, "
+        f"and {anchors[-1]}."
+    )
+
+
+def compose_structured_witness_receipt(
+    narrator_text: str,
+    llm_question: Optional[str] = None,
+    target_language: str = "en",
+    immediate_door_question: Optional[str] = None,
+) -> str:
+    """Compose a rich English witness receipt for STRUCTURED_NARRATIVE
+    turns. Replaces the thin "I caught X, Y, Z. What happened next?"
+    template.
+
+    Output shape:
+      "You went from {a1} to {a2}, then {a3}, {a4}, and {a5}. {Q}"
+
+    Where {a1..a5} are 5–8 narrator-named anchors in chronological
+    order (left-to-right reading order in the narrator text), and
+    {Q} is selected in this priority order:
+      1. immediate_door_question (caller-supplied from
+         lori_followup_bank.select_immediate_and_bank)
+      2. salvaged LLM question (if clean)
+      3. legacy intent-bank pick (back-compat)
+      4. "What happened next?" default
+
+    immediate_door_question is the new architecture per
+    WO-LORI-WITNESS-FOLLOWUP-BANK-01 — when the caller has already
+    run door detection, it passes the chosen door's question_en here
+    and this function uses it directly. Backwards-compatible: when
+    immediate_door_question is None, falls through to the legacy
+    salvage / intent-bank path.
+
+    Spanish target_language fall-through: returns "" (caller uses
+    legacy compose_witness_response Spanish path). v1 is English-first.
+
+    Returns "" when the narrator text has fewer than 2 anchors.
+    """
+    if target_language and target_language.lower().startswith("es"):
+        return ""
+    if not narrator_text or not narrator_text.strip():
+        return ""
+
+    receipt = compose_chronological_chain_receipt(
+        narrator_text, target_language=target_language, max_anchors=8,
+    )
+    if not receipt:
+        return ""
+
+    # Question selection cascade.
+    if immediate_door_question:
+        question = immediate_door_question
+        intent_label = "immediate_door"
+    else:
+        salvaged = _llm_question_is_clean(llm_question or "", target_language="en")
+        if salvaged:
+            question = salvaged
+            intent_label = "salvaged_llm"
+        else:
+            intent_label, question = _classify_intent(narrator_text)
+
+    full = f"{receipt} {question}"
+
+    # Length cap. If receipt + question exceeds 110 words, trim to
+    # 5 anchors and rebuild (rare — only fires on very dense turns).
+    word_count = len(full.split())
+    if word_count > 110:
+        receipt = compose_chronological_chain_receipt(
+            narrator_text, target_language=target_language, max_anchors=5,
+        )
+        full = f"{receipt} {question}"
+
+    return full
+
+
 __all__ = [
     "WitnessDetection",
     "WitnessAnswer",
     "detect_witness_event",
     "compose_witness_response",
+    "compose_chronological_chain_receipt",
+    "compose_structured_witness_receipt",
     "detect_and_compose",
     "validate_witness_receipt",
 ]

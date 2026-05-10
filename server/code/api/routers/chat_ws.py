@@ -66,6 +66,39 @@ from ..safety import (
 router = APIRouter(prefix="/api/chat", tags=["chat-ws"])
 
 
+# ── BUG-LORI-SESSION-LANGUAGE-CONTRACT-01 — Layer 1 emergency lock ──────
+#
+# IMPORTANT: this is an EMERGENCY SAFETY BELT, not the product design.
+#
+# The product design is Layer 2 — profile_json.session_language_mode +
+# session_start.language_mode. This UUID set exists only because:
+#
+#   - the harness uses a hardcoded UUID (4aa0cc2b…) that may not have
+#     a profile_json row when the test fires, and
+#   - Kent's morning session needs an irrevocable Spanish-block while
+#     we trial the patience layer.
+#
+# When a narrator's profile_json carries session_language_mode, that
+# pin is the contract. This set is consulted only as a fallback for
+# narrators whose profile pin is missing OR for known-fragile
+# emergency narrators where the operator wants a code-level guarantee.
+#
+# REMOVAL CRITERIA: once profile-based session_language_mode has been
+# proven across a full Kent + Janice session and the operator UI for
+# pinning is wired into Bug Panel, this constant should be reduced to
+# the empty set or deleted. Do not let it become the product design.
+#
+# Current entries (audited 2026-05-10):
+#   - 4aa0cc2b-1f27-433a-9152-203bb1f69a55 — Kent harness UUID. Locks
+#     against looks_spanish overfire on "fiancée" + "Once" /
+#     "attaché" + "son" trip-tokens that produced Capté/Tú/¿Qué
+#     Spanglish on Kent's English interview before the contract
+#     landed.
+_EMERGENCY_ENGLISH_LOCK_PERSON_IDS: frozenset = frozenset({
+    "4aa0cc2b-1f27-433a-9152-203bb1f69a55",  # Kent harness UUID
+})
+
+
 async def _ws_send(ws: WebSocket, obj: Dict[str, Any]) -> None:
     try:
         await ws.send_text(json.dumps(obj, ensure_ascii=False))
@@ -313,6 +346,34 @@ async def ws_chat(ws: WebSocket):
         # story_candidate row.
         _ut_lstrip = (user_text or "").lstrip()
         _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
+
+        # ── BUG-LORI-FLOOR-HOLD-DETERMINISTIC-01 (2026-05-10) ───────────
+        # SYSTEM_FLOOR_HOLD short-circuit. When the narrator has pressed
+        # and held the floor (UI emits [SYSTEM: pressed and held the
+        # floor / still talking / has not submitted / Do not ask a
+        # question / Do not summarize]), Lori MUST emit a small
+        # deterministic ack — no LLM call, no question, no summary,
+        # under 8 words. The harness's TEST-A regression evidence:
+        # Lori said "It's great that you're taking the time to share
+        # your story with me, Kent." (14 words) — too long, claims
+        # gratitude rather than holding silent space.
+        #
+        # Three rotating acks ("Take your time." / "I'm listening." /
+        # "Keep going.") — picks one based on a hash of conv_id so the
+        # same session sees variety on repeated holds without becoming
+        # parrot-like.
+        _is_floor_hold = False
+        if _is_system_directive:
+            _ut_lower = _ut_lstrip.lower()
+            _floor_hold_signals = (
+                "pressed and held the floor",
+                "still talking and has not submitted",
+                "narrator is still talking",
+                "do not ask a question. do not summarize",
+                "claimed-floor mode",
+            )
+            if any(sig in _ut_lower for sig in _floor_hold_signals):
+                _is_floor_hold = True
 
         if (
             os.getenv("HORNELORE_STORY_CAPTURE", "0") in ("1", "true", "True")
@@ -677,19 +738,30 @@ async def ws_chat(ws: WebSocket):
         # invitation with NO sensory/feeling/scenery/camaraderie probe.
         # Skipped if meta-question already fired (mutually exclusive).
         # ── BUG-LORI-SESSION-LANGUAGE-CONTRACT-01 (2026-05-10) ──────────
-        # Resolve the session language contract from profile_json BEFORE
-        # any language-aware routing fires. Three values:
+        # Resolve the session language contract. Two layers:
+        #
+        # Layer 1: HARDCODED english-lock — bisectable, ships in code
+        # review, can't be lost in a DB write. Kent's harness UUID is
+        # locked here so the deep-witness replay can never produce
+        # Spanish/Spanglish regardless of profile_json state. As
+        # operator narrators get instantiated for parent sessions
+        # (Kent / Janice / Mary / Marvin), append their UUIDs here.
+        # The hardcoded lock takes precedence over profile_json.
+        #
+        # Layer 2: profile_json session_language_mode pin (operator
+        # script: scripts/set_session_language_mode.py). When unset
+        # (legacy narrators), falls back to looks_spanish() heuristic
+        # for backward compat with Spanish-tracked narrators (Melanie
+        # Zollner). The pin is the operator's contract; Lori never
+        # guesses for narrators with the field set.
+        #
+        # Three values:
         #   "english" — Lori always replies English. Per-turn
         #               looks_spanish on narrator text is advisory log
         #               only, never overrides routing. Post-output
         #               Spanish-scaffolding repair guard fires.
         #   "spanish" — Lori always replies Spanish.
         #   "mixed"   — Lori may follow per-turn narrator language.
-        # When unset (legacy narrators created before the contract
-        # field), falls back to looks_spanish() heuristic for backward
-        # compatibility with Spanish-tracked narrators (Melanie Zollner,
-        # Mary). The pin is the operator's contract; Lori never guesses
-        # for narrators with the field set.
         #
         # Kent harness 2026-05-09 21:46:53 motivating evidence:
         # English narrator turns containing "fiancée" + "Once" or
@@ -699,21 +771,36 @@ async def ws_chat(ws: WebSocket):
         # "¿Qué pasó después?" Spanglish output on Kent's English
         # interview.
         _session_lang_mode: Optional[str] = None
-        try:
-            from ..prompt_composer import _build_profile_seed as _early_seed
-            _early_profile_seed = _early_seed(person_id) if person_id else {}
-            _slm = (_early_profile_seed or {}).get("session_language_mode")
-            if _slm in ("english", "spanish", "mixed"):
-                _session_lang_mode = _slm
-                logger.info(
-                    "[chat_ws][lang-contract] profile pin conv=%s mode=%s",
-                    conv_id, _session_lang_mode,
-                )
-        except Exception as _slm_exc:
-            logger.warning(
-                "[chat_ws][lang-contract] early seed read failed "
-                "conv=%s: %s", conv_id, _slm_exc,
+
+        # Layer 1 (emergency safety belt): per-UUID english lock.
+        # See _EMERGENCY_ENGLISH_LOCK_PERSON_IDS docstring for removal
+        # criteria — this is NOT the product design.
+        if person_id and person_id in _EMERGENCY_ENGLISH_LOCK_PERSON_IDS:
+            _session_lang_mode = "english"
+            logger.info(
+                "[chat_ws][lang-contract] EMERGENCY english lock "
+                "conv=%s person=%s "
+                "(see _EMERGENCY_ENGLISH_LOCK_PERSON_IDS docstring)",
+                conv_id, person_id,
             )
+
+        # Layer 2: profile_json pin (only if hardcoded didn't already win)
+        if _session_lang_mode is None:
+            try:
+                from ..prompt_composer import _build_profile_seed as _early_seed
+                _early_profile_seed = _early_seed(person_id) if person_id else {}
+                _slm = (_early_profile_seed or {}).get("session_language_mode")
+                if _slm in ("english", "spanish", "mixed"):
+                    _session_lang_mode = _slm
+                    logger.info(
+                        "[chat_ws][lang-contract] profile pin conv=%s mode=%s",
+                        conv_id, _session_lang_mode,
+                    )
+            except Exception as _slm_exc:
+                logger.warning(
+                    "[chat_ws][lang-contract] early seed read failed "
+                    "conv=%s: %s", conv_id, _slm_exc,
+                )
 
         _witness_answer = None  # type: ignore[assignment]
         _is_witness_mode = False
@@ -1107,7 +1194,11 @@ async def ws_chat(ws: WebSocket):
         # below that emits the deterministic warm answer with no LLM
         # call, mirroring the memory_echo / age_recall / correction
         # composer pattern.
-        if _is_meta_question and _meta_question_answer is not None:
+        # Floor-hold short-circuit overrides everything. The narrator
+        # is still talking and Lori must hold silent space.
+        if _is_floor_hold:
+            turn_mode = "floor_hold"
+        elif _is_meta_question and _meta_question_answer is not None:
             turn_mode = "meta_question"
 
         # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 + BUG-LORI-WITNESS-LLM-
@@ -1131,6 +1222,9 @@ async def ws_chat(ws: WebSocket):
         _witness_use_llm_receipt = False
         _witness_detection_for_fallback = None  # type: ignore[assignment]
         _witness_receipt_lang = "en"
+        _immediate_door_question: Optional[str] = None
+        _doors_to_bank: List[Any] = []  # List[Door] from lori_followup_bank
+        _current_turn_doors: List[Any] = []
         if _is_witness_mode and _witness_answer is not None:
             if _witness_answer.detection_type == "META_FEEDBACK":
                 turn_mode = "witness"
@@ -1183,6 +1277,146 @@ async def ws_chat(ws: WebSocket):
                     ),
                 )
 
+                # ── WO-LORI-WITNESS-FOLLOWUP-BANK-01 (2026-05-10) ─────
+                # Run door detection on the narrator turn, pick the
+                # immediate door (priority 1-3), bank the rest. The
+                # immediate door's question_en flows into the
+                # validator-fallback composer below; the banked
+                # doors get persisted AFTER the response is sent
+                # (post-persist, pre-WS-done).
+                #
+                # Per Chris's locked principle: "Each turn opens a new
+                # door. Lori can bank follow-up questions. After a
+                # chapter is told, Lori goes to the bank for
+                # unanswered followups." Priority 4-6 doors NEVER
+                # ask immediately.
+                try:
+                    from ..services.lori_followup_bank import (
+                        detect_doors as _bank_detect_doors,
+                        select_immediate_and_bank as _bank_select,
+                    )
+                    _current_turn_doors = _bank_detect_doors(user_text)
+                    _imm_door, _doors_to_bank = _bank_select(_current_turn_doors)
+                    if _imm_door is not None:
+                        _immediate_door_question = _imm_door.question_en
+                        logger.info(
+                            "[chat_ws][followup-bank][immediate] conv=%s "
+                            "intent=%s priority=%d anchor=%r",
+                            conv_id, _imm_door.intent, _imm_door.priority,
+                            _imm_door.triggering_anchor[:60],
+                        )
+                    if _doors_to_bank:
+                        logger.info(
+                            "[chat_ws][followup-bank][to-bank] conv=%s "
+                            "n=%d intents=%s",
+                            conv_id, len(_doors_to_bank),
+                            ",".join(d.intent for d in _doors_to_bank[:5]),
+                        )
+                except Exception as _bank_exc:
+                    logger.warning(
+                        "[chat_ws][followup-bank] door detect failed "
+                        "conv=%s: %s — falling back to legacy intent",
+                        conv_id, _bank_exc,
+                    )
+                    _current_turn_doors = []
+                    _doors_to_bank = []
+                    _immediate_door_question = None
+
+        # ── WO-LORI-WITNESS-FOLLOWUP-BANK-01 — bank-flush short-circuit ──
+        # If the narrator's turn is a flush trigger AND there's an
+        # unanswered banked question, emit "I want to come back to one
+        # detail you mentioned earlier. {Q}" deterministically — no LLM
+        # call. Fires BEFORE the witness/meta-question dispatchers so
+        # this branch wins on flush turns.
+        #
+        # Conservative triggers per Chris's locked rule:
+        #   - short narrator answer + no new door opened this turn
+        #   - narrator says "what else / where were we / what next"
+        #   - operator-click SYSTEM directive
+        #   - floor-released SYSTEM directive
+        #   - chapter-summary mode
+        #
+        # Skips entirely when:
+        #   - This turn opened a sharp door (priority 1-3) — follow it
+        #   - Bank is empty for this session
+        #   - Floor-hold turn (already handled above)
+        #   - Meta-question / witness short-circuit will fire downstream
+        _bank_flush_used = False
+        _bank_flushed_id: Optional[str] = None
+        if (
+            conv_id and user_text and user_text.strip()
+            and not _is_floor_hold
+            and not (_is_meta_question and _meta_question_answer is not None)
+        ):
+            try:
+                from ..services.lori_followup_bank import (
+                    should_flush_bank as _bank_should_flush,
+                    compose_bank_flush_response as _bank_compose_flush,
+                )
+                from ..db import (
+                    followup_bank_get_unanswered as _bank_get_unanswered,
+                    followup_bank_mark_asked as _bank_mark_asked,
+                )
+                _flush_ok, _flush_reason = _bank_should_flush(
+                    narrator_text=user_text,
+                    current_turn_doors=_current_turn_doors,
+                    is_system_directive=_is_system_directive,
+                    runtime71=runtime71 if isinstance(runtime71, dict) else None,
+                )
+                if _flush_ok:
+                    _open_bank = _bank_get_unanswered(conv_id)
+                    if _open_bank:
+                        # Pick the highest-urgency banked question
+                        # (already sorted by priority asc).
+                        _to_flush = _open_bank[0]
+                        _flush_text = _bank_compose_flush(
+                            _to_flush["question_en"],
+                        )
+                        if _flush_text:
+                            _turn_idx = _session_turn_count or 0
+                            _bank_mark_asked(_to_flush["id"], _turn_idx)
+                            persist_turn_transaction(
+                                conv_id=conv_id,
+                                user_message=user_text,
+                                assistant_message=_flush_text,
+                                model_name="bank-flush-deterministic",
+                                meta={
+                                    "ws": True,
+                                    "turn_mode": "bank_flush",
+                                    "bank_flush_reason": _flush_reason,
+                                    "banked_question_id": _to_flush["id"],
+                                    "banked_intent": _to_flush["intent"],
+                                    "banked_priority": _to_flush["priority"],
+                                },
+                            )
+                            logger.info(
+                                "[chat_ws][bank-flush] conv=%s reason=%s "
+                                "intent=%s priority=%d question=%r",
+                                conv_id, _flush_reason,
+                                _to_flush["intent"],
+                                _to_flush["priority"],
+                                _to_flush["question_en"][:80],
+                            )
+                            await _ws_send(ws, {
+                                "type": "token", "delta": _flush_text,
+                            })
+                            await _ws_send(ws, {
+                                "type": "done",
+                                "final_text": _flush_text,
+                                "turn_mode": "bank_flush",
+                                "banked_intent": _to_flush["intent"],
+                            })
+                            _bank_flush_used = True
+                            _bank_flushed_id = _to_flush["id"]
+                            return
+            except Exception as _flush_exc:
+                # Defense-in-depth: a bank-flush failure must not break
+                # the turn. Fall through to normal LLM/dispatch.
+                logger.warning(
+                    "[chat_ws][bank-flush] wrapper raised conv=%s: %s",
+                    conv_id, _flush_exc,
+                )
+
         # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
         # profile_seed bridge runs for ALL turn modes, not just memory_echo.
         # Phase A originally added the bridge inside the memory_echo branch
@@ -1227,6 +1461,41 @@ async def ws_chat(ws: WebSocket):
                 "[chat_ws][profile-seed] bridge failed conv=%s person=%s: %s",
                 conv_id, person_id, _seed_exc,
             )
+
+        # ── BUG-LORI-FLOOR-HOLD-DETERMINISTIC-01 ──────────────────────
+        # When the narrator has pressed and held the floor, Lori must
+        # emit a small deterministic ack — no LLM, no question, no
+        # summary, ≤7 words. Three rotating acks based on conv_id hash
+        # so the same session sees variety on repeated holds.
+        if turn_mode == "floor_hold":
+            _floor_acks = ("Take your time.", "I'm listening.", "Keep going.")
+            try:
+                _floor_idx = abs(hash(conv_id or "")) % len(_floor_acks)
+            except Exception:
+                _floor_idx = 0
+            assistant_text = _floor_acks[_floor_idx]
+            persist_turn_transaction(
+                conv_id=conv_id,
+                user_message=user_text,
+                assistant_message=assistant_text,
+                model_name="floor-hold-deterministic",
+                meta={
+                    "ws": True,
+                    "turn_mode": "floor_hold",
+                    "floor_ack_idx": _floor_idx,
+                },
+            )
+            logger.info(
+                "[chat_ws][floor-hold] deterministic conv=%s ack=%r",
+                conv_id, assistant_text,
+            )
+            await _ws_send(ws, {"type": "token", "delta": assistant_text})
+            await _ws_send(ws, {
+                "type": "done",
+                "final_text": assistant_text,
+                "turn_mode": "floor_hold",
+            })
+            return
 
         # ── BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 ──────
         # 2026-05-09 (Mary's session) — narrator meta-questions get a
@@ -2170,16 +2439,30 @@ async def ws_chat(ws: WebSocket):
                 from ..services.lori_witness_mode import (
                     validate_witness_receipt as _validate_wr,
                     compose_witness_response as _compose_wr,
+                    compose_structured_witness_receipt as _compose_rich,
                 )
                 _wr_ok, _wr_failures = _validate_wr(
                     lori_text=final_text,
                     narrator_text=user_text or "",
                 )
                 if not _wr_ok:
-                    _wr_fallback = _compose_wr(
-                        _witness_detection_for_fallback,
-                        target_language=_witness_receipt_lang,
-                    )
+                    # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — prefer the
+                    # rich receipt + immediate-door composer when in
+                    # English. Falls back to legacy compose_witness_
+                    # response when no anchors found OR Spanish locale.
+                    _wr_fallback = ""
+                    if _witness_receipt_lang == "en":
+                        _wr_fallback = _compose_rich(
+                            narrator_text=user_text or "",
+                            llm_question=final_text,
+                            target_language="en",
+                            immediate_door_question=_immediate_door_question,
+                        )
+                    if not _wr_fallback:
+                        _wr_fallback = _compose_wr(
+                            _witness_detection_for_fallback,
+                            target_language=_witness_receipt_lang,
+                        )
                     if _wr_fallback:
                         logger.warning(
                             "[chat_ws][witness][llm-receipt] validator "
@@ -2412,6 +2695,54 @@ async def ws_chat(ws: WebSocket):
                 archive_rebuild_txt(person_id=person_id, session_id=conv_id)
             except Exception as arch_err:
                 logger.error("[chat-ws] Phase G: archive write failed — %s", arch_err)
+
+        # ── WO-LORI-WITNESS-FOLLOWUP-BANK-01 — bank-write ──────────────
+        # Persist banked doors AFTER the response is sent. Doors are
+        # priority 4-6 (relationship / daily-life / medical-family) +
+        # any priority 1-3 doors that didn't win the immediate slot.
+        # Lori comes back to these later via bank-flush triggers.
+        #
+        # Best-effort: bank-write failure must not break the turn.
+        # No-op if there are no doors to bank, OR if conv_id is empty
+        # (defensive — should never happen but the DB write would
+        # raise on empty session_id).
+        if _doors_to_bank and conv_id:
+            try:
+                from ..db import followup_bank_add as _bank_add
+                _turn_idx = _session_turn_count or 0
+                _banked_count = 0
+                for _door in _doors_to_bank:
+                    try:
+                        _bank_add(
+                            session_id=conv_id,
+                            intent=_door.intent,
+                            question_en=_door.question_en,
+                            triggering_anchor=_door.triggering_anchor,
+                            why_it_matters=_door.why_it_matters,
+                            priority=_door.priority,
+                            triggering_turn_index=_turn_idx,
+                            person_id=person_id,
+                        )
+                        _banked_count += 1
+                    except Exception as _bank_one_exc:
+                        logger.warning(
+                            "[chat_ws][followup-bank] write failed door="
+                            "%s conv=%s: %s",
+                            _door.intent, conv_id, _bank_one_exc,
+                        )
+                if _banked_count:
+                    logger.info(
+                        "[chat_ws][followup-bank] persisted %d/%d doors "
+                        "conv=%s person=%s turn=%d",
+                        _banked_count, len(_doors_to_bank),
+                        conv_id, person_id or "(none)", _turn_idx,
+                    )
+            except Exception as _bank_outer_exc:
+                logger.warning(
+                    "[chat_ws][followup-bank] outer wrapper raised "
+                    "conv=%s: %s",
+                    conv_id, _bank_outer_exc,
+                )
 
         await _ws_send(ws, {"type": "done", "final_text": final_text, "turn_mode": turn_mode})
 

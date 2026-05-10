@@ -116,6 +116,7 @@ from .routers import (  # type: ignore
     operator_stack_dashboard,  # WO-OPERATOR-RESOURCE-DASHBOARD-01 — live stack gauges
     operator_story_review,   # WO-LORI-STORY-CAPTURE-01 Phase 1B — minimal story-candidate review surface
     operator_harness,        # WO-LORI-HARNESS-01 — golfball harness HTTP shim over /api/chat/ws
+    operator_followup_bank,  # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — patience-layer bank operator surface
 )
 
 # Core Entity & State Routers
@@ -151,6 +152,7 @@ app.include_router(operator_eval_harness.router)   # WO-BUG-PANEL-EVAL-HARNESS-0
 app.include_router(operator_stack_dashboard.router) # WO-OPERATOR-RESOURCE-DASHBOARD-01 — live stack/resource cockpit (HORNELORE_OPERATOR_STACK_DASHBOARD=1 to enable)
 app.include_router(operator_story_review.router)  # WO-LORI-STORY-CAPTURE-01 Phase 1B — story-candidate review surface (HORNELORE_OPERATOR_STORY_REVIEW=1 to enable)
 app.include_router(operator_harness.router)        # WO-LORI-HARNESS-01 — golfball harness HTTP shim (HORNELORE_OPERATOR_HARNESS=1 to enable)
+app.include_router(operator_followup_bank.router)  # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — patience-layer bank (HORNELORE_OPERATOR_FOLLOWUP_BANK=1 to enable)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)

@@ -5141,3 +5141,221 @@ def story_candidate_update_review(
         raise
     finally:
         con.close()
+
+
+# ── WO-LORI-WITNESS-FOLLOWUP-BANK-01 (2026-05-10) ──────────────────────────
+#
+# Per-session bank of unanswered story-doors. Schema lives in migration
+# 0007_follow_up_bank.sql. Accessors below follow the existing house
+# style (init_db + _connect + try-commit-finally with rollback hygiene).
+
+
+def _row_to_banked_question(row) -> Optional[Dict[str, Any]]:
+    """Convert sqlite row to dict. Returns None if row is None."""
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "session_id": row[1],
+        "person_id": row[2],
+        "intent": row[3],
+        "question_en": row[4],
+        "triggering_anchor": row[5],
+        "why_it_matters": row[6],
+        "priority": int(row[7]) if row[7] is not None else 5,
+        "triggering_turn_index": int(row[8]) if row[8] is not None else 0,
+        "asked_at_turn": int(row[9]) if row[9] is not None else None,
+        "answered": bool(row[10]),
+        "created_at": row[11],
+        "updated_at": row[12],
+    }
+
+
+_BANK_SELECT_COLS = (
+    "id, session_id, person_id, intent, question_en, "
+    "triggering_anchor, why_it_matters, priority, "
+    "triggering_turn_index, asked_at_turn, answered, "
+    "created_at, updated_at"
+)
+
+
+def followup_bank_add(
+    session_id: str,
+    intent: str,
+    question_en: str,
+    triggering_anchor: str,
+    why_it_matters: str,
+    priority: int = 5,
+    triggering_turn_index: int = 0,
+    person_id: Optional[str] = None,
+) -> str:
+    """Insert a banked question. Returns the new row's id (uuid string).
+
+    De-dupes within a session: if a row with the same (session_id,
+    intent, triggering_anchor) already exists AND is not yet answered,
+    returns its id without writing a new row. This prevents Lori from
+    banking the same fragile-name confirmation 5 times during a single
+    multi-turn chapter.
+    """
+    init_db()
+    if not session_id or not intent or not question_en or not triggering_anchor:
+        raise ValueError("followup_bank_add requires session_id, intent, question_en, triggering_anchor")
+    con = _connect()
+    try:
+        # De-dupe check
+        existing = con.execute(
+            f"SELECT {_BANK_SELECT_COLS} FROM follow_up_bank "
+            "WHERE session_id=? AND intent=? AND triggering_anchor=? "
+            "AND answered=0 LIMIT 1;",
+            (session_id, intent, triggering_anchor),
+        ).fetchone()
+        if existing is not None:
+            return existing[0]
+        new_id = str(uuid.uuid4())
+        now = _now_iso()
+        con.execute(
+            "INSERT INTO follow_up_bank("
+            "  id, session_id, person_id, intent, question_en, "
+            "  triggering_anchor, why_it_matters, priority, "
+            "  triggering_turn_index, asked_at_turn, answered, "
+            "  created_at, updated_at"
+            ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?);",
+            (
+                new_id, session_id, person_id, intent, question_en,
+                triggering_anchor, why_it_matters, int(priority),
+                int(triggering_turn_index), now, now,
+            ),
+        )
+        con.commit()
+        logger.info(
+            "[followup-bank] added id=%s session=%s intent=%s priority=%d anchor=%r",
+            new_id, session_id, intent, priority, triggering_anchor[:60],
+        )
+        return new_id
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def followup_bank_get_unanswered(session_id: str) -> List[Dict[str, Any]]:
+    """Return all unanswered, not-yet-asked banked questions for a
+    session, ordered by priority (1 first) then most-recently-banked
+    among ties."""
+    init_db()
+    con = _connect()
+    try:
+        rows = con.execute(
+            f"SELECT {_BANK_SELECT_COLS} FROM follow_up_bank "
+            "WHERE session_id=? AND answered=0 AND asked_at_turn IS NULL "
+            "ORDER BY priority ASC, triggering_turn_index DESC;",
+            (session_id,),
+        ).fetchall()
+        return [_row_to_banked_question(r) for r in rows if r is not None]
+    finally:
+        con.close()
+
+
+def followup_bank_get_all(session_id: str) -> List[Dict[str, Any]]:
+    """Return ALL banked questions for a session (asked + answered +
+    open), ordered by priority then turn index. For operator UI
+    surface — shows the full bank including resolved doors."""
+    init_db()
+    con = _connect()
+    try:
+        rows = con.execute(
+            f"SELECT {_BANK_SELECT_COLS} FROM follow_up_bank "
+            "WHERE session_id=? "
+            "ORDER BY answered ASC, priority ASC, triggering_turn_index DESC;",
+            (session_id,),
+        ).fetchall()
+        return [_row_to_banked_question(r) for r in rows if r is not None]
+    finally:
+        con.close()
+
+
+def followup_bank_mark_asked(banked_id: str, asked_at_turn: int) -> None:
+    """Mark a banked question as asked at a specific turn index."""
+    init_db()
+    con = _connect()
+    try:
+        now = _now_iso()
+        con.execute(
+            "UPDATE follow_up_bank SET asked_at_turn=?, updated_at=? "
+            "WHERE id=?;",
+            (int(asked_at_turn), now, banked_id),
+        )
+        con.commit()
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def followup_bank_mark_answered(
+    banked_id: str, answered: bool = True,
+) -> None:
+    """Flip the answered flag. Operator UI calls this when a banked
+    question has been resolved by the narrator's later turns."""
+    init_db()
+    con = _connect()
+    try:
+        now = _now_iso()
+        con.execute(
+            "UPDATE follow_up_bank SET answered=?, updated_at=? "
+            "WHERE id=?;",
+            (1 if answered else 0, now, banked_id),
+        )
+        con.commit()
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def followup_bank_get_by_id(banked_id: str) -> Optional[Dict[str, Any]]:
+    """Lookup by primary key. Returns dict or None."""
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            f"SELECT {_BANK_SELECT_COLS} FROM follow_up_bank WHERE id=?;",
+            (banked_id,),
+        ).fetchone()
+        return _row_to_banked_question(row)
+    finally:
+        con.close()
+
+
+def followup_bank_clear_session(session_id: str) -> int:
+    """Delete all banked questions for a session. Returns rows deleted.
+    Operator-only — used for testing / reset."""
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM follow_up_bank WHERE session_id=?;",
+            (session_id,),
+        )
+        con.commit()
+        return cur.rowcount or 0
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
