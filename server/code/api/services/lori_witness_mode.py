@@ -1663,11 +1663,116 @@ def compose_chronological_chain_receipt(
     )
 
 
+def _snippet_around_anchor(
+    narrator_text: str,
+    anchor: str,
+    max_words: int = 22,
+) -> str:
+    """Return a short narrator-quoted snippet containing `anchor`.
+
+    Walks the narrator text sentence-by-sentence; the first sentence
+    containing `anchor` (case-insensitive) is the source. Trims to
+    `max_words` keeping the anchor's neighborhood. Returns "" when no
+    sentence contains the anchor or when the snippet would be empty.
+
+    Per BANK_PRIORITY_REBUILD §3 named-particular reflection: this is
+    the "brief detail" that follows the anchor in the receipt, e.g.
+    "You said meal tickets: I had to account for every meal and deal
+    with the conductor."
+    """
+    if not narrator_text or not anchor:
+        return ""
+    anchor_lower = anchor.lower()
+    sentences = re.split(r"(?<=[.!?])\s+", narrator_text.strip())
+    for sentence in sentences:
+        if anchor_lower not in sentence.lower():
+            continue
+        words = sentence.split()
+        if len(words) <= max_words:
+            return sentence.strip().rstrip(".!?")
+        # Find anchor's word index, then center a window of max_words
+        anchor_words = anchor.split()
+        anchor_word_count = len(anchor_words)
+        anchor_first = anchor_words[0].lower()
+        anchor_idx = -1
+        for i, w in enumerate(words):
+            if w.lower().startswith(anchor_first.rstrip(",.;:!?")):
+                anchor_idx = i
+                break
+        if anchor_idx < 0:
+            return " ".join(words[:max_words]).rstrip(".!?")
+        # Window: prefer ~max_words/3 before, rest after
+        before = max_words // 3
+        start = max(0, anchor_idx - before)
+        end = min(len(words), start + max_words)
+        # Re-shift if we ran out of room before
+        if end - start < max_words:
+            start = max(0, end - max_words)
+        snippet_words = words[start:end]
+        out = " ".join(snippet_words).rstrip(".!?,;: ")
+        # Strip leading conjunctions / fillers
+        out = re.sub(r"^(?:and|but|so|then|because|that|which)\s+", "",
+                     out, flags=re.IGNORECASE)
+        return out.strip()
+    return ""
+
+
+def compose_story_weighted_receipt(
+    narrator_text: str,
+    immediate_anchor: str,
+    immediate_question: str,
+    target_language: str = "en",
+) -> str:
+    """BANK_PRIORITY_REBUILD §3 — named-particular reflection.
+
+    Output shape:
+      "You said {anchor}: {brief_detail}. {immediate_question}"
+
+    Per signed-off synthesis: drop chronological-anchor list. The
+    receipt is the named particular the narrator returned to (passed
+    in as `immediate_anchor` from the Tier 1A door selector) plus a
+    short narrator-quoted snippet around it. Voice Library §10A and
+    Alshenqeeti (2014) "always seek the particular" is the grounding.
+
+    Returns "" when:
+      - target_language is Spanish (v1 English-first)
+      - narrator_text or immediate_anchor empty
+      - no sentence in narrator_text contains the anchor
+
+    The caller (compose_structured_witness_receipt) chooses between
+    this and the chronological composer based on whether the immediate
+    door has story_weight > 0.
+    """
+    if target_language and target_language.lower().startswith("es"):
+        return ""
+    if not narrator_text or not narrator_text.strip():
+        return ""
+    if not immediate_anchor or not immediate_anchor.strip():
+        return ""
+    anchor = immediate_anchor.strip().rstrip(".!?,;:")
+    snippet = _snippet_around_anchor(narrator_text, anchor, max_words=22)
+    if not snippet:
+        # Fallback: bare receipt without snippet
+        receipt = f"You said {anchor}."
+    else:
+        # Avoid quoting the anchor twice if it already starts the snippet
+        if snippet.lower().startswith(anchor.lower()):
+            receipt = f"{snippet[0].upper()}{snippet[1:]}."
+        else:
+            receipt = f"You said {anchor}: {snippet}."
+    question = (immediate_question or "").strip()
+    if not question:
+        return receipt
+    return f"{receipt} {question}"
+
+
 def compose_structured_witness_receipt(
     narrator_text: str,
     llm_question: Optional[str] = None,
     target_language: str = "en",
     immediate_door_question: Optional[str] = None,
+    immediate_door_anchor: Optional[str] = None,
+    immediate_door_story_weight: int = 0,
 ) -> str:
     """Compose a rich English witness receipt for STRUCTURED_NARRATIVE
     turns. Replaces the thin "I caught X, Y, Z. What happened next?"
@@ -1702,10 +1807,39 @@ def compose_structured_witness_receipt(
     if not narrator_text or not narrator_text.strip():
         return ""
 
+    # BANK_PRIORITY_REBUILD §3 — when the caller supplied a Tier 1A
+    # story-weighted door (story_weight ≥ 1) AND a triggering anchor,
+    # prefer named-particular reflection over chronological-anchor
+    # list. This is the path Kent's overlay needs: meal-tickets
+    # reflection beats chronological "you went from train to camp to
+    # base" recap.
+    if (
+        immediate_door_anchor
+        and immediate_door_question
+        and immediate_door_story_weight >= 1
+    ):
+        story_weighted = compose_story_weighted_receipt(
+            narrator_text=narrator_text,
+            immediate_anchor=immediate_door_anchor,
+            immediate_question=immediate_door_question,
+            target_language=target_language,
+        )
+        if story_weighted:
+            # Length cap: trim if absurdly long (very rare, story-
+            # weighted snippet is already capped at 22 words).
+            if len(story_weighted.split()) <= 110:
+                return story_weighted
+
+    # Legacy path (no Tier 1A door, no anchor, or story_weighted
+    # composer returned empty) — chronological chain receipt.
     receipt = compose_chronological_chain_receipt(
         narrator_text, target_language=target_language, max_anchors=8,
     )
     if not receipt:
+        # If no chronological anchors either, but we DO have a door
+        # question, return the door alone — better than empty.
+        if immediate_door_question:
+            return immediate_door_question.strip()
         return ""
 
     # Question selection cascade.
@@ -1740,6 +1874,7 @@ __all__ = [
     "detect_witness_event",
     "compose_witness_response",
     "compose_chronological_chain_receipt",
+    "compose_story_weighted_receipt",
     "compose_structured_witness_receipt",
     "detect_and_compose",
     "validate_witness_receipt",

@@ -1208,6 +1208,53 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     if isinstance(_acs, bool):
         seed["allow_code_switching"] = _acs
 
+    # ── BANK_PRIORITY_REBUILD 2026-05-10 — narrator_voice_overlay ──────
+    # Per Chris's locked rule: Kent (adult-competence narrator) demotes
+    # sensory questions to bank-only. The overlay controls which Tier 2
+    # sub-tier wins immediate when no Tier 1 fires AND which cue family
+    # gets promoted in the bank.
+    #
+    # Three values + default:
+    #   "adult_competence"   — Kent / military / labor narratives.
+    #                          Mechanism / responsibility / role-pivot
+    #                          beats sensory.
+    #   "hearth_sensory"     — prairie / kitchen-rich / domestic-
+    #                          anchored narrators. Sensory + named
+    #                          heirloom elevated.
+    #   "shield_protected"   — sensitive-disclosure narrators. Tier S
+    #                          rules apply; zero-question responses
+    #                          for hidden_custom material.
+    #   "default"            — story-weighted named particular +
+    #                          action/mechanism (no overlay bias).
+    #
+    # When unset, defaults to "default" downstream. The overlay only
+    # changes follow-up bank prioritization; it does NOT change cue-
+    # library content or session_language_mode.
+    _ovl = (
+        root.get("narrator_voice_overlay")
+        or personal.get("narrator_voice_overlay")
+        or (root.get("locale") or {}).get("narrator_voice_overlay")
+    )
+    if isinstance(_ovl, str):
+        _ovl_norm = _ovl.strip().lower()
+        if _ovl_norm in (
+            "adult_competence", "adult-competence", "adultcompetence",
+            "competence", "kent", "military", "labor",
+        ):
+            seed["narrator_voice_overlay"] = "adult_competence"
+        elif _ovl_norm in (
+            "hearth_sensory", "hearth-sensory", "hearthsensory",
+            "hearth", "sensory", "prairie", "domestic",
+        ):
+            seed["narrator_voice_overlay"] = "hearth_sensory"
+        elif _ovl_norm in (
+            "shield_protected", "shield-protected", "shieldprotected",
+            "shield", "protected", "sensitive",
+        ):
+            seed["narrator_voice_overlay"] = "shield_protected"
+        elif _ovl_norm in ("default", "none", ""):
+            seed["narrator_voice_overlay"] = "default"
+
     return seed
 
 

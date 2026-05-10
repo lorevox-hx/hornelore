@@ -375,6 +375,71 @@ async def ws_chat(ws: WebSocket):
             if any(sig in _ut_lower for sig in _floor_hold_signals):
                 _is_floor_hold = True
 
+        # ── BUG-LORI-FLOOR-HOLD-DETERMINISTIC-01 (2026-05-10) ───────
+        # turn_final=false defensive handler. Per Chris's claimed-
+        # floor architecture rule: the narrator may speak/type for
+        # 10-30 minutes uninterrupted. The frontend SHOULD buffer
+        # chunks and only release the floor when the narrator/
+        # operator explicitly signals "I'm done with this chapter."
+        #
+        # The current FE doesn't yet implement claimed-floor
+        # buffering — every Send press fires a turn. But when the
+        # FE does add it, it will send turn_final=false on partial
+        # chunks. This branch makes the backend safe TODAY:
+        #
+        #   turn_final=false  → buffer only, ack "I'm listening.",
+        #                       no LLM, no witness, no bank flush
+        #   turn_final=true   → process normally (the default)
+        #   turn_final absent → process normally (back-compat)
+        #
+        # Forward-compatible: if FE later implements buffering,
+        # backend Just Works without code changes. For Kent's
+        # morning session: the Send button is the explicit
+        # release. Operator instruction: do NOT press Send until
+        # Kent finishes the chapter.
+        _turn_final = params.get("turn_final")
+        _floor_state = params.get("floor_state", "")
+        if _turn_final is False or (
+            isinstance(_floor_state, str)
+            and _floor_state.lower() in ("claimed", "holding", "buffering")
+        ):
+            logger.info(
+                "[chat_ws][floor-buffer] turn_final=False / floor_state=%s "
+                "conv=%s — buffering, no LLM call",
+                _floor_state, conv_id,
+            )
+            # Persist the chunk to history so it's retained, but
+            # respond with a quiet ack. No LLM, no witness, no
+            # bank flush. The completed chapter will arrive on the
+            # next turn with turn_final=true (or absent).
+            _buffer_ack = "I'm listening."
+            try:
+                persist_turn_transaction(
+                    conv_id=conv_id,
+                    user_message=user_text,
+                    assistant_message=_buffer_ack,
+                    model_name="floor-buffer-deterministic",
+                    meta={
+                        "ws": True,
+                        "turn_mode": "floor_buffer",
+                        "turn_final": False,
+                        "floor_state": _floor_state or "claimed",
+                    },
+                )
+            except Exception as _buf_persist_exc:
+                logger.warning(
+                    "[chat_ws][floor-buffer] persist failed conv=%s: %s",
+                    conv_id, _buf_persist_exc,
+                )
+            await _ws_send(ws, {"type": "token", "delta": _buffer_ack})
+            await _ws_send(ws, {
+                "type": "done",
+                "final_text": _buffer_ack,
+                "turn_mode": "floor_buffer",
+                "buffering": True,
+            })
+            return
+
         if (
             os.getenv("HORNELORE_STORY_CAPTURE", "0") in ("1", "true", "True")
             and user_text
@@ -1223,6 +1288,8 @@ async def ws_chat(ws: WebSocket):
         _witness_detection_for_fallback = None  # type: ignore[assignment]
         _witness_receipt_lang = "en"
         _immediate_door_question: Optional[str] = None
+        _immediate_door_anchor: Optional[str] = None
+        _immediate_door_story_weight: int = 0
         _doors_to_bank: List[Any] = []  # List[Door] from lori_followup_bank
         _current_turn_doors: List[Any] = []
         if _is_witness_mode and _witness_answer is not None:
@@ -1296,20 +1363,50 @@ async def ws_chat(ws: WebSocket):
                         select_immediate_and_bank as _bank_select,
                     )
                     _current_turn_doors = _bank_detect_doors(user_text)
-                    _imm_door, _doors_to_bank = _bank_select(_current_turn_doors)
+                    # BANK_PRIORITY_REBUILD 2026-05-10: thread the
+                    # narrator_voice_overlay from profile_seed into
+                    # the selector. For Kent (adult_competence),
+                    # sensory doors get demoted; Tier-N institutional
+                    # spelling-confirms never auto-immediate.
+                    _overlay = "default"
+                    try:
+                        if isinstance(runtime71, dict):
+                            _ps = runtime71.get("profile_seed") or {}
+                            _ovl_raw = _ps.get("narrator_voice_overlay")
+                            if _ovl_raw in (
+                                "adult_competence",
+                                "hearth_sensory",
+                                "shield_protected",
+                                "default",
+                            ):
+                                _overlay = _ovl_raw
+                    except Exception:
+                        _overlay = "default"
+                    _imm_door, _doors_to_bank = _bank_select(
+                        _current_turn_doors,
+                        narrator_voice_overlay=_overlay,
+                    )
                     if _imm_door is not None:
                         _immediate_door_question = _imm_door.question_en
+                        _immediate_door_anchor = _imm_door.triggering_anchor
+                        _immediate_door_story_weight = int(
+                            getattr(_imm_door, "story_weight", 0) or 0
+                        )
                         logger.info(
                             "[chat_ws][followup-bank][immediate] conv=%s "
-                            "intent=%s priority=%d anchor=%r",
+                            "intent=%s priority=%d tier=%s sw=%d "
+                            "overlay=%s anchor=%r",
                             conv_id, _imm_door.intent, _imm_door.priority,
+                            _imm_door.tier or "(legacy)",
+                            _imm_door.story_weight,
+                            _overlay,
                             _imm_door.triggering_anchor[:60],
                         )
                     if _doors_to_bank:
                         logger.info(
                             "[chat_ws][followup-bank][to-bank] conv=%s "
-                            "n=%d intents=%s",
-                            conv_id, len(_doors_to_bank),
+                            "overlay=%s n=%d intents=%s",
+                            conv_id, _overlay, len(_doors_to_bank),
                             ",".join(d.intent for d in _doors_to_bank[:5]),
                         )
                 except Exception as _bank_exc:
@@ -1365,10 +1462,27 @@ async def ws_chat(ws: WebSocket):
                 )
                 if _flush_ok:
                     _open_bank = _bank_get_unanswered(conv_id)
-                    if _open_bank:
-                        # Pick the highest-urgency banked question
-                        # (already sorted by priority asc).
-                        _to_flush = _open_bank[0]
+                    # Walk past malformed entries (false-positive
+                    # corrections captured by an old detector run).
+                    # Defense in depth — even if a junk door is in
+                    # the bank, it never reaches the narrator.
+                    from ..services.lori_followup_bank import (
+                        is_bank_question_malformed as _is_malformed,
+                    )
+                    _to_flush = None
+                    for _candidate in _open_bank:
+                        if not _is_malformed(_candidate.get("question_en", "")):
+                            _to_flush = _candidate
+                            break
+                        else:
+                            logger.warning(
+                                "[chat_ws][bank-flush] skipping malformed "
+                                "entry id=%s intent=%s anchor=%r",
+                                _candidate.get("id"),
+                                _candidate.get("intent"),
+                                _candidate.get("triggering_anchor"),
+                            )
+                    if _to_flush is not None:
                         _flush_text = _bank_compose_flush(
                             _to_flush["question_en"],
                         )
@@ -2457,6 +2571,8 @@ async def ws_chat(ws: WebSocket):
                             llm_question=final_text,
                             target_language="en",
                             immediate_door_question=_immediate_door_question,
+                            immediate_door_anchor=_immediate_door_anchor,
+                            immediate_door_story_weight=_immediate_door_story_weight,
                         )
                     if not _wr_fallback:
                         _wr_fallback = _compose_wr(

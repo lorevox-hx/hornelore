@@ -1003,5 +1003,165 @@ class FailClosedFallbackContractTest(unittest.TestCase):
             self.assertTrue(out, msg="es fallback must be non-empty")
 
 
+# ── BANK_PRIORITY_REBUILD §3 — Story-weighted named-particular receipt ──
+
+
+class StoryWeightedReceiptTest(unittest.TestCase):
+    """BANK_PRIORITY_REBUILD 2026-05-10 Phase 3 — named-particular
+    reflection composer.
+
+    Per signed-off synthesis: drop the chronological-anchor list
+    ('You went from X to Y, then Z') in favor of a single named
+    particular the narrator returned to ('You said {anchor}: {brief
+    detail}'). Voice Library §10A + Alshenqeeti (2014) "always seek
+    the particular" is the grounding.
+    """
+
+    KENT_MEAL_TICKETS = (
+        "I was put on the train as the meal-ticket boy. I had to "
+        "account for every meal and deal with the conductor. The "
+        "meal tickets were the first Army responsibility I ever "
+        "had, before I'd even reached basic training. That mattered "
+        "to me. I had originally enlisted hoping for Army Security "
+        "Agency work, but they told me there would be a three-month "
+        "wait. So I asked what else was available — Nike Ajax and "
+        "Nike Hercules guided missile system work."
+    )
+
+    KENT_QUESTION = "Tell me about that — what was the toughest call you had to make?"
+
+    def test_meal_tickets_anchor_produces_named_particular_receipt(self):
+        out = wm.compose_story_weighted_receipt(
+            narrator_text=self.KENT_MEAL_TICKETS,
+            immediate_anchor="meal tickets",
+            immediate_question=self.KENT_QUESTION,
+            target_language="en",
+        )
+        self.assertTrue(out, msg="receipt must be non-empty")
+        # Named-particular shape — must include the anchor.
+        self.assertIn("meal tickets", out.lower())
+        # Question is appended.
+        self.assertIn(self.KENT_QUESTION, out)
+        # No chronological "you went from X to Y" shape.
+        self.assertNotIn("you went from", out.lower())
+
+    def test_empty_anchor_returns_empty(self):
+        out = wm.compose_story_weighted_receipt(
+            narrator_text=self.KENT_MEAL_TICKETS,
+            immediate_anchor="",
+            immediate_question=self.KENT_QUESTION,
+        )
+        self.assertEqual(out, "")
+
+    def test_anchor_not_in_narrator_falls_back_to_bare_receipt(self):
+        out = wm.compose_story_weighted_receipt(
+            narrator_text=self.KENT_MEAL_TICKETS,
+            immediate_anchor="trondheim",  # not in text
+            immediate_question=self.KENT_QUESTION,
+        )
+        # Either bare "You said trondheim." + question OR empty —
+        # implementation may choose either; we just assert the
+        # composer doesn't crash and either returns "" or a
+        # well-formed string with the question.
+        if out:
+            self.assertIn(self.KENT_QUESTION, out)
+
+    def test_spanish_returns_empty_v1_english_first(self):
+        out = wm.compose_story_weighted_receipt(
+            narrator_text=self.KENT_MEAL_TICKETS,
+            immediate_anchor="meal tickets",
+            immediate_question=self.KENT_QUESTION,
+            target_language="es",
+        )
+        self.assertEqual(out, "")
+
+    def test_snippet_around_anchor_caps_word_count(self):
+        # Long narrator paragraph should produce a snippet, not the
+        # whole sentence. 22-word cap.
+        out = wm.compose_story_weighted_receipt(
+            narrator_text=self.KENT_MEAL_TICKETS,
+            immediate_anchor="meal tickets",
+            immediate_question="What happened next?",
+        )
+        # Receipt half (everything before "What happened next?").
+        receipt = out.replace("What happened next?", "").strip()
+        self.assertLessEqual(
+            len(receipt.split()), 30,
+            f"receipt should be ≤ 30 words; got {len(receipt.split())}: {receipt!r}",
+        )
+
+
+class StructuredReceiptStoryWeightedPreferenceTest(unittest.TestCase):
+    """compose_structured_witness_receipt must prefer the story-
+    weighted shape when a Tier 1A door (story_weight ≥ 1) is
+    supplied. Falls back to chronological chain when no Tier 1A door
+    or story_weight == 0."""
+
+    KENT_TEXT = (
+        "I was put on the train as the meal-ticket boy. I had to "
+        "account for every meal and deal with the conductor. The "
+        "meal tickets were the first Army responsibility I ever had."
+    )
+
+    def test_story_weighted_preferred_when_door_supplied(self):
+        out = wm.compose_structured_witness_receipt(
+            narrator_text=self.KENT_TEXT,
+            llm_question=None,
+            target_language="en",
+            immediate_door_question="Tell me how you handled the meal tickets day-to-day.",
+            immediate_door_anchor="meal tickets",
+            immediate_door_story_weight=5,
+        )
+        self.assertTrue(out)
+        self.assertIn("meal tickets", out.lower())
+        # Must NOT use chronological "you went from" shape when
+        # named-particular is available.
+        self.assertNotIn("you went from", out.lower())
+
+    def test_chronological_used_when_no_anchor(self):
+        # No door anchor → fall back to chronological shape.
+        out = wm.compose_structured_witness_receipt(
+            narrator_text=self.KENT_TEXT,
+            llm_question=None,
+            target_language="en",
+            immediate_door_question="What was that like?",
+            immediate_door_anchor=None,
+            immediate_door_story_weight=0,
+        )
+        # Should still produce a non-empty receipt via chronological
+        # path (KENT_TEXT has anchors).
+        self.assertTrue(out)
+
+    def test_chronological_used_when_story_weight_zero(self):
+        # story_weight == 0 means it's not Tier 1A; fall back.
+        out = wm.compose_structured_witness_receipt(
+            narrator_text=self.KENT_TEXT,
+            llm_question=None,
+            target_language="en",
+            immediate_door_question="What was that like?",
+            immediate_door_anchor="meal tickets",
+            immediate_door_story_weight=0,
+        )
+        # Either composer is fine here; assert non-empty.
+        self.assertTrue(out)
+
+    def test_kent_receipt_does_not_contain_chronological_recap_when_overlay_active(self):
+        """The bad output we're trying to retire — 'You went from X
+        to Y, then Z' — must NOT appear when a Tier 1A door (Kent's
+        meal-tickets case) is supplied."""
+        out = wm.compose_structured_witness_receipt(
+            narrator_text=self.KENT_TEXT,
+            llm_question=None,
+            target_language="en",
+            immediate_door_question="How did you handle the meal-tickets responsibility?",
+            immediate_door_anchor="meal tickets",
+            immediate_door_story_weight=5,
+        )
+        self.assertTrue(out)
+        # The defining bad-shape string from the v1 fallback. Must
+        # not appear in story-weighted output.
+        self.assertNotIn("You went from", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

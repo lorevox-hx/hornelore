@@ -66,7 +66,24 @@ class Door:
     """A follow-up question the narrator's turn just invited.
 
     Attributes mirror the BankedQuestion DB schema so this struct can
-    flow straight into db.followup_bank_add() without translation."""
+    flow straight into db.followup_bank_add() without translation.
+
+    Priority field carries the OLD numeric priority (1-6) for backward
+    compat with existing DB rows. New code should also consult the
+    `tier` field for the BANK_PRIORITY_REBUILD 2026-05-10 model:
+
+      Tier S — sacred / sensitive (zero questions, never auto-flush)
+      Tier 1A — story-weighted named particular (immediate)
+      Tier 1B — record-critical self-correction (immediate)
+      Tier 1C — fragile-name + uncertainty marker (immediate)
+      Tier 2D — concrete action / mechanism (immediate when no Tier 1)
+      Tier 3A-D — logistics / mechanism (bank, immediate only when cued)
+      Tier 4A-B — relationship / role (bank only)
+      Tier 5 — sensory / daily-life texture (bank only)
+      Tier 6 — medical / family (bank only, careful)
+      Tier 7 — reflection (only if narrator opens it)
+      Tier N — mechanical record cleanup (bank only, lowest urgency)
+    """
     intent: str
     question_en: str
     triggering_anchor: str
@@ -74,6 +91,12 @@ class Door:
     priority: int  # 1=fragile-name, 2=communication/logistics,
                     # 3=role-transition, 4=relationship,
                     # 5=daily-life, 6=emotional-reflection
+    # Tier model (BANK_PRIORITY_REBUILD 2026-05-10). Default empty
+    # for backward-compat with existing detectors that haven't been
+    # migrated yet. Selector falls back to numeric priority when
+    # tier is empty.
+    tier: str = ""
+    story_weight: int = 0  # for Tier 1A scoring; 0 when not applicable
 
 
 # ── Door detectors ──────────────────────────────────────────────────────────
@@ -116,12 +139,56 @@ class Door:
 # When in doubt: do NOT make Lori interrupt for spelling. Let the
 # narrator keep the floor.
 
+# BUG: re.IGNORECASE on `[A-Z]` makes it match lowercase letters too.
+# 2026-05-10 Kent harness replay polluted the bank with corrections
+# captured from common English phrases like "I was not thinking" /
+# "what else was available" / "It was just the Army". The trigger
+# words ("not"/"was"/"actually"/"I mean") are case-insensitive
+# (handled via [Nn]ot etc) but the captured proper-noun group MUST
+# be uppercase-start — a real correction names a proper noun.
+#
+# Additional defense: the captured value must be either multi-word
+# OR a known TIER A fragile name OR ≥7 characters. Common short
+# words like "Nike" / "just" / "going" / "Army" don't pass.
 _SELF_CORRECTION_PATTERNS = (
-    re.compile(r"\bnot\s+([A-Z][\w\-]{3,})\b.*?\bwas\s+([A-Z][\w\-]{3,})\b", re.IGNORECASE),
-    re.compile(r"\bit was not\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})?)\b.*?\bit was\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})?)\b", re.IGNORECASE),
-    re.compile(r"\bI mean[t]?\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})?)\b", re.IGNORECASE),
-    re.compile(r"\bactually,?\s+it was\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})?)\b", re.IGNORECASE),
+    # "It was not Foo Bar. It was Baz Qux." — strictest form, both
+    # captures must be multi-word or strong proper-noun shape.
+    re.compile(
+        r"\b[Ii]t was not\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})+)\b"
+        r".*?\b[Ii]t was\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})+)\b"
+    ),
+    # "I mean Foo Bar" / "I meant Foo Bar" — multi-word capture only
+    re.compile(
+        r"\b[Ii] meant?\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})+)\b"
+    ),
+    # "actually, it was Foo Bar" — multi-word capture only
+    re.compile(
+        r"\b[Aa]ctually,?\s+it was\s+([A-Z][\w\-]{2,}(?:\s+[A-Z][\w\-]{2,})+)\b"
+    ),
+    # "not Foo, was Bar" — KEEP single-word but only when both are
+    # uppercase-start AND ≥7 chars (rules out "not Nike, was Detroit"
+    # noise but allows "not Lansdale, was Landstuhl"). Note: NO
+    # IGNORECASE flag — [A-Z] must match uppercase-only here.
+    re.compile(
+        r"\bnot\s+([A-Z][a-z\-]{6,})\b[^.!?]*?\bwas\s+([A-Z][a-z\-]{6,})\b"
+    ),
 )
+
+# Common-English-word blocklist for self-correction captures. If the
+# captured value is one of these, drop the door — we've matched a
+# false positive against narrator's prose, not a real proper-noun
+# correction.
+_SELF_CORRECTION_VALUE_BLOCKLIST = frozenset({
+    "just", "making", "going", "thinking", "saying", "telling",
+    "right", "wrong", "really", "actually", "almost", "nearly",
+    "before", "after", "during", "while", "since", "until",
+    "first", "next", "later", "earlier", "always", "never",
+    "something", "anything", "everything", "nothing",
+    "someone", "anyone", "everyone", "nobody",
+    "today", "tomorrow", "yesterday", "tonight",
+    "army", "navy", "marines", "force",  # too generic alone
+    "german", "english", "french", "spanish",
+})
 
 # Uncertainty markers — narrator signals they aren't sure. When ANY
 # of these appear in the same turn as a TIER B name, we treat the
@@ -145,34 +212,56 @@ _UNCERTAINTY_PATTERNS = (
     re.compile(r"\b(?:I am|I'm) not saying (?:it|that)\s+(?:right|exactly)\b", re.IGNORECASE),
 )
 
-# TIER A — ALWAYS-fragile names. Foreign-language places, rank-
-# titled persons, record-critical hospital/base/unit names.
+# TIER A — TRULY-fragile names where memoir is damaged by misspelling.
+# Per Chris's 2026-05-10 review (after the 2,400-word Fort Ord
+# monologue exposed over-broad spelling-confirms): TIER A is
+# reserved for foreign-language place names with non-English
+# orthography that Kent could plausibly drift on. Clear English
+# institutional names (Army Security Agency, Nike Ajax, Nike
+# Hercules, 32nd Brigade) are NOT TIER A — they're unambiguous
+# acronyms/proper nouns Kent says with confidence; spell-checking
+# them mid-chapter feels mechanical and misses the story.
 _FRAGILE_NAMES_TIER_A = frozenset({
-    # German military / Kent's chapter — foreign-language places
-    "landstuhl", "ramstein", "kaiserslautern", "frankfurt",
-    "hochspeyer", "wiesbaden", "selfridge",
-    # German cultural / business landmark names
+    # German place names with non-English orthography
+    "landstuhl", "ramstein", "kaiserslautern",
+    "hochspeyer", "wiesbaden",
+    # German cultural landmark
     "salamander",
-    # Person names with German/uncommon spelling
+    # Person name with German spelling — easy to drift
     "schmick",
-    # Hospital + base names where misspelling damages the memoir
+    # Hospital + base names where Kent already corrected (Lansdale
+    # → Landstuhl); locking the corrected spelling matters
     "lansdale army hospital", "landstuhl air force hospital",
     "ramstein air force base",
-    # Unit names — small typos cascade in memoir
-    "32nd artillery brigade", "32nd brigade",
-    "army security agency",
-    "nike ajax", "nike hercules",
     # Janice's chapter — Norwegian/foreign equivalents
-    "oslo", "trondheim",
+    "trondheim",
 })
 
-# TIER B — conditionally-fragile names. Common American places that
-# do NOT need confirmation in normal use. Only fire when narrator
-# signals uncertainty or self-corrects.
+# TIER B — conditionally-fragile names. Common American + clear
+# institutional names that do NOT need confirmation in normal use.
+# Only fire when narrator signals uncertainty or self-corrects.
+#
+# Per Chris's 2026-05-10 review: "Army Security Agency / Nike Ajax /
+# Nike Hercules / Fort Ord / Fargo / Stanley / Bismarck / GED /
+# M1 rifle" should NOT be priority-1 immediate spelling questions.
+# They bank as factual anchors but never dominate Lori's immediate
+# response to a chapter. Spelling-confirm reserves for genuinely
+# uncertain or foreign names.
 _FRAGILE_NAMES_TIER_B = frozenset({
+    # Common American place names
     "stanley", "fargo", "bismarck", "fort ord",
-    "minot", "spokane", "norway",
-    "duffy",  # common American surname; foreign-equivalent confirmation only on self-correct
+    "minot", "spokane", "norway", "oslo",
+    # Well-known European city
+    "frankfurt",
+    # Common American surname
+    "duffy",
+    # Clear English institutional names — Kent says these with
+    # confidence; bank only with explicit uncertainty marker
+    "army security agency",
+    "nike ajax", "nike hercules",
+    "32nd artillery brigade", "32nd brigade",
+    # Common American base name
+    "selfridge",
 })
 
 
@@ -206,15 +295,13 @@ def _detect_fragile_name_doors(narrator_text: str) -> List[Door]:
 
     text_lower = narrator_text.lower()
 
-    # (1) Self-correction — always fires.
+    # (1) Self-correction — strict gate: captured value must look
+    # like a real proper-noun correction, not narrator's prose.
     for rx in _SELF_CORRECTION_PATTERNS:
         m = rx.search(narrator_text)
         if not m:
             continue
         try:
-            # Different patterns expose the corrected value at
-            # different group positions. Walk groups looking for
-            # a non-None value.
             corrected = ""
             for gi in range(m.lastindex or 0, 0, -1):
                 cand = m.group(gi)
@@ -224,6 +311,23 @@ def _detect_fragile_name_doors(narrator_text: str) -> List[Door]:
         except (IndexError, re.error):
             corrected = m.group(0)
         if not corrected or len(corrected) < 3:
+            continue
+        # Reject common-English-word false positives
+        if corrected.lower() in _SELF_CORRECTION_VALUE_BLOCKLIST:
+            continue
+        # Final sanity: the corrected value must EITHER be multi-word
+        # (Title Case multiple tokens) OR be a known TIER A fragile
+        # name OR start with uppercase + ≥7 chars (likely proper noun).
+        # Single short uppercase words like "Nike" / "Army" / "Janice"
+        # are too ambiguous to fire a correction door without context.
+        is_multiword = len(corrected.split()) >= 2
+        is_tier_a = corrected.lower() in _FRAGILE_NAMES_TIER_A
+        is_long_propnoun = (
+            len(corrected) >= 7
+            and corrected[0].isupper()
+            and corrected.replace("-", "").isalpha()
+        )
+        if not (is_multiword or is_tier_a or is_long_propnoun):
             continue
         doors.append(Door(
             intent="fragile_name_confirm_correction",
@@ -256,24 +360,56 @@ def _detect_fragile_name_doors(narrator_text: str) -> List[Door]:
                 priority=1,
             ))
 
-    # (3) TIER B names — only fire when uncertainty marker present.
+    # (3) TIER B names — only fire when uncertainty marker present
+    # AND the name appears near the marker. Cap at ONE door per
+    # turn — Chris's 2026-05-10 review caught the prior version
+    # firing 7 redundant `_uncertain` doors when one "I wish I"
+    # marker appeared in a long monologue. The narrator's
+    # uncertainty was about ONE name, not all named places.
     if _has_uncertainty_marker(narrator_text):
+        # Find the position of the first uncertainty marker in text
+        first_marker_pos = len(narrator_text)
+        for rx in _UNCERTAINTY_PATTERNS:
+            m = rx.search(narrator_text)
+            if m and m.start() < first_marker_pos:
+                first_marker_pos = m.start()
+        # Find the closest TIER B name to the marker (within 200
+        # chars on either side). The narrator's uncertainty is
+        # almost always about something they just said or are
+        # about to say — not a name 1000 chars away.
+        best_fragile = None
+        best_distance = 10**9
+        best_canonical = ""
+        WINDOW = 200
         for fragile in _FRAGILE_NAMES_TIER_B:
-            if fragile in text_lower:
-                m = re.search(rf"\b({re.escape(fragile)})\b", narrator_text, re.IGNORECASE)
-                canonical = m.group(1) if m else fragile.title()
-                doors.append(Door(
-                    intent=f"fragile_name_confirm_{fragile.replace(' ', '_')}_uncertain",
-                    question_en=f"You sounded a little unsure — was it {canonical}, or something close to that?",
-                    triggering_anchor=canonical,
-                    why_it_matters=(
-                        f"Narrator signaled uncertainty about "
-                        f"{canonical}. Confirming now while context "
-                        f"is fresh prevents the memoir locking in a "
-                        f"wrong spelling."
-                    ),
-                    priority=1,
-                ))
+            for m in re.finditer(
+                rf"\b({re.escape(fragile)})\b",
+                narrator_text,
+                re.IGNORECASE,
+            ):
+                dist = abs(m.start() - first_marker_pos)
+                if dist > WINDOW:
+                    continue
+                if dist < best_distance:
+                    best_distance = dist
+                    best_fragile = fragile
+                    best_canonical = m.group(1)
+        if best_fragile:
+            doors.append(Door(
+                intent=f"fragile_name_confirm_{best_fragile.replace(' ', '_')}_uncertain",
+                question_en=(
+                    f"You sounded a little unsure — was it "
+                    f"{best_canonical}, or something close to that?"
+                ),
+                triggering_anchor=best_canonical,
+                why_it_matters=(
+                    f"Narrator signaled uncertainty near "
+                    f"'{best_canonical}'. Confirming now while "
+                    f"context is fresh prevents the memoir locking "
+                    f"in a wrong spelling."
+                ),
+                priority=1,
+            ))
 
     return doors
 
@@ -647,6 +783,277 @@ def _detect_medical_family_doors(narrator_text: str) -> List[Door]:
     return doors
 
 
+# ── BANK_PRIORITY_REBUILD 2026-05-10 — Tier model + story-weight ─────────
+#
+# Per the signed-off synthesis at docs/reports/BANK_PRIORITY_REBUILD_
+# 2026-05-10.md: the bank prioritizes story doors (oral-history follow-
+# ups), not spellings. Tier 1A is the story-weighted named particular
+# the narrator just emphasized. Tier N is mechanical record cleanup.
+# The Kent / adult-competence overlay demotes sensory to bank-only.
+
+# Story-weighted anchor candidate scoring per synthesis §3 Tier 1A.
+# A "named particular" is an object/person/decision the narrator
+# repeated, developed, or emphasized. The anchor with highest story-
+# weight wins Tier 1A.
+
+_NARRATOR_EMPHASIS_PHRASES = (
+    "that mattered to me", "still stands out", "i want it preserved",
+    "i want the name right", "i want it right",
+    "that was when", "that was the",
+    "i remember that", "i'll never forget",
+    "the most important", "the biggest",
+    "first army", "first time",
+    "that counted", "it counted",
+    "i did well", "i scored",
+)
+
+# Object-of-responsibility anchor patterns. These are story-weighted
+# anchors specific to adult-competence narratives (Kent's meal
+# tickets, Janice's family arrangements, etc.). Add patterns here as
+# new narrators surface them. Each is a (regex, anchor_label) pair.
+_RESPONSIBILITY_ANCHOR_PATTERNS = (
+    # Kent — meal tickets episode
+    (re.compile(r"\bmeal[\s-]ticket(?:s|s?)\b", re.IGNORECASE), "meal tickets"),
+    # Kent — M1 expert qualification
+    (re.compile(r"\bM[\s-]?1\s+(?:rifle|expert|qualif)", re.IGNORECASE), "M1 expert qualification"),
+    # Kent — courier route
+    (re.compile(r"\bcourier\s+(?:route|run|job)\b", re.IGNORECASE), "courier route"),
+    # Kent — photography work
+    (re.compile(r"\bphotograph(?:y|er)\s+(?:work|job|assignment)\b", re.IGNORECASE), "photography work"),
+    # Generic — "I was put in charge of X"
+    (re.compile(r"\bin charge of\s+([a-z][a-z\s]{3,30})\b", re.IGNORECASE), None),
+    # Generic — "responsible for X"
+    (re.compile(r"\bresponsible for\s+([a-z][a-z\s]{3,30})\b", re.IGNORECASE), None),
+)
+
+
+def _score_story_weight(anchor_text: str, narrator_text: str) -> int:
+    """Story-weight scoring per synthesis §3 Tier 1A.
+
+    repetition_count ×3 if anchor appears ≥3 times
+                     ×2 if 2 times
+                     ×1 if once
+    development_depth +2 if 2+ sentences develop the anchor
+                      +1 if 1 sentence develops it
+    narrator_emphasis +2 if "that mattered to me" / "still stands
+                         out" / "first time" / etc. within ±100 chars
+    sentence_neighborhood +1 if anchor has ≥3 sentences in semantic
+                          neighborhood (not just listed)
+    """
+    if not anchor_text or not narrator_text:
+        return 0
+    anchor_lower = anchor_text.lower()
+    text_lower = narrator_text.lower()
+
+    # Repetition
+    rep = text_lower.count(anchor_lower)
+    if rep == 0:
+        return 0
+    if rep >= 3:
+        weight_rep = 3
+    elif rep == 2:
+        weight_rep = 2
+    else:
+        weight_rep = 1
+
+    # Development depth — count sentences that contain the anchor
+    sentences = re.split(r'[.!?]+\s+', narrator_text)
+    dev_count = sum(1 for s in sentences if anchor_lower in s.lower())
+    if dev_count >= 2:
+        weight_dev = 2
+    elif dev_count == 1:
+        weight_dev = 1
+    else:
+        weight_dev = 0
+
+    # Narrator emphasis — within ±100 chars of any anchor occurrence
+    weight_emph = 0
+    for m in re.finditer(re.escape(anchor_lower), text_lower):
+        window_start = max(0, m.start() - 100)
+        window_end = min(len(text_lower), m.end() + 100)
+        window = text_lower[window_start:window_end]
+        if any(p in window for p in _NARRATOR_EMPHASIS_PHRASES):
+            weight_emph = 2
+            break
+
+    # Sentence neighborhood — sentences within 2-sentence window
+    # before or after each anchor occurrence
+    weight_neigh = 0
+    for i, s in enumerate(sentences):
+        if anchor_lower not in s.lower():
+            continue
+        # Count sentences ±2 around this one that contain the anchor
+        # OR develop a related token
+        nearby = sentences[max(0, i-2):min(len(sentences), i+3)]
+        if len(nearby) >= 3:
+            weight_neigh = 1
+            break
+
+    return weight_rep + weight_dev + weight_emph + weight_neigh
+
+
+def _detect_story_weighted_tier_1a_doors(narrator_text: str) -> List[Door]:
+    """Story-weighted named-particular detector (Tier 1A).
+
+    Walks the narrator text for named-particular candidates (objects-
+    of-responsibility from `_RESPONSIBILITY_ANCHOR_PATTERNS`, plus
+    multi-word proper-noun phrases that recur 2+ times). Scores each
+    via `_score_story_weight()`. Returns the highest-scoring anchor
+    as a Tier 1A door.
+
+    The cue type is `work_survival` for responsibility/role anchors,
+    `object_keepsake` for narrator-named objects. The question_en
+    follows the "seek the particular" rule: invite the narrator to
+    say more about THIS specific named anchor.
+    """
+    doors: List[Door] = []
+    if not narrator_text:
+        return doors
+
+    candidates: List[Tuple[str, int]] = []  # (anchor_label, score)
+    seen: set = set()
+
+    # Pass 1 — explicit responsibility patterns
+    for rx, fixed_label in _RESPONSIBILITY_ANCHOR_PATTERNS:
+        for m in rx.finditer(narrator_text):
+            label = fixed_label
+            if label is None:
+                # Generic capture group
+                try:
+                    captured = m.group(1).strip()
+                except (IndexError, re.error):
+                    captured = ""
+                if not captured or len(captured) < 4:
+                    continue
+                label = captured
+            label_key = label.lower()
+            if label_key in seen:
+                continue
+            seen.add(label_key)
+            score = _score_story_weight(label, narrator_text)
+            if score >= 2:  # minimum threshold for Tier 1A
+                candidates.append((label, score))
+
+    # Pass 2 — narrator-named multi-word proper-noun phrases that
+    # recur 2+ times. These are the "named particular" anchors per
+    # Voice Library §10A row 1.
+    propnoun_rx = re.compile(
+        r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})\b"
+    )
+    propnoun_counts: Dict[str, int] = {}
+    for m in propnoun_rx.finditer(narrator_text):
+        token = m.group(1).strip()
+        # Skip generic / well-known institutional names — those are
+        # Tier N, not Tier 1A. Per Chris's locked rule.
+        if token.lower() in _FRAGILE_NAMES_TIER_B:
+            continue
+        if token.lower() in (
+            "army security agency", "nike ajax", "nike hercules",
+            "32nd brigade", "32nd artillery brigade",
+        ):
+            continue
+        propnoun_counts[token] = propnoun_counts.get(token, 0) + 1
+    for token, count in propnoun_counts.items():
+        if count < 2:
+            continue  # singletons aren't story-weighted
+        token_key = token.lower()
+        if token_key in seen:
+            continue
+        score = _score_story_weight(token, narrator_text)
+        if score >= 2:
+            candidates.append((token, score))
+            seen.add(token_key)
+
+    if not candidates:
+        return doors
+
+    # Pick the highest-scoring anchor
+    candidates.sort(key=lambda p: -p[1])
+    best_anchor, best_score = candidates[0]
+
+    # Compose a "seek the particular" question — invite narrator to
+    # say more about THIS specific anchor. The wording follows
+    # Alshenqeeti's "always seek the particular" rule + Voice Library
+    # §10A "What was that anchor like?" shape.
+    door = Door(
+        intent="story_weighted_named_particular",
+        question_en=(
+            f"You came back to {best_anchor} more than once — what "
+            f"did it actually look like, day to day?"
+        ),
+        triggering_anchor=best_anchor,
+        why_it_matters=(
+            f"The narrator emphasized '{best_anchor}' (story-weight "
+            f"score {best_score}). Per Voice Library §10A, the named "
+            f"particular the narrator returned to is the strongest "
+            f"anchor for an active-listening response."
+        ),
+        priority=1,
+        tier="1A",
+        story_weight=best_score,
+    )
+    doors.append(door)
+    return doors
+
+
+def _is_sensory_door(door: Door) -> bool:
+    """True when the door is asking about sensory texture (smell /
+    sound / sight / taste / atmosphere). Per Chris's 2026-05-10 lock,
+    these bank but do NOT auto-immediate under adult_competence
+    overlay."""
+    import re
+    intent_lower = (door.intent or "").lower()
+    q_lower = (door.question_en or "").lower()
+    if "daily_life_off_duty" in intent_lower:
+        return True
+    if "sensory" in intent_lower:
+        return True
+    # Literal substring patterns (fast path) — these are unambiguously
+    # sensory regardless of object. Excludes bare "look like" / "feel
+    # like" since they're overloaded ("what did the schedule look like"
+    # is logistical, not sensory).
+    sensory_q_patterns = (
+        "what did it smell", "what was the smell",
+        "what did it sound", "what did it look like",
+        "what was the atmosphere", "what did it feel like",
+        "what was that like", "what was it like in",
+        "smell like", "sound like", "taste like",
+    )
+    if any(p in q_lower for p in sensory_q_patterns):
+        return True
+    # Flexible regex for "what did <X> feel/smell/sound/look/taste like"
+    # — fires when narrator's anchor is wrapped in the sensory shape
+    # but the literal substring above didn't match (e.g., "what did the
+    # courier route feel like during long days").
+    sensory_regex_patterns = (
+        r"\bwhat\s+did\s+(?:the\s+|a\s+|that\s+|those\s+|these\s+)?\w+(?:\s+\w+){0,3}\s+(?:feel|smell|sound|taste)\s+like\b",
+        r"\bwhat\s+was\s+(?:the\s+|that\s+|it\s+)?\s*atmosphere\b",
+        r"\bwhat\s+(?:did|was|were)\s+the\s+\w+(?:\s+\w+){0,4}\s+(?:smell|sound|sight)\b",
+    )
+    for pat in sensory_regex_patterns:
+        if re.search(pat, q_lower):
+            return True
+    return False
+
+
+def _is_tier_n_spelling_confirm(door: Door) -> bool:
+    """True when the door is a Tier-N institutional spelling-confirm
+    that should NEVER auto-immediate. Per Chris's locked rule."""
+    intent_lower = (door.intent or "").lower()
+    # Clear institutional names that should never spelling-confirm
+    tier_n_anchors = (
+        "army_security_agency", "nike_ajax", "nike_hercules",
+        "32nd_brigade", "32nd_artillery_brigade",
+        "fort_ord", "stanley", "fargo", "bismarck",
+    )
+    if any(t in intent_lower for t in tier_n_anchors):
+        # Only Tier N if NOT a self-correction (self-corrections still
+        # get immediate per Tier 1B)
+        if "correction" not in intent_lower:
+            return True
+    return False
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 
@@ -654,6 +1061,11 @@ def detect_doors(narrator_text: str, history: Optional[List[Dict]] = None) -> Li
     """Return all doors opened by the narrator turn, in priority order
     (1 first). The caller picks the immediate door (priority 1-3) and
     banks the rest. Priority 4-6 always bank, never immediate.
+
+    BANK_PRIORITY_REBUILD 2026-05-10: now includes Tier 1A story-
+    weighted named-particular detector that fires BEFORE the legacy
+    fragile-name detectors. The Tier 1A door (when present) becomes
+    the immediate-ask candidate — beating spelling-confirms.
 
     history is currently unused but reserved for future "have we
     already asked this in a prior turn?" deduplication. v1 relies on
@@ -663,6 +1075,9 @@ def detect_doors(narrator_text: str, history: Optional[List[Dict]] = None) -> Li
         return []
 
     doors: List[Door] = []
+    # Story-weighted Tier 1A — runs FIRST so it dominates selection
+    doors.extend(_detect_story_weighted_tier_1a_doors(narrator_text))
+    # Legacy detectors — produce doors with numeric priority
     doors.extend(_detect_fragile_name_doors(narrator_text))
     doors.extend(_detect_communication_logistics_doors(narrator_text))
     doors.extend(_detect_role_transition_doors(narrator_text))
@@ -671,34 +1086,70 @@ def detect_doors(narrator_text: str, history: Optional[List[Dict]] = None) -> Li
     doors.extend(_detect_medical_family_doors(narrator_text))
 
     # Sort by priority (lower = more urgent), then by intent for
-    # deterministic ordering across runs.
+    # deterministic ordering across runs. Tier 1A doors have
+    # priority=1 so they sort with other priority-1 doors but win
+    # alphabetically (intent="story_weighted_named_particular"
+    # — actually that sorts AFTER "fragile_name_*", let the selector
+    # apply story_weight tie-break).
     doors.sort(key=lambda d: (d.priority, d.intent))
     return doors
 
 
 def select_immediate_and_bank(
     doors: List[Door],
+    *,
+    narrator_voice_overlay: str = "default",
 ) -> Tuple[Optional[Door], List[Door]]:
-    """Per Chris's locked rule:
-       - Priority 1-3 doors MAY be immediate.
-       - Priority 4-6 doors NEVER immediate. Always bank.
-       - Of the immediate-eligible doors, pick the lowest priority
-         number (most urgent). Ties broken by the order detect_doors
-         returned (intent name asc within same priority).
+    """BANK_PRIORITY_REBUILD 2026-05-10 selector with Kent overlay.
+
+    Selection rules:
+
+      1. Priority 1-3 doors MAY be immediate.
+      2. Priority 4-6 doors NEVER immediate. Always bank.
+      3. Tier 1A story-weighted named particular WINS within priority 1
+         (sorts above other priority-1 doors via story_weight).
+      4. Tier-N institutional spelling-confirm doors NEVER immediate.
+         They downgrade to bank even if they hit priority 1.
+      5. Under `adult_competence` overlay (Kent), Tier 5 sensory doors
+         are excluded from immediate consideration. They bank only.
+      6. Under `shield_protected` overlay, sensitive doors return
+         (None, ...) — no immediate question, only bank/operator review.
+
+    Per Chris's 2026-05-10 locked rule for Kent: sensory questions are
+    bank-only unless Kent himself dwells on a sensory anchor (caller's
+    responsibility to detect — this selector trusts the overlay).
 
     Returns (immediate_door, doors_to_bank). immediate_door is None
-    when only priority 4-6 doors are open OR no doors at all.
-    doors_to_bank is everything except the immediate_door.
+    when only priority 4-6 doors are open OR all priority 1-3 doors
+    are filtered out by overlay rules.
     """
     if not doors:
         return (None, [])
-    # Sort defensively by priority ascending (lower = more urgent),
-    # then by intent for deterministic ties. detect_doors() already
-    # sorts but callers may pass raw doors directly.
-    sorted_doors = sorted(doors, key=lambda d: (d.priority, d.intent))
-    immediate_eligible = [d for d in sorted_doors if d.priority <= 3]
+
+    # Sort: priority asc, then story_weight desc (Tier 1A wins ties),
+    # then intent asc for deterministic order
+    sorted_doors = sorted(
+        doors,
+        key=lambda d: (d.priority, -d.story_weight, d.intent),
+    )
+
+    # Filter immediate-eligible doors:
+    #   - priority ≤ 3
+    #   - NOT a Tier-N institutional spelling-confirm
+    #   - NOT a sensory door under adult_competence overlay
+    immediate_eligible = []
+    for d in sorted_doors:
+        if d.priority > 3:
+            continue
+        if _is_tier_n_spelling_confirm(d):
+            continue
+        if narrator_voice_overlay == "adult_competence" and _is_sensory_door(d):
+            continue
+        immediate_eligible.append(d)
+
     if not immediate_eligible:
         return (None, list(sorted_doors))
+
     immediate = immediate_eligible[0]
     bank = [d for d in sorted_doors if d is not immediate]
     return (immediate, bank)
@@ -769,14 +1220,28 @@ def should_flush_bank(
     if is_system_directive:
         return (False, "")
 
-    # (b) explicit narrator cue — check FIRST so a short cue like
-    # "what else?" wins the narrator_cued reason rather than getting
-    # bucketed as short_answer_no_door.
-    if any(rx.search(narrator_text) for rx in _FLUSH_CUE_PATTERNS):
+    # ── PROTECT THE NARRATOR'S MONOLOGUE ──────────────────────────
+    # Per Chris's 2026-05-10 floor-control rule: Kent should be able
+    # to talk uninterrupted for 10-30 minutes. The bank-flush MUST
+    # NEVER fire mid-chapter. Hard gate: any narrator turn with
+    # ≥40 words is a chapter, not a "what else?" cue. Skip flush.
+    word_count = len(narrator_text.split())
+    if word_count >= 40:
+        return (False, "")
+
+    # (b) explicit narrator cue — must be in the LAST sentence of
+    # the narrator turn, not embedded in narrative prose. Plus the
+    # last sentence must be SHORT (≤8 words) — a cue-word inside a
+    # 25-word last sentence is rhetoric, not a flush request.
+    parts = re.split(r'[.!?]\s+', narrator_text.rstrip())
+    last_sentence = parts[-1] if parts else narrator_text
+    last_sentence_words = len(last_sentence.split())
+    if last_sentence_words <= 8 and any(
+        rx.search(last_sentence) for rx in _FLUSH_CUE_PATTERNS
+    ):
         return (True, "narrator_cued")
 
     # (a) short narrator answer + no new door
-    word_count = len(narrator_text.split())
     if word_count < 8 and not current_turn_doors:
         return (True, f"short_answer_no_door:{word_count}w")
 
@@ -788,18 +1253,60 @@ def should_flush_bank(
 
 _BANK_FLUSH_PHRASE = "I want to come back to one detail you mentioned earlier."
 
+# Defense-in-depth: even if the door detector mis-fires and writes a
+# malformed fragile-name-correction door to the bank, the bank-flush
+# composer refuses to surface it to the narrator. A "Got it — you
+# corrected to just" question never reaches Kent.
+#
+# Patterns to reject (case-insensitive substring on the question_en):
+_BANK_FLUSH_MALFORMED_PATTERNS = (
+    "corrected to just",
+    "corrected to going",
+    "corrected to making",
+    "corrected to thinking",
+    "corrected to saying",
+    "corrected to telling",
+    "corrected to right",
+    "corrected to wrong",
+    "corrected to actually",
+    "corrected to nothing",
+    "corrected to something",
+    "corrected to one ",
+    "corrected to two ",
+    "corrected to three ",
+    "corrected to first",
+    "corrected to next",
+    "corrected to today",
+    "corrected to tomorrow",
+)
+
+
+def is_bank_question_malformed(question_en: str) -> bool:
+    """True when a banked question contains junk-correction shape
+    that should never surface to the narrator. Use as a filter
+    before flushing — if True, skip this banked entry and try the
+    next."""
+    if not question_en:
+        return True
+    q_lower = question_en.lower()
+    for pat in _BANK_FLUSH_MALFORMED_PATTERNS:
+        if pat in q_lower:
+            return True
+    return False
+
 
 def compose_bank_flush_response(banked_question_text: str) -> str:
     """Fixed phrase + the banked question. The phrase is locked because
     it's a recognizable rhythm cue for the narrator — they should feel
     Lori is circling back, not interrogating fresh.
 
-    Per Chris's note:
-        "I want to come back to one detail you mentioned earlier.
-         When you contacted Janice from Germany in 1959, how did the
-         two of you communicate — letters, phone calls, or telegrams?"
+    Returns "" when the banked question is malformed (junk correction
+    captured by a regex false-positive). The caller should then pick
+    the next banked question OR skip the flush entirely for this turn.
     """
     if not banked_question_text:
+        return ""
+    if is_bank_question_malformed(banked_question_text):
         return ""
     return f"{_BANK_FLUSH_PHRASE} {banked_question_text}"
 
