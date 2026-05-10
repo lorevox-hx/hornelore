@@ -24,6 +24,7 @@
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/bug-panel-story-review.css">
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
+  <link rel="stylesheet" href="css/bug-panel-preflight.css">
   <link rel="stylesheet" href="css/affect.css">
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -4133,6 +4134,23 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-OPERATOR-PREFLIGHT-PANEL-01 (2026-05-10) — minimal
+         Operator Preflight. Lets the operator set the active
+         narrator's session_language_mode + narrator_voice_overlay
+         from the Bug Panel before a parent session, instead of
+         running the CLI scripts. Reads + writes profile_json via
+         GET/PATCH /api/profiles/{pid}. Also surfaces the active
+         session's banked-question count (gated on
+         HORNELORE_OPERATOR_FOLLOWUP_BANK) and a static floor-control
+         reminder, since FE doesn't yet send turn_final/floor_state.
+         NEVER narrator-visible. See ui/js/bug-panel-preflight.js +
+         ui/css/bug-panel-preflight.css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpPreflight">
+      <div class="bp-preflight-empty">Loading operator preflight…</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-BUG-PANEL-EVAL-HARNESS-01 Phase 1 — read-only Eval cockpit.
          Polls /api/operator/eval-harness/summary on Bug Panel open
          + 60s timer + window focus + visibilitychange. Renders 4
@@ -4764,6 +4782,7 @@
 <script src="js/bug-panel-story-review.js?v=2026-05-01"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js?v=2026-05-01"></script>
 <script src="js/bug-panel-silence-ladder.js?v=2026-05-06"></script>
+<script src="js/bug-panel-preflight.js?v=2026-05-10"></script>
 <!-- WO-INTERVIEW-CLOCK-01 (2026-05-02): narrator-visible orientation
      clock. Mounts inside #lvNarratorConversation lower-left, above
      the input bar, adjacent to the mic. Variant B (slate, 36px time)
