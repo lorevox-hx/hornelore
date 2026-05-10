@@ -1154,6 +1154,60 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         except Exception:
             pass
 
+    # ── BUG-LORI-SESSION-LANGUAGE-CONTRACT-01 (2026-05-10) ──────────────
+    # Surface session-level language contract from profile_json. Three
+    # values: "english" / "spanish" / "mixed". When set, chat_ws.py uses
+    # this to pin Lori's response language regardless of the per-turn
+    # narrator text — fixes the Kent harness regression where English
+    # narrator turns containing one accent loanword (e.g. "fiancée") plus
+    # an English-overlap function word (e.g. "Once" or "son") were routed
+    # to Spanish locale and produced "Capté Nike, Detroit, y Michigan"
+    # Spanglish output.
+    #
+    # Reads from profile_json with multiple canonical paths for operator
+    # hand-edit tolerance. When ABSENT, the field is omitted from the
+    # seed — chat_ws.py falls through to the existing looks_spanish()
+    # heuristic. When PRESENT, it locks the language regardless.
+    #
+    # Default behavior: per Chris's directive ("Default: english unless
+    # operator/narrator explicitly selects Spanish or Mixed"), the
+    # AGENT default is set in chat_ws.py — when seed.session_language_mode
+    # is absent AND looks_spanish returns False, treat as english. When
+    # seed.session_language_mode is absent AND looks_spanish returns
+    # True, fall through to looks_spanish (preserves Melanie Zollner /
+    # Mary Spanish-narrator behavior). When seed.session_language_mode
+    # is set explicitly, that value wins regardless.
+    _slm = (
+        root.get("session_language_mode")
+        or root.get("session_language")
+        or (root.get("locale") or {}).get("session_language_mode")
+        or personal.get("session_language_mode")
+    )
+    if isinstance(_slm, str):
+        _slm_norm = _slm.strip().lower()
+        # Tolerant aliases — operator may type "en" / "es" / "bilingual"
+        # in the field. Canonicalize to the three locked values.
+        if _slm_norm in ("english", "en", "en-us", "en_us", "en-gb"):
+            seed["session_language_mode"] = "english"
+        elif _slm_norm in ("spanish", "es", "es-mx", "es_mx", "es-es", "español", "espanol"):
+            seed["session_language_mode"] = "spanish"
+        elif _slm_norm in ("mixed", "bilingual", "code-switching", "code_switching"):
+            seed["session_language_mode"] = "mixed"
+        # Unknown value silently ignored — falls through to looks_spanish.
+
+    # primary_language — optional, useful for "mixed" mode operator
+    # display. Not used for routing (session_language_mode is the gate).
+    _pl = root.get("primary_language") or personal.get("primary_language")
+    if isinstance(_pl, str) and _pl.strip().lower() in ("en", "es"):
+        seed["primary_language"] = _pl.strip().lower()
+
+    # allow_code_switching — optional. When False, even in mixed mode
+    # Lori prefers staying in primary_language. Default: True for mixed,
+    # False for english/spanish (caller derives, not stored here).
+    _acs = root.get("allow_code_switching")
+    if isinstance(_acs, bool):
+        seed["allow_code_switching"] = _acs
+
     return seed
 
 

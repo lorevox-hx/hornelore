@@ -676,6 +676,45 @@ async def ws_chat(ws: WebSocket):
         # When fires: skip LLM, emit deterministic continuation
         # invitation with NO sensory/feeling/scenery/camaraderie probe.
         # Skipped if meta-question already fired (mutually exclusive).
+        # ── BUG-LORI-SESSION-LANGUAGE-CONTRACT-01 (2026-05-10) ──────────
+        # Resolve the session language contract from profile_json BEFORE
+        # any language-aware routing fires. Three values:
+        #   "english" — Lori always replies English. Per-turn
+        #               looks_spanish on narrator text is advisory log
+        #               only, never overrides routing. Post-output
+        #               Spanish-scaffolding repair guard fires.
+        #   "spanish" — Lori always replies Spanish.
+        #   "mixed"   — Lori may follow per-turn narrator language.
+        # When unset (legacy narrators created before the contract
+        # field), falls back to looks_spanish() heuristic for backward
+        # compatibility with Spanish-tracked narrators (Melanie Zollner,
+        # Mary). The pin is the operator's contract; Lori never guesses
+        # for narrators with the field set.
+        #
+        # Kent harness 2026-05-09 21:46:53 motivating evidence:
+        # English narrator turns containing "fiancée" + "Once" or
+        # "attaché" + "son" tripped looks_spanish() despite being
+        # unambiguously English, producing "Capté Nike, Detroit, y
+        # Michigan" / "Tú worked for was General Peter Schmick" /
+        # "¿Qué pasó después?" Spanglish output on Kent's English
+        # interview.
+        _session_lang_mode: Optional[str] = None
+        try:
+            from ..prompt_composer import _build_profile_seed as _early_seed
+            _early_profile_seed = _early_seed(person_id) if person_id else {}
+            _slm = (_early_profile_seed or {}).get("session_language_mode")
+            if _slm in ("english", "spanish", "mixed"):
+                _session_lang_mode = _slm
+                logger.info(
+                    "[chat_ws][lang-contract] profile pin conv=%s mode=%s",
+                    conv_id, _session_lang_mode,
+                )
+        except Exception as _slm_exc:
+            logger.warning(
+                "[chat_ws][lang-contract] early seed read failed "
+                "conv=%s: %s", conv_id, _slm_exc,
+            )
+
         _witness_answer = None  # type: ignore[assignment]
         _is_witness_mode = False
         if (
@@ -686,12 +725,46 @@ async def ws_chat(ws: WebSocket):
             try:
                 from ..services.lori_witness_mode import detect_and_compose as _wm_dac
                 _wm_lang = "en"
-                try:
-                    from ..services.lori_spanish_guard import looks_spanish as _wm_looks_es
-                    if _wm_looks_es(user_text or ""):
-                        _wm_lang = "es"
-                except Exception:
+                if _session_lang_mode == "english":
                     _wm_lang = "en"
+                    logger.info(
+                        "[chat_ws][lang-contract] english-locked conv=%s",
+                        conv_id,
+                    )
+                elif _session_lang_mode == "spanish":
+                    _wm_lang = "es"
+                    logger.info(
+                        "[chat_ws][lang-contract] spanish-locked conv=%s",
+                        conv_id,
+                    )
+                elif _session_lang_mode == "mixed":
+                    try:
+                        from ..services.lori_spanish_guard import looks_spanish as _wm_looks_es
+                        if _wm_looks_es(user_text or ""):
+                            _wm_lang = "es"
+                    except Exception:
+                        _wm_lang = "en"
+                    logger.info(
+                        "[chat_ws][lang-contract] mixed-mode conv=%s "
+                        "per_turn_lang=%s",
+                        conv_id, _wm_lang,
+                    )
+                else:
+                    # Unset profile pin — fall back to looks_spanish for
+                    # backward compat with narrators created before the
+                    # contract field landed. Logged as advisory so any
+                    # surprise routing surfaces in api.log.
+                    try:
+                        from ..services.lori_spanish_guard import looks_spanish as _wm_looks_es
+                        if _wm_looks_es(user_text or ""):
+                            _wm_lang = "es"
+                            logger.info(
+                                "[chat_ws][lang-contract] unset profile pin; "
+                                "looks_spanish advisory routed conv=%s lang=es",
+                                conv_id,
+                            )
+                    except Exception:
+                        _wm_lang = "en"
                 _witness_answer = _wm_dac(user_text, target_language=_wm_lang)
                 if _witness_answer is not None:
                     _is_witness_mode = True
@@ -1063,9 +1136,24 @@ async def ws_chat(ws: WebSocket):
                 turn_mode = "witness"
             elif _witness_answer.detection_type == "STRUCTURED_NARRATIVE":
                 _witness_use_llm_receipt = True
-                _witness_receipt_lang = (
-                    "es" if _witness_answer.language == "es" else "en"
-                )
+                # BUG-LORI-SESSION-LANGUAGE-CONTRACT-01: Pin the
+                # validator-fallback language to the session contract
+                # FIRST. Without this, the deterministic fallback
+                # composes in whatever language the upstream witness-
+                # detection picked — which was Spanish on Kent's
+                # English narrator turns when looks_spanish() falsely
+                # tripped on a single accent loanword. The contract
+                # is the operator's declaration; per-turn detection
+                # never overrides it.
+                if _session_lang_mode == "english":
+                    _witness_receipt_lang = "en"
+                elif _session_lang_mode == "spanish":
+                    _witness_receipt_lang = "es"
+                else:
+                    # Mixed mode OR unset — use the per-turn detection.
+                    _witness_receipt_lang = (
+                        "es" if _witness_answer.language == "es" else "en"
+                    )
                 try:
                     from ..services.lori_witness_mode import (
                         detect_witness_event as _detect_we,
@@ -2159,6 +2247,85 @@ async def ws_chat(ws: WebSocket):
                         "[chat_ws][witness][llm-receipt] validator raised "
                         "conv=%s: %s — fallback empty, keeping LLM output",
                         conv_id, _wr_exc,
+                    )
+
+        # ── BUG-LORI-SESSION-LANGUAGE-CONTRACT-01 — Spanish-scaffolding repair guard ──
+        # When the session is english-locked, ANY Spanish scaffolding
+        # tokens leaking through (from validator-fallback, LLM drift, or
+        # any other path) get hard-repaired to a deterministic English
+        # fallback. The contract is: english mode never produces user-
+        # facing Spanish/Spanglish, period. Detection signals:
+        #   - Spanish-only punctuation: ¿ or ¡
+        #   - Spanish-receipt scaffolding: "Capté", "Tú " (capitalized
+        #     pronoun, English would use "You"), "¿Qué pasó después"
+        #   - Spanish discourse markers in the middle of otherwise-
+        #     English text: ", y " in narrative prose (English uses ",
+        #     and "), "después" / "pasó" embedded as Spanish vocab
+        #
+        # When detected: try compose_witness_response(... lang="en") on
+        # the stashed witness detection. If that produces non-empty
+        # text, replace final_text. If detection is absent OR fallback
+        # is empty, log a CRITICAL warning so the operator sees the
+        # leak in api.log — last-resort string strip is unsafe (can
+        # produce broken English).
+        if _session_lang_mode == "english" and final_text:
+            _es_tokens_seen: List[str] = []
+            if "¿" in final_text or "¡" in final_text:
+                _es_tokens_seen.append("spanish_punct")
+            _ft_lower = final_text.lower()
+            for _scaffold in (
+                "capté", "capte ", "¿qué pasó", "qué pasó después",
+                "pasó después", " tú ",
+            ):
+                if _scaffold in _ft_lower:
+                    _es_tokens_seen.append(f"scaffold:{_scaffold.strip()}")
+                    break
+            # Mid-prose Spanish "y" — only count if surrounded by English
+            # words (avoids false-positive on product names like
+            # "Y Combinator"). Pattern: lowercase-letter-word + ", y " +
+            # lowercase-letter-word — Spanglish glue.
+            import re as _re_es
+            if _re_es.search(r"[a-z]\s*,\s+y\s+[a-z]", _ft_lower):
+                _es_tokens_seen.append("scaffold:comma_y")
+
+            if _es_tokens_seen:
+                _es_repair_text = ""
+                if _witness_detection_for_fallback is not None:
+                    try:
+                        from ..services.lori_witness_mode import (
+                            compose_witness_response as _compose_en_repair,
+                        )
+                        _es_repair_text = _compose_en_repair(
+                            _witness_detection_for_fallback,
+                            target_language="en",
+                        )
+                    except Exception as _es_repair_exc:
+                        logger.warning(
+                            "[chat_ws][lang-contract][es-repair] "
+                            "compose_witness_response raised conv=%s: %s",
+                            conv_id, _es_repair_exc,
+                        )
+                if _es_repair_text:
+                    logger.warning(
+                        "[chat_ws][lang-contract][es-repair] english-mode "
+                        "Spanish leak repaired conv=%s tokens=%s "
+                        "before=%r after=%r",
+                        conv_id,
+                        ",".join(_es_tokens_seen),
+                        (final_text or "")[:160],
+                        _es_repair_text[:160],
+                    )
+                    final_text = _es_repair_text
+                else:
+                    logger.error(
+                        "[chat_ws][lang-contract][es-repair] CRITICAL: "
+                        "english-mode Spanish leak detected but no "
+                        "deterministic English fallback available — "
+                        "operator review needed conv=%s tokens=%s "
+                        "text=%r",
+                        conv_id,
+                        ",".join(_es_tokens_seen),
+                        (final_text or "")[:200],
                     )
 
         # ── BUG-LORI-LANGUAGE-DRIFT-UNPROMPTED-01 + DANGLING-DETERMINER-01 ──
