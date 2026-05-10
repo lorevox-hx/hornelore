@@ -116,19 +116,22 @@ def _resolve_person_id(name_or_id: str) -> Tuple[str, str]:
     from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
     if "-" in name_or_id and len(name_or_id) >= 32:
-        # Looks like a UUID. people.id is the PK column.
-        prof = _db.get_profile(name_or_id)
-        if prof:
-            con = _db._connect()
-            cur = con.execute(
-                "SELECT display_name FROM people WHERE id=?;",
-                (name_or_id,),
-            )
-            row = cur.fetchone()
-            con.close()
-            display = row[0] if row else "(unknown)"
-            return name_or_id, display
-        raise ValueError(f"No narrator found for person_id={name_or_id}")
+        # Looks like a UUID. people.id is the PK column. When --person-id
+        # is passed explicitly, we trust it — the operator may be pinning
+        # a narrator that doesn't yet have a people row (e.g. the deep-
+        # witness harness uses a hardcoded UUID that gets hydrated by
+        # chat_ws auto-create on first turn). update_profile_json calls
+        # ensure_profile which handles the missing-row case cleanly.
+        # Look up display_name if available; fall back to a placeholder.
+        con = _db._connect()
+        cur = con.execute(
+            "SELECT display_name FROM people WHERE id=?;",
+            (name_or_id,),
+        )
+        row = cur.fetchone()
+        con.close()
+        display = row[0] if row else "(no people row yet)"
+        return name_or_id, display
     # Otherwise match display_name (case-insensitive substring).
     # SELECT p.id (the PK on people) — this is the value other accessors
     # call "person_id" when working with profiles.
