@@ -146,9 +146,23 @@ class MetaFeedbackWantFactsTest(unittest.TestCase):
         self.assertEqual(d.detection_type, "META_FEEDBACK")
         self.assertEqual(d.sub_type, "want_facts")
 
-    def test_let_me_tell(self):
-        d = wm.detect_witness_event("let me tell my story")
+    def test_let_me_finish_fires_meta_feedback(self):
+        # BUG-LORI-WANT-FACTS-FALSE-POSITIVE-01 (2026-05-10): "let me
+        # tell" was retired as a META_FEEDBACK trigger because Kent's
+        # K-COMBINED opener "Let me tell it in order because one thing
+        # led to the next" was firing META_FEEDBACK want_facts and
+        # producing the deterministic ack instead of letting the
+        # narrative through. "let me finish/describe/explain" still
+        # fire — those are unambiguously corrective directives.
+        d = wm.detect_witness_event("let me finish what I was saying")
         self.assertEqual(d.detection_type, "META_FEEDBACK")
+
+    def test_let_me_tell_is_NOT_meta_feedback(self):
+        # Narrator's own framing — Lori must not treat as a directive.
+        # Should fall through to STRUCTURED_NARRATIVE if long enough,
+        # else no detection.
+        d = wm.detect_witness_event("let me tell my story")
+        self.assertNotEqual(d.detection_type, "META_FEEDBACK")
 
 
 class MetaFeedbackBeingVagueTest(unittest.TestCase):
@@ -532,6 +546,236 @@ class AnchorSanitizerTest(unittest.TestCase):
         self.assertEqual(wm._sanitize_anchor(None), "")
 
 
+class CorrectionPerspectiveInversionTest(unittest.TestCase):
+    """BUG-LORI-CORRECTION-PERSPECTIVE-INVERSION-01 (2026-05-10) —
+    Kent's K10 hospital correction was met with first-person echo
+    ("So while we were in Kaiserslautern our son Vince was born...").
+    The deterministic correction intercept must NEVER produce
+    first-person mimicry — strict second-person acknowledgment only.
+    """
+
+    def test_kent_k10_hospital_correction_no_first_person(self):
+        text = (
+            "you have the name of the hospital wrong not Lansdale Army "
+            "hospital but landstuhl air force hospital ramstein air "
+            "force base"
+        )
+        ans = wm.detect_and_compose(text)
+        self.assertIsNotNone(ans)
+        self.assertEqual(ans.detection_type, "META_FEEDBACK")
+        text_lower = ans.text.lower()
+        # Forbidden first-person mimicry markers
+        for forbidden in (" we ", " our ", " our son", " while we", " i was"):
+            self.assertNotIn(forbidden, text_lower,
+                             f"forbidden first-person {forbidden!r}: {ans.text!r}")
+        # Must include the corrected value (case-insensitive)
+        self.assertIn("landstuhl", text_lower)
+        # Must comprehend
+        self.assertIn("got it", text_lower)
+        # Multi-word proper-noun correction → spelling confirmation
+        self.assertIn("did i get that name right", text_lower)
+
+    def test_single_proper_noun_correction_no_spelling_check(self):
+        ans = wm.detect_and_compose("actually it was Bismarck")
+        self.assertIsNotNone(ans)
+        # Single proper noun → no spelling check (overhead)
+        self.assertNotIn("did i get that name right", ans.text.lower())
+        self.assertIn("Bismarck", ans.text)
+
+    def test_year_correction_no_spelling_check(self):
+        # "the year was" extracted as anchor — but no caps, so no
+        # spelling check
+        ans = wm.detect_and_compose("actually the year was 1962")
+        self.assertIsNotNone(ans)
+        self.assertNotIn("did i get that name right", ans.text.lower())
+
+    def test_correction_never_uses_first_person_pronouns(self):
+        # Sweep across multiple correction shapes
+        cases = [
+            "you have the name wrong not Smith but Jones",
+            "actually it was 1957",
+            "I meant Fort Ord not Fort Lewis",
+            "the name was Leonard Duffy",
+            "you got the year wrong, it was 1960",
+        ]
+        for c in cases:
+            ans = wm.detect_and_compose(c)
+            if ans is None:
+                continue
+            text_lower = ans.text.lower()
+            # Lori must NEVER use first-person narrator markers
+            for forbidden in (" we ", " our ", " our son", " i was"):
+                self.assertNotIn(
+                    forbidden, text_lower,
+                    f"correction must stay second-person: input={c!r} "
+                    f"response={ans.text!r}",
+                )
+
+
+class ActiveReceiptCompositionTest(unittest.TestCase):
+    """BUG-LORI-WITNESS-ACTIVE-RECEIPT-01 (2026-05-10) — multi-fact
+    receipt for STRUCTURED_NARRATIVE turns. When narrator gives a
+    clean structured factual narrative, response should use event
+    phrases ("You enlisted in 1957, went to Fort Leonard Wood, ...")
+    not just label list."""
+
+    def test_clean_narrative_produces_active_receipt(self):
+        text = (
+            "I enlisted in 1957. Then I went to basic training in Fort "
+            "Leonard Wood. After that I was sent overseas to Germany. "
+            "I served four years. Then I came home and married Janice "
+            "in 1962."
+        )
+        ans = wm.detect_and_compose(text)
+        self.assertIsNotNone(ans)
+        self.assertEqual(ans.detection_type, "STRUCTURED_NARRATIVE")
+        text_lower = ans.text.lower()
+        # Active-receipt template starts with "You" (second-person)
+        self.assertTrue(
+            ans.text.startswith("You ") or "you " in text_lower[:30],
+            f"active receipt should start with second-person 'You': {ans.text!r}",
+        )
+        # Multi-fact: should reference at least 2 narrator-named events
+        named_events = ["enlisted", "fort leonard wood", "germany", "served", "married", "janice"]
+        matches = sum(1 for e in named_events if e in text_lower)
+        self.assertGreaterEqual(matches, 3,
+                                f"receipt should reflect 3+ narrator events: {ans.text!r}")
+        # Continuation question
+        self.assertIn("what happened next", text_lower)
+        # No sensory probes
+        for forbidden in ("scenery", "sights", "sounds", "smells",
+                          "how did you feel", "camaraderie"):
+            self.assertNotIn(forbidden, text_lower)
+
+    def test_disfluent_narrative_falls_back_to_multi_anchor(self):
+        # Kent's K4 verbatim has self-repeating phrases ("I had made I
+        # scored", "M1 rifle M1 rifle"). Quality gate should reject
+        # noisy event extraction and fall back to multi-anchor.
+        text = (
+            "I had a high enough score that I had made I scored expert "
+            "on the use of the M1 rifle M1 rifle and then at the end "
+            "of Basic Training Day called each of us in for a decision "
+            "on where we were going to call I had originally enlisted"
+        )
+        ans = wm.detect_and_compose(text)
+        if ans is None:
+            return  # short turn fell below threshold; OK
+        if ans.detection_type == "STRUCTURED_NARRATIVE":
+            # Either falls back to multi-anchor or single-anchor —
+            # both are listenable.  Reject only if the response is
+            # >40 words (would indicate noisy event-receipt fired)
+            self.assertLessEqual(
+                len(ans.text.split()), 40,
+                f"disfluent narrative should fall back to clean template: {ans.text!r}",
+            )
+
+    def test_events_quality_pass_rejects_noisy(self):
+        # Three events with heavy token overlap → reject
+        events = [
+            "had a high enough score that I had",
+            "had made I scored expert on the use",
+            "scored expert on the use of the M1",
+        ]
+        self.assertFalse(wm._events_quality_pass(events))
+
+    def test_events_quality_pass_accepts_clean(self):
+        events = [
+            "enlisted in 1957",
+            "went to Fort Leonard Wood",
+            "served four years",
+        ]
+        self.assertTrue(wm._events_quality_pass(events))
+
+
+class MultiAnchorReflectionTest(unittest.TestCase):
+    """BUG-LORI-WITNESS-MULTI-ANCHOR-01 (2026-05-10) — Kent's session
+    showed single-anchor 'Tell me more about Brigade' was too thin
+    after 100-200 word factual narratives. Multi-anchor extraction +
+    template demonstrates active listening deterministically."""
+
+    def test_extract_top_anchors_kent_k3_basic_training(self):
+        text = (
+            "okay okay after going through the recruiting process for "
+            "enlisting into the army my dad drove me into the railroad "
+            "Depot at Stanley to put me on the train to go to Fargo for "
+            "the induction physical and testing I took test there"
+        )
+        anchors = wm._extract_top_anchors(text, max_n=3)
+        # Should pull 3 distinct narrator-named anchors
+        self.assertEqual(len(anchors), 3)
+        # Order should reflect narrative position
+        text_lower = text.lower()
+        positions = [text_lower.find(a.lower()) for a in anchors]
+        self.assertEqual(positions, sorted(positions),
+                         f"Anchors must be in narrative order: {anchors}")
+
+    def test_kent_k6_multi_anchor_output_includes_germany_bismarck_janice(self):
+        text = (
+            "in Germany was fantastic it is a lot to learn and after I "
+            "have been there for a bit then I got to leave to go home "
+            "come back to Bismarck and Janice family had put together a "
+            "terrific marriage ceremony"
+        )
+        ans = wm.detect_and_compose(text)
+        self.assertIsNotNone(ans)
+        self.assertEqual(ans.detection_type, "STRUCTURED_NARRATIVE")
+        text_lower = ans.text.lower()
+        # All three of Kent's named places/people should be reflected
+        self.assertIn("germany", text_lower)
+        self.assertIn("bismarck", text_lower)
+        self.assertIn("janice", text_lower)
+        # Continuation invitation
+        self.assertIn("what happened next", text_lower)
+        # NO sensory probe
+        self.assertNotIn("scenery", text_lower)
+        self.assertNotIn("sights", text_lower)
+        self.assertNotIn("how did you feel", text_lower)
+
+    def test_format_multi_anchor_list_oxford_comma_en(self):
+        result = wm._format_multi_anchor_list(["A", "B", "C"], "en")
+        self.assertEqual(result, "A, B, and C")
+
+    def test_format_multi_anchor_list_two_items_en(self):
+        result = wm._format_multi_anchor_list(["A", "B"], "en")
+        self.assertEqual(result, "A and B")
+
+    def test_format_multi_anchor_list_single_en(self):
+        result = wm._format_multi_anchor_list(["A"], "en")
+        self.assertEqual(result, "A")
+
+    def test_format_multi_anchor_list_empty(self):
+        self.assertEqual(wm._format_multi_anchor_list([], "en"), "")
+
+    def test_format_multi_anchor_list_es(self):
+        result = wm._format_multi_anchor_list(["A", "B", "C"], "es")
+        self.assertEqual(result, "A, B, y C")
+
+    def test_falls_back_to_single_anchor_when_few(self):
+        # Short narrative with only 1 proper noun → single-anchor path
+        text = (
+            "I went to Germany after basic training. It was a long "
+            "time ago. The trip was something else. We took a train "
+            "and a boat and I worked through it day by day."
+        )
+        ans = wm.detect_and_compose(text)
+        # If detected, response should still be witness-mode shape
+        if ans is not None:
+            text_lower = ans.text.lower()
+            self.assertIn("germany", text_lower)
+            self.assertIn("what happened", text_lower)
+
+    def test_dedupe_substring_anchors(self):
+        # "Stanley" and "Stanley North Dakota" → keep the longer one
+        text = (
+            "I went to Stanley North Dakota and then I went back to "
+            "Stanley with my brother and we did a number of things."
+        )
+        anchors = wm._extract_top_anchors(text, max_n=3)
+        # Only ONE Stanley-related anchor should appear
+        stanley_count = sum(1 for a in anchors if "stanley" in a.lower())
+        self.assertLessEqual(stanley_count, 1)
+
+
 class MetaFeedbackTopicExtractorTest(unittest.TestCase):
     def test_pulls_basic_training_from_kent_line(self):
         text = (
@@ -550,6 +794,213 @@ class MetaFeedbackTopicExtractorTest(unittest.TestCase):
         text = "you are being vague"  # no "not asking about X" pattern
         topic = wm._extract_meta_feedback_topic(text)
         self.assertEqual(topic, "")
+
+
+class LLMWitnessReceiptValidatorTest(unittest.TestCase):
+    """BUG-LORI-WITNESS-LLM-RECEIPT-01 (2026-05-10) — coverage for the
+    post-LLM validator that gates whether to keep the LLM's witness
+    receipt or fall back to the deterministic compose_witness_response.
+
+    Kent's narrator turn is the load-bearing scenario: a structured
+    multi-event factual chronological recounting. A clean witness
+    receipt should reflect ≥3 narrator-named anchors, stay in 35–110
+    word range, ask ≤1 question, and never produce sensory probes or
+    first-person mimicry.
+    """
+
+    KENT_NARRATOR = (
+        "I went from Stanley to Fargo for the induction test. I scored "
+        "expert on the M1 rifle. Then I got put in charge of the meal "
+        "tickets in basic training. After that I shipped to Germany "
+        "where I served with the Army Security Agency in Kaiserslautern."
+    )
+
+    def test_clean_llm_response_passes(self):
+        # Clean witness receipt: reflects 4 narrator anchors (Stanley,
+        # Fargo, M1, Kaiserslautern), 1 question, ~70 words.
+        clean = (
+            "I caught Stanley to Fargo for the induction test, scoring "
+            "expert on the M1, getting charge of the meal tickets in "
+            "basic training, then shipping to Kaiserslautern with the "
+            "Army Security Agency. That is a real arc. Where would you "
+            "like to pick up next?"
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=clean, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertTrue(ok, msg=f"Should pass; failures={failures}")
+        self.assertEqual(failures, [])
+
+    def test_forbidden_token_scenery_fails(self):
+        bad = (
+            "I caught Stanley to Fargo and the M1 score in "
+            "Kaiserslautern. What was the scenery like in Germany "
+            "during basic training?"
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=bad, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any(f.startswith("forbidden_token:") for f in failures))
+
+    def test_forbidden_token_camaraderie_fails(self):
+        bad = (
+            "I caught Stanley, Fargo, the M1, and Kaiserslautern. What "
+            "kind of camaraderie did you find with the Army Security "
+            "Agency soldiers in basic training?"
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=bad, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any("camaraderie" in f for f in failures))
+
+    def test_first_person_mimicry_we_were_in_germany_fails(self):
+        bad = (
+            "I caught Stanley, Fargo, the M1, and Kaiserslautern. We "
+            "were in Germany with the Army Security Agency for a long "
+            "stretch in basic training. Where would you like to go next?"
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=bad, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any(f.startswith("first_person_mimicry:") for f in failures))
+
+    def test_first_person_mimicry_our_son_fails(self):
+        kent_family = (
+            "I went to Germany with my fiancée Janice. Then our son "
+            "was born in Bismarck after we returned to North Dakota."
+        )
+        bad = (
+            "I caught Germany with Janice and Bismarck after the "
+            "return to North Dakota. Our son must have been a real "
+            "anchor for the whole family back then."
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=bad, narrator_text=kent_family,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any("our son" in f for f in failures))
+
+    def test_too_short_fails(self):
+        ok, failures = wm.validate_witness_receipt(
+            lori_text="I caught Stanley. What happened next?",
+            narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any(f.startswith("too_short:") for f in failures))
+
+    def test_too_long_fails(self):
+        # Build a >110-word response. All anchors echoed, no forbidden
+        # tokens, ≤1 question.
+        long = (
+            "I caught Stanley to Fargo for the induction test, scoring "
+            "expert on the M1, getting charge of the meal tickets in "
+            "basic training, then shipping to Kaiserslautern with the "
+            "Army Security Agency. " * 4
+        ) + "Where next?"
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=long, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any(f.startswith("too_long:") for f in failures))
+
+    def test_too_many_questions_fails(self):
+        bad = (
+            "I caught Stanley to Fargo for the induction test, scoring "
+            "expert on the M1 rifle, the meal tickets in basic, and "
+            "Kaiserslautern with the Army Security Agency. What "
+            "happened next? And how did the rest of the assignment go?"
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=bad, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any(f.startswith("too_many_questions:") for f in failures))
+
+    def test_too_few_facts_echoed_fails(self):
+        # Generic response with only one narrator-named anchor.
+        thin = (
+            "Thank you for sharing that with me. It sounds like there "
+            "was a real journey through the army time you described, "
+            "and the move through Stanley was one part of that. What "
+            "would you like to come back to next in the timeline?"
+        )
+        ok, failures = wm.validate_witness_receipt(
+            lori_text=thin, narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertTrue(any(f.startswith("too_few_facts:") for f in failures))
+
+    def test_empty_response_fails(self):
+        ok, failures = wm.validate_witness_receipt(
+            lori_text="", narrator_text=self.KENT_NARRATOR,
+        )
+        self.assertFalse(ok)
+        self.assertIn("empty_response", failures)
+
+    def test_count_narrator_facts_echoed_kent(self):
+        lori = (
+            "Stanley, Fargo, the M1, Kaiserslautern, the Army Security "
+            "Agency, and meal tickets all show up here."
+        )
+        n = wm._count_narrator_facts_echoed(self.KENT_NARRATOR, lori)
+        # Should find at least 3 distinct narrator-named anchors.
+        self.assertGreaterEqual(n, 3)
+
+    def test_count_narrator_facts_echoed_zero(self):
+        lori = "Tell me more about that experience."
+        n = wm._count_narrator_facts_echoed(self.KENT_NARRATOR, lori)
+        self.assertEqual(n, 0)
+
+
+class FailClosedFallbackContractTest(unittest.TestCase):
+    """BUG-LORI-WITNESS-LLM-RECEIPT-01 fail-closed contract.
+
+    chat_ws.py's exception handler on the validator path now tries the
+    deterministic compose_witness_response BEFORE keeping the LLM
+    output. This is the test that the fallback function actually
+    produces non-empty text for the kind of detection chat_ws stashes
+    (STRUCTURED_NARRATIVE with at least one anchor) — without that
+    guarantee the fail-closed branch reduces to fail-open.
+    """
+
+    KENT_NARRATOR = (
+        "I went from Stanley to Fargo for the induction test. I scored "
+        "expert on the M1 rifle. Then I got put in charge of the meal "
+        "tickets in basic training. After that I shipped to Germany "
+        "where I served with the Army Security Agency in Kaiserslautern."
+    )
+
+    def test_compose_witness_response_for_kent_arc_is_non_empty(self):
+        # Reproduce what chat_ws.py would have stashed in
+        # _witness_detection_for_fallback when STRUCTURED_NARRATIVE
+        # routed through the LLM-receipt path.
+        detection = wm.detect_witness_event(self.KENT_NARRATOR)
+        self.assertEqual(detection.detection_type, "STRUCTURED_NARRATIVE")
+        out = wm.compose_witness_response(detection, target_language="en")
+        self.assertTrue(out, msg="fallback must be non-empty for fail-closed")
+        # Witness-mode shape — single open question.
+        self.assertEqual(out.count("?"), 1)
+        # No sensory probes in the deterministic fallback either.
+        for tok in ("scenery", "sights", "sounds", "smells", "camaraderie"):
+            self.assertNotIn(tok, out.lower())
+
+    def test_compose_witness_response_for_spanish_kent_arc(self):
+        # Spanish narrator should still produce non-empty fallback.
+        es_narrator = (
+            "Fui de Stanley a Fargo para la prueba de inducción. Saqué "
+            "experto en el M1. Luego me pusieron a cargo de los boletos "
+            "de comida. Después embarqué a Alemania con el Army Security "
+            "Agency en Kaiserslautern."
+        )
+        detection = wm.detect_witness_event(es_narrator)
+        # Even if the detector falls back to single-anchor mode, the
+        # fallback should still produce non-empty text.
+        if detection.is_witness_event:
+            out = wm.compose_witness_response(detection, target_language="es")
+            self.assertTrue(out, msg="es fallback must be non-empty")
 
 
 if __name__ == "__main__":

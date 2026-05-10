@@ -1037,11 +1037,63 @@ async def ws_chat(ws: WebSocket):
         if _is_meta_question and _meta_question_answer is not None:
             turn_mode = "meta_question"
 
-        # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 — same posture for the
-        # witness-mode intercept. Mutually exclusive with meta_question
-        # (the upstream detector already gated on _is_meta_question).
+        # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 + BUG-LORI-WITNESS-LLM-
+        # RECEIPT-01 — witness-mode dispatch. Mutually exclusive with
+        # meta_question (the upstream detector already gated on
+        # _is_meta_question).
+        #
+        # Routing rule (2026-05-10 evolution after Kent's deep replay
+        # showed deterministic-only structured composition was too
+        # thin):
+        #   - META_FEEDBACK (incl. correction sub_types) → turn_mode
+        #     stays "witness" → dispatcher branch below short-circuits
+        #     with the deterministic ack. Behavior unchanged.
+        #   - STRUCTURED_NARRATIVE → DO NOT short-circuit. Set
+        #     runtime71["witness_receipt_mode"] = True so the system
+        #     prompt picks up the WITNESS RECEIPT directive (defined
+        #     in prompt_composer._WITNESS_RECEIPT_DIRECTIVE). Stash
+        #     the underlying detection for the post-LLM validator-
+        #     failure fallback so we can recompose deterministically
+        #     if the LLM drifts under directive pressure.
+        _witness_use_llm_receipt = False
+        _witness_detection_for_fallback = None  # type: ignore[assignment]
+        _witness_receipt_lang = "en"
         if _is_witness_mode and _witness_answer is not None:
-            turn_mode = "witness"
+            if _witness_answer.detection_type == "META_FEEDBACK":
+                turn_mode = "witness"
+            elif _witness_answer.detection_type == "STRUCTURED_NARRATIVE":
+                _witness_use_llm_receipt = True
+                _witness_receipt_lang = (
+                    "es" if _witness_answer.language == "es" else "en"
+                )
+                try:
+                    from ..services.lori_witness_mode import (
+                        detect_witness_event as _detect_we,
+                    )
+                    _witness_detection_for_fallback = _detect_we(user_text)
+                except Exception as _det_exc:
+                    logger.warning(
+                        "[chat_ws][witness][llm-receipt] detect rebuild "
+                        "failed conv=%s: %s",
+                        conv_id, _det_exc,
+                    )
+                    _witness_detection_for_fallback = None
+                runtime71 = dict(runtime71) if isinstance(runtime71, dict) else {}
+                runtime71["witness_receipt_mode"] = True
+                logger.info(
+                    "[chat_ws][witness][llm-receipt] conv=%s lang=%s "
+                    "anchor=%r events=%d",
+                    conv_id,
+                    _witness_receipt_lang,
+                    (
+                        _witness_detection_for_fallback.factual_anchor
+                        if _witness_detection_for_fallback else ""
+                    ),
+                    (
+                        len(_witness_detection_for_fallback.event_phrases)
+                        if _witness_detection_for_fallback else 0
+                    ),
+                )
 
         # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
         # profile_seed bridge runs for ALL turn modes, not just memory_echo.
@@ -2001,6 +2053,171 @@ async def ws_chat(ws: WebSocket):
                              _final_hash, conv_id)
         except Exception as _dup_err:
             logger.debug("[lori][duplicate-response] check failed (non-fatal): %s", _dup_err)
+
+        # ── BUG-LORI-WITNESS-LLM-RECEIPT-01 — post-LLM validator + fallback ──
+        # When the upstream detector flagged this turn as STRUCTURED_
+        # NARRATIVE, the system prompt was injected with the WITNESS
+        # RECEIPT directive (prompt_composer._WITNESS_RECEIPT_DIRECTIVE).
+        # The validator now checks that final_text actually obeyed:
+        #   - no FORBIDDEN_TOKENS (sights, sounds, smells, scenery,
+        #     camaraderie, "how did that feel", etc.)
+        #   - no FIRST_PERSON_MIMICRY ("our son", "we were in Germany",
+        #     "my wife")
+        #   - 35–110 words (witness receipt is meaty but not bloated)
+        #   - ≤1 question (one open invitation to continue)
+        #   - ≥3 narrator-named facts echoed (real reflection, not a
+        #     label list)
+        #
+        # On any failure, replace final_text with the deterministic
+        # compose_witness_response output for the same detection. Kent
+        # never sees a sensory probe even when the LLM drifts under
+        # directive pressure. Runs BEFORE the surface-level response
+        # guards so we don't waste polish on text we're throwing away.
+        if (
+            _witness_use_llm_receipt
+            and _witness_detection_for_fallback is not None
+            and final_text
+        ):
+            try:
+                from ..services.lori_witness_mode import (
+                    validate_witness_receipt as _validate_wr,
+                    compose_witness_response as _compose_wr,
+                )
+                _wr_ok, _wr_failures = _validate_wr(
+                    lori_text=final_text,
+                    narrator_text=user_text or "",
+                )
+                if not _wr_ok:
+                    _wr_fallback = _compose_wr(
+                        _witness_detection_for_fallback,
+                        target_language=_witness_receipt_lang,
+                    )
+                    if _wr_fallback:
+                        logger.warning(
+                            "[chat_ws][witness][llm-receipt] validator "
+                            "FAIL conv=%s failures=%s before=%r after=%r",
+                            conv_id,
+                            ",".join(_wr_failures) if _wr_failures else "",
+                            (final_text or "")[:160],
+                            _wr_fallback[:160],
+                        )
+                        final_text = _wr_fallback
+                    else:
+                        logger.warning(
+                            "[chat_ws][witness][llm-receipt] validator "
+                            "FAIL conv=%s but deterministic fallback "
+                            "produced empty text; keeping LLM output. "
+                            "failures=%s",
+                            conv_id,
+                            ",".join(_wr_failures) if _wr_failures else "",
+                        )
+                else:
+                    logger.info(
+                        "[chat_ws][witness][llm-receipt] validator PASS "
+                        "conv=%s words=%d",
+                        conv_id, len(final_text.split()),
+                    )
+            except Exception as _wr_exc:
+                # Fail CLOSED. If the validator itself raises, the LLM
+                # output has not been cleared of forbidden tokens, first-
+                # person mimicry, length, fact-floor, or question-count
+                # checks. For Kent's session we cannot risk showing
+                # un-validated LLM text. Try the deterministic fallback;
+                # only keep the LLM output if the fallback is empty
+                # (e.g. event_phrases + multi_anchors both came back
+                # zero, which means the upstream detector probably
+                # shouldn't have routed here in the first place).
+                _wr_fallback = ""
+                try:
+                    from ..services.lori_witness_mode import (
+                        compose_witness_response as _compose_wr_safe,
+                    )
+                    _wr_fallback = _compose_wr_safe(
+                        _witness_detection_for_fallback,
+                        target_language=_witness_receipt_lang,
+                    )
+                except Exception as _wr_fallback_exc:
+                    logger.warning(
+                        "[chat_ws][witness][llm-receipt] validator AND "
+                        "fallback both raised conv=%s val_exc=%s "
+                        "fallback_exc=%s — keeping LLM output as last "
+                        "resort",
+                        conv_id, _wr_exc, _wr_fallback_exc,
+                    )
+                if _wr_fallback:
+                    logger.warning(
+                        "[chat_ws][witness][llm-receipt] validator raised "
+                        "conv=%s: %s — fail-closed to deterministic "
+                        "fallback; before=%r after=%r",
+                        conv_id, _wr_exc,
+                        (final_text or "")[:160],
+                        _wr_fallback[:160],
+                    )
+                    final_text = _wr_fallback
+                else:
+                    logger.warning(
+                        "[chat_ws][witness][llm-receipt] validator raised "
+                        "conv=%s: %s — fallback empty, keeping LLM output",
+                        conv_id, _wr_exc,
+                    )
+
+        # ── BUG-LORI-LANGUAGE-DRIFT-UNPROMPTED-01 + DANGLING-DETERMINER-01 ──
+        # Post-LLM response guards (services/lori_response_guards.py).
+        # Runs AFTER comm_control / reflection-shaper finalize final_text,
+        # BEFORE persist + WS done event so the repaired text reaches the
+        # bubble, the TTS pipeline, the transcript, and the archive.
+        #
+        # Two guards in priority order:
+        #   1. language_drift — if last 3 narrator turns are English AND
+        #      current narrator turn has no Spanish signal AND Lori output
+        #      is Spanish, replace with English deterministic continuation.
+        #      Kent's K1/K2/K10 evidence (2026-05-09 replay).
+        #   2. dangling_determiner — Lori output ending with the/a/an/to/
+        #      of/with/about/for + period → replace with safe continuation.
+        #      Mary line 47 + Kent line 47 evidence.
+        #
+        # Both guards are pure-stdlib + idempotent + safe-by-default. When
+        # the response looks fine, original text passes through unchanged.
+        try:
+            from ..services.lori_response_guards import apply_response_guards as _apply_guards
+            # Pull the last few narrator turns from the conv history to
+            # build the recent-context check. db.get_turns() returns
+            # ordered turns; we pull the last 6 (3 narrator + 3 lori
+            # interleaved) and filter to narrator-only.
+            _recent_narr: List[str] = []
+            try:
+                from ..db import export_turns as _export_turns
+                _hist = _export_turns(conv_id) or []
+                for t in _hist:
+                    if isinstance(t, dict) and t.get("role") == "user":
+                        _ut = t.get("content") or ""
+                        if _ut and not _ut.startswith("[SYSTEM"):
+                            _recent_narr.append(_ut)
+                _recent_narr = _recent_narr[-3:]
+            except Exception:
+                _recent_narr = []
+            _guarded_text, _guards_fired = _apply_guards(
+                assistant_text=final_text,
+                narrator_text=user_text or "",
+                recent_narrator_turns=_recent_narr,
+                target_language="en",
+            )
+            if _guards_fired:
+                logger.warning(
+                    "[chat_ws][response-guards] fired=%s conv=%s "
+                    "before=%r after=%r",
+                    ",".join(_guards_fired),
+                    conv_id,
+                    final_text[:120],
+                    _guarded_text[:120],
+                )
+                final_text = _guarded_text
+        except Exception as _guard_exc:
+            # Defense-in-depth: never break a turn on guard failure.
+            logger.warning(
+                "[chat_ws][response-guards] wrapper raised, passing through: %s",
+                _guard_exc,
+            )
 
         try:
             persist_turn_transaction(
