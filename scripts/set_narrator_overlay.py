@@ -191,9 +191,12 @@ def _ensure_people_row(person_id: str, display_name: str) -> None:
             return  # already exists
         # Insert minimal row mirroring db.create_person() shape.
         # Use display_name when known; "(harness-pinned)" otherwise.
-        # narrator_type=primary as a safe default.
+        # narrator_type="live" — the canonical default (was "primary"
+        # in an older schema; NARRATOR_TYPES tuple was tightened to
+        # ('live', 'reference') and the old literal here started
+        # failing _normalise_narrator_type at module load).
         now = _db._now_iso()
-        nt = _db._normalise_narrator_type("primary")
+        nt = _db._normalise_narrator_type("live")
         dn = display_name if display_name and display_name != "(no people row yet)" \
             else "(harness-pinned)"
         con.execute(
