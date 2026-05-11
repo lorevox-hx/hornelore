@@ -836,6 +836,87 @@ _RESPONSIBILITY_ANCHOR_PATTERNS = (
 )
 
 
+# Tokens that signal the generic capture has overshot into a verb /
+# conjunction clause. The 2026-05-10 stress run produced "solving a
+# problem and when you" — the regex matched "responsible for" then
+# greedily captured "solving a problem and when you were responsible
+# for meeting the standard". We need to clip at the first stop-word.
+#
+# Strategy:
+#   1. Trim the capture at the FIRST occurrence of a stop-word.
+#   2. Then strip trailing auxiliary verbs / pronouns that are
+#      grammatical glue, not noun-phrase content.
+#   3. Reject the capture if what's left is < 3 chars OR starts with
+#      a present-participle (a verb in -ing) — those signal a
+#      verb-phrase capture ("solving a problem"), not a noun anchor.
+#
+# Conservative on purpose: false-rejecting a borderline anchor is
+# fine; false-accepting "solving a problem and when you" produces
+# the gibberish receipt that brought Kent to this fix.
+_RESPONSIBILITY_CLIP_STOPWORDS = (
+    " and ", " or ", " but ", " when ", " where ", " while ",
+    " because ", " so ", " that ", " which ", " who ", " if ",
+    " until ", " as ", " before ", " after ",
+    # Auxiliary-verb fragments that also signal the capture has run
+    # past a noun into a clause
+    " were ", " was ", " is ", " are ", " be ",
+    " had ", " have ", " has ",
+    " do ", " did ", " does ",
+    " can ", " could ", " would ", " should ", " may ", " might ",
+)
+_RESPONSIBILITY_TRAILING_TRIM = (
+    " you", " we", " they", " he", " she", " it", " i",
+    " your", " our", " their", " his", " her", " its", " my",
+)
+
+
+def _clean_responsibility_capture(captured: str) -> str:
+    """Trim a generic-capture string to a noun-shape anchor, or "" if
+    the capture is a verb phrase.
+
+    Examples:
+      "solving a problem and when you were responsible..."  → "" (rejected — starts with -ing)
+      "the train and when we"                               → "the train"
+      "meal tickets on the trainload"                       → "meal tickets on the trainload" (passes through)
+      "running everything"                                  → "" (rejected — starts with -ing)
+      "all of those records"                                → "all of those records"
+    """
+    if not captured:
+        return ""
+    s = captured.strip()
+    if not s:
+        return ""
+    # Pad single-space around so stop-word matches at start/end work
+    padded = " " + s.lower() + " "
+    cut = len(s)
+    for stop in _RESPONSIBILITY_CLIP_STOPWORDS:
+        idx = padded.find(stop)
+        if idx >= 0:
+            # Index in original (un-padded) string is idx (we added 1
+            # space at front, so the match position in original = idx)
+            if idx < cut:
+                cut = idx
+    s = s[:cut].strip()
+    if not s:
+        return ""
+    # Strip trailing pronoun/possessive glue
+    s_lower_padded = " " + s.lower()
+    for tail in _RESPONSIBILITY_TRAILING_TRIM:
+        if s_lower_padded.endswith(tail):
+            s = s[: -len(tail.strip()) - 1].rstrip()
+            s_lower_padded = " " + s.lower()
+    s = s.strip().rstrip(",.;:")
+    if len(s) < 3:
+        return ""
+    # Reject if the cleaned capture STARTS with a verb in -ing
+    # (gerund / present participle) — that's a verb phrase, not a
+    # noun anchor. "solving" / "running" / "thinking" / "doing".
+    first = s.split()[0].lower()
+    if first.endswith("ing") and len(first) >= 5:
+        return ""
+    return s
+
+
 def _score_story_weight(anchor_text: str, narrator_text: str) -> int:
     """Story-weight scoring per synthesis §3 Tier 1A.
 
@@ -935,7 +1016,16 @@ def _detect_story_weighted_tier_1a_doors(narrator_text: str) -> List[Door]:
                     captured = ""
                 if not captured or len(captured) < 4:
                     continue
-                label = captured
+                # 2026-05-10 stress-run fix — the generic capture
+                # ([a-z][a-z\s]{3,30}) ran past noun phrases into
+                # verb / conjunction clauses. _clean_responsibility_
+                # capture() trims at stop-words and rejects -ing-
+                # leading verb phrases. Returns "" when the capture
+                # is gibberish like "solving a problem and when you".
+                cleaned = _clean_responsibility_capture(captured)
+                if not cleaned:
+                    continue
+                label = cleaned
             label_key = label.lower()
             if label_key in seen:
                 continue
@@ -1253,17 +1343,43 @@ def should_flush_bank(
     if word_count >= 40:
         return (False, "")
 
+    # ── QUESTION GATE ─────────────────────────────────────────────
+    # 2026-05-10 stress run surfaced this: short narrator turns that
+    # END in '?' are the narrator asking Lori something, not the
+    # narrator giving up the floor. Phase D's era questions ("What is
+    # Adolescence again?", 4 words) were getting bank-flushed under
+    # the short_answer_no_door rule and never getting answered.
+    #
+    # Rule: if the narrator's last sentence ends in '?' AND no
+    # explicit FLUSH_CUE_PATTERN matches that sentence, the narrator
+    # is asking a real question and we MUST NOT flush. Lori needs to
+    # answer the question, not pivot to a banked follow-up.
+    #
+    # The explicit-cue regex (b) still fires below for the case the
+    # rule was originally intended to catch: "what else?" / "where
+    # were we?" / "anything else?" — those LOOK like questions but
+    # are floor-release cues, not real questions.
+    parts = re.split(r'[.!?]\s+', narrator_text.rstrip())
+    last_sentence = parts[-1] if parts else narrator_text
+    last_sentence_words = len(last_sentence.split())
+    last_sentence_stripped = last_sentence.rstrip()
+    narrator_asked_question = last_sentence_stripped.endswith("?")
+    explicit_cue_match = any(
+        rx.search(last_sentence) for rx in _FLUSH_CUE_PATTERNS
+    )
+
     # (b) explicit narrator cue — must be in the LAST sentence of
     # the narrator turn, not embedded in narrative prose. Plus the
     # last sentence must be SHORT (≤8 words) — a cue-word inside a
     # 25-word last sentence is rhetoric, not a flush request.
-    parts = re.split(r'[.!?]\s+', narrator_text.rstrip())
-    last_sentence = parts[-1] if parts else narrator_text
-    last_sentence_words = len(last_sentence.split())
-    if last_sentence_words <= 8 and any(
-        rx.search(last_sentence) for rx in _FLUSH_CUE_PATTERNS
-    ):
+    if last_sentence_words <= 8 and explicit_cue_match:
         return (True, "narrator_cued")
+
+    # If the narrator asked a real question (no cue match), short-
+    # circuit before the short-answer-no-door rule below — the rule
+    # would otherwise misclassify the question turn as floor release.
+    if narrator_asked_question and not explicit_cue_match:
+        return (False, "")
 
     # (a) short narrator answer + no new door
     if word_count < 8 and not current_turn_doors:

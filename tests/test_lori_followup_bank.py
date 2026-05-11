@@ -1135,5 +1135,171 @@ class LoadGateRoleTransitionTest(unittest.TestCase):
             rx.search(text)
 
 
+# ── 2026-05-10 stress-run fixes — Fix 1 + Fix 2 ────────────────────────────
+
+
+class ShouldFlushBankQuestionGateTest(unittest.TestCase):
+    """Fix 1 — short narrator turns that END in '?' are real questions,
+    NOT floor-release cues. The bank-flush must skip flushing on those
+    so Lori can answer the question instead of pivoting to a banked
+    follow-up.
+
+    Motivating evidence: Phase D of the 2026-05-10 stress run flushed
+    3 of 7 era questions ("What is Adolescence again?" / "What do you
+    mean by Earliest Years?") because they hit the
+    `short_answer_no_door` rule (< 8 words, no new door)."""
+
+    def test_short_question_does_not_flush(self):
+        # 4-word question that previously matched short_answer_no_door
+        ok, reason = bank.should_flush_bank(
+            narrator_text="What is Adolescence again?",
+            current_turn_doors=[],
+        )
+        self.assertFalse(
+            ok,
+            f"narrator question must not flush; reason={reason!r}",
+        )
+
+    def test_short_era_question_does_not_flush(self):
+        ok, reason = bank.should_flush_bank(
+            narrator_text="What do you mean by Earliest Years?",
+            current_turn_doors=[],
+        )
+        self.assertFalse(ok)
+
+    def test_short_age_question_does_not_flush(self):
+        ok, reason = bank.should_flush_bank(
+            narrator_text="How old am I?",
+            current_turn_doors=[],
+        )
+        self.assertFalse(ok)
+
+    def test_explicit_cue_still_fires_even_with_question_mark(self):
+        # "what else?" / "what next?" must STILL flush — those are
+        # floor-release cues that happen to be question-shaped.
+        ok, reason = bank.should_flush_bank(
+            narrator_text="What else?",
+            current_turn_doors=[],
+        )
+        self.assertTrue(
+            ok,
+            "explicit floor-release cue must still flush",
+        )
+        self.assertEqual(reason, "narrator_cued")
+
+    def test_short_answer_without_question_still_flushes(self):
+        # Regression test on the original behavior: a short answer
+        # with no question mark and no new doors still flushes.
+        ok, reason = bank.should_flush_bank(
+            narrator_text="OK.",
+            current_turn_doors=[],
+        )
+        self.assertTrue(ok)
+        self.assertTrue(reason.startswith("short_answer_no_door"))
+
+    def test_long_question_does_not_flush(self):
+        # Mid-chapter narrator question. The 40-word floor already
+        # protects this case; question-gate is additional defense.
+        ok, _reason = bank.should_flush_bank(
+            narrator_text=(
+                "When I was in Fort Ord we had to learn to make our beds "
+                "tight enough to bounce a coin off them, and I keep "
+                "wondering whether they really tested that or whether "
+                "the sergeants just enjoyed yelling at us about it. "
+                "Do you think the bouncing-coin test was even real?"
+            ),
+            current_turn_doors=[],
+        )
+        self.assertFalse(ok)
+
+
+class CleanResponsibilityCaptureTest(unittest.TestCase):
+    """Fix 2 — generic "responsible for X" / "in charge of X" captures
+    must be trimmed at stop-words and rejected if they're verb-phrase
+    shape rather than noun-phrase shape.
+
+    Motivating evidence: Phase B5 of the 2026-05-10 stress run
+    produced 'You said solving a problem and when you: ...' as the
+    immediate-door receipt. The generic [a-z][a-z\\s]{3,30} regex
+    captured "solving a problem and when you" off the source text
+    "responsible for solving a problem and when you were responsible
+    for meeting the standard"."""
+
+    def test_solving_a_problem_is_rejected(self):
+        out = bank._clean_responsibility_capture(
+            "solving a problem and when you were responsible for"
+        )
+        self.assertEqual(
+            out, "",
+            f"verb-phrase capture must be rejected; got {out!r}",
+        )
+
+    def test_running_everything_is_rejected(self):
+        out = bank._clean_responsibility_capture("running everything")
+        self.assertEqual(out, "")
+
+    def test_thinking_about_home_is_rejected(self):
+        out = bank._clean_responsibility_capture("thinking about home")
+        self.assertEqual(out, "")
+
+    def test_real_noun_anchor_passes_through(self):
+        # "meal tickets" / "the records" / "all of the food" — these
+        # are real noun-phrase anchors and must be preserved.
+        out = bank._clean_responsibility_capture("meal tickets on the train")
+        self.assertTrue(out.startswith("meal tickets"))
+
+    def test_anchor_clipped_at_and(self):
+        # "the train and when we got there" → keep "the train"
+        out = bank._clean_responsibility_capture(
+            "the train and when we got there"
+        )
+        self.assertEqual(out, "the train")
+
+    def test_anchor_clipped_at_because(self):
+        out = bank._clean_responsibility_capture(
+            "all of the records because the system needed them"
+        )
+        self.assertEqual(out, "all of the records")
+
+    def test_trailing_pronoun_trimmed(self):
+        # "the schedule for you" → "the schedule"
+        out = bank._clean_responsibility_capture("the schedule for you")
+        # Either "the schedule for" or "the schedule" is acceptable;
+        # the key is "you" pronoun glue is stripped.
+        self.assertNotIn(" you", out)
+
+    def test_too_short_rejected(self):
+        out = bank._clean_responsibility_capture("a")
+        self.assertEqual(out, "")
+
+    def test_empty_returns_empty(self):
+        self.assertEqual(bank._clean_responsibility_capture(""), "")
+        self.assertEqual(bank._clean_responsibility_capture("   "), "")
+
+
+class DetectStoryWeightedDoorsRejectsVerbPhraseTest(unittest.TestCase):
+    """Integration: full detect_doors() pipeline must NOT surface a
+    "solving a problem and when you" Tier 1A door when the narrator's
+    text is the source sentence that produced that bug."""
+
+    KENT_TEXT = (
+        "The lesson was that you had to know when you were responsible "
+        "for solving a problem and when you were responsible for "
+        "meeting the standard. The Army was intentionally applying "
+        "pressure. If the bed was not right, you fixed the bed. If "
+        "the rifle was not clean, you cleaned it. If the formation "
+        "was sloppy, you drilled again."
+    )
+
+    def test_solving_a_problem_does_not_become_anchor(self):
+        doors = bank.detect_doors(self.KENT_TEXT)
+        anchors = [d.triggering_anchor.lower() for d in doors]
+        bad = [a for a in anchors if "solving a problem" in a]
+        self.assertFalse(
+            bad,
+            f"verb-phrase anchor must not surface; got anchors={anchors!r}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
