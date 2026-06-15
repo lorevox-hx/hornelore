@@ -51,6 +51,17 @@ DB_PATH = DB_DIR / DB_NAME
 logger.info("Lorevox DB: %s", DB_PATH)
 
 
+# WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase A seed gate.
+# Once-per-process flag for the bio_schema seed loader. init_db() runs
+# on every CRUD call (cheap idempotent CREATE TABLE IF NOT EXISTS chain),
+# but seeding ~67 bio_fields rows on every call is wasteful. This flag
+# guarantees the seed lands at the first init_db() call (process boot
+# or first chat turn after launch) and is skipped thereafter. Tests
+# may reset it via the chore/bio-seed-loader-init test module to
+# exercise the seed path under a fresh DB.
+_BIO_SEED_LOADED: bool = False
+
+
 def _connect() -> sqlite3.Connection:
     con = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     con.row_factory = sqlite3.Row
@@ -1125,6 +1136,41 @@ def init_db() -> None:
         # informational; the cryptic INSERT-time error is the
         # backstop.
         logger.exception("Schema-drift check failed (non-fatal)")
+
+    # WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase A seed load.
+    #
+    # init_db is called from every db accessor; this seed loader is
+    # idempotent (UPSERTs ~67 rows) but cost-prohibitive to run on
+    # every CRUD call. Gate behind a module-level "ran once" flag so
+    # the seed lands at the first DB touch of the process and is
+    # skipped thereafter.
+    #
+    # WHY THIS IS LOAD-BEARING:
+    # PRAGMA foreign_keys=ON (line ~60) means bio_facts.field_key FK
+    # to bio_fields.field_key is enforced. Without the seed, EVERY
+    # bio_fact_create() — Tier 1 / Tier 2 / Tier 3 / Tier 4 — would
+    # fail with FOREIGN KEY constraint failed. The seed loader is
+    # therefore not "would be nice" archaeological metadata; it's a
+    # hard prerequisite for bio_builder to function.
+    #
+    # Failure here is logged but non-fatal — the rest of init_db
+    # completed successfully and non-bio routes continue to work.
+    # Bio routes will surface FK errors at write time, which is
+    # exactly the failure mode this guard prevents under normal
+    # circumstances.
+    global _BIO_SEED_LOADED
+    if not _BIO_SEED_LOADED:
+        try:
+            n = bio_schema_seed_load_to_db()
+            _BIO_SEED_LOADED = True
+            logger.info(
+                "[bio_schema] seed loaded %d fields at first init_db()", n,
+            )
+        except Exception:
+            logger.exception(
+                "Bio schema seed load failed (non-fatal; bio_builder "
+                "writes will fail at FK enforcement until resolved)",
+            )
 
     con.close()
 
