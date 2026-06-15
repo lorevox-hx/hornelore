@@ -405,9 +405,33 @@ _TRIVIAL_CONTENT_TOKEN_THRESHOLD = 4
 # articles / pronouns capitalized for grammar, not proper nouns).
 # Example matches: "Spokane", "Captain Kirk", "North Dakota",
 # "Kent Horne", "T.J. Hooker".
+#
+# WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — bug fix: previously
+# the inner character class `[a-zA-Z'\-\.]+` permitted ANY period
+# inside the token, including sentence-ending periods. That meant
+# "Spokane. My dad..." matched as the single proper-noun phrase
+# "Spokane. My" because the regex consumed the sentence-ending period
+# as if it were an internal initial (like the period in "T.J."). The
+# fix tightens the character class: a period is only valid mid-token
+# when IMMEDIATELY followed by another capital letter (the "T.J."
+# initial-abbreviation pattern). A period followed by whitespace
+# stays outside the match. Trade-off: "T.J. Hooker" now matches as
+# "T.J Hooker" (the trailing period of the abbreviation is dropped
+# at the word boundary). Acceptable — the anchor stays usable for
+# echo openers.
 _PROPER_NOUN_RX = re.compile(
     r"(?<![.!?]\s)(?<!^)"                       # not sentence-start
-    r"\b(?:[A-Z][a-zA-Z'\-\.]+(?:\s+[A-Z][a-zA-Z'\-\.]+){0,3})\b",
+    r"\b(?:"
+    # First segment: EITHER an initials chain (T.J or T.J. — capital-
+    # period-capital with optional trailing period) OR a standard
+    # capitalized word (Spokane, Hooker).
+    r"(?:[A-Z](?:\.[A-Z])+\.?|[A-Z][a-zA-Z'\-]+)"
+    # Additional segments separated by whitespace only — a sentence-
+    # boundary period after the previous segment will NOT match
+    # because the period isn't whitespace. Each additional segment
+    # has the same shape.
+    r"(?:\s+(?:[A-Z](?:\.[A-Z])+\.?|[A-Z][a-zA-Z'\-]+)){0,3}"
+    r")\b",
     re.UNICODE,
 )
 
@@ -495,10 +519,37 @@ def _is_trivial_narrator_text(narrator_text: str) -> bool:
     return len(_content_tokens(narrator_text)) < _TRIVIAL_CONTENT_TOKEN_THRESHOLD
 
 
+def _trim_trailing_blocklist(phrase: str) -> str:
+    """WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — strip trailing
+    blocklisted tokens from a multi-word candidate.
+
+    The proper-noun regex permissively chains capitalized tokens
+    across word boundaries. When one of those trailing tokens is a
+    sentence-start pronoun like "He" / "She" / "My" / "Our", the
+    candidate becomes "T.J. He" or "Captain Kirk My" — recognizable
+    but contaminated. The all-blocklist rejection in
+    `_score_proper_noun_candidate` doesn't catch these because the
+    first token is legitimately not on the blocklist.
+
+    Strip trailing tokens until the last token is NOT on the blocklist.
+    Returns the trimmed phrase, or "" when every token was blocklisted
+    (caller treats as score 0).
+    """
+    tokens = phrase.split()
+    while tokens and tokens[-1] in _PROPER_NOUN_BLOCKLIST:
+        tokens.pop()
+    return " ".join(tokens)
+
+
 def _score_proper_noun_candidate(phrase: str) -> int:
     """Higher score = better anchor. Multi-word phrases score higher
     than single words ("Captain Kirk" > "Kirk"). Phrases entirely on
-    the blocklist score 0."""
+    the blocklist score 0.
+
+    NOTE: caller should run `_trim_trailing_blocklist(phrase)` before
+    scoring when the candidate may have come from the multi-segment
+    regex — that trim drops sentence-start contamination like the
+    "He" in "T.J. He" or the "My" in "Captain Kirk My"."""
     tokens = phrase.split()
     if not tokens:
         return 0
@@ -535,15 +586,22 @@ def extract_concrete_anchor(narrator_text: str) -> Optional[str]:
     candidates: List[Tuple[int, str]] = []  # (score, phrase)
 
     # Layer 1.1 — Mid-sentence proper-noun phrases (highest priority)
+    # WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14): trim trailing
+    # blocklist tokens BEFORE scoring so "T.J. He was a sailor" →
+    # "T.J." and "Captain Kirk My" → "Captain Kirk".
     for m in _PROPER_NOUN_RX.finditer(narrator_text):
-        phrase = m.group(0).strip()
+        phrase = _trim_trailing_blocklist(m.group(0).strip())
+        if not phrase:
+            continue
         score = _score_proper_noun_candidate(phrase)
         if score > 0:
             candidates.append((score, phrase))
 
     # Layer 1.2 — Sentence-start proper-noun phrases (medium priority)
     for m in _PROPER_NOUN_AT_START_RX.finditer(narrator_text):
-        phrase = m.group("np").strip()
+        phrase = _trim_trailing_blocklist(m.group("np").strip())
+        if not phrase:
+            continue
         score = _score_proper_noun_candidate(phrase)
         if score > 0:
             # Slight penalty for sentence-start position — these are

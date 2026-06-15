@@ -725,6 +725,29 @@ def _safety_path(
     )
 
 
+def _phase_1_enabled() -> bool:
+    """WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) gate. Default OFF.
+
+    When enabled, the wrapper runs three additional validators after
+    the existing word-cap / atomicity / reflection-presence checks:
+
+      - reflection_grounding (concrete narrator content in opening)
+      - question_hierarchy (Layer 1-4 ladder + eligibility model)
+      - story-mode awareness (suppresses Layer 3-4 when momentum
+        signals story chapter)
+
+    The validators are REPORT-ONLY in v1 — failures append to the
+    `failures` list but do NOT mutate final_text. Regeneration loop
+    in chat_ws consumes the failure list and decides whether to retry.
+    Default-OFF posture preserves byte-identical behavior to pre-WO
+    callers until Chris flips the flag for the first eval cycle.
+    """
+    import os as _os
+    return _os.getenv(
+        "HORNELORE_STORY_FIRST_PHASE_1", "0",
+    ).strip().lower() in ("1", "true", "yes", "on")
+
+
 def enforce_lori_communication_control(
     assistant_text: str,
     user_text: str,
@@ -733,6 +756,12 @@ def enforce_lori_communication_control(
     session_style: str = "clear_direct",
     softened_mode_active: bool = False,
     softened_state: Optional[Dict] = None,
+    # WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — Phase 1 inputs.
+    # All default to "absent / off" so pre-WO callers see byte-stable
+    # behavior. Phase 1 validators only fire when the flag is on AND
+    # the caller threads these inputs.
+    momentum_mode: str = "normal",
+    session_hierarchy_state: Optional[Dict] = None,
 ) -> CommunicationControlResult:
     """The single runtime enforcement entry point.
 
@@ -747,6 +776,9 @@ def enforce_lori_communication_control(
       2. Question count (truncate to first '?' if multiple)
       3. Word-count limit per session_style (truncate preserving first '?')
       4. Reflection validation (REPORT-ONLY — no mutation)
+      5. Phase 1 validators (REPORT-ONLY, default-off, vacuous in softened):
+         - reflection grounding (content token overlap)
+         - question hierarchy (Layer 1-4 eligibility)
 
     Empty assistant_text → returns unchanged with failures=[].
     """
@@ -883,6 +915,73 @@ def enforce_lori_communication_control(
         and not safety_triggered  # safety paths legitimately emit short responses
     ):
         failures.append("response_stub_collapse")
+
+    # Step 7: WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — Phase 1
+    # validators. Default-OFF behind HORNELORE_STORY_FIRST_PHASE_1.
+    # Vacuous in softened mode (the softened directive owns no-question
+    # discipline; reflection grounding doesn't apply when narrator
+    # just received an acute event).
+    #
+    # REPORT-ONLY: appends structured labels to `failures`. The
+    # chat_ws regeneration loop consumes the list and decides whether
+    # to retry. v1 does NOT mutate the response — the fallback templates
+    # in reflection_grounding.build_fallback_reflection are the
+    # caller's deterministic backstop after regeneration budget is
+    # exhausted.
+    if _phase_1_enabled() and not safety_triggered and not softened_mode_active:
+        # 7a — reflection grounding
+        try:
+            from .reflection_grounding import check_reflection_grounding
+            _grounding = check_reflection_grounding(current, user_text or "")
+            if not _grounding.passed:
+                failures.append(
+                    f"reflection_not_grounded:{_grounding.failure_reason}"
+                )
+        except Exception:
+            # Validator failure must never break a turn.
+            pass
+
+        # 7b — question hierarchy
+        try:
+            from .question_hierarchy import (
+                enforce_question_hierarchy,
+                SessionHierarchyState,
+            )
+            # Convert dict input to dataclass (caller threads a dict
+            # so the public signature stays stable across imports).
+            _sh_state = SessionHierarchyState(
+                has_substantive_narrative_turn=bool(
+                    (session_hierarchy_state or {}).get(
+                        "has_substantive_narrative_turn", False,
+                    )
+                ),
+                has_layer_1_succeeded=bool(
+                    (session_hierarchy_state or {}).get(
+                        "has_layer_1_succeeded", False,
+                    )
+                ),
+                has_layer_2_succeeded=bool(
+                    (session_hierarchy_state or {}).get(
+                        "has_layer_2_succeeded", False,
+                    )
+                ),
+                has_specific_ambiguity=bool(
+                    (session_hierarchy_state or {}).get(
+                        "has_specific_ambiguity", False,
+                    )
+                ),
+            )
+            _hier = enforce_question_hierarchy(
+                current,
+                session_state=_sh_state,
+                momentum_mode=str(momentum_mode or "normal"),
+            )
+            if not _hier.passed:
+                failures.append(
+                    f"question_layer_ineligible:{_hier.failure_reason}"
+                )
+        except Exception:
+            pass
 
     return CommunicationControlResult(
         original_text=assistant_text,
