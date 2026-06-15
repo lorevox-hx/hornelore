@@ -1584,6 +1584,51 @@ a Layer 1 open invitation.
 
 
 # ─────────────────────────────────────────────────────────────────────
+# WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase D (2026-06-14) — Tier 3 anchored asker.
+#
+# The composer-side directive for an anchored bio gap question. Fires
+# only when chat_ws's bio_anchored_asker decided the eligibility chain
+# is satisfied AND the current chapter context anchors a specific
+# high-value field gap. The placeholder bio_facts row at
+# anchored_asked_pending is already written by the time this directive
+# arrives in the prompt.
+#
+# Per WO §Tier 3 composition guidance: the LLM phrases the question as
+# chapter-natural continuation, NOT generic questionnaire form. This
+# directive carries the operator-visible surface text built by
+# bio_anchored_asker.compose_surface_text(); the LLM uses it as
+# context while doing its own chapter-aware phrasing.
+#
+# Maximum one anchored ask per turn (enforced upstream in
+# bio_anchored_asker — eligibility chain E3/E4). This directive
+# explicitly forbids combining with other question layers so the
+# anchored ask never doubles up with a Layer 3/4 verification.
+# ─────────────────────────────────────────────────────────────────────
+
+LORI_ANCHORED_ASK_DIRECTIVE_TEMPLATE = """\
+ANCHORED BIO ASK — ONE GENTLE FIELD QUESTION.
+
+The current chapter context anchors a specific bio field that we have
+not yet captured for this narrator. This is the operator-visible
+guidance for THIS turn:
+
+  {surface_text}
+
+Rules for THIS turn:
+- Ask ONE brief, chapter-natural question that anchors to what the
+  narrator just said. Reference the chapter detail explicitly.
+- Do NOT phrase the question as a generic questionnaire item.
+  ✗ BAD:  "What military branch did you serve in?"
+  ✓ GOOD: "Were you Army at Fort Ord, or another branch?"
+- Do NOT combine with chronology, verification, or any other layer.
+- Do NOT ask if no natural opening actually exists in the chapter —
+  in that case, reflect what they said and stop. Skipping the ask
+  is the correct response when the anchor would feel forced.
+- Stay within the normal session word cap.
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────
 # WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14)
 #
 # The composition posture for the system's NEW default session style.
@@ -3404,6 +3449,38 @@ def compose_system_prompt(
                 directive_lines.append("")
         except Exception:
             # Phase 1 prompt injection must never break the composer.
+            pass
+
+        # WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase D Tier 3.
+        # Anchored bio ask directive — only when chat_ws's
+        # bio_anchored_asker decided eligibility is satisfied AND a
+        # specific high-value field gap matches the current chapter
+        # context. The placeholder bio_facts row is already written
+        # by the time this directive arrives. Default-OFF behavior:
+        # when chat_ws does not set the key (flag off or not eligible),
+        # no injection fires — byte-stable to pre-WO prompts.
+        try:
+            _anchored_surface = (
+                runtime71.get("bio_anchored_ask_surface_text")
+                if isinstance(runtime71, dict) else None
+            )
+            if _anchored_surface and isinstance(_anchored_surface, str):
+                directive_lines.append(
+                    LORI_ANCHORED_ASK_DIRECTIVE_TEMPLATE
+                    .format(surface_text=_anchored_surface.strip())
+                    .strip()
+                )
+                directive_lines.append("")
+                try:
+                    logger.info(
+                        "[composer] tier3 anchored_ask injected",
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            # Anchored-ask injection must never break composer
+            # assembly — silent skip preserves the rest of the
+            # turn's prompt.
             pass
 
         # BUG-LORI-WITNESS-LLM-RECEIPT-01 (2026-05-10) — when the chat_ws
