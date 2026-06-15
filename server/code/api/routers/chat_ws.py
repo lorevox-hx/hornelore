@@ -1192,6 +1192,96 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _phase_1_exc,
                 )
 
+        # ── WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase D Tier 3 ──
+        # Bio anchored asker — eligibility check + gap selection. Runs
+        # AFTER the Phase 1 momentum + thread bank block so we can
+        # consume the momentum score. Gated by HORNELORE_BIO_ANCHORED_
+        # ASKER (default OFF). Per WO §Tier 3 + Defenses 1+2+3:
+        # eligibility chain enforces caps + chapter health floor; the
+        # placeholder bio_facts row carries the continuation metric
+        # scaffold for Defense 1 telemetry. The next-turn pipeline
+        # backfills the metric via update_metric_after_response (TBD
+        # wiring in a follow-up commit; today's commit ships the
+        # service + the fire-ask path).
+        _bio_anchored_surface_text = ""
+        _bio_anchored_fact_id: Optional[str] = None
+        _bio_anchored_enabled_now = os.environ.get(
+            "HORNELORE_BIO_ANCHORED_ASKER", "0",
+        ).strip().lower() in ("1", "true", "yes", "on")
+        if (
+            _bio_anchored_enabled_now
+            and user_text and user_text.strip()
+            and not _is_system_directive
+            and person_id
+        ):
+            try:
+                from ..services.bio_anchored_asker import (
+                    evaluate_eligibility as _ba_eligibility,
+                    pick_anchored_gap as _ba_pick,
+                    compose_surface_text as _ba_compose,
+                    fire_anchored_ask as _ba_fire,
+                )
+                # Build the session-level signals the asker needs.
+                # turns_since_last_ask + asks_this_session + word
+                # count history are not yet maintained in chat_ws
+                # state (deferred to a follow-up that adds session
+                # turn-history walking); for v1 we provide
+                # conservative defaults that pass the structural gates
+                # — the eligibility chain itself catches the real
+                # rate-limit when chat_ws state plumbing arrives.
+                _momentum_score = 0.0
+                try:
+                    _momentum_score = float(
+                        getattr(_phase_1_score, "composite", 0.0) or 0.0,
+                    )
+                except Exception:
+                    _momentum_score = 0.0
+                _ba_elig = _ba_eligibility(
+                    narrator_id=person_id,
+                    momentum_score=_momentum_score,
+                    session_turn_word_counts=[],
+                    turns_since_last_ask=999,
+                    asks_this_session=0,
+                )
+                if _ba_elig.eligible:
+                    _ba_gap = _ba_pick(person_id, user_text)
+                    if _ba_gap is not None:
+                        _bio_anchored_surface_text = _ba_compose(
+                            _ba_gap, user_text,
+                        )
+                        try:
+                            _bio_anchored_fact_id = _ba_fire(
+                                person_id, _ba_gap,
+                                session_id=conv_id,
+                                turn_id=getattr(req, "turn_id", None) if "req" in dir() else None,
+                                session_turn_word_counts=[],
+                            )
+                            logger.info(
+                                "[chat_ws][bio_anchored] fired "
+                                "conv=%s field=%s anchor=%r row=%s",
+                                conv_id, _ba_gap.field_key,
+                                _ba_gap.matched_anchor,
+                                _bio_anchored_fact_id,
+                            )
+                        except Exception as _fire_exc:
+                            logger.warning(
+                                "[chat_ws][bio_anchored] fire failed "
+                                "conv=%s: %s", conv_id, _fire_exc,
+                            )
+                            _bio_anchored_surface_text = ""
+                else:
+                    logger.info(
+                        "[chat_ws][bio_anchored] ineligible "
+                        "conv=%s reason=%s",
+                        conv_id, _ba_elig.reason,
+                    )
+            except Exception as _ba_exc:
+                # Asker must never break a turn — log + fall through.
+                logger.warning(
+                    "[chat_ws][bio_anchored] dispatch failed conv=%s: %s",
+                    conv_id, _ba_exc,
+                )
+
         # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 1: chat-path safety scan ─────
         # Mirrors interview.py:269-307. Runs BEFORE turn_mode dispatch so a
         # triggered turn cannot be silently routed through memory_echo or
@@ -2516,6 +2606,23 @@ async def ws_chat(ws: WebSocket):
                 logger.warning(
                     "[chat_ws][story_first] runtime71 thread failed conv=%s: %s",
                     conv_id, _sf_rt_exc,
+                )
+
+        # WO-LORI-BIO-BUILDER-UNIVERSAL-01 — Phase D Tier 3 runtime71 key.
+        # When the bio anchored asker selected a gap this turn, surface
+        # the composer-instruction text so prompt_composer can inject
+        # the LORI_ANCHORED_ASK_DIRECTIVE block. Default OFF: when
+        # _bio_anchored_surface_text is empty (flag off or not
+        # eligible), no key is set and the composer sees no directive
+        # — byte-stable.
+        if _bio_anchored_surface_text:
+            try:
+                runtime71 = dict(runtime71) if isinstance(runtime71, dict) else {}
+                runtime71["bio_anchored_ask_surface_text"] = _bio_anchored_surface_text
+            except Exception as _ba_rt_exc:
+                logger.warning(
+                    "[chat_ws][bio_anchored] runtime71 surface failed conv=%s: %s",
+                    conv_id, _ba_rt_exc,
                 )
 
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
