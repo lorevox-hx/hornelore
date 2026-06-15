@@ -5866,6 +5866,63 @@ function lv80RenderNarratorCards(){
   list.appendChild(addBtn);
 }
 
+// BUG-NARRATOR-SWITCHER-EMPTY-ON-COLD-BOOT-01 (2026-06-15)
+//
+// Race condition: lv80ToggleNarratorSwitcher was synchronously calling
+// lv80RenderNarratorCards() which reads state.narratorUi.peopleCache.
+// On cold boot the LLM warmup blocks the API worker for ~4 minutes,
+// so refreshPeople()'s fetch of /api/people may not have completed by
+// the time the operator clicks the chip. The render fires once
+// against an empty cache, paints zero cards, and never re-runs —
+// switcher looks broken even though the cache resolves later.
+//
+// Non-blocking fix: render immediately so the popover opens
+// without waiting on the API. If cache is empty, render a
+// "Loading narrators…" placeholder AND kick off refreshPeople() in
+// the background. When the refresh completes, re-render
+// automatically IF the switcher is still open.
+//
+// CHRIS RULE: never await on the API inside the switcher toggle.
+// Cold-boot LLM warmup can take ~4 minutes (CLAUDE.md "Stack
+// ownership"); blocking the toggle on that would lock the UI for
+// the whole warmup window.
+function _lv80RenderLoadingPlaceholder(){
+  const list = document.getElementById("lv80NarratorList");
+  if (!list) return;
+  list.innerHTML =
+    '<div style="padding:14px;color:#94a3b8;font-size:13px;text-align:center;">' +
+    'Loading narrators… (cold-boot API warmup can take a few minutes)' +
+    '</div>';
+}
+
+function _lv80RenderOrKickRefresh(){
+  const cache = state?.narratorUi?.peopleCache;
+  const cacheReady = Array.isArray(cache) && cache.length > 0;
+  if (cacheReady) {
+    lv80RenderNarratorCards();
+    return;
+  }
+  // Cache empty — paint a placeholder NOW so the operator sees the
+  // popover and knows something is happening, then kick off the
+  // refresh in the background. Re-render once it returns IF the
+  // switcher is still open.
+  _lv80RenderLoadingPlaceholder();
+  if (typeof refreshPeople !== "function") return;
+  Promise.resolve(refreshPeople())
+    .then(() => {
+      const pop = document.getElementById("lv80NarratorSwitcher");
+      // Only re-render if the operator still has the switcher open.
+      // (If they closed it during the warmup, leave the next-open
+      // path to re-trigger.)
+      try {
+        if (pop && pop.matches(":popover-open")) {
+          lv80RenderNarratorCards();
+        }
+      } catch (_) { /* DOM gone */ }
+    })
+    .catch(() => { /* network or warmup error — placeholder stays */ });
+}
+
 function lv80ToggleNarratorSwitcher(){
   // WO-11E: Block switcher during trainer mode — card is cosmetic only
   try {
@@ -5873,7 +5930,7 @@ function lv80ToggleNarratorSwitcher(){
   } catch (_) {}
   const pop = document.getElementById("lv80NarratorSwitcher");
   if (!pop) return;
-  lv80RenderNarratorCards();
+  _lv80RenderOrKickRefresh();
   try{
     if (pop.matches(":popover-open")) pop.hidePopover();
     else pop.showPopover();
@@ -5884,7 +5941,7 @@ function lv80ToggleNarratorSwitcher(){
 function lv80OpenNarratorSwitcher(){
   const pop = document.getElementById("lv80NarratorSwitcher");
   if (!pop) return;
-  lv80RenderNarratorCards();
+  _lv80RenderOrKickRefresh();
   try{ if (!pop.matches(":popover-open")) pop.showPopover(); }catch(_){}
 }
 
