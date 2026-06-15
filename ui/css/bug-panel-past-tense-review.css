@@ -1,0 +1,139 @@
+/* WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — past-tense flag
+   review Bug Panel surface. Operator-only. NEVER narrator-visible.
+
+   Visual posture:
+   - Amber-leaning palette (warmer than the acute-safety red, cooler
+     than the eval/dashboard neutrals) signals "review me when you
+     have a moment, not crisis."
+   - Dense, scannable rows — each flag is metadata-only by design;
+     the operator drills into the session transcript via a separate
+     surface if they need the actual turn text.
+   - 3-decision buttons render disabled in v1 — visible affordance
+     for the future state model without overpromising. */
+
+.pt-panel {
+  background: #1f1a17;          /* warm dark slate */
+  border: 1px solid #4a3a26;    /* amber-tinged border */
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  color: #e8dcc8;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+}
+
+.pt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.pt-title {
+  font-weight: 600;
+  color: #f5c97a;               /* amber title */
+  letter-spacing: 0.2px;
+}
+
+.pt-refresh-btn {
+  background: #2a2017;
+  color: #f5c97a;
+  border: 1px solid #5a4528;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pt-refresh-btn:hover {
+  background: #3a2a1c;
+}
+
+.pt-count {
+  color: #b89968;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.pt-placeholder, .pt-error {
+  color: #8a7556;
+  padding: 6px 0;
+  font-style: italic;
+}
+
+.pt-error {
+  color: #c0664a;
+}
+
+.pt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pt-row {
+  border-left: 3px solid #d49147;  /* amber accent border (the "card" feel) */
+  background: #2a1f17;
+  padding: 6px 10px;
+  border-radius: 0 3px 3px 0;
+}
+
+.pt-row-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.pt-badge {
+  background: #3a2a17;
+  color: #f5c97a;
+  border: 1px solid #5a4528;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.pt-session {
+  color: #c8a878;
+  font-size: 11px;
+}
+
+.pt-time {
+  color: #8a7556;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.pt-decision-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.pt-decision-btn {
+  background: #1f1813;
+  color: #8a7556;
+  border: 1px solid #3a2c1c;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 10px;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pt-decision-btn:hover:not(:disabled) {
+  background: #2a2017;
+}
+
+.pt-stamp {
+  margin-top: 6px;
+  color: #6a5840;
+  font-size: 10px;
+  font-style: italic;
+}

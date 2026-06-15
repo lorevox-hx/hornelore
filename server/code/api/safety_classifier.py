@@ -440,33 +440,74 @@ def classify_safety_llm(text: str) -> SafetyClassification:
             reason="llm_unavailable",
         )
 
-    try:
-        raw = _try_call_llm(
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=_build_user_prompt(text),
-            max_new=64,           # JSON response is ~30-40 tokens
-            temp=0.01,            # near-greedy; this is a classifier
-            top_p=0.90,
-            conv_id=None,         # safety classifier is stateless
-        )
-    except Exception as exc:
-        logger.warning("[safety_classifier] LLM call raised: %s", exc)
-        return SafetyClassification(
-            category="none",
-            confidence=0.0,
-            parse_ok=False,
-            reason=f"llm_error:{type(exc).__name__}",
-        )
+    # WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — retry-once on
+    # parse failure per WO §1 ("If JSON parsing fails: retry once;
+    # on second failure, treat as category=none with a conspicuous
+    # log line `[safety_classifier] PARSE_FAILURE — turn
+    # unclassified`"). The first call's prompt is exactly the same
+    # as the retry's — the LLM is non-deterministic so a fresh draw
+    # often produces parseable JSON when the first didn't (Llama
+    # 3.1 8B emits a trailing comma or unquoted enum value ~3% of
+    # the time on this prompt).
+    _attempts: list = []
+    for _attempt_idx in range(2):  # original + 1 retry
+        try:
+            _raw = _try_call_llm(
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=_build_user_prompt(text),
+                max_new=128,          # bumped from 64: 3-dim JSON is ~60-90 tokens
+                temp=0.01,            # near-greedy; this is a classifier
+                top_p=0.90,
+                conv_id=None,         # safety classifier is stateless
+            )
+        except Exception as exc:
+            logger.warning(
+                "[safety_classifier] LLM call raised (attempt %d): %s",
+                _attempt_idx + 1, exc,
+            )
+            # LLM-call exceptions on the first attempt fall through to
+            # retry; on the second they return the error classification.
+            if _attempt_idx == 1:
+                return SafetyClassification(
+                    category="none",
+                    confidence=0.0,
+                    parse_ok=False,
+                    reason=f"llm_error:{type(exc).__name__}",
+                )
+            _attempts.append(("call_error", str(exc)))
+            continue
 
-    if raw is None:
-        return SafetyClassification(
-            category="none",
-            confidence=0.0,
-            parse_ok=False,
-            reason="llm_returned_none",
-        )
+        if _raw is None:
+            if _attempt_idx == 1:
+                return SafetyClassification(
+                    category="none",
+                    confidence=0.0,
+                    parse_ok=False,
+                    reason="llm_returned_none",
+                )
+            _attempts.append(("returned_none", ""))
+            continue
 
-    return _parse_classification_response(raw)
+        _result = _parse_classification_response(_raw)
+        if _result.parse_ok:
+            return _result
+        # Parse failure — retry once. Record attempt for the
+        # conspicuous log line below.
+        _attempts.append(("parse_fail", (_raw or "")[:120]))
+
+    # Both attempts exhausted with no parse-ok result.
+    logger.warning(
+        "[safety_classifier] PARSE_FAILURE — turn unclassified "
+        "(attempts=%d details=%s)",
+        len(_attempts),
+        ";".join("%s:%r" % (k, v[:40]) for k, v in _attempts),
+    )
+    return SafetyClassification(
+        category="none",
+        confidence=0.0,
+        parse_ok=False,
+        reason="parse_fail_after_retry",
+    )
 
 
 # ── Composition helper ────────────────────────────────────────────────────

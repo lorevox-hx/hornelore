@@ -488,6 +488,15 @@ def get_resources_for_category(category: Optional[str]) -> list[dict]:
         # is most aligned with cognitive-distress framing for older
         # narrators.
         relevant = [RESOURCE_CARDS[5], RESOURCE_CARDS[4], RESOURCE_CARDS[3], RESOURCE_CARDS[0]]  # Friendship Line + Alzheimer's + Eldercare + 988
+    elif category == "past_tense_ideation_acknowledged":
+        # WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14): past-tense
+        # memoir ideation. No narrator-side resource dispatch — the
+        # narrator is telling a chapter about a completed past period,
+        # not in present crisis. The brief deterministic
+        # acknowledgment IS the response; operator gets a post-
+        # session flag for review (Bug Panel queue). 988 is wrong
+        # shape here (the narrator is not in current ideation).
+        relevant = []
     else:
         relevant = RESOURCE_CARDS
 

@@ -289,7 +289,19 @@ class GateTest(unittest.TestCase):
                 result = classify_safety_llm("any text")
                 self.assertEqual(result.category, "none")
                 self.assertFalse(result.parse_ok)
-                self.assertEqual(result.reason, "parse_fail")
+                # WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) added
+                # retry-once on parse failure. When both attempts
+                # parse-fail, the reason is "parse_fail_after_retry".
+                # Single-attempt parse failures (e.g., from direct
+                # _parse_classification_response calls) still return
+                # "parse_fail". Accept either to track the intent of
+                # the test (parse-fail handling produces a clean shape)
+                # rather than the literal string.
+                self.assertIn(
+                    result.reason,
+                    ("parse_fail", "parse_fail_after_retry"),
+                    f"expected a parse-fail reason variant, got {result.reason!r}",
+                )
 
 
 class StructuralSanityTest(unittest.TestCase):

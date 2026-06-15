@@ -30,6 +30,30 @@ _WO10M_GUARD_PER_TOKEN_MB = float(os.getenv("VRAM_GUARD_PER_TOKEN_MB", "0.14"))
 # params, so individual config cells can sweep this knob.
 _REP_PENALTY_DEFAULT = float(os.getenv("REPETITION_PENALTY_DEFAULT", "1.1"))
 
+# WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — per-session counter
+# of LLM safety-classifier parse failures (post retry-once). Operator-
+# panel signal that the LLM is producing malformed JSON for this
+# conversation; frequent increments mean the prompt or the model
+# needs attention. In-memory only, cleared on stack restart — fine
+# for a debug counter; not a durability concern. Read via
+# get_safety_llm_parse_failures(conv_id) below.
+_SAFETY_LLM_PARSE_FAILURES: Dict[str, int] = {}
+
+
+def get_safety_llm_parse_failures(conv_id: str) -> int:
+    """Return the current parse-failure count for `conv_id`. Operator
+    panels and the safety bug-panel surface read through this. Returns
+    0 when the conv has had no failures (or doesn't exist)."""
+    return int(_SAFETY_LLM_PARSE_FAILURES.get(conv_id or "", 0))
+
+
+def reset_safety_llm_parse_failures(conv_id: str) -> None:
+    """Clear the counter for `conv_id`. Operator action — typically
+    called after the operator has acknowledged the parse-failure
+    signal in the Bug Panel."""
+    _SAFETY_LLM_PARSE_FAILURES.pop(conv_id or "", None)
+
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from transformers import TextIteratorStreamer, StoppingCriteriaList
 
@@ -1104,23 +1128,47 @@ async def ws_chat(ws: WebSocket):
                 and not _is_system_directive
             ):
                 try:
+                    # WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — swap
+                    # from the boolean should_route_to_safety to the four-
+                    # route route_safety(). Old boolean wrapper remains for
+                    # tests; this hook now consumes the structured route so
+                    # past-tense and mortality-reflection don't escalate.
                     from ..safety_classifier import (
                         classify_safety_llm as _classify_llm,
-                        should_route_to_safety as _should_route,
+                        route_safety as _route_safety_call,
+                        ROUTE_ACUTE as _ROUTE_ACUTE,
+                        ROUTE_PAST_TENSE_ACKNOWLEDGE as _ROUTE_PT,
+                        ROUTE_MORTALITY_REFLECTION as _ROUTE_MR,
+                        ROUTE_NONE as _ROUTE_NONE,
                     )
                     _llm_class = _classify_llm(user_text)
-                    # Reflective gets logged for operator awareness but
-                    # is NOT routed (per WO spec — past-tense is normal
-                    # processing, not acute).
-                    if _llm_class.parse_ok and _llm_class.category == "reflective":
-                        logger.info(
-                            "[chat_ws][safety][llm_layer] reflective conv=%s confidence=%.2f (logged, not routed)",
-                            conv_id, _llm_class.confidence,
-                        )
-                    elif _should_route(False, _llm_class):
+                    _route = _route_safety_call(False, _llm_class)
+
+                    # WO-LORI-SAFETY-LLM-CLASSIFIER-01 §1 — per-session
+                    # parse-failure counter. Increments when the
+                    # classifier returns parse_ok=False AFTER the
+                    # retry-once inside classify_safety_llm. This is
+                    # the operator-panel signal that the LLM is
+                    # producing malformed JSON for this conversation;
+                    # frequent increments mean the prompt or the model
+                    # needs attention. Exposed via the module-level
+                    # _SAFETY_LLM_PARSE_FAILURES dict (in-memory, cleared
+                    # on stack restart — acceptable for a debug signal).
+                    if not _llm_class.parse_ok:
+                        try:
+                            _SAFETY_LLM_PARSE_FAILURES[conv_id] = (
+                                _SAFETY_LLM_PARSE_FAILURES.get(conv_id, 0) + 1
+                            )
+                        except Exception:
+                            pass
+
+                    if _route == _ROUTE_ACUTE:
                         logger.warning(
-                            "[chat_ws][safety][llm_layer] triggered conv=%s category=%s confidence=%.2f reason=%s",
+                            "[chat_ws][safety][llm_layer] route=acute "
+                            "conv=%s category=%s tense=%s subject=%s "
+                            "confidence=%.2f reason=%s",
                             conv_id, _llm_class.category,
+                            _llm_class.tense, _llm_class.subject,
                             _llm_class.confidence, _llm_class.reason,
                         )
                         # Synthesize a SafetyResult so the existing
@@ -1139,6 +1187,176 @@ async def ws_chat(ws: WebSocket):
                             ),
                             confidence=_llm_class.confidence,
                         )
+
+                    elif _route == _ROUTE_PT:
+                        # WO-LORI-SAFETY-LLM-CLASSIFIER-01 §3 + §4 — past-
+                        # tense memoir ideation. NEVER calls the LLM for
+                        # response composition. Emits a deterministic
+                        # acknowledgment, writes a segment_flag with the
+                        # new past_tense_ideation_acknowledged category,
+                        # writes softened state with N=2, persists the
+                        # turn, and returns BEFORE the normal LLM
+                        # composition path runs. The narrator's chapter
+                        # continues at their pace; the operator gets a
+                        # post-session flag for review (Bug Panel queue,
+                        # rendered by ui/js/operator-review.js card).
+                        logger.warning(
+                            "[chat_ws][safety][llm_layer] "
+                            "route=past_tense_acknowledge conv=%s "
+                            "category=%s tense=%s subject=%s "
+                            "confidence=%.2f",
+                            conv_id, _llm_class.category,
+                            _llm_class.tense, _llm_class.subject,
+                            _llm_class.confidence,
+                        )
+                        try:
+                            from ..safety_acknowledgments import (
+                                select_past_tense_acknowledgment as _select_ack,
+                            )
+                            # Deterministic round-robin counter: number of
+                            # past_tense flags already persisted for this
+                            # session. Defaults to 0 on first occurrence.
+                            _ack_idx = 0
+                            try:
+                                from ..db import get_segment_flags as _get_flags
+                                _existing_flags = _get_flags(conv_id) or []
+                                _ack_idx = sum(
+                                    1 for f in _existing_flags
+                                    if (f.get("sensitive_category") or "")
+                                    == "past_tense_ideation_acknowledged"
+                                )
+                            except Exception:
+                                _ack_idx = 0
+                            _ack_text = _select_ack(_ack_idx)
+
+                            # Persist segment_flag (sensitive=True,
+                            # excluded_from_memoir=False — past-tense
+                            # memoir content stays in the memoir; the
+                            # flag exists for operator awareness, not
+                            # memoir exclusion).
+                            try:
+                                ensure_interview_session(conv_id, person_id)
+                                save_segment_flag(
+                                    session_id=conv_id,
+                                    question_id=None,
+                                    section_id=None,
+                                    sensitive=True,
+                                    sensitive_category="past_tense_ideation_acknowledged",
+                                    excluded_from_memoir=False,
+                                    private=False,
+                                )
+                            except Exception as _pt_flag_exc:
+                                logger.warning(
+                                    "[chat_ws][safety][past-tense] flag "
+                                    "persist failed conv=%s: %s",
+                                    conv_id, _pt_flag_exc,
+                                )
+
+                            # Softened-mode write (N=2 per WO spec). The
+                            # in-memory set_softened uses a hardcoded
+                            # SOFTENED_TURNS=3 timer which is the wrong
+                            # window for past-tense; WO-LORI-SOFTENED-
+                            # MODE-PERSISTENCE-01 (Gate 6) is the read-
+                            # side WO that will reconcile the N=5 acute
+                            # vs N=2 past-tense windows from a single
+                            # source of truth. Until then we write the
+                            # correct N=2 to the DB and skip the
+                            # legacy in-memory write — the in-memory
+                            # cache is only consumed by the existing
+                            # acute path.
+                            try:
+                                set_session_softened(
+                                    conv_id, _session_turn_count,
+                                    softened_turns=2,
+                                )
+                            except Exception as _pt_soft_exc:
+                                logger.warning(
+                                    "[chat_ws][safety][past-tense] "
+                                    "softened persist failed conv=%s: %s",
+                                    conv_id, _pt_soft_exc,
+                                )
+
+                            # Persist the turn (user_text + ack response).
+                            try:
+                                persist_turn_transaction(
+                                    conv_id=conv_id,
+                                    user_message=user_text,
+                                    assistant_message=_ack_text,
+                                    model_name="past-tense-acknowledgment",
+                                    meta={
+                                        "ws": True,
+                                        "turn_mode": "past_tense_acknowledge",
+                                        "ack_idx": _ack_idx,
+                                    },
+                                )
+                            except Exception as _pt_persist_exc:
+                                logger.warning(
+                                    "[chat_ws][safety][past-tense] "
+                                    "persist failed conv=%s: %s",
+                                    conv_id, _pt_persist_exc,
+                                )
+
+                            # Emit ack as the assistant response and
+                            # return — no LLM composition on this turn.
+                            await _ws_send(ws, {
+                                "type": "token", "delta": _ack_text,
+                            })
+                            await _ws_send(ws, {
+                                "type": "done",
+                                "final_text": _ack_text,
+                                "turn_mode": "past_tense_acknowledge",
+                            })
+                            return
+                        except Exception as _pt_path_exc:
+                            # If the past-tense path itself raises, fall
+                            # through to the normal LLM path rather than
+                            # leaving the narrator hanging. The flag may
+                            # not be written but the turn completes. The
+                            # warning surfaces in api.log.
+                            logger.warning(
+                                "[chat_ws][safety][past-tense] path raised "
+                                "conv=%s: %s — falling through to normal "
+                                "composition",
+                                conv_id, _pt_path_exc,
+                            )
+
+                    elif _route == _ROUTE_MR:
+                        # WO-LORI-SAFETY-LLM-CLASSIFIER-01 §2 — mortality
+                        # reflection. Ordinary older-adult mortality talk
+                        # (outliving peers, end-of-life peace, legacy
+                        # planning). NO routing, NO flag, NO softened
+                        # write, NO acknowledgment. Just a log line for
+                        # telemetry. The chapter continues with normal
+                        # LLM composition because this WO's whole point
+                        # is that mortality reflection is normal memoir
+                        # content for older narrators.
+                        logger.info(
+                            "[chat_ws][safety][llm_layer] "
+                            "route=mortality_reflection conv=%s "
+                            "category=%s subject=%s confidence=%.2f "
+                            "(suppressed escalation — normal turn proceeds)",
+                            conv_id, _llm_class.category,
+                            _llm_class.subject, _llm_class.confidence,
+                        )
+
+                    elif _llm_class.parse_ok and _llm_class.category in (
+                        "ideation", "distressed"
+                    ):
+                        # ROUTE_NONE but classifier had a triggering category
+                        # that was suppressed (below floor OR subject was
+                        # third_party / external). Log for telemetry so the
+                        # operator can tune the floor or audit the
+                        # suppression posture.
+                        logger.info(
+                            "[chat_ws][safety][llm_layer] route=none "
+                            "conv=%s category=%s tense=%s subject=%s "
+                            "confidence=%.2f (suppressed: below floor "
+                            "or non-self subject)",
+                            conv_id, _llm_class.category,
+                            _llm_class.tense, _llm_class.subject,
+                            _llm_class.confidence,
+                        )
+
                 except Exception as _llm_layer_exc:
                     # Pure observability — LLM-layer failure must not
                     # break the turn. Pattern result (or None) stands.
