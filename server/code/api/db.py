@@ -1153,6 +1153,24 @@ def init_db() -> None:
     # therefore not "would be nice" archaeological metadata; it's a
     # hard prerequisite for bio_builder to function.
     #
+    # RECURSION GUARD (2026-06-15 fix):
+    # The flag MUST be set BEFORE calling bio_schema_seed_load_to_db,
+    # not after. Setting it after produces a catastrophic infinite
+    # recursion: the loader iterates rows and calls bio_field_upsert,
+    # which calls init_db() at the top (every accessor does), which
+    # re-enters this block with the flag still False, which calls the
+    # loader again, ad infinitum. RecursionError eventually fires,
+    # gets caught + logged, and the seed never actually lands —
+    # bio_fields stays empty and every bio_builder write FK-fails.
+    #
+    # Setting the flag FIRST breaks the recursion: the reentrant
+    # init_db calls see the flag as True and skip the seed block
+    # entirely, letting bio_field_upsert finish its INSERT/UPDATE
+    # against the schema that init_db already built earlier in this
+    # call. If the seed loader raises (genuine data error, not
+    # recursion), we leave the flag True — better than retrying a
+    # failing seed on every chat turn — but log the failure loudly.
+    #
     # Failure here is logged but non-fatal — the rest of init_db
     # completed successfully and non-bio routes continue to work.
     # Bio routes will surface FK errors at write time, which is
@@ -1160,9 +1178,12 @@ def init_db() -> None:
     # circumstances.
     global _BIO_SEED_LOADED
     if not _BIO_SEED_LOADED:
+        # CRITICAL: set the flag FIRST so reentrant init_db calls from
+        # inside bio_schema_seed_load_to_db skip this block. See the
+        # RECURSION GUARD note above.
+        _BIO_SEED_LOADED = True
         try:
             n = bio_schema_seed_load_to_db()
-            _BIO_SEED_LOADED = True
             logger.info(
                 "[bio_schema] seed loaded %d fields at first init_db()", n,
             )
