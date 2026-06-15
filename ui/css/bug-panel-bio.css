@@ -1,0 +1,319 @@
+/* WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase E+F Bug Panel CSS.
+ *
+ * Shared styling for bug-panel-bio-editor.js + bug-panel-bio-gap-map.js.
+ * Color taxonomy mirrors the existing eval/story-review Bug Panel
+ * sections (slate background + indigo accent + amber/red telemetry
+ * accents).
+ *
+ * NEVER narrator-visible — Bug Panel only. */
+
+#lv10dBpBioGapMap,
+#lv10dBpBioEditor {
+  margin: 14px 0;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(99,102,241,0.20);
+  background: rgba(15,23,42,0.55);
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.bp-bio-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(99,102,241,0.18);
+}
+.bp-bio-section-header strong {
+  flex: 0 0 auto;
+  color: #c7d2fe;
+  font-size: 14px;
+  font-weight: 600;
+}
+.bp-bio-narrator-input {
+  flex: 1;
+  min-width: 100px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(99,102,241,0.30);
+  background: rgba(15,23,42,0.85);
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 12px;
+}
+.bp-bio-refresh {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(99,102,241,0.40);
+  background: rgba(30,41,59,0.85);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.bp-bio-refresh:hover {
+  border-color: rgba(129,140,248,0.65);
+}
+
+.bp-bio-empty,
+.bp-bio-error,
+.bp-bio-disabled {
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.bp-bio-error { color: #fca5a5; }
+.bp-bio-disabled code {
+  background: rgba(15,23,42,0.85);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: #c7d2fe;
+}
+
+/* ── Gap map sections ─────────────────────────────────────────────── */
+
+.bp-bio-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(99,102,241,0.15);
+}
+.bp-bio-section-title {
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: #c7d2fe;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.bp-bio-section-head {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+.bp-bio-section-sub {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.bp-bio-cat-row,
+.bp-bio-ask-row,
+.bp-bio-suggest-row,
+.bp-bio-conflict-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.bp-bio-cat-name { flex: 1; }
+.bp-bio-cat-pct {
+  flex: 0 0 50px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #c7d2fe;
+}
+.bp-bio-cat-count {
+  flex: 0 0 60px;
+  text-align: right;
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.bp-bio-ask-label,
+.bp-bio-suggest-label,
+.bp-bio-conflict-label {
+  flex: 1;
+  color: #e2e8f0;
+}
+.bp-bio-ask-anchor {
+  flex: 1;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.bp-bio-suggest-cat {
+  flex: 0 0 90px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.bp-bio-outcome {
+  flex: 0 0 75px;
+  text-align: center;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(99,102,241,0.20);
+  color: #c7d2fe;
+}
+.bp-bio-outcome-resolved {
+  background: rgba(34,197,94,0.20);
+  color: #bbf7d0;
+}
+.bp-bio-outcome-pending {
+  background: rgba(251,191,36,0.20);
+  color: #fde68a;
+}
+.bp-bio-outcome-no_answer {
+  background: rgba(248,113,113,0.20);
+  color: #fecaca;
+}
+
+/* ── Telemetry banner ─────────────────────────────────────────────── */
+
+.bp-bio-telemetry {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.bp-bio-telemetry-green {
+  border: 1px solid rgba(34,197,94,0.40);
+  background: rgba(34,197,94,0.10);
+  color: #bbf7d0;
+}
+.bp-bio-telemetry-amber {
+  border: 1px solid rgba(251,191,36,0.55);
+  background: rgba(251,191,36,0.15);
+  color: #fde68a;
+}
+.bp-bio-telemetry-red {
+  border: 1px solid rgba(248,113,113,0.65);
+  background: rgba(248,113,113,0.18);
+  color: #fecaca;
+}
+
+/* ── Conflicts ────────────────────────────────────────────────────── */
+
+.bp-bio-conflict-row {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 6px 0;
+  border-top: 1px dotted rgba(99,102,241,0.15);
+}
+.bp-bio-conflict-row:first-child { border-top: none; }
+.bp-bio-conflict-rows {
+  margin-top: 4px;
+  padding-left: 12px;
+}
+.bp-bio-conflict-value {
+  font-size: 11px;
+  color: #fca5a5;
+  margin-top: 2px;
+}
+
+/* ── Bio editor — per-field rows ──────────────────────────────────── */
+
+.bp-bio-cat {
+  margin-top: 10px;
+}
+.bp-bio-cat-title {
+  font-weight: 600;
+  color: #c7d2fe;
+  font-size: 12px;
+  text-transform: uppercase;
+  margin: 4px 0;
+  letter-spacing: 0.05em;
+}
+
+.bp-bio-field {
+  margin: 4px 0;
+  border-radius: 4px;
+  border-left: 3px solid transparent;
+  background: rgba(15,23,42,0.40);
+}
+.bp-bio-status-green { border-left-color: #22c55e; }
+.bp-bio-status-amber { border-left-color: #f59e0b; }
+.bp-bio-status-red   { border-left-color: #ef4444; }
+.bp-bio-status-gray  { border-left-color: #475569; }
+
+.bp-bio-field-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.bp-bio-field-header:hover { background: rgba(30,41,59,0.55); }
+.bp-bio-field-label { flex: 1; color: #e2e8f0; }
+.bp-bio-field-status {
+  flex: 0 0 80px;
+  text-align: right;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.bp-bio-field-toggle {
+  flex: 0 0 12px;
+  color: #94a3b8;
+}
+
+.bp-bio-field-body {
+  padding: 4px 12px 8px;
+  border-top: 1px dashed rgba(99,102,241,0.12);
+}
+
+.bp-bio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+.bp-bio-row-value { flex: 1; }
+.bp-bio-row-status {
+  flex: 0 0 90px;
+  text-align: center;
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(99,102,241,0.18);
+  color: #c7d2fe;
+}
+.bp-bio-row-btn {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(99,102,241,0.40);
+  background: rgba(30,41,59,0.85);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.bp-bio-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.bp-bio-action-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(99,102,241,0.40);
+  background: rgba(30,41,59,0.85);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+.bp-bio-resolve-btn {
+  border-color: rgba(248,113,113,0.55);
+  color: #fecaca;
+}
+.bp-bio-action-btn:hover {
+  border-color: rgba(129,140,248,0.65);
+}
