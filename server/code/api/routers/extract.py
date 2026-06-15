@@ -8201,6 +8201,53 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         # fields as None/False (today's callers).
         final_items, _clarifications = _apply_transcript_safety_layer(final_items, req)
 
+        # WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase B Tier 1.
+        # Parallel write to bio_facts when the env flag is on. Default
+        # OFF so production extraction stays byte-stable until the
+        # routing is verified end-to-end. The legacy family_truth_rows
+        # path is untouched; bio_facts gets a second-class write for
+        # the items whose fieldPath maps to a bio_fields key.
+        try:
+            from ..services.bio_fact_router import (
+                routing_enabled as _bfr_enabled,
+                route_extraction_to_bio_facts as _bfr_route,
+            )
+            if _bfr_enabled() and final_items:
+                _narrator = getattr(req, "person_id", None) or \
+                    getattr(req, "narrator_id", None) or ""
+                if _narrator:
+                    _items_dicts = []
+                    for it in final_items:
+                        try:
+                            if hasattr(it, "model_dump"):
+                                _items_dicts.append(it.model_dump())
+                            elif hasattr(it, "dict"):
+                                _items_dicts.append(it.dict())
+                            elif isinstance(it, dict):
+                                _items_dicts.append(it)
+                        except Exception:
+                            continue
+                    _bfr_summary = _bfr_route(
+                        _items_dicts,
+                        narrator_id=_narrator,
+                        session_id=getattr(req, "conv_id", None),
+                        turn_id=getattr(req, "turn_id", None),
+                    )
+                    logger.info(
+                        "[bio_fact_router] tier1 routed=%d conflicts=%d "
+                        "suppressed=%d unmapped=%d errors=%d",
+                        _bfr_summary.routed, _bfr_summary.conflicts,
+                        _bfr_summary.suppressed_by_authority,
+                        _bfr_summary.unmapped, _bfr_summary.errors,
+                    )
+        except Exception:
+            # Router failure must NEVER break extraction — the legacy
+            # path is the source of truth for callers; bio_facts is a
+            # parallel side write.
+            logger.exception(
+                "[bio_fact_router] tier1 routing crashed (non-fatal)",
+            )
+
         _record_metric(_method, parsed=len(llm_items), accepted=len(final_items), rejected=0)
         return ExtractFieldsResponse(
             items=final_items,

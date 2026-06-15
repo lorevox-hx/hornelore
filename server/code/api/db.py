@@ -813,6 +813,71 @@ def init_db() -> None:
     )
 
     # -----------------------------
+    # WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase A
+    # Universal bio gap map. Two tables: bio_fields (schema definition)
+    # and bio_facts (per-narrator filled values). Schema mirror of
+    # server/code/db/migrations/0011_bio_fields_facts.sql. Idempotent
+    # CREATE TABLE IF NOT EXISTS so cold-start builds the tables without
+    # the migrations runner; migration 0011 holds the canonical
+    # archeological record.
+    # -----------------------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bio_fields (
+            id                  TEXT PRIMARY KEY,
+            field_key           TEXT NOT NULL UNIQUE,
+            field_label         TEXT NOT NULL,
+            field_category      TEXT NOT NULL,
+            field_type          TEXT NOT NULL,
+            narrative_value     TEXT NOT NULL DEFAULT 'medium',
+            life_stage_range    TEXT NOT NULL DEFAULT 'all',
+            asking_anchors      TEXT NOT NULL DEFAULT '[]',
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bio_fields_category "
+        "ON bio_fields(field_category);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bio_fields_narrative_value "
+        "ON bio_fields(narrative_value);"
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bio_facts (
+            id                            TEXT PRIMARY KEY,
+            tenant_id                     TEXT NOT NULL DEFAULT 'default',
+            narrator_id                   TEXT NOT NULL,
+            field_key                     TEXT NOT NULL,
+            value                         TEXT NOT NULL DEFAULT '""',
+            status                        TEXT NOT NULL DEFAULT 'empty',
+            source                        TEXT NOT NULL DEFAULT '{}',
+            confidence                    REAL NOT NULL DEFAULT 0.0,
+            chapter_continuation_metric   TEXT,
+            conflict_with                 TEXT,
+            created_at                    TEXT NOT NULL,
+            last_updated                  TEXT NOT NULL,
+            FOREIGN KEY (field_key) REFERENCES bio_fields(field_key)
+        );
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bio_facts_narrator_field "
+        "ON bio_facts(narrator_id, field_key);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bio_facts_narrator_status "
+        "ON bio_facts(narrator_id, status);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bio_facts_status "
+        "ON bio_facts(status);"
+    )
+
+    # -----------------------------
     # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface.
     # Persists every safety trigger as a discrete event for the operator
     # Bug Panel banner + between-session digest. Distinct from segment_flags
@@ -5783,3 +5848,371 @@ def interview_thread_clear_session(session_id: str) -> int:
         raise
     finally:
         con.close()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase A
+#
+# bio_fields + bio_facts CRUD accessors. Mirrors the BUG-DBLOCK-01
+# try/except/finally rollback hygiene from the safety + story_candidate
+# accessors. All writes go through this layer; bio_schema.py validates
+# inputs before the write fires.
+# ─────────────────────────────────────────────────────────────────────
+
+
+_BIO_FIELD_SELECT_COLS = (
+    "id, field_key, field_label, field_category, field_type, "
+    "narrative_value, life_stage_range, asking_anchors, "
+    "created_at, updated_at"
+)
+
+_BIO_FACT_SELECT_COLS = (
+    "id, tenant_id, narrator_id, field_key, value, status, source, "
+    "confidence, chapter_continuation_metric, conflict_with, "
+    "created_at, last_updated"
+)
+
+
+def _row_to_bio_field(row: Any) -> Dict[str, Any]:
+    return {
+        "id": row[0],
+        "field_key": row[1],
+        "field_label": row[2],
+        "field_category": row[3],
+        "field_type": row[4],
+        "narrative_value": row[5],
+        "life_stage_range": row[6],
+        "asking_anchors": row[7],  # JSON string — caller json.loads if needed
+        "created_at": row[8],
+        "updated_at": row[9],
+    }
+
+
+def _row_to_bio_fact(row: Any) -> Dict[str, Any]:
+    return {
+        "id": row[0],
+        "tenant_id": row[1],
+        "narrator_id": row[2],
+        "field_key": row[3],
+        "value": row[4],  # JSON string — caller json.loads if needed
+        "status": row[5],
+        "source": row[6],  # JSON string
+        "confidence": row[7],
+        "chapter_continuation_metric": row[8],  # JSON string or None
+        "conflict_with": row[9],
+        "created_at": row[10],
+        "last_updated": row[11],
+    }
+
+
+def bio_field_upsert(
+    field_key: str,
+    field_label: str,
+    field_category: str,
+    field_type: str,
+    *,
+    narrative_value: str = "medium",
+    life_stage_range: str = "all",
+    asking_anchors_json: str = "[]",
+) -> str:
+    """Insert-or-update a bio_fields row keyed by field_key.
+
+    Returns the row id. Caller (bio_schema seed loader) provides
+    already-validated values; this layer does not re-validate enum
+    constraints to keep the write hot path tight.
+    """
+    init_db()
+    con = _connect()
+    try:
+        now = _now_iso()
+        existing = con.execute(
+            "SELECT id FROM bio_fields WHERE field_key=?;",
+            (field_key,),
+        ).fetchone()
+        if existing:
+            row_id = existing[0]
+            con.execute(
+                """
+                UPDATE bio_fields
+                   SET field_label=?, field_category=?, field_type=?,
+                       narrative_value=?, life_stage_range=?,
+                       asking_anchors=?, updated_at=?
+                 WHERE id=?;
+                """,
+                (field_label, field_category, field_type,
+                 narrative_value, life_stage_range,
+                 asking_anchors_json, now, row_id),
+            )
+        else:
+            row_id = _uuid()
+            con.execute(
+                """
+                INSERT INTO bio_fields (
+                    id, field_key, field_label, field_category, field_type,
+                    narrative_value, life_stage_range, asking_anchors,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (row_id, field_key, field_label, field_category, field_type,
+                 narrative_value, life_stage_range, asking_anchors_json,
+                 now, now),
+            )
+        con.commit()
+        return row_id
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def bio_field_get_by_key(field_key: str) -> Optional[Dict[str, Any]]:
+    """Lookup a bio_fields row by canonical field_key."""
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            f"SELECT {_BIO_FIELD_SELECT_COLS} FROM bio_fields "
+            "WHERE field_key=?;",
+            (field_key,),
+        ).fetchone()
+        return _row_to_bio_field(row) if row else None
+    finally:
+        con.close()
+
+
+def bio_field_list(
+    category: Optional[str] = None,
+    narrative_value: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """List bio_fields, optionally filtered. Ordered by field_category +
+    field_key for deterministic operator-UI presentation."""
+    init_db()
+    con = _connect()
+    try:
+        clauses: List[str] = []
+        params: List[Any] = []
+        if category:
+            clauses.append("field_category=?")
+            params.append(category)
+        if narrative_value:
+            clauses.append("narrative_value=?")
+            params.append(narrative_value)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = con.execute(
+            f"SELECT {_BIO_FIELD_SELECT_COLS} FROM bio_fields"
+            f"{where} ORDER BY field_category ASC, field_key ASC;",
+            tuple(params),
+        ).fetchall()
+        return [_row_to_bio_field(r) for r in rows]
+    finally:
+        con.close()
+
+
+def bio_field_count() -> int:
+    """Total bio_fields row count. Operators use this to confirm seed
+    landed; tests use it to lock the seed size."""
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute("SELECT COUNT(*) FROM bio_fields;").fetchone()
+        return int(row[0] or 0) if row else 0
+    finally:
+        con.close()
+
+
+def bio_fact_create(
+    *,
+    narrator_id: str,
+    field_key: str,
+    value_json: str,
+    status: str,
+    source_json: str = "{}",
+    confidence: float = 0.0,
+    chapter_continuation_metric_json: Optional[str] = None,
+    conflict_with: Optional[str] = None,
+    tenant_id: str = "default",
+) -> str:
+    """Insert a new bio_facts row. Returns the new id.
+
+    Multiple rows per (narrator_id, field_key) are intentionally
+    allowed — the WO's conflict-as-audit-trail model means the bio
+    fact does NOT enforce uniqueness. Callers that need dedupe
+    semantics (e.g., Tier 1 extraction routing same fact twice in a
+    row) check first via bio_fact_list_by_field.
+    """
+    init_db()
+    con = _connect()
+    try:
+        new_id = _uuid()
+        now = _now_iso()
+        con.execute(
+            """
+            INSERT INTO bio_facts (
+                id, tenant_id, narrator_id, field_key, value, status,
+                source, confidence, chapter_continuation_metric,
+                conflict_with, created_at, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (new_id, tenant_id or "default", narrator_id, field_key,
+             value_json or '""', status or "empty",
+             source_json or "{}", float(confidence or 0.0),
+             chapter_continuation_metric_json, conflict_with,
+             now, now),
+        )
+        con.commit()
+        return new_id
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def bio_fact_get(fact_id: str) -> Optional[Dict[str, Any]]:
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            f"SELECT {_BIO_FACT_SELECT_COLS} FROM bio_facts WHERE id=?;",
+            (fact_id,),
+        ).fetchone()
+        return _row_to_bio_fact(row) if row else None
+    finally:
+        con.close()
+
+
+def bio_fact_list_by_narrator(
+    narrator_id: str,
+    *,
+    status: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """All bio_facts for a narrator, optionally filtered by status."""
+    init_db()
+    con = _connect()
+    try:
+        if status:
+            rows = con.execute(
+                f"SELECT {_BIO_FACT_SELECT_COLS} FROM bio_facts "
+                "WHERE narrator_id=? AND status=? "
+                "ORDER BY field_key ASC, last_updated DESC;",
+                (narrator_id, status),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                f"SELECT {_BIO_FACT_SELECT_COLS} FROM bio_facts "
+                "WHERE narrator_id=? "
+                "ORDER BY field_key ASC, last_updated DESC;",
+                (narrator_id,),
+            ).fetchall()
+        return [_row_to_bio_fact(r) for r in rows]
+    finally:
+        con.close()
+
+
+def bio_fact_list_by_field(
+    narrator_id: str,
+    field_key: str,
+) -> List[Dict[str, Any]]:
+    """All bio_facts rows for one (narrator, field) — used by Tier 1
+    conflict detection."""
+    init_db()
+    con = _connect()
+    try:
+        rows = con.execute(
+            f"SELECT {_BIO_FACT_SELECT_COLS} FROM bio_facts "
+            "WHERE narrator_id=? AND field_key=? "
+            "ORDER BY last_updated DESC;",
+            (narrator_id, field_key),
+        ).fetchall()
+        return [_row_to_bio_fact(r) for r in rows]
+    finally:
+        con.close()
+
+
+def bio_fact_set_status(
+    fact_id: str,
+    status: str,
+    *,
+    conflict_with: Optional[str] = None,
+) -> bool:
+    """Update status (and optionally conflict_with). Returns True on
+    successful update, False if the row doesn't exist."""
+    init_db()
+    con = _connect()
+    try:
+        now = _now_iso()
+        cur = con.execute(
+            "UPDATE bio_facts SET status=?, conflict_with=?, "
+            "last_updated=? WHERE id=?;",
+            (status, conflict_with, now, fact_id),
+        )
+        con.commit()
+        return (cur.rowcount or 0) > 0
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def bio_fact_clear_narrator(narrator_id: str) -> int:
+    """Delete all bio_facts for a narrator. Operator/test-only — never
+    call this on a live narrator without explicit operator approval;
+    the rows are part of the bio audit trail."""
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM bio_facts WHERE narrator_id=?;",
+            (narrator_id,),
+        )
+        con.commit()
+        return cur.rowcount or 0
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def bio_schema_seed_load_to_db() -> int:
+    """Idempotently load the universal bio_schema seed to the DB.
+
+    Returns the number of fields written (insert or update). Imported
+    lazily so test environments that don't need the bio schema can
+    avoid the import cost.
+    """
+    from .services.bio_schema import iter_seed, validate_seed
+    errors = validate_seed()
+    if errors:
+        # Validation errors block the load — better to fail loud than
+        # write a malformed seed that breaks downstream FK constraints.
+        raise RuntimeError(
+            "bio_schema seed validation failed: " + "; ".join(errors)
+        )
+    n = 0
+    for fd in iter_seed():
+        bio_field_upsert(
+            field_key=fd.field_key,
+            field_label=fd.field_label,
+            field_category=fd.field_category,
+            field_type=fd.field_type,
+            narrative_value=fd.narrative_value,
+            life_stage_range=fd.life_stage_range,
+            asking_anchors_json=fd.asking_anchors_json(),
+        )
+        n += 1
+    return n
