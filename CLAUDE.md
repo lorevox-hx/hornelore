@@ -2,6 +2,34 @@
 
 **Read this first at the start of every session.** These are persistent operational facts, not a task log.
 
+## Universal pivot framing (2026-06-14)
+
+**Hornelore is Lorevox.** The Horne family is *tenant zero* — the first real user, whose sessions hardened the system — not a special case in the architecture. Every WO, prompt, and acceptance gate from this date forward is written against the universal assumption: Lori must work for narrators she has never met. The locked-narrator framing in the prose below is reclassified as a temporary operating constraint, not an architectural commitment.
+
+Interview default is moving from questionnaire-first to **oral-history-as-default** (narrator tells chapters; Lori listens and follows). Structured styles become operator-selectable overrides of that default.
+
+**Read before starting any new work:**
+
+- [`docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md`](docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md) — strategy ADR (who Lori is for)
+- [`docs/architecture/LORI-RUNTIME-ARCHITECTURE.md`](docs/architecture/LORI-RUNTIME-ARCHITECTURE.md) — nine-stage runtime pipeline (how Lori's behavior is produced)
+- [`docs/architecture/MEMORY-EXERCISE-DECISION.md`](docs/architecture/MEMORY-EXERCISE-DECISION.md) — memory_exercise style is kept; implementation WO is parked
+- [`docs/architecture/COWORK-HANDOFF.md`](docs/architecture/COWORK-HANDOFF.md) — the operational brief that landed the pivot
+
+Active WO specs live in `docs/wo/`. The 6 live WO specs for the next build sessions:
+
+1. `WO-LORI-SAFETY-LLM-CLASSIFIER-01_Spec.md` — closes Gate 5 (build first)
+2. `WO-LORI-SOFTENED-MODE-PERSISTENCE-01_Spec.md` — closes Gate 6
+3. `WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01_Spec.md`
+4. `WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md`
+5. `WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md` — introduces `oral_history` style
+6. `WO-LORI-BIO-BUILDER-UNIVERSAL-01_Spec.md`
+
+Pre-pivot WO/BUG specs (114 files) are archived at `docs/archive/workorders-pre-pivot/` for design-history traceability. They are NOT the active source of truth. The changelog below references them by their old root paths; if a path doesn't resolve, look under the archive.
+
+Pre-pivot handoffs and checklists are archived at `docs/archive/handoffs-pre-pivot/`. The current active checklist is `MASTER_WORK_ORDER_CHECKLIST.md` at root.
+
+---
+
 ## Mission
 
 Lorevox is a privacy-first conversational memory system that helps older adults preserve life stories, supports cognitive engagement, and provides structured legacy outputs for family. The broader goal is a digital companion for aging populations — supporting memory recall, emotional processing, and intergenerational storytelling.
