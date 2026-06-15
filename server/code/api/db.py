@@ -3305,6 +3305,44 @@ def get_segment_flags(session_id: str) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
+def get_segment_flags_by_category(
+    sensitive_category: str,
+    limit: int = 50,
+) -> List[Dict]:
+    """WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — cross-session
+    query for operator review surfaces.
+
+    Returns segment_flags rows matching `sensitive_category` across
+    ALL sessions, newest-first, capped at `limit`. Used by the
+    operator past-tense flag review endpoint to surface flags that
+    arrived during sessions the operator hasn't audited yet.
+
+    Operator-side only — narrators never query this. The endpoint
+    consuming this accessor is gated by an env flag (HORNELORE_
+    OPERATOR_PAST_TENSE_REVIEW=1) so it doesn't advertise itself.
+
+    The result is read-only metadata: the operator decides next
+    actions (no_action / follow_up_outside_session / convert_to_
+    active_concern) in a future endpoint (Phase 3 of the WO).
+    """
+    if not sensitive_category:
+        return []
+    # Defensive limit clamp.
+    try:
+        n = max(1, min(int(limit), 500))
+    except (TypeError, ValueError):
+        n = 50
+    con = _connect()
+    rows = con.execute(
+        "SELECT * FROM segment_flags "
+        "WHERE sensitive_category=? AND deleted=0 "
+        "ORDER BY created_at DESC LIMIT ?;",
+        (sensitive_category, n),
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
 def delete_segment_flag(flag_id: str) -> bool:
     """Soft-delete a segment flag (user elected to remove sensitive segment)."""
     con = _connect()

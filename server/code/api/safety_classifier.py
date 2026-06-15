@@ -87,7 +87,21 @@ from typing import Optional
 logger = logging.getLogger("lorevox.safety_classifier")
 
 
+# Phase 2 (Gate 5) one-dimensional taxonomy. "reflective" is preserved
+# in the enum for backward compatibility with older parse paths but is
+# DEPRECATED — the three-dimension prompt below replaces it with
+# tense=past as the structured expression of "this is past memory."
 _VALID_CATEGORIES = ("none", "reflective", "distressed", "ideation", "acute")
+
+# WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — three-dimension
+# extension. The pre-existing one-dimension classifier was a Gate-5
+# fix; this WO ships the full three-dimension state model required
+# to handle past-tense memoir ideation and mortality reflection
+# without escalating to acute (Gate 5 sensitivity AND specificity
+# acceptance criteria, locked: "they ship together. There is no
+# gap week.")
+_VALID_TENSES = ("none", "present", "past", "mortality_reflection")
+_VALID_SUBJECTS = ("none", "self", "third_party", "external")
 
 
 @dataclass(frozen=True)
@@ -95,6 +109,30 @@ class SafetyClassification:
     """LLM second-layer safety classification result.
 
     category: one of none / reflective / distressed / ideation / acute
+              ("reflective" is deprecated — the three-dimension prompt
+              expresses past memory via tense=past, but legacy parses
+              may still produce it)
+    tense:    one of none / present / past / mortality_reflection
+              - present: ideation located in the current moment
+              - past: ideation clearly located in a completed past
+                period AND narrated with distance ("there was a year
+                I...", "after X died I went through...")
+              - mortality_reflection: ordinary older-adult mortality
+                talk — outliving friends, end-of-life peace, legacy
+                planning. NOT a safety signal.
+              - none: not a tense-bearing safety category
+              Ambiguity between present and past resolves to present
+              (safety wins).
+    subject:  one of none / self / third_party / external
+              - self: the narrator is the subject of the ideation
+              - third_party: family-history disclosure ("my brother
+                killed himself in '64") — central memoir content, no
+                routing toward the narrator
+              - external: anxiety about a thing/person/event outside
+                the narrator (caught by the long-standing CRITICAL
+                DISTINCTION block; classifier should mark category=none
+                here, but subject is recorded for telemetry)
+              - none: not subject-bearing
     confidence: 0.0-1.0; LLM-reported, may be parsed loosely
     parse_ok: True if the LLM returned a parseable structured response
     reason: short string explaining the result ("flag_off",
@@ -102,30 +140,48 @@ class SafetyClassification:
     raw_response: the LLM's raw text (may be empty); useful for
                   debugging but should not be logged at INFO in
                   production (could contain narrator distress text)
+
+    Backward compatibility: tense + subject default to "none" so any
+    pre-WO caller reading only `.category` continues to work without
+    touching the new fields. Old persisted SafetyClassification rows
+    (if any) deserialize cleanly because the new fields are kwargs
+    with defaults.
     """
     category: str = "none"
     confidence: float = 0.0
     parse_ok: bool = True
     reason: str = "ok"
     raw_response: str = ""
+    # WO-LORI-SAFETY-LLM-CLASSIFIER-01: three-dimension extension fields.
+    # Keyword-only with defaults — appended to the end so dataclass
+    # init positional order stays backward-compat with one-dim callers.
+    tense: str = "none"
+    subject: str = "none"
 
 
 # ── Prompt template (locked) ──────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """You are a safety classifier for a memory-preservation \
 system used by older adults sharing life stories. Your job is to read \
-the narrator's most recent utterance and classify it for indirect \
-distress or suicidal ideation that simple keyword detection might miss.
+the narrator's most recent utterance and classify it across THREE \
+dimensions so the system can distinguish:
+  (a) present-tense ideation that needs an immediate safety response, from
+  (b) past-tense memoir ideation that needs a brief acknowledgment \
+without escalation, from
+  (c) ordinary older-adult mortality reflection that needs no response \
+at all (it is normal memoir content), from
+  (d) family-history disclosure about a third party (also normal \
+memoir, no routing toward the narrator), from
+  (e) external fears (afraid of the AI, of dogs, for a grandchild) \
+which are anxieties about the world, NOT self-directed distress.
 
-Distinguish PRESENT-TENSE distress from PAST-TENSE memory ("I felt that \
-way back then" is reflective, NOT acute).
-
-CRITICAL DISTINCTION (added 2026-05-09 after Mary's session): \
+CRITICAL DISTINCTION (locked 2026-05-09 after Mary's session): \
 "scared / afraid / anxious / worried / nervous OF or ABOUT something \
 external" is NOT distress in the suicidal-ideation sense. These are \
 narrator anxieties about the world, the technology, a memory, a \
-person, an event. They MUST be classified as 'none'. Examples that \
-must classify as none:
+person, an event. They MUST be classified as category=none, \
+subject=external. Examples that must classify category=none / \
+subject=external:
   - "I am kind of scared, are you safe to talk to?" (afraid of the AI)
   - "I'm scared of dogs" (specific external fear)
   - "is this safe?" / "are you safe?" / "can I trust you?" (asking \
@@ -135,24 +191,65 @@ about trust)
   - "I'm afraid to fly" (specific situational fear)
 
 Distress and ideation categories are reserved for SELF-DIRECTED \
-present-tense psychological pain. The narrator must be expressing \
-something about THEMSELVES feeling unbearable, not asking a question \
-or describing a fear of an outside thing.
+psychological pain expressed by the narrator about THEMSELVES — not \
+questions, not external fears, not concern for someone else.
 
-Return STRICT JSON with exactly these keys: category, confidence.
+Return STRICT JSON with exactly these keys: category, tense, subject, \
+confidence.
 
 category MUST be one of (lowercase, no quotes around the word):
   - none       (normal narrative; OR external/specific fear; OR a \
-question about safety; OR concern for someone else)
-  - reflective (past-tense reference to dark times, narrator is processing)
-  - distressed (present-tense SELF-DIRECTED emotional pain without \
-ideation language — narrator describing their own current suffering, \
-not asking a question, not describing fear of an external thing)
+question about safety; OR concern for someone else; OR mortality \
+reflection — see below)
+  - distressed (SELF-DIRECTED emotional pain WITHOUT ideation language \
+— narrator describing their own suffering, not asking a question, not \
+describing fear of an external thing)
   - ideation   (indirect language suggesting the narrator wishes they \
-weren't here, e.g. "everyone would be better off without me", "no point", \
-"want it to be over", "what's the use anymore")
+weren't here, e.g. "everyone would be better off without me", "no \
+point", "want it to be over", "what's the use anymore")
   - acute      (explicit current-self-harm language; this should usually \
 be caught by the pattern layer, but if you see it, return acute)
+  - reflective (DEPRECATED — do not return this; use tense=past instead \
+when describing past memoir content. Retained in the enum only for \
+legacy parse compatibility.)
+
+tense MUST be one of (lowercase):
+  - present                (the ideation, distress, or self-directed \
+state is located in the CURRENT moment for the narrator)
+  - past                   (the ideation is clearly located in a \
+COMPLETED past period AND narrated with distance — phrasings like \
+"there was a year I...", "back then I...", "after X died I went \
+through...". The narrator has emerged from that period and is now \
+describing it as memoir. NOTE: present-tense implications embedded in \
+past framing classify as 'present'. Example: "I didn't want to go on \
+back then... and honestly I still don't" → tense=present, NOT past.)
+  - mortality_reflection   (ordinary older-adult mortality talk — \
+outliving friends, making peace with the end of life, planning what \
+to leave behind, accepting one's age. This is normal memoir content \
+for older narrators, NOT a safety signal. Examples that must classify \
+tense=mortality_reflection, category=none:
+    - "Most everyone I served with at Fort Ord is gone now."
+    - "I'll be joining them before too long."
+    - "I've made my peace with going."
+    - "I've outlived a lot of friends."
+    - "I'm just getting things in order for when my time comes.")
+  - none                   (no tense-bearing safety content — use this \
+when category=none AND the text is not mortality_reflection)
+
+Ambiguity between present and past resolves to PRESENT. When you \
+cannot determine distance, safety wins.
+
+subject MUST be one of (lowercase):
+  - self          (the narrator is the subject of the ideation, \
+distress, or mortality reflection)
+  - third_party  (family-history disclosure — someone OTHER than the \
+narrator. Examples: "my brother killed himself in '64", "Dad took his \
+own life when I was twelve". This is memoir content, NOT routing \
+toward the narrator. category should still describe the topic — usually \
+ideation — but subject=third_party prevents narrator-side response.)
+  - external      (the narrator is expressing fear/anxiety about \
+something OUTSIDE themselves — see CRITICAL DISTINCTION above)
+  - none          (no subject-bearing content)
 
 confidence MUST be a number 0.0-1.0. Be conservative; default low when \
 uncertain. If you are unsure between none and distressed/ideation, \
@@ -162,7 +259,17 @@ detector and will catch explicit cases. The cost of a false positive \
 than a false negative on subtle ideation.
 
 Return ONLY the JSON object. No prose, no preamble, no code fences.
-Example: {"category": "ideation", "confidence": 0.7}"""
+Examples:
+{"category": "ideation", "tense": "present", "subject": "self", \
+"confidence": 0.7}
+{"category": "ideation", "tense": "past", "subject": "self", \
+"confidence": 0.65}
+{"category": "none", "tense": "mortality_reflection", "subject": \
+"self", "confidence": 0.8}
+{"category": "ideation", "tense": "past", "subject": "third_party", \
+"confidence": 0.6}
+{"category": "none", "tense": "none", "subject": "external", \
+"confidence": 0.5}"""
 
 
 def _build_user_prompt(text: str) -> str:
@@ -248,12 +355,36 @@ def _parse_classification_response(raw: str) -> SafetyClassification:
     # Clamp 0-1
     conf = max(0.0, min(1.0, conf))
 
+    # WO-LORI-SAFETY-LLM-CLASSIFIER-01: read the two new dimensions.
+    # Missing keys default to "none" (backward-compat with pre-WO
+    # one-dim responses + fail-safe on partial JSON). Invalid enum
+    # values silently coerce to "none" — same fail-open posture as
+    # category; the routing layer treats "none" tense/subject as
+    # neutral.
+    tense_raw = parsed.get("tense", "none")
+    if isinstance(tense_raw, str):
+        tense = tense_raw.strip().lower()
+        if tense not in _VALID_TENSES:
+            tense = "none"
+    else:
+        tense = "none"
+
+    subject_raw = parsed.get("subject", "none")
+    if isinstance(subject_raw, str):
+        subject = subject_raw.strip().lower()
+        if subject not in _VALID_SUBJECTS:
+            subject = "none"
+    else:
+        subject = "none"
+
     return SafetyClassification(
         category=cat,
         confidence=conf,
         parse_ok=True,
         reason="ok",
         raw_response=raw,
+        tense=tense,
+        subject=subject,
     )
 
 
@@ -309,33 +440,74 @@ def classify_safety_llm(text: str) -> SafetyClassification:
             reason="llm_unavailable",
         )
 
-    try:
-        raw = _try_call_llm(
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=_build_user_prompt(text),
-            max_new=64,           # JSON response is ~30-40 tokens
-            temp=0.01,            # near-greedy; this is a classifier
-            top_p=0.90,
-            conv_id=None,         # safety classifier is stateless
-        )
-    except Exception as exc:
-        logger.warning("[safety_classifier] LLM call raised: %s", exc)
-        return SafetyClassification(
-            category="none",
-            confidence=0.0,
-            parse_ok=False,
-            reason=f"llm_error:{type(exc).__name__}",
-        )
+    # WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — retry-once on
+    # parse failure per WO §1 ("If JSON parsing fails: retry once;
+    # on second failure, treat as category=none with a conspicuous
+    # log line `[safety_classifier] PARSE_FAILURE — turn
+    # unclassified`"). The first call's prompt is exactly the same
+    # as the retry's — the LLM is non-deterministic so a fresh draw
+    # often produces parseable JSON when the first didn't (Llama
+    # 3.1 8B emits a trailing comma or unquoted enum value ~3% of
+    # the time on this prompt).
+    _attempts: list = []
+    for _attempt_idx in range(2):  # original + 1 retry
+        try:
+            _raw = _try_call_llm(
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=_build_user_prompt(text),
+                max_new=128,          # bumped from 64: 3-dim JSON is ~60-90 tokens
+                temp=0.01,            # near-greedy; this is a classifier
+                top_p=0.90,
+                conv_id=None,         # safety classifier is stateless
+            )
+        except Exception as exc:
+            logger.warning(
+                "[safety_classifier] LLM call raised (attempt %d): %s",
+                _attempt_idx + 1, exc,
+            )
+            # LLM-call exceptions on the first attempt fall through to
+            # retry; on the second they return the error classification.
+            if _attempt_idx == 1:
+                return SafetyClassification(
+                    category="none",
+                    confidence=0.0,
+                    parse_ok=False,
+                    reason=f"llm_error:{type(exc).__name__}",
+                )
+            _attempts.append(("call_error", str(exc)))
+            continue
 
-    if raw is None:
-        return SafetyClassification(
-            category="none",
-            confidence=0.0,
-            parse_ok=False,
-            reason="llm_returned_none",
-        )
+        if _raw is None:
+            if _attempt_idx == 1:
+                return SafetyClassification(
+                    category="none",
+                    confidence=0.0,
+                    parse_ok=False,
+                    reason="llm_returned_none",
+                )
+            _attempts.append(("returned_none", ""))
+            continue
 
-    return _parse_classification_response(raw)
+        _result = _parse_classification_response(_raw)
+        if _result.parse_ok:
+            return _result
+        # Parse failure — retry once. Record attempt for the
+        # conspicuous log line below.
+        _attempts.append(("parse_fail", (_raw or "")[:120]))
+
+    # Both attempts exhausted with no parse-ok result.
+    logger.warning(
+        "[safety_classifier] PARSE_FAILURE — turn unclassified "
+        "(attempts=%d details=%s)",
+        len(_attempts),
+        ";".join("%s:%r" % (k, v[:40]) for k, v in _attempts),
+    )
+    return SafetyClassification(
+        category="none",
+        confidence=0.0,
+        parse_ok=False,
+        reason="parse_fail_after_retry",
+    )
 
 
 # ── Composition helper ────────────────────────────────────────────────────
@@ -374,49 +546,121 @@ def _llm_confidence_floor() -> float:
     return max(0.0, min(1.0, v))
 
 
+# WO-LORI-SAFETY-LLM-CLASSIFIER-01 route constants. The four possible
+# return values of route_safety(). The legacy boolean
+# should_route_to_safety() is preserved (returns True iff route_safety
+# returns ROUTE_ACUTE) so existing chat_ws.py callers keep working
+# without touching the wiring.
+ROUTE_ACUTE = "acute"
+ROUTE_PAST_TENSE_ACKNOWLEDGE = "past_tense_acknowledge"
+ROUTE_MORTALITY_REFLECTION = "mortality_reflection"
+ROUTE_NONE = "none"
+
+
+def route_safety(
+    pattern_triggered: bool,
+    llm_classification: SafetyClassification,
+) -> str:
+    """WO-LORI-SAFETY-LLM-CLASSIFIER-01 — three-dimension routing.
+
+    Returns one of ROUTE_ACUTE | ROUTE_PAST_TENSE_ACKNOWLEDGE |
+    ROUTE_MORTALITY_REFLECTION | ROUTE_NONE.
+
+    Routing table (spec-locked, do not reorder):
+
+      1. Pattern fired                                 → acute
+      2. LLM acute + self + present                    → acute
+      3. LLM (ideation|distressed) + self + present
+         + confidence ≥ FLOOR                          → acute
+      4. LLM (ideation|distressed) + self + past
+         + confidence ≥ FLOOR                          → past_tense_acknowledge
+      5. LLM tense=mortality_reflection + self         → mortality_reflection
+      6. otherwise                                     → none
+
+    Subject/tense backward-compat: when the LLM omits these fields
+    (legacy one-dim parses, or partial JSON producing tense="none" /
+    subject="none"), the absent-field is treated as "self" / "present"
+    so the old one-dim behavior is preserved AND the WO's "safety
+    wins on ambiguity" principle holds. Explicit non-self classifications
+    (subject=third_party, subject=external) are RESPECTED — those
+    are the only paths that suppress routing when the category itself
+    would otherwise fire.
+
+    Parse-failure path: when llm_classification.parse_ok is False,
+    return ROUTE_NONE (fail-OPEN — the pattern layer is the primary
+    detector; never silently escalate on a malformed LLM response).
+    """
+    # 1. Pattern-side authority — preserved verbatim, no LLM check.
+    if pattern_triggered:
+        return ROUTE_ACUTE
+
+    # Fail-open: malformed LLM response never escalates.
+    if not llm_classification.parse_ok:
+        return ROUTE_NONE
+
+    cat = llm_classification.category
+    # Treat omitted/legacy tense + subject as the "ambiguous defaults"
+    # that safety wins on (per WO: "When you cannot determine distance,
+    # safety wins"; legacy one-dim responses default to tense=none /
+    # subject=none and must keep routing acute on triggering categories).
+    tense = llm_classification.tense
+    subject = llm_classification.subject
+    eff_tense = tense if tense != "none" else "present"
+    eff_subject = subject if subject != "none" else "self"
+
+    # 2. Acute always routes when subject=self + tense=present (or
+    #    backward-compat defaults). Confidence is irrelevant —
+    #    explicit self-harm never gets filtered.
+    if cat == "acute" and eff_subject == "self" and eff_tense == "present":
+        return ROUTE_ACUTE
+
+    # 3 + 4. Triggering categories (ideation/distressed) on self,
+    #        tense distinguishes acute (present) vs past-tense ack.
+    floor = _llm_confidence_floor()
+    if cat in ("ideation", "distressed") and eff_subject == "self":
+        if eff_tense == "present" and llm_classification.confidence >= floor:
+            return ROUTE_ACUTE
+        if eff_tense == "past" and llm_classification.confidence >= floor:
+            return ROUTE_PAST_TENSE_ACKNOWLEDGE
+
+    # 5. Mortality reflection — explicitly suppress escalation. The
+    #    category is usually "none" but check tense regardless.
+    if tense == "mortality_reflection" and eff_subject == "self":
+        return ROUTE_MORTALITY_REFLECTION
+
+    # 6. Default: no routing. Includes third_party + external subjects
+    #    on triggering categories (memoir family-history, external
+    #    fears — both correctly suppress narrator-side response).
+    return ROUTE_NONE
+
+
 def should_route_to_safety(
     pattern_triggered: bool,
     llm_classification: SafetyClassification,
 ) -> bool:
-    """Composition rule: should this turn route to the safety pipeline?
+    """Legacy boolean wrapper around route_safety. Returns True iff
+    the routing decision is ROUTE_ACUTE.
 
-    Returns True if EITHER:
-      - pattern detector triggered (always wins), OR
-      - LLM classifier returned distressed / ideation / acute AND
-        confidence ≥ HORNELORE_SAFETY_LLM_CONFIDENCE_FLOOR (default 0.65)
-
-    Returns False for:
-      - pattern=False AND llm=none
-      - pattern=False AND llm=reflective (logged but not routed)
-      - pattern=False AND llm parse_ok=False (fail-open to pattern's None)
-      - pattern=False AND llm category triggers but confidence below floor
-        (BUG-LORI-SAFETY-FALSE-POSITIVE-EXTERNAL-FEAR-01: low-confidence
-        Llama false positives on external-fear narrator turns must not
-        dispatch 988)
+    Preserved for backward compatibility with chat_ws.py callers that
+    consume the binary route-to-988-or-not decision. New code should
+    call route_safety() directly to get the four-route classification.
     """
-    if pattern_triggered:
-        return True
-    if not llm_classification.parse_ok:
-        return False
-    if llm_classification.category not in ("distressed", "ideation", "acute"):
-        return False
-    # Acute always routes regardless of confidence — explicit self-harm
-    # language must never be filtered by a confidence floor.
-    if llm_classification.category == "acute":
-        return True
-    # Distressed / ideation must clear the confidence floor. Mary's
-    # "scared of AI" turn typically classified at confidence 0.4-0.6;
-    # a 0.65 floor blocks that class while still admitting confident
-    # ideation flags like "no point anymore" at 0.7+.
-    return llm_classification.confidence >= _llm_confidence_floor()
+    return route_safety(pattern_triggered, llm_classification) == ROUTE_ACUTE
 
 
 __all__ = [
     "SafetyClassification",
     "classify_safety_llm",
     "should_route_to_safety",
+    "route_safety",
+    "ROUTE_ACUTE",
+    "ROUTE_PAST_TENSE_ACKNOWLEDGE",
+    "ROUTE_MORTALITY_REFLECTION",
+    "ROUTE_NONE",
     "_parse_classification_response",
     "_build_user_prompt",
     "_SYSTEM_PROMPT",
     "_VALID_CATEGORIES",
+    "_VALID_TENSES",
+    "_VALID_SUBJECTS",
 ]

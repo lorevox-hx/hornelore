@@ -41,17 +41,32 @@ class KillSwitchPresenceTest(unittest.TestCase):
         )
 
     def test_safety_enabled_flag_used_in_gate(self):
-        # The gate condition must include _safety_enabled
+        # The gate condition must include _safety_enabled.
         self.assertIn(
             "_safety_enabled = os.getenv(",
             self.text,
             "Phase 7 _safety_enabled flag declaration missing.",
         )
-        self.assertIn(
-            "if _safety_enabled and user_text and user_text.strip()",
+        # 2026-06-14 loosened from a literal-AND-chain match to a regex
+        # that asserts the SEMANTIC intent — `_safety_enabled` is the
+        # first clause, `user_text.strip()` is somewhere later in the
+        # same `if` line — but tolerates additional intermediate AND
+        # clauses (e.g., `and not _is_meta_question`) that have since
+        # been inserted between them. The original literal match broke
+        # the moment a new AND clause landed even though the kill-
+        # switch posture was unchanged. Regex limits the scan to a
+        # single statement line so we don't get false positives across
+        # multi-line conditionals.
+        import re as _re
+        match = _re.search(
+            r"if\s+_safety_enabled\b[^\n]*\buser_text\.strip\(\)",
             self.text,
+        )
+        self.assertIsNotNone(
+            match,
             "Phase 7 gate condition missing — the safety block must "
-            "check _safety_enabled FIRST before user_text.",
+            "check _safety_enabled FIRST and user_text.strip() in the "
+            "same if-line. Either was removed.",
         )
 
     def test_kill_switch_warning_log_marker_present(self):

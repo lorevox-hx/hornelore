@@ -1,0 +1,50 @@
+-- WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14)
+-- Extends the segment_flags.sensitive_category vocabulary with a new
+-- value:
+--
+--     "past_tense_ideation_acknowledged"
+--
+-- This category is written by the chat path when the LLM safety
+-- classifier identifies past-tense self-directed memoir ideation
+-- (e.g., "After Mom died in '78, there was a year I didn't want to
+-- go on"). The chat path emits a deterministic short acknowledgment
+-- from server/code/api/safety_acknowledgments.py, persists this
+-- segment_flag for operator-side post-session review, writes
+-- softened-mode state with N=2, and does NOT compose an LLM follow-
+-- up question. 988 is not dispatched.
+--
+-- ─────────────────────────────────────────────────────────────────
+-- NO SCHEMA CHANGE IN THIS MIGRATION
+-- ─────────────────────────────────────────────────────────────────
+--
+-- segment_flags.sensitive_category is defined in
+-- server/code/api/db.py (CREATE TABLE block ~L765) as:
+--
+--     sensitive_category TEXT DEFAULT ''
+--
+-- SQLite does not enforce an enum constraint here — the column is a
+-- free-form TEXT field. The Python-side category vocabulary IS the
+-- authoritative enum. The list of recognized values across the
+-- codebase as of this migration:
+--
+--   suicidal_ideation              (pattern-detected acute)
+--   suicidal_ideation_indirect     (LLM-detected indirect ideation)
+--   cognitive_distress             (distressed without ideation)
+--   distress_call                  (warm-presence-first tier)
+--   sexual_abuse / child_abuse     (RAINN routing)
+--   domestic_abuse / physical_abuse (DV routing)
+--   caregiver_abuse                (Eldercare routing)
+--   past_tense_ideation_acknowledged  ← NEW (this migration)
+--
+-- A future tightening could add a CHECK constraint enumerating valid
+-- values, but doing so requires backfilling any legacy '' / NULL
+-- rows and updating the INSERT path; out of scope for this WO.
+--
+-- This migration file exists to record the vocabulary extension in
+-- the chronological migrations log so anyone walking the schema
+-- history sees the new category alongside the runtime code that
+-- writes it.
+
+-- No-op SELECT so the migrations runner records this file as applied
+-- without altering schema.
+SELECT 'WO-LORI-SAFETY-LLM-CLASSIFIER-01 vocabulary extension landed.' AS note;

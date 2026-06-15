@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="css/bug-panel-eval.css">
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/bug-panel-story-review.css">
+  <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/bug-panel-preflight.css">
   <link rel="stylesheet" href="css/affect.css">
@@ -4183,6 +4184,19 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — past-tense
+         flag review list. Mounts via ui/js/bug-panel-past-tense-
+         review.js. Backend gate: HORNELORE_OPERATOR_PAST_TENSE_REVIEW
+         =1; off → quiet "feature disabled" placeholder. NEVER
+         narrator-visible. Cards render with amber-leaning past-tense
+         badge + 3-decision affordance (disabled in v1 pending
+         state-transition WO).
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpPastTenseReview">
+      <div class="pt-placeholder">Loading past-tense flags…</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-10C silence-ladder observability tile (2026-05-06)
          Live readout of the silence cadence: time since last narrator
          activity, current WO-10C stage (0=armed / 1=visual cue /
@@ -4780,6 +4794,7 @@
 <script src="js/bug-panel-eval.js?v=2026-05-01"></script>
 <script src="js/bug-panel-dashboard.js?v=2026-05-01"></script>
 <script src="js/bug-panel-story-review.js?v=2026-05-01"></script>
+<script src="js/bug-panel-past-tense-review.js?v=2026-06-14"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js?v=2026-05-01"></script>
 <script src="js/bug-panel-silence-ladder.js?v=2026-05-06"></script>
 <script src="js/bug-panel-preflight.js?v=2026-05-10"></script>
