@@ -780,6 +780,39 @@ def init_db() -> None:
     )
 
     # -----------------------------
+    # WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — interview_threads.
+    # Persistent thread bank for unresolved story doors. Schema mirror
+    # of server/code/db/migrations/0009_interview_threads.sql. Idempotent
+    # CREATE TABLE IF NOT EXISTS so cold-start builds the table without
+    # the migrations runner.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS interview_threads (
+            id                  TEXT PRIMARY KEY,
+            session_id          TEXT NOT NULL,
+            tenant_id           TEXT DEFAULT 'default',
+            thread_anchor       TEXT NOT NULL,
+            source_turn_index   INTEGER DEFAULT 0,
+            source_excerpt      TEXT DEFAULT '',
+            introduced_at       TEXT NOT NULL,
+            status              TEXT DEFAULT 'open',
+            surfaced_at         TEXT,
+            resolved_at         TEXT,
+            category            TEXT DEFAULT '',
+            FOREIGN KEY (session_id) REFERENCES interview_sessions(id)
+        );
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_threads_session_status "
+        "ON interview_threads(session_id, status);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_threads_introduced_at "
+        "ON interview_threads(introduced_at);"
+    )
+
+    # -----------------------------
     # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface.
     # Persists every safety trigger as a discrete event for the operator
     # Bug Panel banner + between-session digest. Distinct from segment_flags
@@ -5546,6 +5579,198 @@ def followup_bank_clear_session(session_id: str) -> int:
     try:
         cur = con.execute(
             "DELETE FROM follow_up_bank WHERE session_id=?;",
+            (session_id,),
+        )
+        con.commit()
+        return cur.rowcount or 0
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+# ── WO-LORI-STORY-FIRST-PHASE-1-01 — interview_threads CRUD ─────────────────
+#
+# Thread bank persistence for the oral-history story-first behavior
+# engine. Status enum (Python-side authoritative): 'open' | 'surfaced'
+# | 'resolved' | 'declined'. Category enum: 'person' | 'place' |
+# 'event' | 'object' | 'time_period'. Schema mirrors the migration at
+# server/code/db/migrations/0009_interview_threads.sql; init_db()
+# applies the CREATE TABLE idempotently.
+
+_THREAD_SELECT_COLS = (
+    "id, session_id, tenant_id, thread_anchor, source_turn_index, "
+    "source_excerpt, introduced_at, status, surfaced_at, resolved_at, "
+    "category"
+)
+
+
+def _row_to_thread(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "keys"):
+        return {k: row[k] for k in row.keys()}
+    return dict(row)
+
+
+def interview_thread_create(
+    session_id: str,
+    thread_anchor: str,
+    source_turn_index: int,
+    source_excerpt: str = "",
+    category: str = "",
+    tenant_id: str = "default",
+) -> str:
+    """Insert a new open thread. Returns the new id.
+
+    Caller MUST dedupe against existing open threads for the same
+    session+anchor BEFORE calling this — the underlying schema does
+    not enforce uniqueness on (session_id, thread_anchor) because
+    the same anchor may legitimately be re-introduced in a separate
+    chapter (different turn index, different excerpt).
+    """
+    init_db()
+    con = _connect()
+    try:
+        tid = _uuid()
+        now = _now_iso()
+        con.execute(
+            "INSERT INTO interview_threads "
+            "(id, session_id, tenant_id, thread_anchor, "
+            " source_turn_index, source_excerpt, introduced_at, "
+            " status, surfaced_at, resolved_at, category) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, NULL, ?);",
+            (tid, session_id, tenant_id or "default",
+             thread_anchor, int(source_turn_index),
+             (source_excerpt or "")[:240], now, category or ""),
+        )
+        con.commit()
+        return tid
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def interview_thread_list_for_session(
+    session_id: str,
+    status: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return threads for `session_id`, optionally filtered by status.
+    Ordered by source_turn_index ASC then introduced_at ASC (stable)."""
+    init_db()
+    con = _connect()
+    try:
+        if status:
+            rows = con.execute(
+                f"SELECT {_THREAD_SELECT_COLS} FROM interview_threads "
+                "WHERE session_id=? AND status=? "
+                "ORDER BY source_turn_index ASC, introduced_at ASC;",
+                (session_id, status),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                f"SELECT {_THREAD_SELECT_COLS} FROM interview_threads "
+                "WHERE session_id=? "
+                "ORDER BY source_turn_index ASC, introduced_at ASC;",
+                (session_id,),
+            ).fetchall()
+        return [_row_to_thread(r) for r in rows if r is not None]
+    finally:
+        con.close()
+
+
+def interview_thread_anchor_open_exists(
+    session_id: str, thread_anchor: str,
+) -> bool:
+    """True iff an OPEN thread already exists for (session_id, anchor).
+    Used by the extractor for dedup. Case-insensitive anchor match."""
+    if not session_id or not thread_anchor:
+        return False
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT 1 FROM interview_threads "
+            "WHERE session_id=? AND status='open' "
+            "  AND LOWER(thread_anchor)=LOWER(?) LIMIT 1;",
+            (session_id, thread_anchor),
+        ).fetchone()
+        return row is not None
+    finally:
+        con.close()
+
+
+def interview_thread_set_status(
+    thread_id: str,
+    new_status: str,
+    *,
+    surfaced_at: Optional[str] = None,
+    resolved_at: Optional[str] = None,
+) -> None:
+    """Update status + optional timestamps. Caller passes the right
+    *_at value for the transition; this function does not infer."""
+    if new_status not in ("open", "surfaced", "resolved", "declined"):
+        raise ValueError(f"invalid thread status: {new_status!r}")
+    init_db()
+    con = _connect()
+    try:
+        # Build dynamic SET clause based on which timestamps were
+        # provided. We never overwrite a non-null timestamp; the
+        # COALESCE ensures the existing value wins if a re-transition
+        # passes None.
+        con.execute(
+            "UPDATE interview_threads "
+            "SET status=?, "
+            "    surfaced_at=COALESCE(?, surfaced_at), "
+            "    resolved_at=COALESCE(?, resolved_at) "
+            "WHERE id=?;",
+            (new_status, surfaced_at, resolved_at, thread_id),
+        )
+        con.commit()
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def interview_thread_get_by_id(thread_id: str) -> Optional[Dict[str, Any]]:
+    """Lookup a thread by primary key."""
+    if not thread_id:
+        return None
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            f"SELECT {_THREAD_SELECT_COLS} FROM interview_threads WHERE id=?;",
+            (thread_id,),
+        ).fetchone()
+        return _row_to_thread(row)
+    finally:
+        con.close()
+
+
+def interview_thread_clear_session(session_id: str) -> int:
+    """Delete all threads for a session. Returns rows deleted.
+    Operator/test-only — production should never call this on a live
+    session because banked threads are part of the session's memory."""
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM interview_threads WHERE session_id=?;",
             (session_id,),
         )
         con.commit()

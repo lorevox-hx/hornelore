@@ -1105,6 +1105,93 @@ async def ws_chat(ws: WebSocket):
                 _softened_state.get("turn_count", 0),
             )
 
+        # ── WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) ─────────────────────
+        # Compute story momentum on the narrator turn, extract + persist
+        # thread candidates, and select a surfacing target if eligible.
+        # All four pieces run under a single HORNELORE_STORY_FIRST_PHASE_1
+        # flag; off by default. When off, the downstream comm-control
+        # wrapper sees `momentum_mode="normal"` + `session_hierarchy_state
+        # =None` which means the Phase 1 validators are vacuously inactive
+        # — byte-stable to pre-WO behavior.
+        _phase_1_enabled_now = os.environ.get(
+            "HORNELORE_STORY_FIRST_PHASE_1", "0",
+        ).strip().lower() in ("1", "true", "yes", "on")
+        _phase_1_momentum_mode = "normal"
+        _phase_1_thread_to_surface: Optional[Dict[str, Any]] = None
+        _phase_1_thread_surface_text = ""
+        if _phase_1_enabled_now and user_text and user_text.strip() and not _is_system_directive:
+            try:
+                from ..services.story_momentum import (
+                    score_story_momentum as _sm_score,
+                )
+                from ..services.thread_bank import (
+                    extract_thread_candidates as _tb_extract,
+                    bank_new_threads as _tb_bank,
+                    select_surfacing_target as _tb_select,
+                    build_surfacing_text as _tb_build_surface,
+                )
+                # uninterrupted_run defaults to 0 — full session-history
+                # walk is parked behind a sub-task (would require an
+                # archive query on every turn; cheaper to start with 0
+                # and let the other 6 signals drive momentum).
+                _phase_1_score = _sm_score(user_text, uninterrupted_run=0)
+                _phase_1_momentum_mode = _phase_1_score.mode
+                logger.info(
+                    "[chat_ws][story_first] momentum conv=%s mode=%s "
+                    "composite=%.3f wc=%d ne=%d tmp=%d sen=%d seq=%d "
+                    "dlg=%s",
+                    conv_id, _phase_1_score.mode,
+                    _phase_1_score.composite,
+                    _phase_1_score.word_count,
+                    _phase_1_score.named_entity_count,
+                    _phase_1_score.temporal_marker_count,
+                    _phase_1_score.sensory_token_count,
+                    _phase_1_score.sequence_marker_count,
+                    _phase_1_score.dialogue_present,
+                )
+
+                # Extract + persist thread candidates from this narrator turn.
+                _phase_1_threads = _tb_extract(
+                    user_text, source_turn_index=int(_session_turn_count or 0),
+                )
+                if _phase_1_threads:
+                    _phase_1_new_ids = _tb_bank(conv_id, _phase_1_threads)
+                    logger.info(
+                        "[chat_ws][story_first][thread_bank] extracted=%d "
+                        "banked=%d conv=%s anchors=%s",
+                        len(_phase_1_threads), len(_phase_1_new_ids),
+                        conv_id,
+                        ",".join(t.anchor for t in _phase_1_threads[:6]),
+                    )
+
+                # Select surfacing target (None when momentum suppresses
+                # OR no eligible thread exists).
+                _phase_1_thread_to_surface = _tb_select(
+                    conv_id,
+                    current_turn_index=int(_session_turn_count or 0),
+                    momentum_mode=_phase_1_momentum_mode,
+                    narrator_text=user_text,
+                )
+                if _phase_1_thread_to_surface:
+                    _phase_1_thread_surface_text = _tb_build_surface(
+                        _phase_1_thread_to_surface,
+                        open_question="What was that like?",
+                        connecting_phrase_index=int(_session_turn_count or 0),
+                    )
+                    logger.info(
+                        "[chat_ws][story_first][thread_bank] surfacing "
+                        "conv=%s thread_id=%s anchor=%r",
+                        conv_id,
+                        _phase_1_thread_to_surface.get("id"),
+                        _phase_1_thread_to_surface.get("thread_anchor"),
+                    )
+            except Exception as _phase_1_exc:
+                # Phase 1 must never break a turn. Log + fall through.
+                logger.warning(
+                    "[chat_ws][story_first] dispatch failed conv=%s: %s",
+                    conv_id, _phase_1_exc,
+                )
+
         # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 1: chat-path safety scan ─────
         # Mirrors interview.py:269-307. Runs BEFORE turn_mode dispatch so a
         # triggered turn cannot be silently routed through memory_echo or
@@ -2412,6 +2499,25 @@ async def ws_chat(ws: WebSocket):
                 conv_id, _rt_exc,
             )
 
+        # ── WO-LORI-STORY-FIRST-PHASE-1-01 — runtime71 keys for prompt composer.
+        # When the Phase 1 flag is on, surface the momentum_mode and the
+        # selected thread (if any) so the prompt composer can inject
+        # the corresponding directive blocks. Default-off: when the flag
+        # is off, _phase_1_momentum_mode stays "normal" and
+        # _phase_1_thread_surface_text stays "" — composer sees no keys
+        # set and emits no Phase 1 directives, preserving byte-stability.
+        if _phase_1_enabled_now:
+            try:
+                runtime71 = dict(runtime71) if isinstance(runtime71, dict) else {}
+                runtime71["story_first_momentum_mode"] = _phase_1_momentum_mode
+                if _phase_1_thread_surface_text:
+                    runtime71["story_first_thread_surface_text"] = _phase_1_thread_surface_text
+            except Exception as _sf_rt_exc:
+                logger.warning(
+                    "[chat_ws][story_first] runtime71 thread failed conv=%s: %s",
+                    conv_id, _sf_rt_exc,
+                )
+
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
 
         # ── Debug logging ───────────────────────────────────────────────
@@ -2788,6 +2894,19 @@ async def ws_chat(ws: WebSocket):
                     # per-trigger + per-state word cap (acute=30,
                     # past-tense=35, softened_exiting=50).
                     softened_state=_softened_state if isinstance(_softened_state, dict) else None,
+                    # WO-LORI-STORY-FIRST-PHASE-1-01 — momentum mode and
+                    # session hierarchy state for the Phase 1 validators
+                    # (reflection grounding + question hierarchy). Both
+                    # default to "normal" / None when the flag is off,
+                    # which makes the Phase 1 validators vacuous.
+                    # Hierarchy state tracking (has_layer_1_succeeded,
+                    # etc.) is parked behind a follow-up task; v1 ships
+                    # with the dict empty so all higher layers are
+                    # eligible-by-default — the validator can still
+                    # flag absent reflection grounding, which is the
+                    # high-value check for v1 telemetry.
+                    momentum_mode=_phase_1_momentum_mode,
+                    session_hierarchy_state=None,
                 )
                 comm_control_dict = _cc_result.to_dict()
                 atomicity_failures = list(_cc_result.atomicity_failures)

@@ -1509,6 +1509,80 @@ Then: ONE atomic question (per the rules above). Stop.
 """
 
 
+# ─────────────────────────────────────────────────────────────────────
+# WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — Phase 1 prompt blocks.
+# Three layers, each gated by runtime71 flags from chat_ws:
+#   STORY_MODE_DIRECTIVE        — when momentum_mode == "story"
+#   QUESTION_HIERARCHY_GUIDANCE — always when Phase 1 flag is on
+#   THREAD_SURFACING_DIRECTIVE  — when a banked thread was selected
+# All three are ADDITIVE to LORI_INTERVIEW_DISCIPLINE — they refine
+# its rules for the specific Phase 1 cases without replacing it.
+# ─────────────────────────────────────────────────────────────────────
+
+LORI_STORY_MODE_DIRECTIVE = """\
+STORY MODE — NARRATOR IS IN A CHAPTER.
+
+The narrator is mid-chapter. They are telling a story with momentum,
+detail, sequence, or sensory recall. For THIS turn:
+
+- Do NOT ask Layer 3 (timeline / chronology) questions.
+  Forbidden: "About how old were you?" / "What year was that?" /
+             "Was this before X?"
+- Do NOT ask Layer 4 (verification) questions.
+  Forbidden: "Was that Spokane?" / "Did you mean your sister?" /
+             "Just to be sure — was that 1962?"
+- Do NOT surface unrelated banked threads. Stay in the active chapter.
+- A Layer 1 (open recall) or Layer 2 (narrative probe) continuation
+  is fine. A respectful pause with no question is also fine.
+
+Chronology is a SUPPORT layer, not a control layer. Chronology
+questions arrive AFTER the chapter is told, not while it's being told.
+"""
+
+
+LORI_QUESTION_HIERARCHY_GUIDANCE = """\
+QUESTION HIERARCHY — FOUR LAYERS.
+
+When you do ask a question, ask the broadest layer the conversation
+permits:
+
+  LAYER 1 (Open Recall):     "Tell me about..." / "What stands out?"
+  LAYER 2 (Narrative Probe): "Who was there?" / "What was that place like?"
+  LAYER 3 (Timeline):        "About how old were you?" / "What year?"
+  LAYER 4 (Verification):    "Was that X?" / "Did you mean Y?"
+
+Hard rules:
+- Layer 3 only after Layer 1 or 2 has succeeded in this session.
+- Layer 4 only when there is specific ambiguity you actually need to
+  resolve. Never preemptive.
+- In story mode (when the narrator is mid-chapter), Layer 3 and 4 are
+  suppressed entirely — see STORY MODE DIRECTIVE above.
+"""
+
+
+# Thread-surfacing directive — only emitted when chat_ws.py supplies a
+# pre-built surfacing text via runtime71["thread_surface_text"]. The
+# text follows the bank's deterministic template, and Lori is asked
+# to deliver it gently at the start of the response.
+LORI_THREAD_SURFACING_DIRECTIVE_TEMPLATE = """\
+THREAD BANK SURFACE — RETURN TO A BANKED THREAD.
+
+The narrator named an anchor earlier in the session that you did not
+follow at the time, choosing instead to let the active chapter
+continue. The chapter has now ended (short response or closing
+marker), and this is a natural moment to return to that thread.
+
+For THIS turn, open with the following surfacing line, then a brief
+warm beat or one open question:
+
+  {surface_text}
+
+Do NOT reference the heavy moment if one occurred. Do NOT compound
+this with chronology or verification questions — surfacing is itself
+a Layer 1 open invitation.
+"""
+
+
 # Compound-question detector — fires inside a single question segment
 # when a wh-word leads, a linker ("and"/"or"/"also"/"plus") follows,
 # then a second wh-word OR a second question stem appears before the
@@ -3191,6 +3265,48 @@ def compose_system_prompt(
         # for a structured summary).
         directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
         directive_lines.append("")
+
+        # ── WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) ─────────────────
+        # Three additive directive blocks gated by runtime71 keys that
+        # chat_ws.py sets in the Phase 1 turn-start block. Default-OFF
+        # behavior: when chat_ws does not set the keys (flag off), none
+        # of these injections fire — byte-stable to pre-WO prompts.
+        try:
+            _phase_1_momentum = (
+                runtime71.get("story_first_momentum_mode")
+                if isinstance(runtime71, dict) else None
+            )
+            _phase_1_surface = (
+                runtime71.get("story_first_thread_surface_text")
+                if isinstance(runtime71, dict) else None
+            )
+
+            # Story-mode override — only when momentum hit the story
+            # threshold. Adds the no-Layer-3-or-4 rules on top of the
+            # standard interview discipline.
+            if _phase_1_momentum == "story":
+                directive_lines.append(LORI_STORY_MODE_DIRECTIVE.strip())
+                directive_lines.append("")
+
+            # Question-hierarchy guidance — emitted whenever Phase 1 is
+            # active (momentum field is present), regardless of the
+            # current mode. Reminds the LLM of the Layer 1-4 ladder.
+            if _phase_1_momentum in ("story", "emerging", "normal"):
+                directive_lines.append(LORI_QUESTION_HIERARCHY_GUIDANCE.strip())
+                directive_lines.append("")
+
+            # Thread-surfacing directive — only when chat_ws selected a
+            # banked thread to surface this turn.
+            if _phase_1_surface and isinstance(_phase_1_surface, str):
+                directive_lines.append(
+                    LORI_THREAD_SURFACING_DIRECTIVE_TEMPLATE
+                    .format(surface_text=_phase_1_surface.strip())
+                    .strip()
+                )
+                directive_lines.append("")
+        except Exception:
+            # Phase 1 prompt injection must never break the composer.
+            pass
 
         # BUG-LORI-WITNESS-LLM-RECEIPT-01 (2026-05-10) — when the chat_ws
         # witness mode detected a STRUCTURED_NARRATIVE turn (Kent's long
