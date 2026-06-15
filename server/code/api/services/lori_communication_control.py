@@ -48,7 +48,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .question_atomicity import classify_atomicity, enforce_question_atomicity
 from .lori_reflection import validate_memory_echo, shape_reflection
@@ -608,6 +608,7 @@ def _safety_path(
     assistant_text: str,
     session_style: str,
     softened_mode_active: bool = False,
+    softened_state: Optional[Dict] = None,
 ) -> CommunicationControlResult:
     """Safety-acute exemption: do not modify the assistant_text at all.
     Just record whether the turn appears to have a "normal interview
@@ -658,11 +659,22 @@ def _safety_path(
     #
     # Imported lazily so question_atomicity / lori_reflection isolation
     # tests don't fail because of an unrelated import.
+    # WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14) — per-state +
+    # per-trigger word cap. softened_state carries:
+    #   state="softened" + trigger="acute"             → cap=30
+    #   state="softened" + trigger="past_tense_ack..." → cap=35
+    #   state="softened_exiting" (any trigger)         → cap=50
+    # The cap-picker function falls back to legacy 35 when softened_state
+    # is None or absent (backward-compat with pre-WO callers).
     try:
-        from .lori_softened_response import SOFTENED_WORD_LIMIT
+        from .lori_softened_response import (
+            SOFTENED_WORD_LIMIT, softened_word_limit,
+        )
+        _cap = softened_word_limit(softened_state) if softened_mode_active else SOFTENED_WORD_LIMIT
     except Exception:
-        SOFTENED_WORD_LIMIT = 35
-    if not has_safety_ack and word_count > SOFTENED_WORD_LIMIT:
+        _cap = 35
+        SOFTENED_WORD_LIMIT = 35  # noqa: F841 — backward compat fallback for reflection-shaper block below
+    if not has_safety_ack and word_count > _cap:
         failures.append("softened_response_too_long")
 
     # WO-LORI-REFLECTION-02 Layer 3: softened-mode runtime shaping.
@@ -720,6 +732,7 @@ def enforce_lori_communication_control(
     safety_triggered: bool = False,
     session_style: str = "clear_direct",
     softened_mode_active: bool = False,
+    softened_state: Optional[Dict] = None,
 ) -> CommunicationControlResult:
     """The single runtime enforcement entry point.
 
@@ -758,6 +771,7 @@ def enforce_lori_communication_control(
             assistant_text,
             session_style,
             softened_mode_active=softened_mode_active,
+            softened_state=softened_state,
         )
 
     failures: List[str] = []

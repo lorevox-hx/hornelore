@@ -54,6 +54,74 @@ def reset_safety_llm_parse_failures(conv_id: str) -> None:
     _SAFETY_LLM_PARSE_FAILURES.pop(conv_id or "", None)
 
 
+# WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14) — per-trigger N
+# values for the softened window. Defaults per WO §3:
+#   acute       = 5 turns (covers acknowledgment + recovery arc)
+#   past_tense  = 2 turns (narrator already moved material into past
+#                          tense; longer would be patronizing)
+# Both env-tunable. Setting to 0 disables softened for that trigger
+# (dev only — production must not run with 0).
+def softened_n_acute() -> int:
+    """Read HORNELORE_SOFTENED_N_ACUTE; default 5; clamped 0..20."""
+    try:
+        n = int(os.getenv("HORNELORE_SOFTENED_N_ACUTE", "5"))
+    except (TypeError, ValueError):
+        n = 5
+    return max(0, min(20, n))
+
+
+def softened_n_past_tense() -> int:
+    """Read HORNELORE_SOFTENED_N_PAST_TENSE; default 2; clamped 0..20."""
+    try:
+        n = int(os.getenv("HORNELORE_SOFTENED_N_PAST_TENSE", "2"))
+    except (TypeError, ValueError):
+        n = 2
+    return max(0, min(20, n))
+
+
+def _softened_write(
+    conv_id: str,
+    current_turn: int,
+    n_turns: int,
+    trigger: str,
+    existing_state: Optional[Dict[str, Any]] = None,
+) -> None:
+    """WO-LORI-SOFTENED-MODE-PERSISTENCE-01 — unified softened-write
+    helper used by both the acute path and the past-tense path.
+
+    Picks `set_session_softened` (fresh entry) or `extend_session_
+    softened` (max-not-clobber) based on whether the session is
+    already in softened state. The nested-trigger case must NEVER
+    shorten the existing window — an acute that fires during a
+    past-tense softened window extends to max(existing, current+5),
+    NOT clobber to current+5 (which could be SHORTER if the past-
+    tense window had already extended out).
+
+    `existing_state` is the dict from get_session_softened_state();
+    None means caller didn't read it (we treat as "not in softened").
+    """
+    is_already_softened = bool(
+        isinstance(existing_state, dict)
+        and existing_state.get("interview_softened")
+    )
+    try:
+        if is_already_softened:
+            extend_session_softened(
+                conv_id, current_turn,
+                softened_turns=n_turns, trigger=trigger,
+            )
+        else:
+            set_session_softened(
+                conv_id, current_turn,
+                softened_turns=n_turns, trigger=trigger,
+            )
+    except Exception as _sw_exc:
+        logger.warning(
+            "[chat_ws][softened] write failed conv=%s trigger=%s n=%d: %s",
+            conv_id, trigger, n_turns, _sw_exc,
+        )
+
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from transformers import TextIteratorStreamer, StoppingCriteriaList
 
@@ -64,6 +132,7 @@ from ..db import (
     save_segment_flag,
     increment_session_turn,
     set_session_softened,
+    extend_session_softened,  # WO-LORI-SOFTENED-MODE-PERSISTENCE-01 — max-not-clobber on nested triggers
     ensure_interview_session,  # BUG-DBLOCK-01 PATCH 3
     get_session_softened_state,  # WO-LORI-SOFTENED-RESPONSE-01
 )
@@ -1000,18 +1069,40 @@ async def ws_chat(ws: WebSocket):
                 )
 
         # Operator-facing log marker so api.log shows softened state per
-        # turn. Never logs narrator content; just flag + remaining turns.
-        if _softened_state.get("interview_softened"):
+        # turn. Never logs narrator content; just flag + state + trigger
+        # + remaining turns.
+        #
+        # WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14): log line
+        # extended with state ("softened" / "softened_exiting") +
+        # trigger ("acute" / "past_tense_acknowledge") so operators can
+        # see which prompt block fired and when the recovering-mode
+        # transition lands.
+        _softened_machine_state = (_softened_state.get("state") or "normal")
+        if _softened_machine_state in ("softened", "softened_exiting"):
             try:
                 from ..services.lori_softened_response import turns_remaining as _trem
                 _remaining = _trem(_softened_state)
             except Exception:
                 _remaining = 0
             logger.info(
-                "[chat_ws][softened] active conv=%s turns_remaining=%d turn_count=%d until=%d",
-                conv_id, _remaining,
+                "[chat_ws][softened] active conv=%s state=%s trigger=%s "
+                "turns_remaining=%d turn_count=%d until=%d",
+                conv_id,
+                _softened_machine_state,
+                (_softened_state.get("trigger") or ""),
+                _remaining,
                 _softened_state.get("turn_count", 0),
                 _softened_state.get("softened_until_turn", 0),
+            )
+        elif _softened_response_enabled and _softened_state.get("softened_until_turn", 0) > 0:
+            # First turn AFTER softened window closes — useful operator
+            # signal that the session has returned to normal cadence.
+            logger.info(
+                "[chat_ws][softened] inactive conv=%s "
+                "(last until_turn=%d, now turn_count=%d)",
+                conv_id,
+                _softened_state.get("softened_until_turn", 0),
+                _softened_state.get("turn_count", 0),
             )
 
         # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 1: chat-path safety scan ─────
@@ -1264,10 +1355,17 @@ async def ws_chat(ws: WebSocket):
                             # legacy in-memory write — the in-memory
                             # cache is only consumed by the existing
                             # acute path.
+                            # WO-LORI-SOFTENED-MODE-PERSISTENCE-01
+                            # (2026-06-14) — past-tense uses N=2
+                            # (env-tunable) + trigger tag, max-not-
+                            # clobber if already softened.
                             try:
-                                set_session_softened(
-                                    conv_id, _session_turn_count,
-                                    softened_turns=2,
+                                _softened_write(
+                                    conv_id=conv_id,
+                                    current_turn=_session_turn_count,
+                                    n_turns=softened_n_past_tense(),
+                                    trigger="past_tense_acknowledge",
+                                    existing_state=_softened_state,
                                 )
                             except Exception as _pt_soft_exc:
                                 logger.warning(
@@ -1412,8 +1510,17 @@ async def ws_chat(ws: WebSocket):
                 # math by one — and the existing math is already
                 # tested via interview.py.
                 try:
-                    set_softened(conv_id, _session_turn_count)
-                    set_session_softened(conv_id, _session_turn_count)
+                    # WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14)
+                    # — write softened with N=5 (env-tunable) + trigger
+                    # tag, max-not-clobber if already softened.
+                    set_softened(conv_id, _session_turn_count)  # legacy in-memory N=3 (unchanged for now)
+                    _softened_write(
+                        conv_id=conv_id,
+                        current_turn=_session_turn_count,
+                        n_turns=softened_n_acute(),
+                        trigger="acute",
+                        existing_state=_softened_state,
+                    )
                     # Refresh the local softened state so the same turn's
                     # composer and wrapper see softened=True (without this
                     # the acute-trigger turn itself wouldn't see the new
@@ -2676,6 +2783,11 @@ async def ws_chat(ws: WebSocket):
                     safety_triggered=_safety_triggered_now,
                     session_style=str(_session_style),
                     softened_mode_active=_softened_now,
+                    # WO-LORI-SOFTENED-MODE-PERSISTENCE-01 — pass the
+                    # full state dict so the wrapper picks the right
+                    # per-trigger + per-state word cap (acute=30,
+                    # past-tense=35, softened_exiting=50).
+                    softened_state=_softened_state if isinstance(_softened_state, dict) else None,
                 )
                 comm_control_dict = _cc_result.to_dict()
                 atomicity_failures = list(_cc_result.atomicity_failures)
