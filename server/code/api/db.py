@@ -846,6 +846,18 @@ def init_db() -> None:
         "interview_softened": "ALTER TABLE interview_sessions ADD COLUMN interview_softened INTEGER DEFAULT 0;",
         "softened_until_turn": "ALTER TABLE interview_sessions ADD COLUMN softened_until_turn INTEGER DEFAULT 0;",
         "turn_count": "ALTER TABLE interview_sessions ADD COLUMN turn_count INTEGER DEFAULT 0;",
+        # WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14) — tag the
+        # trigger so the read-side can pick the right prompt block and
+        # per-state word/question caps. Values: "acute" (988-dispatch
+        # path, default N=5), "past_tense_acknowledge" (memoir past-
+        # tense ideation, default N=2), or "" / NULL for legacy rows.
+        "softened_trigger": "ALTER TABLE interview_sessions ADD COLUMN softened_trigger TEXT DEFAULT '';",
+        # The N value the caller passed when softened was set. Stored
+        # for telemetry + nested-trigger arithmetic; not strictly
+        # required for read-side state computation (which uses
+        # turn_count vs softened_until_turn) but useful for surface
+        # diagnostics in the operator panel.
+        "softened_initial_n": "ALTER TABLE interview_sessions ADD COLUMN softened_initial_n INTEGER DEFAULT 0;",
     }
     for col_name, alter_sql in softened_cols.items():
         if col_name not in existing_isess_cols:
@@ -3623,12 +3635,30 @@ def safety_events_digest(
 # v6.1 Track A — Softened Interview Mode
 # =============================================================================
 
-def set_session_softened(session_id: str, current_turn: int, softened_turns: int = 3) -> None:
+def set_session_softened(
+    session_id: str,
+    current_turn: int,
+    softened_turns: int = 3,
+    trigger: str = "",
+) -> None:
     """Mark session as softened for the next N turns.
 
     BUG-DBLOCK-01 PATCH 1B (2026-04-30): try/except/finally to prevent
     connection leak on sqlite3.Error. Same fatal pattern as
     save_segment_flag pre-patch.
+
+    WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14): trigger param
+    records WHICH safety event entered softened state ("acute" or
+    "past_tense_acknowledge"). The read-side picks the right prompt
+    block and per-state caps from this value. Empty string is the
+    legacy/default for any caller that hasn't been updated to pass
+    a trigger.
+
+    NOTE: this function CLOBBERS — it overwrites any existing
+    softened_until_turn. For nested triggers (acute fires while
+    already softened) callers should use extend_session_softened()
+    instead, which applies max-not-clobber arithmetic so a shorter
+    nested window can't erase the original safety event's reach.
     """
     con = _connect()
     try:
@@ -3636,10 +3666,84 @@ def set_session_softened(session_id: str, current_turn: int, softened_turns: int
             """
             UPDATE interview_sessions
             SET interview_softened=1,
-                softened_until_turn=?
+                softened_until_turn=?,
+                softened_trigger=?,
+                softened_initial_n=?
             WHERE id=?;
             """,
-            (current_turn + softened_turns, session_id),
+            (current_turn + softened_turns, trigger or "", int(softened_turns), session_id),
+        )
+        con.commit()
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def extend_session_softened(
+    session_id: str,
+    current_turn: int,
+    softened_turns: int,
+    trigger: str = "",
+) -> None:
+    """WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14) — max-not-
+    clobber softened-state extension.
+
+    When a session is already in softened state and a NEW safety
+    event fires (acute during past-tense window; past-tense during
+    acute window), the until_turn becomes the MAX of:
+      - the existing until_turn (preserves the original event's reach)
+      - current_turn + softened_turns (the new event's would-be reach)
+
+    The trigger is upgraded to the new value only if it's stronger:
+    acute > past_tense_acknowledge > "". A nested past_tense during
+    an acute window leaves the trigger as "acute" — the operator
+    review surface should still see this as an acute session, even
+    if past-tense content arrives mid-window.
+
+    Same DBLOCK-01 try/except/finally posture as set_session_softened.
+    """
+    con = _connect()
+    try:
+        # Read existing state under the write lock so we don't race
+        # a concurrent caller. SQLite serializes writes anyway, but
+        # this keeps the max() arithmetic deterministic if two
+        # callers fire in the same connection cycle.
+        row = con.execute(
+            """
+            SELECT COALESCE(softened_until_turn,0) AS u,
+                   COALESCE(softened_trigger,'')   AS t,
+                   COALESCE(softened_initial_n,0)  AS n
+            FROM interview_sessions WHERE id=?;
+            """,
+            (session_id,),
+        ).fetchone()
+
+        existing_until = int(row["u"]) if row else 0
+        existing_trigger = (row["t"] if row else "") or ""
+        new_until = max(existing_until, current_turn + int(softened_turns))
+
+        # Trigger upgrade hierarchy. Acute beats everything; past-
+        # tense beats empty; new "" never overrides existing trigger.
+        _hierarchy = {"": 0, "past_tense_acknowledge": 1, "acute": 2}
+        eff_trigger = trigger or ""
+        if _hierarchy.get(eff_trigger, 0) < _hierarchy.get(existing_trigger, 0):
+            eff_trigger = existing_trigger
+
+        con.execute(
+            """
+            UPDATE interview_sessions
+            SET interview_softened=1,
+                softened_until_turn=?,
+                softened_trigger=?,
+                softened_initial_n=?
+            WHERE id=?;
+            """,
+            (new_until, eff_trigger, int(softened_turns), session_id),
         )
         con.commit()
     except sqlite3.Error:
@@ -3681,27 +3785,84 @@ def increment_session_turn(session_id: str) -> int:
 
 
 def get_session_softened_state(session_id: str) -> Dict:
-    """Return softened mode info for a session."""
+    """Return softened mode info for a session.
+
+    WO-LORI-SOFTENED-MODE-PERSISTENCE-01 (2026-06-14): extended return
+    shape with `state` + `trigger` + `n_remaining` for the three-state
+    machine (normal → softened → softened_exiting → normal).
+
+    State computation:
+      turn_count <  softened_until_turn  → "softened"
+      turn_count == softened_until_turn  → "softened_exiting" (one
+        turn of recovering-from-softened, gentle re-engagement
+        permitted but no chapter-resumption phrases)
+      turn_count >  softened_until_turn  → "normal"
+      (interview_softened == 0 → "normal" regardless of arithmetic)
+
+    Returned keys (all present for backward compat with old callers
+    reading the legacy three keys; new callers should consume `state`
+    + `trigger` + `n_remaining`):
+      interview_softened: bool — True iff state is "softened" OR
+                                  "softened_exiting"
+      softened_until_turn: int — the last turn in non-normal mode
+      turn_count:          int — current session turn counter
+      state:               str — "normal" | "softened" | "softened_exiting"
+      trigger:             str — "acute" | "past_tense_acknowledge" | ""
+      n_remaining:         int — turns left before normal (0 when normal)
+    """
     con = _connect()
     row = con.execute(
         """
         SELECT COALESCE(interview_softened,0) as interview_softened,
                COALESCE(softened_until_turn,0) as softened_until_turn,
-               COALESCE(turn_count,0) as turn_count
+               COALESCE(turn_count,0) as turn_count,
+               COALESCE(softened_trigger,'') as softened_trigger,
+               COALESCE(softened_initial_n,0) as softened_initial_n
         FROM interview_sessions WHERE id=?;
         """,
         (session_id,),
     ).fetchone()
     con.close()
     if not row:
-        return {"interview_softened": False, "softened_until_turn": 0, "turn_count": 0}
+        return {
+            "interview_softened": False,
+            "softened_until_turn": 0,
+            "turn_count": 0,
+            "state": "normal",
+            "trigger": "",
+            "n_remaining": 0,
+        }
     d = dict(row)
-    # Auto-clear if we've passed the expiry turn
-    is_softened = bool(d["interview_softened"]) and d["turn_count"] <= d["softened_until_turn"]
+    turn_count = int(d["turn_count"])
+    until_turn = int(d["softened_until_turn"])
+    flag = bool(d["interview_softened"])
+    trigger = (d["softened_trigger"] or "") if d.get("softened_trigger") is not None else ""
+
+    # State machine — only computed when the flag is on. When the
+    # flag was never set (or was cleared) the session is normal
+    # regardless of arithmetic.
+    if not flag:
+        state = "normal"
+        n_remaining = 0
+    elif turn_count < until_turn:
+        state = "softened"
+        n_remaining = max(0, until_turn - turn_count)
+    elif turn_count == until_turn:
+        state = "softened_exiting"
+        n_remaining = 0  # the exiting turn itself; next turn is normal
+    else:
+        state = "normal"
+        n_remaining = 0
+
     return {
-        "interview_softened": is_softened,
-        "softened_until_turn": d["softened_until_turn"],
-        "turn_count": d["turn_count"],
+        # Backward-compat keys
+        "interview_softened": state in ("softened", "softened_exiting"),
+        "softened_until_turn": until_turn,
+        "turn_count": turn_count,
+        # New three-state-machine keys
+        "state": state,
+        "trigger": trigger,
+        "n_remaining": n_remaining,
     }
 
 
