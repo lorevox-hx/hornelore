@@ -21,6 +21,9 @@
   <link rel="stylesheet" href="css/safety-banner.css">
   <link rel="stylesheet" href="css/bug-panel-softened-banner.css">
   <link rel="stylesheet" href="css/bug-panel-eval.css">
+  <!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — shared
+       styling for bug-panel-bio-editor.js + bug-panel-bio-gap-map.js -->
+  <link rel="stylesheet" href="css/bug-panel-bio.css">
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/bug-panel-story-review.css">
   <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
@@ -4222,6 +4225,29 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase F (2026-06-14) — bio
+         gap map dashboard. Mounts via ui/js/bug-panel-bio-gap-map.js.
+         Backend gate: HORNELORE_OPERATOR_BIO_GAP_MAP=1 → endpoint
+         /api/operator/bio-gap-map/summary?narrator_id=... returns
+         summary; 404 when off and the section renders a quiet
+         disabled placeholder.
+         See ui/js/bug-panel-bio-gap-map.js + ui/css/bug-panel-bio.css.
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpBioGapMap">
+      <div class="bp-bio-empty">Enter a narrator_id and press Refresh to load.</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E (2026-06-14) — Tier 4
+         operator bio editor. Direct entry / approve / mark unanswerable /
+         resolve conflicts. Mounts via ui/js/bug-panel-bio-editor.js.
+         Backend gate: HORNELORE_OPERATOR_BIO_EDITOR=1.
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpBioEditor">
+      <div class="bp-bio-empty">Enter a narrator_id and press Refresh to load.</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-LORI-SAFETY-LLM-CLASSIFIER-01 (2026-06-14) — past-tense
          flag review list. Mounts via ui/js/bug-panel-past-tense-
          review.js. Backend gate: HORNELORE_OPERATOR_PAST_TENSE_REVIEW
@@ -4833,6 +4859,13 @@
 <script src="js/bug-panel-dashboard.js?v=2026-05-01"></script>
 <script src="js/bug-panel-story-review.js?v=2026-05-01"></script>
 <script src="js/bug-panel-past-tense-review.js?v=2026-06-14"></script>
+<!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — bio
+     editor + bio gap map operator surfaces. Both default-OFF; the
+     mounts render quiet disabled placeholders until the respective
+     server env flags (HORNELORE_OPERATOR_BIO_EDITOR /
+     HORNELORE_OPERATOR_BIO_GAP_MAP) flip ON. -->
+<script src="js/bug-panel-bio-gap-map.js?v=2026-06-14"></script>
+<script src="js/bug-panel-bio-editor.js?v=2026-06-14"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js?v=2026-05-01"></script>
 <script src="js/bug-panel-silence-ladder.js?v=2026-05-06"></script>
 <script src="js/bug-panel-preflight.js?v=2026-05-10"></script>
