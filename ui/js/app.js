@@ -211,13 +211,18 @@ function _onModelReady() {
 
 const LV_SESSION_STYLE_KEY = "hornelore_session_style_v1";
 // memory_exercise dropped 2026-04-25 — picker no-op, shelved.
+// oral_history ADDED 2026-06-14 (WO-LORI-ORAL-HISTORY-DEFAULT-01) —
+// new system default, listening-led posture for narrators who carry
+// chapters.
 const LV_VALID_SESSION_STYLES = [
-  "questionnaire_first", "clear_direct", "warm_storytelling", "companion",
+  "oral_history", "warm_storytelling", "companion",
+  "questionnaire_first", "clear_direct",
 ];
 
-/** Read the current session style.  Defaults to warm_storytelling. */
+/** Read the current session style.  Defaults to oral_history
+ *  (WO-LORI-ORAL-HISTORY-DEFAULT-01 — was warm_storytelling pre-flip). */
 function getSessionStyle() {
-  return (state && state.session && state.session.sessionStyle) || "warm_storytelling";
+  return (state && state.session && state.session.sessionStyle) || "oral_history";
 }
 window.getSessionStyle = getSessionStyle;
 
@@ -276,16 +281,56 @@ function lvSetSessionStyle(value) {
 }
 window.lvSetSessionStyle = lvSetSessionStyle;
 
-/** Hydrate session style from localStorage (or default) and paint radios. */
+/** Hydrate session style from localStorage (or default) and paint radios.
+ *  WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): default fallback flipped
+ *  from "warm_storytelling" to "oral_history" so first-time operators
+ *  (no saved key) land on the new system default. Existing saved
+ *  selections are preserved untouched. */
 function _lvHydrateSessionStyle() {
   let saved = null;
   try { saved = localStorage.getItem(LV_SESSION_STYLE_KEY); } catch (_) {}
-  const value = (saved && LV_VALID_SESSION_STYLES.includes(saved)) ? saved : "warm_storytelling";
+  const value = (saved && LV_VALID_SESSION_STYLES.includes(saved)) ? saved : "oral_history";
   if (!state.session) state.session = {};
   state.session.sessionStyle = value;
   const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
   radios.forEach(r => { r.checked = (r.value === value); });
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14)
+   One-time operator notification announcing the default flip.
+   ═══════════════════════════════════════════════════════════════
+   The banner reveals on first operator-panel render (after this WO
+   deploys) and persists dismissal in localStorage so it never appears
+   twice. Per-operator state via the universal key — operator account
+   switching is not currently modeled in localStorage; if it gets
+   added later, namespace this key.
+*/
+const LV_ORAL_HISTORY_NOTICE_KEY = "lv_oral_history_default_notice_seen";
+
+function lvOralHistoryDefaultNoticeShow() {
+  try {
+    const seen = localStorage.getItem(LV_ORAL_HISTORY_NOTICE_KEY);
+    if (seen) return; // operator already dismissed
+  } catch (_) {}
+  const el = document.getElementById("lvOralHistoryDefaultNotice");
+  if (!el) return;
+  el.hidden = false;
+}
+window.lvOralHistoryDefaultNoticeShow = lvOralHistoryDefaultNoticeShow;
+
+function lvOralHistoryDefaultNoticeDismiss() {
+  const el = document.getElementById("lvOralHistoryDefaultNotice");
+  if (el) el.hidden = true;
+  try {
+    localStorage.setItem(
+      LV_ORAL_HISTORY_NOTICE_KEY,
+      String(Date.now()),
+    );
+  } catch (_) {}
+  console.log("[lv-shell] oral_history default notice dismissed");
+}
+window.lvOralHistoryDefaultNoticeDismiss = lvOralHistoryDefaultNoticeDismiss;
 
 /* ═══════════════════════════════════════════════════════════════
    WO-10C Cognitive Support Mode operator UI toggle (2026-05-06)
@@ -486,6 +531,12 @@ function lvShellInitTabs() {
   // the operator's prior choice survives reload + paints the checkbox.
   try { _lvHydrateCognitiveSupportMode(); } catch (e) {
     console.warn("[wo10c][csm-toggle] hydrate threw (non-fatal):", e);
+  }
+  // WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): reveal the one-time
+  // notification on first operator-panel render. Suppressed for any
+  // operator who has previously dismissed it.
+  try { lvOralHistoryDefaultNoticeShow(); } catch (e) {
+    console.warn("[oral_history][notice] show threw (non-fatal):", e);
   }
   lvShellShowTab("operator");
   // Mirror warmup banner state to the readiness card on boot.
@@ -2363,11 +2414,22 @@ function buildRuntime71() {
        string that prompt_composer appends to the directive block.  For
        warm_storytelling and questionnaire_first this is empty (no
        addendum — the questionnaire walk owns its own Lori prompts).
-       Backend gracefully ignores empty / missing values. */
+       Backend gracefully ignores empty / missing values.
+
+       WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): the raw
+       session_style identifier is also shipped so the composer can
+       select the LORI_ORAL_HISTORY_RESPONSE posture block when style
+       is oral_history (or unset/unknown — fall-through default). */
+    session_style: (function() {
+      try {
+        return (typeof getSessionStyle === "function") ? getSessionStyle() :
+          ((state.session && state.session.sessionStyle) || "oral_history");
+      } catch (_) { return "oral_history"; }
+    })(),
     session_style_directive: (function() {
       try {
         const style = (typeof getSessionStyle === "function") ? getSessionStyle() :
-          (state.session && state.session.sessionStyle) || "warm_storytelling";
+          (state.session && state.session.sessionStyle) || "oral_history";
         return (typeof window._lvEmitStyleDirective === "function")
           ? window._lvEmitStyleDirective(style) || ""
           : "";

@@ -109,7 +109,11 @@ _ALL_ROLES = _NARRATOR_ROLES | _LORI_ROLES
 class _SessionStart(BaseModel):
     person_id: str = Field(..., min_length=1)
     conv_id: str = Field(..., min_length=1)
-    session_style: str = ""
+    # WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): default flipped
+    # from "" to "oral_history". Sessions created without an explicit
+    # style now land on the new system default. Migration 0010 mirrors
+    # this at the schema level.
+    session_style: str = "oral_history"
     audio_enabled: bool = True
     video_enabled: bool = False
     ensure_chat_session: bool = True

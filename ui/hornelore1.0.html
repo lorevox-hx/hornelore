@@ -3036,30 +3036,60 @@
         </div>
       </section>
 
-      <!-- Session style (WO-UI-SHELL-01): sets state.session.sessionStyle + localStorage.
-           Phase 1 is state + persistence + label only; prompt-composer wiring is deferred. -->
+      <!-- WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14) — one-time
+           operator notification announcing the default-style change.
+           Default-hidden; lvOralHistoryDefaultNoticeShow() runs on
+           operator-panel render and reveals when localStorage.
+           lv_oral_history_default_notice_seen is unset. Dismiss writes
+           the key so it never re-appears for this operator. -->
+      <div id="lvOralHistoryDefaultNotice"
+           class="lv-oral-history-notice" hidden role="status"
+           aria-live="polite">
+        <div class="lv-oral-history-notice-body">
+          <strong>Default session style: Oral History</strong>
+          <p>
+            Lori now listens longer, asks less, and follows the
+            narrator's chapters at their pace. You can switch to other
+            styles anytime; they remain available for narrators who
+            need structured questioning, cognitive support, or shorter
+            exchanges. Hover each style for a description.
+          </p>
+        </div>
+        <button type="button" class="lv-oral-history-notice-dismiss"
+                aria-label="Dismiss"
+                onclick="lvOralHistoryDefaultNoticeDismiss()">×</button>
+      </div>
+
+      <!-- Session style (WO-UI-SHELL-01 / WO-LORI-ORAL-HISTORY-DEFAULT-01):
+           sets state.session.sessionStyle + localStorage.
+           2026-06-14: order rewritten (oral_history first), oral_history
+           pre-selected as the visual default, each style gains a tooltip
+           description that matches the Phase 9 disclosure. -->
       <section class="lv-operator-section">
         <h3 class="lv-operator-section-title">Session style</h3>
         <p class="lv-operator-section-sub">Shapes how Lori opens the conversation. You can change this later.</p>
         <div id="lvOperatorStyleGrid" class="lv-session-style-grid"
              role="radiogroup" aria-label="Session style">
-          <label class="lv-session-style-card">
-            <input type="radio" name="lvSessionStyle" value="questionnaire_first"
+          <label class="lv-session-style-card lv-session-style-card-default"
+                 title="Lori listens long, asks little, follows the narrator's chapters. Best for narrators who can carry a story and want to.">
+            <input type="radio" name="lvSessionStyle" value="oral_history" checked
                    onchange="lvSetSessionStyle(this.value)">
-            <strong>Questionnaire First</strong>
-            <span>Start with the basics, step by step.</span>
+            <strong>Oral History <span class="lv-session-style-default-badge">(default)</span></strong>
+            <span>Lori listens long, asks little, follows the narrator's chapters.</span>
           </label>
-          <label class="lv-session-style-card">
-            <input type="radio" name="lvSessionStyle" value="clear_direct"
-                   onchange="lvSetSessionStyle(this.value)">
-            <strong>Clear &amp; Direct</strong>
-            <span>Short answers, one fact at a time.</span>
-          </label>
-          <label class="lv-session-style-card">
-            <input type="radio" name="lvSessionStyle" value="warm_storytelling" checked
+          <label class="lv-session-style-card"
+                 title="Shorter exchanges, more frequent reflection, gentler pacing. Good for narrators who want help finding their thread.">
+            <input type="radio" name="lvSessionStyle" value="warm_storytelling"
                    onchange="lvSetSessionStyle(this.value)">
             <strong>Warm Storytelling</strong>
-            <span>Tell it with detail, feeling, and scene.</span>
+            <span>Shorter exchanges, more reflection, gentler pacing.</span>
+          </label>
+          <label class="lv-session-style-card"
+                 title="Minimal interview structure. Lori is mostly a present listener. Good for grief, end-of-life reflection, or quiet narrators.">
+            <input type="radio" name="lvSessionStyle" value="companion"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Companion</strong>
+            <span>Social presence, no interview agenda.</span>
           </label>
           <!-- Memory Exercise picker option REMOVED 2026-04-25.
                Was a no-op (prompt suffix only, no real routing).
@@ -3070,11 +3100,19 @@
                The internal Lori posture-mode memory_exercise (fact-seed
                flow, WO-10C cognitive support tier) is UNCHANGED — that's
                a separate system in app.js _wsPosture handling. -->
-          <label class="lv-session-style-card">
-            <input type="radio" name="lvSessionStyle" value="companion"
+          <label class="lv-session-style-card"
+                 title="Structured biographical questions in sequence. Best for narrators who want a clear scaffold and find open-ended conversation tiring.">
+            <input type="radio" name="lvSessionStyle" value="questionnaire_first"
                    onchange="lvSetSessionStyle(this.value)">
-            <strong>Companion</strong>
-            <span>Social presence, no interview agenda.</span>
+            <strong>Questionnaire First</strong>
+            <span>Start with the basics, step by step.</span>
+          </label>
+          <label class="lv-session-style-card"
+                 title="Short answers, one fact at a time. Best when the narrator prefers concise back-and-forth over open chapters.">
+            <input type="radio" name="lvSessionStyle" value="clear_direct"
+                   onchange="lvSetSessionStyle(this.value)">
+            <strong>Clear &amp; Direct</strong>
+            <span>Short answers, one fact at a time.</span>
           </label>
         </div>
       </section>

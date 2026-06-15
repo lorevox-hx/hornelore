@@ -147,6 +147,12 @@
       // realistically be hit. If it is hit (stale state), fall through
       // to warm_storytelling default.
       case "companion":           return _routeCompanion(event);
+      // WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): the new system
+      // default. Listening-led posture, no Bio Builder walk, no
+      // questionnaire cadence. Routes identically to warm_storytelling
+      // at the turn-dispatch level; the composer-side
+      // LORI_ORAL_HISTORY_RESPONSE block carries the posture override.
+      case "oral_history":        return _routeWarmStorytelling(event);
       case "warm_storytelling":
       default:                    return _routeWarmStorytelling(event);
     }
@@ -600,6 +606,15 @@
       case "companion":
         styleSuffix = "Don't probe for facts. Listen. Reflect feelings. Speak less " +
                       "than the narrator does.";
+        break;
+      case "oral_history":
+        // WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): empty FE
+        // directive — the full LORI_ORAL_HISTORY_RESPONSE posture
+        // block ships from prompt_composer.py when session_style is
+        // oral_history or unset/unknown. Sending a short directive
+        // here would duplicate the posture block's guidance and risk
+        // contradicting it during composer evolution.
+        styleSuffix = "";
         break;
       case "questionnaire_first":
       case "warm_storytelling":

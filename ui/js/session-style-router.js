@@ -30,16 +30,23 @@
   "use strict";
 
   const VALID_STYLES = [
+    // WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): oral_history is the
+    // new system default. Listed FIRST in this array; FE picker
+    // (hornelore1.0.html) shows it as the pre-selected radio option.
+    "oral_history",
+    "warm_storytelling",
+    "companion",
     "questionnaire_first",
     "clear_direct",
-    "warm_storytelling",
     // "memory_exercise" REMOVED 2026-04-25 — picker no-op, shelved.
-    "companion",
   ];
 
   // Legacy coercion — narrators with saved sessionStyle="memory_exercise"
   // (from before the picker option was removed) get coerced to
   // warm_storytelling so they don't end up in dispatch limbo.
+  // (oral_history is now also a coercion target if memory_exercise gets
+  //  re-mapped at the disclosure layer — for now keep warm_storytelling
+  //  to preserve any in-flight narrator pacing.)
   const _LEGACY_REDIRECTS = { memory_exercise: "warm_storytelling" };
 
   /* ── Public dispatcher ─────────────────────────────────────────
@@ -55,7 +62,9 @@
     }
     style = (typeof style === "string" && VALID_STYLES.includes(style))
       ? style
-      : "warm_storytelling";
+      // WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): default fallback
+      // flipped from warm_storytelling to oral_history.
+      : "oral_history";
 
     if (!state || !state.session) return;
     state.session.sessionStyle = style;
@@ -69,6 +78,14 @@
         // for routing purposes; Lori's prompt picks up the directive via
         // the runtime71 builder.
         console.log("[session-style] tier-2 style selected:", style);
+        return;
+      case "oral_history":
+        // WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): new default
+        // posture. Routing is identical to warm_storytelling (no Bio
+        // Builder walk, no interrogation lane); the composer-side
+        // LORI_ORAL_HISTORY_RESPONSE block is what makes Lori behave
+        // as an oral historian rather than a tighter interviewer.
+        console.log("[session-style] oral_history (default) selected");
         return;
       case "warm_storytelling":
       default:
