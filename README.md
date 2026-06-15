@@ -1,8 +1,26 @@
-# Hornelore 1.0
+# Hornelore / Lorevox
 
-**A curated, hardened production build of Lorevox — locked to the Horne family.**
+**Hornelore is Lorevox.** The two names refer to the same codebase under different labels for different audiences. The Horne family is *tenant zero* — the first real user, whose sessions hardened the system — not a special case in the architecture. When the product is ready to serve other families, the rename happens. No fork. No migration.
 
-Hornelore captures the life stories of Christopher Todd Horne, Kent James Horne, and Janice Josephine Horne. It is not a general-purpose memoir platform. It is a family archive with a fixed narrator universe, pre-seeded identity data, and no way to create or delete narrators through the UI.
+**Target posture:** Lori is a story listener whose behavior is shaped by a nine-stage deterministic runtime pipeline; the LLM call is one stage of nine. Interview default is moving from questionnaire-first to **oral-history-as-default** (narrator tells chapters, Lori listens and follows; structured styles become operator-selectable overrides).
+
+**Read these first:**
+
+- [`docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md`](docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md) — *who is Lori for and what kind of project is this*
+- [`docs/architecture/LORI-RUNTIME-ARCHITECTURE.md`](docs/architecture/LORI-RUNTIME-ARCHITECTURE.md) — *the nine-stage control flow that produces Lori's behavior*
+- [`docs/architecture/MEMORY-EXERCISE-DECISION.md`](docs/architecture/MEMORY-EXERCISE-DECISION.md) — keeps `memory_exercise` as a real style; specs a follow-up implementation WO
+
+Active work orders live in `docs/wo/`. Pre-pivot specs (the Horne-family-locked era) are archived under `docs/archive/workorders-pre-pivot/` for design-history traceability; they are not the active source of truth.
+
+The "locked to the Horne family" framing below is now reclassified as the *tenant-zero* operating constraint, not an architectural commitment. The status tables and narrator descriptions remain accurate for the current state but should be read against the universal target above.
+
+---
+
+# Hornelore 1.0 (tenant-zero context)
+
+**A curated, hardened production build of Lorevox — operating against the Horne family as tenant zero.**
+
+Hornelore captures the life stories of Christopher Todd Horne, Kent James Horne, and Janice Josephine Horne. It is not a general-purpose memoir platform *yet*. It is a family archive with a fixed narrator universe, pre-seeded identity data, and no way to create or delete narrators through the UI.
 
 Built from a live-audited subset of Lorevox 9.0. Every included file was verified against actual browser network requests — not inferred from imports or guessed from the repo tree.
 
