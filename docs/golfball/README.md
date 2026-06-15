@@ -40,6 +40,10 @@ formal architecture now codified in `WO-LORI-STORY-CAPTURE-01_Spec.md`
 | `README.md` | This file. Folder index + "why golfball" framing. |
 | `dialogue-2026-04-30.md` | Three-voice record — Chris, Claude, ChatGPT — of the conversation that produced the four-classification LAW system, the sibling-golfball pattern, and the caddie metaphor for outside design partners. |
 
+## Lane trails (lineage → code → disclosure)
+
+**Past-tense and softened-mode lane (WO trio).** [`WO-LORI-SAFETY-LLM-CLASSIFIER-01`](../wo/WO-LORI-SAFETY-LLM-CLASSIFIER-01_Spec.md) introduces the three-dimension classifier (category × tense × subject) and the deterministic acknowledgment path for past-tense self-directed ideation narrated as memoir. [`WO-LORI-SOFTENED-MODE-PERSISTENCE-01`](../wo/WO-LORI-SOFTENED-MODE-PERSISTENCE-01_Spec.md) implements the N-turn softened state machine that consumes the brief softened state from past-tense and the longer state from acute. [`WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01`](../wo/WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01_Spec.md) edits the consent disclosure and operator runbook to honestly describe the resulting behavior. Together these three WOs close parent-session readiness Gate 6 and enable the oral-history-default flip in `WO-LORI-ORAL-HISTORY-DEFAULT-01`. Disclosure text and operational guidance live at [`docs/runbooks/SAFETY_OPERATOR_RUNBOOK.md`](../runbooks/SAFETY_OPERATOR_RUNBOOK.md); the chain from family-facing language → operator action → code runs through that file's cross-references section.
+
 ## What is NOT here (and why)
 
 - `golfball.docx` itself — Chris's literary source material, kept outside
