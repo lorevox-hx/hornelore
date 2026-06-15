@@ -672,6 +672,78 @@ mark.fragment-fact {
   color: #94a3b8;
   line-height: 1.4;
 }
+/* WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14) — visual highlight for
+   the default session-style card (oral_history). Stronger border +
+   subtle accent background; signals "this is the recommended default"
+   without locking the operator out of the other choices.            */
+.lv-session-style-card-default {
+  border-color: rgba(99,102,241,0.65);
+  background: rgba(30,41,59,0.78);
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.32) inset;
+}
+.lv-session-style-card-default:hover {
+  border-color: rgba(129,140,248,0.85);
+}
+.lv-session-style-default-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #c7d2fe;
+  background: rgba(99,102,241,0.25);
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+/* WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14) — one-time operator
+   notification banner announcing the default flip. Compact card with
+   ✕ dismissal; dismissal persisted via localStorage so it only ever
+   appears once per operator/browser. */
+.lv-oral-history-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(99,102,241,0.40);
+  background: rgba(30,41,59,0.85);
+  color: #e2e8f0;
+  font-family: inherit;
+}
+.lv-oral-history-notice[hidden] { display: none; }
+.lv-oral-history-notice-body { flex: 1; min-width: 0; }
+.lv-oral-history-notice-body strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #c7d2fe;
+  margin-bottom: 4px;
+}
+.lv-oral-history-notice-body p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+.lv-oral-history-notice-dismiss {
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.lv-oral-history-notice-dismiss:hover {
+  color: #e2e8f0;
+  background: rgba(99,102,241,0.18);
+}
 /* WO-10C cognitive-support-mode operator toggle row (2026-05-06) */
 .lv-operator-toggle-row {
   display: flex;

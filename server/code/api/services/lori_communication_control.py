@@ -36,7 +36,7 @@ Public API:
 
     enforce_lori_communication_control(
         assistant_text, user_text,
-        *, safety_triggered=False, session_style="clear_direct",
+        *, safety_triggered=False, session_style="oral_history",
     ) -> CommunicationControlResult
 
 The chat_ws.py wire-up is a single call site. The harness consumes
@@ -403,13 +403,31 @@ def scrub_phantom_proper_nouns(
 # Per-session-style word-count limits (Quantity maxim).
 # clear_direct stays tight; warm_storytelling allows more narrative
 # breath; companion sits between.
+#
+# WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14):
+#   - oral_history (NEW, system default): 90 — longer Lori turns are
+#     allowed so reflection-then-invitation has room to breathe over
+#     a chapter-length narrator turn. Pairs with the
+#     LORI_ORAL_HISTORY_RESPONSE posture block in prompt_composer.
+#   - memory_exercise (NEW): 60 — picker entry remains shelved but
+#     the table is now closed (no implicit default key lookup misses).
+#   - warm_storytelling stays 90 (per WO §4 "keeping it at 90 is
+#     defensible too" — oral_history matches at 90 and the styles
+#     differ on posture + future per-style momentum/ladder params, not
+#     word cap).
+#   - questionnaire_first / clear_direct / companion unchanged.
+# Default for unrecognized styles flips from 55 (clear_direct heritage)
+# to 90 (oral_history heritage) so missing/unknown keys land on the new
+# system default instead of the tightest cap.
 _SESSION_STYLE_WORD_LIMITS: Dict[str, int] = {
-    "clear_direct": 55,
+    "oral_history": 90,
     "warm_storytelling": 90,
-    "questionnaire_first": 70,
     "companion": 80,
+    "memory_exercise": 60,
+    "questionnaire_first": 70,
+    "clear_direct": 55,
 }
-_DEFAULT_WORD_LIMIT = 55
+_DEFAULT_WORD_LIMIT = 90
 
 
 # Patterns used to detect "normal interview question during safety" —
@@ -514,7 +532,7 @@ class CommunicationControlResult:
     word_count: int = 0
     atomicity_failures: List[str] = field(default_factory=list)
     reflection_failures: List[str] = field(default_factory=list)
-    session_style: str = "clear_direct"
+    session_style: str = "oral_history"
     safety_triggered: bool = False
 
     def to_dict(self) -> Dict:
@@ -753,7 +771,10 @@ def enforce_lori_communication_control(
     user_text: str,
     *,
     safety_triggered: bool = False,
-    session_style: str = "clear_direct",
+    # WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14): default flipped
+    # from "clear_direct" to "oral_history" so callers that pass no
+    # explicit style pick up the new system default (90-word cap).
+    session_style: str = "oral_history",
     softened_mode_active: bool = False,
     softened_state: Optional[Dict] = None,
     # WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — Phase 1 inputs.

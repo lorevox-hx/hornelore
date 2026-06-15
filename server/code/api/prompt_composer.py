@@ -1583,6 +1583,55 @@ a Layer 1 open invitation.
 """
 
 
+# ─────────────────────────────────────────────────────────────────────
+# WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14)
+#
+# The composition posture for the system's NEW default session style.
+# This block is the load-bearing piece — it defines what oral_history
+# actually MEANS at the prompt level. The default flip is meaningless
+# without a posture for the new default to project.
+#
+# LAYERING: This block is ADDITIVE to LORI_INTERVIEW_DISCIPLINE — the
+# Gricean cooperative foundations from the discipline block remain in
+# force. What this block does is OVERRIDE the question-cadence guidance
+# (which assumed shorter turns and tighter facts) with a listening-led
+# cadence. STORY MODE DIRECTIVE + QUESTION HIERARCHY GUIDANCE still
+# layer on top — Phase 1 validators don't change behavior, they just
+# get more reliably honored when the base posture is oral-history.
+#
+# WHO THIS IS FOR: every narrator, not the Horne family specifically.
+# Tenant-zero framing. Per HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md.
+# ─────────────────────────────────────────────────────────────────────
+
+LORI_ORAL_HISTORY_RESPONSE = """\
+ORAL-HISTORY POSTURE — THE NARRATOR LEADS, YOU FOLLOW.
+
+You are listening to someone tell the story of their life, one chapter
+at a time. The narrator leads. You follow. This is the default posture
+for the session.
+
+When the narrator is telling a story, your job is to receive it.
+Reflect something concrete from what they just said — a place, a
+person, a detail in their own words — before anything else. Do not
+redirect. Do not verify spellings or dates. Do not steer back to an
+earlier topic. The chapter they are telling is the most important
+thing happening.
+
+When the narrator pauses or finishes a thread, you may open one door:
+a broad invitation ("What stands out most from that time?") or a
+gentle continuation of something they mentioned earlier. ONE question
+at most. Broad before specific. Never two topics in one question.
+
+Long silences are welcome. Long stories are welcome. If the narrator
+wanders across decades, follow them — chronology is their choice, not
+yours. You may gently anchor time only when they seem to want it
+("That would have been before the war?") and never as correction.
+
+You are not running a questionnaire. You are sitting with someone who
+is remembering their life out loud.
+"""
+
+
 # Compound-question detector — fires inside a single question segment
 # when a wh-word leads, a linker ("and"/"or"/"also"/"plus") follows,
 # then a second wh-word OR a second question stem appears before the
@@ -3265,6 +3314,55 @@ def compose_system_prompt(
         # for a structured summary).
         directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
         directive_lines.append("")
+
+        # ── WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14) ────────────────
+        # Session-style posture injection. The new default style
+        # (oral_history) overrides the question-cadence guidance from
+        # LORI_INTERVIEW_DISCIPLINE with a listening-led cadence.
+        # When session_style is absent, malformed, or unknown, fall
+        # through to oral_history (the new system default).
+        # When session_style is explicitly one of the other supported
+        # styles (warm_storytelling, companion, clear_direct,
+        # questionnaire_first), the directive string from FE's
+        # _emitStyleDirective carries the per-style tone and we do
+        # NOT inject the oral-history block.
+        try:
+            _session_style = ""
+            if isinstance(runtime71, dict):
+                _session_style = str(
+                    runtime71.get("session_style") or ""
+                ).strip().lower()
+            _KNOWN_NON_ORAL_STYLES = {
+                "warm_storytelling", "companion",
+                "clear_direct", "questionnaire_first",
+                "memory_exercise",
+            }
+            if _session_style not in _KNOWN_NON_ORAL_STYLES:
+                # Includes "oral_history", "", and any unrecognized value.
+                # Log a single warning on unrecognized values; empty
+                # is the universal default path so it stays silent.
+                if _session_style and _session_style != "oral_history":
+                    try:
+                        logger.warning(
+                            "[composer] unknown session_style=%r — "
+                            "falling through to oral_history",
+                            _session_style,
+                        )
+                    except Exception:
+                        pass
+                directive_lines.append(LORI_ORAL_HISTORY_RESPONSE.strip())
+                directive_lines.append("")
+                # Verifiable log line per WO acceptance gate 0
+                try:
+                    logger.info(
+                        "[composer] style=oral_history block=LORI_ORAL_HISTORY_RESPONSE",
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            # Posture injection must never break composer assembly —
+            # silent skip is byte-stable with pre-WO behavior.
+            pass
 
         # ── WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) ─────────────────
         # Three additive directive blocks gated by runtime71 keys that
