@@ -24,6 +24,11 @@
   <!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — shared
        styling for bug-panel-bio-editor.js + bug-panel-bio-gap-map.js -->
   <link rel="stylesheet" href="css/bug-panel-bio.css">
+  <!-- WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 1 (2026-06-15) —
+       structured intake modal styling. The modal mount block sits
+       near the end of <body>; the JS module lives at
+       ui/js/narrator-intake.js. -->
+  <link rel="stylesheet" href="css/narrator-intake.css">
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/bug-panel-story-review.css">
   <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
@@ -4708,6 +4713,385 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════
+     WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 1 (2026-06-15)
+
+     Structured narrator-intake modal. Opens via lvOpenNarratorIntake()
+     when the operator clicks "+ Add Narrator" in the switcher (see
+     lv80RenderNarratorCards). Captures the 6 required identity fields
+     + 2 required consent checkboxes; everything else goes into Bio
+     Builder / later phases. Demoted "Skip — testing only" link at the
+     bottom preserves the legacy zero-field prompt() for stress-test
+     narrators (Walter, Jake).
+
+     JS: ui/js/narrator-intake.js
+     CSS: ui/css/narrator-intake.css
+     Backend: POST /api/people accepts the extended payload; consent
+              rows written to consent_attestations (migration 0013).
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="lvNarratorIntakeModal" role="dialog" aria-modal="true"
+     aria-labelledby="lvNarratorIntakeTitle" aria-hidden="true">
+  <div class="lv-intake-card">
+    <div class="lv-intake-header">
+      <h2 id="lvNarratorIntakeTitle">Add a new narrator</h2>
+      <button type="button" class="lv-intake-close"
+              aria-label="Close" onclick="lvCloseNarratorIntake()">×</button>
+    </div>
+    <p class="lv-intake-sub">
+      The fields below seed Lori's understanding of who she's talking
+      to. Everything below is required so Lori can anchor her first
+      turn correctly.
+    </p>
+
+    <div id="lvNarratorIntakeErrorBar" class="lv-intake-error-bar"
+         role="alert" aria-live="polite"></div>
+
+    <form id="lvNarratorIntakeForm" onsubmit="event.preventDefault(); lvNarratorIntakeSubmit({target:'session'});">
+      <div class="lv-intake-section">
+        <div class="lv-intake-section-title">Identity<span class="lv-intake-required-marker">*</span></div>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakeFullName">Full legal name<span class="lv-intake-required-marker">*</span></label>
+          <input type="text" id="lvIntakeFullName" class="lv-intake-input"
+                 autocomplete="name" maxlength="120">
+        </div>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakePreferredName">Preferred name (what Lori will call them)<span class="lv-intake-required-marker">*</span></label>
+          <input type="text" id="lvIntakePreferredName" class="lv-intake-input"
+                 autocomplete="given-name" maxlength="60">
+        </div>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakeDob">Date of birth<span class="lv-intake-required-marker">*</span></label>
+          <input type="date" id="lvIntakeDob" class="lv-intake-input">
+          <div id="lvNarratorIntakeDobHelper" class="lv-intake-dob-helper"></div>
+        </div>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakePob">Place of birth<span class="lv-intake-required-marker">*</span></label>
+          <input type="text" id="lvIntakePob" class="lv-intake-input"
+                 placeholder="City, state / region, country"
+                 maxlength="120">
+        </div>
+
+        <div class="lv-intake-row">
+          <label>Pronouns<span class="lv-intake-required-marker">*</span></label>
+          <div class="lv-intake-pronoun-radios">
+            <label><input type="radio" name="lvIntakePronouns" value="she_her"> she / her</label>
+            <label><input type="radio" name="lvIntakePronouns" value="he_him"> he / him</label>
+            <label><input type="radio" name="lvIntakePronouns" value="they_them"> they / them</label>
+            <label><input type="radio" name="lvIntakePronouns" value="other"> other:</label>
+            <input type="text" id="lvIntakePronounsOther"
+                   class="lv-intake-input lv-intake-pronouns-other"
+                   placeholder="write in pronoun" maxlength="40">
+          </div>
+        </div>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakeCurrentResidence">Currently lives in<span class="lv-intake-required-marker">*</span></label>
+          <input type="text" id="lvIntakeCurrentResidence" class="lv-intake-input"
+                 placeholder="City, state / region"
+                 maxlength="120">
+        </div>
+      </div>
+
+      <!-- ──────── Optional sections (collapsed by default) ──────── -->
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Family of origin</summary>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakeFatherName">Father's name</label>
+          <input type="text" id="lvIntakeFatherName" class="lv-intake-input" maxlength="120">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeFatherDob">Father's date of birth</label>
+          <input type="date" id="lvIntakeFatherDob" class="lv-intake-input">
+        </div>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakeMotherName">Mother's name</label>
+          <input type="text" id="lvIntakeMotherName" class="lv-intake-input" maxlength="120">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeMotherMaiden">Mother's maiden name</label>
+          <input type="text" id="lvIntakeMotherMaiden" class="lv-intake-input" maxlength="120">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeMotherDob">Mother's date of birth</label>
+          <input type="date" id="lvIntakeMotherDob" class="lv-intake-input">
+        </div>
+
+        <div class="lv-intake-section-title" style="margin-top:14px;">Siblings (oldest to youngest)</div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-sibling-name" placeholder="Sibling 1 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-sibling-dob" title="Sibling 1 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-sibling-name" placeholder="Sibling 2 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-sibling-dob" title="Sibling 2 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-sibling-name" placeholder="Sibling 3 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-sibling-dob" title="Sibling 3 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-sibling-name" placeholder="Sibling 4 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-sibling-dob" title="Sibling 4 date of birth">
+        </div>
+      </details>
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Marriage and partners</summary>
+
+        <div class="lv-intake-row">
+          <label for="lvIntakeMaritalStatus">Marital status</label>
+          <select id="lvIntakeMaritalStatus" class="lv-intake-input">
+            <option value=""></option>
+            <option value="single">Single — never married</option>
+            <option value="married">Married</option>
+            <option value="widowed">Widowed</option>
+            <option value="divorced">Divorced</option>
+            <option value="separated">Separated</option>
+            <option value="partnered">Partnered (not married)</option>
+            <option value="prefer_not_to_say">Prefer not to say</option>
+          </select>
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeNumMarriages">Number of marriages</label>
+          <input type="number" id="lvIntakeNumMarriages" class="lv-intake-input"
+                 min="0" max="20" step="1">
+        </div>
+
+        <div class="lv-intake-section-title" style="margin-top:14px;">Spouses (most recent first)</div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-spouse-name" placeholder="Spouse 1 name" maxlength="120">
+          <input type="number" class="lv-intake-input lv-intake-spouse-year" placeholder="Year married" min="1900" max="2100">
+          <select class="lv-intake-input lv-intake-spouse-status" title="Spouse 1 status">
+            <option value="">status…</option>
+            <option value="current">current</option>
+            <option value="deceased">deceased</option>
+            <option value="divorced">divorced</option>
+            <option value="separated">separated</option>
+          </select>
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-spouse-name" placeholder="Spouse 2 name" maxlength="120">
+          <input type="number" class="lv-intake-input lv-intake-spouse-year" placeholder="Year married" min="1900" max="2100">
+          <select class="lv-intake-input lv-intake-spouse-status" title="Spouse 2 status">
+            <option value="">status…</option>
+            <option value="current">current</option>
+            <option value="deceased">deceased</option>
+            <option value="divorced">divorced</option>
+            <option value="separated">separated</option>
+          </select>
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-spouse-name" placeholder="Spouse 3 name" maxlength="120">
+          <input type="number" class="lv-intake-input lv-intake-spouse-year" placeholder="Year married" min="1900" max="2100">
+          <select class="lv-intake-input lv-intake-spouse-status" title="Spouse 3 status">
+            <option value="">status…</option>
+            <option value="current">current</option>
+            <option value="deceased">deceased</option>
+            <option value="divorced">divorced</option>
+            <option value="separated">separated</option>
+          </select>
+        </div>
+      </details>
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Children</summary>
+        <p class="lv-intake-sub" style="margin:0 0 10px;">List in birth order, oldest first. Leave blank if none.</p>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-child-name" placeholder="Child 1 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-child-dob" title="Child 1 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-child-name" placeholder="Child 2 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-child-dob" title="Child 2 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-child-name" placeholder="Child 3 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-child-dob" title="Child 3 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-child-name" placeholder="Child 4 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-child-dob" title="Child 4 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-child-name" placeholder="Child 5 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-child-dob" title="Child 5 date of birth">
+        </div>
+        <div class="lv-intake-row lv-intake-repeater-row">
+          <input type="text" class="lv-intake-input lv-intake-child-name" placeholder="Child 6 name" maxlength="120">
+          <input type="date" class="lv-intake-input lv-intake-child-dob" title="Child 6 date of birth">
+        </div>
+      </details>
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Education and work</summary>
+        <div class="lv-intake-row">
+          <label for="lvIntakeEduLevel">Highest level of education</label>
+          <select id="lvIntakeEduLevel" class="lv-intake-input">
+            <option value=""></option>
+            <option value="some_grade_school">Some grade school</option>
+            <option value="grade_school">Grade school</option>
+            <option value="some_high_school">Some high school</option>
+            <option value="high_school_diploma">High school diploma / GED</option>
+            <option value="trade_school">Trade or vocational school</option>
+            <option value="some_college">Some college</option>
+            <option value="associates">Associate's degree</option>
+            <option value="bachelors">Bachelor's degree</option>
+            <option value="masters">Master's degree</option>
+            <option value="doctorate">Doctorate / professional degree</option>
+            <option value="prefer_not_to_say">Prefer not to say</option>
+          </select>
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeCareer">Primary career or main work</label>
+          <input type="text" id="lvIntakeCareer" class="lv-intake-input"
+                 placeholder="e.g. nurse, farmer, teacher, machinist"
+                 maxlength="180">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeWorkYears">Approximate years working</label>
+          <input type="text" id="lvIntakeWorkYears" class="lv-intake-input"
+                 placeholder="e.g. 1965–2005, or 40 years"
+                 maxlength="80">
+        </div>
+      </details>
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Military service</summary>
+        <div class="lv-intake-row">
+          <label>Did the narrator serve in the military?</label>
+          <div class="lv-intake-pronoun-radios">
+            <label><input type="radio" name="lvIntakeMilServed" value="yes"
+                          onchange="(function(){var s=document.getElementById('lvIntakeMilDetails'); if(s){s.style.display='block';}})();"> Yes</label>
+            <label><input type="radio" name="lvIntakeMilServed" value="no" checked
+                          onchange="(function(){var s=document.getElementById('lvIntakeMilDetails'); if(s){s.style.display='none';}})();"> No</label>
+          </div>
+        </div>
+        <div id="lvIntakeMilDetails" style="display:none;">
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilBranch">Branch</label>
+            <select id="lvIntakeMilBranch" class="lv-intake-input">
+              <option value=""></option>
+              <option value="Army">Army</option>
+              <option value="Navy">Navy</option>
+              <option value="Air Force">Air Force</option>
+              <option value="Marines">Marines</option>
+              <option value="Coast Guard">Coast Guard</option>
+              <option value="Space Force">Space Force</option>
+              <option value="National Guard">National Guard</option>
+              <option value="Reserves">Reserves</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilDates">Service dates</label>
+            <input type="text" id="lvIntakeMilDates" class="lv-intake-input"
+                   placeholder="e.g. 1966–1970" maxlength="80">
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilRank">Rank at discharge</label>
+            <input type="text" id="lvIntakeMilRank" class="lv-intake-input" maxlength="60">
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilUnits">Units (regiment / squadron / ship)</label>
+            <input type="text" id="lvIntakeMilUnits" class="lv-intake-input" maxlength="180">
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilLocations">Locations served</label>
+            <input type="text" id="lvIntakeMilLocations" class="lv-intake-input"
+                   placeholder="e.g. Vietnam, Germany, stateside" maxlength="180">
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilWars">Wars or conflicts</label>
+            <input type="text" id="lvIntakeMilWars" class="lv-intake-input"
+                   placeholder="e.g. Vietnam War, Korea, Gulf War" maxlength="180">
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilDecor">Decorations or notable assignments</label>
+            <input type="text" id="lvIntakeMilDecor" class="lv-intake-input" maxlength="180">
+          </div>
+          <div class="lv-intake-row">
+            <label for="lvIntakeMilNotes">Anything you'd like Lori to handle gently</label>
+            <input type="text" id="lvIntakeMilNotes" class="lv-intake-input"
+                   placeholder="optional context — combat, loss, etc." maxlength="240">
+          </div>
+        </div>
+      </details>
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Faith and heritage</summary>
+        <div class="lv-intake-row">
+          <label for="lvIntakeFaithRaised">Religion raised in</label>
+          <input type="text" id="lvIntakeFaithRaised" class="lv-intake-input"
+                 placeholder="optional" maxlength="120">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeFaithCurrent">Current faith or spiritual practice</label>
+          <input type="text" id="lvIntakeFaithCurrent" class="lv-intake-input"
+                 placeholder="optional" maxlength="120">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeEthnicity">Ethnicity, heritage, or cultural background</label>
+          <input type="text" id="lvIntakeEthnicity" class="lv-intake-input"
+                 placeholder="e.g. German-Russian, African American, Mexican" maxlength="180">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeLanguages">Languages spoken at home growing up</label>
+          <input type="text" id="lvIntakeLanguages" class="lv-intake-input"
+                 placeholder="e.g. English, German, Spanish" maxlength="180">
+        </div>
+      </details>
+
+      <details class="lv-intake-section lv-intake-collapsible">
+        <summary class="lv-intake-section-title">Today</summary>
+        <div class="lv-intake-row">
+          <label for="lvIntakeLivingSituation">Current living situation</label>
+          <input type="text" id="lvIntakeLivingSituation" class="lv-intake-input"
+                 placeholder="e.g. at home with spouse, in assisted living, alone in own home"
+                 maxlength="240">
+        </div>
+        <div class="lv-intake-row">
+          <label for="lvIntakeHealthNotes">Health considerations Lori should know about</label>
+          <input type="text" id="lvIntakeHealthNotes" class="lv-intake-input"
+                 placeholder="optional — e.g. low vision, slow hearing, memory support needed"
+                 maxlength="240">
+        </div>
+      </details>
+
+      <!-- ──────── Consent (required) ──────── -->
+
+      <div class="lv-intake-section">
+        <div class="lv-intake-section-title">Consent — narrator confirms<span class="lv-intake-required-marker">*</span></div>
+        <div class="lv-intake-consent">
+          <label class="lv-intake-consent-row">
+            <input type="checkbox" id="lvIntakeConsentRecording">
+            <span>I agree to be recorded and to have my stories preserved as a memoir.</span>
+          </label>
+          <label class="lv-intake-consent-row">
+            <input type="checkbox" id="lvIntakeConsentDisclosure">
+            <span>I have reviewed (or had read to me) the disclosure of how Lori behaves around safety topics.</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="lv-intake-footer">
+        <button type="button" class="lv-intake-btn"
+                onclick="lvNarratorIntakeSubmit({target:'session'});">Save and start session</button>
+        <button type="button" class="lv-intake-btn lv-intake-btn-secondary"
+                onclick="lvNarratorIntakeSubmit({target:'bio_builder'});">Save and continue to Bio Builder</button>
+        <button type="button" class="lv-intake-skip-link"
+                onclick="lvNarratorIntakeSkipTesting()">Skip — add narrator for testing only</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ── v8 Delete Narrator Dialog ── -->
 <div id="lv80DeleteNarratorDialog" popover="manual" class="lv80-delete-dialog">
   <div class="lv80-delete-shell">
@@ -4866,6 +5250,13 @@
      HORNELORE_OPERATOR_BIO_GAP_MAP) flip ON. -->
 <script src="js/bug-panel-bio-gap-map.js?v=2026-06-14"></script>
 <script src="js/bug-panel-bio-editor.js?v=2026-06-14"></script>
+<!-- WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 1 (2026-06-15) —
+     structured intake modal. Replaces the prompt()-only narrator
+     create path when the operator clicks "+ Add Narrator" in the
+     switcher. Preserves a demoted "Skip — testing only" link inside
+     the modal so stress-test narrators (Walter, Jake) can still be
+     added without consent. -->
+<script src="js/narrator-intake.js?v=2026-06-15"></script>
 <script src="js/bug-panel-dashboard-heartbeat.js?v=2026-05-01"></script>
 <script src="js/bug-panel-silence-ladder.js?v=2026-05-06"></script>
 <script src="js/bug-panel-preflight.js?v=2026-05-10"></script>
@@ -5857,12 +6248,26 @@ function lv80RenderNarratorCards(){
     list.appendChild(_renderCard(person, isCore ? "FAMILY" : "TEST", isCore ? "real" : "test", null));
   });
 
-  // Add narrator button
+  // Add narrator button — WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01
+  // Phase 1: opens the structured intake modal. The modal carries a
+  // demoted "Skip — add narrator for testing only" link that
+  // preserves the legacy zero-field prompt() behavior for stress-
+  // testing scenarios (Walter, Jake) without forcing the operator
+  // through the required identity floor.
   const addBtn = document.createElement("button");
   addBtn.className = "bb-btn-sm";
   addBtn.style.cssText = "width:100%;margin-top:10px;padding:8px;border:1px dashed rgba(255,255,255,0.2);color:#94a3b8;";
-  addBtn.textContent = "+ Add Test Narrator";
-  addBtn.onclick = () => lv80NewPerson();
+  addBtn.textContent = "+ Add Narrator";
+  addBtn.onclick = () => {
+    try {
+      if (typeof lvOpenNarratorIntake === "function") {
+        lvOpenNarratorIntake();
+        return;
+      }
+    } catch (_) { /* fall through to legacy prompt */ }
+    // Legacy fallback when the intake module hasn't loaded yet
+    lv80NewPerson();
+  };
   list.appendChild(addBtn);
 }
 

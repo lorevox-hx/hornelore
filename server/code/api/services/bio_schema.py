@@ -161,6 +161,16 @@ BIO_SCHEMA_SEED: Tuple[FieldDefinition, ...] = (
                     asking_anchors=("church", "synagogue", "mosque", "temple",
                                     "sunday school", "catechism", "raised catholic",
                                     "raised baptist", "raised jewish", "religious")),
+    # WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 2A — current faith
+    # surfaces faith differences between childhood + adult life.
+    # Operator-entered at intake; rarely re-asked of the narrator since
+    # it's a sensitive identity field they may have already discussed.
+    FieldDefinition("current_faith", "Current faith / practice", "identity", "text",
+                    narrative_value="medium",
+                    life_stage_range="adult",
+                    asking_anchors=("still go to", "stopped going to",
+                                    "left the church", "found a new church",
+                                    "we belong to", "now i believe")),
     FieldDefinition("ethnicity_heritage", "Ethnicity / heritage", "identity", "text",
                     narrative_value="medium",
                     asking_anchors=("heritage", "ancestors came from", "from the old country")),
@@ -272,6 +282,13 @@ BIO_SCHEMA_SEED: Tuple[FieldDefinition, ...] = (
                     narrative_value="high",
                     asking_anchors=("trade school", "apprenticeship", "journeyman",
                                     "trained as", "learned the trade")),
+    # WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 2A — coarse education
+    # picker captured at intake. Single string per spec ("Some primary"
+    # / "High school" / "Bachelor's" / etc.). Specific institutions
+    # come out in the chapter, not in the form — see WO Out of scope.
+    FieldDefinition("highest_education_level", "Highest education level reached",
+                    "education", "enum",
+                    narrative_value="low"),
 
     # ── work ─────────────────────────────────────────────────────────
     FieldDefinition("first_job", "First job", "work", "text",
@@ -351,6 +368,19 @@ BIO_SCHEMA_SEED: Tuple[FieldDefinition, ...] = (
                     life_stage_range="military_only",
                     asking_anchors=("medal", "purple heart", "bronze star",
                                     "silver star", "decorated")),
+    # WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 2A — wars / conflicts
+    # served through. Operator-entered at intake from the VHP-pattern
+    # military block; surfaces in memoir indexing but not anchored-
+    # asked (narrative_value=low) since the existing combat /
+    # military_locations / military_service_period fields already
+    # carry asking anchors.
+    FieldDefinition("military_wars_conflicts", "Wars / conflicts", "military", "text",
+                    narrative_value="low",
+                    life_stage_range="military_only"),
+    FieldDefinition("military_experience_notes", "Service experience notes",
+                    "military", "text",
+                    narrative_value="low",
+                    life_stage_range="military_only"),
 
     # ── geography ────────────────────────────────────────────────────
     FieldDefinition("childhood_geography", "Where childhood was spent",

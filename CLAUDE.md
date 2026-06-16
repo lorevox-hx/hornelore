@@ -63,6 +63,7 @@ These eight principles are checked against every UI element, every data write, a
 - **Repo path (WSL)**: `/mnt/c/Users/chris/hornelore` — NOT `~/hornelore`.
 - **Agent workspace mount**: `/sessions/<session-id>/mnt/hornelore`. Edits here are live on Chris's repo.
 - **Git is NOT accessible from the sandbox mount.** `git status`, `git add`, `git commit`, `git diff --stat`, `git log` from the sandbox either fault with "not a git repository" or "unable to read <oid>". This is permanent — do not retry. File reads and edits work; only the git tooling is broken. All commit/branch/log operations must be handed to Chris as copy-paste blocks that he runs from `/mnt/c/Users/chris/hornelore`.
+- **Chris commits and pushes via GitHub Desktop, not the WSL command line.** Do NOT produce `git commit` / `git push` / `git branch -m` copy-paste blocks. Instead, give him a per-commit grouping (list of file paths) + a commit-message subject line + the commit-message body if it's the kind of change that wants one, and let him do the staging + commit + push in GitHub Desktop. `git status` / `git diff --stat` / `git log` copy-paste blocks are still fine (read-only inspection). Do NOT suggest SSH key swaps, `gh auth setup-git`, PAT entry, or any other auth dance — his auth is already wired through GitHub Desktop and is none of the agent's business.
 - **GPU**: NVIDIA RTX 50-series (Blackwell). Local LLM serves from this machine.
 
 ## Stack ownership

@@ -889,6 +889,64 @@ def init_db() -> None:
     )
 
     # -----------------------------
+    # WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 — Phase 1A consent ledger.
+    # One row per attestation event so consent state has a proper audit
+    # trail (timestamp + which operator checked the box, if attestation
+    # happened on the narrator's behalf). Schema mirror of migration
+    # 0013_narrator_intake.sql; CREATE TABLE IF NOT EXISTS so cold-start
+    # builds the table without the migrations runner.
+    # -----------------------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS consent_attestations (
+            id TEXT PRIMARY KEY,
+            narrator_id TEXT NOT NULL,
+            attestation_type TEXT NOT NULL,
+            attested_at TEXT NOT NULL,
+            checked_by_operator TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            FOREIGN KEY (narrator_id) REFERENCES people(id) ON DELETE CASCADE
+        );
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_consent_attest_narrator "
+        "ON consent_attestations(narrator_id);"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_consent_attest_type "
+        "ON consent_attestations(narrator_id, attestation_type);"
+    )
+
+    # Phase 1A people-column additions (pronouns, pronouns_other,
+    # current_residence). SQLite ALTER TABLE ADD COLUMN is not
+    # idempotent — it errors if the column already exists. Use
+    # PRAGMA table_info to check first so cold-start + repeat
+    # init_db calls don't crash.
+    try:
+        existing_cols = {
+            row[1] for row in cur.execute(
+                "PRAGMA table_info(people);"
+            ).fetchall()
+        }
+        for col_name, col_def in (
+            ("pronouns", "TEXT DEFAULT ''"),
+            ("pronouns_other", "TEXT DEFAULT ''"),
+            ("current_residence", "TEXT DEFAULT ''"),
+        ):
+            if col_name not in existing_cols:
+                cur.execute(
+                    f"ALTER TABLE people ADD COLUMN {col_name} {col_def};"
+                )
+    except sqlite3.Error:
+        # Non-fatal: drift-check downstream will surface any
+        # missing columns clearly; we don't want init_db to die
+        # on a column-add race.
+        logger.exception(
+            "people intake-column ALTER skipped (non-fatal)",
+        )
+
+    # -----------------------------
     # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface.
     # Persists every safety trigger as a discrete event for the operator
     # Bug Panel banner + between-session digest. Distinct from segment_flags
@@ -1433,6 +1491,16 @@ def create_person(
     date_of_birth: str = "",
     place_of_birth: str = "",
     narrator_type: str = "live",
+    *,
+    # WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 — Phase 1A identity fields.
+    # These map to the new columns added by migration 0013 and the
+    # idempotent ALTER TABLE block in init_db. Lori's prompt composer
+    # reads pronouns + current_residence on every turn, so writing
+    # them at create-time eliminates the "pronoun-unknown" gap that
+    # forced Lori to guess.
+    pronouns: str = "",
+    pronouns_other: str = "",
+    current_residence: str = "",
 ) -> Dict[str, Any]:
     init_db()
     pid = _uuid()
@@ -1441,18 +1509,31 @@ def create_person(
     con = _connect()
     con.execute(
         """
-        INSERT INTO people(id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,narrator_type)
-        VALUES(?,?,?,?,?,?,?,?);
+        INSERT INTO people(
+            id, display_name, role, date_of_birth, place_of_birth,
+            created_at, updated_at, narrator_type,
+            pronouns, pronouns_other, current_residence
+        )
+        VALUES(?,?,?,?,?,?,?,?,?,?,?);
         """,
-        (pid, display_name, role or "", _sanitise_dob(date_of_birth), place_of_birth or "", now, now, nt),
+        (
+            pid, display_name, role or "",
+            _sanitise_dob(date_of_birth), place_of_birth or "",
+            now, now, nt,
+            (pronouns or "").strip(),
+            (pronouns_other or "").strip(),
+            (current_residence or "").strip(),
+        ),
     )
     con.commit()
     con.close()
     ensure_profile(pid)
     # v7.4D — log person creation for DB verification (Phase 0)
     logger.info(
-        "DB create_person: id=%s name=%r dob=%r pob=%r narrator_type=%s",
-        pid, display_name, date_of_birth, place_of_birth, nt,
+        "DB create_person: id=%s name=%r dob=%r pob=%r "
+        "narrator_type=%s pronouns=%r residence=%r",
+        pid, display_name, date_of_birth, place_of_birth,
+        nt, pronouns, current_residence,
     )
     return get_person(pid) or {"id": pid, "display_name": display_name}
 
@@ -1535,7 +1616,10 @@ def get_person(person_id: str) -> Optional[Dict[str, Any]]:
     row = con.execute(
         """
         SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,
-               narrator_type
+               narrator_type,
+               COALESCE(pronouns, '') AS pronouns,
+               COALESCE(pronouns_other, '') AS pronouns_other,
+               COALESCE(current_residence, '') AS current_residence
         FROM people WHERE id=?;
         """,
         (person_id,),
@@ -6283,3 +6367,117 @@ def bio_schema_seed_load_to_db() -> int:
         )
         n += 1
     return n
+
+
+# ─────────────────────────────────────────────────────────────────────
+# WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 — Phase 1A
+#
+# consent_attestations CRUD. One row per attestation event. Two rows
+# per fully-consented narrator (one for recording_agreement, one for
+# disclosure_reviewed). Operator-on-behalf attestations carry the
+# operator id in `checked_by_operator`; narrator-self attestations
+# leave it as ''.
+# ─────────────────────────────────────────────────────────────────────
+
+
+_CONSENT_ATTEST_TYPES = frozenset({
+    "recording_agreement",
+    "disclosure_reviewed",
+})
+
+
+def consent_attestation_create(
+    narrator_id: str,
+    attestation_type: str,
+    *,
+    checked_by_operator: str = "",
+    notes: str = "",
+) -> str:
+    """Insert a single consent attestation row. Returns the new id.
+
+    `attestation_type` must be one of _CONSENT_ATTEST_TYPES. Raises
+    ValueError on unknown type rather than writing a malformed row.
+    """
+    if attestation_type not in _CONSENT_ATTEST_TYPES:
+        raise ValueError(
+            f"unknown attestation_type: {attestation_type!r}; "
+            f"expected one of {sorted(_CONSENT_ATTEST_TYPES)}"
+        )
+    init_db()
+    con = _connect()
+    try:
+        new_id = _uuid()
+        now = _now_iso()
+        con.execute(
+            "INSERT INTO consent_attestations "
+            "(id, narrator_id, attestation_type, attested_at, "
+            " checked_by_operator, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?);",
+            (new_id, narrator_id, attestation_type, now,
+             checked_by_operator or "", notes or ""),
+        )
+        con.commit()
+        return new_id
+    except sqlite3.Error:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def consent_attestation_list_for_narrator(
+    narrator_id: str,
+    attestation_type: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return all consent attestations for a narrator, newest first.
+
+    Optional filter by attestation_type. Operator dashboards use this
+    to surface consent-pending warnings for narrators missing either
+    type of attestation.
+    """
+    init_db()
+    con = _connect()
+    try:
+        if attestation_type:
+            rows = con.execute(
+                "SELECT id, narrator_id, attestation_type, attested_at, "
+                "       checked_by_operator, notes "
+                "FROM consent_attestations "
+                "WHERE narrator_id=? AND attestation_type=? "
+                "ORDER BY attested_at DESC;",
+                (narrator_id, attestation_type),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT id, narrator_id, attestation_type, attested_at, "
+                "       checked_by_operator, notes "
+                "FROM consent_attestations "
+                "WHERE narrator_id=? "
+                "ORDER BY attested_at DESC;",
+                (narrator_id,),
+            ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "narrator_id": r[1],
+                "attestation_type": r[2],
+                "attested_at": r[3],
+                "checked_by_operator": r[4],
+                "notes": r[5],
+            }
+            for r in rows
+        ]
+    finally:
+        con.close()
+
+
+def consent_attestation_has_complete_set(narrator_id: str) -> bool:
+    """True iff the narrator has at least one row for each of the
+    required attestation types. Used by operator dashboards to flag
+    consent-pending narrators."""
+    rows = consent_attestation_list_for_narrator(narrator_id)
+    seen = {r["attestation_type"] for r in rows}
+    return _CONSENT_ATTEST_TYPES.issubset(seen)
