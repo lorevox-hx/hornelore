@@ -1,6 +1,7 @@
 # MASTER_WORK_ORDER_CHECKLIST
 
-**Active as of:** 2026-06-14 (post-universal-pivot)
+**Active as of:** 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE)
+**Previously:** 2026-06-14 (post-universal-pivot)
 **Supersedes:** Pre-pivot checklist (archived at `docs/archive/handoffs-pre-pivot/MASTER_WORK_ORDER_CHECKLIST.md`)
 **Read first:** [`docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md`](docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md), [`docs/architecture/LORI-RUNTIME-ARCHITECTURE.md`](docs/architecture/LORI-RUNTIME-ARCHITECTURE.md)
 
@@ -27,6 +28,8 @@ Each WO gets its own Cowork session with the WO spec as the brief. Do NOT start 
 | 4 | STORY-FIRST-PHASE-1 | [`docs/wo/WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md`](docs/wo/WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md) | Oral-history behavior engine (reflection grounding, story momentum, thread bank, question hierarchy) |
 | 5 | ORAL-HISTORY-DEFAULT | [`docs/wo/WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md`](docs/wo/WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md) | Introduces `oral_history` style + makes it default |
 | 6 | BIO-BUILDER-UNIVERSAL | [`docs/wo/WO-LORI-BIO-BUILDER-UNIVERSAL-01_Spec.md`](docs/wo/WO-LORI-BIO-BUILDER-UNIVERSAL-01_Spec.md) | Four-tier Bio Builder with anchored-asking creep defense |
+| 6a | OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 | (root WO, 2026-06-15) | 9-section intake form + Phase 2B orchestrator + Phase 2C modal — **LANDED** |
+| 6b | QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 | [`docs/wo/WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01_Spec.md`](docs/wo/WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01_Spec.md) | Phase 1 read swap + Phase 2 FE badges + Phase 3 write fan-out + Phase 4 primary_career bug + Phase 5 23-test pack + Phase 6 self-review + Phase 7.5 backfill readiness — **LANDED 2026-06-16**, Phase 7 live verify pending |
 | 7 | MEMORY-EXERCISE-IMPLEMENTATION | (not yet drafted) | Specced in [`docs/architecture/MEMORY-EXERCISE-DECISION.md`](docs/architecture/MEMORY-EXERCISE-DECISION.md) |
 
 ---

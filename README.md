@@ -281,6 +281,58 @@ Detailed work-order specs live in `docs/wo-qa/`.
 
 ---
 
+### Long-narration harness family (2026-06-15 → 2026-06-16)
+
+A second harness family (separate from the WO-QA test-lab matrix above) drives a
+**full intake → 3 chapter-length narrator turns → bonus probe** end-to-end test
+against the live stack with a different narrator persona per harness. Each
+harness creates a fresh narrator via `POST /api/people/intake`, opens a chat
+WebSocket, sends three monologues that map to the canonical eras
+(earliest_years / building_years (or coming_of_age) / later_years (or today)),
+scores Lori's reply against an 8-row checklist, and writes a verbatim report
+to `docs/reports/`.
+
+Shared scaffold lives in `scripts/harness_lib.py`. Per-narrator harnesses are
+single-file wrappers that define an `INTAKE_PAYLOAD` + three `ChapterConfig`
+instances and call `run_harness()`.
+
+**Live family** (9 personas, all default `testing_only=True`):
+
+| Persona | File | Voice / test gate |
+|---|---|---|
+| Jake Max Miller (Kent content) | `scripts/run_jake_long_narration_harness.py` | Germans-from-Russia North Dakota; original reference harness |
+| William Shatner | `scripts/run_shatner_long_narration_harness.py` | Public-figure Montreal Jewish; tests "I went to space" turn |
+| Alex Eunseo Park (they/them) | `scripts/run_alex_they_long_narration_harness.py` | Korean-American Seattle, nonbinary; tests pronoun handling |
+| Richard Bellamy | `scripts/run_richard_late_coming_out_harness.py` | Gay man came out at 47 after 22-year marriage |
+| Patricia "Pat" Frye | `scripts/run_pat_teacher_betty_harness.py` | Ohio teacher + recurring close-friend Betty across all 3 chapters |
+| Mable Hudson | `scripts/run_regional_african_american_georgia_harness.py` | African American Georgia; Albany Movement + Great Migration to Detroit + return |
+| Frank Yamada | `scripts/run_regional_asian_american_california_harness.py` | Japanese-American California (Nisei); Tule Lake "no-no" segregation |
+| Joe Quintana | `scripts/run_regional_native_american_new_mexico_harness.py` | Cochiti Pueblo; tests sacred-silence rule + NAGPRA work |
+| Stefi Sandoval | `scripts/run_regional_crypto_jewish_new_mexico_harness.py` | Crypto-Jewish anusim New Mexico; tests "Remember but never tell" suppression |
+
+Cultural voice references for the regional harnesses come from
+[`docs/voice_models/VOICE_LIBRARY_v1.md`](docs/voice_models/VOICE_LIBRARY_v1.md).
+Each regional harness deliberately exercises the voice's specific suppression
+markers — Lori must NOT ask "what was the Code?" of the African American
+narrator, must NOT translate Spanish phrases from the Hispano + Tex-Mex
+narrator, must NOT request kiva or kachina details from the Pueblo narrator,
+must NOT pressure the Crypto-Jewish narrator for practice specifics.
+
+Run any harness against a warm stack:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+python3 scripts/run_<narrator>_long_narration_harness.py
+```
+
+Reports land in `docs/reports/<report_prefix>_<conv_id>.txt`. The 8-row
+scoring matrix (reflection_grounded / one_question_max /
+no_questionnaire_interrogation / no_forbidden_empathy / no_era_label_menu /
+no_same_anchor_loop / word_budget_honored / translation_refusal_absent) is
+identical across all 9 harnesses so results are comparable.
+
+---
+
 ### Chronology Accordion (WO-CR-01, WO-CR-PACK-01)
 
 A read-only left-side timeline sidebar that merges three lanes at request time — never in the database. Shown as an 80px collapsed column / 280px expanded column to the left of the chat area, hidden during trainer mode.
