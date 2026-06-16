@@ -691,7 +691,16 @@ def api_create_person_intake(payload: NarratorIntakePayload):
             _try_write_fact("highest_education_level", ew.highest_education_level)
         if (ew.years_working or "").strip():
             edu_block["careerProgression"] = ew.years_working
-            _try_write_fact("primary_career", ew.years_working)
+            # WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 4 bug
+            # fix (2026-06-16): the line below previously wrote
+            # ew.years_working to bio_facts as `primary_career`, which
+            # clobbered the actual career value with a duration string
+            # ("30 years" overwriting "Mechanical engineer") whenever
+            # both intake sub-fields were populated. years_working
+            # belongs ONLY in profile_json.education.careerProgression
+            # — there is no bio_schema field_key for it (verified
+            # against the seed). The legitimate primary_career write
+            # happens just below from ew.primary_career.
         if edu_block:
             profile_patch["education"] = edu_block
         if (ew.primary_career or "").strip():
