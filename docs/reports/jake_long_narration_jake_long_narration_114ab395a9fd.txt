@@ -1,0 +1,132 @@
+================================================================================
+JAKE MAX MILLER LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    jake_long_narration_114ab395a9fd
+person_id:  fe59b3f1-174f-4849-99fd-3663d5373c52
+run_time:   2026-06-15 20:42:39
+
+Stack signature: oral_history default + Phase 1 validators +
+                 reflection-grounding + thread bank +
+                 LORI-CONFIRM scaffolding (post-WO sequence)
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 1 — Intake orchestrator result
+────────────────────────────────────────────────────────────────────────────────
+  person_id: fe59b3f1-174f-4849-99fd-3663d5373c52
+  intake_endpoint: http://localhost:8000/api/people/intake
+  intake_payload_sections: 7
+  intake_status: 200
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — CHAPTER 1 — EARLIEST YEARS
+────────────────────────────────────────────────────────────────────────────────
+
+  word_count:    17
+  question_count: 2
+  anchor_hits:   (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — Originally Schong With A C. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — CHAPTER 2 — EARLY SCHOOL YEARS
+────────────────────────────────────────────────────────────────────────────────
+
+  word_count:    26
+  question_count: 2
+  anchor_hits:   (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — You Learned To Stand Up And Sit Down And Kneel At The Right Times. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — CHAPTER 3 — LATER YEARS
+────────────────────────────────────────────────────────────────────────────────
+
+  word_count:    25
+  question_count: 1
+  anchor_hits:   chris
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Christmas Eve is coming around again in a few months. You kept coming back to Christmas Eve — what was that actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+
+  word_count:    25
+  question_count: 0
+  anchor_hits:   (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Thank you for sharing your story with me. It was a pleasure listening to you reminisce about your childhood in Stanley, North Dakota, and reflecting.
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✗ no_forbidden_empathy_openers: FAIL
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+LOG SANITY GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 6
+  reflection_not_grounded_or_layer_ineligible_lines: 0
+  extract_accepted_lines: 45
+  meal_tickets_substring_present: True
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+AGGREGATE
+────────────────────────────────────────────────────────────────────────────────
+  Score rows passed: 26 / 32  (81.2%)
+
+  Acceptance criteria:
+    GREEN:  ≥ 75% rows pass AND zero hard FAILs on forbidden-empathy / era-label-menu
+    AMBER:  60-75% rows pass OR partial failures on word budget / one-question-max
+    RED:    < 60% rows pass OR hard FAILs on forbidden-empathy or era-label-menu
+
+Report file: /mnt/c/Users/chris/hornelore/docs/reports/jake_long_narration_jake_long_narration_114ab395a9fd.txt
+================================================================================
