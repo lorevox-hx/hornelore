@@ -1,0 +1,289 @@
+/* WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 — Phase 1 modal styling.
+ *
+ * Modal overlay with dimmed backdrop, centered card, two primary save
+ * buttons + a visually-demoted "Skip — testing only" link. Designed to
+ * fit the existing Hornelore dark-slate palette (matches the operator
+ * panel + Bug Panel surfaces). */
+
+#lvNarratorIntakeModal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(2px);
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  font-family: inherit;
+}
+
+.lv-intake-card {
+  width: 100%;
+  max-width: 640px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(99, 102, 241, 0.32);
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  color: #e2e8f0;
+  padding: 22px 24px 18px;
+  margin: 0 auto;
+}
+
+.lv-intake-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.22);
+}
+.lv-intake-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #c7d2fe;
+}
+.lv-intake-close {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.lv-intake-close:hover { color: #e2e8f0; background: rgba(99,102,241,0.18); }
+
+.lv-intake-sub {
+  margin: 8px 0 16px;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.lv-intake-error-bar {
+  display: none;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(248, 113, 113, 0.14);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+  font-size: 13px;
+}
+.lv-intake-error-bar ul { margin: 6px 0 0; padding-left: 20px; }
+.lv-intake-error-bar li { margin: 2px 0; }
+
+.lv-intake-section {
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(99, 102, 241, 0.18);
+}
+.lv-intake-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.lv-intake-section-title {
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: #c7d2fe;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.lv-intake-section-title .lv-intake-required-marker {
+  margin-left: 4px;
+  color: #fde68a;
+  font-weight: 600;
+}
+
+.lv-intake-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+.lv-intake-row label {
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-bottom: 4px;
+}
+.lv-intake-row label .lv-intake-required-marker {
+  color: #fde68a;
+  margin-left: 3px;
+}
+
+.lv-intake-input,
+.lv-intake-row input[type="text"],
+.lv-intake-row input[type="date"] {
+  padding: 7px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(99, 102, 241, 0.32);
+  background: rgba(15, 23, 42, 0.88);
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.lv-intake-input:focus,
+.lv-intake-row input:focus {
+  outline: none;
+  border-color: rgba(129, 140, 248, 0.75);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
+}
+
+.lv-intake-dob-helper {
+  margin-top: 4px;
+  font-size: 12px;
+  font-style: italic;
+  color: #a3b3cd;
+  min-height: 0;
+  transition: color 0.15s;
+}
+.lv-intake-dob-helper.lv-intake-helper-error {
+  color: #fecaca;
+  font-style: normal;
+}
+
+.lv-intake-pronoun-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+.lv-intake-pronoun-radios label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 13px;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+.lv-intake-pronoun-radios input[type="radio"] { margin: 0; }
+.lv-intake-pronouns-other {
+  margin-top: 8px;
+  max-width: 220px;
+}
+
+.lv-intake-consent {
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.07);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+}
+.lv-intake-consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: #e2e8f0;
+  line-height: 1.4;
+}
+.lv-intake-consent-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  accent-color: #818cf8;
+}
+
+.lv-intake-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(99, 102, 241, 0.22);
+}
+.lv-intake-btn {
+  padding: 8px 16px;
+  border-radius: 5px;
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.22);
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lv-intake-btn:hover { background: rgba(99, 102, 241, 0.32); }
+.lv-intake-btn-secondary {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+.lv-intake-skip-link {
+  margin-left: auto;
+  font-size: 12px;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px 6px;
+}
+.lv-intake-skip-link:hover { color: #cbd5e1; }
+
+/* Collapsible <details> sections — Phase 2 optional blocks */
+.lv-intake-collapsible {
+  padding: 0;
+}
+.lv-intake-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 4px 12px 22px;
+  position: relative;
+  user-select: none;
+}
+.lv-intake-collapsible > summary::-webkit-details-marker { display: none; }
+.lv-intake-collapsible > summary::before {
+  content: "▸";
+  position: absolute;
+  left: 4px;
+  top: 12px;
+  font-size: 11px;
+  color: #94a3b8;
+  transition: transform 0.15s;
+}
+.lv-intake-collapsible[open] > summary::before {
+  transform: rotate(90deg);
+}
+.lv-intake-collapsible[open] > summary {
+  padding-bottom: 4px;
+}
+.lv-intake-collapsible[open] {
+  padding-bottom: 14px;
+}
+.lv-intake-collapsible > *:not(summary) {
+  margin-left: 4px;
+}
+
+/* Repeater rows (siblings / spouses / children) — horizontal layout
+   with each input taking a sane share. */
+.lv-intake-repeater-row {
+  flex-direction: row !important;
+  gap: 8px;
+  align-items: center;
+}
+.lv-intake-repeater-row .lv-intake-input { flex: 1 1 auto; min-width: 0; }
+.lv-intake-repeater-row .lv-intake-sibling-name,
+.lv-intake-repeater-row .lv-intake-child-name,
+.lv-intake-repeater-row .lv-intake-spouse-name { flex: 2 1 0; }
+.lv-intake-repeater-row .lv-intake-sibling-dob,
+.lv-intake-repeater-row .lv-intake-child-dob,
+.lv-intake-repeater-row .lv-intake-spouse-year { flex: 1 1 0; max-width: 160px; }
+.lv-intake-repeater-row .lv-intake-spouse-status { flex: 1 1 0; max-width: 130px; }
+
+select.lv-intake-input {
+  appearance: auto;
+  -webkit-appearance: menulist;
+}
