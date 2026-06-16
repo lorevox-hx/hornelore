@@ -216,6 +216,110 @@
      SECTION DEFINITIONS  (Janice Personal Information model)
   ─────────────────────────────────────────────────────────── */
 
+  /* ── WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 ──────
+     Status badge helpers — read bb.questionnaire_meta (populated
+     by bio-builder-core._restoreQuestionnaireFromBackend from the
+     new bio_questionnaire_view service `_meta` blob) and emit:
+
+       (a) per-field <span class="bb-status-badge"> next to the
+           field label in the section-detail view,
+       (b) per-section "X of Y already known" counter on the
+           section-card grid (the filled-skip counter — answers
+           the operator's "what does the system already know"
+           question at a glance).
+
+     LEGACY-SAFE: when the backend returns a legacy blob response
+     with no _meta key, bb.questionnaire_meta is {} and every
+     helper falls through to "no badge". The questionnaire still
+     renders exactly as before.
+  ─────────────────────────────────────────────────────────── */
+
+  // status → {label, css class}. Keys match bio_schema.FACT_STATUSES.
+  var _BB_STATUS_LABELS = {
+    "approved":               { label: "Approved",      cls: "bb-badge-ok" },
+    "operator_entered":       { label: "Entered",       cls: "bb-badge-known" },
+    "document_sourced":       { label: "From document", cls: "bb-badge-known" },
+    "anchored_asked":         { label: "Asked",         cls: "bb-badge-known" },
+    "extracted_needs_verify": { label: "Needs verify",  cls: "bb-badge-amber" },
+    "anchored_asked_pending": { label: "Pending",       cls: "bb-badge-amber" },
+    "conflicted":             { label: "Conflicted",    cls: "bb-badge-red" },
+    "superseded":             { label: "Replaced",      cls: "bb-badge-muted" },
+    "empty":                  { label: "",              cls: "" }
+  };
+
+  // Statuses counted as "already known" for the filled-skip counter
+  // — mirror server-side _FILLED_STATUSES in bio_gap_map.py exactly.
+  // anchored_asked_pending + conflicted DO NOT count as known.
+  var _BB_KNOWN_STATUSES = {
+    "extracted_needs_verify": true,
+    "document_sourced":       true,
+    "anchored_asked":         true,
+    "operator_entered":       true,
+    "approved":               true
+  };
+
+  // Resolve a meta entry for (sectionId, fieldId). Handles two shapes:
+  //   personal: {fieldId: {status, source}}     ← per-field meta
+  //   siblings: {_section: {status, source}}    ← section-level meta
+  // Returns null when no entry exists or meta block is missing.
+  function _bbMetaEntry(meta, sectionId, fieldId) {
+    if (!meta || typeof meta !== "object") return null;
+    var sec = meta[sectionId];
+    if (!sec || typeof sec !== "object") return null;
+    if (fieldId && sec[fieldId] && typeof sec[fieldId] === "object") {
+      return sec[fieldId];
+    }
+    return null;
+  }
+
+  // Render a status badge for one (sectionId, fieldId). Returns ""
+  // when no meta is available. Designed to be safely concatenated into
+  // an existing innerHTML string (escapes its own label).
+  function _bbStatusBadgeHtml(sectionId, fieldId) {
+    var bb = _bb(); if (!bb) return "";
+    var entry = _bbMetaEntry(bb.questionnaire_meta, sectionId, fieldId);
+    if (!entry || !entry.status || entry.status === "empty") return "";
+    var spec = _BB_STATUS_LABELS[entry.status] || null;
+    if (!spec || !spec.label) return "";
+    var src = (entry.source || "").trim();
+    var tooltip = "Status: " + entry.status + (src ? " · Source: " + src : "");
+    return '<span class="bb-status-badge ' + spec.cls
+      + '" title="' + _esc(tooltip) + '" aria-label="' + _esc(tooltip) + '">'
+      + _esc(spec.label) + '</span>';
+  }
+
+  // For a given sectionId, count how many slots in bb.questionnaire_meta
+  // carry a "known" status. Returns 0 when no meta present.
+  function _bbKnownFieldCount(sectionId) {
+    var bb = _bb(); if (!bb) return 0;
+    var meta = bb.questionnaire_meta || {};
+    var sec = meta[sectionId];
+    if (!sec || typeof sec !== "object") return 0;
+    var n = 0;
+    Object.keys(sec).forEach(function (k) {
+      if (k === "_section") return;  // section-level rollup, not a field
+      var entry = sec[k];
+      if (entry && typeof entry === "object" && _BB_KNOWN_STATUSES[entry.status]) {
+        n++;
+      }
+    });
+    return n;
+  }
+
+  // Pill-style "X already known · Y still open" badge for a section card.
+  // Returns "" when no meta present OR no known fields (so legacy blob
+  // narrators see no extra pill — byte-stable rendering).
+  function _bbKnownPillHtml(section) {
+    var known = _bbKnownFieldCount(section.id);
+    if (known <= 0) return "";
+    var total = section.fields ? section.fields.length : 0;
+    var openLabel = (total > 0 && total > known)
+      ? " · " + (total - known) + " still open"
+      : "";
+    return '<span class="bb-pill bb-pill--known" title="Fields already known to Lorevox; you don’t have to re-ask">'
+      + known + ' already known' + openLabel + '</span>';
+  }
+
   var FULL_SECTIONS = [
     {
       id: "personal", label: "Personal Information", icon: "\u{1F464}",
@@ -1010,13 +1114,18 @@
       var progressHtml = s.repeatable
         ? (fillCount > 0 ? '<span class="bb-pill bb-pill--has">' + fillCount + ' entr' + (fillCount === 1 ? "y" : "ies") + '</span>' : '<span class="bb-pill bb-pill--empty">No information yet</span>')
         : (fillCount > 0 ? '<span class="bb-pill bb-pill--has">' + fillCount + " / " + s.fields.length + ' filled</span>' : '<span class="bb-pill bb-pill--empty">No information yet</span>');
+      // WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — append the
+      // filled-skip pill when bio_facts already knows fields in this
+      // section. Empty string when no meta or no known fields, so the
+      // section card is byte-stable for legacy-blob narrators.
+      var knownPillHtml = _bbKnownPillHtml(s);
       return '<div class="bb-section-card" onclick="window.LorevoxBioBuilder._openSection(\'' + s.id + '\')">'
         + '<div class="bb-section-card-icon">' + s.icon + '</div>'
         + '<div class="bb-section-card-body">'
         +   '<div class="bb-section-card-title">' + _esc(s.label) + '</div>'
         +   '<div class="bb-section-card-hint">' + _esc(s.hint) + '</div>'
         + '</div>'
-        + '<div class="bb-section-card-progress">' + progressHtml + '</div>'
+        + '<div class="bb-section-card-progress">' + progressHtml + knownPillHtml + '</div>'
         + '</div>';
     }).join("");
 
@@ -1050,14 +1159,14 @@
       fieldsHtml = entries.map(function (entry, idx) {
         return '<div class="bb-repeat-entry">'
           + '<div class="bb-repeat-label">' + _esc(section.repeatLabel || "entry") + " " + (idx + 1) + '</div>'
-          + section.fields.map(function (f) { return _fieldHtml(f, "bbQ_" + idx + "_" + f.id, entry[f.id] || ""); }).join("")
+          + section.fields.map(function (f) { return _fieldHtml(f, "bbQ_" + idx + "_" + f.id, entry[f.id] || "", section.id); }).join("")
           + '</div>';
       }).join("")
       + '<button class="bb-ghost-btn bb-add-entry-btn" onclick="event.stopPropagation();event.preventDefault();window.LorevoxBioBuilder._addRepeatEntry(\'' + section.id + '\')">'
       + '+ Add another ' + _esc(section.repeatLabel || "entry") + '</button>';
     } else {
       var q = existing || {};
-      fieldsHtml = section.fields.map(function (f) { return _fieldHtml(f, "bbQ_" + f.id, q[f.id] || ""); }).join("");
+      fieldsHtml = section.fields.map(function (f) { return _fieldHtml(f, "bbQ_" + f.id, q[f.id] || "", section.id); }).join("");
     }
 
     container.innerHTML =
@@ -1068,9 +1177,16 @@
       + '<div class="bb-section-footer"><button class="bb-btn-primary" onclick="window.LorevoxBioBuilder._saveSection(\'' + section.id + '\')">Save ' + _esc(section.label) + '</button></div>';
   }
 
-  function _fieldHtml(field, domId, value) {
+  function _fieldHtml(field, domId, value, sectionId) {
     var va = _esc(value);
-    var labelHtml = '<label class="bb-label" for="' + domId + '">' + _esc(field.label) + '</label>';
+    // WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — status badge.
+    // sectionId is optional; legacy call sites that don't pass it still
+    // work (no badge shown). _bbStatusBadgeHtml returns "" when no meta
+    // entry is found, so this is byte-stable for repeatable entries
+    // (which have no per-entry meta in the current design — section-
+    // level _section rollup is rendered separately in the card view).
+    var badgeHtml = sectionId ? _bbStatusBadgeHtml(sectionId, field.id) : "";
+    var labelHtml = '<label class="bb-label" for="' + domId + '">' + _esc(field.label) + badgeHtml + '</label>';
 
     if (field.type === "select" && Array.isArray(field.options)) {
       var optsHtml = field.options.map(function (opt) {

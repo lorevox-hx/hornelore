@@ -1238,6 +1238,32 @@
     }
     .bb-pill--empty { background: rgba(255,255,255,0.05); color: #475569; }
     .bb-pill--has   { background: rgba(20,184,166,0.15); color: #5eead4; }
+    /* WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — filled-skip
+       pill (lives next to the existing .bb-pill--has / --empty on the
+       section card). Sapphire-blue accent so it reads visually as
+       "system already knows this" rather than "you have entered this". */
+    .bb-pill--known {
+      background: rgba(99,102,241,0.15);
+      color: #c7d2fe;
+      margin-left: 6px;
+    }
+    /* Status badges next to field labels in section-detail view */
+    .bb-status-badge {
+      display: inline-block;
+      font-size: 10px;
+      line-height: 1.4;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-weight: 500;
+      margin-left: 8px;
+      vertical-align: baseline;
+      white-space: nowrap;
+    }
+    .bb-badge-ok    { background: rgba(34,197,94,0.18);  color: #86efac; }
+    .bb-badge-known { background: rgba(99,102,241,0.18); color: #c7d2fe; }
+    .bb-badge-amber { background: rgba(245,158,11,0.18); color: #fcd34d; }
+    .bb-badge-red   { background: rgba(239,68,68,0.20);  color: #fca5a5; }
+    .bb-badge-muted { background: rgba(255,255,255,0.05);color: #64748b; }
 
     /* Questionnaire section detail */
     .bb-section-nav { margin-bottom: 12px; }

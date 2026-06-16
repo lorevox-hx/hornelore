@@ -334,8 +334,17 @@
           var sections = (q.d && typeof q.d === "object" && !Array.isArray(q.d)) ? q.d : q;
           // Only overwrite if backend has data (backend authority rule)
           bb.questionnaire = sections;
+          // WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — capture
+          // the per-field {status, source} metadata so the renderer can
+          // surface status badges + a filled-skip counter. Legacy blob
+          // responses have no _meta key; default to {} so callers can
+          // always read `bb.questionnaire_meta[sectionId]` safely.
+          bb.questionnaire_meta = (j._meta && typeof j._meta === "object")
+            ? j._meta : {};
+          bb.questionnaire_source = j.source || "legacy_blob";
           _qqDebugSnapshot("restore_backend", stampedPid, bb);
-          console.log("[bb-core] ✅ Questionnaire restored from backend for " + stampedPid.slice(0, 8));
+          console.log("[bb-core] ✅ Questionnaire restored from backend for " + stampedPid.slice(0, 8)
+            + " (source=" + bb.questionnaire_source + ")");
           // Update transient localStorage to match backend (wrap in { v, d } for localStorage format)
           try {
             localStorage.setItem(_LS_QQ_PREFIX + stampedPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
