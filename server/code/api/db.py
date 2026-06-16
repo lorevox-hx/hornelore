@@ -4543,7 +4543,38 @@ def _ensure_phase_g_tables(con: sqlite3.Connection, cur: sqlite3.Cursor) -> None
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_questionnaire(person_id: str) -> Dict[str, Any]:
-    """Load canonical questionnaire state from backend DB."""
+    """Load canonical questionnaire state from backend DB.
+
+    WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 1: when
+    HORNELORE_QUESTIONNAIRE_BIO_FACTS_READ=1, route reads through the
+    new bio_facts + profile_json aggregation service. The new view
+    closes the gap where the operator intake form (which writes to
+    bio_facts + profile_json, not the legacy blob) leaves the Bio
+    Builder questionnaire UI looking empty for fresh narrators.
+
+    Default-off: legacy blob path runs byte-stable so existing
+    narrators keep their saved questionnaire content during rollout.
+    Live verify + Phase 7.5 backfill readiness report gate the flip.
+    """
+    if os.getenv("HORNELORE_QUESTIONNAIRE_BIO_FACTS_READ", "0").strip() == "1":
+        try:
+            # Lazy import to avoid circular-import risk on cold start
+            # and keep db.py purity when the flag is off (default).
+            from .services.bio_questionnaire_view import (
+                build_questionnaire_view as _build_view,
+            )
+            view = _build_view(person_id)
+            if view is not None:
+                return view
+        except Exception as exc:
+            # Defensive fallback to legacy blob so a service-side
+            # exception never breaks the Bio Builder UI for the
+            # operator. Log so the gap shows up in api.log.
+            logger.warning(
+                "get_questionnaire: bio_facts read failed for %s — "
+                "falling back to legacy blob: %s",
+                person_id, exc,
+            )
     con = _connect()
     try:
         row = con.execute(
