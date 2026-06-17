@@ -139,7 +139,13 @@ runTest('_statusBadgeHtml renders for known status', () => {
 });
 
 runTest('_statusBadgeHtml returns empty for empty status', () => {
-  _state.meta = { identity: { fullName: { status: 'empty', source: '' } } };
+  // Outside-review cleanup (2026-06-16): fixture used the legacy
+  // "identity" key while the call queried "personal"; the test
+  // passed by accident because no personal meta existed. Make the
+  // fixture match the call so the assertion proves status='empty'
+  // produces no badge, not "no meta entry produces no badge"
+  // (which is what the next test covers).
+  _state.meta = { personal: { fullName: { status: 'empty', source: '' } } };
   assert.strictEqual(_statusBadgeHtml('personal', 'fullName'), '');
 });
 
