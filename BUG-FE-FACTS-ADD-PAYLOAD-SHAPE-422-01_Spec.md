@@ -114,7 +114,7 @@ Defense-in-depth that ISN'T firing:
 
 - `facts.py:30-46` has a `_truth_v2_enabled('facts_write')` gate that,
   when on, returns **410 Gone** for the legacy endpoint. The 422 we
-  see means **`HORNELORE_TRUTH_V2_FACTS_WRITE` is OFF** in the
+  see means **`HORNELORE_TRUTH_V2` is OFF** in the
   current env. If it were on, the gate would catch the FE bug at
   the door with a 410 instead of letting Pydantic 422 every time.
 
@@ -161,7 +161,7 @@ Recommend **B** — the comment at `app.js:5912-5924` explicitly says
 the legacy path is "NOT used any more"; the two HTML callers are
 left-behind code that should be deleted, not patched.
 
-### Layer 2 — Flip `HORNELORE_TRUTH_V2_FACTS_WRITE=1`
+### Layer 2 — Flip `HORNELORE_TRUTH_V2=1`
 
 Turn on the per-router write-freeze flag in `.env` (and
 `.env.example`). After Option B lands, the FE never hits
@@ -188,7 +188,7 @@ is what hid the bug for so long.
    for that turn within ~2s of the turn completing.
 3. `facts_posted_count` in `lv80LogTurnDebug` matches the number of
    successful posts, not the number of extracted candidates.
-4. With `HORNELORE_TRUTH_V2_FACTS_WRITE=1`, a direct curl to
+4. With `HORNELORE_TRUTH_V2=1`, a direct curl to
    `/api/facts/add` returns 410 Gone with the migration message.
 5. The existing facts_smoke / family-truth pipeline tests
    still pass.
@@ -204,7 +204,7 @@ is what hid the bug for so long.
   curl debugging) or be deleted
 
 ### Layer 2
-- `.env` — add `HORNELORE_TRUTH_V2_FACTS_WRITE=1`
+- `.env` — add `HORNELORE_TRUTH_V2=1`
 - `.env.example` — document the flag
 
 ### Layer 3
