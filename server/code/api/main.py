@@ -21,6 +21,13 @@ logging.basicConfig(
 logging.getLogger("code.api.routers.chat_ws").setLevel(logging.INFO)
 logging.getLogger("lorevox.extract").setLevel(logging.INFO)
 
+# Suppress operator-dashboard polling noise in api.log so the harness signal
+# stays visible. Set HORNELORE_API_ACCESS_LOG_VERBOSE=1 to bypass and see
+# every request like before. The filter list mirrors the grep pattern in
+# scripts/common.sh start_useful_log_tail — keep them in sync.
+from .log_filter import install_access_log_noise_filter
+install_access_log_noise_filter()
+
 # Load .env from repo root before anything else so DATA_DIR, DB_NAME, UI_DIR etc.
 # are always available regardless of how the server was launched.
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # server/code/api/main.py → repo root 3 levels up
