@@ -1,0 +1,96 @@
+================================================================================
+MABLE HUDSON (AFRICAN AMERICAN GEORGIA) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    c2138a9a-b8d
+person_id:  29a7808f-7e28-4216-b5f9-daf6dd04a7f3
+run_time:   2026-06-17 13:30:37
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Cotton land + Mount Olive AME
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     37
+  question_count: 1
+  anchor_hits:    albany, 1942, mount olive, ame
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Mount Olive AME. What a rich and evocative narrative! I'm so grateful to be listening to your story. Let me capture a few key points from your early years.
+  │ 
+  │ You were born in Albany, Georgia, in 1942?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Movement, Greyhound, Detroit
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     47
+  question_count: 1
+  anchor_hits:    albany movement, mass meetings, shiloh baptist, mount zion
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Can you tell me about your account of the Albany Movement and its impact on you and your community is powerful. What do you remember about the mass meetings at Shiloh Baptist or Mount Zion, where you would often attend and participate in the singing and marching?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Coming home to Albany
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     31
+  question_count: 1
+  anchor_hits:    charlene, atlanta, bernard, detroit, lillian
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Charlene to Atlanta, then Bernard, Detroit, Plymouth Road, Albany, Earnest, and Lillian. What do you remember about coming back to Albany and settling into your childhood home again?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ It was a pleasure listening to your story. Thank you for sharing your experiences and reflections with me. If you'd like to continue another time.
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 97
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 24/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────

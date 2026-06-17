@@ -1,0 +1,182 @@
+================================================================================
+WALTER O'DONNELL (7-ERA WALK) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    2f9448fc-492
+person_id:  3faf4b5c-39ce-4c9c-b00e-7298c7ba6d7d
+run_time:   2026-06-17 13:25:17
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 1 — Earliest Years (G Street, Southie 1948-53)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     14
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Let me say that in English. What would you like to tell me next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✗ translation_refusal_absent: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 2 — Early School Years (Saint Augustine's 1953-59)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     19
+  question_count: 1
+  anchor_hits:    saint augustine, patrick, brendan, eileen
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Saint Augustine to Brendan, then Eileen, Patrick, Catholic, South Boston, Mass, and Walter. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 3 — Adolescence (Boston Latin + math team 1960-65)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     25
+  question_count: 1
+  anchor_hits:    boston latin
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You said Boston Latin: I went to Boston Latin School. You kept coming back to Boston Latin — what was that actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 4 — Coming of Age (BC + Catherine + first sons 1966-76)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     19
+  question_count: 1
+  anchor_hits:    boston college, chestnut hill, kennedy
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Boston College to Brendan, then Chestnut Hill, Kennedy, Irish, Catholic, Schlitz, and Eileen. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 5 — Building Years (North Quincy 35 yrs + 4 boys)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     40
+  question_count: 1
+  anchor_hits:    ten years, north quincy, quincy
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You said North Quincy: Lynn for ten years, then moved to North Quincy High School — the public school in the town we had bought. You kept coming back to North Quincy — what was that actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 6 — Later Years (retire 2020 + tutoring + boardwalk)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     14
+  question_count: 2
+  anchor_hits:    march
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — In March. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 7 — Today (a Tuesday in 2026 + the slip about a daughter)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     14
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Let me say that in English. What would you like to tell me next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✗ translation_refusal_absent: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ That's all for now. Thank you for sharing your story with me. Would you like to continue talking or is there something else I can help you with?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 82
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 51/56 rows PASS
+────────────────────────────────────────────────────────────────────────────────

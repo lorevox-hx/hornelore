@@ -1,0 +1,94 @@
+================================================================================
+JOE QUINTANA (COCHITI PUEBLO) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    25f8e1c8-35c
+person_id:  17158844-63a3-4f24-9346-8278cad8c4e6
+run_time:   2026-06-17 13:32:30
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — The village and the boarding school
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     18
+  question_count: 1
+  anchor_hits:    cochiti pueblo, frank, elena, andrew, mary
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Cochiti Pueblo to August, then Frank, Elena, Andrew, Mary, Catholic, and Mass. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Vietnam, BIA, NAGPRA
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     45
+  question_count: 1
+  anchor_hits:    fort bliss, long binh, vietnam, combat engineer, 1970
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Fort Bliss to Long Binh, Vietnam, serving as a combat engineer for two years. Then you came home in 1970. What do you remember about the transition from military life back to civilian life when you returned to the Pueblo in 1970?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — What stays at the Pueblo
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     37
+  question_count: 1
+  anchor_hits:    boarding school
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ What do you remember about your own experiences with the St. Catherine boarding school, and how did it shape your understanding of what gets preserved and shared? (We can come back to the rest in a moment.)
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ "We've touched on several parts of your story. Where would you like to continue today?"
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 104
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 24/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────

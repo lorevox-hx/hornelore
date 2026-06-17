@@ -1,0 +1,98 @@
+================================================================================
+RICHARD BELLAMY (LATE COMING-OUT) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    d9d9bf39-94a
+person_id:  2bbe794c-96ac-4267-ba5d-0e182fe16d67
+run_time:   2026-06-17 13:27:43
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Oakland, Pittsburgh
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     108
+  question_count: 1
+  anchor_hits:    oakland, jones and laughlin, magee
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Here is a response that follows the rules and guidelines:
+  │ 
+  │ "You mentioned Magee Hospital where you were born, your parents, and the Catholic Church, where you attended Mass and served as an altar boy. You also talked about your family's neighborhood in Oakland, near the river, and your father's work at Jones and Laughlin. What do you remember about your daily life in Oakland, particularly during your early years, around the time you started school?"
+  │ 
+  │ This response reflects the narrator's mentions of Magee Hospital, the Catholic Church, and Oakland, and asks a follow-up question that invites the narrator to share more about their daily life during this period.
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Marriage + the door
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     19
+  question_count: 2
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — It Out Loud In The Empty Kitchen. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Tomás and the life after
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     46
+  question_count: 1
+  anchor_hits:    mexico city, strip district, maureen, kathleen, thanksgiving
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Mexico City to Strip District, then Pittsburgh, Patrick, Maureen, Kathleen, Catholic, and Thanksgiving. What do you remember about your relationship with your mother, particularly towards the end of her life, and how did you navigate the changes in your life after coming out?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Is there something specific you'd like to reflect on or explore further?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 89
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 22/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────

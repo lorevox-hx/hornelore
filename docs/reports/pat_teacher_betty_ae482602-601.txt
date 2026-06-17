@@ -1,0 +1,98 @@
+================================================================================
+PATRICIA 'PAT' FRYE (TEACHER + BETTY) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    ae482602-601
+person_id:  2b9968e8-0728-469a-9327-f67b16e409be
+run_time:   2026-06-17 13:29:10
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Princeton Avenue + meeting Betty
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     110
+  question_count: 1
+  anchor_hits:    akron, harold, goodyear, princeton avenue, miss mccullough
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Princeton Avenue. What a delightful start to our conversation! You mentioned several key figures in your life, including your parents, brother, sister, and friends. Your fondness for rules and routines shines through, especially in your description of elementary school and your affection for Miss McCullough, who inspired you to become a teacher. It's lovely to hear how your relationships with others have played a significant role in shaping your experiences.
+  │ 
+  │ Let's touch on the era of your Earliest Years. You've already mentioned that you were born in Akron, Ohio, and that your father Harold worked at Goodyear. What comes to mind when you picture your earliest home on Princeton Avenue?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Kent State, Jim, the classroom
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     87
+  question_count: 1
+  anchor_hits:    kent state, betty, 1970, thirty years, jim
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Kent State. How Betty carried that wound in silence for thirty years.
+  │ 
+  │ As we explore the Building Years, I'd like to invite you to reflect on your life during this period. You've mentioned your time at Kent State, your marriage to Jim, and the birth of your children. What do you remember about where you were living and what daily life felt like during the 1970s, as you were establishing your family and career as a teacher? (We can come back to the rest in a moment.)
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Loss + tutoring + the small thing
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     29
+  question_count: 1
+  anchor_hits:    betty
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Wednesday to Betty, then Madeleine, Engle, Wrinkle, Time, Tuesday, and October. What do you remember about your daily routine and sense of purpose during this time?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Where would you like to continue next, or perhaps revisit a particular theme that resonates with you?"
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 93
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 22/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────
