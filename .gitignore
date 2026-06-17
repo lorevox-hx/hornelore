@@ -39,6 +39,15 @@ env/
 # never commit them.
 docs/reports/api_log_*.txt
 
+# ── Useful (filtered) log snapshots & ad-hoc filtered tails ──
+# stop_all.sh writes timestamped + _latest snapshots of the always-on
+# filtered useful.log here. scripts/tail_harness_log.sh writes
+# harness_filtered_<ts>.log tees here for manual one-off runs. Both
+# are evidence artifacts, not source.
+docs/reports/useful_log_*.txt
+docs/reports/useful_log_latest.txt
+docs/reports/harness_filtered_*.log
+
 # ── Local IDE / editor ──
 .vscode/
 .idea/

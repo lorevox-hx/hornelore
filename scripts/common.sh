@@ -23,6 +23,17 @@ API_PID_FILE="$PID_DIR/api.pid"
 TTS_PID_FILE="$PID_DIR/tts.pid"
 UI_PID_FILE="$PID_DIR/ui.pid"
 
+# ── Useful (filtered) log — always-on per Chris's design 2026-06-17 ──
+# Strips dashboard/heartbeat/test-lab noise, surfaces real harness
+# events (chat_ws, story-trigger, utterance-frame, profile-seed,
+# VRAM-GUARD, comm_control, reflection-shape, facts/add, family-truth,
+# bio-builder/questionnaire, profiles/, chronology, transcript,
+# extract-fields, interview/projection, ERROR, WARNING, Traceback,
+# HTTP 4xx/5xx). Started by start_all.sh, stopped + snapshotted by
+# stop_all.sh.
+USEFUL_LOG_PID_FILE="$PID_DIR/useful_log.pid"
+USEFUL_LOG_FILE="$LOG_DIR/useful.log"
+
 # Hornelore uses its own launcher copies in hornelore/launchers.
 API_CMD_DEFAULT="bash launchers/hornelore_run_gpu_8000.sh"
 TTS_CMD_DEFAULT="bash launchers/hornelore_run_tts_8001.sh"
@@ -251,4 +262,58 @@ show_vram() {
           printf '  %s: %s MB used / %s MB free / %s MB total\n' "$name" "$used" "$free" "$total"
         done
   fi
+}
+
+# ── Useful (filtered) log tail — always-on background process ─────
+# Started by start_all.sh BEFORE the API so it catches startup events.
+# Tails api.log + tts.log (created when those services start), strips
+# dashboard/heartbeat/poller noise, and surfaces only real harness
+# events. Output appended to .runtime/logs/useful.log; stop_all.sh
+# snapshots that file to docs/reports/ before stopping the tail.
+start_useful_log_tail() {
+  local pid_file="$USEFUL_LOG_PID_FILE"
+  local out_file="$USEFUL_LOG_FILE"
+
+  if [[ -f "$pid_file" ]]; then
+    local old_pid
+    old_pid="$(read_pid "$pid_file" || true)"
+    if pid_is_running "$old_pid"; then
+      printf 'Useful log filter already running (pid %s).\n' "$old_pid"
+      return 0
+    fi
+    clear_pid "$pid_file"
+  fi
+
+  mkdir -p "$LOG_DIR"
+
+  {
+    printf '\n=== Hornelore useful log started %s ===\n' "$(date -Iseconds)"
+    printf 'Filter: chat/story/profile/extract/projection/facts/family-truth/errors only\n\n'
+  } >> "$out_file"
+
+  printf 'Starting useful log filter...\n'
+  (
+    cd "$ROOT_DIR"
+    nohup bash -lc '
+      tail -F .runtime/logs/api.log .runtime/logs/tts.log 2>/dev/null \
+        | grep --line-buffered -Ev '"'"'test-lab|stack-dashboard/(ui-heartbeat|summary|history|system-status)|/api/ping|/api/operator/safety-events|/api/operator/eval-harness/summary|/ui/hornelore1.0.html|/api/tts/voices'"'"' \
+        | grep --line-buffered -E '"'"'chat_ws|story-trigger|utterance-frame|profile-seed|VRAM-GUARD|comm_control|reflection-shape|facts/add|family-truth|bio-builder/questionnaire|profiles/|chronology|transcript|extract-fields|interview/projection|ERROR|WARNING|Traceback|HTTP/1.1" [45][0-9][0-9]'"'"' \
+        >> .runtime/logs/useful.log
+    ' >/dev/null 2>&1 &
+    echo $! > "$pid_file"
+  )
+
+  sleep 1
+  local new_pid
+  new_pid="$(read_pid "$pid_file" || true)"
+  if pid_is_running "$new_pid"; then
+    printf 'Useful log filter started (pid %s): %s\n' "$new_pid" "$out_file"
+  else
+    printf 'Useful log filter failed to start.\n'
+    return 1
+  fi
+}
+
+stop_useful_log_tail() {
+  stop_named_process "Hornelore useful log filter" "$USEFUL_LOG_PID_FILE" "tail -F .runtime/logs/api.log .runtime/logs/tts.log"
 }

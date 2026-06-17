@@ -41,9 +41,35 @@ snapshot_api_log() {
   printf 'Latest:   docs/reports/api_log_latest.txt\n'
 }
 
+# Useful-log snapshot — parallel to api_log snapshot. Captures the
+# always-on filtered log so every stop leaves a clean, denoised
+# evidence trail in docs/reports/ alongside the raw api.log.
+# Both snapshots are .gitignored.
+snapshot_useful_log() {
+  local log_src="$USEFUL_LOG_FILE"
+  local reports_dir="$ROOT_DIR/docs/reports"
+  if [[ ! -f "$log_src" ]]; then
+    printf 'Snapshot: no useful.log to snapshot.\n'
+    return 0
+  fi
+  mkdir -p "$reports_dir"
+  local ts size
+  ts="$(date +%Y%m%d_%H%M%S)"
+  size="$(du -h "$log_src" 2>/dev/null | cut -f1)"
+  cp "$log_src" "$reports_dir/useful_log_${ts}.txt"
+  cp "$log_src" "$reports_dir/useful_log_latest.txt"
+  printf 'Snapshot: docs/reports/useful_log_%s.txt (%s)\n' "$ts" "${size:-?}"
+  printf 'Latest:   docs/reports/useful_log_latest.txt\n'
+}
+
 if [[ "$_snapshot_logs" -eq 1 ]]; then
-  snapshot_api_log || printf 'Snapshot failed — continuing stop.\n'
+  snapshot_api_log    || printf 'API snapshot failed — continuing stop.\n'
+  snapshot_useful_log || printf 'Useful snapshot failed — continuing stop.\n'
 fi
+
+# Stop the useful-log tail FIRST so it's not chasing logs that
+# disappear when UI/TTS/API shut down. Snapshot already copied above.
+stop_useful_log_tail
 
 stop_named_process "Hornelore UI"  "$UI_PID_FILE"  "hornelore-serve.py|http.server.*${UI_PORT}"
 stop_named_process "Hornelore TTS" "$TTS_PID_FILE" "hornelore_run_tts_8001|run_tts_8001|uvicorn.*${TTS_PORT}"

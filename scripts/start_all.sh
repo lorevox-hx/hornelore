@@ -16,6 +16,12 @@ printf '\n=== Starting Hornelore stack ===\n\n'
 kill_all_hornelore
 show_vram
 
+# ── 0. Useful (filtered) log tail ───────────────────────────────
+# Starts BEFORE the API so the filter captures startup events too.
+# Non-fatal if it fails — stack still runs, you just lose the
+# filtered log convenience for this session.
+start_useful_log_tail || printf 'Useful log filter failed to start — continuing stack start.\n'
+
 # ── 1. API ───────────────────────────────────────────────────────
 start_named_process "Hornelore API" "$API_CMD" "$API_PID_FILE" "$LOG_DIR/api.log"
 
