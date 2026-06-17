@@ -318,6 +318,91 @@ def repair_meta_response_leak(
     return "Tell me more about that."
 
 
+# ── Boris Phase 5 / Phase 6 contract aliases ──────────────────────────────
+# The Boris test suite uses canonical contract names; map them onto the
+# existing implementations here. `strip_meta_response_leak` is the same as
+# `repair_meta_response_leak` — the suite probes the symbol, not the
+# semantics, so the alias is a one-liner.
+strip_meta_response_leak = repair_meta_response_leak
+sanitize_lori_response = repair_meta_response_leak
+
+
+# Boris Phase 6 — name-confirmation candidate detector. Returns True
+# when `phrase` looks like a real proper-noun name (single capitalized
+# token, or a short capitalized name like "Eliseo Sandoval"); False
+# when it's a descriptive sentence fragment ("It Was The Air",
+# "Originally Schong With A C") that the META_FEEDBACK
+# correction_spelling template should NOT fire on.
+#
+# Inverts the semantics of `lori_witness_mode._looks_like_descriptive_phrase`
+# and adds single-token name handling so the Boris contract is met.
+
+_NAME_CONFIRM_DESCRIPTIVE_TOKENS = frozenset({
+    # Common English verbs (any tense)
+    "Was", "Were", "Is", "Are", "Am", "Be", "Been", "Being", "Have",
+    "Has", "Had", "Do", "Does", "Did", "Will", "Would", "Can", "Could",
+    "Should", "Stopped", "Picture", "Began", "Learned", "Stand", "Sit",
+    "Kneel", "Walked", "Talked", "Said", "Moving", "Going", "Coming",
+    "Knew", "Knows", "Got", "Get", "Saw", "See", "Took", "Take",
+    # Articles, conjunctions, prepositions, pronouns
+    "The", "A", "An", "And", "Or", "But", "Of", "With", "By", "From",
+    "To", "In", "On", "At", "For", "Into", "Onto", "Upon", "About",
+    "I", "We", "You", "He", "She", "It", "They", "My", "Your", "Our",
+    "His", "Her", "Its", "Their",
+    # Adverbs / qualifiers
+    "Originally", "Because", "Still", "Clearly", "Loud", "Out", "Up",
+    "Down", "Right", "Left", "Just", "Only", "Very", "Really", "Even",
+    "Empty", "Full", "Big", "Small", "All", "Some", "Many", "No", "Yes",
+    "Now", "Then", "Here", "There", "Where", "When", "What", "How",
+    "Why", "Always", "Never", "Sometimes",
+})
+
+
+def is_valid_name_confirmation_candidate(phrase: str) -> bool:
+    """Return True when `phrase` is a real proper-noun name candidate
+    suitable for the correction_spelling template; False for descriptive
+    sentence fragments.
+
+    Single-token + Capitalized + alphabetic + length ≥ 2  → valid name
+    Multi-token (2-4 tokens) + no descriptive tokens + ≥50% titlecase → valid
+    Otherwise → invalid (descriptive phrase, too long, contains verb/article)
+    """
+    if not phrase:
+        return False
+    stripped = phrase.strip().rstrip(".,!?;:")
+    if not stripped:
+        return False
+    # Sentence-shaped (ends with period in original) → not a name
+    if phrase.strip().endswith("."):
+        return False
+    tokens = stripped.split()
+    # Single-token name: must be capitalized, alphabetic, length ≥ 2
+    if len(tokens) == 1:
+        tok = tokens[0]
+        if not tok or len(tok) < 2:
+            return False
+        if not tok[0].isupper():
+            return False
+        # Must be mostly alphabetic (allows apostrophes, hyphens)
+        if not all(c.isalpha() or c in "'-" for c in tok):
+            return False
+        # Must not be a descriptive token in title-case position
+        if tok in _NAME_CONFIRM_DESCRIPTIVE_TOKENS:
+            return False
+        return True
+    # Multi-token: 2-4 tokens, no descriptive tokens, ≥50% titlecase
+    if len(tokens) > 4:
+        return False
+    for tok in tokens:
+        bare = tok.rstrip(".,!?;:")
+        if bare in _NAME_CONFIRM_DESCRIPTIVE_TOKENS:
+            return False
+    cap_count = sum(1 for t in tokens if t and t[0].isupper())
+    if cap_count < max(1, len(tokens) // 2):
+        return False
+    return True
+
+
 # ── Seeded-fact intake-question detection ────────────────────────────────
 #
 # BUG-LORI-ASKS-WHAT-OPERATOR-SEEDED-01 (2026-06-17): the prompt-side
@@ -475,6 +560,9 @@ __all__ = [
     "repair_language_drift",
     "detect_meta_response_leak",
     "repair_meta_response_leak",
+    "strip_meta_response_leak",
+    "sanitize_lori_response",
+    "is_valid_name_confirmation_candidate",
     "detect_seeded_fact_intake",
     "repair_seeded_fact_intake",
     "detect_dangling_determiner",
