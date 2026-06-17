@@ -1,0 +1,182 @@
+================================================================================
+JOHN BALDY (SEVEN-ERA WALK) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    4da3ab03-367
+person_id:  b0788b3e-3165-4d25-a121-902b906f7c3d
+run_time:   2026-06-17 13:08:55
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 1 — Earliest Years (West St. Paul 1960s, mother 99)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     17
+  question_count: 2
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — That I Still Picture Clearly. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 2 — Early School Years (St. Paul school + military school as education)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     56
+  question_count: 1
+  anchor_hits:    structure
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from early school years I to meant, then happened to have a, framework gave me a, teachers at the military, are habits I still, place, and structure of those years. What do you remember about your daily life in those years, when you were around four or five years old, before entering grade school?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 3 — Adolescence (father killed changing tire; Europe trip)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     43
+  question_count: 1
+  anchor_hits:    father, teenager, europe, minnesota
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Europe to Minnesota, then hardest thing in my, father, car over to change, is the fact of, day did not end, and way ordinary days usually. Paul during that time, after your father passed away, when you were a teenager?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 4 — Coming of Age (NY college, 1 bachelor + 3 master's)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     50
+  question_count: 1
+  anchor_hits:    college, new york, bachelor, learner
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Coming of age for you was leaving Minnesota for New York, earning a bachelor's degree, and realizing you were a learner. What do you remember about the transition from Minneapolis-St. Paul to New York City - the differences in culture, climate, or daily life during your early years in college?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 5 — Building Years (tobacco → brewer → NMHU → school psych 2010)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     7
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — Began. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 6 — Later Years (married twice / divorced / 2 children / NM school psych)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     28
+  question_count: 1
+  anchor_hits:    school psychology, new mexico
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You said New Mexico: through the later years: school psychology in New Mexico. You kept coming back to New Mexico — what was that actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 7 — Today (Las Vegas NM, Pecos Schools, mother 99 in St. Paul)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     52
+  question_count: 1
+  anchor_hits:    own house, pecos schools, mother
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Las Vegas to New Mexico, then Pecos Schools, Building Years, own house in Las, small school district up, road, and mother is still alive. What does life look like for you these days — where are you, who do you see most, what does a normal day feel like?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You've covered the significant events and eras in your life story. It's been a pleasure to listen and help you reflect on your experiences. If.
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 68
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 53/56 rows PASS
+────────────────────────────────────────────────────────────────────────────────
