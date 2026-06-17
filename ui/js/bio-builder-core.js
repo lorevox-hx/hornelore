@@ -100,7 +100,49 @@
           " — refusing to persist to avoid cross-narrator contamination");
       } else {
         var qq = bb.questionnaire;
-        if (qq && Object.keys(qq).length > 0) {
+        // BUG-FE-HYDRATION-CROSS-NARRATOR-LEAK-01 (2026-06-16):
+        // Refuse to PUT a questionnaire whose every section's every
+        // field is empty. The previous narrator-switch persist path
+        // would write {personal:{fullName:"",dob:"",...}} on top of
+        // canonical truth, silently wiping the operator's intake data.
+        // The shape's KEYS exist (because hydration created them) but
+        // the VALUES are empty, so the legacy "Object.keys(qq).length"
+        // guard wouldn't catch this. Walk the values and refuse the
+        // PUT when there's nothing but blanks.
+        var hasAnyValue = (function () {
+          if (!qq || typeof qq !== "object") return false;
+          var sections = Object.keys(qq);
+          for (var i = 0; i < sections.length; i++) {
+            var sec = qq[sections[i]];
+            if (!sec) continue;
+            if (typeof sec === "string" && sec.trim() !== "") return true;
+            if (typeof sec === "number") return true;
+            if (Array.isArray(sec)) {
+              for (var j = 0; j < sec.length; j++) {
+                var entry = sec[j];
+                if (entry && typeof entry === "object") {
+                  var keys = Object.keys(entry);
+                  for (var k = 0; k < keys.length; k++) {
+                    var v = entry[keys[k]];
+                    if (v && (typeof v !== "string" || v.trim() !== "")) return true;
+                  }
+                } else if (entry && (typeof entry !== "string" || entry.trim() !== "")) {
+                  return true;
+                }
+              }
+              continue;
+            }
+            if (typeof sec === "object") {
+              var keys2 = Object.keys(sec);
+              for (var k2 = 0; k2 < keys2.length; k2++) {
+                var v2 = sec[keys2[k2]];
+                if (v2 && (typeof v2 !== "string" || v2.trim() !== "")) return true;
+              }
+            }
+          }
+          return false;
+        })();
+        if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
           // Backend canonical save (fire-and-forget, non-blocking)
           try {
             fetch(API.BB_QQ_PUT, {
@@ -111,6 +153,10 @@
           } catch (e) {}
           // Transient localStorage fallback
           localStorage.setItem(_LS_QQ_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: qq }));
+        } else if (qq && Object.keys(qq).length > 0) {
+          console.warn("[bb-drift] _persistDrafts SKIPPED PUT: questionnaire " +
+            "has keys but every field is empty — refusing to clobber " +
+            "canonical truth with blanks (pid=" + pid.slice(0, 8) + ")");
         }
       }
       // Phase M: persist Quick Capture inbox

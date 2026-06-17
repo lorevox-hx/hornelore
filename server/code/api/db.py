@@ -3101,6 +3101,74 @@ _PROMOTED_TO_BASICS: Dict[str, str] = {
 _BASICS_TO_PROMOTED: Dict[str, str] = {v: k for k, v in _PROMOTED_TO_BASICS.items()}
 
 
+# BUG-API-PROFILES-DROPS-INTAKE-KEYS-01 (2026-06-16):
+# The operator intake orchestrator (WO-OPERATOR-NEW-NARRATOR-INTAKE-
+# FORM-01 Phase 2B) writes to `profile_json.personal.{fullName,
+# preferredName, dateOfBirth, placeOfBirth, currentResidence,
+# pronouns, faithRaised, currentFaith, culture, languagesAtHome, ...}`
+# — NOT to `profile_json.basics.{...}` which is the legacy FE shape.
+#
+# build_profile_from_promoted (below) used to read only from
+# `legacy_basics` + promoted-truth rows. That meant any narrator
+# created via the intake form returned `basics: {}` here (because the
+# intake didn't write to basics) AND had no promoted rows yet
+# (because intake doesn't run through the truth pipeline). The FE's
+# state.profile.basics ended up empty → Bio Builder questionnaire
+# hydration found nothing → operator saw a blank form even though
+# bio_facts + profile_json had everything.
+#
+# Fix: project intake-written `profile_json.personal.*` into `basics.*`
+# whenever the basics slot is empty. Promoted-truth values STILL win
+# over both intake personal AND legacy basics — the precedence order
+# is: promoted > intake personal > legacy basics. The structured
+# blocks (parents, siblings, spouses, children, education, military,
+# faith, today) are also passed through to the FE response shape so
+# any consumer that wants them can read them.
+_INTAKE_PERSONAL_TO_BASICS: Dict[str, str] = {
+    "fullName":         "fullname",
+    "preferredName":    "preferred",
+    "dateOfBirth":      "dob",
+    "placeOfBirth":     "pob",
+    "birthOrder":       "birthOrder",
+    "pronouns":         "pronouns",
+    "currentResidence": "currentResidence",
+    "timeOfBirth":      "timeOfBirth",
+    "zodiacSign":       "zodiacSign",
+    # Faith mirror — intake writes these into profile_json.personal
+    "faithRaised":      "faithRaised",
+    "currentFaith":     "currentFaith",
+    "culture":          "culture",
+    "languagesAtHome":  "language",
+}
+
+# Intake-written structured blocks that should pass through to the FE
+# response regardless of the truth_v2 flag state. None of these are in
+# the legacy basics-only shape; surfacing them lets the FE consume
+# parents/siblings/etc. that the operator entered via the intake form.
+_INTAKE_STRUCTURED_KEYS: Tuple[str, ...] = (
+    "personal", "parents", "siblings", "spouses", "spouse",
+    "children", "education", "community", "marriage",
+    "military", "faith", "today",
+)
+
+
+def _project_intake_personal_into_basics(
+    legacy_profile: Dict[str, Any], basics: Dict[str, Any],
+) -> None:
+    """Project intake-written profile_json.personal.* into basics.*
+    when the basics slot is empty. Mutates `basics` in place. Safe to
+    call when legacy_profile.personal is missing — no-op."""
+    intake_personal = legacy_profile.get("personal") or {}
+    if not isinstance(intake_personal, dict):
+        return
+    for intake_key, basics_key in _INTAKE_PERSONAL_TO_BASICS.items():
+        v = intake_personal.get(intake_key)
+        if v in (None, ""):
+            continue
+        if not basics.get(basics_key):
+            basics[basics_key] = v
+
+
 def build_profile_from_promoted(person_id: str) -> Dict[str, Any]:
     """Assemble a profile_json-shaped dict from family_truth_promoted.
 
@@ -3141,15 +3209,34 @@ def build_profile_from_promoted(person_id: str) -> Dict[str, Any]:
     legacy_kinship = list(legacy_profile.get("kinship") or [])
     legacy_pets = list(legacy_profile.get("pets") or [])
 
+    # BUG-API-PROFILES-DROPS-INTAKE-KEYS-01 fix: project intake-written
+    # profile_json.personal.* into basics.* when the basics slot is
+    # empty. This makes the operator intake form data visible to the
+    # FE without requiring the operator to also fill out the legacy
+    # basic-info form.
+    _project_intake_personal_into_basics(legacy_profile, legacy_basics)
+
+    # Pass through the intake-written structured blocks (parents,
+    # siblings, spouses, children, education, military, faith, today)
+    # so the FE can render them. They sit alongside basics/kinship/pets
+    # rather than replacing them — FE consumers can read whichever
+    # shape they expect.
+    structured_passthrough: Dict[str, Any] = {}
+    for k in _INTAKE_STRUCTURED_KEYS:
+        if k in legacy_profile and legacy_profile[k]:
+            structured_passthrough[k] = legacy_profile[k]
+
     promoted_rows = ft_list_promoted(person_id, limit=10_000, offset=0)
 
     if not promoted_rows:
         # Empty-promoted fallback: behave exactly like flag-off.
-        return {
+        out: Dict[str, Any] = {
             "basics": legacy_basics,
             "kinship": legacy_kinship,
             "pets": legacy_pets,
         }
+        out.update(structured_passthrough)
+        return out
 
     # Start from the legacy basics so unmapped fields pass through.
     basics: Dict[str, Any] = dict(legacy_basics)
@@ -3197,11 +3284,17 @@ def build_profile_from_promoted(person_id: str) -> Dict[str, Any]:
     if truth_rows:
         basics["truth"] = truth_rows
 
-    return {
+    out: Dict[str, Any] = {
         "basics": basics,
         "kinship": legacy_kinship,
         "pets": legacy_pets,
     }
+    # BUG-API-PROFILES-DROPS-INTAKE-KEYS-01 fix: pass through intake-
+    # written structured blocks even when promoted rows exist. Promoted
+    # truth handles protected identity fields via basics.*; intake-
+    # written parents/siblings/etc. should still surface.
+    out.update(structured_passthrough)
+    return out
 
 
 def ft_backfill_from_profile_json(person_id: str) -> Dict[str, Any]:

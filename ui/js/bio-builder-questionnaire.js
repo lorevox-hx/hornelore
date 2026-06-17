@@ -796,6 +796,31 @@
       return;
     }
 
+    // BUG-FE-HYDRATION-CROSS-NARRATOR-LEAK-01 (2026-06-16):
+    // Refuse to hydrate when state.profile is for a DIFFERENT narrator
+    // than the current bb.personId. The state.profile pin is set in
+    // app.js loadPerson() after the async /api/profiles fetch
+    // completes; if hydration fires during the narrator-switch window
+    // before that completes, state.profile.person_id may still be the
+    // previous narrator's id (or absent on first cold start). Either
+    // way, refusing to copy stale basics into bb.questionnaire.personal
+    // prevents the autosave path from writing the wrong narrator's
+    // data under the current pid.
+    if (currentPid && state.profile.person_id &&
+        state.profile.person_id !== currentPid) {
+      console.warn("[bb-hydrate] BLOCKED: state.profile.person_id=" +
+        (state.profile.person_id || "").slice(0, 8) +
+        " !== bb.personId=" + currentPid.slice(0, 8) +
+        " — refusing cross-narrator hydration");
+      return;
+    }
+    if (currentPid && !state.profile.person_id) {
+      console.warn("[bb-hydrate] BLOCKED: state.profile has no person_id pin " +
+        "— treating as stale to avoid cross-narrator leak (bb.personId=" +
+        currentPid.slice(0, 8) + ")");
+      return;
+    }
+
     var q = bb.questionnaire.personal;
     var personalEmpty = !q || !_hasAnyValue(q);
     if (personalEmpty) {

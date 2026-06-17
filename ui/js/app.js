@@ -2795,6 +2795,14 @@ async function loadPerson(pid){
     // Guard: only assign if this is still the active load (prevents race on rapid switch)
     if(gen!==_loadGeneration) return;
     state.profile=normalizeProfile(j.profile||j||{});
+    // BUG-FE-HYDRATION-CROSS-NARRATOR-LEAK-01 — stamp person_id on
+    // state.profile so downstream hydration code (e.g. bio-builder
+    // _hydrateQuestionnaireFromProfile) can verify the profile is
+    // actually for the current narrator before copying basics into
+    // bb.questionnaire.personal. Without this stamp, a stale profile
+    // from the previous narrator could be hydrated into the new
+    // narrator's questionnaire and then autosaved under the new pid.
+    state.profile.person_id = pid;
     profileSaved=true;
     // Cache for offline fallback
     try{ localStorage.setItem("lorevox_offline_profile_"+pid,JSON.stringify(state.profile)); }catch{}
@@ -2804,10 +2812,14 @@ async function loadPerson(pid){
     // Offline fallback — read from localStorage cache
     try{
       const cached=localStorage.getItem("lorevox_offline_profile_"+pid);
-      if(cached){ state.profile=normalizeProfile(JSON.parse(cached)); profileSaved=true; }
-      else{ state.profile={basics:{},kinship:[],pets:[]}; profileSaved=false; }
+      if(cached){
+        state.profile=normalizeProfile(JSON.parse(cached));
+        state.profile.person_id = pid;  // BUG-FE-HYDRATION-CROSS-NARRATOR-LEAK-01
+        profileSaved=true;
+      }
+      else{ state.profile={basics:{},kinship:[],pets:[],person_id:pid}; profileSaved=false; }
     }catch{
-      state.profile={basics:{},kinship:[],pets:[]};
+      state.profile={basics:{},kinship:[],pets:[],person_id:pid};
       profileSaved=false;
     }
   }
