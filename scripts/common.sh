@@ -306,14 +306,29 @@ start_useful_log_tail() {
   sleep 1
   local new_pid
   new_pid="$(read_pid "$pid_file" || true)"
+  local api_log="$LOG_DIR/api.log"
+  local ts
+  ts="$(date -Iseconds)"
   if pid_is_running "$new_pid"; then
     printf 'Useful log filter started (pid %s): %s\n' "$new_pid" "$out_file"
+    # Single-source-of-truth marker — also write to api.log so a
+    # plain `tail .runtime/logs/api.log` proves the filter is up
+    # without having to chase a separate PID file.
+    printf '[%s] [startup] Useful log filter started (pid %s) -> %s\n' "$ts" "$new_pid" "$out_file" >> "$api_log"
   else
     printf 'Useful log filter failed to start.\n'
+    printf '[%s] [startup] Useful log filter FAILED to start\n' "$ts" >> "$api_log"
     return 1
   fi
 }
 
 stop_useful_log_tail() {
+  # Marker before tearing down, so the api.log snapshot captures the
+  # stop event. stop_named_process is silent about which log it
+  # belongs to; this gives the api.log reader one clear line.
+  local api_log="$LOG_DIR/api.log"
+  local ts
+  ts="$(date -Iseconds)"
+  printf '[%s] [shutdown] Stopping useful log filter\n' "$ts" >> "$api_log" 2>/dev/null || true
   stop_named_process "Hornelore useful log filter" "$USEFUL_LOG_PID_FILE" "tail -F .runtime/logs/api.log .runtime/logs/tts.log"
 }
