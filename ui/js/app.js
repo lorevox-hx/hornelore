@@ -493,6 +493,15 @@ function lvShellShowTab(tabName) {
   // Media tab preflight — single-shot probe for /api/photos so we can
   // surface the "not enabled" hint without navigating away.
   if (tabName === "media") _lvMediaPreflightOnce();
+  // WO-OPERATOR-INTAKE-TAB-01 (2026-06-16): refresh intake data
+  // on tab activation so badges + values are always current.
+  if (tabName === "intake") {
+    try {
+      if (window.OperatorIntake && typeof window.OperatorIntake.refresh === "function") {
+        window.OperatorIntake.refresh();
+      }
+    } catch (e) { console.warn("[operator-intake] refresh on tab-switch threw:", e); }
+  }
   // Narrator room upkeep — repaint identity + controls on entry; start
   // a light tick so mic/camera state stays synced while we're here.
   if (tabName === "narrator") {
@@ -2740,7 +2749,20 @@ function renderPeople(items){
       : "";
     const d=document.createElement("div");
     d.className="sb-item"+(pid===state.person_id?" active":"")+(isRef?" wo13-readonly":"");
-    d.onclick=()=>loadPerson(pid);
+    // External-review fix (2026-06-16): route people-list clicks
+    // through lvxSwitchNarratorSafe when available so the chat/
+    // session/Bio Builder state hard-reset + Bio Builder narrator-
+    // switch hook + OperatorIntake.onNarratorSwitch hook all fire
+    // before loadPerson runs. Previous direct loadPerson() call
+    // bypassed those resets, which is the entry point that allowed
+    // the Jake -> Walt cross-narrator hydration leak to land.
+    d.onclick=()=>{
+      if (typeof lvxSwitchNarratorSafe === "function") {
+        lvxSwitchNarratorSafe(pid);
+      } else {
+        loadPerson(pid);
+      }
+    };
     d.innerHTML=`<div class="font-bold text-white truncate" style="font-size:15px">${esc(name)}${refBadge}</div>
       <div class="sb-meta mono dev-only">${esc(pid.slice(0,16))}</div>`;
     w.appendChild(d);
@@ -2762,7 +2784,16 @@ async function createPersonFromForm(){
     const pid=j.id||j.person_id; if(!pid) throw new Error("no id");
     profileSaved=true;
     sysBubble(`✅ Created: ${display_name}`);
-    await refreshPeople(); await loadPerson(pid);
+    await refreshPeople();
+    // External-review fix (2026-06-16): use the safe switch so the
+    // brand-new narrator gets a clean Bio Builder reset + intake-tab
+    // refresh before /api/profiles loads. Falls back to loadPerson
+    // if the safe switch isn't defined for any reason.
+    if (typeof lvxSwitchNarratorSafe === "function") {
+      await lvxSwitchNarratorSafe(pid);
+    } else {
+      await loadPerson(pid);
+    }
   }catch{ sysBubble("⚠ Create failed — is the server running?"); }
 }
 let _loadGeneration=0;
@@ -3003,6 +3034,17 @@ async function lvxSwitchNarratorSafe(pid){
     console.warn("[narrator-switch] FacialConsent.setNarrator threw:", e);
   }
 
+  // WO-OPERATOR-INTAKE-TAB-01 (2026-06-16): tell the dedicated intake
+  // tab the narrator changed so it can clear stale state + refresh
+  // when the tab is next activated.
+  try {
+    if (window.OperatorIntake && typeof window.OperatorIntake.onNarratorSwitch === "function") {
+      window.OperatorIntake.onNarratorSwitch(pid);
+    }
+  } catch (e) {
+    console.warn("[narrator-switch] OperatorIntake.onNarratorSwitch threw:", e);
+  }
+
   await loadPerson(pid);
 
   // Phase G: hydrate canonical state from backend state-snapshot
@@ -3223,8 +3265,9 @@ async function lvxUndoDeleteNarrator(){
 }
 
 function normalizeProfile(p){
+  if (!p || typeof p !== "object") p = {};
   const b=p.basics||p.basic||p.identity||{};
-  return {
+  const out = {
     basics:{fullname:b.fullname||"",preferred:b.preferred||"",dob:b.dob||"",
             pob:b.pob||"",culture:b.culture||"",country:b.country||"us",
             pronouns:b.pronouns||"",phonetic:b.phonetic||"",
@@ -3238,10 +3281,31 @@ function normalizeProfile(p){
             birthOrderCustom:b.birthOrderCustom||"",           // v8.0
             zodiacSign:b.zodiacSign||"",                       // v8.0
             placeOfBirthRaw:b.placeOfBirthRaw||"",             // v8.0
-            placeOfBirthNormalized:b.placeOfBirthNormalized||""},// v8.0
+            placeOfBirthNormalized:b.placeOfBirthNormalized||"",// v8.0
+            // BUG-API-PROFILES-DROPS-INTAKE-KEYS-01 follow-up (2026-06-16):
+            // surface intake-faith fields into basics so downstream
+            // consumers that read state.profile.basics see them too.
+            faithRaised:b.faithRaised||"",
+            currentFaith:b.currentFaith||"",
+            currentResidence:b.currentResidence||""},
     kinship:Array.isArray(p.kinship||p.family)?p.kinship||p.family:[],
     pets:Array.isArray(p.pets)?p.pets:[],
   };
+  // External-review fix (2026-06-16): preserve the intake-written
+  // structured passthrough blocks that build_profile_from_promoted
+  // now returns alongside basics/kinship/pets. Previously dropped
+  // here — backend returned them, FE silently discarded them, so
+  // bio-builder + operator-intake hydration couldn't see parents/
+  // siblings/etc. that the intake form had captured.
+  const STRUCTURED_KEYS = [
+    "personal", "parents", "siblings", "spouses", "spouse",
+    "children", "education", "community", "marriage",
+    "military", "faith", "today",
+  ];
+  for (const k of STRUCTURED_KEYS) {
+    if (p[k] != null) out[k] = p[k];
+  }
+  return out;
 }
 async function saveProfile(){
   if(!state.person_id){ sysBubble("Select or create a person first."); return; }

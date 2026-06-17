@@ -207,6 +207,47 @@ class FanoutFailureFallback(unittest.TestCase):
                          "apply_questionnaire_writes")
 
 
+class BioFactsErrorsPropagated(unittest.TestCase):
+    """External-review fix (2026-06-16): res['bio_facts_errors'] from
+    the writer must surface in the PUT response. Previously the route
+    only copied bio_facts_written + profile_error, leaving partial
+    field-level write failures invisible to the operator UI."""
+
+    def test_writer_errors_appear_in_response(self):
+        from api.routers import questionnaire as qroute
+        from api.routers.questionnaire import QuestionnairePutRequest
+        with patch.dict(os.environ, {
+            "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "1",
+            "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "1",
+        }), patch("api.routers.questionnaire.upsert_questionnaire", return_value={
+            "person_id": "n", "questionnaire": _DUMMY_BLOB,
+            "source": "ui_save", "version": 1, "updated_at": "x",
+        }), patch(
+            "api.services.bio_questionnaire_writer.apply_questionnaire_writes",
+            return_value={
+                "bio_facts_written": 2,
+                # Writer collected three per-field errors. The route
+                # MUST surface these to the response — previously they
+                # were silently dropped because the route only copied
+                # bio_facts_written + profile_error.
+                "bio_facts_errors": [
+                    {"field_key": "primary_career", "error": "schema mismatch"},
+                    {"field_key": "father_name",   "error": "value too long"},
+                    {"field_key": "spouse_name",   "error": "DB lock"},
+                ],
+                "profile_error": None, "profile_patch": {},
+            },
+        ):
+            payload = QuestionnairePutRequest(
+                person_id="n", questionnaire=_DUMMY_BLOB,
+            )
+            resp = qroute.put_questionnaire_route(payload)
+        self.assertEqual(len(resp.bio_facts_errors), 3)
+        keys = [e["field_key"] for e in resp.bio_facts_errors]
+        for k in ("primary_career", "father_name", "spouse_name"):
+            self.assertIn(k, keys)
+
+
 class DualFlagsDisabledRejected(unittest.TestCase):
     """Code-review issue #3: PUT must refuse when both write paths are
     off. Otherwise the operator UI shows 'saved' and the data drops."""

@@ -2990,6 +2990,10 @@
             class="lv-shell-tab lv-shell-tab-active" aria-selected="true"
             aria-controls="lvOperatorTab"
             onclick="lvShellShowTab('operator')">Operator</button>
+    <button type="button" id="lvShellTabIntake" role="tab" data-tab="intake"
+            class="lv-shell-tab" aria-selected="false"
+            aria-controls="lvIntakeTab"
+            onclick="lvShellShowTab('intake')">Intake</button>
     <button type="button" id="lvShellTabNarrator" role="tab" data-tab="narrator"
             class="lv-shell-tab" aria-selected="false"
             aria-controls="lvNarratorTab"
@@ -3248,6 +3252,22 @@
         </div>
       </section>
 
+    </div>
+  </section>
+
+  <!-- ── INTAKE TAB — dedicated Operator Intake surface (WO-OPERATOR-INTAKE-
+       TAB-01, 2026-06-16).  Mirrors the 9-section intake form modal but
+       persistent: operator can come back, edit, save section by section.
+       Status badges per field show what the system already knows (Phase 2
+       view _meta block).  Section-level Save fires PUT /api/bio-builder/
+       questionnaire which fans out via Phase 3 writer into bio_facts +
+       profile_json when HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE=1.
+       Operator-only by design: not visible in Narrator Session view. ── -->
+  <section id="lvIntakeTab" class="lv-shell-panel"
+           role="tabpanel" aria-labelledby="lvShellTabIntake">
+    <div id="lvIntakeToastHost" class="oi-toast-host"></div>
+    <div id="lvIntakeContainer" class="oi-container">
+      <!-- Populated by ui/js/operator-intake.js OperatorIntake.refresh() -->
     </div>
   </section>
 
@@ -5339,6 +5359,10 @@
 <script src="js/bio-builder-family-tree.js"></script>
 <script src="js/bio-builder-life-threads.js"></script>
 <script src="js/bio-builder.js"></script>
+<!-- WO-OPERATOR-INTAKE-TAB-01 (2026-06-16): dedicated operator intake tab.
+     Loads after bio-builder modules because it reads the same questionnaire
+     endpoint but doesn't depend on the Bio Builder runtime. -->
+<script src="js/operator-intake.js?v=2026-06-16"></script>
 <script src="js/narrator-preload.js"></script>
 <script src="js/wo13-review.js"></script>
 <script src="js/bio-review.js"></script>

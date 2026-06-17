@@ -504,11 +504,17 @@ def apply_questionnaire_writes(
         profile_patch["parents"] = parents
 
     # Siblings (array + sibling_count scalar)
+    # External-review fix (2026-06-16): pass errors=errors so per-field
+    # write failures inside the count/primary scalar pass surface in
+    # the PUT response. Previously omitted; the helper signature
+    # accepts the kwarg but the call sites for siblings/spouses/
+    # children weren't threading it.
     sibs = _apply_array_section(
         q.get("siblings"),
         narrator_id=narrator_id,
         operator_id=operator_id,
         written=written,
+        errors=errors,
         count_field_key="sibling_count",
     )
     if sibs is not None:
@@ -520,6 +526,7 @@ def apply_questionnaire_writes(
         narrator_id=narrator_id,
         operator_id=operator_id,
         written=written,
+        errors=errors,
         count_field_key=None,
         primary_scalar={
             "name_field_key": "spouse_name",
@@ -538,6 +545,7 @@ def apply_questionnaire_writes(
         narrator_id=narrator_id,
         operator_id=operator_id,
         written=written,
+        errors=errors,
         count_field_key="children_count",
     )
     if kids is not None:

@@ -143,6 +143,15 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
                 res.get("bio_facts_written") or 0,
             )
             fanout_summary["profile_error"] = res.get("profile_error")
+            # External-review fix (2026-06-16): copy per-field error rows
+            # from the writer result. Previously these were collected by
+            # the writer but never threaded into the PUT response, so
+            # partial bio_fact_create failures stayed hidden from the
+            # operator UI (the response carried bio_facts_errors=[]
+            # unless apply_questionnaire_writes itself raised).
+            fanout_summary["bio_facts_errors"] = list(
+                res.get("bio_facts_errors") or []
+            )
         except Exception as exc:
             # Catch-all so the legacy blob write still runs; the
             # operator UI surfaces the failure via the response.

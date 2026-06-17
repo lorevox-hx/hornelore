@@ -2163,3 +2163,246 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
     padding: 8px 14px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Operator Intake tab (WO-OPERATOR-INTAKE-TAB-01, 2026-06-16)
+   Dedicated operator-only intake editing surface.  Pattern mirrors
+   the existing .lv-operator-container — scrollable, padded, dark.
+═══════════════════════════════════════════════════════════════════ */
+#lvIntakeTab { overflow-y: auto; position: relative; }
+.oi-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.oi-tab-header { padding: 0 0 4px; }
+.oi-tab-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #e2e8f0;
+  letter-spacing: -0.01em;
+}
+.oi-tab-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+  max-width: 720px;
+}
+.oi-tab-source-line {
+  font-size: 11px;
+  color: #475569;
+  letter-spacing: 0.02em;
+}
+.oi-tab-source-line code {
+  background: rgba(99,102,241,0.08);
+  color: #c7d2fe;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.oi-empty, .oi-loading, .oi-error {
+  text-align: center;
+  padding: 60px 20px;
+  color: #64748b;
+}
+.oi-empty-icon { font-size: 40px; opacity: 0.45; margin-bottom: 10px; }
+.oi-empty-title { font-size: 16px; color: #94a3b8; font-weight: 500; margin-bottom: 4px; }
+.oi-empty-hint  { font-size: 13px; color: #475569; }
+.oi-error       { color: #fca5a5; }
+
+.oi-sections { display: flex; flex-direction: column; gap: 14px; }
+
+.oi-section {
+  background: rgba(15,23,42,0.55);
+  border: 1px solid rgba(99,102,241,0.15);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.oi-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(99,102,241,0.06);
+  border-bottom: 1px solid rgba(99,102,241,0.12);
+}
+.oi-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.oi-section-icon { font-size: 16px; opacity: 0.95; }
+.oi-section-meta { display: flex; gap: 8px; align-items: center; }
+
+.oi-rollup {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.oi-rollup-empty { background: rgba(255,255,255,0.04); color: #475569; }
+.oi-rollup-has   { background: rgba(99,102,241,0.16); color: #c7d2fe; }
+.oi-rollup-array { background: rgba(20,184,166,0.14); color: #5eead4; }
+
+.oi-dirty {
+  font-size: 11px;
+  color: #fcd34d;
+  font-weight: 500;
+}
+.oi-saved-at {
+  font-size: 11px;
+  color: #86efac;
+  font-weight: 500;
+}
+
+.oi-section-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+.oi-field { display: flex; flex-direction: column; gap: 4px; }
+.oi-field-label {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+.oi-input {
+  appearance: none;
+  background: rgba(15,23,42,0.85);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.oi-input:focus {
+  outline: none;
+  border-color: rgba(165,180,252,0.7);
+  background: rgba(15,23,42,1);
+}
+.oi-textarea { resize: vertical; min-height: 60px; line-height: 1.45; }
+.oi-select { cursor: pointer; }
+
+/* Status badges next to field labels */
+.oi-status-badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 500;
+  margin-left: 8px;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.oi-badge-ok    { background: rgba(34,197,94,0.18);  color: #86efac; }
+.oi-badge-known { background: rgba(99,102,241,0.18); color: #c7d2fe; }
+.oi-badge-amber { background: rgba(245,158,11,0.18); color: #fcd34d; }
+.oi-badge-red   { background: rgba(239,68,68,0.20);  color: #fca5a5; }
+.oi-badge-muted { background: rgba(255,255,255,0.05); color: #64748b; }
+
+/* Array sections */
+.oi-array-row {
+  background: rgba(15,23,42,0.4);
+  border: 1px solid rgba(99,102,241,0.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.oi-array-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.oi-array-row-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.oi-array-row-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.oi-array-remove {
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(239,68,68,0.35);
+  color: #fca5a5;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.oi-array-remove:hover { background: rgba(239,68,68,0.10); }
+.oi-array-add {
+  appearance: none;
+  background: rgba(99,102,241,0.10);
+  border: 1px dashed rgba(99,102,241,0.4);
+  color: #c7d2fe;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.oi-array-add:hover { background: rgba(99,102,241,0.16); }
+
+.oi-section-footer {
+  padding: 10px 16px;
+  border-top: 1px solid rgba(99,102,241,0.10);
+  display: flex;
+  justify-content: flex-end;
+}
+.oi-save-btn {
+  appearance: none;
+  background: rgba(99,102,241,0.18);
+  border: 1px solid rgba(165,180,252,0.5);
+  color: #e0e7ff;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.oi-save-btn:hover { background: rgba(99,102,241,0.28); }
+.oi-save-btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* Toast host */
+.oi-toast-host {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 50;
+  pointer-events: none;
+}
+.oi-toast {
+  background: rgba(15,23,42,0.95);
+  border: 1px solid rgba(99,102,241,0.4);
+  color: #e0e7ff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  pointer-events: auto;
+}
+.oi-toast-ok    { border-color: rgba(34,197,94,0.5); }
+.oi-toast-error { border-color: rgba(239,68,68,0.5); color: #fca5a5; }
