@@ -113,3 +113,4 @@ docs/reports/test23_*_*.screenshots/
 
 # runtime DB (live narrator data)
 data/hornelore.sqlite
+.fuse_hidden*
