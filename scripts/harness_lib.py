@@ -100,6 +100,213 @@ ERA_LABEL_MENU_PATTERNS: Tuple[str, ...] = (
 )
 
 
+# ── BUG-HARNESS-SCORER-TOO-LENIENT-CONTENT-QUALITY-01 patterns ────────────
+# Eight new pattern banks for the content-quality scoring rows added to
+# score_chapter. Each catches a distinct Lori-voice failure that the
+# original 8-row matrix was calling PASS.
+
+# Stop-words that should NEVER be treated as candidate names by the
+# META_FEEDBACK / correction pipeline (the source of the false
+# name-confirmation pattern).
+_NAME_LIKELIHOOD_STOPWORDS: frozenset[str] = frozenset({
+    "the", "a", "an", "i", "you", "he", "she", "it", "we", "they",
+    "this", "that", "these", "those", "is", "was", "were", "are",
+    "be", "been", "being", "and", "or", "but", "so", "because",
+    "what", "when", "where", "why", "how", "all", "some", "any",
+    "many", "few", "no", "yes", "ok", "okay", "well", "so",
+    "still", "always", "never", "sometimes", "often", "just", "very",
+    "really", "more", "less", "again", "only", "even", "also", "too",
+    "now", "then", "there", "here",
+    # calendar / date tokens — Lori treats "Wednesday" or "October" as anchors
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday", "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+    # religious / common nouns
+    "catholic", "mass", "church", "school", "home", "family",
+    "love", "life", "war", "joy",
+})
+
+# Compiled regex patterns for the 8 new rows.
+_FALSE_NAME_CONFIRM_PATTERNS = (
+    # The exact "Got it — [phrase]. Did I get that name right?" template
+    # from the full-family run — Jake, Shatner, Frank, Walter, Richard
+    re.compile(r"did i get (that|the|your) (name|title) right", re.IGNORECASE),
+    re.compile(r"is that (the right|your real) (name|spelling)", re.IGNORECASE),
+)
+
+_GOT_IT_STUB_PATTERN = re.compile(
+    r"^\s*got it\s*[—\-:,]+\s*[^.!?]{0,80}[.!?]\s*"
+    r"(did i get|what happened next|tell me more)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# A "titlecase phrase as candidate name" is a 3+ word capitalized sequence
+# being treated as an entity (e.g. "Originally Schong With A C",
+# "It Was The Air", "You Learned To Stand Up And Sit Down And Kneel At
+# The Right Times", "Because The Adults Stopped Moving").
+_TITLECASE_PHRASE_AS_NAME = re.compile(
+    r"got it\s*[—\-:,]+\s*"
+    r"((?:[A-Z][a-z]+\s+){2,}[A-Z][a-z]+|"
+    r"(?:[A-Z][A-Z\s]+\s+){2,}[A-Z][a-z]+)"
+    r"\s*[.!?]"
+)
+
+# Orphan fragments: 1–2 token responses ending in '.' OR a single
+# capitalized fragment like "St." / "West St." / "Began."
+_FRAGMENT_PATTERNS = (
+    # 1–2 word total response
+    re.compile(r"^\s*([A-Za-z][A-Za-z'\.]*\s+){0,1}[A-Za-z][A-Za-z'\.]*[.!?]?\s*$"),
+    # Partial place name "West St." with no body
+    re.compile(r"^\s*[A-Z][a-z]*\s+St\.?\s*$"),
+    # Single capitalized word ending in period
+    re.compile(r"^\s*[A-Z][a-z]{1,15}\.\s*$"),
+)
+
+# Meta-instruction leak (LLM expose-its-own-rules postamble/preamble)
+_META_RESPONSE_LEAK_PATTERNS = (
+    re.compile(r"here is (a |the )?response (that|which) (follows|reflects)", re.IGNORECASE),
+    re.compile(r"this response (reflects|follows|adheres|captures|invites)", re.IGNORECASE),
+    re.compile(r"let me capture (a few|the|some) key points", re.IGNORECASE),
+    re.compile(r"this (follows|adheres to) the (rules|guidelines)", re.IGNORECASE),
+    re.compile(r"the response (should|will|must) (be|follow|reflect)", re.IGNORECASE),
+    re.compile(r"what a (rich|wonderful|beautiful|moving|evocative) (narrative|story)", re.IGNORECASE),
+    re.compile(r"i'?m so grateful to be listening", re.IGNORECASE),
+)
+
+# Anchor-cascade: 3+ comma-or-conjunction-separated proper nouns dumped
+# in sequence: "You went from X to Y, then Z, A, B, and C"
+_ANCHOR_CASCADE_PATTERNS = (
+    re.compile(
+        r"\byou went from\s+[A-Z][\w\s]*\s+to\s+[A-Z][\w\s]*,\s*then\s+"
+        r"([A-Z][\w]*(?:,\s*|,\s*and\s+|\s+and\s+)){2,}",
+        re.IGNORECASE,
+    ),
+    # "You said X: ... You kept coming back to X" stock-phrase
+    re.compile(
+        r"\byou said\s+[A-Z][\w\s]*:.+you kept coming back to",
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
+
+
+def _detect_titlecase_phrase_as_name(text: str) -> Optional[str]:
+    """Return the offending titlecase phrase if 'Got it — [Title Cased]'."""
+    m = _TITLECASE_PHRASE_AS_NAME.search(text)
+    if not m:
+        return None
+    phrase = m.group(1).strip()
+    words = phrase.split()
+    if len(words) < 3:
+        return None
+    # If every word starts uppercase and is not a stopword, it's a flagged phrase
+    if all(w[0].isupper() and w.lower() not in _NAME_LIKELIHOOD_STOPWORDS for w in words):
+        return phrase
+    # If 3+ words and mostly titlecase, also flag (catches "It Was The Air")
+    cap_words = [w for w in words if w[0].isupper()]
+    if len(cap_words) >= 3:
+        return phrase
+    return None
+
+
+def _detect_fragment(text: str) -> bool:
+    """True if the response is an orphan stub (1–3 tokens, abbreviated)."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return True
+    # Count meaningful tokens (drop trailing punctuation)
+    tokens = [t for t in re.split(r"\s+", stripped) if t]
+    if len(tokens) <= 2:
+        return True
+    # "West St." / "St. Paul" with no further body
+    for pat in _FRAGMENT_PATTERNS:
+        if pat.match(stripped):
+            return True
+    return False
+
+
+def _detect_meta_leak(text: str) -> Optional[str]:
+    """Return the offending meta-instruction phrase if present."""
+    for pat in _META_RESPONSE_LEAK_PATTERNS:
+        m = pat.search(text or "")
+        if m:
+            return m.group(0)
+    return None
+
+
+def _detect_anchor_cascade(text: str) -> bool:
+    """True if the response is a 3+ token proper-noun cascade dump."""
+    if not text:
+        return False
+    for pat in _ANCHOR_CASCADE_PATTERNS:
+        if pat.search(text):
+            return True
+    # Cheaper heuristic: count comma-separated capitalized tokens after
+    # "from X to Y, then "
+    m = re.search(
+        r"\byou went from\s+\w[\w\s]*\s+to\s+\w[\w\s]*,\s*then\s+(.+?)[.?!]",
+        text, re.IGNORECASE,
+    )
+    if m:
+        tail = m.group(1)
+        parts = [p.strip() for p in re.split(r",\s*(?:and\s+)?|\s+and\s+", tail)]
+        cap_parts = [p for p in parts if p and p[0].isupper()]
+        if len(cap_parts) >= 3:
+            return True
+    return False
+
+
+def _detect_false_name_confirm(text: str) -> bool:
+    """True if 'Did I get that name right?' appears (any context)."""
+    for pat in _FALSE_NAME_CONFIRM_PATTERNS:
+        if pat.search(text or ""):
+            return True
+    return False
+
+
+def _detect_got_it_stub(text: str) -> bool:
+    """True if the response is a 'Got it — X. What happened next?' shell."""
+    return bool(_GOT_IT_STUB_PATTERN.search(text or ""))
+
+
+# Seeded-fact intake-question detection: when Lori asks about a fact
+# that's already in the narrator's seeded bio. Requires seeded context
+# passed in by the caller.
+_SEEDED_FACT_INTAKE_PATTERNS = (
+    # "You were born in X" / "Were you born in X" — confirming seeded birth
+    (re.compile(r"\b(you were|were you) born in ([^?.,]+)", re.IGNORECASE), "place_of_birth"),
+    (re.compile(r"\b(you were|were you) born (in|on)\s+(?:[^?.,]+,\s*)?(\d{4})", re.IGNORECASE), "birth_year"),
+    # "Do you live in X" / "You live in X" — confirming seeded residence
+    (re.compile(r"\b(do you (currently )?live|you (currently )?live) in ([^?.,]+)", re.IGNORECASE), "current_residence"),
+    # "Do you work at X" — confirming seeded current employer
+    (re.compile(r"\b(do you (currently )?work|you (currently )?work) (at|for) ([^?.,]+)", re.IGNORECASE), "current_work"),
+    # "Did you have N children" — confirming seeded children count
+    (re.compile(r"\b(did you have|do you have)\s+(one|two|three|four|five|six|\d+)\s+(child|children|kids)", re.IGNORECASE), "children_count"),
+)
+
+
+def _detect_seeded_fact_intake(text: str, seeded_facts: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Return a description of the seeded-fact intake mis-fire if present.
+
+    `seeded_facts` is a dict from field_key → value (operator-seeded). If
+    Lori asks for confirmation of a seeded fact, return a string description
+    of the mis-fire. Otherwise return None.
+    """
+    if not text or not seeded_facts:
+        return None
+    lower = text.lower()
+    for pattern, field_key in _SEEDED_FACT_INTAKE_PATTERNS:
+        if pattern.search(text):
+            seeded_value = seeded_facts.get(field_key)
+            if seeded_value:
+                # Lori is asking about a fact the operator already provided
+                seeded_str = str(seeded_value).lower()
+                # Only fail if the question targets the same value
+                if any(part in lower for part in seeded_str.split()):
+                    return f"{field_key}={seeded_value!r} (asks confirmation of seeded value)"
+                return f"{field_key}={seeded_value!r} (asks intake form of seeded fact)"
+    return None
+
+
 # ── Data classes ───────────────────────────────────────────────────────────
 
 
@@ -297,8 +504,26 @@ def score_chapter(
     response_text: str,
     *,
     is_bonus: bool = False,
+    seeded_facts: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """8-row checklist scorer — matches the Jake harness shape exactly."""
+    """16-row checklist scorer.
+
+    Original 8 rows (matrix integrity per LAW) are preserved. The 8 new
+    content-quality rows added by BUG-HARNESS-SCORER-TOO-LENIENT-CONTENT-
+    QUALITY-01 catch failure modes the original matrix called PASS:
+      - "Got it — [phrase]. Did I get that name right?" stubs
+      - Title-case descriptive phrases treated as names
+      - Orphan fragments ("West St.", "St.", "Began.")
+      - Lori asking for seeded bio facts she already has
+      - LLM meta-response leak ("Here is a response that follows...")
+      - Mechanical anchor-cascade dumps
+      - Stock-phrase "You said X / You kept coming back to X"
+      - Responses with zero anchor anchoring
+
+    Pass `seeded_facts={'place_of_birth': 'Albany, Georgia', 'birth_year': 1942}`
+    to enable the no_seeded_fact_intake_question check; otherwise that row
+    is reported as PASS (no seeded context = no question to validate against).
+    """
     text = (response_text or "").strip()
     lower = text.lower()
     words = text.split()
@@ -365,6 +590,59 @@ def score_chapter(
         "FAIL" if (not text or refusal_hit) else "PASS"
     )
 
+    # ── 8 NEW CONTENT-QUALITY ROWS ───────────────────────────────────────
+    # BUG-HARNESS-SCORER-TOO-LENIENT-CONTENT-QUALITY-01
+    # Hard FAIL rows (no PARTIAL — these patterns are unacceptable Lori voice).
+
+    # 9. no_false_name_confirmation — "Did I get that name right?" on phrase
+    no_false_name_confirmation = (
+        "FAIL" if _detect_false_name_confirm(text) else "PASS"
+    )
+
+    # 10. no_got_it_stub — "Got it — X. What happened next?" shell
+    no_got_it_stub = (
+        "FAIL" if _detect_got_it_stub(text) else "PASS"
+    )
+
+    # 11. no_titlecase_phrase_as_name — "Originally Schong With A C"
+    titlecase_phrase_offender = _detect_titlecase_phrase_as_name(text)
+    no_titlecase_phrase_as_name = (
+        "FAIL" if titlecase_phrase_offender else "PASS"
+    )
+
+    # 12. response_not_fragmented — orphan stub "West St." / "St."
+    no_fragment = not _detect_fragment(text)
+    response_not_fragmented = "PASS" if no_fragment else "FAIL"
+
+    # 13. minimum_anchor_count — at least one grounded anchor from narrator text
+    # (unless this is a safety response or a closing/bonus probe)
+    if is_bonus:
+        minimum_anchor_count = "PASS"
+    elif refusal_hit:
+        # Safety/translation refusal already failed translation_refusal_absent
+        minimum_anchor_count = "PASS"
+    elif len(anchor_hits) >= 1:
+        minimum_anchor_count = "PASS"
+    else:
+        minimum_anchor_count = "FAIL"
+
+    # 14. no_meta_response_leak — "Here is a response that follows..." etc.
+    meta_leak_offender = _detect_meta_leak(text)
+    no_meta_response_leak = "FAIL" if meta_leak_offender else "PASS"
+
+    # 15. no_titlecased_anchor_cascade — "You went from X to Y, then Z, A, B, C"
+    no_titlecased_anchor_cascade = (
+        "FAIL" if _detect_anchor_cascade(text) else "PASS"
+    )
+
+    # 16. no_seeded_fact_intake_question — Lori asking about seeded bio facts
+    seeded_intake_offender: Optional[str] = None
+    if seeded_facts is not None:
+        seeded_intake_offender = _detect_seeded_fact_intake(text, seeded_facts)
+    no_seeded_fact_intake_question = (
+        "FAIL" if seeded_intake_offender else "PASS"
+    )
+
     return {
         "label": chapter.label,
         "chapter_key": chapter.key,
@@ -372,6 +650,7 @@ def score_chapter(
         "question_count": question_count,
         "anchor_hits": anchor_hits,
         "rows": {
+            # original 8 rows (preserved for matrix-integrity comparisons)
             "reflection_grounded": reflection_grounded,
             "one_question_max": one_question_max,
             "no_questionnaire_interrogation": no_questionnaire,
@@ -380,10 +659,23 @@ def score_chapter(
             "no_same_anchor_loop": no_same_anchor_loop,
             "word_budget_honored": word_budget_honored,
             "translation_refusal_absent": translation_refusal_absent,
+            # 8 new content-quality rows (hard FAIL on detection)
+            "no_false_name_confirmation": no_false_name_confirmation,
+            "no_got_it_stub": no_got_it_stub,
+            "no_titlecase_phrase_as_name": no_titlecase_phrase_as_name,
+            "response_not_fragmented": response_not_fragmented,
+            "minimum_anchor_count": minimum_anchor_count,
+            "no_meta_response_leak": no_meta_response_leak,
+            "no_titlecased_anchor_cascade": no_titlecased_anchor_cascade,
+            "no_seeded_fact_intake_question": no_seeded_fact_intake_question,
         },
         "forbidden_openers_hit": forbidden_hits,
         "interrogation_hits": interrogation_hits,
         "era_label_hits": era_menu_hits,
+        # New offenders for debugging
+        "titlecase_phrase_offender": titlecase_phrase_offender,
+        "meta_leak_offender": meta_leak_offender,
+        "seeded_intake_offender": seeded_intake_offender,
         "is_bonus": is_bonus,
     }
 
