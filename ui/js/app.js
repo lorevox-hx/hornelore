@@ -483,10 +483,24 @@ function lvShellShowTab(tabName) {
     t.classList.toggle("lv-shell-tab-active", isActive);
     t.setAttribute("aria-selected", isActive ? "true" : "false");
   });
+  // BUG-FE-SHELL-TAB-MEDIA-LEAK-01 (2026-06-17): the second clause was a
+  // stale pre-Stage-B fallback from the 3-tab world (operator/narrator/
+  // media). Its ternary had no "intake" arm, so any tab not explicitly
+  // named in the ternary (i.e. "intake") fell through to "Media" and
+  // activated lvMediaTab in addition to lvIntakeTab. Result: Media cards
+  // bled below the Operator Intake form whenever Chris clicked Intake.
+  // The first clause already constructs lvOperatorTab / lvIntakeTab /
+  // lvNarratorTab / lvMediaTab correctly from every tabName, so the
+  // second clause is redundant AND buggy. Use an explicit map for clarity.
+  const _LV_TAB_TO_PANEL = {
+    operator: "lvOperatorTab",
+    intake:   "lvIntakeTab",
+    narrator: "lvNarratorTab",
+    media:    "lvMediaTab",
+  };
+  const expectedPanel = _LV_TAB_TO_PANEL[tabName] || null;
   panels.forEach(p => {
-    const isActive = p.id === `lv${tabName.charAt(0).toUpperCase()}${tabName.slice(1)}Tab` ||
-                     p.id === `lv${tabName === "narrator" ? "Narrator" : tabName === "operator" ? "Operator" : "Media"}Tab`;
-    p.classList.toggle("lv-shell-panel-active", isActive);
+    p.classList.toggle("lv-shell-panel-active", p.id === expectedPanel);
   });
   // Reflect on body for any CSS hooks.
   try { document.body.setAttribute("data-shell-tab", tabName); } catch (_) {}
