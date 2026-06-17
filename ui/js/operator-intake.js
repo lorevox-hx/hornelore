@@ -38,7 +38,12 @@
   // field_key used to pull the status badge.
   var SECTIONS = [
     {
-      id: "identity",
+      // External-review fix (2026-06-16): id must be "personal"
+      // (not "identity"), to match the canonical writer/view shape.
+      // bio_questionnaire_writer reads q.get("personal") and the view
+      // returns questionnaire.personal + _meta.personal. The user-
+      // facing label stays "Identity" — only the storage key changed.
+      id: "personal",
       label: "Identity",
       icon: "👤",
       fields: [

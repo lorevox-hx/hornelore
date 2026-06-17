@@ -71,12 +71,26 @@ console.log('OperatorIntake helper tests:');
 
 runTest('SECTIONS has 9 sections covering the intake form', () => {
   const ids = SECTIONS.map(s => s.id);
+  // External-review fix (2026-06-16): identity section is keyed as
+  // "personal" (matches canonical writer + view), label stays "Identity".
   for (const expected of [
-    'identity', 'family', 'marriage', 'children',
+    'personal', 'family', 'marriage', 'children',
     'siblings', 'education', 'military', 'faith', 'today',
   ]) {
     assert.ok(ids.includes(expected), 'missing section: ' + expected);
   }
+  // Hard-block the pre-fix "identity" key — must not regress.
+  assert.ok(!ids.includes('identity'),
+    'Identity section must be keyed "personal", not "identity" — ' +
+    'the canonical writer reads q.get("personal") and the view returns ' +
+    'questionnaire.personal');
+});
+
+runTest('Identity section keeps its display label', () => {
+  const personal = SECTIONS.find(s => s.id === 'personal');
+  assert.ok(personal, 'personal section should exist');
+  assert.strictEqual(personal.label, 'Identity',
+    'label should display as "Identity" even though id is "personal"');
 });
 
 runTest('STATUS_LABELS has all bio_schema FACT_STATUSES', () => {
@@ -114,11 +128,11 @@ runTest('_esc escapes the 5 critical characters', () => {
 
 runTest('_statusBadgeHtml renders for known status', () => {
   _state.meta = {
-    identity: {
+    personal: {
       dateOfBirth: { status: 'operator_entered', source: 'operator' },
     },
   };
-  const html = _statusBadgeHtml('identity', 'dateOfBirth');
+  const html = _statusBadgeHtml('personal', 'dateOfBirth');
   assert.ok(html.includes('oi-status-badge'));
   assert.ok(html.includes('oi-badge-known'));
   assert.ok(html.includes('Entered'));
@@ -126,17 +140,17 @@ runTest('_statusBadgeHtml renders for known status', () => {
 
 runTest('_statusBadgeHtml returns empty for empty status', () => {
   _state.meta = { identity: { fullName: { status: 'empty', source: '' } } };
-  assert.strictEqual(_statusBadgeHtml('identity', 'fullName'), '');
+  assert.strictEqual(_statusBadgeHtml('personal', 'fullName'), '');
 });
 
 runTest('_statusBadgeHtml returns empty when no meta entry', () => {
   _state.meta = {};
-  assert.strictEqual(_statusBadgeHtml('identity', 'fullName'), '');
+  assert.strictEqual(_statusBadgeHtml('personal', 'fullName'), '');
 });
 
 runTest('_sectionKnownCount sums known statuses', () => {
   _state.meta = {
-    identity: {
+    personal: {
       fullName:     { status: 'operator_entered', source: 'operator' },
       dateOfBirth:  { status: 'approved', source: 'operator' },
       placeOfBirth: { status: 'extracted_needs_verify', source: 'extractor' },
@@ -147,7 +161,7 @@ runTest('_sectionKnownCount sums known statuses', () => {
     },
   };
   // identity section has fields={fullName,..} — count is by meta keys
-  assert.strictEqual(_sectionKnownCount({ id: 'identity', fields: SECTIONS[0].fields }), 3);
+  assert.strictEqual(_sectionKnownCount({ id: 'personal', fields: SECTIONS[0].fields }), 3);
 });
 
 runTest('_sectionKnownCount ignores _section rollup key', () => {
@@ -162,19 +176,19 @@ runTest('_sectionKnownCount ignores _section rollup key', () => {
 runTest('_sectionRollupHtml — empty section renders "No information yet"', () => {
   _state.meta = {};
   _state.questionnaire = {};
-  const html = _sectionRollupHtml(SECTIONS[0]); // identity
+  const html = _sectionRollupHtml(SECTIONS[0]); // personal
   assert.ok(html.includes('No information yet'));
   assert.ok(html.includes('oi-rollup-empty'));
 });
 
 runTest('_sectionRollupHtml — known section renders count', () => {
   _state.meta = {
-    identity: {
+    personal: {
       fullName:     { status: 'operator_entered', source: 'operator' },
       dateOfBirth:  { status: 'approved', source: 'operator' },
     },
   };
-  const html = _sectionRollupHtml(SECTIONS[0]); // identity has 7 fields
+  const html = _sectionRollupHtml(SECTIONS[0]); // personal section has 7 fields
   assert.ok(html.includes('2 of 7 known'), 'rollup output should say 2 of 7 known: ' + html);
   assert.ok(html.includes('oi-rollup-has'));
 });
@@ -195,11 +209,11 @@ runTest('_sectionRollupHtml — array section, single entry', () => {
   assert.ok(html.includes('1 entry'));
 });
 
-runTest('Identity section has fullName, dateOfBirth, placeOfBirth, pronouns', () => {
-  const id = SECTIONS.find(s => s.id === 'identity');
-  const fieldIds = id.fields.map(f => f.id);
+runTest('Identity (personal) section has fullName, dateOfBirth, placeOfBirth, pronouns', () => {
+  const personal = SECTIONS.find(s => s.id === 'personal');
+  const fieldIds = personal.fields.map(f => f.id);
   for (const required of ['fullName', 'dateOfBirth', 'placeOfBirth', 'pronouns', 'preferredName', 'currentResidence']) {
-    assert.ok(fieldIds.includes(required), 'identity missing: ' + required);
+    assert.ok(fieldIds.includes(required), 'personal missing: ' + required);
   }
 });
 
@@ -209,4 +223,4 @@ runTest('Public API exposes init / refresh / onNarratorSwitch', () => {
   assert.strictEqual(typeof OI.onNarratorSwitch, 'function');
 });
 
-console.log('\n15 tests passed');
+console.log('\n16 tests passed');

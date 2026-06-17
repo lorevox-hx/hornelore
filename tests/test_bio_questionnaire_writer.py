@@ -401,6 +401,90 @@ class ViewWriterParityTest(_WriterFixture):
 # ─────────────────────────────────────────────────────────────────────
 
 
+class MilitaryServedStringHandlingTest(_WriterFixture):
+    """External-review fix (2026-06-16): Operator Intake tab sends
+    `served` as a string ("" / "no" / "yes") from a select element.
+    Previous bool(section.get("served")) collapsed "no" to True
+    (non-empty string is truthy in Python), and the scalar write
+    then flipped it to "yes". Result: operator picks "no" → system
+    records military_served = "yes". These tests pin the fix."""
+
+    def test_string_no_writes_military_served_no(self):
+        from api.services.bio_questionnaire_writer import (
+            apply_questionnaire_writes,
+        )
+        blob = {"military": {
+            "served": "no",
+            "branch": "",   # not set
+        }}
+        apply_questionnaire_writes("n", blob)
+        writes = [f for f in self._facts_written if f["field_key"] == "military_served"]
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0]["value"], "no",
+            "string 'no' must persist as 'no' in bio_facts, not be flipped to 'yes'")
+        # And profile_json.military.served should be False, not True
+        patch_dict = self._profile_patches[-1]["profile_json"]
+        self.assertFalse(patch_dict["military"]["served"])
+
+    def test_string_yes_writes_military_served_yes(self):
+        from api.services.bio_questionnaire_writer import (
+            apply_questionnaire_writes,
+        )
+        blob = {"military": {"served": "yes", "branch": "Army"}}
+        apply_questionnaire_writes("n", blob)
+        writes = [f for f in self._facts_written if f["field_key"] == "military_served"]
+        self.assertEqual(writes[0]["value"], "yes")
+        patch_dict = self._profile_patches[-1]["profile_json"]
+        self.assertTrue(patch_dict["military"]["served"])
+
+    def test_bool_True_still_works(self):
+        """The intake-form modal at routers/people.py sends Python bool
+        for served. Must keep working alongside the new string path."""
+        from api.services.bio_questionnaire_writer import (
+            apply_questionnaire_writes,
+        )
+        blob = {"military": {"served": True, "branch": "Navy"}}
+        apply_questionnaire_writes("n", blob)
+        writes = [f for f in self._facts_written if f["field_key"] == "military_served"]
+        self.assertEqual(writes[0]["value"], "yes")
+
+    def test_bool_False_writes_no(self):
+        from api.services.bio_questionnaire_writer import (
+            apply_questionnaire_writes,
+        )
+        blob = {"military": {"served": False, "branch": "Marines"}}
+        apply_questionnaire_writes("n", blob)
+        writes = [f for f in self._facts_written if f["field_key"] == "military_served"]
+        # served=False with other fields: write the explicit "no"
+        self.assertEqual(writes[0]["value"], "no")
+
+    def test_empty_string_served_skips_scalar(self):
+        """Operator chose nothing in the select — no scalar write,
+        no spurious 'no' record."""
+        from api.services.bio_questionnaire_writer import (
+            apply_questionnaire_writes,
+        )
+        blob = {"military": {"served": "", "branch": "Army"}}
+        apply_questionnaire_writes("n", blob)
+        writes = [f for f in self._facts_written if f["field_key"] == "military_served"]
+        self.assertEqual(len(writes), 0,
+            "empty served means 'not set' — must not write a 'no' scalar")
+
+    def test_section_with_only_empty_served_returns(self):
+        """If every field is empty / unset, the writer skips the section
+        entirely. Previously this branch could fire on 'no' alone."""
+        from api.services.bio_questionnaire_writer import (
+            apply_questionnaire_writes,
+        )
+        blob = {"military": {"served": ""}}
+        apply_questionnaire_writes("n", blob)
+        writes = [f for f in self._facts_written if f["field_key"].startswith("military_")]
+        self.assertEqual(len(writes), 0)
+        # No military block in profile patch either
+        patch_dict = self._profile_patches[-1]["profile_json"] if self._profile_patches else {}
+        self.assertNotIn("military", patch_dict)
+
+
 class ErrorPropagationTest(_WriterFixture):
     """Code-review issue #1: individual bio_fact_create failures must
     surface in bio_facts_errors, not silently disappear."""

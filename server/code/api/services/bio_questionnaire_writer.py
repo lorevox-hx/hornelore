@@ -359,12 +359,35 @@ def _apply_military(
 ) -> None:
     if not isinstance(section, Mapping):
         return
-    served = bool(section.get("served"))
-    if not served and not any(section.get(k) for k in (
+
+    # External-review fix (2026-06-16): the Operator Intake tab sends
+    # `served` as a string ("" / "no" / "yes") from a select element,
+    # NOT as a Python bool. The previous `bool(section.get("served"))`
+    # collapsed "no" -> True (non-empty string is truthy in Python),
+    # and the scalar write then converted it back to "yes". Result:
+    # operator picks "no" -> system records military_served="yes".
+    #
+    # Parse explicitly:
+    #   - empty / None       -> not set (served_explicit=False)
+    #   - True / "yes"/"true"/"1" / 1 -> True
+    #   - False / "no"/"false"/"0" / 0 -> False
+    #
+    # The intake-form modal (routers/people.py) sends Python bool;
+    # the Operator Intake tab sends string. Both are handled.
+    served_raw = section.get("served")
+    served_explicit = served_raw not in (None, "")
+    if isinstance(served_raw, bool):
+        served = served_raw
+    else:
+        served = str(served_raw).strip().lower() in ("yes", "true", "1")
+
+    has_other_fields = any(section.get(k) for k in (
         "branch", "servicePeriod", "rank", "units", "locations",
         "warsConflicts", "decorations", "experienceNotes",
-    )):
+    ))
+    if not served_explicit and not has_other_fields:
         return
+
     block: Dict[str, Any] = {"served": served}
     for slot in ("branch", "servicePeriod", "rank", "units", "locations",
                  "warsConflicts", "decorations", "experienceNotes"):
@@ -384,12 +407,22 @@ def _apply_military(
         ("experienceNotes", "military_experience_notes"),
     )
     for slot, field_key in _mil_scalar_map:
+        if slot == "served":
+            # External-review fix: only write the served scalar when
+            # the operator explicitly set it. Preserve "no" by writing
+            # the string "no" — previously "no" was treated as truthy
+            # and silently flipped to "yes".
+            if not served_explicit:
+                continue
+            v_write = "yes" if served else "no"
+            rid = _write_bio_fact(narrator_id, field_key, v_write,
+                                  operator_id, errors=errors)
+            if rid:
+                written.append(field_key)
+            continue
         v = section.get(slot)
         if v in (None, "", False):
             continue
-        # serve = True → "yes"
-        if slot == "served":
-            v = "yes" if v else "no"
         rid = _write_bio_fact(narrator_id, field_key, v, operator_id, errors=errors)
         if rid:
             written.append(field_key)
