@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, ValidationError
 
 from .. import db
 from ..flags import truth_v2_enabled
@@ -77,12 +77,20 @@ class FactStatusUpdateRequest(BaseModel):
 
 
 @router.post("/add")
-def api_add_fact(req: FactAddRequest):
-    # WO-13 Phase 4 — legacy write freeze behind HORNELORE_TRUTH_V2.
-    # When the flag is on, /api/facts/add is retired. Callers must use the
-    # /api/family-truth/note + /propose pipeline instead. 410 Gone makes the
-    # retirement explicit and breaks any stale client that hasn't been
-    # updated, rather than silently contaminating the proposal layer.
+async def api_add_fact(request: Request):
+    # BUG-FE-FACTS-ADD-PAYLOAD-SHAPE-422-01 (Boris Phase 3):
+    # The legacy /api/facts/add path is retired under HORNELORE_TRUTH_V2.
+    # Per Boris contract, BOTH valid-legacy-shape AND proposal-shaped
+    # stale-FE payloads must receive an explicit 410 Gone, NOT a
+    # Pydantic 422. The 422 was silently producing data loss (proposals
+    # vanish without operator notice).
+    #
+    # Implementation: accept raw Request and check HORNELORE_TRUTH_V2
+    # BEFORE attempting Pydantic validation. When the flag is on, every
+    # POST is rejected with 410 regardless of body shape. When the flag
+    # is off, fall through to FactAddRequest validation (which still
+    # raises 422 on malformed bodies — that's the legacy contract for
+    # operators running pre-V2).
     if _truth_v2_enabled():
         raise HTTPException(
             status_code=410,
@@ -92,6 +100,18 @@ def api_add_fact(req: FactAddRequest):
                 "POST /api/family-truth/note/{note_id}/propose instead."
             ),
         )
+
+    # TRUTH_V2 off — validate the body against the legacy FactAddRequest
+    # shape. Malformed bodies still 422, preserving the pre-V2 contract
+    # for any operator running on the older write path.
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    try:
+        req = FactAddRequest(**(body or {}))
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors())
 
     person = db.get_person(req.person_id)
     if not person:

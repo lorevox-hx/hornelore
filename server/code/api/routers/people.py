@@ -300,7 +300,7 @@ def api_update_person(person_id: str, payload: PersonUpdate):
 
 import json
 from typing import List
-from pydantic import BaseModel as _BaseModel
+from pydantic import BaseModel as _BaseModel, field_validator
 
 
 class IntakeSibling(_BaseModel):
@@ -313,6 +313,27 @@ class IntakeSpouse(_BaseModel):
     name: str
     year_married: Optional[int] = None
     status: Optional[str] = None  # 'current' | 'deceased' | 'divorced'
+
+    # BUG-INTAKE-SPOUSE-YEAR-MARRIED-EMPTY-STRING-422-01 (Boris Phase 11):
+    # the intake-form modal sends year_married as "" when the operator
+    # leaves it blank. Without this validator Pydantic raises
+    # int_parsing on "" and the entire intake POST 422s — Alex's
+    # narrator never gets created. Coerce "" / whitespace / "null" to
+    # None so the form can be partial.
+    @field_validator("year_married", mode="before")
+    @classmethod
+    def _coerce_empty_year(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            stripped = v.strip()
+            if not stripped or stripped.lower() in ("null", "none"):
+                return None
+            try:
+                return int(stripped)
+            except (TypeError, ValueError):
+                return None
+        return v
 
 
 class IntakeChild(_BaseModel):

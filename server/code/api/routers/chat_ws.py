@@ -1653,7 +1653,7 @@ async def ws_chat(ws: WebSocket):
                 # interview_sessions(id). chat_ws creates conv_ids that are never
                 # registered there — only routers/interview.py:start_session
                 # inserts. Pre-patch, every safety segment_flag insert on the chat
-                # path failed with FOREIGN KEY constraint failed, leaking the
+                # path failed with the segment_flags FK violation, leaking the
                 # write lock and cascading into 5s/10s/15s busy_timeout failures
                 # across set_session_softened, save_safety_event, and init_db.
                 # ensure_interview_session is idempotent (INSERT OR IGNORE), safe
