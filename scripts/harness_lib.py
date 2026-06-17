@@ -144,10 +144,11 @@ _GOT_IT_STUB_PATTERN = re.compile(
 # being treated as an entity (e.g. "Originally Schong With A C",
 # "It Was The Air", "You Learned To Stand Up And Sit Down And Kneel At
 # The Right Times", "Because The Adults Stopped Moving").
+# `[Gg]ot [Ii]t` covers the case-variation on the prefix; [A-Z] stays
+# strict so the titlecase requirement still has bite.
 _TITLECASE_PHRASE_AS_NAME = re.compile(
-    r"got it\s*[—\-:,]+\s*"
-    r"((?:[A-Z][a-z]+\s+){2,}[A-Z][a-z]+|"
-    r"(?:[A-Z][A-Z\s]+\s+){2,}[A-Z][a-z]+)"
+    r"[Gg]ot\s+[Ii]t\s*[—\-:,]+\s*"
+    r"((?:[A-Z][a-zA-Z]*\s+){2,}[A-Z][a-zA-Z]*)"
     r"\s*[.!?]"
 )
 
@@ -268,42 +269,108 @@ def _detect_got_it_stub(text: str) -> bool:
     return bool(_GOT_IT_STUB_PATTERN.search(text or ""))
 
 
-# Seeded-fact intake-question detection: when Lori asks about a fact
-# that's already in the narrator's seeded bio. Requires seeded context
-# passed in by the caller.
+# Seeded-fact intake-question detection: catches Lori asking for
+# intake-style confirmations of bio facts that should not be intake
+# questions (DOB, POB, current residence, current work, parent status,
+# career start year). Fires on PATTERN ALONE — seeded_facts kwarg is
+# optional context that strengthens the signal but no longer required.
+# Per Boris Phase 8 contract: the question shape itself is the failure,
+# not "shape AND it happens to be seeded".
 _SEEDED_FACT_INTAKE_PATTERNS = (
     # "You were born in X" / "Were you born in X" — confirming seeded birth
     (re.compile(r"\b(you were|were you) born in ([^?.,]+)", re.IGNORECASE), "place_of_birth"),
     (re.compile(r"\b(you were|were you) born (in|on)\s+(?:[^?.,]+,\s*)?(\d{4})", re.IGNORECASE), "birth_year"),
     # "Do you live in X" / "You live in X" — confirming seeded residence
     (re.compile(r"\b(do you (currently )?live|you (currently )?live) in ([^?.,]+)", re.IGNORECASE), "current_residence"),
-    # "Do you work at X" — confirming seeded current employer
+    # "Does your mother live in X" / "Is your mother alive"
+    (re.compile(r"\b(is your (mother|father|mom|dad)) (still )?alive\b", re.IGNORECASE), "parent_alive"),
+    (re.compile(r"\b(does your (mother|father|mom|dad)) live in ([^?.,]+)", re.IGNORECASE), "parent_residence"),
+    # "Do you work at X" / "Did you become a Y in YYYY"
     (re.compile(r"\b(do you (currently )?work|you (currently )?work) (at|for) ([^?.,]+)", re.IGNORECASE), "current_work"),
-    # "Did you have N children" — confirming seeded children count
+    (re.compile(r"\b(did you become a|did you start (working|as) a)\s+[A-Za-z ]+\s+in\s+(\d{4})", re.IGNORECASE), "career_start_year"),
+    # "Did you have N children"
     (re.compile(r"\b(did you have|do you have)\s+(one|two|three|four|five|six|\d+)\s+(child|children|kids)", re.IGNORECASE), "children_count"),
 )
 
 
-def _detect_seeded_fact_intake(text: str, seeded_facts: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Return a description of the seeded-fact intake mis-fire if present.
+def _detect_seeded_fact_intake(text: str, seeded_facts: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Return a description of the intake-question mis-fire if present.
 
-    `seeded_facts` is a dict from field_key → value (operator-seeded). If
-    Lori asks for confirmation of a seeded fact, return a string description
-    of the mis-fire. Otherwise return None.
+    Boris Phase 8 contract: fires on PATTERN ALONE — `seeded_facts` is
+    optional context that lets the scorer attribute the failure to a
+    specific seeded value, but the pattern itself is the failure. Lori
+    asking "You were born in X?" / "Do you live in X?" / "Is your mother
+    alive?" is bad regardless of whether we have the seed at hand — the
+    shape is intake, not lived-experience.
     """
-    if not text or not seeded_facts:
+    if not text:
         return None
-    lower = text.lower()
     for pattern, field_key in _SEEDED_FACT_INTAKE_PATTERNS:
-        if pattern.search(text):
+        m = pattern.search(text)
+        if not m:
+            continue
+        if seeded_facts:
             seeded_value = seeded_facts.get(field_key)
             if seeded_value:
-                # Lori is asking about a fact the operator already provided
-                seeded_str = str(seeded_value).lower()
-                # Only fail if the question targets the same value
-                if any(part in lower for part in seeded_str.split()):
-                    return f"{field_key}={seeded_value!r} (asks confirmation of seeded value)"
-                return f"{field_key}={seeded_value!r} (asks intake form of seeded fact)"
+                return f"{field_key}={seeded_value!r} (intake-shaped question about seeded fact)"
+        return f"{field_key} (intake-shaped question — should be lived-experience)"
+    return None
+
+
+# ── BUG-HARNESS-SCORER no_broken_code_mix + direct_human_voice ─────────
+# Boris Phase 9 + Phase 2 additions.
+#
+# no_broken_code_mix: catches "Tú had an older brother Antonio... y
+# asked my mother. ¿Qué pasó después?" — Spanish scaffolding tokens
+# bolted onto English narrative.
+#
+# direct_human_voice: meta-row that FAILS when any of the following
+# fingerprints fire: fragment / cascade / meta-leak / phrase-as-name /
+# got-it-stub / broken-code-mix. The original 8 rows give granular
+# diagnostics; this row gives the operator a single "would a human
+# narrator hear this and feel listened to?" gate.
+_BROKEN_CODE_MIX_SIGNALS = (
+    # Spanish receipt scaffolding bolted onto otherwise-English text
+    re.compile(r"\bcapté\b", re.IGNORECASE),
+    re.compile(r"\btú\s+(had|made|asked|went|said|called)\b", re.IGNORECASE),
+    re.compile(r"¿qué pasó después", re.IGNORECASE),
+    re.compile(r"[a-z]\s+y\s+(asked|said|made|had|went|called|told)\b", re.IGNORECASE),
+)
+
+# Inverted Spanish punctuation embedded mid-text (not a leading sentence)
+_SPANISH_PUNCT_RX = re.compile(r"[¿¡]")
+
+# English function words (rough density estimate)
+_ENGLISH_FUNCTION_WORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "is", "was",
+    "you", "your", "i", "me", "my", "we", "had", "have", "with", "for",
+    "on", "at", "what", "when", "where", "do", "did", "are", "be", "been",
+})
+
+
+def _detect_broken_code_mix(text: str) -> Optional[str]:
+    """True if Spanish scaffolding tokens appear in otherwise-English text.
+
+    Heuristic:
+      1. Any explicit broken-code-mix signal (Capté / Tú X / ¿Qué pasó / X y verb)
+      2. Inverted Spanish punctuation present AND English function-word
+         density ≥ 30% (mid-text Spanglish; pure-Spanish narrator turns
+         are NOT broken — they only become broken when mixed)
+    """
+    if not text or len(text.split()) < 4:
+        return None
+    for pat in _BROKEN_CODE_MIX_SIGNALS:
+        m = pat.search(text)
+        if m:
+            return m.group(0)
+    # Density check
+    if _SPANISH_PUNCT_RX.search(text):
+        tokens = re.findall(r"\b[a-z]+\b", text.lower())
+        if tokens:
+            en_hits = sum(1 for t in tokens if t in _ENGLISH_FUNCTION_WORDS)
+            density = en_hits / len(tokens)
+            if density >= 0.30:
+                return "spanish_punct_in_english_context"
     return None
 
 
@@ -636,12 +703,51 @@ def score_chapter(
     )
 
     # 16. no_seeded_fact_intake_question — Lori asking about seeded bio facts
-    seeded_intake_offender: Optional[str] = None
-    if seeded_facts is not None:
-        seeded_intake_offender = _detect_seeded_fact_intake(text, seeded_facts)
+    # Per Boris Phase 8: pattern-only detection — seeded_facts is optional
+    # context. The intake question shape itself is the failure regardless
+    # of whether the operator pre-seeded the value.
+    seeded_intake_offender = _detect_seeded_fact_intake(text, seeded_facts)
     no_seeded_fact_intake_question = (
         "FAIL" if seeded_intake_offender else "PASS"
     )
+
+    # 17. no_broken_code_mix — Spanish scaffolding tokens bolted onto
+    # otherwise-English text. "Tú had an older brother... y asked my
+    # mother. ¿Qué pasó después?" is the classic shape; a clean Spanish
+    # narrator turn does NOT trigger this row (density check excludes it).
+    broken_code_mix_offender = _detect_broken_code_mix(text)
+    no_broken_code_mix = "FAIL" if broken_code_mix_offender else "PASS"
+
+    # 18. direct_human_voice — composite gate. FAILS if any failure
+    # fingerprint that breaks the "would a human narrator hear this and
+    # feel listened to" test is present. The granular rows above give
+    # diagnostics; this row is the single operator-facing summary.
+    # Triggered by:
+    #   - got-it-stub / phrase-as-name / false-name-confirm (mechanical
+    #     template firing on non-name)
+    #   - cascade dump (proper-noun list recital)
+    #   - meta-leak (LLM exposing prompt-compliance reasoning)
+    #   - broken code-mix (Spanish scaffolding in English context)
+    #   - response_not_fragmented FAIL (stub like "West St.")
+    #   - minimum_anchor_count FAIL (zero anchoring)
+    direct_human_voice_failures = []
+    if no_got_it_stub == "FAIL":
+        direct_human_voice_failures.append("got_it_stub")
+    if no_false_name_confirmation == "FAIL":
+        direct_human_voice_failures.append("false_name_confirmation")
+    if no_titlecase_phrase_as_name == "FAIL":
+        direct_human_voice_failures.append("titlecase_phrase_as_name")
+    if no_titlecased_anchor_cascade == "FAIL":
+        direct_human_voice_failures.append("anchor_cascade")
+    if no_meta_response_leak == "FAIL":
+        direct_human_voice_failures.append("meta_response_leak")
+    if no_broken_code_mix == "FAIL":
+        direct_human_voice_failures.append("broken_code_mix")
+    if response_not_fragmented == "FAIL":
+        direct_human_voice_failures.append("fragmented")
+    if minimum_anchor_count == "FAIL" and not is_bonus and not refusal_hit:
+        direct_human_voice_failures.append("zero_anchors")
+    direct_human_voice = "FAIL" if direct_human_voice_failures else "PASS"
 
     return {
         "label": chapter.label,
@@ -668,6 +774,9 @@ def score_chapter(
             "no_meta_response_leak": no_meta_response_leak,
             "no_titlecased_anchor_cascade": no_titlecased_anchor_cascade,
             "no_seeded_fact_intake_question": no_seeded_fact_intake_question,
+            # 2 additional Boris rows (Phase 2 + Phase 9 gap-fill)
+            "no_broken_code_mix": no_broken_code_mix,
+            "direct_human_voice": direct_human_voice,
         },
         "forbidden_openers_hit": forbidden_hits,
         "interrogation_hits": interrogation_hits,
@@ -676,6 +785,8 @@ def score_chapter(
         "titlecase_phrase_offender": titlecase_phrase_offender,
         "meta_leak_offender": meta_leak_offender,
         "seeded_intake_offender": seeded_intake_offender,
+        "broken_code_mix_offender": broken_code_mix_offender,
+        "direct_human_voice_failures": direct_human_voice_failures,
         "is_bonus": is_bonus,
     }
 

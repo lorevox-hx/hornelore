@@ -241,6 +241,40 @@ class EraResult:
     log_findings: List[str]
 
 
+def normalize_evidence_path(path: str) -> str:
+    """Boris Phase 12 contract — convert Windows-flavored evidence paths
+    into WSL-mount paths so the harness can resolve operator-pasted
+    transcript / log references regardless of which shell typed them.
+
+    Conversions:
+      "C:\\Users\\chris\\AppData\\..."  → "/mnt/c/Users/chris/AppData/..."
+      "C:/Users/chris/AppData/..."       → "/mnt/c/Users/chris/AppData/..."
+      "/mnt/c/Users/chris/hornelore/..." → unchanged (already WSL)
+      "docs/reports/transcript.txt"      → unchanged (repo-relative)
+
+    Drive-letter case is preserved as lowercase in the WSL mount
+    (Windows is case-insensitive; WSL renders mounts in lowercase).
+    """
+    if not path:
+        return path
+    raw = str(path).strip()
+    if not raw:
+        return raw
+    # Already a WSL mount path or repo-relative path
+    if raw.startswith("/"):
+        return raw
+    # Windows drive-letter form: "C:\..." or "C:/..."
+    if len(raw) >= 3 and raw[1:3] in (":\\", ":/"):
+        drive = raw[0].lower()
+        rest = raw[3:].replace("\\", "/")
+        # Collapse double slashes
+        while "//" in rest:
+            rest = rest.replace("//", "/")
+        return f"/mnt/{drive}/{rest}"
+    # Bare relative path (no drive letter, no leading slash) — leave as-is
+    return raw
+
+
 def now_stamp() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
