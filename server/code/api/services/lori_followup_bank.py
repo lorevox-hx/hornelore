@@ -1086,10 +1086,13 @@ def _detect_story_weighted_tier_1a_doors(narrator_text: str) -> List[Door]:
             f"you to do?"
         )
     else:
-        question = (
-            f"You kept coming back to {best_anchor} — what was that "
-            f"actually like for you?"
-        )
+        # BUG-LORI-ANCHOR-CASCADE-DUMP-01 (2026-06-17): the
+        # "You kept coming back to {anchor} — what was that actually
+        # like for you?" stock phrase was firing across narrators as
+        # a mechanical template. Replace with a more direct, less
+        # repetitive single-question wording that doesn't lean on the
+        # "you said X / you kept coming back" stock-phrase pattern.
+        question = f"What was {best_anchor} actually like for you?"
 
     door = Door(
         intent="story_weighted_named_particular",

@@ -54,7 +54,7 @@ apply_response_guards(assistant_text, narrator_text, recent_narrator_turns,
 from __future__ import annotations
 
 import re
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 
 # ── Language drift detection ──────────────────────────────────────────────
@@ -195,6 +195,225 @@ def repair_dangling_determiner(target_language: str = "en") -> str:
     return _DANGLING_REPAIR_EN
 
 
+# ── Meta-response leak detection ──────────────────────────────────────────
+#
+# BUG-LORI-META-RESPONSE-LEAK-01 (2026-06-17): the LLM occasionally exposes
+# its prompt-compliance reasoning in the user-facing response, e.g.
+# Richard Earliest from the 2026-06-17 full-family harness:
+#
+#   "Here is a response that follows the rules and guidelines:
+#    \"You mentioned Magee Hospital where you were born...\"
+#    This response reflects the narrator's mentions of Magee Hospital..."
+#
+# Three failure shapes:
+#   1. Preamble: "Here is a response that...", "Here's a reflection and..."
+#   2. Quoted draft: the actual response wrapped in quotes after the preamble
+#   3. Postamble: "This response reflects...", "This invites the narrator..."
+#
+# Repair strategy: extract the quoted draft when present (it's usually
+# the real reflective response Lori meant to send); otherwise fall back
+# to a deterministic continuation prompt.
+
+# Pre-text and post-text meta phrasings — when matched anchored to start
+# or end of response, suppress.
+_META_PREAMBLE_RX = re.compile(
+    r"^(?:\s*)(?:"
+    r"here(?:'s| is) (?:a |the |my )?(?:response|reflection|reply|answer)"
+    r"(?:\s+(?:that|which))?\s+(?:follows|reflects|adheres|invites|grounds)"
+    r"|"
+    r"here(?:'s| is) (?:a |the |my )?(?:reflection|response) (?:and|with|grounded)"
+    r"|"
+    r"this (?:response|reflection|reply) (?:follows|reflects|adheres|invites|captures|grounds|honors)"
+    r"|"
+    r"(?:i'?ll|i will|i shall) (?:respond|reply|reflect) (?:by|with|using)"
+    r"|"
+    r"following the (?:rules|guidelines|instructions)"
+    r")[^\n.]*[:.\n]",
+    re.IGNORECASE,
+)
+
+# Postamble — meta commentary AFTER the actual response
+_META_POSTAMBLE_RX = re.compile(
+    r"(?:\n\n|\s+)"
+    r"(?:this response|this reply|this reflection)\s+"
+    r"(?:reflects|invites|captures|honors|follows|adheres|grounds)"
+    r"[^\n]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Editorial / fake-warmth meta from the same generation drift class
+_FAKE_WARMTH_RX = re.compile(
+    r"\b(?:"
+    r"what a (?:rich|wonderful|beautiful|moving|evocative|delightful) (?:narrative|story|account)"
+    r"|"
+    r"i'?m so grateful to be listening"
+    r"|"
+    r"let me capture (?:a few|the|some) key points"
+    r"|"
+    r"thank you for (?:sharing|trusting me with)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Extract the quoted draft when present so we can recover the real
+# response from a leaked preamble/postamble wrapper.
+_QUOTED_DRAFT_RX = re.compile(
+    r'"((?:[^"\\]|\\.)+)"|'
+    r"“((?:[^”\\]|\\.)+)”"
+)
+
+
+def detect_meta_response_leak(assistant_text: str) -> bool:
+    """Return True if the response contains meta-instruction leakage."""
+    if not assistant_text:
+        return False
+    if _META_PREAMBLE_RX.search(assistant_text):
+        return True
+    if _META_POSTAMBLE_RX.search(assistant_text):
+        return True
+    if _FAKE_WARMTH_RX.search(assistant_text):
+        return True
+    return False
+
+
+def repair_meta_response_leak(
+    assistant_text: str, target_language: str = "en",
+) -> str:
+    """Strip preamble/postamble meta; recover quoted draft if present.
+
+    Recovery priority:
+      1. If a quoted draft sentence appears in the response, return the
+         longest such quoted draft (usually the LLM's actual reflective
+         response, wrapped in its own meta commentary).
+      2. If we can strip a recognizable preamble/postamble and leave a
+         non-empty substring, return that.
+      3. Otherwise return a deterministic continuation prompt.
+    """
+    text = (assistant_text or "").strip()
+
+    # Try to recover a quoted draft. The LLM frequently writes
+    #   Here is a response: "Real response goes here."
+    quoted_drafts = []
+    for m in _QUOTED_DRAFT_RX.finditer(text):
+        draft = (m.group(1) or m.group(2) or "").strip()
+        if len(draft.split()) >= 6:  # discard short artifacts like "yes"
+            quoted_drafts.append(draft)
+    if quoted_drafts:
+        # Return the longest quoted draft — usually the real response.
+        return max(quoted_drafts, key=len)
+
+    # Try to strip the leading preamble and trailing postamble.
+    stripped = _META_PREAMBLE_RX.sub("", text, count=1).strip()
+    stripped = _META_POSTAMBLE_RX.sub("", stripped).strip()
+    # Drop any remaining fake-warmth opener sentence
+    stripped = _FAKE_WARMTH_RX.sub("", stripped).strip()
+    # Clean up leftover quote / colon residue
+    stripped = stripped.strip().strip(":").strip().strip('"').strip()
+    if len(stripped.split()) >= 6:
+        return stripped
+
+    # Last resort — deterministic continuation
+    if target_language and target_language.lower().startswith("es"):
+        return "Cuéntame más sobre eso."
+    return "Tell me more about that."
+
+
+# ── Seeded-fact intake-question detection ────────────────────────────────
+#
+# BUG-LORI-ASKS-WHAT-OPERATOR-SEEDED-01 (2026-06-17): the prompt-side
+# directive (DO NOT ASK FOR SEEDED FACTS) is the primary path, but
+# this post-LLM detection function is the safety net. Wired into
+# apply_response_guards when the caller passes the seeded_facts dict.
+
+_SEEDED_INTAKE_PATTERNS = (
+    # "You were born in X" / "Were you born in X"
+    (re.compile(
+        r"\b(?:you were|were you) born in ([^?.,\n]+)",
+        re.IGNORECASE,
+    ), "place_of_birth"),
+    # "...in YYYY" appended to the birth question
+    (re.compile(
+        r"\b(?:you were|were you) born[^?.,]{0,80}\b(\d{4})\b",
+        re.IGNORECASE,
+    ), "birth_year"),
+    # "Do you live in X" / "You live in X"
+    (re.compile(
+        r"\b(?:do you (?:currently )?live|you (?:currently )?live) in ([^?.,\n]+)",
+        re.IGNORECASE,
+    ), "current_residence"),
+    # "Do you work at X" / "You work at X"
+    (re.compile(
+        r"\b(?:do you (?:currently )?work|you (?:currently )?work) (?:at|for) ([^?.,\n]+)",
+        re.IGNORECASE,
+    ), "current_work"),
+    # "Did you have N children"
+    (re.compile(
+        r"\b(?:did you have|do you have)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:child|children|kids)",
+        re.IGNORECASE,
+    ), "children_count"),
+    # "Is your mother (still) alive"
+    (re.compile(
+        r"\b(?:is your mother (?:still )?alive|your mother is (?:still )?alive)",
+        re.IGNORECASE,
+    ), "parent_alive"),
+)
+
+
+def detect_seeded_fact_intake(
+    assistant_text: str, seeded_facts: Optional[dict] = None,
+) -> Optional[str]:
+    """Return the matched field_key if the response asks a seeded-fact
+    intake question. None when there's no match or when the seeded
+    facts dict is empty/None.
+
+    `seeded_facts` is a dict from field_key to value (operator-seeded).
+    Only returns a hit when BOTH:
+      - the response matches one of the intake-question regex patterns
+      - the matched field_key has a non-empty seeded value
+    """
+    if not assistant_text or not seeded_facts:
+        return None
+    for pattern, field_key in _SEEDED_INTAKE_PATTERNS:
+        if pattern.search(assistant_text) and seeded_facts.get(field_key):
+            return field_key
+    return None
+
+
+def repair_seeded_fact_intake(
+    field_key: str, seeded_facts: dict, target_language: str = "en",
+) -> str:
+    """Rewrite to a lived-experience question around the seeded fact.
+
+    Falls back to a generic continuation in the target language when
+    no specific lived-experience rewrite is available for the field.
+    """
+    spanish = bool(target_language and target_language.lower().startswith("es"))
+    if field_key == "place_of_birth":
+        place = str(seeded_facts.get("place_of_birth", "")).strip()
+        if not place:
+            place = ""
+        if spanish:
+            return f"¿Qué recuerdas de {place} cuando eras pequeño?" if place else "¿Qué recuerdas de cuando eras pequeño?"
+        return f"What do you remember about {place} when you were little?" if place else "What do you remember about your earliest years?"
+    if field_key == "current_residence":
+        place = str(seeded_facts.get("current_residence", "")).strip()
+        if spanish:
+            return f"¿Cómo se siente la vida en {place} ahora?" if place else "¿Cómo se siente tu vida ahora?"
+        return f"What does life in {place} feel like for you now?" if place else "What does life feel like for you now?"
+    if field_key == "current_work":
+        employer = str(seeded_facts.get("current_work", "")).strip()
+        if spanish:
+            return f"¿Qué ha significado tu tiempo en {employer}?" if employer else "¿Qué ha significado tu trabajo?"
+        return f"What has your time at {employer} been like?" if employer else "What has your work been like?"
+    if field_key == "parent_alive":
+        if spanish:
+            return "¿Qué ha significado mantener ese vínculo con tu madre todos estos años?"
+        return "What has it meant to still have that connection with your mother all these years?"
+    if spanish:
+        return "Cuéntame algo más de eso."
+    return "Tell me more about that."
+
+
 # ── Combined application ─────────────────────────────────────────────────
 
 
@@ -203,11 +422,16 @@ def apply_response_guards(
     narrator_text: str = "",
     recent_narrator_turns: Sequence[str] = (),
     target_language: str = "en",
+    seeded_facts: Optional[dict] = None,
 ) -> Tuple[str, List[str]]:
-    """Apply both guards in order. Language drift is checked first
+    """Apply all guards in order. Language drift is checked first
     (a Spanish drift response will also fail the dangling-determiner
     check meaninglessly; replace whole response). Returns
     (final_text, list of guard names that fired).
+
+    `seeded_facts` (optional) is a dict from field_key to value. When
+    provided, the seeded-fact intake-question guard runs after the
+    meta-leak guard and before the dangling-determiner check.
     """
     fired: List[str] = []
     text = assistant_text or ""
@@ -216,6 +440,27 @@ def apply_response_guards(
         text = repair_language_drift(target_language)
         fired.append("language_drift")
         return text, fired
+
+    # BUG-LORI-META-RESPONSE-LEAK-01: strip prompt-compliance preamble/
+    # postamble before any further validation. Run BEFORE dangling-
+    # determiner because the leak preamble often produces a quoted
+    # draft that itself may end in determiner; we want to grade the
+    # recovered draft, not the wrapper.
+    if detect_meta_response_leak(text):
+        text = repair_meta_response_leak(text, target_language)
+        fired.append("meta_response_leak")
+        # Recovered text still needs the rest of the checks.
+
+    # BUG-LORI-ASKS-WHAT-OPERATOR-SEEDED-01: rewrite seeded-fact intake
+    # questions to lived-experience equivalents.
+    if seeded_facts:
+        matched_field = detect_seeded_fact_intake(text, seeded_facts)
+        if matched_field:
+            text = repair_seeded_fact_intake(
+                matched_field, seeded_facts, target_language,
+            )
+            fired.append("seeded_fact_intake")
+            return text, fired
 
     if detect_dangling_determiner(text):
         text = repair_dangling_determiner(target_language)
@@ -228,6 +473,10 @@ def apply_response_guards(
 __all__ = [
     "detect_language_drift",
     "repair_language_drift",
+    "detect_meta_response_leak",
+    "repair_meta_response_leak",
+    "detect_seeded_fact_intake",
+    "repair_seeded_fact_intake",
     "detect_dangling_determiner",
     "repair_dangling_determiner",
     "apply_response_guards",

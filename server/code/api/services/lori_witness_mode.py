@@ -433,6 +433,78 @@ _BAD_ANCHOR_TOKENS = (
 )
 
 
+# BUG-LORI-PHRASE-AS-NAME-CONFIRMATION-01 (2026-06-17): tokens that
+# strongly signal a phrase is NOT a real proper-noun name. If any of
+# these appears in the titlecase candidate, suppress the
+# correction_spelling ("Did I get that name right?") template fire.
+#
+# Three classes:
+#   1. Common English verbs in titlecase position ("Was", "Were",
+#      "Stopped", "Picture", "Began", "Learned", "Stand", "Sit",
+#      "Kneel")
+#   2. Articles, conjunctions, prepositions in titlecase position
+#      ("The", "A", "An", "And", "Of", "With", "In", "On", "At")
+#   3. Adverbs/qualifiers in titlecase position ("Originally",
+#      "Because", "Still", "Clearly", "Loud")
+#
+# Real proper nouns RARELY contain these words. False positives — e.g.
+# "Land Of The Free" as a song title — are acceptable because they'd
+# get the structured/correction template instead, not the wrong-name
+# spelling-confirm.
+_DESCRIPTIVE_PHRASE_TOKENS = frozenset({
+    # Common verbs (any tense)
+    "Was", "Were", "Is", "Are", "Am", "Be", "Been", "Being", "Have",
+    "Has", "Had", "Do", "Does", "Did", "Will", "Would", "Can", "Could",
+    "Should", "Stopped", "Picture", "Began", "Learned", "Stand", "Sit",
+    "Kneel", "Walked", "Talked", "Said", "Moving", "Going", "Coming",
+    "Knew", "Knows", "Got", "Get", "Saw", "See", "Took", "Take",
+    # Articles, conjunctions, prepositions, pronouns (titlecase position)
+    "The", "A", "An", "And", "Or", "But", "Of", "With", "By", "From",
+    "To", "In", "On", "At", "For", "Into", "Onto", "Upon", "About",
+    "I", "We", "You", "He", "She", "It", "They", "My", "Your", "Our",
+    "His", "Her", "Its", "Their",
+    # Adverbs, qualifiers, adjectives in titlecase position
+    "Originally", "Because", "Still", "Clearly", "Loud", "Out", "Up",
+    "Down", "Right", "Left", "Just", "Only", "Very", "Really", "Even",
+    "Empty", "Full", "Big", "Small", "All", "Some", "Many", "No", "Yes",
+    "Now", "Then", "Here", "There", "Where", "When", "What", "How", "Why",
+    "Always", "Never", "Sometimes",
+    # Calendar tokens that are not names
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    "Sunday",
+})
+
+
+def _looks_like_descriptive_phrase(anchor: str) -> bool:
+    """Return True if the titlecase candidate is a descriptive sentence
+    fragment (NOT a real proper-noun name).
+
+    Triggers:
+      - Ends with a period (sentence-shaped, not name-shaped)
+      - Contains 1+ tokens from _DESCRIPTIVE_PHRASE_TOKENS in
+        titlecase position
+      - Has 5+ tokens (statistically not a name)
+    """
+    if not anchor:
+        return False
+    stripped = anchor.strip()
+    # Sentence-shaped — ends in period before any final closing punct
+    if stripped.endswith("."):
+        return True
+    tokens = stripped.split()
+    if len(tokens) >= 5:
+        return True
+    # Any descriptive token in titlecase position?
+    for tok in tokens:
+        # Strip trailing comma/period
+        bare = tok.rstrip(".,!?;:")
+        if not bare:
+            continue
+        if bare in _DESCRIPTIVE_PHRASE_TOKENS:
+            return True
+    return False
+
+
 def _sanitize_anchor(anchor: str) -> str:
     """Reject anchors that are pronoun-heavy, contain meta-feedback
     vocabulary, or are too long. Returns "" when the anchor is bad
@@ -1134,24 +1206,91 @@ def _events_quality_pass(events: List[str]) -> bool:
     return True
 
 
+# BUG-LORI-ANCHOR-CASCADE-DUMP-01 (2026-06-17): anchors/event-phrases
+# that must NEVER appear in the structured-narrative formatted list.
+# These got into the 2026-06-17 full-family harness and produced the
+# "You went from X to Y, then Z, A, B, and C. What happened next?"
+# anchor-cascade dumps across Walter, Joe, Pat, Mable.
+#
+# Three classes:
+#   1. Calendar tokens — Wednesday, Tuesday, October, March, August,
+#      September, December, etc.
+#   2. Religious / common nouns that frequently get harvested but
+#      don't actually anchor narrator-named entities — "Catholic",
+#      "Mass", "Church", "School", "Home", "Family", "Mother", "Father".
+#   3. Single-token "joining word" residue — "then", "the", "and",
+#      bare conjunctions.
+_CASCADE_FILTER_TOKENS = frozenset({
+    # Calendar
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday",
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+    # Religious + common-noun residue
+    "catholic", "mass", "church", "school", "home", "family",
+    # Joining/residue
+    "then", "the", "and", "but", "so", "or", "when", "where", "while",
+})
+
+
+def _filter_cascade_residue(anchors: List[str]) -> List[str]:
+    """Drop anchors that are calendar / religious-residue / joining
+    words. These produce the BUG-LORI-ANCHOR-CASCADE-DUMP-01 pattern
+    when concatenated into a structured-narrative list."""
+    filtered: List[str] = []
+    seen: set = set()
+    for raw in anchors:
+        if not raw:
+            continue
+        candidate = raw.strip().rstrip(".,;:!?").strip()
+        if not candidate:
+            continue
+        lower_first = candidate.split()[0].lower() if candidate.split() else ""
+        # If single-token AND in the filter list → drop
+        if " " not in candidate and lower_first in _CASCADE_FILTER_TOKENS:
+            continue
+        # If multi-token but first token is a joining word, strip leading
+        if lower_first in _CASCADE_FILTER_TOKENS and " " in candidate:
+            stripped = candidate.split(" ", 1)[1].strip()
+            if not stripped:
+                continue
+            candidate = stripped
+        # Dedupe (case-insensitive)
+        key = candidate.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        filtered.append(candidate)
+    return filtered
+
+
 def _format_multi_anchor_list(anchors: List[str], lang: str) -> str:
     """Build a comma-separated list of anchors with proper conjunction.
-    "A, B, and C" or "A and B" or "A". Empty list returns "".
+    "A and B" or "A". Empty list returns "".
 
     Used by structured-narrative composer to demonstrate active
-    listening — "Stanley to Fargo, the induction tests, and the
-    meal-ticket assignment" instead of single-anchor "West Coast"."""
+    listening — "Stanley and Fargo" instead of mechanical cascade dumps.
+
+    BUG-LORI-ANCHOR-CASCADE-DUMP-01 (2026-06-17): caps the joined list
+    at 2 items max (Walter Era 2 produced a 7-item cascade pre-patch)
+    and filters out calendar / religious-residue / joining-word
+    anchors via _filter_cascade_residue. The previous Oxford-style 3+
+    anchor format produced mechanical proper-noun cascade dumps like:
+        "You went from Saint Augustine to Brendan, then Eileen,
+         Patrick, Catholic, South Boston, Mass, and Walter. What
+         happened next?"
+    """
+    # First, filter cascade residue (calendar, religious, joining words)
+    anchors = _filter_cascade_residue(anchors)
     if not anchors:
         return ""
     if len(anchors) == 1:
         return anchors[0]
-    if len(anchors) == 2:
-        joiner = " and " if lang == "en" else " y "
-        return f"{anchors[0]}{joiner}{anchors[1]}"
-    # 3+ anchors — Oxford-style "A, B, and C"
-    body = ", ".join(anchors[:-1])
-    final_joiner = ", and " if lang == "en" else ", y "
-    return f"{body}{final_joiner}{anchors[-1]}"
+    # Cap at 2 anchors — mechanical 3+ cascades read as proper-noun
+    # dumps in narrator-facing output. Two anchors are enough to
+    # demonstrate active listening without becoming a list recital.
+    joiner = " and " if lang == "en" else " y "
+    return f"{anchors[0]}{joiner}{anchors[1]}"
 
 
 def compose_witness_response(
@@ -1195,16 +1334,36 @@ def compose_witness_response(
     # BUG-LORI-WITNESS-PROPER-NOUN-CONFIRM-01 — for correction turns
     # where the corrected value LOOKS LIKE a proper-noun multi-word
     # name (place / institution / person), use the spelling-confirm
-    # template. Trigger requires:
-    #   - 2+ tokens AND
-    #   - 50%+ of tokens start with uppercase letters
+    # template.
     #
-    # This prevents false-fire on "the year was" (which would be
-    # extracted as a 2-token phrase but isn't a proper noun).
+    # BUG-LORI-PHRASE-AS-NAME-CONFIRMATION-01 (2026-06-17): tightened
+    # the trigger to reject descriptive sentence fragments. Previously
+    # ANY 2+ token capitalized phrase fired correction_spelling, which
+    # produced these false positives on the 2026-06-17 full-family run:
+    #   - "Originally Schong With A C"  (Jake)
+    #   - "You Learned To Stand Up And Sit Down And Kneel At The Right Times"
+    #   - "It Was The Air"  (Shatner)
+    #   - "Because The Adults Stopped Moving"  (Frank)
+    #   - "That I Still Picture Clearly"  (John seven-era)
+    #   - "It Out Loud In The Empty Kitchen"  (Richard)
+    #   - "Began."  (John seven-era — fragment with period)
+    #   - "In March"  (Walter)
+    # All triggered the "Did I get that name right?" template on what
+    # was actually a sentence fragment or descriptive clause, not a name.
+    #
+    # New trigger requires ALL:
+    #   - 2-4 tokens (5+ tokens is overwhelmingly NOT a name)
+    #   - 50%+ tokens start with uppercase
+    #   - NO common-English verbs/articles/adverbs in capitalized
+    #     position (e.g. "Was", "The", "And", "Stopped", "Originally",
+    #     "Because", "Began", "Still", "Clearly", "Picture", "Moving")
     sub_type = detection.sub_type
     if sub_type == "correction" and detection.factual_anchor:
         anchor_tokens = detection.factual_anchor.split()
-        if len(anchor_tokens) >= 2:
+        if (
+            2 <= len(anchor_tokens) <= 4
+            and not _looks_like_descriptive_phrase(detection.factual_anchor)
+        ):
             cap_count = sum(1 for t in anchor_tokens if t and t[0].isupper())
             if cap_count >= max(1, len(anchor_tokens) // 2):
                 sub_type = "correction_spelling"
