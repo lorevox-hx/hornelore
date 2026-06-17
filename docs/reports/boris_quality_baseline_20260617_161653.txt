@@ -1,0 +1,716 @@
+test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) ... 
+  test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='john_stub_west_st') ... FAIL
+  test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='richard_meta_response_leak') ... FAIL
+  test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='joe_anchor_cascade') ... FAIL
+  test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='stefi_broken_code_mix') ... FAIL
+test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) ... 
+  test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='john_stub_west_st') ... FAIL
+  test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='shatner_phrase_as_name') ... FAIL
+  test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='richard_meta_response_leak') ... FAIL
+  test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='joe_anchor_cascade') ... FAIL
+  test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='mable_seeded_fact_question') ... FAIL
+  test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='stefi_broken_code_mix') ... FAIL
+test_full_intake_payload_accepts_empty_spouse_year (test_phase11_intake_empty_year_married.IntakeEmptyYearMarriedTests.test_full_intake_payload_accepts_empty_spouse_year) ... ERROR
+test_intake_spouse_empty_year_married_coerces_to_none (test_phase11_intake_empty_year_married.IntakeEmptyYearMarriedTests.test_intake_spouse_empty_year_married_coerces_to_none) ... ERROR
+test_converts_backslash_windows_path_to_wsl_path (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_converts_backslash_windows_path_to_wsl_path) ... FAIL
+test_converts_forwardslash_windows_path_to_wsl_path (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_converts_forwardslash_windows_path_to_wsl_path) ... FAIL
+test_leaves_wsl_path_unchanged (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_leaves_wsl_path_unchanged) ... FAIL
+test_preserves_repo_relative_path (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_preserves_repo_relative_path) ... FAIL
+test_father_hit_by_car_is_accident_not_perpetrator_hit (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_father_hit_by_car_is_accident_not_perpetrator_hit) ... ERROR
+test_john_father_car_death_first_person_is_not_child_abuse (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_john_father_car_death_first_person_is_not_child_abuse) ... ERROR
+test_john_father_car_death_third_person_is_not_child_abuse (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_john_father_car_death_third_person_is_not_child_abuse) ... ERROR
+test_stefi_sheep_rancher_family_background_is_not_child_abuse (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_stefi_sheep_rancher_family_background_is_not_child_abuse) ... ERROR
+test_true_child_abuse_disclosure_still_triggers (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_true_child_abuse_disclosure_still_triggers) ... ERROR
+test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) ... 
+  test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='john_stub_west_st') ... FAIL
+  test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='shatner_phrase_as_name') ... FAIL
+  test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='richard_meta_response_leak') ... FAIL
+  test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='joe_anchor_cascade') ... FAIL
+  test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='mable_seeded_fact_question') ... FAIL
+  test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='stefi_broken_code_mix') ... FAIL
+test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) ... 
+  test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='john_stub_west_st') ... FAIL
+  test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='shatner_phrase_as_name') ... FAIL
+  test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='richard_meta_response_leak') ... FAIL
+  test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='joe_anchor_cascade') ... FAIL
+  test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='mable_seeded_fact_question') ... FAIL
+  test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='stefi_broken_code_mix') ... FAIL
+test_scorer_exposes_all_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_scorer_exposes_all_new_quality_rows) ... FAIL
+test_word_budget_honored_fails_for_pat_110_word_response_over_budget (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_word_budget_honored_fails_for_pat_110_word_response_over_budget) ... ok
+test_phase3_facts_add_truth_v2 (unittest.loader._FailedTest.test_phase3_facts_add_truth_v2) ... ERROR
+test_chat_ws_imports_lifecycle_primitives (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_chat_ws_imports_lifecycle_primitives) ... ERROR
+test_fk_failure_log_is_not_the_normal_path (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_fk_failure_log_is_not_the_normal_path) ... ERROR
+test_generate_path_attempts_ensure_before_increment (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_generate_path_attempts_ensure_before_increment) ... ERROR
+test_softened_write_is_not_allowed_to_hide_persistent_fk_failure (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_softened_write_is_not_allowed_to_hide_persistent_fk_failure) ... ERROR
+test_direct_meta_response_guard_strips_preamble_and_postamble (test_phase5_meta_response_guard.MetaResponseLeakGuardTests.test_direct_meta_response_guard_strips_preamble_and_postamble) ... FAIL
+test_scorer_fails_meta_response_leak (test_phase5_meta_response_guard.MetaResponseLeakGuardTests.test_scorer_fails_meta_response_leak) ... ok
+test_direct_name_confirmation_detector_allows_real_name_correction (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_direct_name_confirmation_detector_allows_real_name_correction) ... FAIL
+test_direct_name_confirmation_detector_rejects_titlecase_phrases (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_direct_name_confirmation_detector_rejects_titlecase_phrases) ... FAIL
+test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) ... 
+  test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='It Was The Air') ... FAIL
+  test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='Originally Schong With A C') ... FAIL
+  test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='Because The Adults Stopped Moving') ... FAIL
+  test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='That I Still Picture Clearly') ... FAIL
+  test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='You Learned To Stand Up And Sit Down And Kneel At The Right Times') ... FAIL
+  test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='It Out Loud In The Empty Kitchen') ... FAIL
+test_direct_anchor_filter_drops_calendar_religious_and_common_noise (test_phase7_anchor_cascade_dump.AnchorCascadeDumpTests.test_direct_anchor_filter_drops_calendar_religious_and_common_noise) ... FAIL
+test_direct_structured_fallback_does_not_use_you_went_from_template (test_phase7_anchor_cascade_dump.AnchorCascadeDumpTests.test_direct_structured_fallback_does_not_use_you_went_from_template) ... FAIL
+test_scorer_fails_anchor_cascade_dump (test_phase7_anchor_cascade_dump.AnchorCascadeDumpTests.test_scorer_fails_anchor_cascade_dump) ... FAIL
+test_direct_filter_allows_lived_experience_around_seeded_birth (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_filter_allows_lived_experience_around_seeded_birth) ... FAIL
+test_direct_filter_blocks_john_seeded_residence_and_work_questions (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_filter_blocks_john_seeded_residence_and_work_questions) ... FAIL
+test_direct_filter_blocks_mable_seeded_birth_question (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_filter_blocks_mable_seeded_birth_question) ... FAIL
+test_direct_rewriter_turns_seeded_fact_question_into_lived_experience_question (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_rewriter_turns_seeded_fact_question_into_lived_experience_question) ... FAIL
+test_scorer_fails_seeded_dob_pob_question (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_scorer_fails_seeded_dob_pob_question) ... FAIL
+test_looks_spanish_detects_actual_spanish_narrator_text (test_phase9_spanish_lang_contract.SpanishLanguageContractTests.test_looks_spanish_detects_actual_spanish_narrator_text) ... ok
+test_looks_spanish_does_not_treat_english_with_names_as_spanish (test_phase9_spanish_lang_contract.SpanishLanguageContractTests.test_looks_spanish_does_not_treat_english_with_names_as_spanish) ... ok
+test_scorer_fails_broken_code_mix (test_phase9_spanish_lang_contract.SpanishLanguageContractTests.test_scorer_fails_broken_code_mix) ... FAIL
+
+======================================================================
+ERROR: test_full_intake_payload_accepts_empty_spouse_year (test_phase11_intake_empty_year_married.IntakeEmptyYearMarriedTests.test_full_intake_payload_accepts_empty_spouse_year)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase11_intake_empty_year_married.py", line 19, in test_full_intake_payload_accepts_empty_spouse_year
+    from server.code.api.routers.people import NarratorIntakePayload
+  File "/mnt/c/Users/chris/hornelore/server/code/api/routers/people.py", line 22, in <module>
+    from fastapi import APIRouter, HTTPException, Query
+ModuleNotFoundError: No module named 'fastapi'
+
+======================================================================
+ERROR: test_intake_spouse_empty_year_married_coerces_to_none (test_phase11_intake_empty_year_married.IntakeEmptyYearMarriedTests.test_intake_spouse_empty_year_married_coerces_to_none)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase11_intake_empty_year_married.py", line 13, in test_intake_spouse_empty_year_married_coerces_to_none
+    from server.code.api.routers.people import IntakeSpouse
+  File "/mnt/c/Users/chris/hornelore/server/code/api/routers/people.py", line 22, in <module>
+    from fastapi import APIRouter, HTTPException, Query
+ModuleNotFoundError: No module named 'fastapi'
+
+======================================================================
+ERROR: test_father_hit_by_car_is_accident_not_perpetrator_hit (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_father_hit_by_car_is_accident_not_perpetrator_hit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase1_safety_false_positive.py", line 22, in setUp
+    from server.code.api.safety import scan_answer
+  File "/mnt/c/Users/chris/hornelore/server/code/api/safety.py", line 21, in <module>
+    from pydantic import BaseModel
+ModuleNotFoundError: No module named 'pydantic'
+
+======================================================================
+ERROR: test_john_father_car_death_first_person_is_not_child_abuse (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_john_father_car_death_first_person_is_not_child_abuse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase1_safety_false_positive.py", line 22, in setUp
+    from server.code.api.safety import scan_answer
+  File "/mnt/c/Users/chris/hornelore/server/code/api/safety.py", line 21, in <module>
+    from pydantic import BaseModel
+ModuleNotFoundError: No module named 'pydantic'
+
+======================================================================
+ERROR: test_john_father_car_death_third_person_is_not_child_abuse (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_john_father_car_death_third_person_is_not_child_abuse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase1_safety_false_positive.py", line 22, in setUp
+    from server.code.api.safety import scan_answer
+  File "/mnt/c/Users/chris/hornelore/server/code/api/safety.py", line 21, in <module>
+    from pydantic import BaseModel
+ModuleNotFoundError: No module named 'pydantic'
+
+======================================================================
+ERROR: test_stefi_sheep_rancher_family_background_is_not_child_abuse (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_stefi_sheep_rancher_family_background_is_not_child_abuse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase1_safety_false_positive.py", line 22, in setUp
+    from server.code.api.safety import scan_answer
+  File "/mnt/c/Users/chris/hornelore/server/code/api/safety.py", line 21, in <module>
+    from pydantic import BaseModel
+ModuleNotFoundError: No module named 'pydantic'
+
+======================================================================
+ERROR: test_true_child_abuse_disclosure_still_triggers (test_phase1_safety_false_positive.SafetyFalsePositiveLifeStoryTests.test_true_child_abuse_disclosure_still_triggers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase1_safety_false_positive.py", line 22, in setUp
+    from server.code.api.safety import scan_answer
+  File "/mnt/c/Users/chris/hornelore/server/code/api/safety.py", line 21, in <module>
+    from pydantic import BaseModel
+ModuleNotFoundError: No module named 'pydantic'
+
+======================================================================
+ERROR: test_phase3_facts_add_truth_v2 (unittest.loader._FailedTest.test_phase3_facts_add_truth_v2)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_phase3_facts_add_truth_v2
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/unittest/loader.py", line 394, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/unittest/loader.py", line 337, in _get_module_from_name
+    __import__(name)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase3_facts_add_truth_v2.py", line 7, in <module>
+    from fastapi import FastAPI
+ModuleNotFoundError: No module named 'fastapi'
+
+
+======================================================================
+ERROR: test_chat_ws_imports_lifecycle_primitives (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_chat_ws_imports_lifecycle_primitives)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase4_chat_ws_fk_lifecycle.py", line 20, in test_chat_ws_imports_lifecycle_primitives
+    source = get_source("server.code.api.routers.chat_ws")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 40, in get_source
+    mod = importlib.import_module(module_name)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/mnt/c/Users/chris/hornelore/server/code/api/routers/chat_ws.py", line 125, in <module>
+    from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+ModuleNotFoundError: No module named 'fastapi'
+
+======================================================================
+ERROR: test_fk_failure_log_is_not_the_normal_path (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_fk_failure_log_is_not_the_normal_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase4_chat_ws_fk_lifecycle.py", line 40, in test_fk_failure_log_is_not_the_normal_path
+    source = get_source("server.code.api.routers.chat_ws")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 40, in get_source
+    mod = importlib.import_module(module_name)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/mnt/c/Users/chris/hornelore/server/code/api/routers/chat_ws.py", line 125, in <module>
+    from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+ModuleNotFoundError: No module named 'fastapi'
+
+======================================================================
+ERROR: test_generate_path_attempts_ensure_before_increment (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_generate_path_attempts_ensure_before_increment)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase4_chat_ws_fk_lifecycle.py", line 26, in test_generate_path_attempts_ensure_before_increment
+    source = get_source("server.code.api.routers.chat_ws")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 40, in get_source
+    mod = importlib.import_module(module_name)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/mnt/c/Users/chris/hornelore/server/code/api/routers/chat_ws.py", line 125, in <module>
+    from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+ModuleNotFoundError: No module named 'fastapi'
+
+======================================================================
+ERROR: test_softened_write_is_not_allowed_to_hide_persistent_fk_failure (test_phase4_chat_ws_fk_lifecycle.ChatWsForeignKeyLifecycleTests.test_softened_write_is_not_allowed_to_hide_persistent_fk_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase4_chat_ws_fk_lifecycle.py", line 48, in test_softened_write_is_not_allowed_to_hide_persistent_fk_failure
+    source = get_source("server.code.api.routers.chat_ws")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 40, in get_source
+    mod = importlib.import_module(module_name)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/mnt/c/Users/chris/hornelore/server/code/api/routers/chat_ws.py", line 125, in <module>
+    from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+ModuleNotFoundError: No module named 'fastapi'
+
+======================================================================
+FAIL: test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='john_stub_west_st')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 26, in test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row
+    self.assertFalse(missing, f"Missing rows for {case.label}: {missing}. Rows: {rows}")
+AssertionError: ['direct_human_voice'] is not false : Missing rows for john_stub_west_st: ['direct_human_voice']. Rows: {'reflection_grounded': 'FAIL', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'FAIL', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='richard_meta_response_leak')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 26, in test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row
+    self.assertFalse(missing, f"Missing rows for {case.label}: {missing}. Rows: {rows}")
+AssertionError: ['direct_human_voice'] is not false : Missing rows for richard_meta_response_leak: ['direct_human_voice']. Rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'FAIL', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='joe_anchor_cascade')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 26, in test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row
+    self.assertFalse(missing, f"Missing rows for {case.label}: {missing}. Rows: {rows}")
+AssertionError: ['direct_human_voice'] is not false : Missing rows for joe_anchor_cascade: ['direct_human_voice']. Rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'FAIL', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row) (case='stefi_broken_code_mix')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 26, in test_every_known_full_family_bad_pattern_fails_at_least_one_new_quality_row
+    self.assertFalse(missing, f"Missing rows for {case.label}: {missing}. Rows: {rows}")
+AssertionError: ['no_broken_code_mix', 'direct_human_voice'] is not false : Missing rows for stefi_broken_code_mix: ['no_broken_code_mix', 'direct_human_voice']. Rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='john_stub_west_st')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 44, in test_every_known_good_rewrite_has_human_voice_and_one_question
+    self.assertEqual(score["rows"].get("direct_human_voice"), "PASS")
+AssertionError: None != 'PASS'
+
+======================================================================
+FAIL: test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='shatner_phrase_as_name')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 44, in test_every_known_good_rewrite_has_human_voice_and_one_question
+    self.assertEqual(score["rows"].get("direct_human_voice"), "PASS")
+AssertionError: None != 'PASS'
+
+======================================================================
+FAIL: test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='richard_meta_response_leak')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 44, in test_every_known_good_rewrite_has_human_voice_and_one_question
+    self.assertEqual(score["rows"].get("direct_human_voice"), "PASS")
+AssertionError: None != 'PASS'
+
+======================================================================
+FAIL: test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='joe_anchor_cascade')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 44, in test_every_known_good_rewrite_has_human_voice_and_one_question
+    self.assertEqual(score["rows"].get("direct_human_voice"), "PASS")
+AssertionError: None != 'PASS'
+
+======================================================================
+FAIL: test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='mable_seeded_fact_question')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 44, in test_every_known_good_rewrite_has_human_voice_and_one_question
+    self.assertEqual(score["rows"].get("direct_human_voice"), "PASS")
+AssertionError: None != 'PASS'
+
+======================================================================
+FAIL: test_every_known_good_rewrite_has_human_voice_and_one_question (test_full_family_report_regression_patterns.FullFamilyRegressionPatternTests.test_every_known_good_rewrite_has_human_voice_and_one_question) (case='stefi_broken_code_mix')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_full_family_report_regression_patterns.py", line 44, in test_every_known_good_rewrite_has_human_voice_and_one_question
+    self.assertEqual(score["rows"].get("direct_human_voice"), "PASS")
+AssertionError: None != 'PASS'
+
+======================================================================
+FAIL: test_converts_backslash_windows_path_to_wsl_path (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_converts_backslash_windows_path_to_wsl_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase12_evidence_path_normalization.py", line 12, in setUp
+    self.normalize = require_callable([
+                     ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: scripts.run_john_baldy_full_diagnostic_harness.normalize_evidence_path, scripts.run_john_baldy_full_diagnostic_harness._normalize_evidence_path
+
+======================================================================
+FAIL: test_converts_forwardslash_windows_path_to_wsl_path (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_converts_forwardslash_windows_path_to_wsl_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase12_evidence_path_normalization.py", line 12, in setUp
+    self.normalize = require_callable([
+                     ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: scripts.run_john_baldy_full_diagnostic_harness.normalize_evidence_path, scripts.run_john_baldy_full_diagnostic_harness._normalize_evidence_path
+
+======================================================================
+FAIL: test_leaves_wsl_path_unchanged (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_leaves_wsl_path_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase12_evidence_path_normalization.py", line 12, in setUp
+    self.normalize = require_callable([
+                     ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: scripts.run_john_baldy_full_diagnostic_harness.normalize_evidence_path, scripts.run_john_baldy_full_diagnostic_harness._normalize_evidence_path
+
+======================================================================
+FAIL: test_preserves_repo_relative_path (test_phase12_evidence_path_normalization.EvidencePathNormalizationTests.test_preserves_repo_relative_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase12_evidence_path_normalization.py", line 12, in setUp
+    self.normalize = require_callable([
+                     ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: scripts.run_john_baldy_full_diagnostic_harness.normalize_evidence_path, scripts.run_john_baldy_full_diagnostic_harness._normalize_evidence_path
+
+======================================================================
+FAIL: test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='john_stub_west_st')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 52, in test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail
+    assert_row_fails(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 60, in assert_row_fails
+    testcase.assertIn(
+AssertionError: 'direct_human_voice' not found in {'reflection_grounded': 'FAIL', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'FAIL', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'direct_human_voice'. Add it to scripts/harness_lib.py::score_chapter().
+
+======================================================================
+FAIL: test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='shatner_phrase_as_name')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 52, in test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail
+    assert_row_fails(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'FAIL', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='richard_meta_response_leak')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 52, in test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail
+    assert_row_fails(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 60, in assert_row_fails
+    testcase.assertIn(
+AssertionError: 'direct_human_voice' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'FAIL', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'direct_human_voice'. Add it to scripts/harness_lib.py::score_chapter().
+
+======================================================================
+FAIL: test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='joe_anchor_cascade')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 52, in test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail
+    assert_row_fails(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 60, in assert_row_fails
+    testcase.assertIn(
+AssertionError: 'direct_human_voice' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'FAIL', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'direct_human_voice'. Add it to scripts/harness_lib.py::score_chapter().
+
+======================================================================
+FAIL: test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='mable_seeded_fact_question')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 52, in test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail
+    assert_row_fails(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_seeded_fact_intake_question' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'FAIL', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail) (case='stefi_broken_code_mix')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 52, in test_bad_outputs_fail_the_specific_rows_they_are_supposed_to_fail
+    assert_row_fails(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 60, in assert_row_fails
+    testcase.assertIn(
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'. Add it to scripts/harness_lib.py::score_chapter().
+
+======================================================================
+FAIL: test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='john_stub_west_st')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 64, in test_good_outputs_pass_new_quality_rows
+    assert_row_passes(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 74, in assert_row_passes
+    testcase.assertIn(row_name, rows, f"Missing scorer row {row_name!r}.")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'.
+
+======================================================================
+FAIL: test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='shatner_phrase_as_name')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 64, in test_good_outputs_pass_new_quality_rows
+    assert_row_passes(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 74, in assert_row_passes
+    testcase.assertIn(row_name, rows, f"Missing scorer row {row_name!r}.")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'.
+
+======================================================================
+FAIL: test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='richard_meta_response_leak')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 64, in test_good_outputs_pass_new_quality_rows
+    assert_row_passes(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 74, in assert_row_passes
+    testcase.assertIn(row_name, rows, f"Missing scorer row {row_name!r}.")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'.
+
+======================================================================
+FAIL: test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='joe_anchor_cascade')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 64, in test_good_outputs_pass_new_quality_rows
+    assert_row_passes(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 74, in assert_row_passes
+    testcase.assertIn(row_name, rows, f"Missing scorer row {row_name!r}.")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'.
+
+======================================================================
+FAIL: test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='mable_seeded_fact_question')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 64, in test_good_outputs_pass_new_quality_rows
+    assert_row_passes(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 74, in assert_row_passes
+    testcase.assertIn(row_name, rows, f"Missing scorer row {row_name!r}.")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'.
+
+======================================================================
+FAIL: test_good_outputs_pass_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_good_outputs_pass_new_quality_rows) (case='stefi_broken_code_mix')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 64, in test_good_outputs_pass_new_quality_rows
+    assert_row_passes(self, score, row)
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 74, in assert_row_passes
+    testcase.assertIn(row_name, rows, f"Missing scorer row {row_name!r}.")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'.
+
+======================================================================
+FAIL: test_scorer_exposes_all_new_quality_rows (test_phase2_scorer_quality_rows.HarnessScorerQualityRowsTests.test_scorer_exposes_all_new_quality_rows)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase2_scorer_quality_rows.py", line 45, in test_scorer_exposes_all_new_quality_rows
+    self.assertIn(row, rows, f"Missing required Boris scorer row: {row}")
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing required Boris scorer row: no_broken_code_mix
+
+======================================================================
+FAIL: test_direct_meta_response_guard_strips_preamble_and_postamble (test_phase5_meta_response_guard.MetaResponseLeakGuardTests.test_direct_meta_response_guard_strips_preamble_and_postamble)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase5_meta_response_guard.py", line 36, in test_direct_meta_response_guard_strips_preamble_and_postamble
+    guard = require_callable([
+            ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.lori_response_guards.strip_meta_response_leak, server.code.api.services.lori_response_guards.sanitize_lori_response, server.code.api.routers.chat_ws.strip_meta_response_leak, server.code.api.routers.chat_ws._strip_meta_response_leak
+
+======================================================================
+FAIL: test_direct_name_confirmation_detector_allows_real_name_correction (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_direct_name_confirmation_detector_allows_real_name_correction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 54, in test_direct_name_confirmation_detector_allows_real_name_correction
+    detector = require_callable([
+               ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.lori_meta_feedback.is_valid_name_confirmation_candidate, server.code.api.services.lori_meta_feedback.should_ask_name_confirmation, server.code.api.services.lori_response_guards.is_valid_name_confirmation_candidate
+
+======================================================================
+FAIL: test_direct_name_confirmation_detector_rejects_titlecase_phrases (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_direct_name_confirmation_detector_rejects_titlecase_phrases)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 41, in test_direct_name_confirmation_detector_rejects_titlecase_phrases
+    detector = require_callable([
+               ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.lori_meta_feedback.is_valid_name_confirmation_candidate, server.code.api.services.lori_meta_feedback.should_ask_name_confirmation, server.code.api.services.lori_response_guards.is_valid_name_confirmation_candidate
+
+======================================================================
+FAIL: test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='It Was The Air')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 38, in test_scorer_fails_phrase_as_name_confirmation_examples
+    assert_row_fails(self, score, "no_titlecase_phrase_as_name")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='Originally Schong With A C')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 38, in test_scorer_fails_phrase_as_name_confirmation_examples
+    assert_row_fails(self, score, "no_titlecase_phrase_as_name")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'FAIL', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='Because The Adults Stopped Moving')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 38, in test_scorer_fails_phrase_as_name_confirmation_examples
+    assert_row_fails(self, score, "no_titlecase_phrase_as_name")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='That I Still Picture Clearly')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 38, in test_scorer_fails_phrase_as_name_confirmation_examples
+    assert_row_fails(self, score, "no_titlecase_phrase_as_name")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'FAIL', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='You Learned To Stand Up And Sit Down And Kneel At The Right Times')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 38, in test_scorer_fails_phrase_as_name_confirmation_examples
+    assert_row_fails(self, score, "no_titlecase_phrase_as_name")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'FAIL', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_scorer_fails_phrase_as_name_confirmation_examples (test_phase6_phrase_as_name_confirmation.PhraseAsNameConfirmationTests.test_scorer_fails_phrase_as_name_confirmation_examples) (phrase='It Out Loud In The Empty Kitchen')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase6_phrase_as_name_confirmation.py", line 38, in test_scorer_fails_phrase_as_name_confirmation_examples
+    assert_row_fails(self, score, "no_titlecase_phrase_as_name")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_titlecase_phrase_as_name' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'FAIL', 'one_question_max': 'PARTIAL', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'FAIL', 'no_got_it_stub': 'FAIL', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'FAIL', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_direct_anchor_filter_drops_calendar_religious_and_common_noise (test_phase7_anchor_cascade_dump.AnchorCascadeDumpTests.test_direct_anchor_filter_drops_calendar_religious_and_common_noise)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase7_anchor_cascade_dump.py", line 31, in test_direct_anchor_filter_drops_calendar_religious_and_common_noise
+    extract_safe_anchors = require_callable([
+                           ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.structured_narrative_fallback.extract_safe_anchors, server.code.api.services.structured_narrative.extract_safe_anchors, server.code.api.services.lori_structured_narrative.extract_safe_anchors
+
+======================================================================
+FAIL: test_direct_structured_fallback_does_not_use_you_went_from_template (test_phase7_anchor_cascade_dump.AnchorCascadeDumpTests.test_direct_structured_fallback_does_not_use_you_went_from_template)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase7_anchor_cascade_dump.py", line 48, in test_direct_structured_fallback_does_not_use_you_went_from_template
+    build_fallback = require_callable([
+                     ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.structured_narrative_fallback.build_structured_narrative_fallback, server.code.api.services.structured_narrative.build_structured_narrative_fallback, server.code.api.services.lori_structured_narrative.build_structured_narrative_fallback
+
+======================================================================
+FAIL: test_scorer_fails_anchor_cascade_dump (test_phase7_anchor_cascade_dump.AnchorCascadeDumpTests.test_scorer_fails_anchor_cascade_dump)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase7_anchor_cascade_dump.py", line 28, in test_scorer_fails_anchor_cascade_dump
+    assert_row_fails(self, score, "direct_human_voice")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 60, in assert_row_fails
+    testcase.assertIn(
+AssertionError: 'direct_human_voice' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'FAIL', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'direct_human_voice'. Add it to scripts/harness_lib.py::score_chapter().
+
+======================================================================
+FAIL: test_direct_filter_allows_lived_experience_around_seeded_birth (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_filter_allows_lived_experience_around_seeded_birth)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase8_seed_aware_question_filter.py", line 44, in test_direct_filter_allows_lived_experience_around_seeded_birth
+    classify = require_callable([
+               ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.seed_aware_question_filter.classify_seeded_fact_question, server.code.api.services.seed_aware_question_filter.should_block_seeded_fact_question
+
+======================================================================
+FAIL: test_direct_filter_blocks_john_seeded_residence_and_work_questions (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_filter_blocks_john_seeded_residence_and_work_questions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase8_seed_aware_question_filter.py", line 55, in test_direct_filter_blocks_john_seeded_residence_and_work_questions
+    classify = require_callable([
+               ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.seed_aware_question_filter.classify_seeded_fact_question, server.code.api.services.seed_aware_question_filter.should_block_seeded_fact_question
+
+======================================================================
+FAIL: test_direct_filter_blocks_mable_seeded_birth_question (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_filter_blocks_mable_seeded_birth_question)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase8_seed_aware_question_filter.py", line 33, in test_direct_filter_blocks_mable_seeded_birth_question
+    classify = require_callable([
+               ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.seed_aware_question_filter.classify_seeded_fact_question, server.code.api.services.seed_aware_question_filter.should_block_seeded_fact_question
+
+======================================================================
+FAIL: test_direct_rewriter_turns_seeded_fact_question_into_lived_experience_question (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_direct_rewriter_turns_seeded_fact_question_into_lived_experience_question)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase8_seed_aware_question_filter.py", line 74, in test_direct_rewriter_turns_seeded_fact_question_into_lived_experience_question
+    rewrite = require_callable([
+              ^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 33, in require_callable
+    raise AssertionError(
+AssertionError: Required production callable not found. Implement one of: server.code.api.services.seed_aware_question_filter.rewrite_seeded_fact_question, server.code.api.services.seed_aware_question_filter.rewrite_or_block_seeded_fact_question
+
+======================================================================
+FAIL: test_scorer_fails_seeded_dob_pob_question (test_phase8_seed_aware_question_filter.SeedAwareQuestionFilterTests.test_scorer_fails_seeded_dob_pob_question)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase8_seed_aware_question_filter.py", line 30, in test_scorer_fails_seeded_dob_pob_question
+    assert_row_fails(self, score, "no_seeded_fact_intake_question")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 65, in assert_row_fails
+    testcase.assertEqual(
+AssertionError: 'PASS' != 'FAIL'
+- PASS
++ FAIL
+ : Expected row 'no_seeded_fact_intake_question' to FAIL, got 'PASS'. Full rows: {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'}
+
+======================================================================
+FAIL: test_scorer_fails_broken_code_mix (test_phase9_spanish_lang_contract.SpanishLanguageContractTests.test_scorer_fails_broken_code_mix)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/test_phase9_spanish_lang_contract.py", line 47, in test_scorer_fails_broken_code_mix
+    assert_row_fails(self, score, "no_broken_code_mix")
+  File "/mnt/c/Users/chris/hornelore/tests/boris_quality/_helpers.py", line 60, in assert_row_fails
+    testcase.assertIn(
+AssertionError: 'no_broken_code_mix' not found in {'reflection_grounded': 'PASS', 'one_question_max': 'PASS', 'no_questionnaire_interrogation': 'PASS', 'no_forbidden_empathy_openers': 'PASS', 'no_era_label_menu': 'PASS', 'no_same_anchor_loop': 'PENDING', 'word_budget_honored': 'PASS', 'translation_refusal_absent': 'PASS', 'no_false_name_confirmation': 'PASS', 'no_got_it_stub': 'PASS', 'no_titlecase_phrase_as_name': 'PASS', 'response_not_fragmented': 'PASS', 'minimum_anchor_count': 'PASS', 'no_meta_response_leak': 'PASS', 'no_titlecased_anchor_cascade': 'PASS', 'no_seeded_fact_intake_question': 'PASS'} : Missing scorer row 'no_broken_code_mix'. Add it to scripts/harness_lib.py::score_chapter().
+
+----------------------------------------------------------------------
+Ran 38 tests in 0.484s
+
+FAILED (failures=45, errors=12)

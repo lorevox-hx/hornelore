@@ -1,0 +1,118 @@
+================================================================================
+PATRICIA 'PAT' FRYE (TEACHER + BETTY) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    86590be7-178
+person_id:  1f9b6611-4b62-4b64-8d2c-9d6255a55e25
+run_time:   2026-06-17 15:49:22
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Princeton Avenue + meeting Betty
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     54
+  question_count: 1
+  anchor_hits:    harold, dorothy, goodyear, princeton avenue, roses, tomatoes
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Can you tell me about your dad Harold worked at Goodyear, and your mom Dorothy took care of you and your siblings in the two-story bungalow on Princeton Avenue. What do you remember about your daily life on that street, especially during the summers when your mom grew tomatoes and roses in the yard?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Kent State, Jim, the classroom
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     38
+  question_count: 1
+  anchor_hits:    1970
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ who was married to Don and had two children. What do you remember about your daily life as a teacher at Forrest Hill during the 1970s and 1980s? (We can come back to the rest in a moment.)
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Loss + tutoring + the small thing
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     40
+  question_count: 1
+  anchor_hits:    betty, forrest hill
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Wednesday to Betty, then Madeleine, Engle, Wrinkle, Time, Tuesday, and October. What do you remember about where you were living during your Later Years, and how you filled your days after retiring from teaching at Forrest Hill?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✗ no_titlecased_anchor_cascade: FAIL
+    ✓ no_seeded_fact_intake_question: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ We've touched on several parts of your story. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 139
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 47/48 rows PASS
+────────────────────────────────────────────────────────────────────────────────
