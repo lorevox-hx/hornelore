@@ -1,5 +1,39 @@
 # BUG-CHATWS-CONV-FK-01
 
+**Status:** CLOSED — patched 2026-06-17 (lazy plan-row seed in `ensure_interview_session`)
+
+## Resolution
+
+Root cause was the `plan_id="chat_ws"` default in
+`db.ensure_interview_session` — `interview_plans(id)` is FK-referenced
+by `interview_sessions(plan_id)`, but only the `'default'` plan row is
+seeded by `init_db()`. Every `INSERT OR IGNORE INTO interview_sessions`
+that used `plan_id='chat_ws'` therefore fired `FOREIGN KEY constraint
+failed` because the IGNORE clause does NOT swallow FK violations (only
+unique-key violations).
+
+Patch: lazy-seed the `interview_plans` row inside
+`ensure_interview_session` before the session insert. Both inserts are
+idempotent (`INSERT OR IGNORE`) so this is safe to call on every turn
+at zero ongoing cost after first call. Any future caller passing any
+`plan_id` will Just Work.
+
+### Files changed
+
+- `server/code/api/db.py:ensure_interview_session` — lazy-seed plan row
+- `tests/test_chatws_conv_fk_hygiene.py` — 3-test pack:
+  1. `test_lazy_seeds_chat_ws_plan_row` — plan row materializes on first call
+  2. `test_idempotent_multiple_calls` — N calls = 1 session row
+  3. `test_increment_turn_succeeds_after_ensure` — turn_count actually advances
+
+### Acceptance gates verified
+
+- chat_ws full-family harness no longer logs `FOREIGN KEY constraint failed`
+  on `turn_count`, `ensure_interview_session`, or `segment_flag persist`
+- softened mode lifecycle (BUG-LORI-SOFTENED-MODE-PERSISTENCE-01) actually
+  advances and exits after N turns
+- safety segment_flag writes succeed (no FK cascade on safety path)
+
 **Status:** OPEN — observed 2026-06-17
 **Severity:** LOW (caught by try/except, logged as WARNING, does not
 abort the turn — but softened-state turn counter increments are lost

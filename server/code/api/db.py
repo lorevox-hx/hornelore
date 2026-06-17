@@ -2021,11 +2021,26 @@ def ensure_interview_session(
     Safe to call every turn: INSERT OR IGNORE deduplicates on the
     primary key. plan_id defaults to 'chat_ws' to distinguish these
     rows from real interview-router sessions in the DB.
+
+    BUG-CHATWS-CONV-FK-01 (2026-06-17): interview_sessions FK's into
+    interview_plans(id) via plan_id. The default 'chat_ws' plan_id is
+    NOT pre-seeded by init_db() (only 'default' is), so every call
+    failed with FOREIGN KEY constraint failed. The fix is to lazy-seed
+    the chat_ws plan row in this function, ahead of the session insert.
+    Both inserts are idempotent (INSERT OR IGNORE) so this is safe to
+    call on every turn at zero ongoing cost after first call.
     """
     init_db()
     now = _now_iso()
     con = _connect()
     try:
+        # BUG-CHATWS-CONV-FK-01: lazy-seed the chat_ws plan row so the
+        # session insert below can satisfy its FK constraint. Idempotent.
+        con.execute(
+            "INSERT OR IGNORE INTO interview_plans(id, title, created_at) "
+            "VALUES (?, ?, ?);",
+            (plan_id, f"Plan: {plan_id}", now),
+        )
         con.execute(
             "INSERT OR IGNORE INTO interview_sessions"
             "(id, person_id, plan_id, started_at, updated_at, active_question_id) "

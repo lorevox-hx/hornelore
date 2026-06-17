@@ -8567,15 +8567,18 @@ async function _extractAndPostFacts(userText, loriText) {
         facts_extracted: followupFacts.length,
         sample_fact:     followupFacts[0]?.statement?.slice(0, 80) ?? null,
       });
-      for (const f of followupFacts) {
-        try {
-          await fetch(API.FACTS_ADD, { method: "POST", headers: ctype(), body: JSON.stringify(f) });
-        } catch (err) { console.warn("[facts] post failed", err, f); }
-      }
+      // BUG-FE-FACTS-ADD-PAYLOAD-SHAPE-422-01: Retire legacy /api/facts/add path.
+      // _extractFacts produces proposal-shaped objects (subject_name, relationship,
+      // field, source_says, status:"needs_verify") — incompatible with the
+      // FactAddRequest Pydantic model (requires person_id, statement,
+      // status:"extracted"). Previously this loop fired N HTTP POSTs that all
+      // 422'd silently and telemetry counted them as successes. Canonical write
+      // path is _extractAndPostFacts → /api/family-truth/note + /propose.
       lv80LogTurnDebug({
         event:                 "facts_extracted",
         facts_extracted_count: followupFacts.length,
-        facts_posted_count:    followupFacts.length,
+        facts_posted_count:    0,
+        legacy_facts_add_path: "retired",
         suppressed:            false,
         memoir_state:          _memoirState,
         sample_fact:           followupFacts[0]?.statement?.slice(0, 80) ?? null,
@@ -8624,24 +8627,24 @@ async function _extractAndPostFacts(userText, loriText) {
     return;
   }
 
-  // Post facts to backend
-  for (const f of facts) {
-    try {
-      await fetch(API.FACTS_ADD, {
-        method: "POST",
-        headers: ctype(),
-        body: JSON.stringify(f),
-      });
-    } catch (err) {
-      console.warn("[facts] post failed", err, f);
-    }
-  }
-
-  console.log(`[facts] extracted ${facts.length} fact(s) from turn.`);
+  // BUG-FE-FACTS-ADD-PAYLOAD-SHAPE-422-01: Retire legacy /api/facts/add path.
+  // _extractFacts emits proposal-shaped objects (subject_name, relationship,
+  // field, source_says, status:"needs_verify") that the legacy FactAddRequest
+  // model rejects with 422 (requires person_id, statement, status enum).
+  // Previously each f in facts produced one silent 422 and the telemetry
+  // counter at facts_posted_count lied — reporting facts.length as posted
+  // when reality was 0/N actually persisted.
+  //
+  // Canonical write path is _extractAndPostFacts (app.js:5925) which routes
+  // through /api/family-truth/note + /api/family-truth/note/{id}/propose.
+  // The HORNELORE_TRUTH_V2 flag also returns 410 from the legacy facts.add
+  // endpoint, making future regressions explicit instead of silent.
+  console.log(`[facts] extracted ${facts.length} fact(s) from turn — legacy POST path retired (BUG-FE-FACTS-ADD-PAYLOAD-SHAPE-422-01).`);
   lv80LogTurnDebug({
     event:                "facts_extracted",
     facts_extracted_count: facts.length,
-    facts_posted_count:   facts.length,
+    facts_posted_count:   0,
+    legacy_facts_add_path: "retired",
     suppressed:           false,
     memoir_state:         _memoirState,
     sample_fact:          facts[0]?.statement?.slice(0, 80) ?? null,

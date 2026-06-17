@@ -1,11 +1,39 @@
 # BUG-FE-FACTS-ADD-PAYLOAD-SHAPE-422-01
 
-**Status:** OPEN — observed 2026-06-17
+**Status:** CLOSED — patched 2026-06-17 (Option B applied)
 **Severity:** MEDIUM (silent data-loss class — extracted facts never
 persist; failures swallowed by FE try/catch so the operator never
 sees an error message)
 **Narrator generality:** UNIVERSAL — affects every narrator turn that
 fires `_extractFacts`
+
+## Resolution (Option B)
+
+The two HTML callers (L8570–8574 + L8627–8638) that posted proposal-shaped
+objects to the legacy `/api/facts/add` endpoint have been retired in place.
+Neither caller fires any HTTP POST anymore. The telemetry counter
+`facts_posted_count` now correctly reports `0` (with new
+`legacy_facts_add_path: "retired"` annotation) instead of lying with
+`facts.length`.
+
+The canonical write path is `_extractAndPostFacts(userText, loriText)` at
+`ui/js/app.js:5925` which routes through the WO-13 family-truth pipeline:
+`POST /api/family-truth/note` followed by `POST /api/family-truth/note/{id}/propose`.
+
+The Layer 2 backstop (`HORNELORE_TRUTH_V2=1` → 410 Gone) is already set
+in `.env.example` line 170. Chris's runtime `.env` should match.
+
+## Acceptance gates verified
+
+1. ✓ Legacy `/api/facts/add` 422 cannot fire from the chat turn path
+   anymore — the two POST loops are removed.
+2. ✓ `facts_posted_count` in `lv80LogTurnDebug` is now `0` (matches
+   reality of zero legacy posts), with explicit
+   `legacy_facts_add_path: "retired"` annotation.
+3. ✓ The `HORNELORE_TRUTH_V2=1` backstop in `.env.example` returns 410
+   Gone for any third-party caller still trying the legacy endpoint.
+
+
 
 ## Reproduction
 

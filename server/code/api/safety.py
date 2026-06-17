@@ -177,12 +177,65 @@ _HARM_VERBS = re.compile(
 )
 
 
+# ── BUG-SAFETY-CHILD-ABUSE-FALSE-POSITIVE-DEATH-CAR-01 ───────────────────────
+# Biographical accident/death context that must NOT trigger child_abuse.
+# Pattern matched on John adolescence: "father died when ... was changing
+# a tire and was hit by a car" → parent_role + harm_verb('hit') fired the
+# perp+harm=0.70 compound case at exactly threshold.
+#
+# Two-pronged guard:
+#   1. Parent-as-victim ("father died", "mother was killed")
+#   2. Mechanical/vehicular accident verbs ("hit by a car", "changing a tire")
+# If ANY accident-death context fires, the compound check returns None.
+# Simple triggers (raped, molested, beat me, hit me — first-person harm
+# direct-object form) are unaffected. This preserves true-positive detection.
+_ACCIDENT_DEATH_CONTEXT = re.compile(
+    r"\b("
+    # Parent / family elder as victim of death
+    r"(my\s+)?(father|dad|daddy|mother|mom|mommy|mum|parent|step(father|mother|dad|mom)|"
+    r"grand(father|mother|dad|mom|pa|ma)|brother|sister|uncle|aunt)\s+"
+    r"(died|was killed|passed away|passed on|got killed|was lost|"
+    r"lost (his|her|their) life|never came home)"
+    r"|"
+    # Vehicular accident — passive "was/got hit by a vehicle"
+    r"(was|were|got|been)\s+(hit|struck|run over|killed|injured|crushed)\s+by\s+"
+    r"(a|an|the|that|some)?\s*"
+    r"(car|truck|vehicle|bus|train|motorcycle|drunk driver|hit[\s-]and[\s-]run|"
+    r"semi|tractor|tractor.?trailer|drunk|driver)"
+    r"|"
+    # Mechanical / repair accident context
+    r"(while\s+)?(changing|fixing|repairing|replacing|working on|under)\s+"
+    r"(a|the|his|her|their)?\s*"
+    r"(tire|tyre|wheel|car|engine|brake|truck|vehicle|hood|battery)"
+    r"|"
+    # Medical / illness death (suppress mis-fire on "fought cancer" etc.)
+    r"(died|passed away|lost (his|her|their) (battle|fight))\s+(from|of|to|with|after)\s+"
+    r"(cancer|illness|disease|stroke|heart attack|covid|pneumonia|old age|complications)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def _check_compound_child_abuse(norm_text: str) -> Optional[tuple[str, float]]:
     """
     Returns (category, confidence) if compound child-abuse trigger fires,
     else None.
     Requires all three: age_context + perpetrator + harm_verb.
+
+    Biographical accident/death context (parent died in car accident,
+    mechanical accident, medical death) is suppressed via
+    `_ACCIDENT_DEATH_CONTEXT` to prevent BUG-SAFETY-CHILD-ABUSE-FALSE-
+    POSITIVE-DEATH-CAR-01 — where ordinary oral-history grief content
+    was being routed to child_abuse + operator notify + softened mode.
     """
+    # Guard: biographical accident/death context dominates → no child_abuse.
+    # The compound trigger relies on weak signals (parent role + harm verb);
+    # if the text is clearly biographical accident/death narration, the
+    # weak compound is unreliable and must yield. Real abuse triggers in
+    # _SIMPLE_TRIGGERS (raped, molested, hit me, beat me, etc.) still fire.
+    if _ACCIDENT_DEATH_CONTEXT.search(norm_text):
+        return None
+
     has_age = bool(_CHILD_AGE_PATTERNS.search(norm_text))
     has_perp = bool(_PERPETRATOR_ROLES.search(norm_text))
     has_harm = bool(_HARM_VERBS.search(norm_text))
