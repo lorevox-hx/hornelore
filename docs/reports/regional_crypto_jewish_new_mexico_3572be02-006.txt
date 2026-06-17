@@ -1,0 +1,97 @@
+================================================================================
+STEFI SANDOVAL (CRYPTO-JEWISH NEW MEXICO) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    3572be02-006
+person_id:  e519bc06-5271-4707-8303-15d4fdd584ef
+run_time:   2026-06-16 17:08:52
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Candles in the cellar
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     109
+  question_count: 1
+  anchor_hits:    hot springs road, the cellar, friday evening
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Here's a reflection and question that honors the given directives:
+  │ 
+  │ 
+  │ You mentioned the adobe house on Hot Springs Road, where you grew up and experienced many family traditions. The cellar where your mother lit candles on Friday evenings — a ritual she followed from her mother and grandmother — has become a vivid memory. The specifics of your family's Catholic practices, like the bread shape for holy days, the pork taboo, and the way to slaughter a chicken, create a sense of continuity with the past. What do you remember about your family's daily life and the ways you practiced Catholicism, especially considering the distinct traditions within your community?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — The vocabulary arrives in 1985
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     6
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Entendido — Well. ¿Qué pasó después?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Breaking the rule on purpose
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     9
+  question_count: 1
+  anchor_hits:    santa fe, albuquerque
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Capté Santa Fe, David, y Albuquerque. ¿Qué pasó después?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ We've touched on several parts of your story. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 37
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 45
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 23/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────

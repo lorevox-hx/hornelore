@@ -1,0 +1,98 @@
+================================================================================
+PATRICIA 'PAT' FRYE (TEACHER + BETTY) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    122fb1ba-83b
+person_id:  c2956a80-7369-4c95-b557-db6380e0fed9
+run_time:   2026-06-16 17:05:02
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Princeton Avenue + meeting Betty
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     47
+  question_count: 1
+  anchor_hits:    princeton avenue, betty cavanaugh, freshman year, english class
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Princeton Avenue. where you met your lifelong friend Betty Cavanaugh in English class. What do you remember about your daily life during your freshman year at high school?
+  │ 
+  │ (One question, anchored in the narrator's own words, about the period between starting high school and meeting Betty Cavanaugh.)
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Kent State, Jim, the classroom
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     35
+  question_count: 1
+  anchor_hits:    kent state, betty
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Kent State. What do you remember about your daily life in the dorms during your first year at Kent State?
+  │ 
+  │ (One question, anchored in the narrator's own words, about the period before meeting Betty Cavanaugh.)
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Loss + tutoring + the small thing
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     42
+  question_count: 1
+  anchor_hits:    betty, coffee
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Wednesday to Betty, then Madeleine, Engle, Wrinkle, Time, Tuesday, and October. What do you remember about your daily life during your Later Years, specifically about the routines and traditions you established with Jim, like having coffee together every morning?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ We've touched on several parts of your story. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 20
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 45
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 22/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────

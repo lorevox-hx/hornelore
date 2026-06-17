@@ -1,0 +1,94 @@
+================================================================================
+MABLE HUDSON (AFRICAN AMERICAN GEORGIA) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    cac157c6-e75
+person_id:  905b8bcc-51c7-43db-ab15-c9166e65df08
+run_time:   2026-06-16 17:05:46
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Cotton land + Mount Olive AME
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     42
+  question_count: 1
+  anchor_hits:    mount olive, ame, mother hampton, children's choir
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ where neighbors looked out for each other. You were a part of the children's choir at Mount Olive AME Church, learning music and social norms from Mother Hampton. What role did your church play in your daily life during those early years?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Movement, Greyhound, Detroit
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     49
+  question_count: 1
+  anchor_hits:    detroit, 1963, greyhound
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Can you tell me about the summer of 1963 was a turning point in your life, when you left Albany for Detroit. What do you remember about the emotions you felt as you said goodbye to your family and hometown, and boarded the Greyhound bus for a new adventure?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Coming home to Albany
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     44
+  question_count: 1
+  anchor_hits:    charlene, atlanta, bernard, detroit, lillian
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Charlene to Atlanta, then Bernard, Detroit, Plymouth Road, Albany, Earnest, and Lillian. What do you remember about your daily routine and the sense of community that existed in Lincoln Heights, the neighborhood where you grew up after leaving the Coleman farm?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ We've touched on several parts of your story. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 24
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 45
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 22/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────

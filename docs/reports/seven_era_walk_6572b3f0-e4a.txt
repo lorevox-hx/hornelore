@@ -1,0 +1,182 @@
+================================================================================
+WALTER O'DONNELL (7-ERA WALK) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    6572b3f0-e4a
+person_id:  18597b28-b878-484b-ab6b-13be62171c8c
+run_time:   2026-06-16 17:18:17
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 1 — Earliest Years (G Street, Southie 1948-53)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     14
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Let me say that in English. What would you like to tell me next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✗ translation_refusal_absent: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 2 — Early School Years (Saint Augustine's 1953-59)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     31
+  question_count: 1
+  anchor_hits:    saint augustine, patrick, brendan, eileen
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Saint Augustine to Brendan, then Eileen, Patrick, Catholic, South Boston, Mass, and Walter. What do you remember about your daily routine and the commute to Saint Augustine's school?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 3 — Adolescence (Boston Latin + math team 1960-65)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     52
+  question_count: 1
+  anchor_hits:    boston latin, sister bernadette, math team
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You transitioned from being a student at Boston Latin School, particularly finding your passion for math team, to making important decisions about your future. What do you remember about your relationships with the teachers and coaches who supported you in developing your math skills, especially Sister Bernadette and your math team coaches?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 4 — Coming of Age (BC + Catherine + first sons 1966-76)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     41
+  question_count: 1
+  anchor_hits:    boston college, 1970, chestnut hill, kennedy, dorchester
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Boston College to Brendan, then Chestnut Hill, Kennedy, Irish, Catholic, Schlitz, and Eileen. What do you remember about your daily routine as a newlywed in the 1970s, balancing work, family life, and community in Dorchester and South Boston?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 5 — Building Years (North Quincy 35 yrs + 4 boys)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     40
+  question_count: 1
+  anchor_hits:    ten years, north quincy, quincy
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You said North Quincy: Lynn for ten years, then moved to North Quincy High School — the public school in the town we had bought. You kept coming back to North Quincy — what was that actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 6 — Later Years (retire 2020 + tutoring + boardwalk)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     14
+  question_count: 2
+  anchor_hits:    march
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — In March. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 7 — Today (a Tuesday in 2026 + the slip about a daughter)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     38
+  question_count: 1
+  anchor_hits:    tuesday, six-fifteen
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Today is a Tuesday. Catherine and you had your usual breakfast at six-fifteen. What does life look like for you these days - where are you, who do you see most, what does a normal day feel like?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ It was a pleasure hearing your story. Is there anything else you'd like to talk about or any other aspect of your life you'd like to explore?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 44
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 45
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 53/56 rows PASS
+────────────────────────────────────────────────────────────────────────────────

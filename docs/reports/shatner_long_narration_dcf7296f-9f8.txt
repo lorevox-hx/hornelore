@@ -1,0 +1,94 @@
+================================================================================
+WILLIAM SHATNER — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    dcf7296f-9f8
+person_id:  73e975cb-46f7-4ff9-920a-c13e57eb7faa
+run_time:   2026-06-16 17:03:18
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Montreal
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     16
+  question_count: 2
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — It Was The Air. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Stage to Star Trek
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     41
+  question_count: 1
+  anchor_hits:    broadway
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You said New York: a number of other parts, and the New York theater world came up and saw me, and Broadway was the next step. You kept coming back to New York — what was that actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Looking Back from 93
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     7
+  question_count: 1
+  anchor_hits:    ottawa
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — Ottawa. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ We've touched on several parts of your story. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 13
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 45
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 22/24 rows PASS
+────────────────────────────────────────────────────────────────────────────────
