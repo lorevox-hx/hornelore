@@ -263,6 +263,69 @@ _QUOTED_DRAFT_RX = re.compile(
 )
 
 
+# WO-SPANISH-LIVE-READINESS-01 Patch 1 (2026-06-17) — Spanish meta-leak
+# patterns. The 2026-06-17 full-family run caught Stefi Sandoval's
+# Crypto-Jewish New Mexico turn produce "Capté Santa Fe y David" plus
+# meta-fluff like "Qué descripción tan rica" — the harness scorer
+# flagged it, but the runtime guard's preamble/postamble/fake-warmth
+# regexes are English-only and let the Spanish equivalents through.
+# These patterns mirror the English ones and cover the meta-shapes
+# Llama-3.1-8B produces when it slips into self-narration in Spanish.
+
+_META_PREAMBLE_ES_RX = re.compile(
+    r"^(?:\s*)(?:"
+    # "Aquí está mi respuesta que sigue las reglas..."
+    r"aqu[ií] (?:est[aá] |tienes |va )?(?:mi |una |la |tu )?"
+    r"(?:respuesta|reflexi[oó]n|r[eé]plica|contestaci[oó]n)"
+    r"(?:\s+(?:que|la cual))?\s+(?:sigue|refleja|honra|invita|captura|cumple)"
+    r"|"
+    # "Déjame capturar..." / "Déjame reflejar..."
+    r"d[eé]jame (?:capturar|reflejar|reflexionar|responder|empezar|comenzar)"
+    r"|"
+    # "Permíteme..." (formal lead-in)
+    r"perm[ií]teme (?:capturar|reflejar|responder)"
+    r"|"
+    # "Voy a responder..." / "Voy a reflejar..."
+    r"voy a (?:responder|reflejar|reflexionar)"
+    r"|"
+    # "Siguiendo las reglas / instrucciones / pautas..."
+    r"siguiendo (?:las |tus )?(?:reglas|instrucciones|pautas|gu[ií]as)"
+    r"|"
+    # "Esta respuesta refleja / honra / sigue..."
+    r"esta (?:respuesta|reflexi[oó]n|r[eé]plica) (?:refleja|honra|sigue|invita|captura|cumple)"
+    r")[^\n.]*[:.\n]",
+    re.IGNORECASE,
+)
+
+_META_POSTAMBLE_ES_RX = re.compile(
+    r"(?:\n\n|\s+)"
+    r"(?:esta respuesta|esta r[eé]plica|esta reflexi[oó]n)\s+"
+    r"(?:refleja|invita|captura|honra|sigue|cumple|asegura)"
+    r"[^\n]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_FAKE_WARMTH_ES_RX = re.compile(
+    r"\b(?:"
+    # "Qué descripción tan rica / hermosa / conmovedora..."
+    r"qu[eé] (?:descripci[oó]n|relato|narrativa|historia|recuerdo) "
+    r"tan (?:rica|hermosa|conmovedora|emotiva|profunda|maravillosa|evocadora)"
+    r"|"
+    # "Es un honor escucharte..." / "Me siento agradecida..."
+    r"(?:es un honor|me siento (?:muy )?agradecid[ao]) "
+    r"(?:escucharte|de escucharte|de poder escucharte)"
+    r"|"
+    # "Gracias por compartir / por confiar en mí..."
+    r"gracias por (?:compartir|confiar en m[ií]|contarme)"
+    r"|"
+    # "Déjame capturar algunos puntos / detalles clave..."
+    r"d[eé]jame capturar (?:algunos |unos pocos |los |unos )?"
+    r"(?:puntos|detalles|momentos) (?:clave|importantes|principales)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def detect_meta_response_leak(assistant_text: str) -> bool:
     """Return True if the response contains meta-instruction leakage."""
     if not assistant_text:
@@ -272,6 +335,13 @@ def detect_meta_response_leak(assistant_text: str) -> bool:
     if _META_POSTAMBLE_RX.search(assistant_text):
         return True
     if _FAKE_WARMTH_RX.search(assistant_text):
+        return True
+    # WO-SPANISH-LIVE-READINESS-01 Patch 1 — Spanish meta-shapes.
+    if _META_PREAMBLE_ES_RX.search(assistant_text):
+        return True
+    if _META_POSTAMBLE_ES_RX.search(assistant_text):
+        return True
+    if _FAKE_WARMTH_ES_RX.search(assistant_text):
         return True
     return False
 
@@ -307,6 +377,10 @@ def repair_meta_response_leak(
     stripped = _META_POSTAMBLE_RX.sub("", stripped).strip()
     # Drop any remaining fake-warmth opener sentence
     stripped = _FAKE_WARMTH_RX.sub("", stripped).strip()
+    # WO-SPANISH-LIVE-READINESS-01 Patch 1 — also strip Spanish meta-shapes.
+    stripped = _META_PREAMBLE_ES_RX.sub("", stripped, count=1).strip()
+    stripped = _META_POSTAMBLE_ES_RX.sub("", stripped).strip()
+    stripped = _FAKE_WARMTH_ES_RX.sub("", stripped).strip()
     # Clean up leftover quote / colon residue
     stripped = stripped.strip().strip(":").strip().strip('"').strip()
     if len(stripped.split()) >= 6:
@@ -325,6 +399,93 @@ def repair_meta_response_leak(
 # semantics, so the alias is a one-liner.
 strip_meta_response_leak = repair_meta_response_leak
 sanitize_lori_response = repair_meta_response_leak
+
+
+# WO-SPANISH-LIVE-READINESS-01 Patch 2 (2026-06-17) — runtime
+# broken-code-mix guard. Ports `_detect_broken_code_mix` from
+# `scripts/harness_lib.py` so we can catch the same shapes at chat-WS
+# time (before the narrator sees them) instead of only in the scorer.
+#
+# Catches the Stefi-class output:
+#   "Capté Santa Fe y David. ¿Qué pasó después?"
+#   "Tú had an older brother Antonio... y asked my mother."
+# These are mid-generation drift: Llama-3.1-8B sometimes loads Spanish
+# vocabulary but keeps English grammar scaffolding (or vice versa).
+# The harness-side scorer rule (`no_broken_code_mix`) catches the same
+# thing after-the-fact; this is the runtime sibling.
+
+_BROKEN_CODE_MIX_SIGNALS = (
+    # Spanish receipt scaffolding bolted onto English text
+    re.compile(r"\bcapté\b", re.IGNORECASE),
+    re.compile(r"\btú\s+(had|made|asked|went|said|called|told)\b", re.IGNORECASE),
+    re.compile(r"¿qué pasó después", re.IGNORECASE),
+    re.compile(
+        r"[a-z]\s+y\s+(asked|said|made|had|went|called|told)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# Inverted Spanish punctuation embedded mid-text
+_BROKEN_SPANISH_PUNCT_RX = re.compile(r"[¿¡]")
+
+# English function words for density check
+_ENGLISH_FUNCTION_WORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "is", "was",
+    "you", "your", "i", "me", "my", "we", "had", "have", "with", "for",
+    "on", "at", "what", "when", "where", "do", "did", "are", "be", "been",
+})
+
+
+def detect_broken_code_mix(assistant_text: str) -> Optional[str]:
+    """Return a marker string if `assistant_text` looks like broken
+    Spanish/English code-mix; None otherwise.
+
+    Heuristic mirrors the harness scorer rule:
+      1. Any explicit broken-code-mix signal (Capté / Tú X / ¿Qué pasó
+         / X y verb) → fire.
+      2. Inverted Spanish punctuation present AND English function-word
+         density ≥ 30% (mid-text Spanglish; pure-Spanish narrator turns
+         are NOT broken — they only become broken when mixed).
+
+    A pure-Spanish response contains ¿ or ¡ but few English function
+    words, so it does NOT trip the density check. A pure-English
+    response contains no ¿/¡ so the density branch never runs.
+    """
+    if not assistant_text or len(assistant_text.split()) < 4:
+        return None
+    for pat in _BROKEN_CODE_MIX_SIGNALS:
+        m = pat.search(assistant_text)
+        if m:
+            return m.group(0)
+    if _BROKEN_SPANISH_PUNCT_RX.search(assistant_text):
+        tokens = re.findall(r"\b[a-z]+\b", assistant_text.lower())
+        if tokens:
+            en_hits = sum(1 for t in tokens if t in _ENGLISH_FUNCTION_WORDS)
+            density = en_hits / len(tokens)
+            if density >= 0.30:
+                return "spanish_punct_in_english_context"
+    return None
+
+
+def repair_broken_code_mix(
+    assistant_text: str, target_language: str = "en",
+) -> str:
+    """Return a clean replacement when broken code-mix is detected.
+
+    Strategy:
+      - We CANNOT safely auto-repair the broken sentence (the LLM has
+        already lost the thread). Returning the broken text would leak
+        Spanglish to the narrator.
+      - Substitute a short deterministic continuation prompt in the
+        target language. This is the same fallback as
+        repair_meta_response_leak's last-resort branch.
+
+    Pure-Spanish responses do NOT trip detect_broken_code_mix, so this
+    repair path only fires when the LLM produced a mid-mix string.
+    """
+    if target_language and target_language.lower().startswith("es"):
+        return "Cuéntame más sobre eso."
+    return "Tell me more about that."
 
 
 # Boris Phase 6 — name-confirmation candidate detector. Returns True
@@ -536,6 +697,20 @@ def apply_response_guards(
         fired.append("meta_response_leak")
         # Recovered text still needs the rest of the checks.
 
+    # WO-SPANISH-LIVE-READINESS-01 Patch 2 (2026-06-17): broken Spanish/
+    # English code-mix guard. Mid-generation drift produces "Tú had..."
+    # or "Capté Santa Fe y David. ¿Qué pasó después?" — the narrator
+    # should never see this. We can't safely auto-repair (the LLM has
+    # already lost the thread), so we substitute a short deterministic
+    # continuation prompt in the target language. Run AFTER meta-leak
+    # so quoted-draft recovery gets its chance first; if the recovered
+    # draft itself is broken code-mix, this still catches it.
+    code_mix_marker = detect_broken_code_mix(text)
+    if code_mix_marker:
+        text = repair_broken_code_mix(text, target_language)
+        fired.append("broken_code_mix")
+        return text, fired
+
     # BUG-LORI-ASKS-WHAT-OPERATOR-SEEDED-01: rewrite seeded-fact intake
     # questions to lived-experience equivalents.
     if seeded_facts:
@@ -562,6 +737,8 @@ __all__ = [
     "repair_meta_response_leak",
     "strip_meta_response_leak",
     "sanitize_lori_response",
+    "detect_broken_code_mix",
+    "repair_broken_code_mix",
     "is_valid_name_confirmation_candidate",
     "detect_seeded_fact_intake",
     "repair_seeded_fact_intake",

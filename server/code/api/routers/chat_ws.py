@@ -3568,11 +3568,36 @@ async def ws_chat(ws: WebSocket):
                 _recent_narr = _recent_narr[-3:]
             except Exception:
                 _recent_narr = []
+            # WO-SPANISH-LIVE-READINESS-01 Patch 5 (2026-06-17): detect
+            # narrator language for the guard pipeline. The hardcoded
+            # "en" here meant Spanish narrators who hit a guard repair
+            # (meta_response_leak / broken_code_mix / dangling_determiner)
+            # got the English fallback prompt ("Tell me more about
+            # that.") instead of the Spanish one ("Cuéntame más sobre
+            # eso."). Use looks_spanish() on the narrator's current
+            # turn, with the recent-turns context as a smoothing signal
+            # for the case where a Spanish session sends a short EN
+            # token like "yes".
+            _guard_target_lang = "en"
+            try:
+                from ..services.lori_spanish_guard import looks_spanish as _gt_looks_es
+                if user_text and _gt_looks_es(user_text):
+                    _guard_target_lang = "es"
+                elif _recent_narr:
+                    # Smooth over short non-Spanish replies in an
+                    # otherwise-Spanish session: if ANY of the last 3
+                    # narrator turns looks Spanish, treat session as ES.
+                    for _prior in _recent_narr:
+                        if _prior and _gt_looks_es(_prior):
+                            _guard_target_lang = "es"
+                            break
+            except Exception:
+                _guard_target_lang = "en"
             _guarded_text, _guards_fired = _apply_guards(
                 assistant_text=final_text,
                 narrator_text=user_text or "",
                 recent_narrator_turns=_recent_narr,
-                target_language="en",
+                target_language=_guard_target_lang,
             )
             if _guards_fired:
                 logger.warning(

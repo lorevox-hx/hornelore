@@ -1989,11 +1989,19 @@ def _trim_to_one_question(text: str) -> Tuple[str, bool, str]:
     return head + bridge, True, reason
 
 
+_AGE_RECALL_MONTHS_ES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
+
+
 def compose_age_recall(
     person_id: Optional[str],
     *,
     runtime: Optional[Dict[str, Any]] = None,
     name_hint: Optional[str] = None,
+    target_language: str = "en",
 ) -> str:
     """Build a deterministic age-recall response. Mirrors compose_memory_echo
     pattern: pure-deterministic, no LLM call, reads from profile_seed
@@ -2006,15 +2014,22 @@ def compose_age_recall(
     from the known truth (or an explicit "I don't have your birthday
     yet" when DOB is unknown).
 
-    Output shapes (per ChatGPT triage):
-      - DOB known + age computed:
-          "You were born on February 29, 1940, so you are 86 now."
-      - DOB partially known (year only):
-          "I have 1940 for your birth year, but I don't have the full
-           date yet."
-      - DOB unknown:
-          "I don't have your birthday written down yet — would you like
-           to share it?"
+    WO-SPANISH-LIVE-READINESS-01 Patch 3 (2026-06-17): added
+    `target_language` kwarg. Defaults to "en" for byte-stability with
+    pre-patch callers. When `target_language` starts with "es" the
+    response is rendered in Spanish with localized month names.
+
+    Output shapes:
+      EN — "You were born on February 29, 1940, so you are 86 now."
+           "I have 1940 for your birth year, but I don't have the full
+            date yet."
+           "I don't have your birthday written down yet — would you
+            like to share it?"
+      ES — "Naciste el 29 de febrero de 1940, así que tienes 86 años."
+           "Tengo 1940 como tu año de nacimiento, pero todavía no
+            tengo la fecha completa."
+           "Todavía no tengo tu fecha de nacimiento — ¿te gustaría
+            compartirla?"
     """
     runtime = runtime or {}
 
@@ -2077,17 +2092,51 @@ def compose_age_recall(
             if full:
                 name = full.split()[0]
 
+    # WO-SPANISH-LIVE-READINESS-01 Patch 3 — Spanish locale branch.
+    _es = bool(target_language and target_language.lower().startswith("es"))
+
     if dob_pretty and age_years and age_years > 0:
+        if _es:
+            # Re-format dob_pretty into Spanish: "February 29, 1940" →
+            # "29 de febrero de 1940". Defensive: fall back to raw
+            # dob_pretty if parsing fails (still readable, just English).
+            try:
+                from datetime import datetime as _dt
+                _d = _dt.strptime(dob[:10], "%Y-%m-%d")
+                _es_pretty = (
+                    f"{_d.day} de {_AGE_RECALL_MONTHS_ES[_d.month]} de {_d.year}"
+                )
+            except (ValueError, TypeError, KeyError):
+                _es_pretty = dob_pretty
+            return (
+                f"Naciste el {_es_pretty}, así que tienes {age_years} años."
+            )
         return (
             f"You were born on {dob_pretty}, so you are {age_years} now."
         )
     if dob and len(dob) >= 4 and dob[:4].isdigit() and not dob_pretty:
         # Year-only DOB — partial knowledge.
+        if _es:
+            return (
+                f"Tengo {dob[:4]} como tu año de nacimiento, pero todavía no "
+                f"tengo la fecha completa. ¿Te gustaría compartir el mes "
+                f"y el día?"
+            )
         return (
             f"I have {dob[:4]} for your birth year, but I don't have the "
             f"full date yet. Would you like to share the month and day?"
         )
     # No DOB at all.
+    if _es:
+        if name:
+            return (
+                f"Todavía no tengo tu fecha de nacimiento, {name} — "
+                f"¿te gustaría compartirla?"
+            )
+        return (
+            "Todavía no tengo tu fecha de nacimiento — ¿te gustaría "
+            "compartirla?"
+        )
     if name:
         return (
             f"I don't have your birthday written down yet, {name} — "
@@ -2105,6 +2154,7 @@ def compose_continuation_paraphrase(
     session_id: Optional[str] = None,
     last_era_id: Optional[str] = None,
     name_hint: Optional[str] = None,
+    target_language: str = "en",
 ) -> str:
     """Build a deterministic active-listening continuation greeting for a
     returning narrator. Mirrors compose_memory_echo's pattern: pure-
@@ -2163,12 +2213,22 @@ def compose_continuation_paraphrase(
             )
     safe_name = name or "friend"
 
+    # WO-SPANISH-LIVE-READINESS-01 Patch 4 (2026-06-17): locale gate.
+    # Default "en" preserves byte-stability with pre-patch callers
+    # (interview.py:_build_opener_text passes "en" by default).
+    _es = bool(target_language and target_language.lower().startswith("es"))
+    _locale = "es" if _es else "en"
+
     # ── 2. Resolve warm era phrase (Tier C signal) ────────────────────
     warm_era_phrase: Optional[str] = None
     if last_era_id:
         try:
             from .lv_eras import era_id_to_continuation_phrase
-            warm_era_phrase = era_id_to_continuation_phrase(last_era_id)
+            # Spanish era phrases already wired in
+            # _LV_ERA_CONTINUATION_PHRASES_BY_LOCALE; pass locale through.
+            warm_era_phrase = era_id_to_continuation_phrase(
+                last_era_id, locale=_locale,
+            )
         except Exception as exc:
             logger.warning(
                 "[continuation-paraphrase] era phrase lookup failed: %s", exc
@@ -2183,13 +2243,26 @@ def compose_continuation_paraphrase(
 
     if warm_era_phrase:
         # Tier C — era-aware welcome-back
-        # Special-case the "today" phrase to avoid awkward "in today" —
-        # render as "we were talking about today" which reads natural.
-        if warm_era_phrase == "today":
+        # Special-case the "today"/"hoy" phrase to avoid awkward "in today"
+        # / "en hoy" — render as "we were talking about today" / "estábamos
+        # hablando de hoy" which reads natural.
+        if warm_era_phrase in ("today", "hoy"):
+            if _es:
+                return (
+                    f"Bienvenido de vuelta, {safe_name}. La última vez "
+                    f"estábamos hablando de hoy. ¿Te gustaría continuar "
+                    f"ahí, o empezar en otro lugar?"
+                )
             return (
                 f"Welcome back, {safe_name}. Last time we were talking "
                 f"about today. Would you like to continue there, or "
                 f"start somewhere else?"
+            )
+        if _es:
+            return (
+                f"Bienvenido de vuelta, {safe_name}. La última vez "
+                f"estábamos en {warm_era_phrase}. ¿Te gustaría continuar "
+                f"ahí, o empezar en otro lugar?"
             )
         return (
             f"Welcome back, {safe_name}. Last time we were in "
@@ -2200,6 +2273,11 @@ def compose_continuation_paraphrase(
     # Tier D — bare welcome-back (regression-safe fallback; matches
     # legacy interview.py:486-489 byte-for-byte so flag-off path is
     # byte-stable)
+    if _es:
+        return (
+            f"Bienvenido de vuelta, {safe_name}. "
+            f"¿Por dónde te gustaría continuar hoy?"
+        )
     return f"Welcome back, {safe_name}. Where would you like to continue today?"
 
 
