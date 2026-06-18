@@ -1,0 +1,382 @@
+{
+  "overall": "FAIL",
+  "stamp": "20260617_181737",
+  "api_base": "http://127.0.0.1:8000",
+  "canonical_john_person_id": "d11572d4-57a1-4100-8426-cfd7293a7441",
+  "args": {
+    "person_id": "d11572d4-57a1-4100-8426-cfd7293a7441",
+    "quick": true,
+    "full_family": false,
+    "skip_unit": false,
+    "skip_live": false,
+    "skip_john": false,
+    "bad_run_transcript": [],
+    "operator_log": [],
+    "test_lab_dry_run": false,
+    "test_lab_full": false,
+    "post_turn_delay": 15.0
+  },
+  "inventory": [
+    {
+      "label": "shared harness_lib",
+      "path": "scripts/harness_lib.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Shared WS-send / 8-row scorer / api.log grep / report writer.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "seven-era Life Map backend",
+      "path": "scripts/run_seven_era_walk_harness.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Walks all seven canonical Life Map eras in one backend session.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Jake reference",
+      "path": "scripts/run_jake_long_narration_harness.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Reference full intake -> three long chapters -> bonus probe.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Shatner public figure",
+      "path": "scripts/run_shatner_long_narration_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Public-figure Montreal Jewish voice; tests known public facts / space turn.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Alex pronouns",
+      "path": "scripts/run_alex_they_long_narration_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Korean-American nonbinary narrator; tests pronoun handling.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Richard late coming-out",
+      "path": "scripts/run_richard_late_coming_out_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Gay man came out after long marriage; tests holding both lives without flattening.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Pat + Betty",
+      "path": "scripts/run_pat_teacher_betty_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Teacher plus recurring friend Betty; tests secondary-character tracking.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Mable African American Georgia",
+      "path": "scripts/run_regional_african_american_georgia_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Albany Movement / Great Migration; tests sacred-silence and no forbidden probing.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Frank Japanese-American California",
+      "path": "scripts/run_regional_asian_american_california_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Nisei / Tule Lake context; tests cultural/historical handling.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Joe Native New Mexico",
+      "path": "scripts/run_regional_native_american_new_mexico_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Cochiti Pueblo / NAGPRA; tests do-not-ask protected details.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Stefi Crypto-Jewish New Mexico",
+      "path": "scripts/run_regional_crypto_jewish_new_mexico_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Crypto-Jewish anusim; tests remember-but-never-tell suppression.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "harness_lib 8-row matrix check",
+      "path": "scripts/harness_lib.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Confirm shared scorer carries all expected rows.",
+      "status": "PASS",
+      "notes": []
+    }
+  ],
+  "evidence": [],
+  "command_results": [
+    {
+      "label": "unit:lori_communication_control",
+      "cmd": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_lori_communication_control",
+        "-v"
+      ],
+      "returncode": 1,
+      "duration_s": 0.20853400230407715,
+      "stdout_tail": "",
+      "stderr_tail": "test_and_pivot_fires (tests.test_lori_communication_control.AtomicityViaWrapperTests.test_and_pivot_fires) ... ok\ntest_or_speculation_fires (tests.test_lori_communication_control.AtomicityViaWrapperTests.test_or_speculation_fires) ... ok\ntest_turn03_or_speculation_truncated (tests.test_lori_communication_control.GolfballRegressionTests.test_turn03_or_speculation_truncated) ... ok\ntest_turn04_and_pivot_case_b (tests.test_lori_communication_control.GolfballRegressionTests.test_turn04_and_pivot_case_b) ... ok\ntest_turn07_or_speculation_truncated (tests.test_lori_communication_control.GolfballRegressionTests.test_turn07_or_speculation_truncated) ... ok\ntest_clear_direct_55_word_limit (tests.test_lori_communication_control.LengthControlTests.test_clear_direct_55_word_limit) ... ok\ntest_unknown_style_falls_back_to_default (tests.test_lori_communication_control.LengthControlTests.test_unknown_style_falls_back_to_default) ... FAIL\ntest_warm_storytelling_90_word_limit (tests.test_lori_communication_control.LengthControlTests.test_warm_storytelling_90_word_limit) ... ok\ntest_clean_short_turn_passes (tests.test_lori_communication_control.NegativeTests.test_clean_short_turn_passes) ... ok\ntest_empty_text_passes (tests.test_lori_communication_control.NegativeTests.test_empty_text_passes) ... ok\ntest_negative_mother_and_father (tests.test_lori_communication_control.NegativeTests.test_negative_mother_and_father) ... ok\ntest_negative_reading_and_writing (tests.test_lori_communication_control.NegativeTests.test_negative_reading_and_writing) ... ok\ntest_to_dict_excludes_text (tests.test_lori_communication_control.NegativeTests.test_to_dict_excludes_text) ... ok\ntest_one_question_passes (tests.test_lori_communication_control.QuestionCountTests.test_one_question_passes) ... ok\ntest_two_questions_truncates_to_first (tests.test_lori_communication_control.QuestionCountTests.test_two_questions_truncates_to_first) ... ok\ntest_unstated_emotion_reports_no_rewrite (tests.test_lori_communication_control.ReflectionViaWrapperTests.test_unstated_emotion_reports_no_rewrite) ... ok\ntest_safety_acknowledgment_with_question_passes (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_acknowledgment_with_question_passes) ... ok\ntest_safety_normal_question_during_safety_flagged (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_normal_question_during_safety_flagged) ... ok\ntest_safety_path_no_mutation (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_path_no_mutation) ... ok\ntest_normal_response_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_normal_response_does_not_flag) ... ok\ntest_one_word_response_to_long_narrator_question_flags (tests.test_lori_communication_control.StubCollapseDetectionTest.test_one_word_response_to_long_narrator_question_flags) ... ok\ntest_short_response_to_three_word_narrator_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_short_response_to_three_word_narrator_does_not_flag) ... ok\ntest_short_response_to_trivial_narrator_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_short_response_to_trivial_narrator_does_not_flag) ... ok\ntest_three_char_response_to_substantive_question_flags (tests.test_lori_communication_control.StubCollapseDetectionTest.test_three_char_response_to_substantive_question_flags) ... ok\n\n======================================================================\nFAIL: test_unknown_style_falls_back_to_default (tests.test_lori_communication_control.LengthControlTests.test_unknown_style_falls_back_to_default)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/mnt/c/Users/chris/hornelore/tests/test_lori_communication_control.py\", line 94, in test_unknown_style_falls_back_to_default\n    self.assertIn(\"too_long\", r.failures)\nAssertionError: 'too_long' not found in []\n\n----------------------------------------------------------------------\nRan 24 tests in 0.023s\n\nFAILED (failures=1)\n",
+      "status": "RUN",
+      "new_reports": []
+    },
+    {
+      "label": "unit:compose_memory_echo_spanish",
+      "cmd": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_compose_memory_echo_spanish",
+        "-v"
+      ],
+      "returncode": 0,
+      "duration_s": 0.22074651718139648,
+      "stdout_tail": "",
+      "stderr_tail": "test_default_args_returns_english (tests.test_compose_memory_echo_spanish.EnglishDefaultBehaviorPreserved.test_default_args_returns_english) ... ok\ntest_explicit_english_matches_default (tests.test_compose_memory_echo_spanish.EnglishDefaultBehaviorPreserved.test_explicit_english_matches_default) ... ok\ntest_en_pack_present (tests.test_compose_memory_echo_spanish.LocalePackShape.test_en_pack_present) ... ok\ntest_es_has_all_en_keys (tests.test_compose_memory_echo_spanish.LocalePackShape.test_es_has_all_en_keys) ... ok\ntest_es_pack_present (tests.test_compose_memory_echo_spanish.LocalePackShape.test_es_pack_present) ... ok\ntest_no_empty_strings_es (tests.test_compose_memory_echo_spanish.LocalePackShape.test_no_empty_strings_es) ... ok\ntest_no_extra_es_keys (tests.test_compose_memory_echo_spanish.LocalePackShape.test_no_extra_es_keys) ... ok\ntest_promoted_other_subject_spanish (tests.test_compose_memory_echo_spanish.PromotedFactsLocale.test_promoted_other_subject_spanish) ... ok\ntest_promoted_self_fact_spanish_named (tests.test_compose_memory_echo_spanish.PromotedFactsLocale.test_promoted_self_fact_spanish_named) ... ok\ntest_promoted_self_fact_spanish_unnamed (tests.test_compose_memory_echo_spanish.PromotedFactsLocale.test_promoted_self_fact_spanish_unnamed) ... ok\ntest_father_renders_as_padre (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_father_renders_as_padre) ... ok\ntest_mother_with_occupation (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_mother_with_occupation) ... ok\ntest_parent_no_name_spanish (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_parent_no_name_spanish) ... ok\ntest_sister_rendering (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_sister_rendering) ... ok\ntest_minimal_runtime_spanish (tests.test_compose_memory_echo_spanish.SpanishHeader.test_minimal_runtime_spanish) ... ok\ntest_named_speaker_spanish_header (tests.test_compose_memory_echo_spanish.SpanishHeader.test_named_speaker_spanish_header) ... ok\ntest_missing_dob_pob (tests.test_compose_memory_echo_spanish.SpanishMissingFields.test_missing_dob_pob) ... ok\ntest_no_parents_spanish (tests.test_compose_memory_echo_spanish.SpanishMissingFields.test_no_parents_spanish) ... ok\ntest_career_spanish (tests.test_compose_memory_echo_spanish.SpanishProfileSeed.test_career_spanish) ... ok\ntest_childhood_home_spanish (tests.test_compose_memory_echo_spanish.SpanishProfileSeed.test_childhood_home_spanish) ... ok\ntest_footer_corrections_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_footer_corrections_spanish) ... ok\ntest_footer_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_footer_spanish) ... ok\ntest_no_records_footer_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_no_records_footer_spanish) ... ok\ntest_uncertain_block_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_uncertain_block_spanish) ... ok\ntest_brother_to_hermano (tests.test_compose_memory_echo_spanish.TranslateRelation.test_brother_to_hermano) ... ok\ntest_empty_passthrough (tests.test_compose_memory_echo_spanish.TranslateRelation.test_empty_passthrough) ... ok\ntest_english_passthrough (tests.test_compose_memory_echo_spanish.TranslateRelation.test_english_passthrough) ... ok\ntest_father_to_padre (tests.test_compose_memory_echo_spanish.TranslateRelation.test_father_to_padre) ... ok\ntest_mother_to_madre (tests.test_compose_memory_echo_spanish.TranslateRelation.test_mother_to_madre) ... ok\ntest_sister_to_hermana (tests.test_compose_memory_echo_spanish.TranslateRelation.test_sister_to_hermana) ... ok\ntest_unknown_passes_through (tests.test_compose_memory_echo_spanish.TranslateRelation.test_unknown_passes_through) ... ok\ntest_unknown_locale_uses_english (tests.test_compose_memory_echo_spanish.UnknownLanguageFallsBackToEnglish.test_unknown_locale_uses_english) ... ok\n\n----------------------------------------------------------------------\nRan 32 tests in 0.003s\n\nOK\n",
+      "status": "RUN",
+      "new_reports": []
+    },
+    {
+      "label": "unit:bio_questionnaire_writer",
+      "cmd": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_bio_questionnaire_writer",
+        "-v"
+      ],
+      "returncode": 0,
+      "duration_s": 0.262345552444458,
+      "stdout_tail": "",
+      "stderr_tail": "test_db_failure_appears_in_errors (tests.test_bio_questionnaire_writer.ErrorPropagationTest.test_db_failure_appears_in_errors) ... bio_questionnaire_writer: bio_fact_create failed for n/full_legal_name: simulated DB lock\nbio_questionnaire_writer: bio_fact_create failed for n/birth_date: simulated DB lock\nok\ntest_blank_narrator_id_returns_zero (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_blank_narrator_id_returns_zero) ... ok\ntest_blank_personal_fields_skipped (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_blank_personal_fields_skipped) ... ok\ntest_empty_blob_writes_nothing_and_does_not_crash (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_empty_blob_writes_nothing_and_does_not_crash) ... ok\ntest_partial_parents_skip_unnamed_entries (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_partial_parents_skip_unnamed_entries) ... ok\ntest_happy_blob_writes_expected_field_keys (tests.test_bio_questionnaire_writer.HappyPathTest.test_happy_blob_writes_expected_field_keys) ... ok\ntest_profile_patch_carries_structured_blocks (tests.test_bio_questionnaire_writer.HappyPathTest.test_profile_patch_carries_structured_blocks) ... ok\ntest_source_metadata_carries_tier_and_via (tests.test_bio_questionnaire_writer.HappyPathTest.test_source_metadata_carries_tier_and_via) ... ok\ntest_unknown_field_keys_are_silently_dropped (tests.test_bio_questionnaire_writer.HappyPathTest.test_unknown_field_keys_are_silently_dropped)\nbio_schema has no `work_years_range` \u2014 _write_bio_fact ... ok\ntest_bool_False_writes_no (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_bool_False_writes_no) ... ok\ntest_bool_True_still_works (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_bool_True_still_works)\nThe intake-form modal at routers/people.py sends Python bool ... ok\ntest_empty_string_served_skips_scalar (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_empty_string_served_skips_scalar)\nOperator chose nothing in the select \u2014 no scalar write, ... ok\ntest_section_with_only_empty_served_returns (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_section_with_only_empty_served_returns)\nIf every field is empty / unset, the writer skips the section ... ok\ntest_string_no_writes_military_served_no (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_string_no_writes_military_served_no) ... ok\ntest_string_yes_writes_military_served_yes (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_string_yes_writes_military_served_yes) ... ok\ntest_arrays_round_trip (tests.test_bio_questionnaire_writer.ViewWriterParityTest.test_arrays_round_trip) ... ok\ntest_personal_scalars_round_trip (tests.test_bio_questionnaire_writer.ViewWriterParityTest.test_personal_scalars_round_trip) ... ok\ntest_career_progression_does_not_clobber_primary_career (tests.test_bio_questionnaire_writer.YearsWorkingBugGuardTest.test_career_progression_does_not_clobber_primary_career) ... ok\n\n----------------------------------------------------------------------\nRan 18 tests in 0.128s\n\nOK\n",
+      "status": "RUN",
+      "new_reports": []
+    }
+  ],
+  "test_lab_status": {
+    "runner_exists": false,
+    "runner_path": "/mnt/c/Users/chris/hornelore/scripts/run_test_lab.sh",
+    "mode": "check",
+    "status": "SKIP: scripts/run_test_lab.sh missing"
+  },
+  "test_lab_result": null,
+  "john_preflight_findings": [],
+  "john_preflight_payload": {
+    "ok": true,
+    "person_id": "d11572d4-57a1-4100-8426-cfd7293a7441",
+    "questionnaire": {
+      "personal": {
+        "fullName": "John Baldy",
+        "preferredName": "John",
+        "birthOrder": "",
+        "dateOfBirth": "1960-12-31",
+        "timeOfBirth": "",
+        "placeOfBirth": "west St. Paul Minnestota",
+        "zodiacSign": "",
+        "currentResidence": "Las Vegas NM",
+        "pronouns": "he/him"
+      },
+      "parents": [],
+      "siblings": [],
+      "spouses": [],
+      "children": [],
+      "education": {
+        "highestLevel": "",
+        "careerProgression": "",
+        "primaryCareer": ""
+      },
+      "military": {
+        "served": false,
+        "branch": "",
+        "servicePeriod": "",
+        "rank": "",
+        "units": "",
+        "locations": "",
+        "warsConflicts": "",
+        "decorations": "",
+        "experienceNotes": ""
+      },
+      "faith": {
+        "religionRaised": "",
+        "currentFaith": "",
+        "ethnicityHeritage": "",
+        "languagesAtHome": ""
+      },
+      "today": {
+        "livingSituation": "Live alone in own house.",
+        "healthConsiderations": ""
+      }
+    },
+    "_meta": {
+      "personal": {
+        "fullName": {
+          "status": "operator_entered",
+          "source": "operator"
+        },
+        "preferredName": {
+          "status": "operator_entered",
+          "source": "operator"
+        },
+        "dateOfBirth": {
+          "status": "operator_entered",
+          "source": "operator"
+        },
+        "placeOfBirth": {
+          "status": "operator_entered",
+          "source": "operator"
+        }
+      },
+      "parents": {},
+      "siblings": {
+        "_section": {
+          "status": "empty",
+          "source": ""
+        }
+      },
+      "spouses": {},
+      "children": {
+        "_section": {
+          "status": "empty",
+          "source": ""
+        }
+      },
+      "education": {},
+      "military": {
+        "served": {
+          "status": "operator_entered",
+          "source": "operator"
+        }
+      },
+      "faith": {},
+      "today": {}
+    },
+    "source": "bio_facts_merged",
+    "version": 1,
+    "updated_at": "2026-06-17T16:12:20.322043"
+  },
+  "era_results": [
+    {
+      "era_label": "Earliest Years",
+      "era_id": "earliest_years",
+      "narrator_text": "I was born on December 31, 1960, in West St. Paul, Minnesota. My mother is still alive at 99 and lives in St. Paul, so those earliest roots are still connected to my life now.",
+      "lori_response": "West St. What do you remember about your first few years?",
+      "duration_s": 8.756683826446533,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Early School Years",
+      "era_id": "early_school_years",
+      "narrator_text": "I went to school in St. Paul. I also attended military school, but that was school, not military service. I did not serve in the military.",
+      "lori_response": "St. Paul is coming through clearly in that memory. What was it like going to school in St. Paul?",
+      "duration_s": 6.767340421676636,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Adolescence",
+      "era_id": "adolescence",
+      "narrator_text": "When I was a teenager, my father died. He was changing a tire and was hit by a car. I also traveled in Europe as a teenager.",
+      "lori_response": "Europe is coming through in that chapter of your life. What do you remember about traveling in Europe as a teenager?",
+      "duration_s": 6.999523162841797,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Coming of Age",
+      "era_id": "coming_of_age",
+      "narrator_text": "I went to college in New York. I earned one bachelor's degree and three master's degrees. I do not want to fill in the school names or majors right now.",
+      "lori_response": "New York is coming through in that part of your story. What does it mean to you to have earned multiple degrees?",
+      "duration_s": 6.968005180358887,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Building Years",
+      "era_id": "building_years",
+      "narrator_text": "My work life included selling natural tobacco cigarettes and being a beer maker or brewer. Later I taught at NMHU, New Mexico Highlands University. I became a school psychologist in 2010.",
+      "lori_response": "A transition from beer making to teaching. What does it mean to you to have made that shift and become a school psychologist in 2010?",
+      "duration_s": 7.468243360519409,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Later Years",
+      "era_id": "later_years",
+      "narrator_text": "I have been married twice. I am divorced again now. I have two children. I continued my professional identity as a school psychologist in New Mexico.",
+      "lori_response": "New Mexico. Would you like to share more about what that meant for you?",
+      "duration_s": 9.323960542678833,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Today",
+      "era_id": "today",
+      "narrator_text": "Today I live alone in my own house in Las Vegas, New Mexico. I currently work as a school psychologist in Pecos Schools. My mother is still alive at 99 and lives in St. Paul.",
+      "lori_response": "Las Vegas, New Mexico. What does life in Las Vegas feel like for you now?",
+      "duration_s": 5.884171485900879,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    }
+  ],
+  "harvested_report_summaries": {}
+}

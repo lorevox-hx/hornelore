@@ -1,0 +1,124 @@
+================================================================================
+ALEX EUNSEO PARK (THEY/THEM) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    7277f00c-f61
+person_id:  006c3a56-6891-4528-8101-8b78e3a3f07d
+run_time:   2026-06-17 18:24:25
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Capitol Hill
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     14
+  question_count: 2
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — Pretty Mixed. Did I get that name right? What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ⚠ one_question_max: PARTIAL
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✗ no_false_name_confirmation: FAIL
+    ✗ no_got_it_stub: FAIL
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✗ minimum_anchor_count: FAIL
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Coming of Age — UW + coming out
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     47
+  question_count: 1
+  anchor_hits:    nonbinary, korean
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from University to Washington, then Korean, English, Jamie, parents were happy about, summer after sophomore year, and turned into a bigger. What was it like for you, learning to navigate your identity as nonbinary, especially when sharing it with your loved ones, including your parents?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✗ no_titlecased_anchor_cascade: FAIL
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Today — Thirty-six and grounded
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     31
+  question_count: 1
+  anchor_hits:    sam, capitol hill, bellevue
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Sam to Capitol Hill, then Bellevue, Sunday, Alex, Korean, English, and Soo. How did you and your partner keep in touch from overseas — letters, phone calls, telegrams?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✗ no_titlecased_anchor_cascade: FAIL
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ We've touched on several parts of your story. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 230
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 44/54 rows PASS
+────────────────────────────────────────────────────────────────────────────────

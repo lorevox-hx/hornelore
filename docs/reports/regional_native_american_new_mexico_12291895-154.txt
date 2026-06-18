@@ -1,0 +1,126 @@
+================================================================================
+JOE QUINTANA (COCHITI PUEBLO) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    12291895-154
+person_id:  2921f476-a58a-432d-a85c-262e78f532a2
+run_time:   2026-06-17 18:29:00
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — The village and the boarding school
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     61
+  question_count: 1
+  anchor_hits:    cochiti pueblo
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ What comes to mind when you think about the summers you spent back in Cochiti Pueblo as a child?"
+  │ 
+  │ This response acknowledges the narrator's sharing and invites them to continue, allowing them to pick up where they left off and share more about their experiences. The question is open-ended and encourages the narrator to reflect on their memories of the village.
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Vietnam, BIA, NAGPRA
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     20
+  question_count: 1
+  anchor_hits:    fort bliss, long binh, vietnam
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Pueblo to Albuquerque, then Fort Bliss, Long Binh, Vietnam, Bill, University, and New Mexico. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✗ no_titlecased_anchor_cascade: FAIL
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — What stays at the Pueblo
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     40
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You mentioned the importance of holding certain stories, songs, and names within the village and the kiva, rather than sharing them more broadly. What role do you think storytelling and memory-keeping play in preserving the cultural heritage of Cochiti Pueblo?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✗ minimum_anchor_count: FAIL
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ "We've touched on several parts of your story. Where would you like to continue today?"
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 248
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 49/54 rows PASS
+────────────────────────────────────────────────────────────────────────────────

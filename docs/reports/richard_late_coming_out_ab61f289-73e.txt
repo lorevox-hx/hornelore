@@ -1,0 +1,124 @@
+================================================================================
+RICHARD BELLAMY (LATE COMING-OUT) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    ab61f289-73e
+person_id:  fdc5a4e3-a245-438f-8549-ea2a08bec26b
+run_time:   2026-06-17 18:25:14
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Earliest Years — Oakland, Pittsburgh
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     22
+  question_count: 1
+  anchor_hits:    sacred heart, father donnelly
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Father Donnelly at Sacred Heart was a figure of authority larger than my father. What was Father Donnelly actually like for you?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Building Years — Marriage + the door
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     13
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Got it — It Out Loud In The Empty Kitchen. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✗ no_got_it_stub: FAIL
+    ✗ no_titlecase_phrase_as_name: FAIL
+    ✓ response_not_fragmented: PASS
+    ✗ minimum_anchor_count: FAIL
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Later Years — Tomás and the life after
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     23
+  question_count: 1
+  anchor_hits:    mexico city, strip district, maureen, kathleen, thanksgiving
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ You went from Mexico City to Strip District, then Pittsburgh, Patrick, Maureen, Kathleen, Catholic, and Thanksgiving. Where would you like to continue today?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✗ no_titlecased_anchor_cascade: FAIL
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ It sounds like you've shared a lot of your story today. Before we wrap up, is there anything else you'd like to talk about or any particular aspect of your life that you'd like to revisit?
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 233
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 55
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 47/54 rows PASS
+────────────────────────────────────────────────────────────────────────────────

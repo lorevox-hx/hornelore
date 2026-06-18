@@ -1,0 +1,543 @@
+{
+  "overall": "FAIL",
+  "stamp": "20260617_182028",
+  "api_base": "http://127.0.0.1:8000",
+  "canonical_john_person_id": "d11572d4-57a1-4100-8426-cfd7293a7441",
+  "args": {
+    "person_id": "d11572d4-57a1-4100-8426-cfd7293a7441",
+    "quick": false,
+    "full_family": true,
+    "skip_unit": false,
+    "skip_live": false,
+    "skip_john": false,
+    "bad_run_transcript": [],
+    "operator_log": [],
+    "test_lab_dry_run": true,
+    "test_lab_full": false,
+    "post_turn_delay": 15.0
+  },
+  "inventory": [
+    {
+      "label": "shared harness_lib",
+      "path": "scripts/harness_lib.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Shared WS-send / 8-row scorer / api.log grep / report writer.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "seven-era Life Map backend",
+      "path": "scripts/run_seven_era_walk_harness.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Walks all seven canonical Life Map eras in one backend session.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Jake reference",
+      "path": "scripts/run_jake_long_narration_harness.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Reference full intake -> three long chapters -> bonus probe.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Shatner public figure",
+      "path": "scripts/run_shatner_long_narration_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Public-figure Montreal Jewish voice; tests known public facts / space turn.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Alex pronouns",
+      "path": "scripts/run_alex_they_long_narration_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Korean-American nonbinary narrator; tests pronoun handling.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Richard late coming-out",
+      "path": "scripts/run_richard_late_coming_out_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Gay man came out after long marriage; tests holding both lives without flattening.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Pat + Betty",
+      "path": "scripts/run_pat_teacher_betty_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Teacher plus recurring friend Betty; tests secondary-character tracking.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Mable African American Georgia",
+      "path": "scripts/run_regional_african_american_georgia_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Albany Movement / Great Migration; tests sacred-silence and no forbidden probing.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Frank Japanese-American California",
+      "path": "scripts/run_regional_asian_american_california_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Nisei / Tule Lake context; tests cultural/historical handling.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Joe Native New Mexico",
+      "path": "scripts/run_regional_native_american_new_mexico_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Cochiti Pueblo / NAGPRA; tests do-not-ask protected details.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "Stefi Crypto-Jewish New Mexico",
+      "path": "scripts/run_regional_crypto_jewish_new_mexico_harness.py",
+      "exists": true,
+      "required": false,
+      "purpose": "Crypto-Jewish anusim; tests remember-but-never-tell suppression.",
+      "status": "PASS",
+      "notes": []
+    },
+    {
+      "label": "harness_lib 8-row matrix check",
+      "path": "scripts/harness_lib.py",
+      "exists": true,
+      "required": true,
+      "purpose": "Confirm shared scorer carries all expected rows.",
+      "status": "PASS",
+      "notes": []
+    }
+  ],
+  "evidence": [],
+  "command_results": [
+    {
+      "label": "unit:lori_communication_control",
+      "cmd": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_lori_communication_control",
+        "-v"
+      ],
+      "returncode": 1,
+      "duration_s": 0.2137165069580078,
+      "stdout_tail": "",
+      "stderr_tail": "test_and_pivot_fires (tests.test_lori_communication_control.AtomicityViaWrapperTests.test_and_pivot_fires) ... ok\ntest_or_speculation_fires (tests.test_lori_communication_control.AtomicityViaWrapperTests.test_or_speculation_fires) ... ok\ntest_turn03_or_speculation_truncated (tests.test_lori_communication_control.GolfballRegressionTests.test_turn03_or_speculation_truncated) ... ok\ntest_turn04_and_pivot_case_b (tests.test_lori_communication_control.GolfballRegressionTests.test_turn04_and_pivot_case_b) ... ok\ntest_turn07_or_speculation_truncated (tests.test_lori_communication_control.GolfballRegressionTests.test_turn07_or_speculation_truncated) ... ok\ntest_clear_direct_55_word_limit (tests.test_lori_communication_control.LengthControlTests.test_clear_direct_55_word_limit) ... ok\ntest_unknown_style_falls_back_to_default (tests.test_lori_communication_control.LengthControlTests.test_unknown_style_falls_back_to_default) ... FAIL\ntest_warm_storytelling_90_word_limit (tests.test_lori_communication_control.LengthControlTests.test_warm_storytelling_90_word_limit) ... ok\ntest_clean_short_turn_passes (tests.test_lori_communication_control.NegativeTests.test_clean_short_turn_passes) ... ok\ntest_empty_text_passes (tests.test_lori_communication_control.NegativeTests.test_empty_text_passes) ... ok\ntest_negative_mother_and_father (tests.test_lori_communication_control.NegativeTests.test_negative_mother_and_father) ... ok\ntest_negative_reading_and_writing (tests.test_lori_communication_control.NegativeTests.test_negative_reading_and_writing) ... ok\ntest_to_dict_excludes_text (tests.test_lori_communication_control.NegativeTests.test_to_dict_excludes_text) ... ok\ntest_one_question_passes (tests.test_lori_communication_control.QuestionCountTests.test_one_question_passes) ... ok\ntest_two_questions_truncates_to_first (tests.test_lori_communication_control.QuestionCountTests.test_two_questions_truncates_to_first) ... ok\ntest_unstated_emotion_reports_no_rewrite (tests.test_lori_communication_control.ReflectionViaWrapperTests.test_unstated_emotion_reports_no_rewrite) ... ok\ntest_safety_acknowledgment_with_question_passes (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_acknowledgment_with_question_passes) ... ok\ntest_safety_normal_question_during_safety_flagged (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_normal_question_during_safety_flagged) ... ok\ntest_safety_path_no_mutation (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_path_no_mutation) ... ok\ntest_normal_response_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_normal_response_does_not_flag) ... ok\ntest_one_word_response_to_long_narrator_question_flags (tests.test_lori_communication_control.StubCollapseDetectionTest.test_one_word_response_to_long_narrator_question_flags) ... ok\ntest_short_response_to_three_word_narrator_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_short_response_to_three_word_narrator_does_not_flag) ... ok\ntest_short_response_to_trivial_narrator_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_short_response_to_trivial_narrator_does_not_flag) ... ok\ntest_three_char_response_to_substantive_question_flags (tests.test_lori_communication_control.StubCollapseDetectionTest.test_three_char_response_to_substantive_question_flags) ... ok\n\n======================================================================\nFAIL: test_unknown_style_falls_back_to_default (tests.test_lori_communication_control.LengthControlTests.test_unknown_style_falls_back_to_default)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/mnt/c/Users/chris/hornelore/tests/test_lori_communication_control.py\", line 94, in test_unknown_style_falls_back_to_default\n    self.assertIn(\"too_long\", r.failures)\nAssertionError: 'too_long' not found in []\n\n----------------------------------------------------------------------\nRan 24 tests in 0.024s\n\nFAILED (failures=1)\n",
+      "status": "RUN",
+      "new_reports": []
+    },
+    {
+      "label": "unit:compose_memory_echo_spanish",
+      "cmd": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_compose_memory_echo_spanish",
+        "-v"
+      ],
+      "returncode": 0,
+      "duration_s": 0.25099730491638184,
+      "stdout_tail": "",
+      "stderr_tail": "test_default_args_returns_english (tests.test_compose_memory_echo_spanish.EnglishDefaultBehaviorPreserved.test_default_args_returns_english) ... ok\ntest_explicit_english_matches_default (tests.test_compose_memory_echo_spanish.EnglishDefaultBehaviorPreserved.test_explicit_english_matches_default) ... ok\ntest_en_pack_present (tests.test_compose_memory_echo_spanish.LocalePackShape.test_en_pack_present) ... ok\ntest_es_has_all_en_keys (tests.test_compose_memory_echo_spanish.LocalePackShape.test_es_has_all_en_keys) ... ok\ntest_es_pack_present (tests.test_compose_memory_echo_spanish.LocalePackShape.test_es_pack_present) ... ok\ntest_no_empty_strings_es (tests.test_compose_memory_echo_spanish.LocalePackShape.test_no_empty_strings_es) ... ok\ntest_no_extra_es_keys (tests.test_compose_memory_echo_spanish.LocalePackShape.test_no_extra_es_keys) ... ok\ntest_promoted_other_subject_spanish (tests.test_compose_memory_echo_spanish.PromotedFactsLocale.test_promoted_other_subject_spanish) ... ok\ntest_promoted_self_fact_spanish_named (tests.test_compose_memory_echo_spanish.PromotedFactsLocale.test_promoted_self_fact_spanish_named) ... ok\ntest_promoted_self_fact_spanish_unnamed (tests.test_compose_memory_echo_spanish.PromotedFactsLocale.test_promoted_self_fact_spanish_unnamed) ... ok\ntest_father_renders_as_padre (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_father_renders_as_padre) ... ok\ntest_mother_with_occupation (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_mother_with_occupation) ... ok\ntest_parent_no_name_spanish (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_parent_no_name_spanish) ... ok\ntest_sister_rendering (tests.test_compose_memory_echo_spanish.SpanishFamilyRendering.test_sister_rendering) ... ok\ntest_minimal_runtime_spanish (tests.test_compose_memory_echo_spanish.SpanishHeader.test_minimal_runtime_spanish) ... ok\ntest_named_speaker_spanish_header (tests.test_compose_memory_echo_spanish.SpanishHeader.test_named_speaker_spanish_header) ... ok\ntest_missing_dob_pob (tests.test_compose_memory_echo_spanish.SpanishMissingFields.test_missing_dob_pob) ... ok\ntest_no_parents_spanish (tests.test_compose_memory_echo_spanish.SpanishMissingFields.test_no_parents_spanish) ... ok\ntest_career_spanish (tests.test_compose_memory_echo_spanish.SpanishProfileSeed.test_career_spanish) ... ok\ntest_childhood_home_spanish (tests.test_compose_memory_echo_spanish.SpanishProfileSeed.test_childhood_home_spanish) ... ok\ntest_footer_corrections_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_footer_corrections_spanish) ... ok\ntest_footer_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_footer_spanish) ... ok\ntest_no_records_footer_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_no_records_footer_spanish) ... ok\ntest_uncertain_block_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_uncertain_block_spanish) ... ok\ntest_brother_to_hermano (tests.test_compose_memory_echo_spanish.TranslateRelation.test_brother_to_hermano) ... ok\ntest_empty_passthrough (tests.test_compose_memory_echo_spanish.TranslateRelation.test_empty_passthrough) ... ok\ntest_english_passthrough (tests.test_compose_memory_echo_spanish.TranslateRelation.test_english_passthrough) ... ok\ntest_father_to_padre (tests.test_compose_memory_echo_spanish.TranslateRelation.test_father_to_padre) ... ok\ntest_mother_to_madre (tests.test_compose_memory_echo_spanish.TranslateRelation.test_mother_to_madre) ... ok\ntest_sister_to_hermana (tests.test_compose_memory_echo_spanish.TranslateRelation.test_sister_to_hermana) ... ok\ntest_unknown_passes_through (tests.test_compose_memory_echo_spanish.TranslateRelation.test_unknown_passes_through) ... ok\ntest_unknown_locale_uses_english (tests.test_compose_memory_echo_spanish.UnknownLanguageFallsBackToEnglish.test_unknown_locale_uses_english) ... ok\n\n----------------------------------------------------------------------\nRan 32 tests in 0.002s\n\nOK\n",
+      "status": "RUN",
+      "new_reports": []
+    },
+    {
+      "label": "unit:bio_questionnaire_writer",
+      "cmd": [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_bio_questionnaire_writer",
+        "-v"
+      ],
+      "returncode": 0,
+      "duration_s": 0.24144387245178223,
+      "stdout_tail": "",
+      "stderr_tail": "test_db_failure_appears_in_errors (tests.test_bio_questionnaire_writer.ErrorPropagationTest.test_db_failure_appears_in_errors) ... bio_questionnaire_writer: bio_fact_create failed for n/full_legal_name: simulated DB lock\nbio_questionnaire_writer: bio_fact_create failed for n/birth_date: simulated DB lock\nok\ntest_blank_narrator_id_returns_zero (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_blank_narrator_id_returns_zero) ... ok\ntest_blank_personal_fields_skipped (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_blank_personal_fields_skipped) ... ok\ntest_empty_blob_writes_nothing_and_does_not_crash (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_empty_blob_writes_nothing_and_does_not_crash) ... ok\ntest_partial_parents_skip_unnamed_entries (tests.test_bio_questionnaire_writer.FailureToleranceTest.test_partial_parents_skip_unnamed_entries) ... ok\ntest_happy_blob_writes_expected_field_keys (tests.test_bio_questionnaire_writer.HappyPathTest.test_happy_blob_writes_expected_field_keys) ... ok\ntest_profile_patch_carries_structured_blocks (tests.test_bio_questionnaire_writer.HappyPathTest.test_profile_patch_carries_structured_blocks) ... ok\ntest_source_metadata_carries_tier_and_via (tests.test_bio_questionnaire_writer.HappyPathTest.test_source_metadata_carries_tier_and_via) ... ok\ntest_unknown_field_keys_are_silently_dropped (tests.test_bio_questionnaire_writer.HappyPathTest.test_unknown_field_keys_are_silently_dropped)\nbio_schema has no `work_years_range` \u2014 _write_bio_fact ... ok\ntest_bool_False_writes_no (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_bool_False_writes_no) ... ok\ntest_bool_True_still_works (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_bool_True_still_works)\nThe intake-form modal at routers/people.py sends Python bool ... ok\ntest_empty_string_served_skips_scalar (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_empty_string_served_skips_scalar)\nOperator chose nothing in the select \u2014 no scalar write, ... ok\ntest_section_with_only_empty_served_returns (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_section_with_only_empty_served_returns)\nIf every field is empty / unset, the writer skips the section ... ok\ntest_string_no_writes_military_served_no (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_string_no_writes_military_served_no) ... ok\ntest_string_yes_writes_military_served_yes (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_string_yes_writes_military_served_yes) ... ok\ntest_arrays_round_trip (tests.test_bio_questionnaire_writer.ViewWriterParityTest.test_arrays_round_trip) ... ok\ntest_personal_scalars_round_trip (tests.test_bio_questionnaire_writer.ViewWriterParityTest.test_personal_scalars_round_trip) ... ok\ntest_career_progression_does_not_clobber_primary_career (tests.test_bio_questionnaire_writer.YearsWorkingBugGuardTest.test_career_progression_does_not_clobber_primary_career) ... ok\n\n----------------------------------------------------------------------\nRan 18 tests in 0.120s\n\nOK\n",
+      "status": "RUN",
+      "new_reports": []
+    },
+    {
+      "label": "live:seven_era_walk",
+      "cmd": [
+        "python3",
+        "scripts/run_seven_era_walk_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 87.22933506965637,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Walter O'Donnell (7-era walk) via POST /api/people/intake\n======================================================================\n  \u2713 Walter O'Donnell (7-era walk) created \u2014 person_id=afb40e6e-ce08-4d8c-ae45-13c256bfa87e\n  \u2713 bio_facts_written: 15\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=1fa6eef6-ba0\n\n  --- SENDING Era 1 \u2014 Earliest Years (G Street, Southie 1948-53) (327 words) ---\nYou have a strong sense of early childhood, which is beautiful. Let's explore that further. What do you remember about the kitchen where your mother held you and stirred something at the stove?\n  --- Era 1 \u2014 Earliest Years (G Street, Southie 1948-53) DONE in 8.5s ---\n\n  --- SENDING Era 2 \u2014 Early School Years (Saint Augustine's 1953-59) (379 words) ---\nYou went from Saint Augustine to Brendan, then Eileen, Patrick, Catholic, South Boston, Mass, and Walter. How that experience made you feel?\n  --- Era 2 \u2014 Early School Years (Saint Augustine's 1953-59) DONE in 11.2s ---\n\n  --- SENDING Era 3 \u2014 Adolescence (Boston Latin + math team 1960-65) (367 words) ---\nYou said Boston Latin: I went to Boston Latin School. What was Boston Latin actually like for you?\n  --- Era 3 \u2014 Adolescence (Boston Latin + math team 1960-65) DONE in 10.6s ---\n\n  --- SENDING Era 4 \u2014 Coming of Age (BC + Catherine + first sons 1966-76) (404 words) ---\nwhere you excelled in math and joined the math team. You then attended Boston College on a Jesuit scholarship, majoring in mathematics. After graduating, you began teaching at a Catholic high school in Lynn and met your future wife, Catherine. They got married and had four children together. Would you like to continue exploring this chapter of your life or move on to another era? (We can come back to the rest in a moment.)\n  --- Era 4 \u2014 Coming of Age (BC + Catherine + first sons 1966-76) DONE in 21.3s ---\n\n  --- SENDING Era 5 \u2014 Building Years (North Quincy 35 yrs + 4 boys) (395 words) ---\nYou said North Quincy: Lynn for ten years, then moved to North Quincy High School \u2014 the public school in the town we had bought. What was North Quincy actually like for you?\n  --- Era 5 \u2014 Building Years (North Quincy 35 yrs + 4 boys) DONE in 11.6s ---\n\n  --- SENDING Era 6 \u2014 Later Years (retire 2020 + tutoring + boardwalk) (431 words) ---\nGot it \u2014 In March. What happened next?\n  --- Era 6 \u2014 Later Years (retire 2020 + tutoring + boardwalk) DONE in 1.1s ---\n\n  --- SENDING Era 7 \u2014 Today (a Tuesday in 2026 + the slip about a daughter) (396 words) ---\nLet me say that in English. What would you like to tell me next?\n  --- Era 7 \u2014 Today (a Tuesday in 2026 + the slip about a daughter) DONE in 11.6s ---\n\n  --- SENDING Bonus probe (11 words) ---\nIs there anything else you'd like to talk about?\n  --- Bonus probe DONE in 7.4s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/seven_era_walk_1fa6eef6-ba0.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/seven_era_walk_1fa6eef6-ba0.txt"
+      ]
+    },
+    {
+      "label": "live:jake_reference",
+      "cmd": [
+        "python3",
+        "scripts/run_jake_long_narration_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 40.708155155181885,
+      "stdout_tail": "6-9e53-4f6e-be30-9badee2eddb9\n  style:     oral_history\n\n\n======================================================================\n  CHAPTER 1 \u2014 EARLIEST YEARS\n======================================================================\n  --- SENDING CHAPTER 1 \u2014 EARLIEST YEARS (568 words) ---\nGot it \u2014 Originally Schong With A C. What happened next?\n  --- CHAPTER 1 \u2014 EARLIEST YEARS DONE in 1.3s ---\n\n======================================================================\n  CHAPTER 2 \u2014 EARLY SCHOOL YEARS\n======================================================================\n  --- SENDING CHAPTER 2 \u2014 EARLY SCHOOL YEARS (666 words) ---\nGot it \u2014 You Learned To Stand Up And Sit Down And Kneel At The Right Times. What happened next?\n  --- CHAPTER 2 \u2014 EARLY SCHOOL YEARS DONE in 1.2s ---\n\n======================================================================\n  CHAPTER 3 \u2014 LATER YEARS\n======================================================================\n  --- SENDING CHAPTER 3 \u2014 LATER YEARS (716 words) ---\nChristmas Eve is coming around again in a few months. What was Christmas Eve actually like for you?\n  --- CHAPTER 3 \u2014 LATER YEARS DONE in 13.8s ---\n\n======================================================================\n  BONUS PROBE \u2014 closing marker\n======================================================================\n  --- SENDING BONUS PROBE \u2014 closing marker (11 words) ---\nYour reflections on your father's legacy and the importance of asking questions while people are still here?\n  --- BONUS PROBE \u2014 closing marker DONE in 18.3s ---\n\n================================================================================\nJAKE MAX MILLER LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    jake_long_narration_e7c34070ddb5\nperson_id:  1f348686-9e53-4f6e-be30-9badee2eddb9\nrun_time:   2026-06-17 18:22:54\n\nStack signature: oral_history default + Phase 1 validators +\n                 reflection-grounding + thread bank +\n                 LORI-CONFIRM scaffolding (post-WO sequence)\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nSTEP 1 \u2014 Intake orchestrator result\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  person_id: 1f348686-9e53-4f6e-be30-9badee2eddb9\n  intake_endpoint: http://localhost:8000/api/people/intake\n  intake_payload_sections: 7\n  intake_status: 200\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 CHAPTER 1 \u2014 EARLIEST YEARS\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  word_count:    11\n  question_count: 1\n  anchor_hits:   (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Got it \u2014 Originally Schong With A C. What happened next?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 CHAPTER 2 \u2014 EARLY SCHOOL YEARS\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  word_count:    20\n  question_count: 1\n  anchor_hits:   (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Got it \u2014 You Learned To Stand Up And Sit Down And Kneel At The Right Times. What happened next?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 CHAPTER 3 \u2014 LATER YEARS\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  word_count:    18\n  question_count: 1\n  anchor_hits:   chris\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Christmas Eve is coming around again in a few months. What was Christmas Eve actually like for you?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2713 reflection_grounded: PASS\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 BONUS PROBE \u2014 closing marker\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  word_count:    22\n  question_count: 1\n  anchor_hits:   (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Can you tell me about your reflections on your father's legacy and the importance of asking questions while people are still here?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nLOG SANITY GREP SUMMARY\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  oral_history_style_lines: 225\n  reflection_not_grounded_or_layer_ineligible_lines: 0\n  extract_accepted_lines: 55\n  meal_tickets_substring_present: True\n  spantag_flag_on_lines_observed: False\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nAGGREGATE\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Score rows passed: 29 / 32  (90.6%)\n\n  Acceptance criteria:\n    GREEN:  \u2265 75% rows pass AND zero hard FAILs on forbidden-empathy / era-label-menu\n    AMBER:  60-75% rows pass OR partial failures on word budget / one-question-max\n    RED:    < 60% rows pass OR hard FAILs on forbidden-empathy or era-label-menu\n\nReport file: /mnt/c/Users/chris/hornelore/docs/reports/jake_long_narration_jake_long_narration_e7c34070ddb5.txt\n================================================================================\n\n\u2713 Report written: /mnt/c/Users/chris/hornelore/docs/reports/jake_long_narration_jake_long_narration_e7c34070ddb5.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/jake_long_narration_jake_long_narration_e7c34070ddb5.txt"
+      ]
+    },
+    {
+      "label": "live:shatner_public_figure",
+      "cmd": [
+        "python3",
+        "scripts/run_shatner_long_narration_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 42.73173189163208,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating William Shatner via POST /api/people/intake\n======================================================================\n  \u2713 William Shatner created \u2014 person_id=dcb9d001-54d7-411c-9109-1df952405525\n  \u2713 bio_facts_written: 13\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=95910ea8-3a3\n\n  --- SENDING Earliest Years \u2014 Montreal (421 words) ---\nGot it \u2014 It Was The Air. What happened next?\n  --- Earliest Years \u2014 Montreal DONE in 1.3s ---\n\n  --- SENDING Building Years \u2014 Stage to Star Trek (486 words) ---\nYou said New York: a number of other parts, and the New York theater world came up and saw me, and Broadway was the next step. What was New York actually like for you?\n  --- Building Years \u2014 Stage to Star Trek DONE in 31.5s ---\n\n  --- SENDING Later Years \u2014 Looking Back from 93 (476 words) ---\nGot it \u2014 Ottawa. What happened next?\n  --- Later Years \u2014 Looking Back from 93 DONE in 1.0s ---\n\n  --- SENDING Bonus probe (11 words) ---\nWe've touched on several parts of your story. Where would you like to continue today?\n  --- Bonus probe DONE in 5.5s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/shatner_long_narration_95910ea8-3a3.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/shatner_long_narration_95910ea8-3a3.txt"
+      ]
+    },
+    {
+      "label": "live:alex_pronouns",
+      "cmd": [
+        "python3",
+        "scripts/run_alex_they_long_narration_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 40.93181777000427,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Alex Eunseo Park (they/them) via POST /api/people/intake\n======================================================================\n  \u2713 Alex Eunseo Park (they/them) created \u2014 person_id=006c3a56-6891-4528-8101-8b78e3a3f07d\n  \u2713 bio_facts_written: 11\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=7277f00c-f61\n\n  --- SENDING Earliest Years \u2014 Capitol Hill (466 words) ---\nGot it \u2014 Pretty Mixed. Did I get that name right? What happened next?\n  --- Earliest Years \u2014 Capitol Hill DONE in 1.2s ---\n\n  --- SENDING Coming of Age \u2014 UW + coming out (448 words) ---\nYou went from University to Washington, then Korean, English, Jamie, parents were happy about, summer after sophomore year, and turned into a bigger. What was it like for you, learning to navigate your identity as nonbinary, especially when sharing it with your loved ones, including your parents?\n  --- Coming of Age \u2014 UW + coming out DONE in 7.5s ---\n\n  --- SENDING Today \u2014 Thirty-six and grounded (424 words) ---\nYou went from Sam to Capitol Hill, then Bellevue, Sunday, Alex, Korean, English, and Soo. How did you and your partner keep in touch from overseas \u2014 letters, phone calls, telegrams?\n  --- Today \u2014 Thirty-six and grounded DONE in 23.4s ---\n\n  --- SENDING Bonus probe (11 words) ---\nWe've touched on several parts of your story. Where would you like to continue today?\n  --- Bonus probe DONE in 5.6s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/alex_they_long_narration_7277f00c-f61.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/alex_they_long_narration_7277f00c-f61.txt"
+      ]
+    },
+    {
+      "label": "live:richard_late_coming_out",
+      "cmd": [
+        "python3",
+        "scripts/run_richard_late_coming_out_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 44.61728549003601,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Richard Bellamy (late coming-out) via POST /api/people/intake\n======================================================================\n  \u2713 Richard Bellamy (late coming-out) created \u2014 person_id=fdc5a4e3-a245-438f-8549-ea2a08bec26b\n  \u2713 bio_facts_written: 15\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=ab61f289-73e\n\n  --- SENDING Earliest Years \u2014 Oakland, Pittsburgh (484 words) ---\nFather Donnelly at Sacred Heart was a figure of authority larger than my father. What was Father Donnelly actually like for you?\n  --- Earliest Years \u2014 Oakland, Pittsburgh DONE in 23.4s ---\n\n  --- SENDING Building Years \u2014 Marriage + the door (551 words) ---\nGot it \u2014 It Out Loud In The Empty Kitchen. What happened next?\n  --- Building Years \u2014 Marriage + the door DONE in 1.3s ---\n\n  --- SENDING Later Years \u2014 Tom\u00e1s and the life after (525 words) ---\nYou went from Mexico City to Strip District, then Pittsburgh, Patrick, Maureen, Kathleen, Catholic, and Thanksgiving. Where would you like to continue today?\n  --- Later Years \u2014 Tom\u00e1s and the life after DONE in 5.7s ---\n\n  --- SENDING Bonus probe (11 words) ---\nIt sounds like you've shared a lot of your story today. Before we wrap up, is there anything else you'd like to talk about or any particular aspect of your life that you'd like to revisit?\n  --- Bonus probe DONE in 10.6s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/richard_late_coming_out_ab61f289-73e.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/richard_late_coming_out_ab61f289-73e.txt"
+      ]
+    },
+    {
+      "label": "live:pat_betty_secondary_character",
+      "cmd": [
+        "python3",
+        "scripts/run_pat_teacher_betty_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 63.2605836391449,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Patricia 'Pat' Frye (teacher + Betty) via POST /api/people/intake\n======================================================================\n  \u2713 Patricia 'Pat' Frye (teacher + Betty) created \u2014 person_id=94b44a19-4bb8-4f05-9e46-49d794006d92\n  \u2713 bio_facts_written: 15\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=508be32a-284\n\n  --- SENDING Earliest Years \u2014 Princeton Avenue + meeting Betty (461 words) ---\nPrinceton Avenue. What a delightful and intimate glimpse into your life! Here's a reflection on what you just shared, followed by a question:\n\nYou described your earliest years in Akron, Ohio, where your family lived in a small bungalow on Princeton Avenue. You remembered your mother's garden, the roses, and the smell of crayons at school. You also spoke fondly of your third-grade teacher, Miss McCullough, whom you admired and looked up to.\n\nNow, let's explore this period further:\n\nWhat do you remember about your daily life and routines during your Earliest Years, when you were around three or four years old, living in Akron?\n  --- Earliest Years \u2014 Princeton Avenue + meeting Betty DONE in 18.1s ---\n\n  --- SENDING Building Years \u2014 Kent State, Jim, the classroom (452 words) ---\nKent State. which occurred after you had graduated, but which affected your friend Betty deeply. You noted that the event was not publicly discussed in your community for thirty years. Betty only shared her experience with you on the thirtieth anniversary in 2000.\n\nNow, let's explore this period further:\n\nWhat do you remember about your relationships with your friends and classmates during your college years, particularly in the context of the Kent State shootings, which were so impactful on Betty?\n  --- Building Years \u2014 Kent State, Jim, the classroom DONE in 17.6s ---\n\n  --- SENDING Later Years \u2014 Loss + tutoring + the small thing (472 words) ---\nYou went from Wednesday to Betty, then Madeleine, Engle, Wrinkle, Time, Tuesday, and October. What happened next?\n  --- Later Years \u2014 Loss + tutoring + the small thing DONE in 18.3s ---\n\n  --- SENDING Bonus probe (11 words) ---\nWe've touched on several parts of your story. Where would you like to continue today?\n  --- Bonus probe DONE in 5.4s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/pat_teacher_betty_508be32a-284.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/pat_teacher_betty_508be32a-284.txt"
+      ]
+    },
+    {
+      "label": "live:mable_african_american_georgia",
+      "cmd": [
+        "python3",
+        "scripts/run_regional_african_american_georgia_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 62.66327142715454,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Mable Hudson (African American Georgia) via POST /api/people/intake\n======================================================================\n  \u2713 Mable Hudson (African American Georgia) created \u2014 person_id=d8980415-ed0a-470c-ad27-70092e69e37b\n  \u2713 bio_facts_written: 15\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=5ca87bfe-0f6\n\n  --- SENDING Earliest Years \u2014 Cotton land + Mount Olive AME (531 words) ---\nYou said Mother Hampton: The choir was led by Mother Hampton, who was a big woman with a voice that could move the rafters. What was Mother Hampton actually like for you?\n  --- Earliest Years \u2014 Cotton land + Mount Olive AME DONE in 32.1s ---\n\n  --- SENDING Building Years \u2014 Movement, Greyhound, Detroit (488 words) ---\nYou said Mount Zion: You slipped out at night to the mass meetings at Shiloh Baptist or Mount Zion. What do you remember about the community at Mount Zion, the people you met, or the songs you sang there?\n  --- Building Years \u2014 Movement, Greyhound, Detroit DONE in 8.7s ---\n\n  --- SENDING Later Years \u2014 Coming home to Albany (448 words) ---\nYou went from Charlene to Atlanta, then Bernard, Detroit, Plymouth Road, Albany, Earnest, and Lillian. How did that experience shape your understanding of home and community?\n  --- Later Years \u2014 Coming home to Albany DONE in 9.0s ---\n\n  --- SENDING Bonus probe (11 words) ---\nHow has life been treating you in this current chapter?\n  --- Bonus probe DONE in 9.1s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/regional_african_american_georgia_5ca87bfe-0f6.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/regional_african_american_georgia_5ca87bfe-0f6.txt"
+      ]
+    },
+    {
+      "label": "live:frank_japanese_american_california",
+      "cmd": [
+        "python3",
+        "scripts/run_regional_asian_american_california_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 26.235584497451782,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Frank Yamada (Japanese-American California) via POST /api/people/intake\n======================================================================\n  \u2713 Frank Yamada (Japanese-American California) created \u2014 person_id=3f446851-9bfc-4116-bcdd-50ccce52e1c5\n  \u2713 bio_facts_written: 15\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=61e1c01c-1e6\n\n  --- SENDING Earliest Years \u2014 Strawberry rows and Tule Lake (456 words) ---\nGot it \u2014 Because The Adults Stopped Moving. What happened next?\n  --- Earliest Years \u2014 Strawberry rows and Tule Lake DONE in 1.1s ---\n\n  --- SENDING Building Years \u2014 Starting over and the extension office (422 words) ---\nCan you tell me about your father, Kenji, was quiet about his experiences, especially the time at Tule Lake, but you found ways to build a fulfilling life in Stockton. What do you remember about your time at Stockton High School, particularly with Mr. Howell's encouragement to attend college?\n  --- Building Years \u2014 Starting over and the extension office DONE in 10.0s ---\n\n  --- SENDING Later Years \u2014 Redress and the Target shopping center (401 words) ---\nSan Jose. What do you remember about Mitsuko, particularly the conversations that you're choosing not to share with your grandchildren?\n  --- Later Years \u2014 Redress and the Target shopping center DONE in 5.9s ---\n\n  --- SENDING Bonus probe (11 words) ---\nWe've touched on several parts of your story. Where would you like to continue today?\n  --- Bonus probe DONE in 5.5s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/regional_asian_american_california_61e1c01c-1e6.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/regional_asian_american_california_61e1c01c-1e6.txt"
+      ]
+    },
+    {
+      "label": "live:joe_native_new_mexico",
+      "cmd": [
+        "python3",
+        "scripts/run_regional_native_american_new_mexico_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 57.91275930404663,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Joe Quintana (Cochiti Pueblo) via POST /api/people/intake\n======================================================================\n  \u2713 Joe Quintana (Cochiti Pueblo) created \u2014 person_id=2921f476-a58a-432d-a85c-262e78f532a2\n  \u2713 bio_facts_written: 22\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=12291895-154\n\n  --- SENDING Earliest Years \u2014 The village and the boarding school (490 words) ---\nWhat comes to mind when you think about the summers you spent back in Cochiti Pueblo as a child?\"\n\nThis response acknowledges the narrator's sharing and invites them to continue, allowing them to pick up where they left off and share more about their experiences. The question is open-ended and encourages the narrator to reflect on their memories of the village.\n  --- Earliest Years \u2014 The village and the boarding school DONE in 15.9s ---\n\n  --- SENDING Building Years \u2014 Vietnam, BIA, NAGPRA (444 words) ---\nYou went from Pueblo to Albuquerque, then Fort Bliss, Long Binh, Vietnam, Bill, University, and New Mexico. What happened next?\n  --- Building Years \u2014 Vietnam, BIA, NAGPRA DONE in 22.3s ---\n\n  --- SENDING Later Years \u2014 What stays at the Pueblo (438 words) ---\nYou mentioned the importance of holding certain stories, songs, and names within the village and the kiva, rather than sharing them more broadly. What role do you think storytelling and memory-keeping play in preserving the cultural heritage of Cochiti Pueblo?\n  --- Later Years \u2014 What stays at the Pueblo DONE in 9.3s ---\n\n  --- SENDING Bonus probe (11 words) ---\n\"We've touched on several parts of your story. Where would you like to continue today?\"\n  --- Bonus probe DONE in 5.4s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/regional_native_american_new_mexico_12291895-154.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/regional_native_american_new_mexico_12291895-154.txt"
+      ]
+    },
+    {
+      "label": "live:stefi_crypto_jewish_new_mexico",
+      "cmd": [
+        "python3",
+        "scripts/run_regional_crypto_jewish_new_mexico_harness.py"
+      ],
+      "returncode": 0,
+      "duration_s": 46.15143871307373,
+      "stdout_tail": "======================================================================\nSTEP 1 \u2014 Creating Stefi Sandoval (Crypto-Jewish New Mexico) via POST /api/people/intake\n======================================================================\n  \u2713 Stefi Sandoval (Crypto-Jewish New Mexico) created \u2014 person_id=d35b022c-6744-4cce-8372-e32d945b80ad\n  \u2713 bio_facts_written: 15\n\n\nOpening chat WS: ws://localhost:8000/api/chat/ws  conv_id=7cefa1de-8fe\n\n  --- SENDING Earliest Years \u2014 Candles in the cellar (495 words) ---\nHere is a response that follows the guidelines:\n\nYou've shared about your family's traditions and practices in Las Vegas, New Mexico.T\u00fa had an older brother Antonio y made my First Communion. \u00bfQu\u00e9 pas\u00f3 despu\u00e9s?\n  --- Earliest Years \u2014 Candles in the cellar DONE in 26.1s ---\n\n  --- SENDING Building Years \u2014 The vocabulary arrives in 1985 (510 words) ---\nEntendido \u2014 Well. \u00bfQu\u00e9 pas\u00f3 despu\u00e9s?\n  --- Building Years \u2014 The vocabulary arrives in 1985 DONE in 1.3s ---\n\n  --- SENDING Later Years \u2014 Breaking the rule on purpose (536 words) ---\nCapt\u00e9 Santa Fe y David. \u00bfQu\u00e9 pas\u00f3 despu\u00e9s?\n  --- Later Years \u2014 Breaking the rule on purpose DONE in 9.7s ---\n\n  --- SENDING Bonus probe (11 words) ---\nWe've touched on several parts of your story. Where would you like to continue today?\n  --- Bonus probe DONE in 5.4s ---\n\nReport written: /mnt/c/Users/chris/hornelore/docs/reports/regional_crypto_jewish_new_mexico_7cefa1de-8fe.txt\n",
+      "stderr_tail": "",
+      "status": "RUN",
+      "new_reports": [
+        "/mnt/c/Users/chris/hornelore/docs/reports/regional_crypto_jewish_new_mexico_7cefa1de-8fe.txt"
+      ]
+    }
+  ],
+  "test_lab_status": {
+    "runner_exists": false,
+    "runner_path": "/mnt/c/Users/chris/hornelore/scripts/run_test_lab.sh",
+    "mode": "dry",
+    "status": "SKIP: scripts/run_test_lab.sh missing"
+  },
+  "test_lab_result": null,
+  "john_preflight_findings": [],
+  "john_preflight_payload": {
+    "ok": true,
+    "person_id": "d11572d4-57a1-4100-8426-cfd7293a7441",
+    "questionnaire": {
+      "personal": {
+        "fullName": "John Baldy",
+        "preferredName": "John",
+        "birthOrder": "",
+        "dateOfBirth": "1960-12-31",
+        "timeOfBirth": "",
+        "placeOfBirth": "west St. Paul Minnestota",
+        "zodiacSign": "",
+        "currentResidence": "Las Vegas NM",
+        "pronouns": "he/him"
+      },
+      "parents": [],
+      "siblings": [],
+      "spouses": [],
+      "children": [],
+      "education": {
+        "highestLevel": "",
+        "careerProgression": "",
+        "primaryCareer": ""
+      },
+      "military": {
+        "served": false,
+        "branch": "",
+        "servicePeriod": "",
+        "rank": "",
+        "units": "",
+        "locations": "",
+        "warsConflicts": "",
+        "decorations": "",
+        "experienceNotes": ""
+      },
+      "faith": {
+        "religionRaised": "",
+        "currentFaith": "",
+        "ethnicityHeritage": "",
+        "languagesAtHome": ""
+      },
+      "today": {
+        "livingSituation": "Live alone in own house.",
+        "healthConsiderations": ""
+      }
+    },
+    "_meta": {
+      "personal": {
+        "fullName": {
+          "status": "operator_entered",
+          "source": "operator"
+        },
+        "preferredName": {
+          "status": "operator_entered",
+          "source": "operator"
+        },
+        "dateOfBirth": {
+          "status": "operator_entered",
+          "source": "operator"
+        },
+        "placeOfBirth": {
+          "status": "operator_entered",
+          "source": "operator"
+        }
+      },
+      "parents": {},
+      "siblings": {
+        "_section": {
+          "status": "empty",
+          "source": ""
+        }
+      },
+      "spouses": {},
+      "children": {
+        "_section": {
+          "status": "empty",
+          "source": ""
+        }
+      },
+      "education": {},
+      "military": {
+        "served": {
+          "status": "operator_entered",
+          "source": "operator"
+        }
+      },
+      "faith": {},
+      "today": {}
+    },
+    "source": "bio_facts_merged",
+    "version": 1,
+    "updated_at": "2026-06-17T16:12:20.322043"
+  },
+  "era_results": [
+    {
+      "era_label": "Earliest Years",
+      "era_id": "earliest_years",
+      "narrator_text": "I was born on December 31, 1960, in West St. Paul, Minnesota. My mother is still alive at 99 and lives in St. Paul, so those earliest roots are still connected to my life now.",
+      "lori_response": "West St. Paul and St. Paul \u2014 those Twin Cities roots have been a part of your life story for almost six decades. What do you remember about your earliest years growing up in West St. Paul?",
+      "duration_s": 8.31699013710022,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Early School Years",
+      "era_id": "early_school_years",
+      "narrator_text": "I went to school in St. Paul. I also attended military school, but that was school, not military service. I did not serve in the military.",
+      "lori_response": "St. Paul and military school \u2014 two distinct chapters in your education. Military school sounds like a unique experience. What does it mean to you that you attended military school as a student, rather than as a service member?",
+      "duration_s": 8.513268947601318,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Adolescence",
+      "era_id": "adolescence",
+      "narrator_text": "When I was a teenager, my father died. He was changing a tire and was hit by a car. I also traveled in Europe as a teenager.",
+      "lori_response": "Traveling abroad as a teenager can be a transformative experience. What do you remember about those travels in Europe, and how did they shape your perspective on the world? (We can come back to the rest in a moment.)",
+      "duration_s": 10.311742067337036,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Coming of Age",
+      "era_id": "coming_of_age",
+      "narrator_text": "I went to college in New York. I earned one bachelor's degree and three master's degrees. I do not want to fill in the school names or majors right now.",
+      "lori_response": "New York. How has it impacted your life since?",
+      "duration_s": 10.009982347488403,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Building Years",
+      "era_id": "building_years",
+      "narrator_text": "My work life included selling natural tobacco cigarettes and being a beer maker or brewer. Later I taught at NMHU, New Mexico Highlands University. I became a school psychologist in 2010.",
+      "lori_response": "What drew you to become a school psychologist in 2010?",
+      "duration_s": 9.07110071182251,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Later Years",
+      "era_id": "later_years",
+      "narrator_text": "I have been married twice. I am divorced again now. I have two children. I continued my professional identity as a school psychologist in New Mexico.",
+      "lori_response": "As a school psychologist, how has working with students and families in New Mexico impacted your perspective on education and community development?",
+      "duration_s": 6.1671130657196045,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    },
+    {
+      "era_label": "Today",
+      "era_id": "today",
+      "narrator_text": "Today I live alone in my own house in Las Vegas, New Mexico. I currently work as a school psychologist in Pecos Schools. My mother is still alive at 99 and lives in St. Paul.",
+      "lori_response": "Las Vegas. What does life in Las Vegas feel like for you now?",
+      "duration_s": 11.790033102035522,
+      "pass_fail": "FAIL",
+      "findings": [
+        "VRAM-GUARD truncating input seen"
+      ],
+      "log_findings": [
+        "VRAM-GUARD truncating input seen"
+      ]
+    }
+  ],
+  "harvested_report_summaries": {
+    "/mnt/c/Users/chris/hornelore/docs/reports/alex_they_long_narration_7277f00c-f61.txt": "================================================================================\nALEX EUNSEO PARK (THEY/THEM) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    7277f00c-f61\nperson_id:  006c3a56-6891-4528-8101-8b78e3a3f07d\nrun_time:   2026-06-17 18:24:25\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Capitol Hill\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     14\n  question_count: 2\n  anchor_hits:    (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Got it \u2014 Pretty Mixed. Did I get that name right? What happened next?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u26a0 one_question_max: PARTIAL\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n    \u2717 no_false_name_confirmation: FAIL\n",
+    "/mnt/c/Users/chris/hornelore/docs/reports/jake_long_narration_jake_long_narration_e7c34070ddb5.txt": "================================================================================\nJAKE MAX MILLER LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    jake_long_narration_e7c34070ddb5\nperson_id:  1f348686-9e53-4f6e-be30-9badee2eddb9\nrun_time:   2026-06-17 18:22:54\n\nStack signature: oral_history default + Phase 1 validators +\n                 reflection-grounding + thread bank +\n                 LORI-CONFIRM scaffolding (post-WO sequence)\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nSTEP 1 \u2014 Intake orchestrator result\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  person_id: 1f348686-9e53-4f6e-be30-9badee2eddb9\n  intake_endpoint: http://localhost:8000/api/people/intake\n  intake_payload_sections: 7\n  intake_status: 200\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 CHAPTER 1 \u2014 EARLIEST YEARS\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  word_count:    11\n  question_count: 1\n  anchor_hits:   (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "/mnt/c/Users/chris/hornelore/docs/reports/pat_teacher_betty_508be32a-284.txt": "================================================================================\nPATRICIA 'PAT' FRYE (TEACHER + BETTY) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    508be32a-284\nperson_id:  94b44a19-4bb8-4f05-9e46-49d794006d92\nrun_time:   2026-06-17 18:26:21\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Princeton Avenue + meeting Betty\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     105\n  question_count: 1\n  anchor_hits:    akron, princeton avenue, roses, miss mccullough\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Princeton Avenue. What a delightful and intimate glimpse into your life! Here's a reflection on what you just shared, followed by a question:\n  \u2502 \n  \u2502 You described your earliest years in Akron, Ohio, where your family lived in a small bungalow on Princeton Avenue. You remembered your mother's garden, the roses, and the smell of crayons at school. You also spoke fondly of your third-grade teacher, Miss McCullough, ",
+    "/mnt/c/Users/chris/hornelore/docs/reports/regional_african_american_georgia_5ca87bfe-0f6.txt": "================================================================================\nMABLE HUDSON (AFRICAN AMERICAN GEORGIA) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    5ca87bfe-0f6\nperson_id:  d8980415-ed0a-470c-ad27-70092e69e37b\nrun_time:   2026-06-17 18:27:28\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Cotton land + Mount Olive AME\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     32\n  question_count: 1\n  anchor_hits:    mother hampton\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 You said Mother Hampton: The choir was led by Mother Hampton, who was a big woman with a voice that could move the rafters. What was Mother Hampton actually like for you?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2713 reflection_grounded: PASS\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no",
+    "/mnt/c/Users/chris/hornelore/docs/reports/regional_asian_american_california_61e1c01c-1e6.txt": "================================================================================\nFRANK YAMADA (JAPANESE-AMERICAN CALIFORNIA) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    61e1c01c-1e6\nperson_id:  3f446851-9bfc-4116-bcdd-50ccce52e1c5\nrun_time:   2026-06-17 18:27:58\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Strawberry rows and Tule Lake\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     11\n  question_count: 1\n  anchor_hits:    (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Got it \u2014 Because The Adults Stopped Moving. What happened next?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n    \u2713 no_false_n",
+    "/mnt/c/Users/chris/hornelore/docs/reports/regional_crypto_jewish_new_mexico_7cefa1de-8fe.txt": "================================================================================\nSTEFI SANDOVAL (CRYPTO-JEWISH NEW MEXICO) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    7cefa1de-8fe\nperson_id:  d35b022c-6744-4cce-8372-e32d945b80ad\nrun_time:   2026-06-17 18:29:50\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Candles in the cellar\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     14\n  question_count: 1\n  anchor_hits:    antonio, first communion\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 T\u00fa had an older brother Antonio y made my First Communion. \u00bfQu\u00e9 pas\u00f3 despu\u00e9s?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2713 reflection_grounded: PASS\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent:",
+    "/mnt/c/Users/chris/hornelore/docs/reports/regional_native_american_new_mexico_12291895-154.txt": "================================================================================\nJOE QUINTANA (COCHITI PUEBLO) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    12291895-154\nperson_id:  2921f476-a58a-432d-a85c-262e78f532a2\nrun_time:   2026-06-17 18:29:00\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 The village and the boarding school\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     61\n  question_count: 1\n  anchor_hits:    cochiti pueblo\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 What comes to mind when you think about the summers you spent back in Cochiti Pueblo as a child?\"\n  \u2502 \n  \u2502 This response acknowledges the narrator's sharing and invites them to continue, allowing them to pick up where they left off and share more about their experiences. The question is open-ended and encourages the narrator to reflect on their memories of the village.\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Sc",
+    "/mnt/c/Users/chris/hornelore/docs/reports/richard_late_coming_out_ab61f289-73e.txt": "================================================================================\nRICHARD BELLAMY (LATE COMING-OUT) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    ab61f289-73e\nperson_id:  fdc5a4e3-a245-438f-8549-ea2a08bec26b\nrun_time:   2026-06-17 18:25:14\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Oakland, Pittsburgh\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     22\n  question_count: 1\n  anchor_hits:    sacred heart, father donnelly\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Father Donnelly at Sacred Heart was a figure of authority larger than my father. What was Father Donnelly actually like for you?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2713 reflection_grounded: PASS\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_h",
+    "/mnt/c/Users/chris/hornelore/docs/reports/seven_era_walk_1fa6eef6-ba0.txt": "================================================================================\nWALTER O'DONNELL (7-ERA WALK) \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    1fa6eef6-ba0\nperson_id:  afb40e6e-ce08-4d8c-ae45-13c256bfa87e\nrun_time:   2026-06-17 18:22:09\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Era 1 \u2014 Earliest Years (G Street, Southie 1948-53)\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     33\n  question_count: 1\n  anchor_hits:    (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 You have a strong sense of early childhood, which is beautiful. Let's explore that further. What do you remember about the kitchen where your mother held you and stirred something at the stove?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS",
+    "/mnt/c/Users/chris/hornelore/docs/reports/shatner_long_narration_95910ea8-3a3.txt": "================================================================================\nWILLIAM SHATNER \u2014 LONG-NARRATION HARNESS REPORT\n================================================================================\nconv_id:    95910ea8-3a3\nperson_id:  dcb9d001-54d7-411c-9109-1df952405525\nrun_time:   2026-06-17 18:23:40\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nCHAPTER \u2014 Earliest Years \u2014 Montreal\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  word_count:     10\n  question_count: 1\n  anchor_hits:    (none)\n\n  Lori response (verbatim):\n  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2502 Got it \u2014 It Was The Air. What happened next?\n  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n  Scoring matrix:\n    \u2717 reflection_grounded: FAIL\n    \u2713 one_question_max: PASS\n    \u2713 no_questionnaire_interrogation: PASS\n    \u2713 no_forbidden_empathy_openers: PASS\n    \u2713 no_era_label_menu: PASS\n    \u2713 no_same_anchor_loop: PASS\n    \u2713 word_budget_honored: PASS\n    \u2713 translation_refusal_absent: PASS\n    \u2713 no_false_name_confirmation: PASS\n    \u2717 no_got_it_stub: FAIL\n    \u2717 no_titlecase"
+  }
+}

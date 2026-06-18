@@ -1,0 +1,131 @@
+ring_safety_flagged (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_normal_question_during_safety_flagged) ... ok
+test_safety_path_no_mutation (tests.test_lori_communication_control.SafetyExemptionTests.test_safety_path_no_mutation) ... ok
+test_normal_response_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_normal_response_does_not_flag) ... ok
+test_one_word_response_to_long_narrator_question_flags (tests.test_lori_communication_control.StubCollapseDetectionTest.test_one_word_response_to_long_narrator_question_flags) ... ok
+test_short_response_to_three_word_narrator_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_short_response_to_three_word_narrator_does_not_flag) ... ok
+test_short_response_to_trivial_narrator_does_not_flag (tests.test_lori_communication_control.StubCollapseDetectionTest.test_short_response_to_trivial_narrator_does_not_flag) ... ok
+test_three_char_response_to_substantive_question_flags (tests.test_lori_communication_control.StubCollapseDetectionTest.test_three_char_response_to_substantive_question_flags) ... ok
+
+======================================================================
+FAIL: test_unknown_style_falls_back_to_default (tests.test_lori_communication_control.LengthControlTests.test_unknown_style_falls_back_to_default)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/c/Users/chris/hornelore/tests/test_lori_communication_control.py", line 94, in test_unknown_style_falls_back_to_default
+    self.assertIn("too_long", r.failures)
+AssertionError: 'too_long' not found in []
+
+----------------------------------------------------------------------
+Ran 24 tests in 0.022s
+
+FAILED (failures=1)
+
+ts_spanish) ... ok
+test_career_spanish (tests.test_compose_memory_echo_spanish.SpanishProfileSeed.test_career_spanish) ... ok
+test_childhood_home_spanish (tests.test_compose_memory_echo_spanish.SpanishProfileSeed.test_childhood_home_spanish) ... ok
+test_footer_corrections_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_footer_corrections_spanish) ... ok
+test_footer_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_footer_spanish) ... ok
+test_no_records_footer_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_no_records_footer_spanish) ... ok
+test_uncertain_block_spanish (tests.test_compose_memory_echo_spanish.SpanishUncertainSection.test_uncertain_block_spanish) ... ok
+test_brother_to_hermano (tests.test_compose_memory_echo_spanish.TranslateRelation.test_brother_to_hermano) ... ok
+test_empty_passthrough (tests.test_compose_memory_echo_spanish.TranslateRelation.test_empty_passthrough) ... ok
+test_english_passthrough (tests.test_compose_memory_echo_spanish.TranslateRelation.test_english_passthrough) ... ok
+test_father_to_padre (tests.test_compose_memory_echo_spanish.TranslateRelation.test_father_to_padre) ... ok
+test_mother_to_madre (tests.test_compose_memory_echo_spanish.TranslateRelation.test_mother_to_madre) ... ok
+test_sister_to_hermana (tests.test_compose_memory_echo_spanish.TranslateRelation.test_sister_to_hermana) ... ok
+test_unknown_passes_through (tests.test_compose_memory_echo_spanish.TranslateRelation.test_unknown_passes_through) ... ok
+test_unknown_locale_uses_english (tests.test_compose_memory_echo_spanish.UnknownLanguageFallsBackToEnglish.test_unknown_locale_uses_english) ... ok
+
+----------------------------------------------------------------------
+Ran 32 tests in 0.002s
+
+OK
+
+ield_keys_are_silently_dropped (tests.test_bio_questionnaire_writer.HappyPathTest.test_unknown_field_keys_are_silently_dropped)
+bio_schema has no `work_years_range` — _write_bio_fact ... ok
+test_bool_False_writes_no (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_bool_False_writes_no) ... ok
+test_bool_True_still_works (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_bool_True_still_works)
+The intake-form modal at routers/people.py sends Python bool ... ok
+test_empty_string_served_skips_scalar (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_empty_string_served_skips_scalar)
+Operator chose nothing in the select — no scalar write, ... ok
+test_section_with_only_empty_served_returns (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_section_with_only_empty_served_returns)
+If every field is empty / unset, the writer skips the section ... ok
+test_string_no_writes_military_served_no (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_string_no_writes_military_served_no) ... ok
+test_string_yes_writes_military_served_yes (tests.test_bio_questionnaire_writer.MilitaryServedStringHandlingTest.test_string_yes_writes_military_served_yes) ... ok
+test_arrays_round_trip (tests.test_bio_questionnaire_writer.ViewWriterParityTest.test_arrays_round_trip) ... ok
+test_personal_scalars_round_trip (tests.test_bio_questionnaire_writer.ViewWriterParityTest.test_personal_scalars_round_trip) ... ok
+test_career_progression_does_not_clobber_primary_career (tests.test_bio_questionnaire_writer.YearsWorkingBugGuardTest.test_career_progression_does_not_clobber_primary_career) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.114s
+
+OK
+
+
+=== unit:lori_communication_control ===
+$ python -m unittest tests.test_lori_communication_control -v
+returncode=1 duration=0.2s reports=0
+
+=== unit:compose_memory_echo_spanish ===
+$ python -m unittest tests.test_compose_memory_echo_spanish -v
+returncode=0 duration=0.2s reports=0
+
+=== unit:bio_questionnaire_writer ===
+$ python -m unittest tests.test_bio_questionnaire_writer -v
+returncode=0 duration=0.2s reports=0
+
+=== John Baldy corrected first-person Life Map diagnostic ===
+person_id=d11572d4-57a1-4100-8426-cfd7293a7441
+conv_id=john_diag_f2afa4d4
+
+--- Earliest Years / earliest_years ---
+John: I was born on December 31, 1960, in West St. Paul, Minnesota. My mother is still alive at 99 and lives in St. Paul, so those earliest roots are still connected to my life now.
+Lori: West St. Paul, Minnesota, is where your journey began, and having your mom still living in St. Paul is a beautiful connection to your roots. What do you remember about growing up in West St. Paul?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+--- Early School Years / early_school_years ---
+John: I went to school in St. Paul. I also attended military school, but that was school, not military service. I did not serve in the military.
+Lori: St. which wasn't a service commitment, but rather a school. What stands out to you from your time in military school?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+--- Adolescence / adolescence ---
+John: When I was a teenager, my father died. He was changing a tire and was hit by a car. I also traveled in Europe as a teenager.
+Lori: That's a significant event in your life. You were still a teenager when your father passed away. Europe, though, was a wonderful experience. What do you remember about traveling in Europe during that time?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+--- Coming of Age / coming_of_age ---
+John: I went to college in New York. I earned one bachelor's degree and three master's degrees. I do not want to fill in the school names or majors right now.
+Lori: Let's put that on the side for now. We've touched on several parts of your story. Where would you like to continue today?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+--- Building Years / building_years ---
+John: My work life included selling natural tobacco cigarettes and being a beer maker or brewer. Later I taught at NMHU, New Mexico Highlands University. I became a school psychologist in 2010.
+Lori: New Mexico Highlands University. What drew you to that field?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+--- Later Years / later_years ---
+John: I have been married twice. I am divorced again now. I have two children. I continued my professional identity as a school psychologist in New Mexico.
+Lori: New Mexico. Would you like to talk about any significant events, challenges, or triumphs that you experienced during your career as a school psychologist in New Mexico?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+--- Today / today ---
+John: Today I live alone in my own house in Las Vegas, New Mexico. I currently work as a school psychologist in Pecos Schools. My mother is still alive at 99 and lives in St. Paul.
+Lori: Las Vegas. What do you enjoy most about your role there?
+Result: FAIL
+Findings: ['VRAM-GUARD truncating input seen']
+Log: ['VRAM-GUARD truncating input seen']
+
+Report written:
+/mnt/c/Users/chris/hornelore/docs/reports/john_baldy_full_diagnostic_20260617_174240.md
+/mnt/c/Users/chris/hornelore/docs/reports/john_baldy_full_diagnostic_20260617_174240.json
