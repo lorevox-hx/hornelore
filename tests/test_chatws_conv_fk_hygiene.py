@@ -65,12 +65,18 @@ class EnsureInterviewSessionFKHygieneTest(unittest.TestCase):
     """The session insert must not fail with FK constraint."""
 
     def _make_person(self, db, name="Test"):
-        """Create a person row so the FK people(id) is satisfied."""
-        pid = str(uuid.uuid4())
+        """Create a person row so the FK people(id) is satisfied.
+
+        2026-06-17 — kwarg names updated to match the current
+        create_person signature (WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01
+        landed `date_of_birth` / `place_of_birth`; the older `dob` /
+        `pob` aliases were dropped). The unused `pid` line was removed
+        since create_person mints its own UUID.
+        """
         return db.create_person(
             display_name=name,
-            dob="",
-            pob="",
+            date_of_birth="",
+            place_of_birth="",
             narrator_type="live",
             pronouns="they_them",
             current_residence="",

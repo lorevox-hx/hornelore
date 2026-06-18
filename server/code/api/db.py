@@ -1171,8 +1171,43 @@ def init_db() -> None:
     # server/code/db/migrations/*.sql. Runner is idempotent (tracked in
     # schema_migrations). Kept AFTER the legacy CREATE TABLE block so any
     # failure here never truncates the pre-WO schema.
+    #
+    # 2026-06-17 — robust import cascade. Production runs init_db via
+    # `from server.code.api import db` so `..db.migrations_runner`
+    # resolves cleanly. The unit test suite imports `api.db` as a
+    # top-level module (sys.path tweak) and the relative-2-up form
+    # raises `ImportError: attempted relative import beyond top-level
+    # package`. That swallowed the runner silently and left fresh test
+    # DBs without the post-0001 migrations applied — surfaced as
+    # "table story_candidates has no column named language" across
+    # ~22 story_preservation tests. Cascade: try the original relative
+    # form, then the absolute form, then load by on-disk file path.
     try:
-        from ..db.migrations_runner import run_pending_migrations  # type: ignore
+        run_pending_migrations = None
+        try:
+            from ..db.migrations_runner import run_pending_migrations  # type: ignore
+        except (ImportError, ValueError):
+            try:
+                from server.code.db.migrations_runner import (  # type: ignore
+                    run_pending_migrations,
+                )
+            except ImportError:
+                import importlib.util as _ilu
+                from pathlib import Path as _P
+                _rp = (
+                    _P(__file__).resolve().parent.parent
+                    / "db" / "migrations_runner.py"
+                )
+                _spec = _ilu.spec_from_file_location(
+                    "_hornelore_migrations_runner_fallback", _rp,
+                )
+                if _spec is None or _spec.loader is None:
+                    raise ImportError(
+                        f"migrations_runner not loadable at {_rp}"
+                    )
+                _mod = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_mod)
+                run_pending_migrations = _mod.run_pending_migrations
         run_pending_migrations(con)
     except Exception:
         logger.exception("Post-legacy migrations failed")

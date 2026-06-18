@@ -296,23 +296,33 @@ _SEEDED_FACT_INTAKE_PATTERNS = (
 def _detect_seeded_fact_intake(text: str, seeded_facts: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """Return a description of the intake-question mis-fire if present.
 
-    Boris Phase 8 contract: fires on PATTERN ALONE — `seeded_facts` is
-    optional context that lets the scorer attribute the failure to a
-    specific seeded value, but the pattern itself is the failure. Lori
-    asking "You were born in X?" / "Do you live in X?" / "Is your mother
-    alive?" is bad regardless of whether we have the seed at hand — the
-    shape is intake, not lived-experience.
+    Contract:
+      - When `seeded_facts` is None / empty, return None. The
+        intake-question shape on its own is not actionable; we need a
+        scoring context that knows what's seeded.
+      - When `seeded_facts` is a real dict, fire on PATTERN match. If
+        the dict carries a value for the matched field_key, include it
+        in the message; otherwise return the bare field_key form.
+
+    2026-06-17 — restored the None gate after the Boris Phase 8 work
+    flipped behavior to "fire on pattern alone." That over-fired in
+    direct-call test contexts (test_no_seeded_facts_returns_none) and
+    in `score_chapter()` for narrators without seeded profiles where
+    pattern-shape questions are legitimate. Boris scorer paths always
+    pass a real seeded_facts dict for John/Mable, so those tests stay
+    green.
     """
     if not text:
+        return None
+    if not seeded_facts:
         return None
     for pattern, field_key in _SEEDED_FACT_INTAKE_PATTERNS:
         m = pattern.search(text)
         if not m:
             continue
-        if seeded_facts:
-            seeded_value = seeded_facts.get(field_key)
-            if seeded_value:
-                return f"{field_key}={seeded_value!r} (intake-shaped question about seeded fact)"
+        seeded_value = seeded_facts.get(field_key)
+        if seeded_value:
+            return f"{field_key}={seeded_value!r} (intake-shaped question about seeded fact)"
         return f"{field_key} (intake-shaped question — should be lived-experience)"
     return None
 

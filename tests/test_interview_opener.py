@@ -193,5 +193,34 @@ class OpenerResponseShapeTests(unittest.TestCase):
         self.assertIn("user_turn_count", r.context)
 
 
+def tearDownModule():
+    """Remove the sys.modules stubs installed at import time.
+
+    2026-06-17 — added to stop the stubs from leaking into later tests
+    in the discover-order run. Before this, when unittest discover ran
+    test_interview_opener.py first (alphabetical), the four
+    `sys.modules["api.X"] = types.ModuleType(...)` entries persisted
+    for the rest of the session. test_peek_at_memoir then failed with
+    `AttributeError: <module 'api.archive'> does not have the attribute
+    'read_transcript'` because mock.patch resolved against the stub
+    instead of the real archive module. Same for
+    test_safety_classifier's mock.patch of
+    `api.llm_interview._try_call_llm`.
+
+    Only remove modules that look like our stubs (no `__file__` on the
+    bare types.ModuleType we installed) so we don't disturb anything a
+    later test had already imported for real.
+    """
+    for name in (
+        "api.archive",
+        "api.interview_engine",
+        "api.llm_interview",
+        "api.safety",
+    ):
+        mod = sys.modules.get(name)
+        if mod is not None and not hasattr(mod, "__file__"):
+            sys.modules.pop(name, None)
+
+
 if __name__ == "__main__":
     unittest.main()
