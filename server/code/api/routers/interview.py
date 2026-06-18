@@ -522,11 +522,28 @@ def _build_opener_text(
         ):
             try:
                 from ..prompt_composer import compose_continuation_paraphrase
+                # WO-SPANISH-LIVE-READINESS-01 Patch 8 (2026-06-17,
+                # ChatGPT review follow-up): detect narrator language
+                # for the opener. The opener has no incoming user_text,
+                # so we use the profile_json.session_language_mode pin
+                # (same Layer 2 pattern chat_ws.py uses). Falls back to
+                # English when unset. Operator can pin Spanish via
+                # scripts/set_session_language_mode.py.
+                _opener_lang = "en"
+                try:
+                    from ..prompt_composer import _build_profile_seed as _ps
+                    _seed = _ps(person_id) or {}
+                    _slm = (_seed.get("session_language_mode") or "").strip().lower()
+                    if _slm in ("spanish", "es", "español", "espanol"):
+                        _opener_lang = "es"
+                except Exception:
+                    _opener_lang = "en"
                 return compose_continuation_paraphrase(
                     person_id=person_id,
                     session_id=session_id,
                     last_era_id=last_era_id,
                     name_hint=safe_name,
+                    target_language=_opener_lang,
                 )
             except Exception as exc:
                 logger.warning(

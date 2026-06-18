@@ -2479,11 +2479,29 @@ async def ws_chat(ws: WebSocket):
         # can never deflect.
         if turn_mode == "age_recall":
             from ..prompt_composer import compose_age_recall
+            # WO-SPANISH-LIVE-READINESS-01 Patch 7 (2026-06-17, ChatGPT
+            # review follow-up): detect narrator language so Spanish
+            # narrators asking "¿qué edad tengo?" get the Spanish
+            # response shape. compose_age_recall's target_language
+            # branch was added in Patch 3 but the caller was still
+            # using the default "en". Same looks_spanish() probe as the
+            # other deterministic-composer call sites in this file.
+            _age_lang = "en"
+            try:
+                from ..services.lori_spanish_guard import looks_spanish as _ar_looks_es
+                if user_text and _ar_looks_es(user_text):
+                    _age_lang = "es"
+            except Exception:
+                _age_lang = "en"
             assistant_text = compose_age_recall(
                 person_id=person_id,
                 runtime=runtime71,
+                target_language=_age_lang,
             )
-            logger.info("[chat_ws][age-recall] turn for conv=%s", conv_id)
+            logger.info(
+                "[chat_ws][age-recall] turn for conv=%s lang=%s",
+                conv_id, _age_lang,
+            )
             persist_turn_transaction(
                 conv_id=conv_id,
                 user_message=user_text,

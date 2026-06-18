@@ -255,6 +255,39 @@ _FAKE_WARMTH_RX = re.compile(
     re.IGNORECASE,
 )
 
+# WO-SPANISH-LIVE-READINESS-01 Patch 9 (2026-06-17, ChatGPT review
+# follow-up): translation-refusal preamble patterns. The LANGUAGE
+# MIRRORING RULE in compose_system_prompt says "Never translate the
+# narrator's own words back at them." When Llama drifts and produces
+# "Let me say that in English" / "Déjame decir eso en inglés" as a
+# preamble before continuing in the wrong language, the meta-leak
+# guard should catch and strip it. Same shape as the EN preamble and
+# fake-warmth regexes above; ES branch parallel to those.
+_TRANSLATION_REFUSAL_RX = re.compile(
+    r"\b(?:"
+    # English meta-refusal preambles
+    r"let me say that in english"
+    r"|"
+    r"let me put (?:that|it) in english"
+    r"|"
+    r"i'?ll say (?:that|it) in english"
+    r"|"
+    r"in english:"
+    # Spanish meta-refusal preambles
+    r"|"
+    r"d[eé]jame decir(?:lo)? eso en ingl[eé]s"
+    r"|"
+    r"d[eé]jame ponerlo en ingl[eé]s"
+    r"|"
+    r"en ingl[eé]s,? lo dir[ií]a"
+    r"|"
+    r"voy a decir eso en ingl[eé]s"
+    r"|"
+    r"voy a decirlo en ingl[eé]s"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # Extract the quoted draft when present so we can recover the real
 # response from a leaked preamble/postamble wrapper.
 _QUOTED_DRAFT_RX = re.compile(
@@ -343,6 +376,9 @@ def detect_meta_response_leak(assistant_text: str) -> bool:
         return True
     if _FAKE_WARMTH_ES_RX.search(assistant_text):
         return True
+    # WO-SPANISH-LIVE-READINESS-01 Patch 9 — translation-refusal preamble.
+    if _TRANSLATION_REFUSAL_RX.search(assistant_text):
+        return True
     return False
 
 
@@ -381,6 +417,10 @@ def repair_meta_response_leak(
     stripped = _META_PREAMBLE_ES_RX.sub("", stripped, count=1).strip()
     stripped = _META_POSTAMBLE_ES_RX.sub("", stripped).strip()
     stripped = _FAKE_WARMTH_ES_RX.sub("", stripped).strip()
+    # WO-SPANISH-LIVE-READINESS-01 Patch 9 — strip translation-refusal
+    # preambles (EN + ES). When matched, drop the preamble sentence and
+    # keep whatever follows.
+    stripped = _TRANSLATION_REFUSAL_RX.sub("", stripped).strip()
     # Clean up leftover quote / colon residue
     stripped = stripped.strip().strip(":").strip().strip('"').strip()
     if len(stripped.split()) >= 6:
