@@ -1927,12 +1927,24 @@ def compose_chronological_chain_receipt(
 ) -> str:
     """Compose JUST the receipt sentence — no question.
 
-    Output: "You went from {a1} to {a2}, then {a3}, {a4}, and {a5}."
-
     Per WO-LORI-WITNESS-FOLLOWUP-BANK-01, the immediate response is
     receipt + ONE door (chosen externally via lori_followup_bank
     selector). This function is the receipt half — the door is
     appended by the caller.
+
+    BUG-LORI-ANCHOR-CASCADE-DUMP-01 (2026-06-24): the prior body of
+    this function used a hardcoded "You went from {a1} to {a2}, then
+    {a3}, {a4}, and {a5}" template that produced unreadable proper-
+    noun cascades on Walt's seven-era walk (Era 2 fired "Saint
+    Augustine to Brendan, then Eileen, Patrick, Catholic, South
+    Boston, Mass, and Walter."). Now delegates to the Boris Phase 7
+    contract module which caps at ≤2 anchors and filters calendar /
+    religious-residue / common-noun tokens. The
+    `build_structured_narrative_fallback` shape includes its own
+    open question; callers wanting only the receipt without the
+    question should slice on " — " or similar — but for the chain-
+    receipt use case, returning the full repaired receipt is closer
+    to the right narrator-facing shape than the broken cascade.
 
     Returns "" when narrator text has fewer than 2 anchors OR
     target_language is not English. v1 is English-first.
@@ -1946,20 +1958,26 @@ def compose_chronological_chain_receipt(
     if len(anchors) < 2:
         return ""
 
-    if len(anchors) == 2:
-        return f"You went from {anchors[0]} to {anchors[1]}."
-    if len(anchors) == 3:
-        return f"You went from {anchors[0]} to {anchors[1]}, then {anchors[2]}."
-    if len(anchors) == 4:
-        return (
-            f"You went from {anchors[0]} to {anchors[1]}, then {anchors[2]}, "
-            f"and {anchors[3]}."
+    # Delegate cascade filtering + 2-anchor cap to the Boris Phase 7
+    # contract module's anchor extractor. The chain_receipt is the
+    # receipt HALF (no question — the door is appended by the caller),
+    # so we don't want the fallback composer's open-question suffix.
+    # Use extract_safe_anchors to get the filtered/capped list and
+    # build the receipt sentence directly.
+    try:
+        from .lori_structured_narrative_fallback import (
+            extract_safe_anchors as _safe_anchors,
         )
-    head = ", ".join(anchors[2:-1])
-    return (
-        f"You went from {anchors[0]} to {anchors[1]}, then {head}, "
-        f"and {anchors[-1]}."
-    )
+        filtered = _safe_anchors(narrator_text, max_n=2)
+    except ImportError:
+        # Defense in depth: cap at first 2 anchors raw.
+        filtered = anchors[:2]
+
+    if not filtered:
+        return ""
+    if len(filtered) == 1:
+        return f"{filtered[0]} — there's a lot held in that."
+    return f"{filtered[0]} and {filtered[1]} — there's a lot held in that."
 
 
 # Words that should NEVER be the last word of a snippet — they leave
