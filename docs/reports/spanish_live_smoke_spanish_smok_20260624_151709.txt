@@ -1,0 +1,138 @@
+==============================================================================
+WO-SPANISH-LIVE-READINESS-01 — Spanish live-smoke report
+==============================================================================
+timestamp:       2026-06-24T15:17:09.798724
+person_id:       f1bb1072-9155-4acc-ae9a-0d060c4ddba4
+conv_id:         spanish_smoke_0b60beb084
+turns_completed: 6 / 6
+contract_score:  31 / 36  (86.1%)
+verdict:         AMBER
+
+Acceptance gates:
+  GREEN: ≥ 33/36 (91.7%)
+  AMBER: 30-32/36 (83.3-88.9%)
+  RED:   < 30/36
+
+------------------------------------------------------------------------------
+Turn 1 — expected_lang=en
+  note: English with Spanish proper nouns — must NOT overfire to Spanish
+  Narrator:
+    My older brother Antonio and I grew up in Las Vegas, New Mexico. My mother lit candles in the cellar.
+  Lori (verbatim):
+    Let me say that in English. What would you like to tell me next?
+
+  detected_lang=en  words=14  questions=1  tts=(no log)
+  meta_leak: TRUE
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✗ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 2 — expected_lang=es
+  note: Pure Spanish childhood memory — must respond in Spanish
+  Narrator:
+    Mi mamá encendía velas en el sótano y yo no sabía por qué.
+  Lori (verbatim):
+    Ese recuerdo del sótano con las velas de tu mamá tiene un ambiente muy tranquilo. ¿Qué crees que pasaba con ella cuando encendía las velas ahí?
+
+  detected_lang=es  words=26  questions=2  tts=(no log)
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✗ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 3 — expected_lang=es
+  note: Spanish correction — must parse retraction + ack in Spanish
+  Narrator:
+    Quise decir que mi hermano se llamaba Antonio, no Alberto.
+  Lori (verbatim):
+    Entendido — Alberto. ¿Qué pasó después?
+
+  detected_lang=es  words=6  questions=2  tts=(no log)
+  code_mix_marker: '¿Qué pasó después'
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✗ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✗ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 4 — expected_lang=es
+  note: Spanish age memory — must respond with lived-experience follow-up
+  Narrator:
+    Yo tenía ocho años cuando nos mudamos de la casa vieja.
+  Lori (verbatim):
+    Ese momento de mudarte de la casa vieja a los ocho años debe haber sido un cambio significativo. ¿Recuerdas algo específico de esa casa vieja.
+
+  detected_lang=es  words=25  questions=1  tts=(no log)
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 5 — expected_lang=es
+  note: Spanish sensory family memory — no fake meta-praise
+  Narrator:
+    Mi abuela siempre decía que algunas cosas se recuerdan en silencio.
+  Lori (verbatim):
+    Esa reflexión de tu abuela sobre los recuerdos silenciosos es profunda. ¿Qué significado le das a esa idea de los recuerdos que quedan sin palabras?
+
+  detected_lang=es  words=25  questions=2  tts=(no log)
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✗ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 6 — expected_lang=en
+  note: Explicit English switch — must follow narrator's lead
+  Narrator:
+    Now I want to continue in English.
+  Lori (verbatim):
+    One thing that's stuck with you from that time is the image of your mom lighting candles in the cellar, right?
+
+  detected_lang=en  words=21  questions=1  tts=(no log)
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+==============================================================================
+Summary matrix:
+==============================================================================
+turn | L1 | L2 | L3 | L4 | L5 | L6
+----------------------------------
+  1  |  ✓  | ✓  | ✗  | ✓  | ✓  | ✓
+  2  |  ✓  | ✓  | ✓  | ✓  | ✗  | ✓
+  3  |  ✓  | ✗  | ✓  | ✓  | ✗  | ✓
+  4  |  ✓  | ✓  | ✓  | ✓  | ✓  | ✓
+  5  |  ✓  | ✓  | ✓  | ✓  | ✗  | ✓
+  6  |  ✓  | ✓  | ✓  | ✓  | ✓  | ✓
+
+Final verdict: AMBER

@@ -1,0 +1,136 @@
+==============================================================================
+WO-SPANISH-LIVE-READINESS-01 — Spanish live-smoke report
+==============================================================================
+timestamp:       2026-06-24T15:14:39.590521
+person_id:       162439b8-6795-49e4-ad4d-2a4966972460
+conv_id:         spanish_smoke_224f2765d1
+turns_completed: 6 / 6
+contract_score:  32 / 36  (88.9%)
+verdict:         AMBER
+
+Acceptance gates:
+  GREEN: ≥ 33/36 (91.7%)
+  AMBER: 30-32/36 (83.3-88.9%)
+  RED:   < 30/36
+
+------------------------------------------------------------------------------
+Turn 1 — expected_lang=en
+  note: English with Spanish proper nouns — must NOT overfire to Spanish
+  Narrator:
+    My older brother Antonio and I grew up in Las Vegas, New Mexico. My mother lit candles in the cellar.
+  Lori (verbatim):
+    (no response)
+
+  detected_lang=en  words=0  questions=0  tts=(no log)
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 2 — expected_lang=es
+  note: Pure Spanish childhood memory — must respond in Spanish
+  Narrator:
+    Mi mamá encendía velas en el sótano y yo no sabía por qué.
+  Lori (verbatim):
+    (no response)
+
+  detected_lang=en  words=0  questions=0  tts=(no log)
+
+  Rows:
+    ✗ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 3 — expected_lang=es
+  note: Spanish correction — must parse retraction + ack in Spanish
+  Narrator:
+    Quise decir que mi hermano se llamaba Antonio, no Alberto.
+  Lori (verbatim):
+    (no response)
+
+  detected_lang=en  words=0  questions=0  tts=(no log)
+
+  Rows:
+    ✗ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 4 — expected_lang=es
+  note: Spanish age memory — must respond with lived-experience follow-up
+  Narrator:
+    Yo tenía ocho años cuando nos mudamos de la casa vieja.
+  Lori (verbatim):
+    (no response)
+
+  detected_lang=en  words=0  questions=0  tts=(no log)
+
+  Rows:
+    ✗ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 5 — expected_lang=es
+  note: Spanish sensory family memory — no fake meta-praise
+  Narrator:
+    Mi abuela siempre decía que algunas cosas se recuerdan en silencio.
+  Lori (verbatim):
+    (no response)
+
+  detected_lang=en  words=0  questions=0  tts=(no log)
+
+  Rows:
+    ✗ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+------------------------------------------------------------------------------
+Turn 6 — expected_lang=en
+  note: Explicit English switch — must follow narrator's lead
+  Narrator:
+    Now I want to continue in English.
+  Lori (verbatim):
+    (no response)
+
+  detected_lang=en  words=0  questions=0  tts=(no log)
+
+  Rows:
+    ✓ L1_expected_language_matches
+    ✓ L2_no_broken_code_mix
+    ✓ L3_no_meta_response_leak
+    ✓ L4_word_budget_honored
+    ✓ L5_one_question_max
+    ✓ L6_tts_voice_correct
+
+==============================================================================
+Summary matrix:
+==============================================================================
+turn | L1 | L2 | L3 | L4 | L5 | L6
+----------------------------------
+  1  |  ✓  | ✓  | ✓  | ✓  | ✓  | ✓
+  2  |  ✗  | ✓  | ✓  | ✓  | ✓  | ✓
+  3  |  ✗  | ✓  | ✓  | ✓  | ✓  | ✓
+  4  |  ✗  | ✓  | ✓  | ✓  | ✓  | ✓
+  5  |  ✗  | ✓  | ✓  | ✓  | ✓  | ✓
+  6  |  ✓  | ✓  | ✓  | ✓  | ✓  | ✓
+
+Final verdict: AMBER
