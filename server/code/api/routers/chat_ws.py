@@ -3389,6 +3389,39 @@ async def ws_chat(ws: WebSocket):
                     # English. Falls back to legacy compose_witness_
                     # response when no anchors found OR Spanish locale.
                     _wr_fallback = ""
+                    # BUG-LORI-SAME-ANCHOR-LOOP-01 (2026-06-24): pull
+                    # anchors from the last 2 assistant turns so the
+                    # diversity guard can avoid repeating the same lead
+                    # anchor across consecutive turns. Walt Era 1 +
+                    # Era 2 both naturally pick "Saint Augustine" as
+                    # the lead; the loop scorer fires. Filtering recent
+                    # anchors from the candidate pool eliminates this
+                    # without changing per-turn anchor quality.
+                    _witness_recent_anchors: List[str] = []
+                    try:
+                        from ..db import export_turns as _wr_export_turns
+                        from ..services.lori_structured_narrative_fallback import (
+                            extract_safe_anchors as _wr_safe_anchors,
+                        )
+                        _wr_hist = _wr_export_turns(conv_id) or []
+                        _wr_recent_assist: List[str] = []
+                        for _wr_t in _wr_hist:
+                            if isinstance(_wr_t, dict) and _wr_t.get("role") == "assistant":
+                                _wr_at = _wr_t.get("content") or ""
+                                if _wr_at:
+                                    _wr_recent_assist.append(_wr_at)
+                        for _wr_at in _wr_recent_assist[-2:]:
+                            for _wr_a in _wr_safe_anchors(_wr_at, max_n=4):
+                                if _wr_a and _wr_a not in _witness_recent_anchors:
+                                    _witness_recent_anchors.append(_wr_a)
+                    except Exception as _wr_recent_exc:
+                        logger.debug(
+                            "[chat_ws][witness][diversity] recent-anchors "
+                            "lookup raised conv=%s: %s — proceeding without "
+                            "diversity filter",
+                            conv_id, _wr_recent_exc,
+                        )
+                        _witness_recent_anchors = []
                     if _witness_receipt_lang == "en":
                         _wr_fallback = _compose_rich(
                             narrator_text=user_text or "",
@@ -3397,6 +3430,7 @@ async def ws_chat(ws: WebSocket):
                             immediate_door_question=_immediate_door_question,
                             immediate_door_anchor=_immediate_door_anchor,
                             immediate_door_story_weight=_immediate_door_story_weight,
+                            recent_assistant_anchors=_witness_recent_anchors,
                         )
                     if not _wr_fallback:
                         _wr_fallback = _compose_wr(
@@ -3597,20 +3631,41 @@ async def ws_chat(ws: WebSocket):
             # for the case where a Spanish session sends a short EN
             # token like "yes".
             _guard_target_lang = "en"
+            # BUG-LORI-SPANISH-DRIFT-WALT-ERA-7 instrumentation
+            # (2026-06-24): explain exactly which signal flipped the
+            # guard target to "es" so the Era 7 Walt drift becomes
+            # empirically traceable. Records whether the current
+            # turn or one of the recent narrator turns tripped
+            # looks_spanish.
+            _gt_user_es = False
+            _gt_prior_es_index = -1
             try:
                 from ..services.lori_spanish_guard import looks_spanish as _gt_looks_es
                 if user_text and _gt_looks_es(user_text):
                     _guard_target_lang = "es"
+                    _gt_user_es = True
                 elif _recent_narr:
                     # Smooth over short non-Spanish replies in an
                     # otherwise-Spanish session: if ANY of the last 3
                     # narrator turns looks Spanish, treat session as ES.
-                    for _prior in _recent_narr:
+                    for _gt_i, _prior in enumerate(_recent_narr):
                         if _prior and _gt_looks_es(_prior):
                             _guard_target_lang = "es"
+                            _gt_prior_es_index = _gt_i
                             break
             except Exception:
                 _guard_target_lang = "en"
+            logger.info(
+                "[chat_ws][lang-debug] conv=%s guard_target=%s "
+                "user_es=%s prior_es_index=%d recent_count=%d "
+                "user_text_first120=%r",
+                conv_id,
+                _guard_target_lang,
+                _gt_user_es,
+                _gt_prior_es_index,
+                len(_recent_narr),
+                (user_text or "")[:120],
+            )
             _guarded_text, _guards_fired = _apply_guards(
                 assistant_text=final_text,
                 narrator_text=user_text or "",

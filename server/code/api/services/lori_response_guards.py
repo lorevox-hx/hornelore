@@ -223,6 +223,21 @@ _META_PREAMBLE_RX = re.compile(
     r"|"
     r"here(?:'s| is) (?:a |the |my )?(?:reflection|response) (?:and|with|grounded)"
     r"|"
+    # BUG-LORI-META-RESPONSE-LEAK-WARMLY-ACKNOWLEDGING-01 (2026-06-24)
+    # Walt seven-era walk Era 1: LLM literally typed out its own
+    # instruction as a preamble — "Warmly acknowledging the narrator's
+    # reflection, I reflect one specific anchor from their words: '...'"
+    # Boris's no_meta_response_leak scorer did NOT catch this shape;
+    # add it to the preamble strip so future stochastic recurrence is
+    # auto-repaired before reaching the narrator.
+    r"warmly acknowledging the narrator"
+    r"|"
+    r"i reflect (?:one |a )?specific anchor (?:from|in) (?:their|the narrator'?s) words"
+    r"|"
+    r"here(?:'s| is) (?:a |my )?reflection of the narrator(?:'s)? (?:message|words|story)"
+    r"|"
+    r"warm acknowledgment\s*:"
+    r"|"
     r"this (?:response|reflection|reply) (?:follows|reflects|adheres|invites|captures|grounds|honors)"
     r"|"
     r"(?:i'?ll|i will|i shall) (?:respond|reply|reflect) (?:by|with|using)"

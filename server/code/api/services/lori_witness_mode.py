@@ -1924,6 +1924,7 @@ def compose_chronological_chain_receipt(
     narrator_text: str,
     target_language: str = "en",
     max_anchors: int = 8,
+    recent_assistant_anchors: Optional[List[str]] = None,
 ) -> str:
     """Compose JUST the receipt sentence — no question.
 
@@ -1939,12 +1940,18 @@ def compose_chronological_chain_receipt(
     Augustine to Brendan, then Eileen, Patrick, Catholic, South
     Boston, Mass, and Walter."). Now delegates to the Boris Phase 7
     contract module which caps at ≤2 anchors and filters calendar /
-    religious-residue / common-noun tokens. The
-    `build_structured_narrative_fallback` shape includes its own
-    open question; callers wanting only the receipt without the
-    question should slice on " — " or similar — but for the chain-
-    receipt use case, returning the full repaired receipt is closer
-    to the right narrator-facing shape than the broken cascade.
+    religious-residue / common-noun tokens.
+
+    BUG-LORI-SAME-ANCHOR-LOOP-01 (2026-06-24): side effect of the
+    cap-at-2 fix — when narrator's Era 1 (parish-church narrative)
+    and Era 2 (parish-school narrative) both surface "Saint Augustine"
+    as the lead anchor, the cap-at-2 receipt repeats it across
+    consecutive turns and trips the scorer's no_same_anchor_loop rule.
+    `recent_assistant_anchors` (lowercase strings) lists anchors that
+    appeared in the last ~2 assistant turns. We filter those out
+    before picking the lead pair; if filtering empties the list, we
+    fall back to the original safe-anchors output (a same-anchor turn
+    is better than no anchor at all).
 
     Returns "" when narrator text has fewer than 2 anchors OR
     target_language is not English. v1 is English-first.
@@ -1968,11 +1975,25 @@ def compose_chronological_chain_receipt(
         from .lori_structured_narrative_fallback import (
             extract_safe_anchors as _safe_anchors,
         )
-        filtered = _safe_anchors(narrator_text, max_n=2)
+        # Pull a deeper candidate pool than we'll emit so the diversity
+        # filter has something to choose from when the lead anchor was
+        # used in a recent turn.
+        candidates = _safe_anchors(narrator_text, max_n=6)
     except ImportError:
-        # Defense in depth: cap at first 2 anchors raw.
-        filtered = anchors[:2]
+        candidates = anchors[:6]
 
+    # BUG-LORI-SAME-ANCHOR-LOOP-01: filter recent anchors out of the
+    # candidate pool. Case-insensitive comparison. If filtering leaves
+    # 0 candidates, fall back to the unfiltered top 2 — a same-anchor
+    # repeat is preferable to emitting an empty receipt (which would
+    # blank out the whole turn).
+    recent_lc = {a.lower() for a in (recent_assistant_anchors or []) if a}
+    if recent_lc:
+        diverse = [c for c in candidates if c.lower() not in recent_lc]
+        if diverse:
+            candidates = diverse
+
+    filtered = candidates[:2]
     if not filtered:
         return ""
     if len(filtered) == 1:
@@ -2188,6 +2209,7 @@ def compose_structured_witness_receipt(
     immediate_door_question: Optional[str] = None,
     immediate_door_anchor: Optional[str] = None,
     immediate_door_story_weight: int = 0,
+    recent_assistant_anchors: Optional[List[str]] = None,
 ) -> str:
     """Compose a rich English witness receipt for STRUCTURED_NARRATIVE
     turns. Replaces the thin "I caught X, Y, Z. What happened next?"
@@ -2248,7 +2270,10 @@ def compose_structured_witness_receipt(
     # Legacy path (no Tier 1A door, no anchor, or story_weighted
     # composer returned empty) — chronological chain receipt.
     receipt = compose_chronological_chain_receipt(
-        narrator_text, target_language=target_language, max_anchors=8,
+        narrator_text,
+        target_language=target_language,
+        max_anchors=8,
+        recent_assistant_anchors=recent_assistant_anchors,
     )
     if not receipt:
         # If no chronological anchors either, but we DO have a door
@@ -2276,7 +2301,10 @@ def compose_structured_witness_receipt(
     word_count = len(full.split())
     if word_count > 110:
         receipt = compose_chronological_chain_receipt(
-            narrator_text, target_language=target_language, max_anchors=5,
+            narrator_text,
+            target_language=target_language,
+            max_anchors=5,
+            recent_assistant_anchors=recent_assistant_anchors,
         )
         full = f"{receipt} {question}"
 
