@@ -201,20 +201,55 @@ _CORRECTION_AFTER_RX = (
         r"\bnot\s+[A-Za-z][A-Za-z\s]{2,40}?\s+(?:but|,)\s+([A-Za-z][A-Za-z\s]{2,80}?)(?:\.|,|;|$)",
         re.IGNORECASE,
     ),
-    # "actually [Y]" / "actually it was [Y]"
-    # Y stops at first " not " / punctuation / end
+    # "actually [Y] not [X]" — REQUIRES trailing " not " to be a real
+    # correction. WO-SPANISH-LIVE-READINESS-01 follow-up (2026-06-24)
+    # narrowed this: prior version accepted any punctuation as the Y
+    # terminator, which false-positived on ordinary narrative idiom
+    # like "It was actually in March, when they sent the students
+    # home..." (Walt seven-era walk Era 6 regression). The bare comma
+    # is a sentence connector, not a correction marker; only " not Y"
+    # makes "actually X" a correction.
     re.compile(
-        r"\bactually\s+(?:it\s+(?:was|is|'s)\s+)?([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+not\s+|[\.\?!,;]|$)",
+        r"\bactually\s+(?:it\s+(?:was|is|'s)\s+)?([A-Za-z][A-Za-z\s]{2,40}?)\s+not\s+",
         re.IGNORECASE,
     ),
-    # "I meant [Y]" / "I said [Y]" — Y stops at " not " / punct / end
+    # "I meant [Y] not [X]" / "I said [Y] not [X]" — same narrowing as
+    # the actually-pattern: require " not Y" trailing so we don't
+    # false-positive on "I meant to call, but..." narrative idiom.
     re.compile(
-        r"\bi\s+(?:meant|said)\s+([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+not\s+|[\.\?!,;]|$)",
+        r"\bi\s+(?:meant|said)\s+([A-Za-z][A-Za-z\s]{2,40}?)\s+not\s+",
         re.IGNORECASE,
     ),
-    # "the [thing] was/is [Y]" — Y stops at " not " / punct / end
+    # "the [name|hospital|base|place] was/is [Y] not [X]" — REQUIRES
+    # trailing " not " to be a real correction. WO-SPANISH-LIVE-
+    # READINESS-01 follow-up (2026-06-24): I initially thought this
+    # pattern was tightly scoped enough by the required filler word
+    # to keep the loose punctuation terminator. Jake's seven-era
+    # harness Chapter 1 ("she would tell us the name was originally
+    # Schong with a C, and they had dropped the C when they came to
+    # America") proved otherwise — the family-history narration about
+    # an old spelling false-positives as a correction. Same fix as
+    # patterns 2 + 3: only fire when " not Y" trails the captured Y.
     re.compile(
-        r"\bthe\s+(?:name|hospital|base|place)\s+(?:was|is|'s)\s+([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+not\s+|[\.\?!,;]|$)",
+        r"\bthe\s+(?:name|hospital|base|place)\s+(?:was|is|'s)\s+([A-Za-z][A-Za-z\s]{2,40}?)\s+not\s+",
+        re.IGNORECASE,
+    ),
+    # WO-SPANISH-LIVE-READINESS-01 follow-up (2026-06-24): Spanish
+    # retraction "Quise/quería decir [STUFF] X, no Y" — KEPT value is X
+    # (Spanish convention is OPPOSITE of English "not X but Y" where Y
+    # is kept).
+    #
+    # GATED by the explicit Spanish retraction marker "quise decir" /
+    # "quería decir" / "querría decir" upfront. WITHOUT this gate the
+    # bare "X, no Y" pattern false-positives on English narrator turns
+    # like "I retired in March, no longer working full days" (Walt
+    # Era 6 regression from 2026-06-24 seven-era walk). The marker
+    # can be up to ~120 chars before X to allow intervening clauses
+    # like "que mi hermano se llamaba".
+    re.compile(
+        r"\b(?:quise|quer[íi]?a|querr[íi]a)\s+decir\b.{0,120}?"
+        r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){0,2})"
+        r"\s*,\s+no\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\b",
         re.IGNORECASE,
     ),
 )

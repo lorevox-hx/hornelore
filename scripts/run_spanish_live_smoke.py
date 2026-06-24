@@ -215,20 +215,28 @@ def _http_post_json(url: str, payload: Dict[str, Any], timeout: float = 30.0) ->
 
 
 def create_narrator() -> str:
-    """POST /api/people/intake — fresh narrator per run."""
+    """POST /api/people/intake — fresh narrator per run.
+
+    Payload shape matches NarratorIntakePayload in
+    server/code/api/routers/people.py (post-2026-06-17 schema):
+      * full_legal_name + preferred_name both required
+      * consent_recording_agreement (not consent_recording)
+      * family_of_origin uses flat father_name / mother_name strings
+        (not nested {name: ...} dicts)
+    """
     payload = {
-        "display_name": NARRATOR_DISPLAY_NAME,
+        "full_legal_name": NARRATOR_DISPLAY_NAME,
+        "preferred_name": NARRATOR_DISPLAY_NAME,
         "date_of_birth": NARRATOR_DOB,
         "place_of_birth": NARRATOR_POB,
         "pronouns": NARRATOR_PRONOUNS,
         "current_residence": NARRATOR_RESIDENCE,
-        "narrator_type": "live",
-        "consent_recording": True,
+        "consent_recording_agreement": True,
         "consent_disclosure_reviewed": True,
         "testing_only": True,
         "family_of_origin": {
-            "mother": {"name": "María García"},
-            "father": {"name": "José García"},
+            "mother_name": "María García",
+            "father_name": "José García",
             "siblings": [{"name": "Antonio García"}],
         },
     }
@@ -243,7 +251,6 @@ def create_narrator() -> str:
                 "display_name": NARRATOR_DISPLAY_NAME,
                 "date_of_birth": NARRATOR_DOB,
                 "place_of_birth": NARRATOR_POB,
-                "narrator_type": "live",
                 "pronouns": NARRATOR_PRONOUNS,
                 "current_residence": NARRATOR_RESIDENCE,
             },
@@ -260,14 +267,26 @@ def create_narrator() -> str:
 async def send_one_turn(
     ws: Any, person_id: str, conv_id: str, turn: Turn,
 ) -> str:
-    """Send one user turn, wait for the {done} event, return final_text."""
+    """Send one user turn, wait for the {done} event, return final_text.
+
+    Payload shape matches chat_ws.py message dispatch (current contract):
+      * type: 'start_turn' (was 'user' in legacy harness)
+      * message: narrator text (was 'text')
+      * params.person_id: narrator UUID (was top-level person_id)
+      * session_id / conv_id: conversation id (either accepted)
+      * turn_mode: routes the prompt composer
+    """
     payload = {
-        "type": "user",
-        "person_id": person_id,
+        "type": "start_turn",
+        "session_id": conv_id,
         "conv_id": conv_id,
-        "text": turn.text,
+        "message": turn.text,
         "turn_mode": "interview",
         "turn_id": str(uuid.uuid4()),
+        "params": {
+            "person_id": person_id,
+            "turn_id": str(uuid.uuid4()),
+        },
     }
     await ws.send(json.dumps(payload))
 
@@ -296,7 +315,13 @@ async def send_one_turn(
     return final_text
 
 
-_QUESTION_RX = re.compile(r"[?¿]")
+# Count closing question marks only. Spanish "¿X?" is one question, not
+# two — the prior `[?¿]` pattern counted opening + closing marks as
+# separate questions, breaking L5 (one_question_max) on every Spanish
+# Lori turn. If Lori produces an orphan `¿` with no closing `?`, count
+# it too (rare formatting glitch but legitimately a question gesture).
+_CLOSING_Q_RX = re.compile(r"\?")
+_OPENING_Q_RX = re.compile(r"¿")
 
 
 def _word_count(text: str) -> int:
@@ -304,7 +329,12 @@ def _word_count(text: str) -> int:
 
 
 def _question_count(text: str) -> int:
-    return len(_QUESTION_RX.findall(text or ""))
+    t = text or ""
+    closing = len(_CLOSING_Q_RX.findall(t))
+    # Orphan-`¿` count = openings that exceed closings (un-paired).
+    opening = len(_OPENING_Q_RX.findall(t))
+    orphans = max(0, opening - closing)
+    return closing + orphans
 
 
 def _detect_response_lang(text: str) -> str:

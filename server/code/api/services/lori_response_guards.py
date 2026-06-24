@@ -139,10 +139,10 @@ def detect_language_drift(
 
 
 _LANGUAGE_DRIFT_REPAIR_EN = (
-    "Let me say that in English. What would you like to tell me next?"
+    "Sorry — let's continue. What would you like to tell me next?"
 )
 _LANGUAGE_DRIFT_REPAIR_ES = (
-    "Déjame decir eso en inglés. ¿Qué te gustaría contarme ahora?"
+    "Disculpa, continuemos. ¿Qué te gustaría contarme ahora?"
 )
 
 
