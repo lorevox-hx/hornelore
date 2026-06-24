@@ -1,0 +1,252 @@
+================================================================================
+WALTER O'DONNELL (7-ERA WALK) — LONG-NARRATION HARNESS REPORT
+================================================================================
+conv_id:    10321959-54f
+person_id:  e7a80448-c797-4b29-bb7c-4134a895c906
+run_time:   2026-06-24 16:41:42
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 1 — Earliest Years (G Street, Southie 1948-53)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     25
+  question_count: 0
+  anchor_hits:    saint augustine, novena
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Warmly acknowledging the narrator's reflection, I reflect one specific anchor from their words: "That rhythm, Mass on Sunday at Saint Augustine's, the Wednesday novena... those.
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 2 — Early School Years (Saint Augustine's 1953-59)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     16
+  question_count: 1
+  anchor_hits:    saint augustine, sister mary alacoque
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Saint Augustine and Sister Mary Alacoque — there's a lot held in that. What happened next?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✗ no_same_anchor_loop: FAIL
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 3 — Adolescence (Boston Latin + math team 1960-65)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     47
+  question_count: 1
+  anchor_hits:    boston latin, math team
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Boston Latin, math team, and those regional competitions — it's clear how much those experiences shaped you. What do you remember about your daily routine, the commute to school, or the relationships you formed with classmates from different backgrounds during your high school years at Boston Latin?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 4 — Coming of Age (BC + Catherine + first sons 1966-76)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     28
+  question_count: 1
+  anchor_hits:    boston college, 1970
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Boston College and Jesuits — there's a lot held in that. Disconnection you felt as you transitioned from college into teaching and family life in the early 1970s?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 5 — Building Years (North Quincy 35 yrs + 4 boys)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     50
+  question_count: 1
+  anchor_hits:    north quincy, patty sullivan, quincy
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Twenty-five years at North Quincy, the boys growing up, and the life you built with Catherine — it's clear how much those years shaped you. What do you remember about teaching and mentoring students over the years, particularly the ones who went on to do remarkable things like Patty Sullivan?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 6 — Later Years (retire 2020 + tutoring + boardwalk)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     49
+  question_count: 1
+  anchor_hits:    catherine, wollaston beach, boardwalk
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ A new chapter in life — it's clear how much you've been navigating in the last few years. What do you remember about living in Quincy, walking the boardwalk at Wollaston Beach, and spending time with Catherine during this time, especially the moments that brought you joy and peace?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✓ reflection_grounded: PASS
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✓ minimum_anchor_count: PASS
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✓ direct_human_voice: PASS
+
+────────────────────────────────────────────────────────────────────────────────
+CHAPTER — Era 7 — Today (a Tuesday in 2026 + the slip about a daughter)
+────────────────────────────────────────────────────────────────────────────────
+  word_count:     7
+  question_count: 1
+  anchor_hits:    (none)
+
+  Lori response (verbatim):
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Disculpa, continuemos. ¿Qué te gustaría contarme ahora?
+  └────────────────────────────────────────────────────────────────────────────
+
+  Scoring matrix:
+    ✗ reflection_grounded: FAIL
+    ✓ one_question_max: PASS
+    ✓ no_questionnaire_interrogation: PASS
+    ✓ no_forbidden_empathy_openers: PASS
+    ✓ no_era_label_menu: PASS
+    ✓ no_same_anchor_loop: PASS
+    ✓ word_budget_honored: PASS
+    ✓ translation_refusal_absent: PASS
+    ✓ no_false_name_confirmation: PASS
+    ✓ no_got_it_stub: PASS
+    ✓ no_titlecase_phrase_as_name: PASS
+    ✓ response_not_fragmented: PASS
+    ✗ minimum_anchor_count: FAIL
+    ✓ no_meta_response_leak: PASS
+    ✓ no_titlecased_anchor_cascade: PASS
+    ✓ no_seeded_fact_intake_question: PASS
+    ✓ no_broken_code_mix: PASS
+    ✗ direct_human_voice: FAIL
+
+────────────────────────────────────────────────────────────────────────────────
+BONUS PROBE — closing marker
+────────────────────────────────────────────────────────────────────────────────
+  Probe sent: Anyway, that's about it for what I wanted to say today.
+
+  Lori response:
+  ┌────────────────────────────────────────────────────────────────────────────
+  │ Warm acknowledgment: "The rhythms of your life, the meals with Catherine, the tutoring sessions, the family gatherings - they all come together in the simplicity.
+  └────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+BACKEND LOG GREP SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  oral_history_style_lines: 40
+  reflection_not_grounded_lines: 0
+  extract_accepted_lines: 145
+  spantag_flag_on_lines_observed: False
+
+────────────────────────────────────────────────────────────────────────────────
+OVERALL: 121/126 rows PASS
+────────────────────────────────────────────────────────────────────────────────
