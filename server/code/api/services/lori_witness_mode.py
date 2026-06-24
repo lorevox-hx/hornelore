@@ -176,12 +176,21 @@ _META_CORRECTION_EN = [
     re.compile(r"\byou\s+(?:have|got)\s+(?:the\s+)?(?:name\s+of\s+)?(?:the\s+)?\w+(?:\s+\w+){0,5}\s+wrong\b", re.IGNORECASE),
     # "not X but Y" / "not X, it was Y"
     re.compile(r"\bnot\s+\w+(?:\s+\w+){1,8}\s+but\s+(?:the\s+)?\w+", re.IGNORECASE),
-    # "actually it was/is Y" / "actually, Y"
-    re.compile(r"\bactually\s+(?:it\s+(?:was|is|'s)\s+)?[A-Z]?\w+", re.IGNORECASE),
-    # "I meant Y" / "I said Y not"
-    re.compile(r"\bi\s+(?:meant|said)\s+\w+", re.IGNORECASE),
-    # "the [thing] was/is Y" — strong signal it's a correction
-    re.compile(r"\bthe\s+(?:name|hospital|base|place|year|date|number|address)\s+(?:was|is|'s)\s+\w+", re.IGNORECASE),
+    # "actually it was/is Y not X" — REQUIRES trailing " not " to be a
+    # correction. WO-SPANISH-LIVE-READINESS-01 follow-up (2026-06-24):
+    # the prior pattern matched "actually" + any word, false-positiving
+    # on Walt Era 6 narrative "the work I am doing today actually
+    # began." Classifier set sub_type="correction" which then ran the
+    # value extractor + fallback factual-anchor picker → garbage anchor.
+    # Now: only fires on real correction grammar.
+    re.compile(r"\bactually\s+(?:it\s+(?:was|is|'s)\s+)?\w+(?:\s+\w+){0,5}\s+not\s+", re.IGNORECASE),
+    # "I meant Y not X" / "I said Y not X" — same narrowing as the
+    # actually pattern.
+    re.compile(r"\bi\s+(?:meant|said)\s+\w+(?:\s+\w+){0,5}\s+not\s+", re.IGNORECASE),
+    # "the [thing] was/is Y not X" — same narrowing. Closes Jake's
+    # family-history "the name was originally Schong with a C, and they
+    # had dropped..." false-positive.
+    re.compile(r"\bthe\s+(?:name|hospital|base|place|year|date|number|address)\s+(?:was|is|'s)\s+\w+(?:\s+\w+){0,5}\s+not\s+", re.IGNORECASE),
     # "that's wrong" / "that is wrong" / "incorrect"
     re.compile(r"\b(?:that'?s|that\s+is|you\s+are|you'?re)\s+(?:wrong|incorrect|mistaken)\b", re.IGNORECASE),
 ]
