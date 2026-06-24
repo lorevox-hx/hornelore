@@ -138,6 +138,19 @@ def looks_spanish(text: str) -> bool:
     Threshold lowered from 3 to 2 (2026-05-07): real Lori reflections
     are often short ("Las tardes con tu abuela cuando.") and only hit
     2-3 Spanish function words even on unambiguously Spanish text.
+
+    Threshold raised back to 3 for no-accent path (2026-06-24):
+    BUG-LORI-SPANISH-DRIFT-WALT-ERA-7. The lang-debug log instrumented
+    on 2026-06-24 showed Walt's English Era 7 narrative ("Today is a
+    Tuesday. Catherine and I had our usual breakfast at six-fifteen
+    — coffee and toast and the Boston Globe...") trips user_es=True
+    via the ≥2 function word path. The 2026-06-17 handoff already
+    anticipated this fallback: "may need raise back to 3 for this
+    specific case." Real short Spanish reflections (the docstring's
+    "Las tardes con tu abuela cuando" example hits con/tu/cuando =
+    exactly 3) still detect. Only the no-accent path raises — the
+    accent + function-word path keeps its 1+1 sensitivity because
+    accent characters are a high-quality Spanish signal on their own.
     """
     if not text:
         return False
@@ -154,9 +167,10 @@ def looks_spanish(text: str) -> bool:
     # 1 accent + 1+ function word → Spanish
     if accent_chars and fn_word_hits:
         return True
-    # No accents but ≥2 distinct function words → Spanish (Whisper
-    # degraded output path)
-    if not accent_chars and len(fn_word_hits) >= 2:
+    # No accents but ≥3 distinct function words → Spanish (Whisper
+    # degraded output path). Raised from 2 to 3 on 2026-06-24 after
+    # Walt seven-era walk Era 7 false-positive evidence.
+    if not accent_chars and len(fn_word_hits) >= 3:
         return True
     return False
 

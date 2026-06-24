@@ -259,9 +259,11 @@ _META_POSTAMBLE_RX = re.compile(
 # Editorial / fake-warmth meta from the same generation drift class
 _FAKE_WARMTH_RX = re.compile(
     r"\b(?:"
-    r"what a (?:rich|wonderful|beautiful|moving|evocative|delightful) (?:narrative|story|account)"
+    r"what a (?:rich|wonderful|beautiful|moving|evocative|delightful|vivid|powerful) "
+    r"(?:and (?:rich|wonderful|beautiful|moving|evocative|delightful|vivid|powerful) )?"
+    r"(?:narrative|story|account|description|reflection|memory|recollection)"
     r"|"
-    r"i'?m so grateful to be listening"
+    r"i'?m so (?:grateful|glad|honored) (?:to be listening|you (?:shared|trusted)|that you)"
     r"|"
     r"let me capture (?:a few|the|some) key points"
     r"|"
