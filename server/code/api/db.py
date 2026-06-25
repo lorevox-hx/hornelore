@@ -5440,6 +5440,15 @@ def _row_to_story_candidate(row: sqlite3.Row) -> Dict[str, Any]:
     d["era_candidates"] = _json_load(d.get("era_candidates"), [])
     d["scene_anchors"] = _json_load(d.get("scene_anchors"), [])
     d["extracted_fields"] = _json_load(d.get("extracted_fields"), {})
+    # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 4 (2026-06-24): chain
+    # detector output, written when chat_ws fires
+    # factual_chain_capture.build_factual_chain_followup_context on the
+    # narrator turn. May be {} for rows pre-dating the wiring or for
+    # turns where the chain detector did not fire.
+    if "chain_meta_json" in d:
+        d["chain_meta"] = _json_load(d.pop("chain_meta_json"), {})
+    else:
+        d["chain_meta"] = {}
     return d
 
 
@@ -5470,6 +5479,11 @@ def story_candidate_insert(
     # this writer treats whatever it gets as authoritative.
     language: Optional[str] = None,
     language_probability: Optional[float] = None,
+    # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 4 (2026-06-24): chain
+    # detector output. Migration 0014_story_candidates_chain_meta.sql
+    # adds the column with DEFAULT '{}'. None (the kwarg default)
+    # writes '{}' so legacy callers stay byte-stable.
+    chain_meta: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Insert a story_candidate row (Path 1 / preservation). Returns the
     candidate id on success.
@@ -5502,7 +5516,8 @@ def story_candidate_insert(
                 scene_anchors,
                 extraction_status, extracted_fields,
                 review_status,
-                language, language_probability
+                language, language_probability,
+                chain_meta_json
             ) VALUES (
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -5512,7 +5527,8 @@ def story_candidate_insert(
                 ?,
                 'pending', '{}',
                 'unreviewed',
-                ?, ?
+                ?, ?,
+                ?
             );
             """,
             (
@@ -5523,6 +5539,7 @@ def story_candidate_insert(
                 estimated_year_low, estimated_year_high, confidence,
                 _json_dump(scene_anchors or []),
                 language, language_probability,
+                _json_dump(chain_meta or {}),
             ),
         )
         con.commit()

@@ -3211,6 +3211,18 @@ def compose_system_prompt(
         parts.append(_known_identity_facts_block(runtime71))
         parts.append(_identity_grounding_rules_block(runtime71))
 
+        # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2 (2026-06-24): high-
+        # priority directive threaded through runtime71 by chat_ws when
+        # factual_chain_capture.build_factual_chain_followup_context
+        # fires. Injected here so it sits ABOVE per-pass / per-era /
+        # warmth-style rules — otherwise those rules nudge Lori back
+        # toward sensory probes mid-chain. Empty / absent key → no
+        # injection → byte-stable for every other caller (SSE path,
+        # legacy runtime71 dicts, tests).
+        _chain_directive = (runtime71.get("factual_chain_directive") or "").strip()
+        if _chain_directive:
+            parts.append("[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive)
+
         current_pass   = runtime71.get("current_pass", "pass1") or "pass1"
         # WO-CANONICAL-LIFE-SPINE-01 Step 4: normalize current_era at the
         # backend boundary. Frontend after Step 3 emits canonical era_ids,

@@ -115,6 +115,12 @@ def preserve_turn(
     # rows continue to land with language=None.
     language: Optional[str] = None,
     language_probability: Optional[float] = None,
+    # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 4 (2026-06-24): chain
+    # detector output passed in by chat_ws. See
+    # services/factual_chain_capture.build_factual_chain_followup_context
+    # for the shape. None / {} writes JSON '{}' to chain_meta_json so
+    # legacy callers stay byte-stable.
+    chain_meta: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Path 1 entry point. Persists a story_candidate row. Returns the
     new candidate id. Synchronous — must complete before the caller
@@ -224,6 +230,7 @@ def preserve_turn(
             scene_anchors=[],
             language=_lang_db,
             language_probability=_lang_prob_db,
+            chain_meta=chain_meta or {},
         )
     except Exception:
         logger.exception(
