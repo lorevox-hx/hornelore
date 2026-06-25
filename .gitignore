@@ -120,3 +120,13 @@ data/hornelore.sqlite
 # written under DATA_DIR/stories-captured/ when HORNELORE_STORIES_
 # CAPTURED_FS=1 fires. Runtime data, NEVER goes in git.
 data/stories-captured/
+
+# WO-LORI-FACTUAL-CHAIN-CAPTURE-01 — live harness reports. Each
+# run of scripts/run_factual_chain_live_harness.py and
+# scripts/run_trip_route_canary_harness.py writes a timestamped
+# .txt report under docs/reports/. Runtime artifacts; do not
+# accumulate as untracked entries. If a specific run needs to be
+# banked as evidence, copy it under a different name and add by
+# hand.
+docs/reports/factual_chain_live_*.txt
+docs/reports/trip_route_canary_*.txt
