@@ -2,86 +2,304 @@
 
 **Status:** PARKED / DO NOT IMPLEMENT YET
 **Severity:** MEDIUM (feature; not a parent-session blocker)
-**Locked principle:** *The Trip idea is right. Build the storage after Lori can elicit the stories that fill it. Don't ship a data structure that nothing can populate.*
+**Locked principle:** *Schema first. The flat trip_memoir MVP doesn't model real long-form trips. Build the storage that the canonical test case (Chris's Spring 2026 Central Europe trip — 23 days, 6 countries, 16+ stops with hierarchical nesting, 2,500–3,000 photos, multiple thematic threads) actually needs. Then close the elicitation gap. Then implement.*
 
 ## Why this WO exists
 
-A `trip_memoir_full_mvp` package was authored externally (Trips tab + backend API + DB tables + photo links + Bio Builder suggestions + a deterministic memoir-draft generator + a Location Guide lane for Prague-style place/food/culture context). The architecture is sound and aligns with CLAUDE.md design principles 1, 5, 6, and 8 — particularly the explicit separation of guide-context (operator-seeded place facts) from narrator-memory (narrator's lived experience).
+The original `trip_memoir_full_mvp` package proposed a flat schema: `trips → trip_stops → trip_photo_links` with each stop a single row. The first parked draft of this spec (2026-06-24 first pass) listed three prerequisites. Chris's review on 2026-06-24 (second pass) supplied a real-world test case — Spring 2026 Central Europe & Northern Italy — that breaks the flat model in three load-bearing ways:
 
-The MVP is **not being applied to `main`** because three prerequisites are unresolved. Shipping the storage layer ahead of the elicitation layer would produce a data structure that nothing reliably fills, and a parallel memoir authority that competes with the existing memoir pipeline.
+1. **Hierarchical stops.** Mirano was a base for 6 day trips (Treviso, Padua, Cittadella, Chioggia, Mira, Venice). Pula was a base for Istrian coastal towns. The flat schema can't express "this stop is a day trip under that base."
 
-This spec captures the design intent so it survives in the WO directory until the prerequisites land. The package itself stays in `~/Downloads/trip_memoir_full_mvp/` (or wherever Chris keeps it) — it is **NOT** copied into the repo's backend / router / UI tree.
+2. **Regional structure.** The trip is one journey but reads naturally as five regional chapters plus a return journey (Czechia / Austria / Slovenia / Croatia / Italy / Return). The memoir output should mirror this — flat-stop-list is unreadable for trips of this scale.
 
-## What to keep from the MVP
+3. **Thematic threads.** "Roman archaeology," "Venetian villas," "medieval walled towns," "regional food," "travel disruptions" each cross 6+ stops. The memoir output needs **dual-axis** rendering — chronological day-journal AND thematic chapters — not just stop-by-stop.
 
-These design choices are correct and should carry forward into whatever implementation eventually lands:
+This spec captures the revised design. **The original MVP code is rejected as the implementation starting point;** it lives in `~/Downloads/trip_memoir_full_mvp/` as design raw material only. Implementation is blocked behind four prerequisites.
 
-1. **Trips as a separate tab** in the narrator/operator UI. Trips have internal structure (multi-stop, photos-per-stop, date range, primary location) that a flat list of timeline events cannot model. A dedicated tab is the right surface.
+## Locked design choices
 
-2. **Trip stops bridge into the timeline.** Each `trip_stop` with a date writes a `trip_stop` event into the universal timeline spine, so the trip milestones appear in the canonical chronological view alongside everything else. The trip-specific structure (ordering, location, captions, photo links) stays in trip tables; the timeline only sees the milestone.
+1. **Past-trips only.** No future trip planning. The narrator logs a trip that already happened.
 
-3. **Photos and media linked to the trip** (overall) and to specific stops. Existing `media` rows are referenced via `trip_photo_links`; the trip lane does not duplicate media storage.
+2. **Era auto-assigned from trip start_date.** Trip belongs to ONE era — the era the narrator was in when it started. Spring 2026 → `today` era for Chris. Norway 2028 (hypothetical) → `today` for Kent. Era assignment requires a non-fuzzy narrator DOB. **No fuzzy DOBs allowed for any narrator using the Trip feature.**
 
-4. **Location Guide as interview context only.** Operator-seeded notes about general place / food / culture / history facts shape Lori's interview prompts but **do not become narrator memory** unless explicitly promoted. `include_in_memoir=false` default. This is the most important design choice in the MVP and must survive any revision.
+3. **Both photo flow directions supported.** Narrator/operator can upload photos first and have Lori ask about them, OR Lori asks and narrator adds photos after. Same photo data either way.
 
-5. **Bio Builder suggestions as provisional.** Trip-derived candidate facts (e.g., "narrator visited Prague in 2018") are stored with `status="suggested"` and require narrator/operator confirmation before promotion — async HITL review consistent with CLAUDE.md provisional-truth principle 5.
+4. **Both outputs from the same data.** Trip-derived sections inject into the **main memoir** as part of the narrator's overall life story, AND a **standalone trip memoir** renders the same data as its own document. The data sits in one place; the rendering surfaces are dual. **No parallel `trip_memoirs` authority table** — the standalone view is a rendering of the same canonical data the main memoir consumes.
 
-6. **Source-linked trip material.** Every memoir section produced from a trip carries `source_links` back to the originating trip / trip_stop / media / story_candidate. No orphaned text; full provenance.
+5. **Location Guide notes stay as interview context only.** Operator-seeded place facts (Prague is famous for X, Istrian cuisine includes Y) shape Lori's prompts but **do not become narrator memory** unless explicitly promoted. `include_in_memoir=false` default. This is the most important boundary in the design and survives unchanged from the MVP.
 
-## What to revise before implementation
+## Revised schema (hierarchical, region-aware, theme-tagged)
 
-1. **Trip memoir output should become main-memoir SECTION PROPOSALS, not a parallel memoir authority.** The MVP's `trip_memoirs` + `trip_memoir_sections` tables create a second memoir document per narrator, competing with the existing main memoir pipeline (memoir export harvests `story_candidates` + `projection_family` + structured fields — pending wiring in WO-MEMOIR-STORY-CANDIDATES-WIRE-01). The redesign: trips emit candidate sections that the main memoir composer can accept / decline / edit, not a standalone document. One memoir per narrator, with trip-derived sections inside it.
+```
+trip
+  └── trip_regions
+        └── trip_stops  (nested via parent_trip_stop_id)
+              └── trip_photo_links
+        └── trip_themes  (cross-stop thematic threads)
+trip_location_notes  (region/stop-aware operator context)
+trip_bio_suggestions  (provisional bio facts, narrator-confirmed)
+trip_story_links  (joins to story_candidates from chat sessions)
+```
 
-2. **All narrator-facing trip prompts need `target_language` propagation.** The MVP's `/api/trips/{id}/location-prompts` and the deterministic memoir generator both produce English-only output. After WO-SPANISH-LIVE-READINESS-01 (landed 2026-06-17), every composer that touches narrator-facing strings honors a language pin. Trip prompts and trip memoir sections must do the same. If Melanie tells a Spanish story about a trip to Mexico, the system must not switch her back to English.
+### `trips`
 
-3. **Implementation blocked by BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01.** Kent's session 2026-05-09 was the proof: a perfect trip-shaped narrative (Stanley → Fargo → admissions test → top score → meal tickets → West Coast) was not captured because Lori pivoted to sensory probes (scenery, camaraderie, sights/sounds/smells) instead of following the factual chain. Building the trip data structure without first fixing the elicitation layer ships empty `trip_stops` rows.
+The full journey.
+
+```
+id              TEXT PRIMARY KEY (UUID)
+person_id       TEXT NOT NULL → people(id) ON DELETE CASCADE
+title           TEXT NOT NULL    -- "Spring 2026 Central Europe & Northern Italy"
+start_date      TEXT             -- YYYY-MM-DD; required for era auto-derivation
+end_date        TEXT
+summary         TEXT             -- 1-3 sentence trip overview (operator or Lori-elicited)
+status          TEXT             -- 'draft' / 'in_progress' / 'memoir_ready'
+created_at      TEXT NOT NULL
+updated_at      TEXT NOT NULL
+meta_json       TEXT             -- {era_id (derived), narrator_age_at_start, ...}
+```
+
+### `trip_regions`
+
+Major chapters inside the trip. One row per regional grouping.
+
+```
+id              TEXT PRIMARY KEY
+trip_id         TEXT NOT NULL → trips(id) ON DELETE CASCADE
+ord             INTEGER NOT NULL DEFAULT 0
+title           TEXT NOT NULL    -- "Veneto / Northern Italy"
+country_or_area TEXT             -- "Italy" / "Croatia (Istria)"
+start_date      TEXT
+end_date        TEXT
+summary         TEXT
+theme_json      TEXT             -- ["Venetian villas", "regional food"]
+created_at      TEXT NOT NULL
+updated_at      TEXT NOT NULL
+```
+
+For the Spring 2026 trip:
+```
+1. Czechia — Prague
+2. Austria — Salzburg / Graz
+3. Slovenia — Ljubljana / drive routes
+4. Croatia (Istria) — Pula / Medulin / Rovinj coast
+5. Italy — Muggia / Trieste / Mirano + Veneto day trips / Venice
+6. Return Journey — Venice → Dulles → Denver → Santa Fe
+```
+
+### `trip_stops`
+
+Specific places, day trips, transit events, lodging changes, sights, memorable moments. **Supports nesting** via `parent_trip_stop_id` so day trips can hang off their base.
+
+```
+id                    TEXT PRIMARY KEY
+trip_id               TEXT NOT NULL → trips(id) ON DELETE CASCADE
+trip_region_id        TEXT NOT NULL → trip_regions(id) ON DELETE CASCADE
+parent_trip_stop_id   TEXT          → trip_stops(id) ON DELETE SET NULL
+ord                   INTEGER NOT NULL DEFAULT 0
+stop_type             TEXT NOT NULL
+                      -- enum: 'base' / 'day_trip' / 'transit' / 'lodging'
+                      --     / 'meal' / 'disruption' / 'sight' / 'memory_anchor'
+date_start            TEXT
+date_end              TEXT          -- bases span multiple days
+location_name         TEXT NOT NULL
+latitude              REAL
+longitude             REAL
+title                 TEXT
+notes                 TEXT
+thematic_tags_json    TEXT          -- ["Roman archaeology", "medieval walled towns"]
+timeline_event_id     TEXT          -- back-link into universal timeline spine
+created_at            TEXT NOT NULL
+updated_at            TEXT NOT NULL
+meta_json             TEXT
+```
+
+Examples for Spring 2026:
+```
+Mirano (base, May 30 – June 8)
+  ├── Treviso (day_trip)
+  ├── Padua (day_trip)
+  ├── Cittadella (day_trip)
+  ├── Chioggia (day_trip)
+  ├── Mira / Brenta villas (day_trip)
+  └── Venice departure (transit)
+
+Pula / Medulin (base, May 26 – May 30)
+  ├── Pula Roman sites (sight)
+  ├── Rovinj (day_trip)
+  └── Istrian coastal towns (day_trip)
+```
+
+### `trip_themes`
+
+Cross-stop thematic threads. **Important** — chronology alone is not enough for trips of this scale.
+
+```
+id              TEXT PRIMARY KEY
+trip_id         TEXT NOT NULL → trips(id) ON DELETE CASCADE
+ord             INTEGER NOT NULL DEFAULT 0
+title           TEXT NOT NULL    -- "Roman archaeology"
+description     TEXT             -- 1-2 sentences capturing the thread
+tag             TEXT NOT NULL    -- machine key for joining: "roman_archaeology"
+created_at      TEXT NOT NULL
+```
+
+For Spring 2026:
+```
+- Roman archaeology  (Pula amphitheatre, Trieste, scattered ruins)
+- Venetian villas    (Brenta canal, Padua, Mira)
+- Medieval walled towns  (Cittadella, Graz altstadt, Prague)
+- Markets and food   (Prague markets, Istrian seafood, Veneto wine)
+- Travel disruptions (train delay, airline delay at Venice)
+- Return journey     (Dulles → Denver → Santa Fe arc)
+- Family history interests  (the genealogical lane)
+```
+
+Stops link to themes via `thematic_tags_json` on `trip_stops` (the tag values match `trip_themes.tag`). Photos can also carry theme tags directly for memoir queries that span stops.
+
+### `trip_photo_links`
+
+Bulk-import and cluster-friendly. EXIF datetime + lat/lng auto-assigns each photo to nearest trip_stop by spacetime proximity; operator overrides via UI.
+
+```
+id                    TEXT PRIMARY KEY
+trip_id                TEXT NOT NULL → trips(id) ON DELETE CASCADE
+trip_region_id         TEXT          → trip_regions(id) ON DELETE SET NULL
+trip_stop_id           TEXT          → trip_stops(id) ON DELETE SET NULL
+media_id               TEXT NOT NULL → media(id) ON DELETE CASCADE
+ord                    INTEGER NOT NULL DEFAULT 0
+taken_at               TEXT          -- from EXIF
+latitude               REAL          -- from EXIF GPS
+longitude              REAL
+assignment_method      TEXT NOT NULL
+                       -- enum: 'manual' / 'exif_time' / 'exif_gps'
+                       --     / 'album' / 'csv' / 'operator'
+cluster_confidence     REAL          -- 0.0 – 1.0; lower = needs operator review
+caption                TEXT
+narrator_caption       TEXT
+include_in_memoir      INTEGER NOT NULL DEFAULT 1
+thematic_tags_json     TEXT
+created_at             TEXT NOT NULL
+updated_at             TEXT NOT NULL
+```
+
+### `trip_location_notes`
+
+Region/stop-aware operator context. Bilingual.
+
+```
+id                              TEXT PRIMARY KEY
+trip_id                          TEXT NOT NULL → trips(id) ON DELETE CASCADE
+trip_region_id                   TEXT          → trip_regions(id) ON DELETE SET NULL
+trip_stop_id                     TEXT          → trip_stops(id) ON DELETE SET NULL
+location_name                    TEXT
+question                         TEXT
+answer                           TEXT
+source_type                      TEXT          -- 'operator' / 'lori' / 'external'
+include_in_interview_context     INTEGER NOT NULL DEFAULT 1
+include_in_memoir                INTEGER NOT NULL DEFAULT 0
+target_language                  TEXT NOT NULL DEFAULT 'en'
+                                 -- bilingual; respects narrator's session language
+                                 -- when surfaced to Lori or in memoir output
+created_at                       TEXT NOT NULL
+updated_at                       TEXT NOT NULL
+```
+
+### `trip_bio_suggestions` and `trip_story_links`
+
+Carry forward from MVP unchanged — provisional bio facts and join rows into the existing `story_candidates` lane. Both remain `status='suggested'` until narrator/operator promotes.
+
+## Revised memoir output — dual-axis
+
+Trip output is **section proposals for the main memoir**, not a standalone authority. The same data renders into:
+
+### A. Main memoir injection
+
+Trip-derived sections become part of the narrator's overall life story memoir, anchored to the trip's era. For Chris's Spring 2026 trip, sections appear under "Today" era of the main memoir alongside other 2026 life events.
+
+### B. Standalone trip memoir view
+
+Same data, different render. The standalone trip memoir is a view of the canonical trip rows, not a separate document. Structure:
+
+```
+Part I — The Journey in Order  (chronological axis)
+  1. Czechia — Prague
+  2. Austria — Salzburg / Graz
+  3. Slovenia — Ljubljana
+  4. Croatia (Istria) — Pula / Medulin
+  5. Italy — Muggia → Trieste → Mirano + Veneto day trips
+  6. Return Journey
+
+Part II — Themes That Ran Through the Trip  (thematic axis)
+  - Roman Trail (Pula / Trieste / scattered ruins)
+  - Venetian Villas (Brenta / Padua / Mira)
+  - Medieval Walled Towns (Cittadella / Prague / Graz)
+  - Markets and Food
+  - Travel Disruptions
+  - Family History Threads
+
+Part III — Photo Appendix / Map / Timeline
+```
+
+Memoir generation stays deterministic (no LLM authoring of narrator voice). The generator walks `trip_regions` → `trip_stops` (respecting nesting) for Part I, walks `trip_themes` for Part II, and emits a photo grid + map render + timeline mini-spine for Part III.
 
 ## Prerequisites (must land before any code from this WO touches `main`)
 
-1. **Fix Lori's factual-chain capture for trip-shaped stories.** Filed as `BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01` (see `transcript_switch_moyt6.txt` 2026-05-09 lines 38–82 for the canonical evidence: Kent's Army induction story, five facts ignored, sensory probe doubled-down after explicit narrator correction at line 80). Fix architecture: factual-narrative cue type in the narrative cue library; era-click directive permits event-list framing; comprehension guard on meta-feedback turns (narrator says "not X" → composer must not propose more X).
+1. **WO-LORI-FACTUAL-CHAIN-CAPTURE-01** (renamed from BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01). Lori must preserve factual chains like Stanley → Fargo → exam → meal tickets → West Coast (Kent) or Prague → Salzburg → Ljubljana → Pula (Chris). Without this, the trip elicitation lane fills the database with sensory fragments instead of trip-shaped narratives.
 
-2. **Decide canonical memoir integration.** Trip-derived sections live INSIDE the main memoir pipeline, not in a parallel `trip_memoirs` table. Couples to WO-MEMOIR-STORY-CANDIDATES-WIRE-01 (memoir export harvests story_candidates) — the trip lane joins through that same harvest path.
+2. **Canonical memoir integration decision LOCKED.** Resolved in this revision: trip-derived sections inject into the main memoir pipeline as section proposals; standalone trip-memoir view is a rendering of the same data, not a parallel authority table. No `trip_memoirs` document table.
 
-3. **Add `target_language` propagation for trip and location prompts.** Every narrator-facing composer touched by this WO accepts a `target_language` kwarg and resolves it from the same source the rest of the codebase uses (narrator `looks_spanish()` probe → recent-turns smoothing → optional `profile_json.session_language_mode` pin).
+3. **Target-language propagation.** Every narrator-facing surface (Lori's trip questions, location guide prompts surfaced as Lori prompts, memoir output) accepts a `target_language` kwarg and resolves it from the same source the rest of the codebase uses (`looks_spanish()` probe → recent-turns smoothing → optional `profile_json.session_language_mode` pin). If the trip happened while the narrator was speaking Spanish, the system speaks Spanish about it.
 
-4. **Add consent / private flags before trip notes can enter memoir output.** Couples to WO-DISCLOSURE-MODE-01 (parked). Per-entry consent state (`narrator_consented` / `narrator_offered_no_consent` / `system_inferred_no_consent` / `sacred_do_not_persist`) must be representable on `trip_stops.notes`, `trip_photo_links.narrator_caption`, and any Location Guide note that an operator promotes. `sacred_do_not_persist` blocks derived persistence to the memoir output; raw transcript / audio remains governed by existing Archive privacy controls.
+4. **EXIF photo clustering design.** Bulk-import + auto-assignment by EXIF datetime + lat/lng to nearest trip_stop by spacetime proximity. Cluster confidence scoring. Operator review surface for low-confidence assignments. **Hand-linking 2,500–3,000 photos one at a time is unworkable.** Pillow + GPS EXIF extraction is already in the tree (landed 2026-04-26 in the Photo Intake lane); needs the clustering pass on top.
+
+## Recommended WO sequence (after prerequisites land)
+
+```
+1. WO-TRIP-MEMOIR-01_Spec.md  (this spec — schema + boundaries)
+2. WO-LORI-FACTUAL-CHAIN-CAPTURE-01  (closes Lori's factual-chain gap)
+3. WO-TRIP-IMPORT-AND-CLUSTER-01  (CSV/album itinerary import + EXIF clustering)
+4. WO-TRIP-MEMOIR-SECTIONS-01  (chronological + thematic section proposals into main memoir pipeline)
+```
+
+The Trip tab UI is built incrementally across (1) → (3) so each WO has a runnable demo surface.
 
 ## What is NOT in scope
 
-- **Do NOT copy backend / router / UI files into `main`.** No `server/code/api/routers/trips.py`, no `server/code/api/routers/trip_location_notes.py`, no `ui/js/trips-tab.js`, no `ui/js/trip-location-guide-overlay.js`, no `apply_trip_memoir_*.py` execution, no schema migrations.
+- **Do NOT copy backend / router / UI files from the original `trip_memoir_full_mvp` package into `main`.** The package's flat schema is rejected; its router + UI was built on top of that flat schema and would need to be rewritten regardless.
 - No `app.include_router(trips.router)` patches into `main.py`.
-- No `data/` seeding.
-- No `.env` flag additions for trip features (premature; the flag set is finalized when prerequisites land).
+- No `data/` seeding from the MVP.
+- No `.env` flag additions for trip features (premature; flag set is finalized when prerequisites land).
 
 ## Acceptance — when this WO can flip from PARKED to ACTIVE
 
 The unblock sequence:
 
-1. `BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01` lands and shows GREEN on a Kent-style replay harness (trip-shaped narrative produces ≥4 factual follow-ups out of 5 turns; zero sensory pivots when narrator provides explicit factual content).
-2. WO-MEMOIR-STORY-CANDIDATES-WIRE-01 lands and the main memoir export harvests `story_candidates` cleanly.
-3. ChatGPT / Claude / Chris triangulate on the canonical-memoir-integration question (sections-into-main vs. parallel-document) and lock the answer.
-4. WO-DISCLOSURE-MODE-01 Phase 1 lands (per-entry consent state on at least the schema level).
+1. WO-LORI-FACTUAL-CHAIN-CAPTURE-01 lands and shows GREEN on a Kent-style replay harness (factual chain ≥4 turns preserved without sensory pivot).
+2. Main memoir pipeline can ingest external section proposals cleanly (couples to WO-MEMOIR-STORY-CANDIDATES-WIRE-01).
+3. Target-language propagation is verified on at least one bilingual narrator end-to-end (Melanie / Chris-as-Spanish-narrator).
+4. EXIF clustering design is sketched in WO-TRIP-IMPORT-AND-CLUSTER-01 with a small-scale dry-run on Chris's Spring 2026 photo set.
 
-When all four are GREEN, this spec flips to ACTIVE with an implementation breakdown that respects the revised architecture (trip sections proposed into main memoir pipeline, bilingual prompts, consent gating).
+When all four are GREEN, this spec flips to ACTIVE with an implementation breakdown that respects the revised hierarchical schema.
+
+## Canonical test case
+
+**Spring 2026 Central Europe & Northern Italy.** 23 days, May 22 – June 13, 2026. Six countries. 16+ stops with hierarchical nesting (Mirano base + 6 day trips; Pula base + 3 day trips). 2,500–3,000 photos. Multiple thematic threads (Roman archaeology, Venetian villas, medieval walled towns, markets and food, travel disruptions, return journey, family history). Coherent arc (Prague start → Veneto middle → Venice airline delay + tight Dulles connection → Denver → Santa Fe end).
+
+If the system can organize this trip and generate a polished dual-axis memoir from it, the architecture scales down cleanly to simpler trips — Kent's hypothetical Norway trip (1 region), Janice's old Florida vacations (1 region, few stops), Melanie's Mexico family visits (1 region, Spanish narration).
 
 ## Bottom line
 
-The Trip idea is still right. Build the elicitation layer first, then the storage layer that fills it. Park the code, keep the design.
+Schema first. The flat trip_memoir MVP is the wrong starting point. Build the hierarchical model — `trip → trip_regions → trip_stops (nested) → trip_photo_links` plus `trip_themes` and region-aware location notes — and the rest follows.
 
 ## Source artifacts
 
-- External MVP package: `~/Downloads/trip_memoir_full_mvp/` (NOT in repo)
-  - `README.md` — apply instructions
-  - `apply_trip_memoir_full_mvp.py` — combined patcher
-  - `apply_trip_memoir_mvp.py` — Trips-only patcher
-  - `apply_trip_location_guide_overlay.py` — Location Guide patcher
-  - `server/code/api/routers/trips.py` (~330 lines, 6 tables + 18 endpoints)
-  - `server/code/api/routers/trip_location_notes.py`
-  - `ui/js/trips-tab.js`, `ui/js/trip-location-guide-overlay.js`
-  - `scripts/run_trip_memoir_smoke.py`
-  - `docs/wo/WO-TRIP-MEMOIR-01_MVP.md`, `docs/wo/WO-TRIP-GUIDE-LOCATION-CONTEXT-01.md`
-- Kent transcript evidence for prerequisite #1: `transcript_switch_moyt6.txt` 2026-05-09, lines 38–82.
+- Original MVP package (REJECTED as implementation start, retained as design raw material): `~/Downloads/trip_memoir_full_mvp/`
+- First-pass parked spec (this file's predecessor): superseded 2026-06-24
+- Canonical test case: Chris's Spring 2026 Central Europe & Northern Italy trip (described in §Canonical test case above)
+- Reference inspiration cited by Chris: `https://visualschedulebot.com/index.php` (UX / schedule semantics)
+- Prerequisite #1 evidence: `transcript_switch_moyt6.txt` 2026-05-09 (Kent's Army induction sensory-pivot failure)
 
 ## Revision history
 
-- 2026-06-21 — Authored as parked spec. MVP package received but not applied. Prerequisites listed.
+- 2026-06-24 (first pass) — Authored as parked spec. Flat MVP schema captured, three prerequisites listed.
+- 2026-06-24 (second pass, this revision) — Replaced flat schema with hierarchical `trip → trip_regions → trip_stops (nested) → trip_photo_links` + `trip_themes`. Added Spring 2026 Central Europe trip as canonical test case. Locked memoir integration decision (sections-into-main + standalone view as render of same data, NOT parallel authority). Added EXIF clustering as prerequisite. Added target_language to location notes. Bumped recommended WO sequence: this spec → factual-chain capture → import-and-cluster → memoir-sections.
