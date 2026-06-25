@@ -534,6 +534,7 @@ def classify_story_candidate(
     *,
     audio_duration_sec: Optional[float],
     transcript: str,
+    chain_ctx: Optional[dict] = None,
 ) -> Optional[str]:
     """Returns trigger_reason string if the turn should produce a
     story_candidate, else None.
@@ -544,7 +545,8 @@ def classify_story_candidate(
     risk drift between the trigger threshold and the persisted
     word_count.
 
-    Three trigger paths:
+    Four trigger paths, ordered by signal strength:
+
         full_threshold (medium confidence)
             duration ≥ MIN_DURATION_SEC
             AND words ≥ MIN_WORDS
@@ -561,6 +563,19 @@ def classify_story_candidate(
             (e.g. María's "abuela / Perú" 21-word 15s memory). Requires
             BOTH place + (person OR time) so single-mention turns like
             "I saw the river" don't trigger.
+
+        chain_detection (added 2026-06-25 — WO-STORY-CANDIDATE-TEXT-
+        CHAIN-PERSISTENCE-01)
+            chain_ctx["is_factual_chain"] is True.
+            Fires when the factual-chain classifier classified the
+            narrator turn as a chain, regardless of audio_duration /
+            words / dimension-anchors. Ordered LAST so audio-bearing
+            or anchor-rich chain turns still classify by their
+            stronger signal. Closes the gap where typed/Web-Speech
+            narrators (no audio_duration, often < 60 words, often
+            only 1-2 dimension-anchors) had factual-chain detection
+            fire in the composer but never produce a story_candidate
+            row — the chain_meta_json column was dead code for them.
 
     The borderline path catches Janice's actual mastoidectomy story,
     which is below the duration/word floor but rich in anchors.
@@ -603,6 +618,14 @@ def classify_story_candidate(
     ):
         return "rich_short_narrative"
 
+    # Chain detection path (WO-STORY-CANDIDATE-TEXT-CHAIN-PERSISTENCE-
+    # 01, 2026-06-25). Fires when the factual-chain classifier marked
+    # the narrator turn as a chain. Runs LAST so audio-bearing chain
+    # turns above keep their stronger signal. Defensive: chain_ctx
+    # may be None, may be missing the key, or may have non-bool value.
+    if isinstance(chain_ctx, dict) and chain_ctx.get("is_factual_chain") is True:
+        return "chain_detection"
+
     return None
 
 
@@ -610,6 +633,7 @@ def trigger_diagnostic(
     *,
     audio_duration_sec: Optional[float],
     transcript: str,
+    chain_ctx: Optional[dict] = None,
 ) -> dict:
     """Same inputs as classify_story_candidate, but returns the
     underlying numbers so logs and operator review can show WHY a
@@ -618,6 +642,10 @@ def trigger_diagnostic(
     Useful in the chat_ws turn handler for emitting a
     [story-trigger] log marker per turn — operator can see the
     threshold proximity and tune env vars accordingly.
+
+    chain_ctx (optional, added 2026-06-25) — when provided and the
+    is_factual_chain flag is True, gives classify_story_candidate
+    the input it needs to fire the chain_detection trigger path.
     """
     word_count = len(transcript.split()) if transcript else 0
     anchors = count_scene_anchors(transcript or "")
@@ -626,6 +654,7 @@ def trigger_diagnostic(
     trigger = classify_story_candidate(
         audio_duration_sec=audio_duration_sec,
         transcript=transcript,
+        chain_ctx=chain_ctx,
     )
 
     return {
@@ -636,6 +665,12 @@ def trigger_diagnostic(
         "place_anchor": _matches_place(transcript or ""),
         "time_anchor": _matches_relative_time(transcript or ""),
         "person_anchor": _matches_person_relation(transcript or ""),
+        # 2026-06-25 — surface chain status for operator-side logs.
+        # `chain_is_factual` is True/False/None depending on whether
+        # the chain classifier ran for this turn AND what it returned.
+        "chain_is_factual": (
+            (chain_ctx.get("is_factual_chain") if isinstance(chain_ctx, dict) else None)
+        ),
         "thresholds": {
             "min_duration_sec": _min_duration_sec(),
             "min_words": _min_words(),

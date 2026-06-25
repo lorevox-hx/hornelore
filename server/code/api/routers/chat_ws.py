@@ -638,9 +638,18 @@ async def ws_chat(ws: WebSocket):
             else:
                 _trigger_diag = None
                 try:
+                    # WO-STORY-CANDIDATE-TEXT-CHAIN-PERSISTENCE-01
+                    # (2026-06-25): pass the factual-chain context
+                    # built earlier in this turn so story_trigger can
+                    # fire chain_detection on typed/Web-Speech narrator
+                    # turns that don't reach the audio/word/anchor
+                    # gates of the other trigger paths. _chain_ctx is
+                    # always defined (defaults to {}); story_trigger
+                    # reads is_factual_chain defensively.
                     _trigger_diag = _story_trigger.trigger_diagnostic(
                         audio_duration_sec=None,
                         transcript=user_text,
+                        chain_ctx=_chain_ctx,
                     )
                 except Exception as _diag_exc:
                     logger.warning(

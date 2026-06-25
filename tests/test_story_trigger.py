@@ -1055,5 +1055,132 @@ class EnglishRegressionAfterSpanishLandedTest(unittest.TestCase):
         )
 
 
+class ChainDetectionTriggerTest(unittest.TestCase):
+    """WO-STORY-CANDIDATE-TEXT-CHAIN-PERSISTENCE-01 (2026-06-25).
+
+    Adds a 4th trigger path so factual-chain narrator turns produce
+    story_candidate rows even when the audio/word/anchor gates of the
+    other three triggers don't fire. Critical for typed and Web-Speech
+    narrators whose chat_ws turns carry audio_duration_sec=None.
+
+    Ordering rule: chain_detection runs LAST. Stronger signals
+    (full_threshold / borderline / rich_short) take precedence when
+    they fire, so an audio-bearing chain turn still classifies as
+    full_threshold rather than chain_detection.
+    """
+
+    def test_chain_detected_short_text_no_audio_fires_chain_detection(self):
+        chain_ctx = {
+            "is_factual_chain": True,
+            "anchors": ["Stanley", "Fargo", "top score", "meal tickets"],
+        }
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=None,
+            transcript=(
+                "They took us from Stanley to Fargo for the exam. "
+                "I got the top score, and then they gave us meal "
+                "tickets and sent us west."
+            ),
+            chain_ctx=chain_ctx,
+        )
+        self.assertEqual(result, "chain_detection")
+
+    def test_chain_detected_long_text_with_audio_prefers_full_threshold(self):
+        chain_ctx = {"is_factual_chain": True, "anchors": ["Spokane"]}
+        long_transcript = (
+            "I had a mastoidectomy when I was little, in Spokane. "
+            "My dad worked nights at the aluminum plant near the river. "
+            "I remember the smell of the cafeteria and the squeak of "
+            "the floor wax. The nurses were kind. " * 2
+        )
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=45.0,
+            transcript=long_transcript,
+            chain_ctx=chain_ctx,
+        )
+        self.assertEqual(result, "full_threshold")
+
+    def test_chain_detected_short_text_three_anchors_prefers_borderline(self):
+        chain_ctx = {"is_factual_chain": True, "anchors": ["Spokane", "dad"]}
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=None,
+            transcript=(
+                "I had a mastoidectomy when I was little, in Spokane. "
+                "My dad worked nights at the aluminum plant."
+            ),
+            chain_ctx=chain_ctx,
+        )
+        self.assertEqual(result, "borderline_scene_anchor")
+
+    def test_no_chain_short_text_returns_none(self):
+        chain_ctx = {"is_factual_chain": False, "anchors": []}
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=None,
+            transcript="I went to Boston.",
+            chain_ctx=chain_ctx,
+        )
+        self.assertIsNone(result)
+
+    def test_chain_ctx_none_returns_none_on_short_text(self):
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=None,
+            transcript="I went to Boston.",
+            chain_ctx=None,
+        )
+        self.assertIsNone(result)
+
+    def test_chain_ctx_empty_dict_returns_none_on_short_text(self):
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=None,
+            transcript="I went to Boston.",
+            chain_ctx={},
+        )
+        self.assertIsNone(result)
+
+    def test_chain_ctx_is_factual_chain_false_returns_none(self):
+        result = story_trigger.classify_story_candidate(
+            audio_duration_sec=None,
+            transcript="We started in Prague, then went to Salzburg.",
+            chain_ctx={
+                "is_factual_chain": False,
+                "anchors": ["Prague", "Salzburg"],
+            },
+        )
+        self.assertIsNone(result)
+
+    def test_chain_ctx_is_factual_chain_non_bool_treated_as_false(self):
+        for sentinel in (1, "True", "yes", [1]):
+            result = story_trigger.classify_story_candidate(
+                audio_duration_sec=None,
+                transcript="We started in Prague, then went to Salzburg.",
+                chain_ctx={"is_factual_chain": sentinel, "anchors": ["Prague"]},
+            )
+            self.assertIsNone(
+                result,
+                "non-bool truthy sentinel should NOT fire chain_detection",
+            )
+
+    def test_trigger_diagnostic_surfaces_chain_is_factual(self):
+        chain_ctx = {
+            "is_factual_chain": True,
+            "anchors": ["Stanley", "Fargo"],
+        }
+        diag = story_trigger.trigger_diagnostic(
+            audio_duration_sec=None,
+            transcript="They took us from Stanley to Fargo for the exam.",
+            chain_ctx=chain_ctx,
+        )
+        self.assertEqual(diag.get("trigger"), "chain_detection")
+        self.assertTrue(diag.get("chain_is_factual"))
+
+    def test_trigger_diagnostic_without_chain_ctx_reports_none(self):
+        diag = story_trigger.trigger_diagnostic(
+            audio_duration_sec=None,
+            transcript="I went to Boston.",
+        )
+        self.assertIsNone(diag.get("chain_is_factual"))
+        self.assertIsNone(diag.get("trigger"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

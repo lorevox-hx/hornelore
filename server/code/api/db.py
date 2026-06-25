@@ -5426,7 +5426,13 @@ def graph_replace_full(narrator_id: str, persons: List[Dict[str, Any]], relation
 # any fresh DB without code changes here. These accessor stubs are the
 # Python surface that the router and the preservation service will use.
 
-_VALID_TRIGGER_REASONS = ("full_threshold", "borderline_scene_anchor", "manual")
+_VALID_TRIGGER_REASONS = (
+    "full_threshold",
+    "borderline_scene_anchor",
+    "rich_short_narrative",
+    "chain_detection",
+    "manual",
+)
 _VALID_CONFIDENCE = ("low", "medium", "high")
 _VALID_EXTRACTION_STATUS = ("pending", "partial", "complete", "failed")
 _VALID_REVIEW_STATUS = ("unreviewed", "in_review", "promoted", "discarded", "memoir_only")

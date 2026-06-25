@@ -6,25 +6,34 @@ the prompt level:
 
   1. BUG-LORI-LANGUAGE-DRIFT-UNPROMPTED-01 — narrator's recent turns
      are all English, current turn has no Spanish signal, but Lori
-     emitted Spanish (or mixed). Replace with English deterministic
-     continuation.
+     emitted Spanish (or mixed). Replace with a chain-aware English
+     continuation built from the narrator's detected anchors.
 
-     STATUS (2026-06-24): SURFACE-SCOPED. Stays ON for the normal
-     Lorevox narrator tab — the original K1/K2/K10 unprompted-Spanish-
-     drift evidence (2026-05-09 Kent replay) is still a real failure
-     class. Goes OFF on the Trip-tab surface, because European place
-     names (Prague / Salzburg / Ljubljana / Pula / Mirano / Padua /
-     Cittadella / Chioggia / Mira / Venice / Rovinj) trip the
-     detector destructively on legitimate English trip narration.
-     Per the product call: English-first narration on every surface;
+     STATUS (2026-06-24, iteration 2 — current shipped state):
+     ACTIVE ON EVERY SURFACE. An earlier same-day iteration tried
+     skipping the guard on surface="trip" to avoid destroying real
+     replies with the boilerplate "Sorry - let's continue. What
+     would you like to tell me next?" The skip leaked fully Spanish
+     replies to English narrators on European-place-name turns
+     (Prague / Salzburg / Ljubljana / Pula / Mirano / Padua /
+     Cittadella / Chioggia / Mira / Venice / Rovinj) — worse than
+     the boilerplate. Iteration 2 reverts the skip and replaces the
+     fallback string with a chain-aware English continuation built
+     from the narrator's detected anchors (e.g. "Let's stay with
+     that in English - you were telling me about Prague, Salzburg,
+     and Ljubljana. What happened next?"). The drift guard now runs
+     on every surface AND produces substantive English when it fires.
+
+     The surface kwarg on apply_response_guards is preserved (default
+     "narrator") for a future caller that genuinely wants per-surface
+     opt-out, but the current skip set
+     (_SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR) is empty. Per the
+     product call: English-first narration on every surface;
      multilingual ABILITY remains available as an assistive tool
      (explain a word, pronounce a place, translate a menu) when the
-     narrator explicitly asks. Auto-policing the whole conversation
-     language is OFF for trip narration only.
-
-     Surface routing is via the `surface` kwarg on
-     apply_response_guards (default "narrator"). Trip-tab callers
-     pass surface="trip".
+     narrator explicitly asks. The ENGLISH_FIRST_RULE prompt
+     directive prevents most drift at generation time; this guard
+     remains as the safety net.
 
   2. BUG-LORI-DANGLING-DETERMINER-01 — Lori's response ends with an
      incomplete determiner ("about the.", "for a.", "with an.").
@@ -54,8 +63,12 @@ detect_language_drift(assistant_text, narrator_text, recent_narrator_turns)
     -> bool — True when Lori response is Spanish but narrator context
     is English-only.
 
-repair_language_drift(target_language="en") -> str
-    Returns a deterministic English continuation prompt.
+repair_language_drift(target_language="en", anchors=None) -> str
+    Returns a deterministic English continuation. When `anchors` is
+    non-empty and target_language is English, the continuation echoes
+    up to the first three narrator anchors so the repair is
+    substantive rather than the legacy "Sorry - let's continue"
+    boilerplate Chris flagged as unacceptable on 2026-06-24.
 
 detect_dangling_determiner(assistant_text) -> bool — True when the
     response ends with an incomplete determiner+period.
@@ -63,10 +76,16 @@ detect_dangling_determiner(assistant_text) -> bool — True when the
 repair_dangling_determiner(target_language="en") -> str
     Returns a deterministic continuation prompt.
 
-apply_response_guards(assistant_text, narrator_text, recent_narrator_turns,
-                      target_language="en") -> tuple[str, list[str]]
-    Apply both guards in order. Returns (possibly-rewritten text,
-    list of guard names that fired).
+apply_response_guards(assistant_text, narrator_text="",
+                      recent_narrator_turns=(), target_language="en",
+                      seeded_facts=None, surface="narrator",
+                      narrator_anchors=None) -> tuple[str, list[str]]
+    Apply all guards in order. Returns (possibly-rewritten text, list
+    of guard names that fired). The `surface` kwarg is preserved for
+    future per-surface opt-out (default "narrator"); the current skip
+    set is empty so all surfaces get the drift guard. `narrator_anchors`
+    threads chain-detection anchors into repair_language_drift when
+    the drift fallback fires.
 """
 from __future__ import annotations
 
