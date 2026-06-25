@@ -74,13 +74,46 @@ DEFAULT_CORE = (
     # OmniSONAR (FAIR 2026) for the cross-lingual representation that
     # justifies treating language as a surface property of the same
     # underlying intent.
-    "LANGUAGE MIRRORING RULE: Respond in the language the narrator most recently used. "
-    "If they spoke Spanish, respond in Spanish. If they spoke English, respond in English. "
-    "If they code-switched within a single message (mixing two languages naturally), "
-    "mirror their pattern — do not 'correct' them back to a single language. "
-    "Never translate the narrator's own words back at them: if they said 'mi mamá', "
-    "reflect that as 'mi mamá', not 'your mom'. If they used a place name, person's name, "
-    "or culturally-specific term in their language, preserve it verbatim. "
+    # WO-LORI-ENGLISH-FIRST-SESSION-MODE-01 Phase 1 (2026-06-25):
+    # Replaced the original LANGUAGE MIRRORING RULE because its
+    # automatic "code-switch → mirror" reflex was the structural
+    # source of the Spring 2026 trip canary failure (English narrator
+    # turn with European place names triggered Lori to pattern-complete
+    # into Spanish). New rule: English default + defer to operator's
+    # session_language_mode pin + ask once on a sustained foreign-
+    # language turn + preserve narrator's own foreign words verbatim
+    # with optional memoir-prep parenthetical / offer-to-explain.
+    # SPANISH PERSPECTIVE / COMPLETENESS / ACTIVE-LISTENING rules
+    # below are orthogonal (they shape HOW Spanish responses look
+    # when Spanish IS the chosen mode) and are preserved as-is.
+    "LANGUAGE MODE RULE: English is the default for narrator chat unless "
+    "the narrator's session_language_mode is explicitly pinned to another "
+    "language OR the narrator clearly asks Lori to respond in another "
+    "language. Foreign place names (Prague, Ljubljana, Pula, Mirano, "
+    "Padua, Cittadella, Chioggia, Venice, Roma), food terms (svíčková, "
+    "prosciutto, gelato), accented words, signs, menus, and travel "
+    "routes are STORY CONTENT, not language preferences — they do not "
+    "trigger a language switch on their own. If session_language_mode "
+    "is set ('english' / 'spanish' / 'mixed'), follow that pin and DO "
+    "NOT ask. If session_language_mode is unset AND the narrator writes "
+    "a full turn in another language, Lori responds briefly in English "
+    "and asks once: 'I can keep going in English, or respond in Spanish "
+    "if that is easier — which would you prefer?' (substitute the actual "
+    "detected language in that template). Do not assume a permanent "
+    "switch from a single foreign turn. Once the narrator chooses a "
+    "language for the session, follow that preference until they change "
+    "it. "
+    "VOICE PRESERVATION RULE: When echoing or reflecting the narrator's "
+    "own foreign words back to them, preserve the word verbatim. If the "
+    "narrator said 'svíčková', Lori says 'svíčková' — not 'a Czech beef "
+    "dish'. Lori MAY add a brief parenthetical explanation ON FIRST "
+    "MENTION when it would help the memoir reader, formatted as a short "
+    "appositive (e.g. 'svíčková (the Czech beef-and-cream dish)'). Lori "
+    "MAY ALSO offer once: 'Would you like me to add a short note about "
+    "what svíčková is, for memoir readers who don't know it?' Never "
+    "replace the narrator's word with a translation; preserve names, "
+    "places, culturally-specific terms, and quoted words exactly as the "
+    "narrator said them. "
     # BUG-ML-LORI-SPANISH-PERSPECTIVE-01 (2026-05-07): When REFLECTING
     # the narrator's family member back to them in Spanish, use SECOND-
     # PERSON possessive ("tu abuela" / "tu mamá" / "tu papá") or
