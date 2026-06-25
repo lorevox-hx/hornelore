@@ -192,6 +192,21 @@ def _anchor_echo_count(reply: str, anchors: List[str]) -> int:
     return sum(1 for a in anchors if a and a.lower() in rl)
 
 
+def _is_stub_collapse(reply: str) -> bool:
+    """Lori reply must be >= 6 words on a substantive narrator turn.
+    Catches the "Aligre." / "Roman." / "Eiffel Tower." class that
+    BUG-LORI-RESPONSE-STUB-COLLAPSE-01 substitution targets - even when
+    substitution is wired, this G4 row is the regression net."""
+    text = (reply or "").strip()
+    if not text:
+        return True
+    import re as _re_stub
+    words = _re_stub.findall(r"\b\w+\b", text)
+    return len(words) < 6
+
+
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────
@@ -603,6 +618,10 @@ def score_turn(
     is_drift_repair = _reply_is_drift_repair(lori_response)
 
     rows: Dict[str, bool] = {}
+    # G4 stub-collapse - ALWAYS graded. Every narrator-visible Lori
+    # reply must be >= 6 words on a substantive narrator turn. Ungraded
+    # turns still gate this because the narrator saw the stub.
+    rows["G4_no_stub_collapse"] = not _is_stub_collapse(lori_response)
     if turn.graded:
         rows["F1_log_chain_classification"] = (
             log_is_chain is not None
@@ -751,6 +770,19 @@ def write_report(
         hard_clamps.append(
             f"G3_lori_replied_in_spanish "
             f"(T{','.join(str(r.turn.n) for r in g3_failed)})"
+        )
+    # G4 — stub-collapse fires on EVERY visible Lori reply
+    # (graded AND ungraded). A single 1-word reply on a substantive
+    # narrator turn is always RED regardless of whether the chain
+    # rows applied. ChatGPT correction 2026-06-25.
+    g4_failed = [
+        r for r in results
+        if r.rows.get("G4_no_stub_collapse") is False
+    ]
+    if g4_failed:
+        hard_clamps.append(
+            f"G4_stub_collapse "
+            f"(T{','.join(str(r.turn.n) for r in g4_failed)})"
         )
     if hard_clamps:
         verdict = "RED"
@@ -937,6 +969,19 @@ async def run() -> int:
         hard_clamps.append(
             f"G3_lori_replied_in_spanish "
             f"(T{','.join(str(r.turn.n) for r in g3_failed)})"
+        )
+    # G4 — stub-collapse fires on EVERY visible Lori reply
+    # (graded AND ungraded). A single 1-word reply on a substantive
+    # narrator turn is always RED regardless of whether the chain
+    # rows applied. ChatGPT correction 2026-06-25.
+    g4_failed = [
+        r for r in results
+        if r.rows.get("G4_no_stub_collapse") is False
+    ]
+    if g4_failed:
+        hard_clamps.append(
+            f"G4_stub_collapse "
+            f"(T{','.join(str(r.turn.n) for r in g4_failed)})"
         )
 
     if hard_clamps:
