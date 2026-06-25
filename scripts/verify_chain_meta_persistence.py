@@ -72,12 +72,16 @@ def _make_test_narrator_id() -> str:
 
 
 def _db_path() -> Path:
-    data_dir = os.getenv("DATA_DIR", "/mnt/c/hornelore_data")
-    db_name = (
-        os.getenv("DB_NAME", "hornelore.sqlite3").strip()
-        or "hornelore.sqlite3"
-    )
-    return Path(data_dir) / "db" / db_name
+    """Use db.py's own DB_PATH constant as the single source of truth.
+    Computing the path from os.getenv directly diverges when the
+    script is run without .env sourcing — db.py defaults to
+    DATA_DIR='data' and DB_NAME='lorevox.sqlite3', while our manual
+    computation defaulted to '/mnt/c/hornelore_data'/'hornelore.sqlite3'.
+    The mismatch made db.story_candidate_insert go to one file and
+    raw sqlite queries hit another (2026-06-24 persistence-test RED
+    on the raw-column row, despite all dict-shape assertions PASSing
+    via db.story_candidate_get)."""
+    return db.DB_PATH
 
 
 def _ensure_test_narrator(narrator_id: str) -> None:
