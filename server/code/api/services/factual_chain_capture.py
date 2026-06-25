@@ -181,14 +181,26 @@ _FAMILY_MIGRATION_RX = re.compile(
 # Sensory / emotional / atmosphere vocabulary — the class of probe that
 # should NOT be Lori's next-question target while a factual chain is
 # unresolved.
+#
+# Per WO §Phase 2 composer directive: "do not pivot to scenery, sounds,
+# smells, atmosphere, or GENERALIZED FEELING." The "generalized feeling"
+# leg of that directive was missing from the original regex — Lori's
+# 2026-06-24 harness T6 turn ("Can you tell me about the emotions you
+# felt?") slipped through F4 even though it's exactly the meta-feedback
+# rejection class. Adding emotion / feeling / felt to the vocabulary
+# closes that gap and also makes detect_meta_feedback_against_probe
+# more sensitive when narrator pushes back against an emotion probe
+# (e.g. "no, not the emotions — I want to tell you about the test").
 _SENSORY_PROBE_RX = re.compile(
     r"\b(?:"
     r"scenery|sights|sounds|smells?|smelled|"
     r"atmosphere|ambien[cs]e|"
     r"camaraderie|"
+    # Generalized-feeling / emotion vocabulary (WO Phase 2 directive)
+    r"emotion|emotions|feeling|feelings|felt|"
     r"what\s+(?:did|do)\s+(?:it|that|they)\s+(?:feel|smell|sound|look)\s+like|"
     r"sense\s+of\s+(?:camaraderie|belonging|wonder)|"
-    r"how\s+(?:did|do)\s+(?:it|that|they)\s+feel"
+    r"how\s+(?:did|do)\s+(?:it|that|they|you)\s+(?:feel|make\s+you\s+feel)"
     r")\b",
     re.IGNORECASE,
 )

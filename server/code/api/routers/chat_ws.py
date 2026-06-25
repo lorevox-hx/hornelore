@@ -3769,11 +3769,25 @@ async def ws_chat(ws: WebSocket):
                 len(_recent_narr),
                 (user_text or "")[:120],
             )
+            # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 / Trip-tab readiness
+            # (2026-06-24): per-surface scoping for the language-drift
+            # guard. The WS payload carries an optional params.surface
+            # marker ("trip" for Trip-tab callers; default "narrator"
+            # for everything else). When the surface is "trip" the
+            # language-drift block is skipped because European place-
+            # name pile-ups trip the detector destructively on
+            # legitimate English trip narration. All other guards run
+            # on every surface — they don't suffer the trip-route
+            # false-positive class.
+            _surface = (params.get("surface") or "narrator").strip().lower()
+            if _surface not in ("narrator", "trip"):
+                _surface = "narrator"
             _guarded_text, _guards_fired = _apply_guards(
                 assistant_text=final_text,
                 narrator_text=user_text or "",
                 recent_narrator_turns=_recent_narr,
                 target_language=_guard_target_lang,
+                surface=_surface,
             )
             if _guards_fired:
                 logger.warning(

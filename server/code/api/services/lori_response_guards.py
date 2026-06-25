@@ -9,6 +9,23 @@ the prompt level:
      emitted Spanish (or mixed). Replace with English deterministic
      continuation.
 
+     STATUS (2026-06-24): SURFACE-SCOPED. Stays ON for the normal
+     Lorevox narrator tab — the original K1/K2/K10 unprompted-Spanish-
+     drift evidence (2026-05-09 Kent replay) is still a real failure
+     class. Goes OFF on the Trip-tab surface, because European place
+     names (Prague / Salzburg / Ljubljana / Pula / Mirano / Padua /
+     Cittadella / Chioggia / Mira / Venice / Rovinj) trip the
+     detector destructively on legitimate English trip narration.
+     Per the product call: English-first narration on every surface;
+     multilingual ABILITY remains available as an assistive tool
+     (explain a word, pronounce a place, translate a menu) when the
+     narrator explicitly asks. Auto-policing the whole conversation
+     language is OFF for trip narration only.
+
+     Surface routing is via the `surface` kwarg on
+     apply_response_guards (default "narrator"). Trip-tab callers
+     pass surface="trip".
+
   2. BUG-LORI-DANGLING-DETERMINER-01 — Lori's response ends with an
      incomplete determiner ("about the.", "for a.", "with an.").
      Replace with a safe continuation prompt.
@@ -55,6 +72,18 @@ from __future__ import annotations
 
 import re
 from typing import List, Optional, Sequence, Tuple
+
+
+# Per 2026-06-24 product call: language-drift repair is OFF on the
+# Trip-tab surface but stays ON for the normal Lorevox narrator tab.
+# The drift detector trips destructively on legitimate English trip
+# narration containing European place names (Prague / Salzburg /
+# Ljubljana / Pula / Mirano / Padua / Cittadella / Chioggia / Mira /
+# Venice / Rovinj). On normal narrator turns the original K1/K2/K10
+# unprompted-Spanish-drift evidence is still a real failure class
+# that the guard catches. Surface-scoped opt-out via the `surface`
+# kwarg below is the clean fix — no global env flag.
+_SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR = frozenset({"trip"})
 
 
 # ── Language drift detection ──────────────────────────────────────────────
@@ -724,6 +753,7 @@ def apply_response_guards(
     recent_narrator_turns: Sequence[str] = (),
     target_language: str = "en",
     seeded_facts: Optional[dict] = None,
+    surface: str = "narrator",
 ) -> Tuple[str, List[str]]:
     """Apply all guards in order. Language drift is checked first
     (a Spanish drift response will also fail the dangling-determiner
@@ -733,11 +763,26 @@ def apply_response_guards(
     `seeded_facts` (optional) is a dict from field_key to value. When
     provided, the seeded-fact intake-question guard runs after the
     meta-leak guard and before the dangling-determiner check.
+
+    `surface` (default "narrator") names the conversational surface
+    the reply is being delivered on. Per 2026-06-24 product call, the
+    language-drift repair block is SKIPPED on the "trip" surface
+    because European place-name pile-ups (Spring 2026 Central Europe
+    canary) trip the detector destructively on legitimate English
+    trip narration. All other guards (code-mix / meta-leak / seeded-
+    fact / dangling-determiner) run on every surface — they don't
+    suffer from the trip-route false-positive class.
     """
     fired: List[str] = []
     text = assistant_text or ""
 
-    if detect_language_drift(text, narrator_text, recent_narrator_turns):
+    _drift_repair_active = (
+        surface not in _SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR
+    )
+    if (
+        _drift_repair_active
+        and detect_language_drift(text, narrator_text, recent_narrator_turns)
+    ):
         text = repair_language_drift(target_language)
         fired.append("language_drift")
         return text, fired
