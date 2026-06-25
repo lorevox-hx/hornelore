@@ -540,6 +540,86 @@ async def ws_chat(ws: WebSocket):
             })
             return
 
+        # ── WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2+3 (2026-06-24) ────────
+        # Detect factual chains (place→event→outcome sequences, travel
+        # legs, medical chains, family migrations, etc.) and capture
+        # meta-feedback ("not the scenery — I want the facts") so the
+        # composer directive can land BEFORE the LLM call and the
+        # chain_meta can ride along to story_candidates.
+        #
+        # Default-on (classifier is pure-stdlib; failure is logged and
+        # never blocks the turn). Disable with HORNELORE_FACTUAL_CHAIN=0
+        # to fall back to byte-stable behavior in case of regression.
+        _chain_ctx: Dict[str, Any] = {}
+        _chain_directive_text: str = ""
+        _chain_meta_for_preserve: Dict[str, Any] = {}
+        if (
+            os.getenv("HORNELORE_FACTUAL_CHAIN", "1") in ("1", "true", "True")
+            and user_text
+            and user_text.strip()
+            and not _is_system_directive
+        ):
+            try:
+                from ..services import factual_chain_capture as _fcc
+                _prior_for_chain = []
+                try:
+                    _prior_for_chain = export_turns(conv_id) or []
+                except Exception as _hist_exc:
+                    logger.warning(
+                        "[chat_ws][factual-chain] history fetch failed "
+                        "(conv=%s) — falling back to meta-feedback-blind "
+                        "detection: %s",
+                        conv_id, _hist_exc,
+                    )
+                _chain_ctx = _fcc.build_factual_chain_followup_context(
+                    user_text, prior_turns=_prior_for_chain
+                ) or {}
+                _chain_directive_text = (
+                    _chain_ctx.get("composer_directive") or ""
+                ).strip()
+                # Phase 4 chain_meta — written into story_candidates.
+                # Only populated when the detector classified the turn
+                # as a factual chain; otherwise the row gets the
+                # default '{}'.
+                if _chain_ctx.get("is_factual_chain"):
+                    _chain_meta_for_preserve = {
+                        "chain_story_candidate": True,
+                        "chain_anchors": list(_chain_ctx.get("anchors") or []),
+                        "chain_cue_labels": list(_chain_ctx.get("cue_labels") or []),
+                        "chain_confidence": _chain_ctx.get("confidence", 0.0),
+                        "chain_blocked_probe_types": list(
+                            _chain_ctx.get("blocked_probe_types") or []
+                        ),
+                        "chain_preferred_followup_type": (
+                            _chain_ctx.get("preferred_followup_type") or ""
+                        ),
+                        # Reserved for follow-up phase that infers
+                        # missing chain links from cue patterns.
+                        "chain_missing_links": [],
+                    }
+                _meta_state = _chain_ctx.get("meta_feedback") or {}
+                logger.info(
+                    "[chat_ws][factual-chain] conv=%s narrator=%s "
+                    "is_chain=%s conf=%s cues=%s anchors=%s "
+                    "meta_feedback=%s rejected=%s",
+                    conv_id,
+                    person_id or "<unknown>",
+                    _chain_ctx.get("is_factual_chain"),
+                    _chain_ctx.get("confidence"),
+                    _chain_ctx.get("cue_labels"),
+                    len(_chain_ctx.get("anchors") or []),
+                    _meta_state.get("is_meta_feedback"),
+                    _meta_state.get("last_rejected_probe_type") or "",
+                )
+            except Exception as _fcc_exc:
+                # LAW 3: detection failure is loud but NEVER fatal.
+                # Chat turn continues with byte-stable behavior.
+                logger.warning(
+                    "[chat_ws][factual-chain] detection failed "
+                    "conv=%s — chat continues without directive: %s",
+                    conv_id, _fcc_exc,
+                )
+
         if (
             os.getenv("HORNELORE_STORY_CAPTURE", "0") in ("1", "true", "True")
             and user_text
@@ -629,6 +709,11 @@ async def ws_chat(ws: WebSocket):
                                 # memoir export renders the correct template.
                                 language=_transcript_language_for_archive,
                                 language_probability=_transcript_language_prob_for_archive,
+                                # WO-LORI-FACTUAL-CHAIN-CAPTURE-01
+                                # Phase 4: forward chain detector
+                                # output. Empty dict when this turn
+                                # is not a factual chain.
+                                chain_meta=_chain_meta_for_preserve or {},
                             )
                             logger.info(
                                 "[story-trigger] preserved candidate_id=%s "
@@ -2641,6 +2726,24 @@ async def ws_chat(ws: WebSocket):
                 logger.warning(
                     "[chat_ws][bio_anchored] runtime71 surface failed conv=%s: %s",
                     conv_id, _ba_rt_exc,
+                )
+
+        # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2+3 (2026-06-24):
+        # surface the composer_directive built earlier from
+        # factual_chain_capture.build_factual_chain_followup_context.
+        # When present, prompt_composer.compose_system_prompt injects
+        # it as a high-priority [FACTUAL_CHAIN_DIRECTIVE] block above
+        # per-pass/per-era/warmth rules. Empty / absent → no surface →
+        # byte-stable for non-chain turns and turns where the
+        # detection branch is disabled or errored.
+        if _chain_directive_text:
+            try:
+                runtime71 = dict(runtime71) if isinstance(runtime71, dict) else {}
+                runtime71["factual_chain_directive"] = _chain_directive_text
+            except Exception as _fc_rt_exc:
+                logger.warning(
+                    "[chat_ws][factual-chain] runtime71 surface failed conv=%s: %s",
+                    conv_id, _fc_rt_exc,
                 )
 
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
