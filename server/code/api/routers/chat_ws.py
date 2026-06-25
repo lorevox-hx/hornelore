@@ -3144,6 +3144,15 @@ async def ws_chat(ws: WebSocket):
                     # high-value check for v1 telemetry.
                     momentum_mode=_phase_1_momentum_mode,
                     session_hierarchy_state=None,
+                    # BUG-LORI-RESPONSE-STUB-COLLAPSE-01 it 2
+                    # (2026-06-25): narrator anchors detected by
+                    # factual_chain_capture upstream. Threaded so
+                    # Step 6 substitutes an anchor-aware English
+                    # continuation instead of letting bare anchor
+                    # stubs reach the narrator.
+                    narrator_anchors=list(
+                        (_chain_ctx or {}).get("anchors") or []
+                    ),
                 )
                 comm_control_dict = _cc_result.to_dict()
                 atomicity_failures = list(_cc_result.atomicity_failures)

@@ -48,7 +48,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from .question_atomicity import classify_atomicity, enforce_question_atomicity
 from .lori_reflection import validate_memory_echo, shape_reflection
@@ -766,6 +766,69 @@ def _phase_1_enabled() -> bool:
     ).strip().lower() in ("1", "true", "yes", "on")
 
 
+# BUG-LORI-RESPONSE-STUB-COLLAPSE-01 iteration 2 (2026-06-25) -
+# anchor-aware substitution helper for the Step 6 stub-collapse
+# branch. Same architectural pattern as repair_language_drift in
+# lori_response_guards.py: when anchors are available from the
+# chain detector, build an English continuation that uses them;
+# otherwise fall back to a neutral open follow-up. Idempotent
+# (same input -> same output). No LLM, no DB, pure stdlib.
+
+_STUB_COLLAPSE_NO_ANCHOR_FALLBACK = (
+    "Let's stay with that. What stood out for you from that moment?"
+)
+
+
+def compose_stub_collapse_repair(
+    narrator_text: str,
+    anchors: Optional[Sequence[str]] = None,
+) -> str:
+    """Build an English continuation that uses narrator anchors
+    when available, falling back to a neutral open follow-up
+    otherwise.
+
+    This is the substitute that lands in Step 6's `current`
+    instead of the broken 1-word stub the LLM emitted. Without
+    substitution, the narrator literally saw the stub (Aligre.,
+    Roman., Eiffel Tower., AI.).
+
+    Example shapes (ASCII only to avoid encoding artifacts):
+        anchors=[]                                 ->
+          "Let's stay with that. What stood out for you from
+           that moment?"
+        anchors=["Aligre"]                         ->
+          "You mentioned Aligre - tell me more about that part
+           of the story. What stood out for you?"
+        anchors=["Stanley", "Fargo"]               ->
+          "You mentioned Stanley and Fargo - tell me more ..."
+        anchors=["A", "B", "C", "D"]               ->
+          uses only first 3; "You mentioned A, B, and C - ..."
+    """
+    cleaned: List[str] = []
+    for a in anchors or []:
+        if not a:
+            continue
+        s = str(a).strip()
+        if s and s not in cleaned:
+            cleaned.append(s)
+        if len(cleaned) >= 3:
+            break
+    if not cleaned:
+        return _STUB_COLLAPSE_NO_ANCHOR_FALLBACK
+    if len(cleaned) == 1:
+        anchor_text = cleaned[0]
+    elif len(cleaned) == 2:
+        anchor_text = f"{cleaned[0]} and {cleaned[1]}"
+    else:
+        anchor_text = (
+            f"{cleaned[0]}, {cleaned[1]}, and {cleaned[2]}"
+        )
+    return (
+        f"You mentioned {anchor_text} - tell me more about that "
+        f"part of the story. What stood out for you?"
+    )
+
+
 def enforce_lori_communication_control(
     assistant_text: str,
     user_text: str,
@@ -783,6 +846,15 @@ def enforce_lori_communication_control(
     # the caller threads these inputs.
     momentum_mode: str = "normal",
     session_hierarchy_state: Optional[Dict] = None,
+    # BUG-LORI-RESPONSE-STUB-COLLAPSE-01 iteration 2 (2026-06-25):
+    # narrator anchors detected by factual_chain_capture upstream
+    # (chat_ws threads them in as _chain_ctx["anchors"]). Used by
+    # Step 6 anchor-aware substitution when Lori produces a
+    # <=3-word stub on a substantive narrator turn. Defaults to
+    # None so legacy callers stay byte-stable; the substitution
+    # falls back to a neutral continuation when no anchors are
+    # available.
+    narrator_anchors: Optional[List[str]] = None,
 ) -> CommunicationControlResult:
     """The single runtime enforcement entry point.
 
@@ -928,6 +1000,9 @@ def enforce_lori_communication_control(
     # the meta-question intercept; iteration is to add deterministic
     # rescue composer for specific failure shapes once they're
     # characterized.
+    # Iteration 2 (2026-06-25): detect AND repair via
+    # compose_stub_collapse_repair. Without substitution the
+    # narrator saw the bare anchor + period as the entire reply.
     _stub_word_count = len((current or "").split())
     _narrator_word_count = len((user_text or "").split())
     if (
@@ -936,6 +1011,11 @@ def enforce_lori_communication_control(
         and not safety_triggered  # safety paths legitimately emit short responses
     ):
         failures.append("response_stub_collapse")
+        current = compose_stub_collapse_repair(
+            user_text or "",
+            anchors=narrator_anchors,
+        )
+        warnings.append("response_stub_collapse_repaired")
 
     # Step 7: WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — Phase 1
     # validators. Default-OFF behind HORNELORE_STORY_FIRST_PHASE_1.
