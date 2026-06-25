@@ -1,0 +1,148 @@
+==============================================================================
+WO-LORI-FACTUAL-CHAIN-CAPTURE-01 — live chat-WS harness
+==============================================================================
+timestamp:       2026-06-24T20:23:00.154047
+person_id:       4999f626-8303-4674-b854-30f8bfe04ff6
+conv_id:         factual_chain_live_ca7d5878dc
+turns_completed: 6 / 6
+contract_score:  23 / 49  (46.9%)
+verdict:         RED
+
+Acceptance gates (49 graded rows):
+  GREEN: ≥ 43/49
+  AMBER: 38-42/49
+  RED:   < 38/49
+
+Verdict-level hard clamps (any one of these → RED):
+  • G2 drift-repair on ≥50% of graded turns
+  • F4 sensory/emotion pivot on a meta-feedback turn
+  • G3 Lori replied in Spanish on an English narrator turn
+
+D1 (chain_meta persisted) is informational only — text-
+only WS turns don't trip story_trigger's audio/word/anchor
+gates. Phase 4 wire is verified separately via
+scripts/verify_chain_meta_persistence.py.
+
+HARD CLAMPS FIRED:
+  ✗ G2_drift_repair_dominance (5/5 graded turns got the drift-repair boilerplate)
+
+------------------------------------------------------------------------------
+Turn 1 — GRADED
+  note: Kent army-induction canonical chain
+  Narrator: They took us from Stanley to Fargo for the exam. I got the top score, and then they gave us meal tickets and sent us west.
+  Lori (verbatim):
+    (no response)
+
+  log:  is_chain=True  conf=0.9  anchors=4  cues=['multi_place_sequence', 'travel_leg_sequence']  meta=False  rejected=''
+  reply: words=0  questions=0  sensory_pivot_match=None
+  Rows:
+    ✓ F1_log_chain_classification
+    ✓ F2_log_anchor_count_meets
+    ✓ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+    ✗ G1_narrator_anchor_echo
+    ✗ G2_not_drift_repair_boilerplate
+    ✓ G3_lori_reply_is_english
+
+------------------------------------------------------------------------------
+Turn 2 — GRADED
+  note: Chris Spring 2026 trip route
+  Narrator: We started in Prague, then went to Salzburg, then Ljubljana, then Pula, and finally into northern Italy.
+  Lori (verbatim):
+    (no response)
+
+  log:  is_chain=None  conf=None  anchors=None  cues=[]  meta=None  rejected=''
+  reply: words=0  questions=0  sensory_pivot_match=None
+  Rows:
+    ✗ F1_log_chain_classification
+    ✗ F2_log_anchor_count_meets
+    ✗ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+    ✗ G1_narrator_anchor_echo
+    ✗ G2_not_drift_repair_boilerplate
+    ✓ G3_lori_reply_is_english
+
+------------------------------------------------------------------------------
+Turn 3 — GRADED
+  note: Venice / Dulles travel disruption chain
+  Narrator: The flight out of Venice was delayed, then we had to get through Dulles, then Denver, then Santa Fe.
+  Lori (verbatim):
+    (no response)
+
+  log:  is_chain=None  conf=None  anchors=None  cues=[]  meta=None  rejected=''
+  reply: words=0  questions=0  sensory_pivot_match=None
+  Rows:
+    ✗ F1_log_chain_classification
+    ✗ F2_log_anchor_count_meets
+    ✗ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+    ✗ G1_narrator_anchor_echo
+    ✗ G2_not_drift_repair_boilerplate
+    ✓ G3_lori_reply_is_english
+
+------------------------------------------------------------------------------
+Turn 4 — GRADED
+  note: School / work / military life-step sequence
+  Narrator: I graduated from Bismarck High in 1965, then went to college at North Dakota State. After that I enlisted in the Army and was sent to basic training at Fort Leonard Wood.
+  Lori (verbatim):
+    (no response)
+
+  log:  is_chain=None  conf=None  anchors=None  cues=[]  meta=None  rejected=''
+  reply: words=0  questions=0  sensory_pivot_match=None
+  Rows:
+    ✗ F1_log_chain_classification
+    ✗ F2_log_anchor_count_meets
+    ✗ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+    ✗ G1_narrator_anchor_echo
+    ✗ G2_not_drift_repair_boilerplate
+    ✓ G3_lori_reply_is_english
+
+------------------------------------------------------------------------------
+Turn 5 — ungraded
+  note: UNGRADED sensory setup — Lori is free to ask a sensory follow-up so T6 has a real prior assistant turn to push back against
+  Narrator: It was the warmest summer day I can remember. The lake glowed and the air smelled like pine.
+  Lori (verbatim):
+    (no response)
+
+  log:  is_chain=None  conf=None  anchors=None  cues=[]  meta=None  rejected=''
+  reply: words=0  questions=0  sensory_pivot_match=None
+
+------------------------------------------------------------------------------
+Turn 6 — GRADED
+  note: Meta-feedback rejecting sensory + asserting factual chain
+  Narrator: No, not the scenery — I want to tell you about my draft induction. They took us from Stanley to Fargo and I scored at the top.
+  Lori (verbatim):
+    (no response)
+
+  log:  is_chain=None  conf=None  anchors=None  cues=[]  meta=None  rejected=''
+  reply: words=0  questions=0  sensory_pivot_match=None
+  Rows:
+    ✗ F1_log_chain_classification
+    ✗ F2_log_anchor_count_meets
+    ✗ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+    ✗ G1_narrator_anchor_echo
+    ✗ G2_not_drift_repair_boilerplate
+    ✓ G3_lori_reply_is_english
+    ✗ M1_meta_feedback_detected
+    ✗ M2_rejected_probe_type_sensory
+
+------------------------------------------------------------------------------
+DB checks (Phase 4 — story_candidates.chain_meta_json):
+    ✗ D1_chain_meta_persisted
+    ✗ D2_chain_meta_shape
+    (info) _db_rows_observed = 0
+    (info) _chain_rows_observed = 0
+
+Final verdict: RED

@@ -1,0 +1,122 @@
+==============================================================================
+Trip-route canary harness — Spring 2026 Central Europe / Northern Italy
+==============================================================================
+(Trip Tab readiness gate — NOT the Trip Tab feature.)
+
+timestamp:       2026-06-24T19:40:36.559761
+person_id:       f359815b-4b08-4f92-a8a0-e2d92e4d1664
+conv_id:         trip_canary_80f06c54cb
+turns_completed: 6 / 6
+contract_score:  31 / 34  (91.2%)
+verdict:         GREEN
+
+Acceptance gates (34 graded rows):
+  GREEN: ≥ 30/34
+  AMBER: 26-29/34
+  RED:   < 26/34
+
+------------------------------------------------------------------------------
+Turn 1 — GRADED
+  note: Spring 2026 outbound route — 8-city travel leg sequence
+  Narrator: On the outbound, we flew into Prague, then drove to Salzburg, then Graz, then crossed into Slovenia at Ljubljana, then down to Pula on the Istrian coast, then over to Muggia and Trieste, and finally settled outside Venice at Mirano.
+  Lori (verbatim):
+    Sorry — let's continue. What would you like to tell me next?
+
+  log:  is_chain=True  conf=0.6  anchors=11  cues=['travel_leg_sequence', 'multi_place_sequence']  meta=False  rejected=''
+  reply: words=12  questions=1  sensory_pivot_match=None
+  Rows:
+    ✓ F1_log_chain_classification
+    ✓ F2_log_anchor_count_meets
+    ✓ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+
+------------------------------------------------------------------------------
+Turn 2 — GRADED
+  note: Mirano hub-and-spoke — six day-trips from Veneto base
+  Narrator: Mirano was our base in the Veneto. From there we went to Treviso, then Padua for the Scrovegni Chapel, then Cittadella for the medieval walls, then Chioggia and Mira along the lagoon, and then into Venice itself.
+  Lori (verbatim):
+    Sorry — let's continue. What would you like to tell me next?
+
+  log:  is_chain=True  conf=0.6  anchors=10  cues=['travel_leg_sequence', 'multi_place_sequence']  meta=False  rejected=''
+  reply: words=12  questions=1  sensory_pivot_match=None
+  Rows:
+    ✓ F1_log_chain_classification
+    ✓ F2_log_anchor_count_meets
+    ✓ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+
+------------------------------------------------------------------------------
+Turn 3 — GRADED
+  note: Pula hub-and-spoke — Istrian coast day-trips
+  Narrator: Before Italy we based out of Pula and Medulin on the Istrian coast. From there we did Rovinj, then drove the Istrian coast road, then came back to walk the Roman amphitheater and forum at Pula.
+  Lori (verbatim):
+    Sorry — let's continue. What would you like to tell me next?
+
+  log:  is_chain=True  conf=0.6  anchors=7  cues=['travel_leg_sequence', 'multi_place_sequence']  meta=False  rejected=''
+  reply: words=12  questions=1  sensory_pivot_match=None
+  Rows:
+    ✓ F1_log_chain_classification
+    ✓ F2_log_anchor_count_meets
+    ✓ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+
+------------------------------------------------------------------------------
+Turn 4 — ungraded
+  note: UNGRADED sensory setup — Lori is free to ask a sensory follow-up so T6 has a real prior assistant turn to push back against
+  Narrator: We stood on a balcony in Venice at sunset. The lagoon was glassy and the bells were ringing across the water.
+  Lori (verbatim):
+    Sorry — let's continue. What would you like to tell me next?
+
+  log:  is_chain=False  conf=0.0  anchors=1  cues=[]  meta=False  rejected=''
+  reply: words=12  questions=1  sensory_pivot_match=None
+
+------------------------------------------------------------------------------
+Turn 5 — GRADED
+  note: Return-journey disruption chain (Venice → Santa Fe)
+  Narrator: The flight out of Venice was delayed, then we had to get through Dulles, then Denver, then finally home to Santa Fe.
+  Lori (verbatim):
+    Sorry — let's continue. What would you like to tell me next?
+
+  log:  is_chain=True  conf=0.9  anchors=4  cues=['travel_leg_sequence', 'multi_place_sequence', 'disruption_sequence']  meta=False  rejected=''
+  reply: words=12  questions=1  sensory_pivot_match=None
+  Rows:
+    ✓ F1_log_chain_classification
+    ✓ F2_log_anchor_count_meets
+    ✓ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+
+------------------------------------------------------------------------------
+Turn 6 — GRADED
+  note: Meta-feedback rejecting sensory + asserting a thematic chain (Roman / Venetian villa / medieval walled town)
+  Narrator: No, not the atmosphere — what mattered was the thread across the trip. We saw the Roman amphitheater at Pula, then the Scrovegni frescoes at Padua, then the medieval walls at Cittadella. Those three connect.
+  Lori (verbatim):
+    Cittadella - they evoke a sense of history and architecture, don't they?
+
+  log:  is_chain=False  conf=0.35  anchors=5  cues=['multi_place_sequence']  meta=True  rejected='sensory'
+  reply: words=12  questions=1  sensory_pivot_match=None
+  Rows:
+    ✗ F1_log_chain_classification
+    ✓ F2_log_anchor_count_meets
+    ✓ F3_log_cue_label_present
+    ✓ F4_lori_no_sensory_pivot
+    ✓ F5_lori_one_question_max
+    ✓ F6_lori_word_budget
+    ✓ M1_meta_feedback_detected
+    ✓ M2_rejected_probe_type_sensory
+
+------------------------------------------------------------------------------
+DB checks (Phase 4 — story_candidates.chain_meta_json):
+    ✗ D1_chain_meta_persisted
+    ✗ D2_chain_meta_shape
+    (info) _db_rows_observed = 0
+    (info) _chain_rows_observed = 0
+
+Final verdict: GREEN
