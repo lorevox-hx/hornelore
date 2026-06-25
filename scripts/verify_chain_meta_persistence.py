@@ -103,7 +103,14 @@ def _ensure_test_narrator(narrator_id: str) -> None:
 
 def _cleanup_test_rows(narrator_id: str) -> None:
     """Delete the test narrator's story_candidates rows + people row
-    so the test doesn't accumulate state across runs."""
+    + filesystem-mirror folder so the test doesn't accumulate state
+    across runs. story_preservation also writes a per-story folder
+    under DATA_DIR/stories-captured/<narrator_id>/ when HORNELORE_
+    STORIES_CAPTURED_FS=1 (Chris's .env default); without this cleanup
+    those folders pile up at ~2 files per run (audio + json metadata)
+    and show in `git status` as untracked even though they're runtime
+    garbage. .gitignore entry was added 2026-06-24 to prevent
+    accidental commits."""
     con = sqlite3.connect(str(_db_path()))
     try:
         con.execute(
@@ -116,6 +123,16 @@ def _cleanup_test_rows(narrator_id: str) -> None:
         pass
     finally:
         con.close()
+
+    # FS mirror cleanup
+    import shutil
+    data_dir = os.getenv("DATA_DIR", str(getattr(db, "DATA_DIR", "data")))
+    fs_mirror = Path(data_dir) / "stories-captured" / narrator_id
+    if fs_mirror.exists() and fs_mirror.is_dir():
+        try:
+            shutil.rmtree(fs_mirror)
+        except Exception:
+            pass
 
 
 def _assert(name: str, ok: bool, detail: str = "") -> Tuple[bool, str]:

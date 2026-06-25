@@ -114,3 +114,9 @@ docs/reports/test23_*_*.screenshots/
 # runtime DB (live narrator data)
 data/hornelore.sqlite
 .fuse_hidden*
+
+# WO-LORI-STORY-CAPTURE-01 — filesystem mirror of captured stories.
+# Self-contained per-story folders (audio + transcript + metadata)
+# written under DATA_DIR/stories-captured/ when HORNELORE_STORIES_
+# CAPTURED_FS=1 fires. Runtime data, NEVER goes in git.
+data/stories-captured/
