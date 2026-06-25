@@ -74,16 +74,22 @@ import re
 from typing import List, Optional, Sequence, Tuple
 
 
-# Per 2026-06-24 product call: language-drift repair is OFF on the
-# Trip-tab surface but stays ON for the normal Lorevox narrator tab.
-# The drift detector trips destructively on legitimate English trip
-# narration containing European place names (Prague / Salzburg /
-# Ljubljana / Pula / Mirano / Padua / Cittadella / Chioggia / Mira /
-# Venice / Rovinj). On normal narrator turns the original K1/K2/K10
-# unprompted-Spanish-drift evidence is still a real failure class
-# that the guard catches. Surface-scoped opt-out via the `surface`
-# kwarg below is the clean fix — no global env flag.
-_SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR = frozenset({"trip"})
+# Per 2026-06-24 product call (English-first iteration 2): the drift
+# guard stays ACTIVE on EVERY surface. The earlier surface=="trip"
+# skip exposed the underlying bug — Lori was pattern-completing into
+# Spanish on European trip narration, and skipping the repair leaked
+# fully Spanish replies to English narrators (worse than the
+# boilerplate). The fix is two-layered:
+#   (1) prevent the drift at generation time with the ENGLISH_FIRST_RULE
+#       prompt directive in prompt_composer (always-on for English
+#       narrator turns).
+#   (2) when drift slips through anyway, repair with a chain-aware
+#       English continuation built from the narrator's detected
+#       anchors — NOT the destructive "Sorry — let's continue"
+#       boilerplate that Chris correctly flagged as unacceptable.
+# Surface routing stays in the API in case a future surface needs it,
+# but the trip-skip set is now empty.
+_SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR = frozenset()
 
 
 # ── Language drift detection ──────────────────────────────────────────────
@@ -167,21 +173,61 @@ def detect_language_drift(
     return True
 
 
-_LANGUAGE_DRIFT_REPAIR_EN = (
-    "Sorry — let's continue. What would you like to tell me next?"
+# Neutral fallback strings — only used when no chain anchors are
+# available to build a context-aware repair.
+_LANGUAGE_DRIFT_REPAIR_EN_NEUTRAL = (
+    "Let's keep going in English. What happened next in your story?"
 )
-_LANGUAGE_DRIFT_REPAIR_ES = (
+_LANGUAGE_DRIFT_REPAIR_ES_NEUTRAL = (
     "Disculpa, continuemos. ¿Qué te gustaría contarme ahora?"
 )
 
 
-def repair_language_drift(target_language: str = "en") -> str:
+def repair_language_drift(
+    target_language: str = "en",
+    anchors: Optional[Sequence[str]] = None,
+) -> str:
     """Return a deterministic continuation in the target language.
-    Default English (the most common case — narrator is English and
-    Lori drifted to Spanish)."""
-    if target_language and target_language.lower().startswith("es"):
-        return _LANGUAGE_DRIFT_REPAIR_ES
-    return _LANGUAGE_DRIFT_REPAIR_EN
+
+    When `anchors` is non-empty AND target_language is English, build
+    a chain-aware continuation that echoes up to the first three
+    narrator anchors so the repair is substantive rather than the
+    earlier "Sorry — let's continue" boilerplate that Chris (correctly)
+    flagged as unacceptable on the 2026-06-24 Spring 2026 trip canary.
+
+    For Spanish narrators (target_language='es'), the neutral Spanish
+    fallback is preserved because the chain-aware framing assumes the
+    drifted-FROM language matched English narrator context.
+    """
+    tl = (target_language or "en").lower()
+    if tl.startswith("es"):
+        return _LANGUAGE_DRIFT_REPAIR_ES_NEUTRAL
+
+    if anchors:
+        cleaned: List[str] = []
+        for a in anchors:
+            if not a:
+                continue
+            s = str(a).strip()
+            if s and s not in cleaned:
+                cleaned.append(s)
+            if len(cleaned) >= 3:
+                break
+        if cleaned:
+            if len(cleaned) == 1:
+                anchor_text = cleaned[0]
+            elif len(cleaned) == 2:
+                anchor_text = f"{cleaned[0]} and {cleaned[1]}"
+            else:
+                anchor_text = (
+                    f"{cleaned[0]}, {cleaned[1]}, and {cleaned[2]}"
+                )
+            return (
+                f"Let's stay with that in English — you were telling me "
+                f"about {anchor_text}. What happened next?"
+            )
+
+    return _LANGUAGE_DRIFT_REPAIR_EN_NEUTRAL
 
 
 # ── Dangling determiner detection ─────────────────────────────────────────
@@ -754,6 +800,7 @@ def apply_response_guards(
     target_language: str = "en",
     seeded_facts: Optional[dict] = None,
     surface: str = "narrator",
+    narrator_anchors: Optional[Sequence[str]] = None,
 ) -> Tuple[str, List[str]]:
     """Apply all guards in order. Language drift is checked first
     (a Spanish drift response will also fail the dangling-determiner
@@ -783,7 +830,9 @@ def apply_response_guards(
         _drift_repair_active
         and detect_language_drift(text, narrator_text, recent_narrator_turns)
     ):
-        text = repair_language_drift(target_language)
+        text = repair_language_drift(
+            target_language, anchors=narrator_anchors,
+        )
         fired.append("language_drift")
         return text, fired
 

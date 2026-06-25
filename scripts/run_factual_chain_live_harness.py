@@ -57,21 +57,35 @@ Per graded turn (T1/T2/T3/T5), six rows are scored:
   F5 lori_one_question_max        — Lori reply has ≤ 1 question mark
   F6 lori_word_budget             — Lori reply ≤ 90 words
 
-Plus the G-gates (2026-06-24 ChatGPT correction — catches paper-GREEN
-runs where F-rows passed on the drift-repair boilerplate or meta-
-feedback-ignoring replies):
+Plus the G-gates (2026-06-24 ChatGPT correction + English-first
+iteration 2 — catches paper-GREEN runs where F-rows passed on a
+drift-repair fallback, meta-feedback ignore, or Spanish drift):
 
   G1 narrator_anchor_echo         — Lori reply must contain ≥ 2 of the
                                     narrator turn's detected chain
                                     anchors as substrings
                                     (case-insensitive). When the turn
                                     carries < 2 detectable anchors, all
-                                    must be echoed. Catches "fake reply"
-                                    cases that have zero anchor recall.
-  G2 not_drift_repair_boilerplate — reply must NOT match the
-                                    _LANGUAGE_DRIFT_REPAIR_* boilerplate
-                                    or "What would you like to tell me
-                                    next" deterministic-fallback shape.
+                                    must be echoed.
+  G2 not_drift_repair_boilerplate — reply must NOT match the legacy
+                                    "Sorry — let's continue" / "What
+                                    would you like to tell me next"
+                                    boilerplate (kept as a backstop
+                                    regression check). The chain-aware
+                                    English fallback "Let's stay with
+                                    that in English ..." is also
+                                    flagged so the harness exposes
+                                    drift-repair firings even with the
+                                    new substantive fallback.
+  G3 lori_reply_is_english        — Lori MUST respond in English on
+                                    English narrator turns (2026-06-24
+                                    English-first product call).
+                                    Detected via the canonical
+                                    _looks_spanish from
+                                    lori_response_guards. Catches the
+                                    real failure ChatGPT named:
+                                    Spanish output on English narrator
+                                    trip narration.
 
 Two extra rows on T6:
 
@@ -89,16 +103,22 @@ Two DB rows after all turns:
                                     chain_anchors, chain_cue_labels,
                                     chain_confidence
 
-Three verdict-level HARD CLAMPS — any one forces RED regardless of
-point count:
+Three verdict-level HARD CLAMPS — any one forces RED:
 
-  • D1 fail                — Phase 4 persistence not proven live
   • G2 ≥ 50% of graded     — drift-repair dominated; F-rows are paper
   • F4 on a meta-feedback  — Phase 3 guard failed to suppress
     turn                     sensory/emotion pivot
+  • G3 on any graded turn  — English-first violation
 
-Total: 5 graded turns × 8 + 2 meta + 2 db = 44 rows.
-Acceptance: ≥ 38/44 GREEN, 33-37/44 AMBER, < 33/44 RED.
+D1 (chain_meta persisted) is informational ONLY in this harness.
+Text-only WS turns don't trip story_trigger's audio/word/anchor
+gates, which is a story_trigger design boundary, not a wiring
+failure. Phase 4 chain_meta_json wire is verified separately via
+scripts/verify_chain_meta_persistence.py (direct preserve_turn
+roundtrip).
+
+Total: 5 graded turns × 9 + 2 meta + 2 db = 49 rows.
+Acceptance: ≥ 43/49 GREEN, 38-42/49 AMBER, < 38/49 RED.
 HARD CLAMP overrides numeric verdict.
 
 Usage:
@@ -139,18 +159,21 @@ from api.services.factual_chain_capture import (  # noqa: E402
     _SENSORY_PROBE_RX,
     build_factual_chain_followup_context,
 )
+from api.services.lori_response_guards import _looks_spanish  # noqa: E402
 
 
-# Drift-repair / deterministic-fallback boilerplate signatures. When
-# Lori's reply matches any of these (case-insensitive substring), G2
-# fires — Lori never composed a real response, so per-turn F-rows that
-# happen to pass (no sensory vocab, short reply, ≤1 question) are
-# scoring on dead behavior.
+# Drift-repair / deterministic-fallback boilerplate signatures. The
+# repair shape changed 2026-06-24 (chain-aware English continuation
+# replaced the "Sorry — let's continue" boilerplate); the legacy
+# strings stay in the signature set as a backstop so any future
+# regression that re-introduces the old boilerplate is still caught.
 _DRIFT_REPAIR_SIGNATURES = (
     "sorry — let's continue",
     "sorry, let's continue",
     "disculpa, continuemos",
     "what would you like to tell me next",
+    "let's keep going in english",
+    "let's stay with that in english",
 )
 
 
@@ -601,6 +624,14 @@ def score_turn(
         else:
             rows["G1_narrator_anchor_echo"] = True
         rows["G2_not_drift_repair_boilerplate"] = not is_drift_repair
+        # G3 — Lori MUST respond in English (per 2026-06-24 English-first
+        # product call). Catches the real failure ChatGPT named: Spanish
+        # output on English narrator turns. Uses the canonical
+        # _looks_spanish from lori_response_guards (single source of
+        # truth across guard + harness).
+        rows["G3_lori_reply_is_english"] = not _looks_spanish(
+            lori_response or ""
+        )
         if turn.expect_meta_feedback:
             rows["M1_meta_feedback_detected"] = log_meta is True
             rows["M2_rejected_probe_type_sensory"] = (
@@ -685,25 +716,26 @@ def write_report(
     else:
         pct = total_passed / total_rows * 100.0
         verdict = (
-            "GREEN" if total_passed >= 38
-            else ("AMBER" if total_passed >= 33 else "RED")
+            "GREEN" if total_passed >= 43
+            else ("AMBER" if total_passed >= 38 else "RED")
         )
 
-    # ── Verdict-level hard clamps (per 2026-06-24 ChatGPT correction) ──
-    # Three failure modes clamp to RED regardless of point count, because
-    # they indicate the wire isn't honestly being exercised:
-    #   (a) D1 fail — Phase 4 chain_meta_json persistence not proven
-    #   (b) G2 dominance — ≥50% of graded turns got the drift-repair
-    #       boilerplate; F-rows that pass on the boilerplate are scoring
-    #       on dead behavior
-    #   (c) F4 fail on a meta-feedback turn — the Phase 3 meta-feedback
-    #       guard didn't prevent a sensory/emotion pivot
+    # ── Verdict-level hard clamps (2026-06-24, iteration 2) ──
+    # Three failure modes clamp to RED regardless of point count:
+    #   (a) G2 dominance — ≥50% of graded turns got the drift-repair
+    #       boilerplate; F-rows that pass on the boilerplate are
+    #       scoring on dead behavior.
+    #   (b) F4 fail on a meta-feedback turn — Phase 3 guard failed.
+    #   (c) G3 fail — Lori replied in Spanish on an English narrator
+    #       turn (English-first product call). Even one is enough.
+    #
+    # D1 (chain_meta persisted) is NOT a hard clamp here. Text-only
+    # WS turns don't reach story_trigger's audio/word/anchor gates,
+    # which is a story_trigger design boundary — not a wiring
+    # failure. Phase 4 chain_meta_json persistence is proven via the
+    # separate scripts/verify_chain_meta_persistence.py direct test.
+    # D1 stays as an informational row in the DB section.
     hard_clamps: List[str] = []
-    if not db_rows_scored.get("D1_chain_meta_persisted", False):
-        hard_clamps.append(
-            "D1_chain_meta_persisted=False (Phase 4 persistence "
-            "not proven live)"
-        )
     graded_results = [r for r in results if r.turn.graded]
     g2_failed = [
         r for r in graded_results
@@ -728,6 +760,15 @@ def write_report(
             f"F4_sensory_pivot_on_meta_feedback "
             f"(T{','.join(str(r.turn.n) for r in meta_f4_fail)})"
         )
+    g3_failed = [
+        r for r in graded_results
+        if r.rows.get("G3_lori_reply_is_english") is False
+    ]
+    if g3_failed:
+        hard_clamps.append(
+            f"G3_lori_replied_in_spanish "
+            f"(T{','.join(str(r.turn.n) for r in g3_failed)})"
+        )
     if hard_clamps:
         verdict = "RED"
 
@@ -742,15 +783,20 @@ def write_report(
     lines.append(f"contract_score:  {total_passed} / {total_rows}  ({pct:.1f}%)")
     lines.append(f"verdict:         {verdict}")
     lines.append("")
-    lines.append("Acceptance gates (44 graded rows):")
-    lines.append("  GREEN: ≥ 38/44")
-    lines.append("  AMBER: 33-37/44")
-    lines.append("  RED:   < 33/44")
+    lines.append("Acceptance gates (49 graded rows):")
+    lines.append("  GREEN: ≥ 43/49")
+    lines.append("  AMBER: 38-42/49")
+    lines.append("  RED:   < 38/49")
     lines.append("")
     lines.append("Verdict-level hard clamps (any one of these → RED):")
-    lines.append("  • D1_chain_meta_persisted = False")
     lines.append("  • G2 drift-repair on ≥50% of graded turns")
     lines.append("  • F4 sensory/emotion pivot on a meta-feedback turn")
+    lines.append("  • G3 Lori replied in Spanish on an English narrator turn")
+    lines.append("")
+    lines.append("D1 (chain_meta persisted) is informational only — text-")
+    lines.append("only WS turns don't trip story_trigger's audio/word/anchor")
+    lines.append("gates. Phase 4 wire is verified separately via")
+    lines.append("scripts/verify_chain_meta_persistence.py.")
     lines.append("")
     if hard_clamps:
         lines.append("HARD CLAMPS FIRED:")
@@ -869,9 +915,10 @@ async def run() -> int:
 
     # Re-derive the same hard clamps used in write_report so the
     # driver's final verdict matches the report verdict exactly.
+    # D1 (chain_meta persisted) is NOT a clamp — see write_report
+    # docstring. Phase 4 is verified separately via
+    # scripts/verify_chain_meta_persistence.py.
     hard_clamps: List[str] = []
-    if not db_scored.get("D1_chain_meta_persisted", False):
-        hard_clamps.append("D1_chain_meta_persisted=False")
     graded_results = [r for r in results if r.turn.graded]
     g2_failed = [
         r for r in graded_results
@@ -895,6 +942,15 @@ async def run() -> int:
             f"F4_sensory_pivot_on_meta_feedback "
             f"(T{','.join(str(r.turn.n) for r in meta_f4_fail)})"
         )
+    g3_failed = [
+        r for r in graded_results
+        if r.rows.get("G3_lori_reply_is_english") is False
+    ]
+    if g3_failed:
+        hard_clamps.append(
+            f"G3_lori_replied_in_spanish "
+            f"(T{','.join(str(r.turn.n) for r in g3_failed)})"
+        )
 
     if hard_clamps:
         print(
@@ -902,10 +958,10 @@ async def run() -> int:
             f"{', '.join(hard_clamps)}"
         )
         return 1
-    if total_passed >= 38:
+    if total_passed >= 43:
         print(f"\n✓ GREEN {total_passed}/{total_rows}")
         return 0
-    if total_passed >= 33:
+    if total_passed >= 38:
         print(f"\n• AMBER {total_passed}/{total_rows}")
         return 0
     print(f"\n✗ RED {total_passed}/{total_rows}")

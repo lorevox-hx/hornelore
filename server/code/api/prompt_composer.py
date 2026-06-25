@@ -3211,6 +3211,53 @@ def compose_system_prompt(
         parts.append(_known_identity_facts_block(runtime71))
         parts.append(_identity_grounding_rules_block(runtime71))
 
+        # WO-LORI-ENGLISH-FIRST-NARRATION-01 (2026-06-24, product call
+        # from Spring 2026 trip canary): always-on English-first rule
+        # for narrator-facing turns. Foreign place names, food terms,
+        # accent characters in narrator's English text do NOT imply a
+        # language change. Lori MUST keep responding in English.
+        #
+        # Targets the root cause exposed by the trip canary: Llama-3.1-8B
+        # pattern-completes into Spanish when narrator text contains
+        # European place-name pile-ups (Prague / Salzburg / Ljubljana /
+        # Pula / Mirano / Padua / Cittadella / Chioggia / Mira / Venice
+        # / Rovinj). With the previous drift-repair guard skipped, Lori
+        # was producing fully Spanish replies to English narrators.
+        #
+        # This directive does NOT override LANGUAGE MIRRORING for
+        # genuine Spanish narrators — the prompt block is conditional
+        # on "narrator's last turn looks like English text." When the
+        # narrator is actually speaking Spanish, the LANGUAGE MIRRORING
+        # rule lower in the prompt takes over.
+        _english_first_block = (
+            "[ENGLISH_FIRST_RULE]\n"
+            "If the narrator's last message is in English, you MUST "
+            "respond in English. Foreign place names (Prague, Salzburg, "
+            "Ljubljana, Pula, Mirano, Padua, Venice, Roma, etc.), "
+            "European food terms, accented words, and travel routes "
+            "are still ENGLISH narration when they appear in an English "
+            "sentence — they do not imply a language switch. Do not "
+            "respond in Spanish, Italian, French, or any other language "
+            "just because the narrator mentioned a foreign place. You "
+            "may translate, pronounce, or explain a specific foreign "
+            "word ONLY when the narrator explicitly asks (\"what does "
+            "X mean\" / \"how do I pronounce X\")."
+        )
+        # Detect narrator language from user_text. Light check — if the
+        # text has Spanish accent chars or 2+ Spanish-only function
+        # words, skip the English-first block (LANGUAGE MIRRORING will
+        # handle the Spanish narrator path).
+        _narrator_is_english = True
+        if user_text:
+            try:
+                from .services.lori_response_guards import _looks_spanish
+                if _looks_spanish(user_text):
+                    _narrator_is_english = False
+            except Exception:
+                pass
+        if _narrator_is_english:
+            parts.append(_english_first_block)
+
         # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2 (2026-06-24): high-
         # priority directive threaded through runtime71 by chat_ws when
         # factual_chain_capture.build_factual_chain_followup_context

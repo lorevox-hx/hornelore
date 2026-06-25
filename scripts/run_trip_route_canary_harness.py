@@ -67,21 +67,27 @@ Per graded turn (T1/T2/T3/T5/T6) six rows are scored:
   F5 lori_one_question_max        — Lori reply has ≤ 1 question mark
   F6 lori_word_budget             — Lori reply ≤ 90 words
 
-Plus the G-gates (2026-06-24 ChatGPT correction):
+Plus the G-gates (2026-06-24 + English-first iteration 2):
 
   G1 narrator_anchor_echo         — Lori reply must contain ≥ 2 of the
                                     narrator turn's detected chain
                                     anchors as substrings. Catches
                                     "fake reply" cases with zero anchor
                                     recall.
-  G2 not_drift_repair_boilerplate — reply must NOT match the
-                                    _LANGUAGE_DRIFT_REPAIR_* or
-                                    "What would you like to tell me
-                                    next" boilerplate. With surface=
-                                    "trip" the drift guard is OFF so
-                                    this SHOULD always pass — if it
-                                    fires, a DIFFERENT fallback shape
-                                    is active and needs triage.
+  G2 not_drift_repair_boilerplate — reply must NOT match the legacy
+                                    "Sorry — let's continue" boilerplate
+                                    OR the new chain-aware fallback
+                                    ("Let's stay with that in English
+                                    ..."). With the ENGLISH_FIRST_RULE
+                                    prompt directive preventing most
+                                    drift at generation time, this
+                                    SHOULD rarely fire — when it does,
+                                    Lori went non-English and the
+                                    fallback intervened.
+  G3 lori_reply_is_english        — Lori MUST respond in English
+                                    (English-first product call). Catches
+                                    the European-place-name pattern-
+                                    completion bug ChatGPT named.
 
 Two extras on T6:
 
@@ -101,19 +107,23 @@ Two DB rows after all turns:
 
 Three verdict-level HARD CLAMPS — any one forces RED:
 
-  • D1 fail
   • G2 ≥ 50% of graded turns
   • F4 on a meta-feedback turn
+  • G3 on any graded turn (English-first violation)
 
-Total: 5 graded turns × 8 + 2 meta + 2 db = 44 rows.
-Acceptance: ≥ 38/44 GREEN, 33-37/44 AMBER, < 33/44 RED.
+D1 (chain_meta persisted) is informational only — text-only WS
+turns can't trip story_trigger's audio/word/anchor gates. Phase 4
+wire verified separately via verify_chain_meta_persistence.py.
+
+Total: 5 graded turns × 9 + 2 meta + 2 db = 49 rows.
+Acceptance: ≥ 43/49 GREEN, 38-42/49 AMBER, < 38/49 RED.
 HARD CLAMP overrides numeric verdict.
 
-Surface routing: each WS payload sent by this harness carries
-params.surface="trip" so the chat path skips the language-drift
-guard. The Lorevox normal narrator tab continues to use surface=
-"narrator" (default) and keeps the drift guard active for the
-original K1/K2/K10 unprompted-Spanish-drift evidence.
+Surface routing: the WS payload no longer sends params.surface=
+"trip" because the drift guard now produces a chain-aware English
+fallback on ALL surfaces (no more destructive boilerplate). Surface
+plumbing remains in chat_ws for a future surface that genuinely
+wants to opt out.
 
 Usage:
 
@@ -151,17 +161,20 @@ from api.services.factual_chain_capture import (  # noqa: E402
     _SENSORY_PROBE_RX,
     build_factual_chain_followup_context,
 )
+from api.services.lori_response_guards import _looks_spanish  # noqa: E402
 
 
-# Drift-repair / deterministic-fallback boilerplate signatures. With
-# surface="trip" now suppressing the language-drift block, any of
-# these in a reply would mean a DIFFERENT fallback fired (code-mix,
-# meta-leak, dangling-determiner) — still RED for the trip canary.
+# Drift-repair / deterministic-fallback boilerplate signatures. The
+# repair shape changed 2026-06-24 (chain-aware English continuation
+# replaced the "Sorry — let's continue" boilerplate); legacy strings
+# stay as a regression backstop.
 _DRIFT_REPAIR_SIGNATURES = (
     "sorry — let's continue",
     "sorry, let's continue",
     "disculpa, continuemos",
     "what would you like to tell me next",
+    "let's keep going in english",
+    "let's stay with that in english",
 )
 
 
@@ -423,12 +436,12 @@ async def send_one_turn(
         "params": {
             "person_id": person_id,
             "turn_id": str(uuid.uuid4()),
-            # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 / Trip-tab readiness
-            # (2026-06-24): tell the chat path this turn is on the
-            # Trip-tab surface so the language-drift guard is skipped.
-            # European place-name pile-ups would otherwise nuke Lori's
-            # real reply with the boilerplate "Sorry — let's continue."
-            "surface": "trip",
+            # English-first iteration 2 (2026-06-24): drift guard now
+            # active on every surface with a chain-aware English
+            # fallback, so the harness no longer needs to send
+            # surface="trip" to bypass the boilerplate. Plumbing
+            # remains in chat_ws for a future surface that genuinely
+            # wants opt-out.
         },
     }
     await ws.send(json.dumps(payload))
@@ -612,6 +625,12 @@ def score_turn(
         else:
             rows["G1_narrator_anchor_echo"] = True
         rows["G2_not_drift_repair_boilerplate"] = not is_drift_repair
+        # G3 — Lori MUST respond in English on the trip surface (per
+        # 2026-06-24 English-first product call). Catches Spanish
+        # pattern-completion on European place-name pile-ups.
+        rows["G3_lori_reply_is_english"] = not _looks_spanish(
+            lori_response or ""
+        )
         if turn.expect_meta_feedback:
             rows["M1_meta_feedback_detected"] = log_meta is True
             rows["M2_rejected_probe_type_sensory"] = (
@@ -693,14 +712,14 @@ def write_report(
     else:
         pct = total_passed / total_rows * 100.0
         verdict = (
-            "GREEN" if total_passed >= 38
-            else ("AMBER" if total_passed >= 33 else "RED")
+            "GREEN" if total_passed >= 43
+            else ("AMBER" if total_passed >= 38 else "RED")
         )
 
-    # Verdict-level hard clamps (2026-06-24 ChatGPT correction).
+    # Verdict-level hard clamps (2026-06-24, iteration 2). D1
+    # informational only (Phase 4 verified via direct preserve_turn
+    # roundtrip in scripts/verify_chain_meta_persistence.py).
     hard_clamps: List[str] = []
-    if not db_rows_scored.get("D1_chain_meta_persisted", False):
-        hard_clamps.append("D1_chain_meta_persisted=False")
     graded_results = [r for r in results if r.turn.graded]
     g2_failed = [
         r for r in graded_results
@@ -724,6 +743,15 @@ def write_report(
             f"F4_sensory_pivot_on_meta_feedback "
             f"(T{','.join(str(r.turn.n) for r in meta_f4_fail)})"
         )
+    g3_failed = [
+        r for r in graded_results
+        if r.rows.get("G3_lori_reply_is_english") is False
+    ]
+    if g3_failed:
+        hard_clamps.append(
+            f"G3_lori_replied_in_spanish "
+            f"(T{','.join(str(r.turn.n) for r in g3_failed)})"
+        )
     if hard_clamps:
         verdict = "RED"
 
@@ -743,15 +771,20 @@ def write_report(
     lines.append(f"contract_score:  {total_passed} / {total_rows}  ({pct:.1f}%)")
     lines.append(f"verdict:         {verdict}")
     lines.append("")
-    lines.append("Acceptance gates (44 graded rows):")
-    lines.append("  GREEN: ≥ 38/44")
-    lines.append("  AMBER: 33-37/44")
-    lines.append("  RED:   < 33/44")
+    lines.append("Acceptance gates (49 graded rows):")
+    lines.append("  GREEN: ≥ 43/49")
+    lines.append("  AMBER: 38-42/49")
+    lines.append("  RED:   < 38/49")
     lines.append("")
     lines.append("Verdict-level hard clamps (any one of these → RED):")
-    lines.append("  • D1_chain_meta_persisted = False")
     lines.append("  • G2 drift-repair on ≥50% of graded turns")
     lines.append("  • F4 sensory/emotion pivot on a meta-feedback turn")
+    lines.append("  • G3 Lori replied in Spanish on an English narrator turn")
+    lines.append("")
+    lines.append("D1 (chain_meta persisted) is informational only — text-")
+    lines.append("only WS turns don't trip story_trigger's audio/word/anchor")
+    lines.append("gates. Phase 4 wire is verified separately via")
+    lines.append("scripts/verify_chain_meta_persistence.py.")
     lines.append("")
     if hard_clamps:
         lines.append("HARD CLAMPS FIRED:")
@@ -870,10 +903,9 @@ async def run() -> int:
         1 for k in db_scored if not k.startswith("_")
     )
 
-    # Re-derive hard clamps for the driver verdict.
+    # Re-derive hard clamps for the driver verdict. D1 is informational
+    # only — Phase 4 verified separately.
     hard_clamps: List[str] = []
-    if not db_scored.get("D1_chain_meta_persisted", False):
-        hard_clamps.append("D1_chain_meta_persisted=False")
     graded_results = [r for r in results if r.turn.graded]
     g2_failed = [
         r for r in graded_results
@@ -897,6 +929,15 @@ async def run() -> int:
             f"F4_sensory_pivot_on_meta_feedback "
             f"(T{','.join(str(r.turn.n) for r in meta_f4_fail)})"
         )
+    g3_failed = [
+        r for r in graded_results
+        if r.rows.get("G3_lori_reply_is_english") is False
+    ]
+    if g3_failed:
+        hard_clamps.append(
+            f"G3_lori_replied_in_spanish "
+            f"(T{','.join(str(r.turn.n) for r in g3_failed)})"
+        )
 
     if hard_clamps:
         print(
@@ -904,10 +945,10 @@ async def run() -> int:
             f"{', '.join(hard_clamps)}"
         )
         return 1
-    if total_passed >= 38:
+    if total_passed >= 43:
         print(f"\n✓ GREEN {total_passed}/{total_rows}")
         return 0
-    if total_passed >= 33:
+    if total_passed >= 38:
         print(f"\n• AMBER {total_passed}/{total_rows}")
         return 0
     print(f"\n✗ RED {total_passed}/{total_rows}")

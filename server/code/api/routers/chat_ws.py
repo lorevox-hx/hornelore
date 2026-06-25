@@ -3769,25 +3769,36 @@ async def ws_chat(ws: WebSocket):
                 len(_recent_narr),
                 (user_text or "")[:120],
             )
-            # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 / Trip-tab readiness
-            # (2026-06-24): per-surface scoping for the language-drift
-            # guard. The WS payload carries an optional params.surface
-            # marker ("trip" for Trip-tab callers; default "narrator"
-            # for everything else). When the surface is "trip" the
-            # language-drift block is skipped because European place-
-            # name pile-ups trip the detector destructively on
-            # legitimate English trip narration. All other guards run
-            # on every surface — they don't suffer the trip-route
-            # false-positive class.
+            # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 / English-first
+            # iteration 2 (2026-06-24): the drift-repair guard is
+            # ACTIVE on every surface (the earlier trip-skip exposed
+            # the underlying Spanish-pattern-completion bug). The
+            # ENGLISH_FIRST_RULE prompt directive prevents most drift
+            # at generation time; this guard remains as a safety net.
+            # When it fires, the repair uses the narrator's detected
+            # chain anchors so the continuation is substantive English
+            # rather than the destructive "Sorry — let's continue"
+            # boilerplate.
             _surface = (params.get("surface") or "narrator").strip().lower()
             if _surface not in ("narrator", "trip"):
                 _surface = "narrator"
+            _narrator_anchors_for_guard: List[str] = []
+            try:
+                if isinstance(_chain_ctx, dict):
+                    _na = _chain_ctx.get("anchors") or []
+                    if isinstance(_na, list):
+                        _narrator_anchors_for_guard = [
+                            str(a) for a in _na if a
+                        ]
+            except Exception:
+                _narrator_anchors_for_guard = []
             _guarded_text, _guards_fired = _apply_guards(
                 assistant_text=final_text,
                 narrator_text=user_text or "",
                 recent_narrator_turns=_recent_narr,
                 target_language=_guard_target_lang,
                 surface=_surface,
+                narrator_anchors=_narrator_anchors_for_guard,
             )
             if _guards_fired:
                 logger.warning(
