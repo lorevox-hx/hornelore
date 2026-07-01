@@ -1,0 +1,63 @@
+{
+  "trip_id": "trip_2019_france_italy_paris_aix_rome",
+  "title": "2019 France / Italy: Paris, Aix-en-Provence, Rome",
+  "source_document": "May 26 thru June 15.docx",
+  "date_range": {
+    "start": "2019-05-26",
+    "end": "2019-07-02"
+  },
+  "regions": [
+    {
+      "region_id": "paris",
+      "title": "Paris base",
+      "date_range": {
+        "start": "2019-05-28",
+        "end": "2019-06-06"
+      },
+      "base_address": "41 Rue de Reuilly, Paris",
+      "stops": [
+        "Jardin du Luxembourg / Panthéon / Latin Quarter",
+        "Sainte-Chapelle / Notre-Dame / Centre Pompidou",
+        "Eiffel Tower / Trocadéro / Musée d'Orsay",
+        "Sacré-Cœur / Montmartre / Place du Tertre",
+        "Marché d'Aligre",
+        "Musée du Louvre",
+        "Arc de Triomphe / Nissim de Camondo / Galeries Lafayette"
+      ]
+    },
+    {
+      "region_id": "provence",
+      "title": "Aix-en-Provence base",
+      "date_range": {
+        "start": "2019-06-06",
+        "end": "2019-06-13"
+      },
+      "base_address": "15 rue Suffren, Aix-en-Provence",
+      "stops": [
+        "Paris Gare de Lyon to Aix TGV",
+        "Aix base days",
+        "Avignon / Palais des Papes / Avignon Bridge / Arles"
+      ]
+    },
+    {
+      "region_id": "rome",
+      "title": "Rome close and return",
+      "date_range": {
+        "start": "2019-06-28",
+        "end": "2019-07-02"
+      },
+      "base_address": "Via Francesco Carletti, 1, Rome",
+      "stops": [
+        "Rome apartment",
+        "FCO -> DFW -> ABQ return flights"
+      ]
+    }
+  ],
+  "future_ui_tests": [
+    "Trip detail renders date range and all regions.",
+    "Paris region nests day chains under Paris base.",
+    "Provence region includes Paris-to-Aix TGV transition and Avignon/Arles day trip.",
+    "Rome close renders lodging and return flight chain.",
+    "Location Guide explains French/Italian terms in English without switching chat language."
+  ]
+}
