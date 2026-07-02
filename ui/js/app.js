@@ -651,6 +651,13 @@ function lvOpenMediaTool(tool) {
     case "document_archive":
       window.open("media-archive.html", "_blank", "noopener");
       break;
+    // WO-TRIP-IMPORT-AND-CLUSTER-01 Phase 3 — Trips operator console
+    // (itinerary import, EXIF photo clustering, review queue, trip
+    // memoir preview + DOCX). Gated server-side by HORNELORE_TRIPS;
+    // the page shows a clear banner when the gate is off.
+    case "trip_tab":
+      window.open("trip-tab.html", "_blank", "noopener");
+      break;
     default:
       console.warn("[lv-shell] unknown media tool:", tool);
   }

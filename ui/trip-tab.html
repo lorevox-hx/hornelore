@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hornelore — Trips (Operator)</title>
+<style>
+  :root {
+    --bg: #10151c; --card: #171f29; --card2: #1d2733; --line: #2a3644;
+    --text: #dbe4ee; --dim: #8fa1b3; --accent: #4ea1ff; --green: #3ecf8e;
+    --warn: #e8b34b; --red: #e86a5f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header.top {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 18px; border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+  header.top .brand { font-weight: 700; font-size: 16px; }
+  header.top .sub { color: var(--dim); font-size: 13px; }
+  header.top .spacer { flex: 1; }
+  .grid {
+    display: grid; grid-template-columns: 290px 1fr 360px;
+    gap: 14px; padding: 14px; align-items: start;
+  }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px; margin-bottom: 14px;
+  }
+  .card h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: .3px;
+             text-transform: uppercase; color: var(--dim); }
+  .btn {
+    background: var(--accent); color: #0b1017; border: 0; border-radius: 7px;
+    padding: 7px 12px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .btn.ghost { background: transparent; color: var(--accent);
+               border: 1px solid var(--accent); }
+  .btn.green { background: var(--green); }
+  .btn.red { background: var(--red); color: #fff; }
+  .btn.small { padding: 4px 8px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  select, input[type=text], textarea {
+    width: 100%; background: var(--card2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
+    font-size: 13px; font-family: inherit;
+  }
+  textarea { min-height: 110px; font-family: ui-monospace, monospace; }
+  .trip-item {
+    padding: 10px; border: 1px solid var(--line); border-radius: 8px;
+    margin-bottom: 8px; cursor: pointer;
+  }
+  .trip-item:hover { border-color: var(--accent); }
+  .trip-item.on { border-color: var(--accent); background: var(--card2); }
+  .trip-item .t { font-weight: 600; }
+  .trip-item .d { color: var(--dim); font-size: 12px; }
+  .badge {
+    display: inline-block; background: var(--card2); border: 1px solid var(--line);
+    color: var(--dim); border-radius: 20px; padding: 1px 9px; font-size: 11px;
+    margin: 1px 3px 1px 0;
+  }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  .badge.green { color: var(--green); border-color: var(--green); }
+  .region { border: 1px solid var(--line); border-radius: 8px;
+            padding: 10px; margin-bottom: 10px; background: var(--card2); }
+  .region .rh { font-weight: 700; margin-bottom: 6px; }
+  .region .rh .small, .small { color: var(--dim); font-size: 12px; font-weight: 400; }
+  .stop { padding: 6px 8px; border-left: 3px solid var(--line);
+          margin: 4px 0 4px 6px; border-radius: 0 6px 6px 0; }
+  .stop.base { border-left-color: var(--accent); background: rgba(78,161,255,.06); }
+  .stop .nm { font-weight: 600; }
+  .stop .meta { color: var(--dim); font-size: 12px; }
+  .stop .kids { margin-left: 16px; }
+  .stop .editbtn { float: right; }
+  .theme { display: inline-block; background: rgba(78,161,255,.12);
+           border: 1px solid var(--accent); color: var(--accent);
+           border-radius: 20px; padding: 2px 11px; font-size: 12px;
+           margin: 2px 4px 2px 0; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .qrow { display: flex; gap: 10px; align-items: center;
+          border: 1px solid var(--line); border-radius: 8px;
+          padding: 8px; margin-bottom: 8px; }
+  .qrow img { width: 64px; height: 64px; object-fit: cover;
+              border-radius: 6px; background: var(--card2); }
+  .qrow .qi { flex: 1; min-width: 0; }
+  .qrow .qi .cid { font-size: 11px; color: var(--dim);
+                   overflow: hidden; text-overflow: ellipsis; }
+  .conf { font-weight: 700; }
+  .conf.lo { color: var(--red); } .conf.mid { color: var(--warn); }
+  .conf.hi { color: var(--green); }
+  #banner { display: none; margin: 14px; padding: 12px 16px;
+            border: 1px solid var(--warn); border-radius: 8px;
+            color: var(--warn); background: rgba(232,179,75,.08); }
+  #status { color: var(--dim); font-size: 12px; min-height: 16px;
+            padding: 0 18px 6px; }
+  .memo pre { white-space: pre-wrap; font-family: inherit; margin: 0; }
+  .memo h4 { margin: 12px 0 4px; }
+  details.editor { margin: 6px 0 6px 6px; }
+  details.editor .frm { display: grid; grid-template-columns: 1fr 1fr;
+                        gap: 6px; padding: 8px; background: var(--card2);
+                        border-radius: 8px; margin-top: 6px; }
+  details.editor label { font-size: 11px; color: var(--dim); display: block; }
+  dialog {
+    background: var(--card); color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; max-width: 640px; width: 92%;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Lorevox</div>
+    <div class="sub">Trips — operator console (import · cluster · review · memoir)</div>
+    <div class="spacer"></div>
+    <label class="sub" for="narratorSel">Narrator:</label>
+    <select id="narratorSel" style="width:260px"></select>
+    <button class="btn ghost" id="refreshBtn" type="button">Refresh</button>
+  </header>
+  <div id="banner"></div>
+  <div id="status"></div>
+
+  <div class="grid">
+    <!-- Left: trip list + import -->
+    <aside>
+      <div class="card">
+        <h2>Trips</h2>
+        <div id="tripList"><span class="small">No trips loaded yet.</span></div>
+      </div>
+      <div class="card">
+        <h2>Import</h2>
+        <div class="row">
+          <button class="btn" id="importJsonBtn" type="button">Import itinerary JSON</button>
+          <button class="btn ghost" id="importCsvBtn" type="button">Import CSV</button>
+        </div>
+        <p class="small">JSON accepts the fixture shape
+        (<code>fixtures/trips/*.json</code>). CSV columns:
+        region, location, stop_type, date_start, date_end, lat, lng,
+        parent, title, notes, themes.</p>
+      </div>
+    </aside>
+
+    <!-- Middle: trip detail -->
+    <main>
+      <div class="card" id="overviewCard">
+        <h2>Trip Overview</h2>
+        <div id="overview"><span class="small">Select or import a trip.</span></div>
+      </div>
+      <div class="card">
+        <h2>Regions &amp; Nested Stops</h2>
+        <p class="small">Click ✎ on any stop to correct dates/GPS — then re-run
+        clustering. Operator-confirmed photo links survive re-clustering.</p>
+        <div id="regions"></div>
+      </div>
+      <div class="card">
+        <h2>Themes Across the Trip</h2>
+        <div id="themes"></div>
+      </div>
+      <div class="card">
+        <h2>Memoir Preview</h2>
+        <div class="row">
+          <button class="btn ghost" id="previewBtn" type="button">Load preview</button>
+          <button class="btn green" id="docxBtn" type="button">Download DOCX</button>
+        </div>
+        <div class="memo" id="memoirPreview"></div>
+      </div>
+    </main>
+
+    <!-- Right: clustering + review queue -->
+    <aside>
+      <div class="card">
+        <h2>Photo Clustering</h2>
+        <p class="small">Reads this narrator's uploaded photos (EXIF date + GPS
+        from Photo Intake) and assigns each to the nearest stop by
+        space + time. Safe to re-run.</p>
+        <div class="row">
+          <button class="btn" id="clusterBtn" type="button">Run EXIF cluster</button>
+          <button class="btn ghost" id="openIntakeBtn" type="button">Open Photo Intake</button>
+        </div>
+        <div id="clusterResult" class="small"></div>
+      </div>
+      <div class="card">
+        <h2>Review Queue <span class="small">(confidence &lt; 0.5)</span></h2>
+        <div class="row">
+          <button class="btn ghost small" id="queueBtn" type="button">Load queue</button>
+          <button class="btn ghost small" id="allLinksBtn" type="button">All links</button>
+        </div>
+        <div id="reviewQueue"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Import dialog -->
+  <dialog id="importDlg">
+    <h3 id="importDlgTitle" style="margin-top:0">Import</h3>
+    <div id="csvMeta" style="display:none">
+      <label class="small">Trip title</label>
+      <input type="text" id="csvTitle" placeholder="Spring 2026 Central Europe">
+      <div class="row">
+        <input type="text" id="csvStart" placeholder="start YYYY-MM-DD" style="flex:1">
+        <input type="text" id="csvEnd" placeholder="end YYYY-MM-DD" style="flex:1">
+      </div>
+    </div>
+    <label class="small" id="pasteLabel">Paste itinerary JSON</label>
+    <textarea id="importText" spellcheck="false"></textarea>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" id="importCancel" type="button">Cancel</button>
+      <button class="btn" id="importGo" type="button">Import</button>
+    </div>
+    <div class="small" id="importErr" style="color:var(--red)"></div>
+  </dialog>
+
+  <script src="js/trip-tab.js"></script>
+</body>
+</html>
