@@ -84,14 +84,24 @@ class LengthControlTests(unittest.TestCase):
         self.assertNotIn("too_long", r.failures)
 
     def test_unknown_style_falls_back_to_default(self):
-        long_text = " ".join(["word"] * 70) + ". What do you remember?"
+        # Stale-assertion fix 2026-07-02: WO-LORI-ORAL-HISTORY-DEFAULT-01
+        # (2026-06-14) deliberately flipped the unknown-style default
+        # from 55 (clear_direct heritage) to 90 (oral_history default).
+        # 74 words must now pass; 95 words must still trip.
+        under_text = " ".join(["word"] * 70) + ". What do you remember?"
         r = enforce_lori_communication_control(
-            assistant_text=long_text,
+            assistant_text=under_text,
             user_text="anything",
             session_style="unknown_made_up_style",
         )
-        # Default limit is 55 (clear_direct) — should trip
-        self.assertIn("too_long", r.failures)
+        self.assertNotIn("too_long", r.failures)
+        over_text = " ".join(["word"] * 95) + ". What do you remember?"
+        r2 = enforce_lori_communication_control(
+            assistant_text=over_text,
+            user_text="anything",
+            session_style="unknown_made_up_style",
+        )
+        self.assertIn("too_long", r2.failures)
 
 
 class QuestionCountTests(unittest.TestCase):

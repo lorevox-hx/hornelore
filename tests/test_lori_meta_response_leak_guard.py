@@ -161,10 +161,13 @@ class ApplyResponseGuardsIntegrationTest(unittest.TestCase):
             "\"Tell me more about the.\""
         )
         out, fired = apply_response_guards(text, narrator_text="I was born here.")
-        # Meta-leak fires first; recovered draft has dangling determiner so
-        # dangling-determiner also fires.
+        # Stale-assertion fix 2026-07-02: repair_meta_response_leak now
+        # completes the trailing determiner itself ("about the." ->
+        # "about that."), so the recovered draft is already clean and
+        # dangling_determiner correctly does NOT need to fire.
         self.assertIn("meta_response_leak", fired)
-        self.assertIn("dangling_determiner", fired)
+        self.assertNotIn("dangling_determiner", fired)
+        self.assertEqual(out, "Tell me more about that.")
 
 
 if __name__ == "__main__":
