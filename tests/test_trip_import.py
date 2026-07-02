@@ -41,6 +41,7 @@ class _TempDbCase(unittest.TestCase):
                 narrator_id TEXT NOT NULL,
                 image_path TEXT NOT NULL DEFAULT '',
                 file_hash TEXT NOT NULL DEFAULT '',
+                description TEXT,
                 date_value TEXT,
                 latitude REAL,
                 longitude REAL,
@@ -226,6 +227,114 @@ class MemoirPreviewTest(_TempDbCase):
 
     def test_preview_missing_trip_none(self):
         self.assertIsNone(trip_repository.trip_memoir_preview("nope"))
+
+
+class StopUpdateTest(_TempDbCase):
+    def _trip_with_stop(self):
+        trip_id = trip_import.import_itinerary("person-su", {
+            "title": "Edit test",
+            "date_range": {"start": "2026-05-22", "end": "2026-06-13"},
+            "regions": [{"title": "R1", "stops": ["Prague"]}],
+        })
+        tree = trip_repository.trip_tree(trip_id)
+        return trip_id, tree["regions"][0]["stops"][0]["id"]
+
+    def test_date_and_gps_correction(self):
+        trip_id, stop_id = self._trip_with_stop()
+        ok = trip_repository.stop_update(
+            stop_id, date_start="2026-05-23", date_end="2026-05-25",
+            latitude=50.0755, longitude=14.4378,
+        )
+        self.assertTrue(ok)
+        tree = trip_repository.trip_tree(trip_id)
+        stop = tree["regions"][0]["stops"][0]
+        self.assertEqual(stop["date_start"], "2026-05-23")
+        self.assertAlmostEqual(stop["latitude"], 50.0755, places=3)
+
+    def test_clear_dates(self):
+        trip_id, stop_id = self._trip_with_stop()
+        trip_repository.stop_update(stop_id, date_start="2026-05-23")
+        trip_repository.stop_update(stop_id, clear_dates=True)
+        tree = trip_repository.trip_tree(trip_id)
+        self.assertIsNone(tree["regions"][0]["stops"][0]["date_start"])
+
+    def test_no_fields_returns_false(self):
+        _, stop_id = self._trip_with_stop()
+        self.assertFalse(trip_repository.stop_update(stop_id))
+
+
+class TripDeleteTest(_TempDbCase):
+    def test_delete_cascades(self):
+        trip_id = trip_import.import_itinerary("person-del", {
+            "title": "Delete me",
+            "date_range": {"start": "2026-05-22", "end": "2026-06-13"},
+            "regions": [{"title": "R1", "stops": ["Prague", "Pula"]}],
+            "themes": [{"title": "T", "tag": "t"}],
+        })
+        trip_repository.photo_link_upsert(trip_id, "photo-x")
+        self.assertTrue(trip_repository.trip_delete(trip_id))
+        self.assertIsNone(trip_repository.trip_get(trip_id))
+        # cascade check: no orphan links
+        self.assertEqual(trip_repository.photo_links_list(trip_id), [])
+        # deleting again -> False
+        self.assertFalse(trip_repository.trip_delete(trip_id))
+
+
+class PhotoPathJoinTest(_TempDbCase):
+    def _seed_photo(self, pid, path, desc=None):
+        import sqlite3 as _s
+        con = _s.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "date_value) VALUES (?, 'n1', ?, ?, '2026-05-23')",
+            (pid, path, "hash-" + pid),
+        )
+        if desc:
+            con.execute(
+                "UPDATE photos SET image_path = image_path WHERE id = ?",
+                (pid,),
+            )
+        con.commit()
+        con.close()
+
+    def test_join_and_memoir_filter(self):
+        trip_id = trip_import.import_itinerary("person-pp", {
+            "title": "Join test",
+            "date_range": {"start": "2026-05-22", "end": "2026-06-13"},
+            "regions": [{"title": "R1", "stops": ["Prague"]}],
+        })
+        self._seed_photo("ph-in", "/tmp/in.jpg")
+        self._seed_photo("ph-out", "/tmp/out.jpg")
+        link_in = trip_repository.photo_link_upsert(trip_id, "ph-in")
+        link_out = trip_repository.photo_link_upsert(trip_id, "ph-out")
+        trip_repository.photo_link_update(link_out, include_in_memoir=False)
+        rows = trip_repository.photo_links_with_photo_paths(trip_id)
+        self.assertEqual([r["photo_id"] for r in rows], ["ph-in"])
+        self.assertEqual(rows[0]["photo_image_path"], "/tmp/in.jpg")
+        all_rows = trip_repository.photo_links_with_photo_paths(
+            trip_id, memoir_only=False,
+        )
+        self.assertEqual(len(all_rows), 2)
+
+
+try:
+    import docx as _docx_probe  # noqa: F401
+    _HAS_DOCX = True
+except Exception:
+    _HAS_DOCX = False
+
+
+@unittest.skipUnless(_HAS_DOCX, "python-docx not installed in this env")
+class TripDocxTest(_TempDbCase):
+    def test_docx_builds_from_fixture(self):
+        from api.services.trip_memoir_docx import build_trip_docx
+        itinerary = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+        itinerary["themes"] = [{"title": "Paris museums", "tag": "pm"}]
+        trip_id = trip_import.import_itinerary("person-dx", itinerary)
+        preview = trip_repository.trip_memoir_preview(trip_id)
+        blob = build_trip_docx(preview, photo_rows=[])
+        self.assertGreater(len(blob), 5000)
+        self.assertEqual(blob[:2], b"PK")  # docx = zip container
 
 
 if __name__ == "__main__":

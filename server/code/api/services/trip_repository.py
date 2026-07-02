@@ -361,6 +361,109 @@ def photo_link_update(
         con.close()
 
 
+def stop_update(
+    stop_id: str,
+    location_name: Optional[str] = None,
+    stop_type: Optional[str] = None,
+    date_start: Optional[str] = None,
+    date_end: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    title: Optional[str] = None,
+    notes: Optional[str] = None,
+    thematic_tags: Optional[List[str]] = None,
+    clear_dates: bool = False,
+) -> bool:
+    """Operator correction surface — tightening stop dates/GPS is how
+    clustering confidence improves on real photo sets. ``clear_dates``
+    nulls both date columns (dates are None-means-unchanged otherwise)."""
+    sets: List[str] = []
+    args: List[Any] = []
+    if location_name is not None:
+        sets.append("location_name = ?"); args.append(location_name)
+    if stop_type is not None:
+        sets.append("stop_type = ?"); args.append(stop_type)
+    if clear_dates:
+        sets.append("date_start = NULL")
+        sets.append("date_end = NULL")
+    else:
+        if date_start is not None:
+            sets.append("date_start = ?"); args.append(date_start)
+        if date_end is not None:
+            sets.append("date_end = ?"); args.append(date_end)
+    if latitude is not None:
+        sets.append("latitude = ?"); args.append(latitude)
+    if longitude is not None:
+        sets.append("longitude = ?"); args.append(longitude)
+    if title is not None:
+        sets.append("title = ?"); args.append(title)
+    if notes is not None:
+        sets.append("notes = ?"); args.append(notes)
+    if thematic_tags is not None:
+        sets.append("thematic_tags_json = ?")
+        args.append(json.dumps(thematic_tags, ensure_ascii=False))
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(stop_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_stops SET {', '.join(sets)} WHERE id = ?", args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def trip_delete(trip_id: str) -> bool:
+    """Delete a trip and everything under it (FK cascades cover
+    regions/stops/themes/photo-links/notes/suggestions/story-links).
+    Photos themselves are NOT touched — trip_photo_links are joins,
+    not ownership."""
+    con = _connect()
+    try:
+        cur = con.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def photo_links_with_photo_paths(
+    trip_id: str,
+    memoir_only: bool = True,
+) -> List[Dict[str, Any]]:
+    """Photo links joined to the photos authority table for rendering
+    (image_path for DOCX embedding, description for captions). Rows
+    whose photo has been soft-deleted are excluded."""
+    con = _connect()
+    try:
+        where = "l.trip_id = ? AND p.deleted_at IS NULL"
+        if memoir_only:
+            where += " AND l.include_in_memoir = 1"
+        rows = con.execute(
+            f"""SELECT l.*, p.image_path AS photo_image_path,
+                       p.description AS photo_description,
+                       p.date_value AS photo_date_value
+                FROM trip_photo_links l
+                JOIN photos p ON p.id = l.photo_id
+                WHERE {where}
+                ORDER BY l.taken_at, l.ord""",
+            (trip_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        con.close()
+
+
 # ── Tree read + memoir preview ────────────────────────────────────────────
 
 

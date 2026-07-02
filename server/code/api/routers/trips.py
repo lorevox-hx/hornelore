@@ -11,6 +11,9 @@ mirroring the operator_eval_harness posture):
     GET   /api/trips/{trip_id}/photo-links?max_confidence=
     PATCH /api/trips/photo-links/{link_id}
     GET   /api/trips/{trip_id}/memoir-preview
+    PATCH /api/trips/stops/{stop_id}          (operator date/GPS correction)
+    DELETE /api/trips/{trip_id}
+    GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
 
 Operator-side surface. Nothing here reaches the narrator directly —
 the interview lane consumes trips later via location notes (LOCKED
@@ -67,6 +70,19 @@ class ImportCsvRequest(BaseModel):
 
 class ClusterPhotosRequest(BaseModel):
     narrator_id: Optional[str] = None  # defaults to the trip's person_id
+
+
+class StopPatch(BaseModel):
+    location_name: Optional[str] = None
+    stop_type: Optional[str] = None
+    date_start: Optional[str] = None
+    date_end: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    thematic_tags: Optional[List[str]] = None
+    clear_dates: bool = False
 
 
 class PhotoLinkPatch(BaseModel):
@@ -248,3 +264,82 @@ def memoir_preview(trip_id: str) -> Dict[str, Any]:
     if not preview:
         raise HTTPException(status_code=404, detail="trip not found")
     return preview
+
+
+@router.patch("/stops/{stop_id}")
+def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
+    """Operator correction surface — tightening a stop's dates/GPS is
+    how clustering confidence improves on real photo sets. Re-run
+    cluster-photos after corrections; operator-confirmed links are
+    preserved."""
+    _require_trips_enabled()
+    ok = trip_repository.stop_update(
+        stop_id,
+        location_name=req.location_name,
+        stop_type=req.stop_type,
+        date_start=req.date_start,
+        date_end=req.date_end,
+        latitude=req.latitude,
+        longitude=req.longitude,
+        title=req.title,
+        notes=req.notes,
+        thematic_tags=req.thematic_tags,
+        clear_dates=req.clear_dates,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=404, detail="stop not found or nothing to update",
+        )
+    return {"ok": True, "stop_id": stop_id}
+
+
+@router.delete("/{trip_id}")
+def delete_trip(trip_id: str) -> Dict[str, Any]:
+    """Delete a trip and all rows under it (regions/stops/themes/photo
+    links cascade). Photos themselves are never touched — the links
+    are joins, not ownership."""
+    _require_trips_enabled()
+    ok = trip_repository.trip_delete(trip_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="trip not found")
+    logger.info("[trips][delete] trip=%s", trip_id)
+    return {"ok": True, "trip_id": trip_id}
+
+
+@router.get("/{trip_id}/export-docx")
+def export_docx(trip_id: str):
+    """Standalone trip memoir DOCX — deterministic Part I/II/III render
+    of the same canonical rows the preview shows, with the clustered
+    photo appendix embedded (include_in_memoir=1 links only)."""
+    _require_trips_enabled()
+    preview = trip_repository.trip_memoir_preview(trip_id)
+    if not preview:
+        raise HTTPException(status_code=404, detail="trip not found")
+    from ..services.trip_memoir_docx import build_trip_docx
+    photo_rows = trip_repository.photo_links_with_photo_paths(
+        trip_id, memoir_only=True,
+    )
+    try:
+        docx_bytes = build_trip_docx(preview, photo_rows)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    import io
+    from fastapi.responses import StreamingResponse
+    safe = "".join(
+        c if c.isalnum() or c in "-_" else "_"
+        for c in (preview.get("title") or "trip")
+    )[:60].strip("_") or "trip"
+    filename = f"lorevox_trip_memoir_{safe}.docx"
+    logger.info(
+        "[trips][docx] export trip=%s photos=%d", trip_id, len(photo_rows),
+    )
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".wordprocessingml.document"
+        ),
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )

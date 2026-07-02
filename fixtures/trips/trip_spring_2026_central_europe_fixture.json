@@ -1,0 +1,243 @@
+{
+  "trip_id": "trip_spring_2026_central_europe",
+  "title": "Spring 2026 Central Europe & Northern Italy",
+  "source_document": "WO-TRIP-MEMOIR-01 canonical test case",
+  "summary": "23 days, six countries: Prague start, Austria and Slovenia drive, Istrian coast base, Veneto base with day trips, Venice delay and the Dulles-Denver-Santa Fe return.",
+  "date_range": {
+    "start": "2026-05-22",
+    "end": "2026-06-13"
+  },
+  "regions": [
+    {
+      "region_id": "czechia",
+      "title": "Czechia — Prague",
+      "country_or_area": "Czechia",
+      "date_range": { "start": "2026-05-22", "end": "2026-05-24" },
+      "stops": [
+        {
+          "location_name": "Prague",
+          "stop_type": "base",
+          "date_start": "2026-05-22",
+          "date_end": "2026-05-24",
+          "latitude": 50.0755,
+          "longitude": 14.4378,
+          "thematic_tags": ["medieval_walled_towns", "markets_and_food"]
+        }
+      ]
+    },
+    {
+      "region_id": "austria",
+      "title": "Austria — Salzburg / Graz",
+      "country_or_area": "Austria",
+      "date_range": { "start": "2026-05-24", "end": "2026-05-26" },
+      "stops": [
+        {
+          "location_name": "Salzburg",
+          "stop_type": "sight",
+          "date_start": "2026-05-24",
+          "date_end": "2026-05-25",
+          "latitude": 47.8095,
+          "longitude": 13.0550
+        },
+        {
+          "location_name": "Graz",
+          "stop_type": "sight",
+          "date_start": "2026-05-25",
+          "date_end": "2026-05-26",
+          "latitude": 47.0707,
+          "longitude": 15.4395,
+          "thematic_tags": ["medieval_walled_towns"]
+        }
+      ]
+    },
+    {
+      "region_id": "slovenia",
+      "title": "Slovenia — Ljubljana / drive routes",
+      "country_or_area": "Slovenia",
+      "date_range": { "start": "2026-05-26", "end": "2026-05-26" },
+      "stops": [
+        {
+          "location_name": "Ljubljana",
+          "stop_type": "transit",
+          "date_start": "2026-05-26",
+          "date_end": "2026-05-26",
+          "latitude": 46.0569,
+          "longitude": 14.5058
+        }
+      ]
+    },
+    {
+      "region_id": "istria",
+      "title": "Croatia (Istria) — Pula / Medulin coast",
+      "country_or_area": "Croatia (Istria)",
+      "date_range": { "start": "2026-05-26", "end": "2026-05-30" },
+      "base_address": "Medulin",
+      "stops": [
+        {
+          "location_name": "Pula / Medulin",
+          "stop_type": "base",
+          "date_start": "2026-05-26",
+          "date_end": "2026-05-30",
+          "latitude": 44.8226,
+          "longitude": 13.9333,
+          "thematic_tags": ["roman_archaeology", "markets_and_food"],
+          "day_trips": [
+            {
+              "location_name": "Pula Roman sites",
+              "stop_type": "sight",
+              "date_start": "2026-05-27",
+              "date_end": "2026-05-27",
+              "latitude": 44.8666,
+              "longitude": 13.8496,
+              "thematic_tags": ["roman_archaeology"]
+            },
+            {
+              "location_name": "Rovinj",
+              "stop_type": "day_trip",
+              "date_start": "2026-05-28",
+              "date_end": "2026-05-28",
+              "latitude": 45.0812,
+              "longitude": 13.6387
+            },
+            {
+              "location_name": "Istrian coastal towns",
+              "stop_type": "day_trip",
+              "date_start": "2026-05-29",
+              "date_end": "2026-05-29",
+              "latitude": 45.0000,
+              "longitude": 13.7500
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "region_id": "italy",
+      "title": "Italy — Muggia / Trieste / Mirano + Veneto",
+      "country_or_area": "Italy",
+      "date_range": { "start": "2026-05-30", "end": "2026-06-12" },
+      "base_address": "Mirano",
+      "stops": [
+        {
+          "location_name": "Muggia",
+          "stop_type": "sight",
+          "date_start": "2026-05-30",
+          "date_end": "2026-05-30",
+          "latitude": 45.6019,
+          "longitude": 13.7669
+        },
+        {
+          "location_name": "Trieste",
+          "stop_type": "sight",
+          "date_start": "2026-05-30",
+          "date_end": "2026-05-30",
+          "latitude": 45.6495,
+          "longitude": 13.7768,
+          "thematic_tags": ["roman_archaeology"]
+        },
+        {
+          "location_name": "Mirano",
+          "stop_type": "base",
+          "date_start": "2026-05-30",
+          "date_end": "2026-06-12",
+          "latitude": 45.4950,
+          "longitude": 12.1090,
+          "thematic_tags": ["venetian_villas"],
+          "day_trips": [
+            {
+              "location_name": "Treviso",
+              "stop_type": "day_trip",
+              "latitude": 45.6669,
+              "longitude": 12.2430
+            },
+            {
+              "location_name": "Padua / Scrovegni Chapel",
+              "stop_type": "day_trip",
+              "latitude": 45.4064,
+              "longitude": 11.8768,
+              "thematic_tags": ["venetian_villas", "roman_archaeology"]
+            },
+            {
+              "location_name": "Cittadella",
+              "stop_type": "day_trip",
+              "latitude": 45.6486,
+              "longitude": 11.7845,
+              "thematic_tags": ["medieval_walled_towns"]
+            },
+            {
+              "location_name": "Chioggia",
+              "stop_type": "day_trip",
+              "latitude": 45.2196,
+              "longitude": 12.2789
+            },
+            {
+              "location_name": "Mira / Brenta villas",
+              "stop_type": "day_trip",
+              "latitude": 45.4370,
+              "longitude": 12.1332,
+              "thematic_tags": ["venetian_villas"]
+            },
+            {
+              "location_name": "Venice",
+              "stop_type": "day_trip",
+              "latitude": 45.4408,
+              "longitude": 12.3155
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "region_id": "return",
+      "title": "Return Journey — Venice to Santa Fe",
+      "country_or_area": "Return",
+      "date_range": { "start": "2026-06-12", "end": "2026-06-13" },
+      "stops": [
+        {
+          "location_name": "Venice Marco Polo departure (delayed)",
+          "stop_type": "disruption",
+          "date_start": "2026-06-12",
+          "date_end": "2026-06-12",
+          "latitude": 45.5053,
+          "longitude": 12.3519,
+          "thematic_tags": ["travel_disruptions"]
+        },
+        {
+          "location_name": "Dulles connection",
+          "stop_type": "transit",
+          "date_start": "2026-06-12",
+          "date_end": "2026-06-12",
+          "latitude": 38.9531,
+          "longitude": -77.4565,
+          "thematic_tags": ["travel_disruptions"]
+        },
+        {
+          "location_name": "Denver",
+          "stop_type": "transit",
+          "date_start": "2026-06-12",
+          "date_end": "2026-06-13",
+          "latitude": 39.8561,
+          "longitude": -104.6737
+        },
+        {
+          "location_name": "Santa Fe arrival",
+          "stop_type": "transit",
+          "date_start": "2026-06-13",
+          "date_end": "2026-06-13",
+          "latitude": 35.6870,
+          "longitude": -105.9378
+        }
+      ]
+    }
+  ],
+  "themes": [
+    { "title": "Roman archaeology", "tag": "roman_archaeology", "description": "Pula amphitheatre, Trieste, scattered ruins." },
+    { "title": "Venetian villas", "tag": "venetian_villas", "description": "Brenta canal, Padua, Mira." },
+    { "title": "Medieval walled towns", "tag": "medieval_walled_towns", "description": "Cittadella, Graz altstadt, Prague." },
+    { "title": "Markets and food", "tag": "markets_and_food", "description": "Prague markets, Istrian seafood, Veneto wine." },
+    { "title": "Travel disruptions", "tag": "travel_disruptions", "description": "Train delay; airline delay at Venice; tight Dulles connection." },
+    { "title": "Return journey", "tag": "return_journey", "description": "Venice to Dulles to Denver to Santa Fe arc." },
+    { "title": "Family history threads", "tag": "family_history", "description": "The genealogical lane." }
+  ],
+  "_operator_note": "Dates and GPS coordinates are seeded from the WO-TRIP-MEMOIR-01 canonical test case with approximations where the spec is silent (Austria/Slovenia leg days, Veneto day-trip dates, return dates). Correct any of them via the photo-link review PATCH or a future trip-edit surface; clustering confidence improves as dates tighten."
+}
