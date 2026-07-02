@@ -85,6 +85,7 @@ _SPANISH_FUNCTION_WORDS = (
     "decía", "decían", "decíamos",
     "iba", "iban", "íbamos",
     # common verb forms (preterite) — distinctively Spanish
+    "nací", "nació", "naci", "nacio", "nacido", "nacida",
     "dijo", "dije", "dijeron", "dijimos",
     "fue", "fui", "fueron", "fuimos",
     "hizo", "hice", "hicieron", "hicimos",
@@ -109,6 +110,49 @@ _SPANISH_FUNCTION_WORDS = (
 )
 _SPANISH_FUNCTION_RX = re.compile(
     r"\b(?:" + "|".join(_SPANISH_FUNCTION_WORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+# Tokens from _SPANISH_FUNCTION_WORDS that are ALSO common English,
+# French, or Italian words / proper-noun particles, so they must not
+# count as Spanish evidence on their own
+# (BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01, 2026-07-02).
+# Live evidence: 2019 France/Italy canary T3 — "Palais de Chaillot",
+# "Arc de Triomphe" made "de" a function-word hit, and é+É counted as
+# two distinct accents, so a fully-English narrator turn pinned the
+# session language advisory to es; the T4 reply was then replaced with
+# the Spanish drift repair ("Disculpa, continuemos") — narrator-visible
+# Spanish in an English session.
+# Collisions annotated: en/de/la/que/entre/tu/es/venir (French),
+# una/al/del/se/te/mi-clitic/como→Lake Como/vino (Italian),
+# el/los/las (US place-name particles), con/sin/son/era/hay/once/
+# quince/vine/saber/mil/ya/ella (plain English words/names).
+_AMBIGUOUS_FUNCTION_TOKENS = frozenset({
+    "el", "la", "los", "las", "un", "una",
+    "de", "del", "al", "en", "con", "sin", "entre",
+    "y", "o", "u",
+    "que", "como", "es", "son", "era", "hay",
+    "ella", "ya",
+    "dos", "once", "quince", "mil",
+    "vino", "vine", "saber", "venir",
+})
+
+# High-confidence Spanish phrases — word combinations that do not occur
+# in English, French, or Italian text. A single phrase hit is definitive.
+# Added 2026-07-02: covers short code-switched / degraded turns that the
+# word-count tiers miss ("Hola, me llamo María", "quise decir Lima",
+# "no, mi madre se llamaba Carmen", "no, nací en Lima") — three of the
+# four were PRE-EXISTING detection misses at HEAD, caught while fixing
+# BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01.
+_SPANISH_PHRASE_RX = re.compile(
+    r"\b(?:"
+    r"me llamo|se llam(?:a|aba|an)|"
+    r"quise decir|quiero decir|"
+    r"nac[ií](?:o|\u00f3)?\s+en|"
+    r"mi (?:madre|padre|mam[a\u00e1]|pap[a\u00e1]|abuel[oa]|herman[oa]|espos[oa]|hij[oa]s?)|"
+    r"tu (?:madre|padre|mam[a\u00e1]|abuel[oa])"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -154,23 +198,44 @@ def looks_spanish(text: str) -> bool:
     """
     if not text:
         return False
-    # Definitive: Spanish-only punctuation marks
-    if "¿" in text or "¡" in text:
+    # Definitive: Spanish-only punctuation + enye. French, Italian and
+    # Portuguese never use ¿ ¡ ñ. (Known accepted risk: English
+    # loanwords "jalapeño" / "El Niño" — same exposure as the old
+    # accent-set path, and vanishingly rare in Lori output.)
+    if "¿" in text or "¡" in text or "ñ" in text or "Ñ" in text:
         return True
-    # Count accent characters and function words
-    accent_chars = set(c for c in text if c in "áéíóúñÁÉÍÓÚÑ")
+    # Definitive: Spanish-only phrases ("me llamo", "quise decir",
+    # "nací en", "mi madre ... se llamaba"). Precision-first — these
+    # bigrams do not occur in English/French/Italian prose.
+    if _SPANISH_PHRASE_RX.search(text):
+        return True
+    # Accent chars: CASEFOLDED distinct set, acute vowels only.
+    # BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01 (2026-07-02):
+    # é and É previously counted as TWO distinct accents, so dense
+    # French ("Trocadéro ... Champs Élysées") satisfied the ≥2 rule.
+    # After casefolding, French/Italian can only ever contribute {é}
+    # (French á í ó ú don't exist; Italian uses grave accents à è ì ò
+    # ù, which are different codepoints) — so ≥2 distinct casefolded
+    # acutes remains a safe Spanish/Portuguese signal.
+    accent_chars = set(c.lower() for c in text if c in "áéíóúÁÉÍÓÚ")
     fn_word_hits = set(m.group(0).lower() for m in _SPANISH_FUNCTION_RX.finditer(text))
-    # ≥2 distinct accents → Spanish (loanwords like "fiancée" only
-    # have é repeated, which counts as 1 distinct char)
+    # Strong hits = function words that are NOT common English/French/
+    # Italian tokens. "Palais de Chaillot" must not make "de" count.
+    strong_hits = fn_word_hits - _AMBIGUOUS_FUNCTION_TOKENS
+    # ≥2 distinct casefolded accents → Spanish
     if len(accent_chars) >= 2:
         return True
-    # 1 accent + 1+ function word → Spanish
-    if accent_chars and fn_word_hits:
+    # 1 accent + ≥1 STRONG function word → Spanish. Loanword-only
+    # text ("fiancée", "Marché d'Aligre", "Musée d'Orsay") stays
+    # English because its hits are ambiguous or absent.
+    if accent_chars and strong_hits:
         return True
-    # No accents but ≥3 distinct function words → Spanish (Whisper
-    # degraded output path). Raised from 2 to 3 on 2026-06-24 after
-    # Walt seven-era walk Era 7 false-positive evidence.
-    if not accent_chars and len(fn_word_hits) >= 3:
+    # No accents: ≥3 distinct function words of which ≥2 strong →
+    # Spanish (Whisper degraded output path). Raised from 2 to 3 on
+    # 2026-06-24 (Walt Era 7 evidence); strong-subset requirement
+    # added 2026-07-02 so English/French filler ("de la en y con")
+    # cannot satisfy the count alone.
+    if not accent_chars and len(fn_word_hits) >= 3 and len(strong_hits) >= 2:
         return True
     return False
 

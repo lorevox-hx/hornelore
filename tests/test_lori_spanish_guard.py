@@ -58,6 +58,72 @@ class LooksSpanishTest(unittest.TestCase):
         self.assertFalse(looks_spanish("la"))
 
 
+class FrenchPlaceOverfireTest(unittest.TestCase):
+    """BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01 (2026-07-02).
+
+    2019 France/Italy canary: narrator T3 ("Trocadéro ... Champs
+    Élysées ... Palais de Chaillot") flagged Spanish via é+É counting
+    as two distinct accents AND "de" counting as a function word. The
+    session advisory pinned lang=es and the T4 English reply was
+    replaced with the Spanish drift repair — narrator-visible Spanish
+    in an English session.
+    """
+
+    def test_2019_t3_museum_run_is_english(self):
+        self.assertFalse(looks_spanish(
+            "The Paris museum run included the Eiffel Tower, Trocadéro "
+            "Gardens, Palais de Chaillot, the Champs Élysées, Musée "
+            "d'Orsay, Sacré-Cœur, Montmartre, the Louvre, Arc de "
+            "Triomphe, Musée Nissim de Camondo, and Galeries Lafayette."
+        ))
+
+    def test_2019_t4_marche_is_english(self):
+        self.assertFalse(looks_spanish(
+            "At Marché d'Aligre there were market stalls, food smells, "
+            "voices, and the feeling of a neighborhood morning."
+        ))
+
+    def test_accent_case_variants_not_two_distinct(self):
+        # é + É must casefold to ONE distinct accent char.
+        self.assertFalse(looks_spanish("Élysées and the Musée."))
+
+    def test_lake_como_vino_is_english(self):
+        self.assertFalse(looks_spanish(
+            "We stayed at Lake Como, then took the train to Venice "
+            "for some vino."
+        ))
+
+    def test_once_plus_son_loanword_is_english(self):
+        self.assertFalse(looks_spanish(
+            "Once we got to the Musée d'Orsay, my son and I split up."
+        ))
+
+    def test_two_distinct_accents_still_spanish(self):
+        # í + ó = two distinct casefolded acutes — Spanish signal.
+        self.assertTrue(looks_spanish("Sí, cómo no."))
+
+    def test_me_llamo_phrase_definitive(self):
+        # Pre-existing miss at HEAD: accent + no strong words.
+        self.assertTrue(looks_spanish(
+            "Hola, me llamo María. I just moved here from Lima, Peru."
+        ))
+
+    def test_quise_decir_phrase_definitive(self):
+        # Pre-existing miss at HEAD: only 2 function-word hits.
+        self.assertTrue(looks_spanish("quise decir Lima, no Cuzco"))
+
+    def test_se_llamaba_phrase_definitive(self):
+        # Pre-existing miss at HEAD.
+        self.assertTrue(looks_spanish("no, mi madre se llamaba Carmen"))
+
+    def test_naci_en_phrase_definitive(self):
+        self.assertTrue(looks_spanish("no, nací en Lima"))
+
+    def test_naci_en_whisper_degraded(self):
+        # Whisper often strips accents.
+        self.assertTrue(looks_spanish("no, naci en Lima"))
+
+
 class PerspectiveSingularTest(unittest.TestCase):
     """Live-evidence cases from BUG-ML-LORI-SPANISH-PERSPECTIVE-01."""
 

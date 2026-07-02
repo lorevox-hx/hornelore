@@ -51,10 +51,11 @@ class LooksSpanishKnownOverfireCases(unittest.TestCase):
             "away. After I had been there less than a year I contacted "
             "my fiancée Janice."
         )
-        # This SHOULD return False for English text but CURRENTLY
-        # returns True. The session-language contract makes this
-        # advisory-only when profile is english-locked.
-        self.assertTrue(looks_spanish(text))
+        # FIXED 2026-07-02 (BUG-ML-SPANISH-DETECT-FRENCH-PLACE-
+        # OVERFIRE-01): "once" is now an ambiguous token, so a single
+        # loanword accent no longer flags English prose as Spanish.
+        # The session-language contract remains as defense-in-depth.
+        self.assertFalse(looks_spanish(text))
 
     def test_overfire_test_g_attache_plus_son(self):
         """TEST-G narrator: 'attaché' + 'son' (English noun for child)
@@ -67,7 +68,9 @@ class LooksSpanishKnownOverfireCases(unittest.TestCase):
             "Air Force Base. We dealt with the embassy or attaché "
             "office in Frankfurt."
         )
-        self.assertTrue(looks_spanish(text))
+        # FIXED 2026-07-02: "son" is now an ambiguous token — English
+        # prose with "attaché" + "son" stays English.
+        self.assertFalse(looks_spanish(text))
 
     def test_clean_english_does_not_overfire(self):
         """No accents + no function-word overlap → English (no overfire)."""
