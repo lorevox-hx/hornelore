@@ -608,12 +608,32 @@ def build_factual_chain_followup_context(
     # Compose a composer-facing directive string (Phase 2 sees this).
     directive_parts: List[str] = []
     if detection["is_factual_chain"]:
+        # Strengthened 2026-07-02 (2019 France/Italy canary T3 evidence:
+        # Lori asked about "the evening atmosphere on the Champ de Mars"
+        # on a factual museum enumeration despite the one-sentence soft
+        # ban). Forbidden vocabulary mirrors _SENSORY_PROBE_RX so the
+        # directive and the post-LLM F4 validator agree. GOOD SHAPE uses
+        # placeholder tokens per BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01 Path A
+        # so the exemplar cannot be copied verbatim; the FORBIDDEN
+        # example stays concrete as an anti-pattern (never emitted).
         directive_parts.append(
             "The narrator is giving a factual chain. Do not pivot to "
-            "scenery, sounds, smells, atmosphere, or generalized feeling. "
+            "scenery, sights, sounds, smells, atmosphere, ambience, "
+            "camaraderie, or generalized feeling — not even as a "
+            "softener on an otherwise factual question. FORBIDDEN words "
+            "in your reply: 'atmosphere', 'ambience', 'scenery', "
+            "'sights', 'sounds', 'smells', 'camaraderie', 'feel', "
+            "'felt', 'feeling', 'feelings'. "
+            "FORBIDDEN EXAMPLE (never ask this on a chain turn): "
+            "\"What do you remember about the evening atmosphere on "
+            "the Champ de Mars?\" "
+            "GOOD SHAPE (substitute the narrator's own anchors for the "
+            "bracketed placeholders — never emit the brackets): "
+            "\"You covered [PLACE_A], [PLACE_B], and [PLACE_C]. What "
+            "came after [PLACE_C]?\" "
             "Briefly reflect the known sequence and ask for the next "
-            "factual link, missing place/date/person/action, or outcome. "
-            "Ask one question only."
+            "factual link, missing place/date/person/action, or "
+            "outcome. Ask one question only."
         )
     if meta["is_meta_feedback"]:
         directive_parts.append(
