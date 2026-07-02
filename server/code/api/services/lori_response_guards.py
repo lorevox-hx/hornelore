@@ -117,7 +117,20 @@ _SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR = frozenset()
 # Conservative — false-positives here would force English output on
 # legitimate Spanish narrator turns. We only match characters/words
 # that are unambiguously Spanish-only.
-_SPANISH_ACCENT_CHARS_RX = re.compile(r"[áéíóúñÁÉÍÓÚÑ¿¡]")
+#
+# Two-tier accent detection (2026-07-02,
+# BUG-LORI-SPANISH-DETECT-OVERFIRE-FRENCH-ACCENT-01): ñ/¿/¡ are
+# unambiguously Spanish. Plain accented vowels are shared with French /
+# Italian / Portuguese / English loanwords (Trocadéro, Musée d'Orsay,
+# café) — and the VOICE PRESERVATION RULE
+# (WO-LORI-ENGLISH-FIRST-SESSION-MODE-01) requires Lori to keep those
+# verbatim, so an accented vowel alone must NOT flag a reply as Spanish.
+# An accented vowel plus ≥1 Spanish-only word, or ≥2 Spanish-only words
+# with no accent, is required. Do NOT lower these thresholds — the
+# language-drift repair safety net (Kent K1/K2/K10 evidence) depends on
+# this detector staying accurate.
+_SPANISH_UNIQUE_CHARS_RX = re.compile(r"[ñÑ¿¡]")
+_LATIN_ACCENT_CHARS_RX = re.compile(r"[áéíóúÁÉÍÓÚ]")
 _SPANISH_ONLY_WORDS_RX = re.compile(
     r"\b(?:que|el|los|las|una|unos|unas|para|con|por|sin|sobre|"
     # Greetings + common phrases
@@ -148,12 +161,17 @@ def _looks_spanish(text: str) -> bool:
     """Return True if text contains Spanish-only signals."""
     if not text:
         return False
-    if _SPANISH_ACCENT_CHARS_RX.search(text):
-        return True
-    # Need ≥2 distinct Spanish-only words to call it Spanish (single
-    # word like "el" could be a name)
+    if _SPANISH_UNIQUE_CHARS_RX.search(text):
+        return True  # ñ / ¿ / ¡ alone → Spanish
     matches = _SPANISH_ONLY_WORDS_RX.findall(text)
-    return len(set(m.lower() for m in matches)) >= 2
+    n_words = len(set(m.lower() for m in matches))
+    if _LATIN_ACCENT_CHARS_RX.search(text):
+        # Accented vowel is shared with French/Italian/PT loanwords
+        # (Trocadéro) — require ≥1 Spanish-only word alongside it.
+        return n_words >= 1
+    # No accent → need ≥2 distinct Spanish-only words (single word
+    # like "el" could be a name).
+    return n_words >= 2
 
 
 def detect_language_drift(

@@ -68,6 +68,65 @@ class LanguageDriftDetectionTest(unittest.TestCase):
         self.assertTrue(g.detect_language_drift(assistant, "", ()))
 
 
+class FrenchAccentFalsePositiveTest(unittest.TestCase):
+    """BUG-LORI-SPANISH-DETECT-OVERFIRE-FRENCH-ACCENT-01 (2026-07-02).
+
+    2019 France/Italy canary T3: Lori's all-English reply contained
+    "Trocadéro" and the single-tier accent regex flagged it as Spanish,
+    firing the G3 hard clamp. French/Italian/PT accents + English
+    loanwords must NOT count as Spanish on their own.
+    """
+
+    def test_trocadero_english_reply_not_spanish(self):
+        # Literal 2019 T3 failure class.
+        self.assertFalse(g._looks_spanish(
+            "You walked from the Eiffel Tower to the Trocadéro Gardens "
+            "and Palais de Chaillot. What museum came next?"
+        ))
+
+    def test_dense_french_accents_not_spanish(self):
+        self.assertFalse(g._looks_spanish(
+            "You mentioned Musée d'Orsay, Sacré-Cœur, and the Champs "
+            "Élysées. Which did you visit first?"
+        ))
+
+    def test_english_loanword_cafe_not_spanish(self):
+        self.assertFalse(g._looks_spanish(
+            "We had café au lait near the Louvre."
+        ))
+
+    def test_enye_alone_still_spanish(self):
+        # Unique-tier characters keep firing without any word support.
+        self.assertTrue(g._looks_spanish("El niño pequeño"))
+
+    def test_inverted_punctuation_still_spanish(self):
+        self.assertTrue(g._looks_spanish("¡Qué bonito!"))
+
+    def test_accent_plus_one_spanish_word_still_spanish(self):
+        # Kent K1/K2/K10 drift class: accented vowel + ≥1 Spanish-only
+        # word must still detect.
+        self.assertTrue(g._looks_spanish(
+            "Ese recuerdo de la transición de Stanley, North Dakota, "
+            "tiene una sensación de cambio."
+        ))
+
+    def test_no_accent_two_spanish_words_still_spanish(self):
+        self.assertTrue(g._looks_spanish(
+            "La casa de mi familia es muy grande"
+        ))
+
+    def test_trocadero_reply_no_drift_flag(self):
+        # End-to-end: English narrator + English reply carrying a French
+        # place name must not be classified as language drift.
+        self.assertFalse(g.detect_language_drift(
+            "You walked from the Trocadéro to the Palais de Chaillot. "
+            "What came next on the museum run?",
+            "The Paris museum run included the Eiffel Tower and "
+            "Trocadéro Gardens.",
+            (),
+        ))
+
+
 class LanguageDriftRepairTest(unittest.TestCase):
     def test_default_english_repair(self):
         text = g.repair_language_drift("en")
@@ -75,8 +134,13 @@ class LanguageDriftRepairTest(unittest.TestCase):
         self.assertNotIn("español", text.lower())
 
     def test_spanish_target_repair(self):
+        # Stale-assertion fix 2026-07-02: the ES repair became the
+        # neutral "Disculpa, continuemos" string when the chain-aware
+        # English repair landed; it no longer mentions "inglés".
         text = g.repair_language_drift("es")
-        self.assertIn("inglés", text)
+        self.assertIn("Disculpa", text)
+        self.assertTrue(g._looks_spanish(text))
+        self.assertNotIn("English", text)
 
 
 # ── Section 2: dangling determiner detection ─────────────────────────────
