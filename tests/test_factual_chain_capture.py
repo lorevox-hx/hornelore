@@ -366,6 +366,81 @@ class FollowupContextBuilderTests(unittest.TestCase):
 # ──────────────────────────────────────────────────────────────────────────
 
 
+class ThematicTripChainTest(unittest.TestCase):
+    """BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01 (landed 2026-07-02).
+
+    Thematic-recall and dense-enumeration narrator turns are chains.
+    Spring 2026 T6 + 2019 T8 (thematic) and 2019 T3 (enumeration)
+    previously scored below the 0.50 floor.
+    """
+
+    SPRING_T6 = (
+        "No, not the atmosphere — what mattered was the thread across "
+        "the trip. We saw the Roman amphitheater at Pula, then the "
+        "Scrovegni frescoes at Padua, then the medieval walls at "
+        "Cittadella. Those three connect."
+    )
+    T8_2019 = (
+        "No, not the market atmosphere — the thread I want is how the "
+        "trip moved from Paris museums to Provence history to Rome at "
+        "the end. The Louvre, Avignon, Arles, and Rome connect for me."
+    )
+    T3_2019 = (
+        "The Paris museum run included the Eiffel Tower, Trocadéro "
+        "Gardens, Palais de Chaillot, the Champs Élysées, Musée "
+        "d'Orsay, Sacré-Cœur, Montmartre, the Louvre, Arc de "
+        "Triomphe, Musée Nissim de Camondo, and Galeries Lafayette."
+    )
+
+    def test_spring_t6_is_chain_with_thematic_cue(self):
+        r = detect_factual_chain(self.SPRING_T6)
+        self.assertTrue(r["is_factual_chain"])
+        self.assertIn("thematic_trip_chain", r["cue_labels"])
+        self.assertIn("multi_place_sequence", r["cue_labels"])
+
+    def test_2019_t8_is_chain_with_thematic_cue(self):
+        r = detect_factual_chain(self.T8_2019)
+        self.assertTrue(r["is_factual_chain"])
+        self.assertIn("thematic_trip_chain", r["cue_labels"])
+        self.assertIn("multi_place_sequence", r["cue_labels"])
+
+    def test_2019_t3_enumeration_is_chain(self):
+        r = detect_factual_chain(self.T3_2019)
+        self.assertTrue(r["is_factual_chain"])
+        self.assertIn("place_enumeration_sequence", r["cue_labels"])
+        self.assertIn("multi_place_sequence", r["cue_labels"])
+        self.assertGreaterEqual(len(r["anchors"]), 7)
+
+    def test_negative_no_thematic_marker(self):
+        r = detect_factual_chain(
+            "The trip was beautiful and I loved every minute of it."
+        )
+        self.assertFalse(r["is_factual_chain"])
+
+    def test_negative_thread_without_anchors(self):
+        r = detect_factual_chain(
+            "The thread of the trip was nice and relaxing overall."
+        )
+        self.assertFalse(r["is_factual_chain"])
+
+    def test_negative_conversation_moved(self):
+        # Guard against the spec stop-condition: conversational
+        # "moved from X to Y" without trip context must not fire.
+        r = detect_factual_chain(
+            "The conversation moved from politics to religion to "
+            "family that night."
+        )
+        self.assertFalse(r["is_factual_chain"])
+
+    def test_negative_sensory_market_turn(self):
+        r = detect_factual_chain(
+            "At Marché d'Aligre there were market stalls, food "
+            "smells, voices, and the feeling of a neighborhood "
+            "morning."
+        )
+        self.assertFalse(r["is_factual_chain"])
+
+
 class ClassifyShortcutTests(unittest.TestCase):
     def test_returns_just_cue_labels(self):
         cues = classify_factual_chain_cues(KENT_ARMY_INDUCTION)

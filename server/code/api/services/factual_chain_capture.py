@@ -49,6 +49,8 @@ CUE_LABELS = (
     "medical_sequence",
     "family_migration_sequence",
     "operator_trip_sequence",
+    "thematic_trip_chain",
+    "place_enumeration_sequence",
 )
 
 PROBE_TYPE_SENSORY = "sensory"
@@ -360,6 +362,41 @@ def _count_pattern(rx: re.Pattern, text: str) -> int:
 # ──────────────────────────────────────────────────────────────────────────
 
 
+# BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01 (landed 2026-07-02).
+# Thematic-thread recall: the narrator names the "thread" / "connection"
+# across a multi-anchor recall instead of narrating a route. Spring 2026
+# T6 ("Those three connect") and 2019 T8 ("the thread I want is how the
+# trip moved from Paris museums to Provence history to Rome") both
+# scored 0.35 and misclassified as non-chains.
+_THEMATIC_THREAD_RX = re.compile(
+    r"\b(?:"
+    r"thread\s+(?:across|of|that)\s+(?:the\s+)?(?:trip|journey)|"
+    r"(?:the\s+|a\s+)?thread\s+(?:i\s+want|that\s+mattered|was)|"
+    r"(?:those|these)\s+(?:two|three|four|five|landmarks|places|stops|moments|destinations)\s+(?:do\s+|all\s+)?connect|"
+    r"connect\s+for\s+me|"
+    r"what\s+(?:mattered|connected|tied)\s+(?:was\s+)?(?:the\s+)?(?:thread|connection|link)|"
+    r"the\s+trip\s+moved\s+from\s+\w+"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Same lane, second shape (2019 T3, 2026-07-02 live run): a dense
+# place ENUMERATION with no sequence connectors ("The Paris museum run
+# included the Eiffel Tower, Trocadéro Gardens, ..." — 12 anchors,
+# cues=[], is_chain=False). An itinerary list is a chain; without the
+# classification the FACTUAL_CHAIN directive and the sensory-pivot
+# response guard never arm, which is how the "evening atmosphere on
+# the Champ de Mars" pivot reached the narrator.
+_ENUMERATION_MARKER_RX = re.compile(
+    r"\b(?:"
+    r"included|includes|including|"
+    r"we\s+(?:saw|visited|toured|did|hit|covered)|"
+    r"(?:the|our)\s+\w+(?:\s+\w+)?\s+run\s+(?:was|included|went)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def detect_factual_chain(text: str) -> Dict[str, Any]:
     """Detect whether the narrator turn is a factual chain.
 
@@ -473,6 +510,31 @@ def detect_factual_chain(text: str) -> Dict[str, Any]:
     if _FAMILY_MIGRATION_RX.search(text):
         cue_labels.append("family_migration_sequence")
         score += 0.15
+
+    # ── Thematic trip chain ──────────────────────────────────────
+    # BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01: narrator names the
+    # thread/connection across >=3 named anchors. A thematic chain over
+    # multiple places IS a multi-place sequence, so the canonical label
+    # is appended too (harness F3 cue expectations grade on it).
+    if _THEMATIC_THREAD_RX.search(text) and len(proper_anchors) >= 3:
+        cue_labels.append("thematic_trip_chain")
+        if "multi_place_sequence" not in cue_labels:
+            cue_labels.append("multi_place_sequence")
+        score += 0.35
+
+    # ── Dense place enumeration ──────────────────────────────────
+    # 2019 T3 shape: enumeration marker + >=4 distinct proper-noun
+    # anchors. No connector words required — the comma list is the
+    # sequence.
+    if _ENUMERATION_MARKER_RX.search(text) and len(proper_anchors) >= 4:
+        cue_labels.append("place_enumeration_sequence")
+        if "multi_place_sequence" not in cue_labels:
+            cue_labels.append("multi_place_sequence")
+        score += 0.35
+        # Very dense list (>=6 anchors) is unambiguous itinerary
+        # recall — clears the 0.50 floor on its own.
+        if len(proper_anchors) >= 6:
+            score += 0.20
 
     # Merge in event-phrase anchors (top score, meal tickets, etc.)
     event_anchors = _extract_event_phrase_anchors(text)
