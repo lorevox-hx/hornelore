@@ -1,6 +1,6 @@
 # BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01
 
-**Status:** ACTIVE
+**Status:** LANDED 2026-07-02 (Path A directive sentence + Path B deterministic Step 6b injection in `lori_communication_control.py`, gated on is_factual_chain AND >=3 anchors AND echo<2 AND reply<=80 words; `chain_anchor_echo_injected` warning marker. Unit tests green; live-harness verification pending next stack cycle). Path A and Path B shipped together because the 2026-07-02 live run proved directive-only fixes underdeliver (T6 atmosphere pivot survived the strengthened directive).
 **Severity:** LOW-MEDIUM (chain-preservation hygiene; doesn't break Lori, weakens memoir quality)
 **Origin:** 2026-06-24 factual-chain live harness T3 (Venice/Dulles disruption)
 **Depends on:** none
