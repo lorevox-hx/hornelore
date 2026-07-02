@@ -48,17 +48,23 @@ class _TempDbCase(unittest.TestCase):
         self.db_path = Path(self._tmp.name)
 
         # Apply migration SQL directly to the temp DB
-        migration_sql = (
-            _REPO_ROOT
-            / "server"
-            / "code"
-            / "db"
-            / "migrations"
-            / "0004_story_candidates.sql"
-        ).read_text(encoding="utf-8")
-
+        # Stale-scaffold fix 2026-07-02: db.story_candidate_insert now
+        # writes columns added by follow-up migrations (0006 language +
+        # language_probability, 0014 chain_meta_json). The temp DB must
+        # apply the full story_candidates migration chain, not just
+        # 0004, or every insert fails with "no column named language".
+        _migrations_dir = (
+            _REPO_ROOT / "server" / "code" / "db" / "migrations"
+        )
         con = sqlite3.connect(str(self.db_path))
-        con.executescript(migration_sql)
+        for _mig in (
+            "0004_story_candidates.sql",
+            "0006_story_candidates_language.sql",
+            "0014_story_candidates_chain_meta.sql",
+        ):
+            con.executescript(
+                (_migrations_dir / _mig).read_text(encoding="utf-8")
+            )
         con.commit()
         con.close()
 
@@ -592,21 +598,35 @@ class Law3RuntimeIntegrityTest(_TempDbCase):
         """The whole point: this test imports story_preservation and
         calls preserve_turn() WITHOUT importing the extraction stack
         anywhere. If preservation depended on extraction, this test
-        would fail at import time."""
-        from api.services import story_preservation
+        would fail at import time.
 
-        # Affirmatively confirm the extractor is NOT loaded
-        for forbidden in (
+        Attribution fix 2026-07-02: the bare sys.modules assertion was
+        order-dependent — running this suite together with composer
+        tests (or via full discovery) pre-imports prompt_composer and
+        produced a false LAW 3 violation. Now we only attribute modules
+        that appear as a NEW side effect of importing
+        story_preservation; the static AST gate in
+        test_story_preservation_isolation.py remains the canonical
+        transitive-import check."""
+        _forbidden = (
             "api.routers.extract",
             "api.prompt_composer",
             "api.routers.chat_ws",
-        ):
-            self.assertNotIn(
-                forbidden,
-                sys.modules,
-                f"{forbidden} was imported as a side effect of "
-                "importing story_preservation — LAW 3 violation",
-            )
+        )
+        _preloaded = {m for m in _forbidden if m in sys.modules}
+        _was_loaded = "api.services.story_preservation" in sys.modules
+        from api.services import story_preservation
+
+        if not _was_loaded:
+            for forbidden in _forbidden:
+                if forbidden in _preloaded:
+                    continue  # imported by an earlier suite — not ours
+                self.assertNotIn(
+                    forbidden,
+                    sys.modules,
+                    f"{forbidden} was imported as a side effect of "
+                    "importing story_preservation — LAW 3 violation",
+                )
 
         cid = story_preservation.preserve_turn(
             narrator_id="janice",
