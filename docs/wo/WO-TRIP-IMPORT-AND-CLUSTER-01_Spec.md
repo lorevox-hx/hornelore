@@ -42,13 +42,20 @@ Readiness-gate bugs from the mockup panel: DEEP-EUROPEAN-ROUTE-LANGUAGE-DRIFT (C
   - `cluster_confidence < 0.50` → operator review queue.
 - Router: `POST /api/trips/{id}/cluster-photos` (reads narrator's `photos` rows, writes `trip_photo_links`), `GET /api/trips/{id}/photo-links?max_confidence=`, `PATCH /api/trips/photo-links/{link_id}` (operator reassign/confirm → `assignment_method='operator'`, confidence 1.0).
 
-### Phase 3 — Trip Tab UI (NEXT; blocked on Phase 1+2 live verify)
+### Phase 3 — Trip Tab operator UI (LANDED 2026-07-02, same session)
 
-Read-only first: trip list + tree detail + review queue per the mockup's 3-column layout. Build as `WO-TRIP-TAB-DB-01`.
+`ui/trip-tab.html` + `ui/js/trip-tab.js` — standalone operator console per the mockup's 3-column layout (mirrors photo-intake.js conventions): trip list w/ narrator filter, itinerary JSON + CSV import dialogs, region/nested-stop tree with per-stop inline editor (dates/GPS/notes → PATCH /stops), themes, Run-EXIF-Cluster button, review queue with photo thumbnails + stop-reassignment + Confirm (operator truth) + Exclude-from-memoir, memoir preview render, DOCX download, trip delete. Launch card added to the main app's media tools grid (`lvOpenMediaTool('trip_tab')`). When the server gate is off the page shows a HORNELORE_TRIPS banner instead of failing silently. Absorbs the read-only scope originally sketched for `WO-TRIP-TAB-DB-01` — that WO is no longer needed as a separate build.
 
-### Phase 4 — memoir render (preview endpoint LANDED this session; DOCX export NEXT)
+### Phase 4 — memoir render (preview + DOCX LANDED 2026-07-02)
 
-- `GET /api/trips/{id}/memoir-preview` — deterministic dual-axis JSON (Part I regions→nested stops with photos; Part II themes with matching stops; Part III photo appendix counts). DOCX export wires into the existing memoir DOCX router in a follow-up commit, alongside main-memoir section proposals (couples to WO-MEMOIR-STORY-CANDIDATES-WIRE-01).
+- `GET /api/trips/{id}/memoir-preview` — deterministic dual-axis JSON.
+- `GET /api/trips/{id}/export-docx` — `services/trip_memoir_docx.py` builds the standalone trip memoir (Part I regions→nested stops w/ dates+notes+photo counts, Part II themes, Part III photo appendix with embedded images from `photos.image_path`, include_in_memoir=1 only). python-docx guarded → 503 when missing. Main-memoir section-proposal injection still open (couples to WO-MEMOIR-STORY-CANDIDATES-WIRE-01).
+
+### Phase 1 addenda (same session)
+
+- `PATCH /api/trips/stops/{stop_id}` — operator date/GPS/notes correction (drives clustering accuracy).
+- `DELETE /api/trips/{trip_id}` — cascade delete (photos untouched).
+- `photo_links_with_photo_paths()` join for DOCX embedding.
 
 ## Acceptance
 
