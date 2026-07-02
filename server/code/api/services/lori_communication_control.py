@@ -1010,8 +1010,17 @@ def enforce_lori_communication_control(
     # narrator saw the bare anchor + period as the entire reply.
     _stub_word_count = len((current or "").split())
     _narrator_word_count = len((user_text or "").split())
+    # Threshold raised 3 -> 5 (2026-07-02): live factual-chain T6
+    # produced "Stanley. what happened next?" (4 words) — under the
+    # old <=3 gate it escaped repair but still hard-clamped the
+    # harness G4 contract ("Lori reply must be >= 6 words on a
+    # substantive narrator turn"). Server repair now matches the G4
+    # contract exactly. Narrator >= 4 words + non-safety gates keep
+    # legitimate brevity ("Yes." on a direct yes/no) out of scope,
+    # and the meta-question deterministic intercept upstream owns the
+    # short-answer classes that are supposed to be short.
     if (
-        _stub_word_count <= 3
+        _stub_word_count <= 5
         and _narrator_word_count >= 4
         and not safety_triggered  # safety paths legitimately emit short responses
     ):

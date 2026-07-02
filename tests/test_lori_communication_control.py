@@ -329,6 +329,34 @@ class StubCollapseDetectionTest(unittest.TestCase):
 
 
 
+class StubThresholdG4AlignmentTest(unittest.TestCase):
+    """2026-07-02: server stub repair threshold raised 3 -> 5 words to
+    match the harness G4 contract (reply must be >= 6 words). Live
+    evidence: factual-chain T6 "Stanley. what happened next?" (4
+    words) escaped the old gate and hard-clamped the run."""
+
+    def test_four_word_reply_repaired(self):
+        r = enforce_lori_communication_control(
+            assistant_text="Stanley. what happened next?",
+            user_text=(
+                "No, not the scenery — I want to tell you about my "
+                "draft induction. They took us from Stanley to Fargo."
+            ),
+            session_style="oral_history",
+            narrator_anchors=["Stanley", "Fargo"],
+        )
+        self.assertIn("response_stub_collapse", r.failures)
+        self.assertGreaterEqual(len(r.final_text.split()), 6)
+
+    def test_six_word_reply_not_stub(self):
+        r = enforce_lori_communication_control(
+            assistant_text="You went from Stanley to Fargo. Then?",
+            user_text="They took us from Stanley to Fargo for the exam.",
+            session_style="oral_history",
+        )
+        self.assertNotIn("response_stub_collapse", r.failures)
+
+
 class ChainAnchorEchoInjectionTest(unittest.TestCase):
     """BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01 Path B (2026-07-02).
 

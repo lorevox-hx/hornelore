@@ -441,6 +441,31 @@ class ThematicTripChainTest(unittest.TestCase):
         self.assertFalse(r["is_factual_chain"])
 
 
+class JunkAnchorFilterTest(unittest.TestCase):
+    """2026-07-02 live evidence: sentence-initial capitalized function
+    words ("For the 2019 trip", "Near the end") were extracted as
+    anchors and reached the narrator verbatim through the anchor-
+    echoing repair templates ("You mentioned For, Albuquerque...")."""
+
+    def test_for_not_an_anchor(self):
+        r = detect_factual_chain(
+            "For the 2019 trip, we started in Albuquerque, then flew "
+            "to Dallas Fort Worth, then overnight to London Heathrow."
+        )
+        self.assertNotIn("For", r["anchors"])
+        self.assertIn("Albuquerque", r["anchors"])
+
+    def test_near_not_an_anchor(self):
+        r = detect_factual_chain(
+            "Near the end we had Rome at Via Francesco Carletti, then "
+            "flew home from Fiumicino to Dallas Fort Worth and finally "
+            "back to Albuquerque."
+        )
+        self.assertNotIn("Near", r["anchors"])
+        self.assertNotIn("Finally", r["anchors"])
+        self.assertIn("Rome", r["anchors"])
+
+
 class ClassifyShortcutTests(unittest.TestCase):
     def test_returns_just_cue_labels(self):
         cues = classify_factual_chain_cues(KENT_ARMY_INDUCTION)

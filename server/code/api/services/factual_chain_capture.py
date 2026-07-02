@@ -244,6 +244,22 @@ _BAD_ANCHOR_TOKENS = frozenset({
     "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
     # Generic
     "yes", "no", "ok", "okay", "well", "anyway", "still",
+    # Sentence-initial capitalized function words (2026-07-02 live
+    # evidence: "For the 2019 trip..." -> anchor "For"; "Near the
+    # end..." -> anchor "Near". These reached the NARRATOR verbatim
+    # once the anchor-echoing repair templates landed: "You mentioned
+    # For, Albuquerque..." / "What came next after Near?").
+    "for", "near", "then", "after", "before", "when", "while",
+    "once", "now", "next", "later", "during", "from", "to", "at",
+    "in", "on", "by", "with", "and", "but", "so", "as", "if",
+    "there", "here", "where", "what", "who", "how", "why",
+    "first", "second", "third", "finally", "eventually", "afterwards",
+    "meanwhile", "suddenly", "sometimes", "usually", "every",
+    "each", "some", "all", "both", "most", "many", "one", "two",
+    "also", "just", "even", "only", "back", "home", "today",
+    "tomorrow", "yesterday", "tonight", "morning", "afternoon",
+    "evening", "night", "around", "about", "between", "through",
+    "over", "under", "up", "down", "out", "off",
 })
 
 
