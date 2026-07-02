@@ -3153,6 +3153,12 @@ async def ws_chat(ws: WebSocket):
                     narrator_anchors=list(
                         (_chain_ctx or {}).get("anchors") or []
                     ),
+                    # BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01 Path B
+                    # (2026-07-02): gates the Step 6b anchor-echo
+                    # injection on chain turns.
+                    is_factual_chain=bool(
+                        (_chain_ctx or {}).get("is_factual_chain")
+                    ),
                 )
                 comm_control_dict = _cc_result.to_dict()
                 atomicity_failures = list(_cc_result.atomicity_failures)

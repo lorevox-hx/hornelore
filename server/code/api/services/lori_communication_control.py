@@ -855,6 +855,11 @@ def enforce_lori_communication_control(
     # falls back to a neutral continuation when no anchors are
     # available.
     narrator_anchors: Optional[List[str]] = None,
+    # BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01 Path B (2026-07-02):
+    # chain classification from factual_chain_capture (chat_ws threads
+    # _chain_ctx["is_factual_chain"]). Gates the Step 6b anchor-echo
+    # injection. Defaults False so legacy callers stay byte-stable.
+    is_factual_chain: bool = False,
 ) -> CommunicationControlResult:
     """The single runtime enforcement entry point.
 
@@ -1016,6 +1021,59 @@ def enforce_lori_communication_control(
             anchors=narrator_anchors,
         )
         warnings.append("response_stub_collapse_repaired")
+
+    # Step 6b: BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01 Path B
+    # (2026-07-02) — deterministic anchor-echo injection on factual-
+    # chain turns. When the narrator gave a genuine route/sequence
+    # (>=3 detected anchors) and Lori's reply echoes fewer than 2 of
+    # them, prepend a chain-shape opener built from the narrator's own
+    # anchors so the sequence survives into the reply (and the memoir).
+    # Spec target shape: "From Venice to Dulles to Santa Fe — <reply>".
+    # Gated on >=3 anchors so single-stop and two-stop turns keep
+    # their natural one-anchor replies (spec non-goal). Skipped on
+    # safety/softened paths.
+    if (
+        is_factual_chain
+        and not safety_triggered
+        and not softened_mode_active
+        and narrator_anchors
+        and len(narrator_anchors) >= 3
+        and current
+        # Injection adds ~9 words; skip when the reply is already near
+        # the word cap so the opener can't push a capped reply over
+        # the response budget.
+        and len(current.split()) <= 80
+    ):
+        _reply_low = current.lower()
+        _clean_anchors: List[str] = []
+        for _a in narrator_anchors:
+            _s = str(_a or "").strip()
+            if _s and _s not in _clean_anchors:
+                _clean_anchors.append(_s)
+        _echoed = sum(
+            1 for _a in _clean_anchors if _a.lower() in _reply_low
+        )
+        # The opener template is English — never prepend it onto a
+        # Spanish reply (legitimate Spanish chain narration mirrors in
+        # Spanish; a Spanish-language opener variant is future work).
+        _reply_is_spanish = False
+        try:
+            from .lori_spanish_guard import looks_spanish as _cae_looks_es
+            _reply_is_spanish = _cae_looks_es(current)
+        except Exception:
+            _reply_is_spanish = False
+        if _echoed < 2 and len(_clean_anchors) >= 3 and not _reply_is_spanish:
+            # Route span: first, second, and last anchors carry the
+            # chain shape without listing everything.
+            _first, _second, _last = (
+                _clean_anchors[0], _clean_anchors[1], _clean_anchors[-1]
+            )
+            if _last not in (_first, _second):
+                _opener = f"From {_first} to {_second} to {_last} — "
+            else:
+                _opener = f"From {_first} to {_second} — "
+            current = _opener + current
+            warnings.append("chain_anchor_echo_injected")
 
     # Step 7: WO-LORI-STORY-FIRST-PHASE-1-01 (2026-06-14) — Phase 1
     # validators. Default-OFF behind HORNELORE_STORY_FIRST_PHASE_1.

@@ -693,9 +693,11 @@ def build_factual_chain_followup_context(
             "bracketed placeholders — never emit the brackets): "
             "\"You covered [PLACE_A], [PLACE_B], and [PLACE_C]. What "
             "came after [PLACE_C]?\" "
-            "Briefly reflect the known sequence and ask for the next "
-            "factual link, missing place/date/person/action, or "
-            "outcome. Ask one question only."
+            "Echo at least TWO concrete anchors from the narrator's "
+            "sequence in your first sentence. Briefly reflect the "
+            "known sequence and ask for the next factual link, "
+            "missing place/date/person/action, or outcome. Ask one "
+            "question only."
         )
     if meta["is_meta_feedback"]:
         directive_parts.append(

@@ -327,5 +327,81 @@ class StubCollapseDetectionTest(unittest.TestCase):
         self.assertNotIn("response_stub_collapse", r.failures)
 
 
+
+
+class ChainAnchorEchoInjectionTest(unittest.TestCase):
+    """BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01 Path B (2026-07-02).
+
+    Harness A T3 evidence: narrator gave Venice -> Dulles -> Denver ->
+    Santa Fe; Lori echoed only Dulles. Step 6b injects the chain shape
+    deterministically when the reply echoes < 2 anchors.
+    """
+
+    ANCHORS = ["Venice", "Dulles", "Denver", "Santa Fe"]
+    NARRATOR = (
+        "The flight out of Venice was delayed, then we had to get "
+        "through Dulles, then Denver, then Santa Fe."
+    )
+
+    def _run(self, reply, anchors=None, is_chain=True, **kw):
+        return enforce_lori_communication_control(
+            assistant_text=reply,
+            user_text=self.NARRATOR,
+            session_style="oral_history",
+            narrator_anchors=self.ANCHORS if anchors is None else anchors,
+            is_factual_chain=is_chain,
+            **kw,
+        )
+
+    def test_one_anchor_reply_gets_injection(self):
+        r = self._run(
+            "You mentioned getting through Dulles. How was that "
+            "airport during your layover there?"
+        )
+        self.assertIn("chain_anchor_echo_injected", r.warnings)
+        self.assertTrue(r.final_text.startswith("From Venice to Dulles to Santa Fe — "))
+        echoed = sum(1 for a in self.ANCHORS if a.lower() in r.final_text.lower())
+        self.assertGreaterEqual(echoed, 2)
+
+    def test_two_anchor_reply_untouched(self):
+        reply = (
+            "From Venice through Dulles — what happened on the "
+            "Denver leg?"
+        )
+        r = self._run(reply)
+        self.assertNotIn("chain_anchor_echo_injected", r.warnings)
+        self.assertNotIn("From Venice to Dulles to Santa Fe —", r.final_text)
+
+    def test_not_chain_no_injection(self):
+        r = self._run(
+            "You mentioned getting through Dulles. How was that?",
+            is_chain=False,
+        )
+        self.assertNotIn("chain_anchor_echo_injected", r.warnings)
+
+    def test_two_anchor_turn_no_injection(self):
+        # Spec non-goal: <3 detected anchors keeps natural replies.
+        r = self._run(
+            "You mentioned getting through Dulles. How was that?",
+            anchors=["Venice", "Dulles"],
+        )
+        self.assertNotIn("chain_anchor_echo_injected", r.warnings)
+
+    def test_safety_path_no_injection(self):
+        r = self._run(
+            "I hear you.",
+            safety_triggered=True,
+        )
+        self.assertNotIn("chain_anchor_echo_injected", r.warnings)
+
+    def test_question_survives_injection(self):
+        r = self._run(
+            "You mentioned getting through Dulles. What happened in "
+            "Denver?"
+        )
+        self.assertIn("?", r.final_text)
+        self.assertEqual(r.final_text.count("?"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
