@@ -127,6 +127,7 @@ from .routers import (  # type: ignore
     operator_followup_bank,  # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — patience-layer bank operator surface
     operator_bio_editor,     # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E — Tier 4 operator entry + conflict resolution
     operator_bio_gap_map,    # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase F — bio gap map dashboard
+    trips,                   # WO-TRIP-IMPORT-AND-CLUSTER-01 — trip import + EXIF clustering (HORNELORE_TRIPS=1 to enable)
 )
 
 # Core Entity & State Routers
@@ -166,6 +167,7 @@ app.include_router(operator_harness.router)        # WO-LORI-HARNESS-01 — golf
 app.include_router(operator_followup_bank.router)  # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — patience-layer bank (HORNELORE_OPERATOR_FOLLOWUP_BANK=1 to enable)
 app.include_router(operator_bio_editor.router)     # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E — Tier 4 operator editor (HORNELORE_OPERATOR_BIO_EDITOR=1 to enable)
 app.include_router(operator_bio_gap_map.router)    # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase F — bio gap map dashboard (HORNELORE_OPERATOR_BIO_GAP_MAP=1 to enable)
+app.include_router(trips.router)                    # WO-TRIP-IMPORT-AND-CLUSTER-01 — trip lane (HORNELORE_TRIPS=1 to enable)
 
 # Real LLM Routers (REST and WS)
 app.include_router(llm_api.router)
