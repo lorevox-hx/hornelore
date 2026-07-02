@@ -41,7 +41,47 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 ---
 
-## Status as of 2026-05-01
+## Status as of 2026-07-01
+
+**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md).** It carries the environment posture, git workflow, principles, and full changelog. Read it first before any code work.
+
+**Current-work snapshot lives in [`HANDOFF_2026-07-01.md`](HANDOFF_2026-07-01.md).** It carries the state at handoff between Claude sessions — recent commits, latest harness results, active queue, immediate next task, known operational gotchas.
+
+**Headline: the conversation-layer runtime is behaving.** Harness A (factual-chain regression) at 55/55 GREEN. Harness B (Spring 2026 trip canary) at 54/55 GREEN. Harness 2019 France/Italy (second trip canary) at RED 62/72 but the hard clamp is a **false positive** — `_looks_spanish()` overfires on the `é` in French place names (Trocadéro, Sacré-Cœur, etc.). See [`HANDOFF_2026-07-01.md`](HANDOFF_2026-07-01.md) §"Immediate first task" for the proposed two-tier detector fix.
+
+**Landed since 2026-05-01 (compressed summary):**
+
+- Factual-chain capture WO landed end-to-end: classifier + composer directive + meta-feedback guard + Phase 4 `chain_meta_json` persistence via new `chain_detection` trigger path (typed/Web-Speech narrator turns now produce `story_candidates` rows too).
+- English-first narration architecture: replaced automatic LANGUAGE MIRRORING RULE with LANGUAGE MODE RULE (defers to `session_language_mode` pin; asks once on sustained foreign-language turn; foreign place names / food / signs stay story content). VOICE PRESERVATION RULE added (Lori echoes narrator's foreign words verbatim + optional parenthetical + optional offer-to-explain). ENGLISH_FIRST_RULE prompt directive with 4 fewshot exemplars (placeholder-based to prevent verbatim leak).
+- Post-LLM safety net: `apply_response_guards` chain-aware English fallback replaces the destructive "Sorry — let's continue" boilerplate. Drift guard active on every surface.
+- Response stub-collapse repair: `enforce_lori_communication_control` Step 6 now detects AND substitutes anchor-aware English continuation. Class "Aligre." / "Roman." / "Eiffel Tower." / "AI." no longer reaches narrator.
+- Two trip-shaped canaries: Spring 2026 Central Europe and 2019 France/Italy. Both drive full narrator sessions against live chat WS + score against F1-F6 + G1-G4 + M1-M2 rows with hard clamps for G2 drift dominance / G3 English-first / G4 stub-collapse / F4 sensory pivot on meta turns.
+- Trip Tab feature stays PARKED. Two prerequisite WOs still UNWRITTEN: `WO-TRIP-IMPORT-AND-CLUSTER-01` and `WO-TRIP-TAB-DB-01`. UI mockup banked at `docs/mockups/trip_tab_ui_mockup.html`.
+
+**Active queue (top of stack):**
+
+1. `_looks_spanish` French-accent false positive — 2019 harness G3 clamp fires on Trocadéro's `é`. Proposed two-tier detector (unambiguously-Spanish chars vs neutral Latin accents + Spanish function words). Immediate next task per handoff doc.
+2. F4 "atmosphere" sensory-pivot regression on 2019 T3+T6 — Lori pivots to "evening atmosphere on Champ de Mars" on factual museum chain. Composer directive strengthening.
+3. `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01` — add `thematic_trip_chain` cue to `factual_chain_capture.py` (spec written). Spring 2026 T6 + 2019 T8 misclassified; Lori's response is correct.
+4. `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` — composer directive for chain turns to force ≥2 anchor echoes (spec written).
+5. `WO-TRIP-IMPORT-AND-CLUSTER-01` — spec unwritten. CSV import + EXIF photo clustering + operator review queue.
+6. `WO-TRIP-TAB-DB-01` — spec unwritten. Trip Tab UI build.
+
+**Closed since 2026-05-01 (evidence in commit history):**
+
+- `WO-LORI-FACTUAL-CHAIN-CAPTURE-01` (Phases 1-5 all landed; live-proven on 3 canaries)
+- `WO-STORY-CANDIDATE-TEXT-CHAIN-PERSISTENCE-01` (live `db_rows`/`chain_rows` non-zero on every harness run)
+- `WO-LORI-ENGLISH-FIRST-SESSION-MODE-01` Phase 1 (Phase 2 narrator-initiated write flow deferred)
+- `BUG-LORI-RESPONSE-STUB-COLLAPSE-01` iteration 2 (substitution live, verified across 3 harnesses)
+- `BUG-LORI-DEEP-EUROPEAN-ROUTE-LANGUAGE-DRIFT-01` (fewshot exemplars + placeholder revision)
+- `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01` Path A (verbatim leak on Spring 2026 T2 fixed)
+- `BUG-LORI-RESPONSE-GUARDS-STALE-TRIP-SURFACE-DOCSTRING-01`
+
+The 2026-05-01 stanza below is historical. Refer to `CLAUDE.md` and `HANDOFF_2026-07-01.md` for the current state.
+
+---
+
+## Status as of 2026-05-01 (historical)
 
 **Headline: the Lori-behavior runtime control layer is live, BUG-DBLOCK-01 is fixed and verified, and three of four pre-parent-session safety gates are green.** The architecture shifted this week from "better prompts" to "controlled conversational system" — an explicit Layer 1 (Grice-grounded prompt rules) + Layer 2 (deterministic runtime enforcement) split, justified by Wang et al. 2025 STA's finding that prompt engineering alone is fragile at the scale we need.
 
