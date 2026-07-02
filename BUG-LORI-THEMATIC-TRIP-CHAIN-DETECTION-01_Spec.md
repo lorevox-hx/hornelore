@@ -1,6 +1,6 @@
 # BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01
 
-**Status:** ACTIVE / PARKED (queued behind stub-collapse + harness G4 ports + fewshot-leak)
+**Status:** LANDED 2026-07-02 (code + unit tests; live-harness verification pending next stack cycle). Implementation added BOTH shapes: `thematic_trip_chain` (spec) AND `place_enumeration_sequence` (2019 T3 dense-comma-list evidence from the 2026-07-02 live run — enumeration turns had cues=[] and never armed the chain directive or the sensory guard). Both cues also append `multi_place_sequence` so harness F3 cue expectations grade correctly.
 **Severity:** LOW-MEDIUM (Lori responds well; detector misclassifies the turn class)
 **Origin:** 2026-06-25 Spring 2026 trip canary T6 + 2019 France/Italy T8 — both thematic-recall narrator turns scored `is_chain=False conf=0.35` despite being clearly chain-shaped
 **Depends on:** none

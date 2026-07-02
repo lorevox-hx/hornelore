@@ -1,6 +1,6 @@
 # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01
 
-**Status:** OPEN — sequencing under discussion; not yet patched
+**Status:** PARTIALLY LANDED 2026-07-02 — deterministic `sensory_pivot_on_chain` response guard (detect + anchor-echoing factual repair) shipped in `lori_response_guards.py`, wired via `is_factual_chain` threading in `chat_ws.py`. Covers the factual-CHAIN turn class (2019 T6 evidence: strengthened directive alone did NOT stop the "atmosphere" pivot on the 2026-07-02 live run — confirming the locked 2026-05-02 principle that runtime enforcement beats prompt rules). The broader era-click / narrative-cue-library scope below remains OPEN.
 **Severity:** HIGH (narrator class blocked from telling their story — Kent)
 **Surface:** `server/code/api/prompt_composer.py` (era-click directive + LORI_INTERVIEW_DISCIPLINE), `data/lori/narrative_cue_library.json`, `server/code/api/services/lori_reflection.py` (Patch C anchor selection), `server/code/api/services/lori_response_guards.py` (proposed new comprehension guard)
 
