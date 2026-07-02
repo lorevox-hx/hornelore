@@ -3776,15 +3776,31 @@ async def ws_chat(ws: WebSocket):
                             break
             except Exception:
                 _guard_target_lang = "en"
+            # BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01 hardening
+            # (2026-07-02): the session-language profile pin must also
+            # govern the response-guard repair target. Live 2019
+            # France/Italy T3/T4 evidence: one looks_spanish false
+            # positive on a narrator turn ("Palais de Chaillot...")
+            # poisoned the 3-turn smoothing window and the T4 English
+            # reply was replaced with the SPANISH drift repair
+            # ("Disculpa, continuemos") — narrator-visible Spanish in
+            # an English session. The witness/meta/memory-echo paths
+            # already consult the pin; this block previously did not.
+            # mixed/unset keeps the per-turn heuristic above.
+            if _session_lang_mode == "english":
+                _guard_target_lang = "en"
+            elif _session_lang_mode == "spanish":
+                _guard_target_lang = "es"
             logger.info(
                 "[chat_ws][lang-debug] conv=%s guard_target=%s "
                 "user_es=%s prior_es_index=%d recent_count=%d "
-                "user_text_first120=%r",
+                "lang_mode=%s user_text_first120=%r",
                 conv_id,
                 _guard_target_lang,
                 _gt_user_es,
                 _gt_prior_es_index,
                 len(_recent_narr),
+                _session_lang_mode,
                 (user_text or "")[:120],
             )
             # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 / English-first
@@ -3810,6 +3826,17 @@ async def ws_chat(ws: WebSocket):
                         ]
             except Exception:
                 _narrator_anchors_for_guard = []
+            # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 (2026-07-02):
+            # thread the chain classification so the deterministic
+            # sensory-pivot repair can fire on chain turns.
+            _is_chain_for_guard = False
+            try:
+                if isinstance(_chain_ctx, dict):
+                    _is_chain_for_guard = bool(
+                        _chain_ctx.get("is_factual_chain")
+                    )
+            except Exception:
+                _is_chain_for_guard = False
             _guarded_text, _guards_fired = _apply_guards(
                 assistant_text=final_text,
                 narrator_text=user_text or "",
@@ -3817,6 +3844,7 @@ async def ws_chat(ws: WebSocket):
                 target_language=_guard_target_lang,
                 surface=_surface,
                 narrator_anchors=_narrator_anchors_for_guard,
+                is_factual_chain=_is_chain_for_guard,
             )
             if _guards_fired:
                 logger.warning(

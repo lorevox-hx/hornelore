@@ -131,6 +131,19 @@ _SURFACES_WITHOUT_LANGUAGE_DRIFT_REPAIR = frozenset()
 # this detector staying accurate.
 _SPANISH_UNIQUE_CHARS_RX = re.compile(r"[ñÑ¿¡]")
 _LATIN_ACCENT_CHARS_RX = re.compile(r"[áéíóúÁÉÍÓÚ]")
+
+# Tokens from _SPANISH_ONLY_WORDS_RX that are ALSO common English /
+# French / Italian words, so they cannot carry Spanish evidence in the
+# accent tier on their own (2026-07-02, live T4 evidence: Lori's
+# English reply "Can you tell ME about the sounds and smells of
+# MARCHÉ d'Aligre..." satisfied accent + "me" and was replaced with
+# the Spanish drift repair). "el/los/las" also appear in US place
+# names (El Paso, Los Angeles, Las Vegas); "era/con/sin/se/te/nos"
+# are plain English/French/Italian words.
+_AMBIGUOUS_ES_TOKENS = frozenset({
+    "me", "te", "se", "nos", "el", "los", "las", "una",
+    "con", "sin", "era", "que", "cuando",
+})
 _SPANISH_ONLY_WORDS_RX = re.compile(
     r"\b(?:que|el|los|las|una|unos|unas|para|con|por|sin|sobre|"
     # Greetings + common phrases
@@ -163,15 +176,16 @@ def _looks_spanish(text: str) -> bool:
         return False
     if _SPANISH_UNIQUE_CHARS_RX.search(text):
         return True  # ñ / ¿ / ¡ alone → Spanish
-    matches = _SPANISH_ONLY_WORDS_RX.findall(text)
-    n_words = len(set(m.lower() for m in matches))
+    hits = set(m.lower() for m in _SPANISH_ONLY_WORDS_RX.findall(text))
+    strong = hits - _AMBIGUOUS_ES_TOKENS
     if _LATIN_ACCENT_CHARS_RX.search(text):
         # Accented vowel is shared with French/Italian/PT loanwords
-        # (Trocadéro) — require ≥1 Spanish-only word alongside it.
-        return n_words >= 1
-    # No accent → need ≥2 distinct Spanish-only words (single word
-    # like "el" could be a name).
-    return n_words >= 2
+        # (Trocadéro) — require ≥1 UNAMBIGUOUS Spanish word alongside
+        # it. "tell me about ... Marché" must stay English.
+        return len(strong) >= 1
+    # No accent → ≥2 distinct words, at least one unambiguous
+    # ("the con man made me..." must stay English).
+    return len(hits) >= 2 and len(strong) >= 1
 
 
 def detect_language_drift(
@@ -830,6 +844,82 @@ def repair_seeded_fact_intake(
 # ── Combined application ─────────────────────────────────────────────────
 
 
+# ── Sensory-pivot-on-chain guard ──────────────────────────────────────────
+#
+# BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 (2026-07-02). Live evidence,
+# 2019 France/Italy canary T6 with the strengthened FACTUAL_CHAIN
+# directive ACTIVE: Lori still replied "What was your impression of
+# the city's atmosphere and historic buildings...". This repo's locked
+# lesson (2026-05-02 Patch B) holds: prompt directives do not reliably
+# constrain this LLM — deterministic post-LLM enforcement does. This
+# guard is the enforcement layer for the chain-turn sensory ban. The
+# detection vocabulary is imported from factual_chain_capture so the
+# directive, this guard, and the harness F4 row grade the SAME regex.
+
+
+def detect_sensory_pivot_on_chain(
+    assistant_text: str,
+    is_factual_chain: bool,
+) -> bool:
+    """Return True when the narrator turn was a factual chain and
+    Lori's reply pivots to sensory/atmosphere/feeling vocabulary."""
+    if not is_factual_chain:
+        return False
+    if not assistant_text or not assistant_text.strip():
+        return False
+    try:
+        from .factual_chain_capture import _SENSORY_PROBE_RX
+    except Exception:
+        return False
+    return bool(_SENSORY_PROBE_RX.search(assistant_text))
+
+
+_SENSORY_PIVOT_REPAIR_EN_NEUTRAL = (
+    "Let's stay with the sequence. What happened next?"
+)
+_SENSORY_PIVOT_REPAIR_ES_NEUTRAL = (
+    "Sigamos con los hechos. ¿Qué pasó después?"
+)
+
+
+def repair_sensory_pivot(
+    narrator_anchors: Optional[Sequence[str]] = None,
+    target_language: str = "en",
+) -> str:
+    """Deterministic factual continuation for a chain turn. Echoes up
+    to three narrator anchors (satisfies the anchor-echo contract) and
+    asks exactly one next-factual-link question. Contains no sensory
+    vocabulary by construction."""
+    tl = (target_language or "en").lower()
+    if tl.startswith("es"):
+        return _SENSORY_PIVOT_REPAIR_ES_NEUTRAL
+
+    cleaned: List[str] = []
+    for a in narrator_anchors or []:
+        if not a:
+            continue
+        s = str(a).strip()
+        if s and s not in cleaned:
+            cleaned.append(s)
+        if len(cleaned) >= 3:
+            break
+    if not cleaned:
+        return _SENSORY_PIVOT_REPAIR_EN_NEUTRAL
+    if len(cleaned) == 1:
+        return (
+            f"You were taking me through {cleaned[0]}. "
+            f"What came next?"
+        )
+    if len(cleaned) == 2:
+        anchor_text = f"{cleaned[0]} and {cleaned[1]}"
+    else:
+        anchor_text = f"{cleaned[0]}, {cleaned[1]}, and {cleaned[2]}"
+    return (
+        f"You were taking me through {anchor_text} — I want to keep "
+        f"that order straight. What came next after {cleaned[-1]}?"
+    )
+
+
 def apply_response_guards(
     assistant_text: str,
     narrator_text: str = "",
@@ -838,6 +928,7 @@ def apply_response_guards(
     seeded_facts: Optional[dict] = None,
     surface: str = "narrator",
     narrator_anchors: Optional[Sequence[str]] = None,
+    is_factual_chain: bool = False,
 ) -> Tuple[str, List[str]]:
     """Apply all guards in order. Language drift is checked first
     (a Spanish drift response will also fail the dangling-determiner
@@ -908,6 +999,17 @@ def apply_response_guards(
             fired.append("seeded_fact_intake")
             return text, fired
 
+    # BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01: on factual-chain turns,
+    # a sensory/atmosphere pivot is replaced with a deterministic
+    # anchor-echoing factual continuation. Runs after the whole-text
+    # replacement guards above (their repairs are factual by
+    # construction) and before dangling-determiner (this repair never
+    # dangles).
+    if detect_sensory_pivot_on_chain(text, is_factual_chain):
+        text = repair_sensory_pivot(narrator_anchors, target_language)
+        fired.append("sensory_pivot_on_chain")
+        return text, fired
+
     if detect_dangling_determiner(text):
         text = repair_dangling_determiner(target_language)
         fired.append("dangling_determiner")
@@ -930,5 +1032,7 @@ __all__ = [
     "repair_seeded_fact_intake",
     "detect_dangling_determiner",
     "repair_dangling_determiner",
+    "detect_sensory_pivot_on_chain",
+    "repair_sensory_pivot",
     "apply_response_guards",
 ]

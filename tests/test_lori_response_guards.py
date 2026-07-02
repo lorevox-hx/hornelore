@@ -115,6 +115,21 @@ class FrenchAccentFalsePositiveTest(unittest.TestCase):
             "La casa de mi familia es muy grande"
         ))
 
+    def test_t4_live_reply_tell_me_marche_is_english(self):
+        # Live 2026-07-02 T4 evidence: accent (Marché) + "me" (English
+        # word present in the Spanish word list) replaced an English
+        # reply with the Spanish drift repair. Ambiguous tokens must
+        # not carry the accent tier.
+        self.assertFalse(g._looks_spanish(
+            "Can you tell me about the sounds and smells of Marché "
+            "d'Aligre brought back a lot of memories, didn't they?"
+        ))
+
+    def test_con_era_me_no_accent_is_english(self):
+        self.assertFalse(g._looks_spanish(
+            "The con man made me nervous during that era."
+        ))
+
     def test_trocadero_reply_no_drift_flag(self):
         # End-to-end: English narrator + English reply carrying a French
         # place name must not be classified as language drift.
@@ -252,6 +267,81 @@ class ApplyResponseGuardsTest(unittest.TestCase):
         # Legitimate Spanish — no fire
         self.assertEqual(fired, [])
         self.assertEqual(final, assistant)
+
+
+
+
+class SensoryPivotOnChainTest(unittest.TestCase):
+    """BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 (2026-07-02).
+
+    Live evidence: 2019 France/Italy T6 — with the strengthened
+    directive ACTIVE, Lori still asked about "the city's atmosphere".
+    Deterministic post-LLM repair is the enforcement layer.
+    """
+
+    T6_REPLY = (
+        "Avignon Bridge. What was your impression of the city's "
+        "atmosphere and historic buildings, like the Palais des Papes?"
+    )
+    T6_ANCHORS = ["Aix", "Avignon", "Palais des Papes", "Arles"]
+
+    def test_t6_live_reply_detected_on_chain(self):
+        self.assertTrue(
+            g.detect_sensory_pivot_on_chain(self.T6_REPLY, True)
+        )
+
+    def test_not_detected_when_not_chain(self):
+        self.assertFalse(
+            g.detect_sensory_pivot_on_chain(self.T6_REPLY, False)
+        )
+
+    def test_factual_reply_passes_on_chain(self):
+        self.assertFalse(g.detect_sensory_pivot_on_chain(
+            "You went from Aix to Avignon and on to Arles. "
+            "What came next after Arles?",
+            True,
+        ))
+
+    def test_repair_echoes_anchors_one_question_no_sensory(self):
+        repaired = g.repair_sensory_pivot(self.T6_ANCHORS)
+        echoed = sum(1 for a in self.T6_ANCHORS if a in repaired)
+        self.assertGreaterEqual(echoed, 2)
+        self.assertEqual(repaired.count("?"), 1)
+        self.assertFalse(g.detect_sensory_pivot_on_chain(repaired, True))
+
+    def test_repair_no_anchors_neutral(self):
+        repaired = g.repair_sensory_pivot([])
+        self.assertEqual(repaired.count("?"), 1)
+        self.assertFalse(g.detect_sensory_pivot_on_chain(repaired, True))
+
+    def test_repair_spanish_target(self):
+        repaired = g.repair_sensory_pivot(self.T6_ANCHORS, "es")
+        self.assertIn("¿", repaired)
+
+    def test_apply_response_guards_fires_and_repairs(self):
+        final, fired = g.apply_response_guards(
+            assistant_text=self.T6_REPLY,
+            narrator_text=(
+                "From Aix we did the Provence side trip to Avignon, "
+                "saw the Palais des Papes and the Avignon Bridge, "
+                "then went on to Arles."
+            ),
+            narrator_anchors=self.T6_ANCHORS,
+            is_factual_chain=True,
+        )
+        self.assertIn("sensory_pivot_on_chain", fired)
+        self.assertNotIn("atmosphere", final.lower())
+        self.assertIn("Avignon", final)
+
+    def test_apply_response_guards_default_off(self):
+        # Without the chain flag, the T6 reply passes through (the
+        # sensory ban only applies to chain turns).
+        final, fired = g.apply_response_guards(
+            assistant_text=self.T6_REPLY,
+            narrator_text="What a lovely day it was.",
+        )
+        self.assertNotIn("sensory_pivot_on_chain", fired)
+        self.assertEqual(final, self.T6_REPLY)
 
 
 if __name__ == "__main__":
