@@ -2406,3 +2406,38 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
 }
 .oi-toast-ok    { border-color: rgba(34,197,94,0.5); }
 .oi-toast-error { border-color: rgba(239,68,68,0.5); color: #fca5a5; }
+
+/* ── Narrator-room Trips view (2026-07-06) ─────────────────────────
+   Narrator-safe journey rendering; matches the Photos/Memoir view
+   voice. The console button is operator-only and hidden entirely in
+   interview mode (gated in JS, not CSS). */
+.lv-narrator-trip-card {
+  border: 1px solid var(--lv-line, #2a3644);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+  cursor: pointer;
+}
+.lv-narrator-trip-card.on { border-color: var(--lv-accent, #4ea1ff); }
+.lv-narrator-trip-title { font-weight: 700; font-size: 15px; }
+.lv-narrator-trip-dates { opacity: .7; font-size: 13px; }
+.lv-narrator-trip-region {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--lv-accent, #4ea1ff);
+}
+.lv-narrator-trip-region-head { font-weight: 700; margin-bottom: 4px; }
+.lv-narrator-trip-stop { font-size: 14px; padding: 2px 0; }
+.lv-narrator-trip-themes { opacity: .8; font-size: 13px; margin-top: 10px; }
+.lv-narrator-trip-console-btn {
+  margin-top: 14px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--lv-line, #2a3644);
+  background: transparent;
+  color: inherit;
+  opacity: .65;
+  cursor: pointer;
+}
+.lv-narrator-trip-console-btn:hover { opacity: 1; }

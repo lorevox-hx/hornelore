@@ -655,9 +655,21 @@ function lvOpenMediaTool(tool) {
     // (itinerary import, EXIF photo clustering, review queue, trip
     // memoir preview + DOCX). Gated server-side by HORNELORE_TRIPS;
     // the page shows a clear banner when the gate is off.
-    case "trip_tab":
-      window.open("trip-tab.html", "_blank", "noopener");
+    case "trip_tab": {
+      // Inherit the ACTIVE narrator from the shell (2026-07-06 per
+      // Chris: no scrolling a 29-entry picker on the trip page).
+      // Mirrors the photo_session pattern. Falls back to opening
+      // without a param when no narrator is active — the trip page
+      // keeps its own picker for that case.
+      const tripPid = state && state.person_id;
+      window.open(
+        tripPid
+          ? `trip-tab.html?narrator_id=${encodeURIComponent(tripPid)}`
+          : "trip-tab.html",
+        "_blank", "noopener",
+      );
       break;
+    }
     default:
       console.warn("[lv-shell] unknown media tool:", tool);
   }
@@ -734,7 +746,7 @@ function lvNarratorCurrentView() {
 
 /** Switch narrator-room view. */
 function lvNarratorShowView(view) {
-  if (!["map", "photos", "memoir"].includes(view)) return;
+  if (!["map", "photos", "memoir", "trips"].includes(view)) return;
   if (!state.session) state.session = {};
   state.session.narratorView = view;
   // Paint tab active state.
@@ -748,6 +760,7 @@ function lvNarratorShowView(view) {
     case "map":    _lvNarratorRenderMap();    break;
     case "photos": _lvNarratorRenderPhotos(); break;
     case "memoir": _lvNarratorRenderMemoir(); break;
+    case "trips":  _lvNarratorRenderTrips();  break;
   }
 }
 window.lvNarratorShowView = lvNarratorShowView;
@@ -1357,6 +1370,145 @@ window.lvExitInterviewMode = lvExitInterviewMode;
    Memory save requires a "show" context (POST /api/photos/shows/{show_id}/memory)
    which is WO-LORI-PHOTO-ELICIT-01 Phase 2 territory; for now we
    just stage locally with a clear note. */
+/* ── Narrator-room Trips view (2026-07-06, per Chris) ─────────────
+   Per-narrator, narrator-SAFE rendering of the trips lane: journey
+   titles, regions, stops, photo counts. Design principle 2 (no
+   operator leakage) holds: no import/cluster/delete/confidence UI
+   here. The full operator console (trip-tab.html) is reachable via
+   a quiet link that is HIDDEN whenever interview mode is active, so
+   a narrator mid-session never sees an operator control. Gate-off /
+   error states read as calm narrator-facing sentences, never as
+   flag or server talk (design principle 3). */
+let _lvNarratorTrips = { list: [], tree: null, loaded: false, loading: false, error: null, _pid: null };
+
+async function _lvNarratorRenderTrips() {
+  const host = document.getElementById("lvNarratorViewHost");
+  if (!host) return;
+  host.innerHTML = `
+    <h3 class="lv-narrator-view-head">Trips</h3>
+    <p class="lv-narrator-view-lede">The journeys you've taken, in order.</p>
+    <div id="lvNarratorTripsSlot">Loading…</div>
+  `;
+  const pid = state && state.person_id;
+  const slot = document.getElementById("lvNarratorTripsSlot");
+  if (!pid) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty">Choose a narrator on the Operator tab first.</p>`;
+    return;
+  }
+  if (_lvNarratorTrips._pid !== pid) {
+    _lvNarratorTrips = { list: [], tree: null, loaded: false, loading: false, error: null, _pid: pid };
+  }
+  if (!_lvNarratorTrips.loaded && !_lvNarratorTrips.loading) {
+    _lvNarratorTrips.loading = true;
+    try {
+      const res = await fetch(`${ORIGIN}/api/trips?person_id=${encodeURIComponent(pid)}`);
+      if (res.ok) {
+        const j = await res.json();
+        _lvNarratorTrips.list = Array.isArray(j && j.trips) ? j.trips : [];
+        if (_lvNarratorTrips.list.length === 1) {
+          // Single trip — load the full tree immediately.
+          const tid = _lvNarratorTrips.list[0].id;
+          const tr = await fetch(`${ORIGIN}/api/trips/${encodeURIComponent(tid)}/tree`);
+          if (tr.ok) _lvNarratorTrips.tree = await tr.json();
+        }
+      } else {
+        // 404 covers both gate-off and none — same calm message either
+        // way; no flag/server talk in the narrator room.
+        _lvNarratorTrips.list = [];
+      }
+    } catch (e) {
+      _lvNarratorTrips.error = "Trips aren't available right now.";
+      console.warn("[lv-narrator] trips fetch failed:", e);
+    }
+    _lvNarratorTrips.loading = false;
+    _lvNarratorTrips.loaded = true;
+  }
+  _lvNarratorPaintTripsSlot();
+}
+
+function _lvNarratorPaintTripsSlot() {
+  const slot = document.getElementById("lvNarratorTripsSlot");
+  if (!slot) return;
+  const T = _lvNarratorTrips;
+  if (T.error) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty"></p>`;
+    slot.firstChild.textContent = T.error;
+    return;
+  }
+  if (!T.list.length) {
+    slot.innerHTML = `<p class="lv-narrator-view-empty">No trips recorded yet.</p>`;
+    _lvNarratorTripsConsoleLink(slot);
+    return;
+  }
+  slot.innerHTML = "";
+  // Trip pick list (when >1) or single-trip title.
+  T.list.forEach((t) => {
+    const card = document.createElement("div");
+    card.className = "lv-narrator-trip-card";
+    const ttl = document.createElement("div");
+    ttl.className = "lv-narrator-trip-title";
+    ttl.textContent = t.title || "";
+    card.appendChild(ttl);
+    const when = document.createElement("div");
+    when.className = "lv-narrator-trip-dates";
+    when.textContent = [t.start_date, t.end_date].filter(Boolean).join(" to ");
+    card.appendChild(when);
+    if (T.tree && T.tree.id === t.id) card.classList.add("on");
+    card.addEventListener("click", async () => {
+      try {
+        const tr = await fetch(`${ORIGIN}/api/trips/${encodeURIComponent(t.id)}/tree`);
+        if (tr.ok) { T.tree = await tr.json(); _lvNarratorPaintTripsSlot(); }
+      } catch (_) {}
+    });
+    slot.appendChild(card);
+  });
+  // Journey tree for the selected trip.
+  if (T.tree) {
+    const tree = T.tree;
+    (tree.regions || []).forEach((r) => {
+      const reg = document.createElement("div");
+      reg.className = "lv-narrator-trip-region";
+      const rh = document.createElement("div");
+      rh.className = "lv-narrator-trip-region-head";
+      rh.textContent = r.title || "";
+      reg.appendChild(rh);
+      const paintStop = (s, depth) => {
+        const row = document.createElement("div");
+        row.className = "lv-narrator-trip-stop";
+        row.style.marginLeft = (depth * 16) + "px";
+        const bits = [s.title || s.location_name || ""];
+        if (s.photo_count) bits.push(`· ${s.photo_count} photo${s.photo_count !== 1 ? "s" : ""}`);
+        row.textContent = bits.join(" ");
+        reg.appendChild(row);
+        (s.children || []).forEach((c) => paintStop(c, depth + 1));
+      };
+      (r.stops || []).forEach((s) => paintStop(s, 0));
+      slot.appendChild(reg);
+    });
+    if ((tree.themes || []).length) {
+      const th = document.createElement("p");
+      th.className = "lv-narrator-trip-themes";
+      th.textContent = "Threads through this trip: " +
+        tree.themes.map((t) => t.title).join(", ") + ".";
+      slot.appendChild(th);
+    }
+  }
+  _lvNarratorTripsConsoleLink(slot);
+}
+
+function _lvNarratorTripsConsoleLink(slot) {
+  // Operator affordance — NEVER visible while interview mode is
+  // active (design principle 2: no operator controls in the narrator
+  // flow). Outside interview mode this room is the operator's desk.
+  if (document.body.classList.contains("lv-interview-mode-active")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "lv-narrator-trip-console-btn";
+  btn.textContent = "Trip console (operator)";
+  btn.addEventListener("click", () => lvOpenMediaTool("trip_tab"));
+  slot.appendChild(btn);
+}
+
 let _lvNarratorPhotos = { list: [], idx: 0, loaded: false, loading: false, error: null };
 
 async function _lvNarratorRenderPhotos() {
@@ -1827,6 +1979,9 @@ function lvNarratorRoomInit() {
   const pid = state && state.person_id;
   if (_lvNarratorPhotos._pid !== pid) {
     _lvNarratorPhotos = { list: [], idx: 0, loaded: false, loading: false, error: null, _pid: pid };
+  }
+  if (_lvNarratorTrips._pid !== pid) {
+    _lvNarratorTrips = { list: [], tree: null, loaded: false, loading: false, error: null, _pid: pid };
   }
 }
 window.lvNarratorRoomInit = lvNarratorRoomInit;
