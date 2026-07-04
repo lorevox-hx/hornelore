@@ -103,6 +103,7 @@ def _photos_for_narrator(narrator_id: str) -> List[Dict[str, Any]]:
     from .. import db as _db
     con = sqlite3.connect(str(_db.DB_PATH))
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout = 5000;")  # BUG-DBLOCK hygiene
     try:
         rows = con.execute(
             "SELECT id, date_value, latitude, longitude FROM photos "

@@ -11,6 +11,7 @@ the same posture with a 503).
 """
 from __future__ import annotations
 
+import io
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -25,7 +26,6 @@ def build_trip_docx(
     """Render the memoir-preview dict (trip_repository.trip_memoir_preview
     shape) + joined photo rows into DOCX bytes."""
     try:
-        import io
         from docx import Document
         from docx.shared import Pt, Inches
     except Exception as exc:  # pragma: no cover - environment-dependent
@@ -142,7 +142,6 @@ def build_trip_docx(
             + ")"
         )
 
-    import io
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
