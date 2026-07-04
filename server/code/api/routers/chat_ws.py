@@ -1044,6 +1044,12 @@ async def ws_chat(ws: WebSocket):
             )
 
         # Layer 2: profile_json pin (only if hardcoded didn't already win)
+        # _early_profile_seed is hoisted so downstream consumers (the
+        # seeded-fact intake guard at the response-guards call site)
+        # can read it on EVERY path, including emergency-locked
+        # narrators and seed-read failures (BUG fix 2026-07-06: it was
+        # previously only bound inside this conditional try).
+        _early_profile_seed: Dict[str, Any] = {}
         if _session_lang_mode is None:
             try:
                 from ..prompt_composer import _build_profile_seed as _early_seed
@@ -3843,6 +3849,28 @@ async def ws_chat(ws: WebSocket):
                     )
             except Exception:
                 _is_chain_for_guard = False
+            # BUG-LORI-ASKS-WHAT-OPERATOR-SEEDED-01 wiring fix
+            # (2026-07-06): detect_seeded_fact_intake was DEAD in
+            # production — no caller ever passed seeded_facts, so Lori
+            # could still ask intake questions for operator-seeded
+            # facts. The guard expects place_of_birth /
+            # current_residence / current_work keys; profile_seed
+            # carries POB as childhood_home and work as career, so map
+            # explicitly (passing profile_seed raw would silently
+            # no-op on key mismatch).
+            _seeded_facts_for_guard: Dict[str, Any] = {}
+            try:
+                if isinstance(_early_profile_seed, dict):
+                    if _early_profile_seed.get("childhood_home"):
+                        _seeded_facts_for_guard["place_of_birth"] = (
+                            _early_profile_seed["childhood_home"]
+                        )
+                    if _early_profile_seed.get("career"):
+                        _seeded_facts_for_guard["current_work"] = (
+                            _early_profile_seed["career"]
+                        )
+            except Exception:
+                _seeded_facts_for_guard = {}
             _guarded_text, _guards_fired = _apply_guards(
                 assistant_text=final_text,
                 narrator_text=user_text or "",
@@ -3851,6 +3879,7 @@ async def ws_chat(ws: WebSocket):
                 surface=_surface,
                 narrator_anchors=_narrator_anchors_for_guard,
                 is_factual_chain=_is_chain_for_guard,
+                seeded_facts=_seeded_facts_for_guard or None,
             )
             if _guards_fired:
                 logger.warning(
