@@ -42,6 +42,7 @@ class _TempDbCase(unittest.TestCase):
                 image_path TEXT NOT NULL DEFAULT '',
                 file_hash TEXT NOT NULL DEFAULT '',
                 description TEXT,
+                narrator_ready INTEGER NOT NULL DEFAULT 0,
                 date_value TEXT,
                 latitude REAL,
                 longitude REAL,

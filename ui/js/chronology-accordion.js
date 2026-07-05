@@ -147,6 +147,25 @@ function crRenderAccordion(data) {
         const kindAttr = item.event_kind ? ` data-kind="${_crAttr(item.event_kind)}"` : "";
         html += `<div class="cr-event" data-lane="${lane}"${srcAttr}${kindAttr}${clickAttr}>`;
         html += _crEscapeHtml(item.label);
+        // Trip photo strip (2026-07-05, per Chris): thumbnails ride on
+        // the timeline entry; clicking one opens the full-size photo
+        // in the narrator lightbox with caption + date + stop.
+        // Photo details are stashed in a registry keyed by photo_id so
+        // the onclick attribute carries only the id (no HTML-escaping
+        // gymnastics for captions).
+        if (item.event_kind === "trip" && Array.isArray(item.photos) && item.photos.length) {
+          html += `<div class="cr-trip-photos">`;
+          for (const ph of item.photos) {
+            if (!ph || !ph.photo_id) continue;
+            _crTripPhotoRegistry[ph.photo_id] = ph;
+            const pidAttr = _crAttr(String(ph.photo_id));
+            html += `<img class="cr-trip-thumb" loading="lazy"` +
+              ` src="${_crApiBase()}/api/photos/${encodeURIComponent(ph.photo_id)}/thumb"` +
+              ` alt="${_crAttr(ph.caption || "trip photo")}"` +
+              ` onclick="crOpenTripPhoto('${pidAttr}', event)">`;
+          }
+          html += `</div>`;
+        }
         html += `</div>`;
       }
 
@@ -206,6 +225,41 @@ function crJumpToEra(eraLabel) {
    runtime payload builder can attach a chronology_context slice
    to the next turn. Only personal/ghost clicks trigger era navigation;
    world items update focus silently so they remain contextual-only. */
+const _crTripPhotoRegistry = {};
+
+function _crApiBase() {
+  return window.LOREVOX_API || "http://localhost:8000";
+}
+
+/* Trip photo thumbnail click → full-size image in the narrator
+   lightbox (#lvNarratorLightbox, BUG-240 host) with caption, date,
+   and stop name. stopPropagation so the era-focus click on the parent
+   cr-event doesn't also fire. */
+function crOpenTripPhoto(photoId, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  const ph = _crTripPhotoRegistry[photoId] || { photo_id: photoId };
+  const overlay = document.getElementById("lvNarratorLightbox");
+  if (!overlay) {
+    console.warn("[chronology] lightbox host missing");
+    return;
+  }
+  const img = overlay.querySelector(".lv-narrator-lightbox-img");
+  const cap = overlay.querySelector(".lv-narrator-lightbox-caption");
+  const sub = overlay.querySelector(".lv-narrator-lightbox-subline");
+  if (img) {
+    img.src = _crApiBase() + "/api/photos/" + encodeURIComponent(photoId) + "/image";
+    img.alt = ph.caption || "trip photo";
+  }
+  if (cap) cap.textContent = ph.caption || "";
+  const subBits = [];
+  if (ph.stop_name) subBits.push(ph.stop_name);
+  if (ph.taken_at) subBits.push(String(ph.taken_at).slice(0, 10));
+  if (sub) sub.textContent = subBits.join(" · ");
+  overlay.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+window.crOpenTripPhoto = crOpenTripPhoto;
+
 function crOnItemClick(year, era, lane, ev) {
   try {
     if (ev && ev.stopPropagation) ev.stopPropagation();

@@ -711,6 +711,53 @@ def build_chronology_accordion_payload(
                 _yr = int(str(_yr_src)[:4])
             except (TypeError, ValueError):
                 continue
+            # Photo strip (2026-07-05, per Chris): up to 6 memoir-
+            # included photo links ride on the timeline item so the
+            # accordion can render thumbnails; each carries what the
+            # narrator lightbox needs (caption, date, stop name). The
+            # FE composes /api/photos/{id}/thumb and /image URLs.
+            _photos: List[Dict[str, Any]] = []
+            try:
+                _stop_names: Dict[str, str] = {}
+                _tree = _trips_repo.trip_tree(_t["id"]) or {}
+
+                def _walk_names(s):
+                    _stop_names[s["id"]] = s.get("location_name") or ""
+                    for c in s.get("children", []):
+                        _walk_names(c)
+
+                for _r in _tree.get("regions", []):
+                    for _s in _r.get("stops", []):
+                        _walk_names(_s)
+                for _link in _trips_repo.photo_links_with_photo_paths(
+                        _t["id"], memoir_only=True):
+                    # BUG-238 precedent: the narrator room shows ONLY
+                    # curator-vetted photos (narrator_ready=1) — the
+                    # accordion is narrator-visible, so unvetted intake
+                    # photos must not leak here.
+                    if not _link.get("photo_narrator_ready"):
+                        continue
+                    if len(_photos) >= 6:
+                        break
+                    _photos.append({
+                        "photo_id": _link.get("photo_id"),
+                        "caption": (
+                            _link.get("narrator_caption")
+                            or _link.get("caption")
+                            or _link.get("photo_description")
+                            or ""
+                        ),
+                        "taken_at": (
+                            _link.get("taken_at")
+                            or _link.get("photo_date_value")
+                            or ""
+                        ),
+                        "stop_name": _stop_names.get(
+                            _link.get("trip_stop_id") or "", ""
+                        ),
+                    })
+            except Exception:
+                _photos = []
             trip_items.append({
                 "year": _yr,
                 "label": f"Trip — {_t.get('title') or 'Journey'}",
@@ -718,6 +765,7 @@ def build_chronology_accordion_payload(
                 "event_kind": "trip",
                 "dedup_key": f"trip:{_t.get('id')}",
                 "source": "trip",
+                "photos": _photos,
             })
     except Exception:
         trip_items = []

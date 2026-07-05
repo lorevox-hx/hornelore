@@ -204,6 +204,77 @@ class AccordionProjectionTest(_BridgeCase):
                         hits.append((yr.get("year"), it.get("label")))
         self.assertEqual(hits, [(2026, "Trip — Bridge Trip")])
 
+    def test_trip_item_carries_photo_strip(self):
+        import types
+        if "fastapi" not in sys.modules:
+            stub = types.ModuleType("fastapi")
+
+            class _APIRouter:
+                def __init__(self, *a, **k):
+                    pass
+
+                def _deco(self, *a, **k):
+                    def wrap(f):
+                        return f
+                    return wrap
+                get = post = patch = delete = put = _deco
+
+            stub.APIRouter = _APIRouter
+            stub.HTTPException = type("HTTPException", (Exception,), {})
+            stub.Query = lambda default=None, **k: default
+            sys.modules["fastapi"] = stub
+
+        trip_id = self._trip()
+        r = trip_repository.region_create(trip_id, "R1")
+        stop_id = trip_repository.stop_create(trip_id, r, "Rovinj")
+        # Seed a photo + memoir-included link.
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "date_value, narrator_ready) VALUES ('ph-strip', ?, "
+            "'/tmp/p.jpg', 'h-strip', '2026-05-28', 1);", (self.person_id,),
+        )
+        # Unvetted photo (narrator_ready=0) must NOT reach the
+        # narrator-visible accordion strip (BUG-238 class).
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "date_value, narrator_ready) VALUES ('ph-unvetted', ?, "
+            "'/tmp/u.jpg', 'h-unvetted', '2026-05-29', 0);",
+            (self.person_id,),
+        )
+        con.commit()
+        con.close()
+        link_id = trip_repository.photo_link_upsert(
+            trip_id, "ph-strip", trip_stop_id=stop_id,
+            taken_at="2026-05-28 16:30:00",
+        )
+        trip_repository.photo_link_update(link_id, caption="Rovinj harbor")
+        trip_repository.photo_link_upsert(
+            trip_id, "ph-unvetted", trip_stop_id=stop_id,
+            taken_at="2026-05-29 10:00:00",
+        )
+        from api.routers.chronology_accordion import (
+            build_chronology_accordion_payload,
+        )
+        payload = build_chronology_accordion_payload(
+            person_id=self.person_id,
+            profile={"basics": {"dob": self.DOB}},
+            questionnaire=None, promoted_rows=[],
+            narrator_display_name="Bridge Test",
+        )
+        photos = None
+        for dec in payload.get("decades", []):
+            for yr in dec.get("years", []):
+                for it in yr.get("items", []):
+                    if it.get("event_kind") == "trip":
+                        photos = it.get("photos")
+        self.assertIsNotNone(photos)
+        self.assertEqual(len(photos), 1)
+        self.assertEqual(photos[0]["photo_id"], "ph-strip")
+        self.assertEqual(photos[0]["caption"], "Rovinj harbor")
+        self.assertEqual(photos[0]["stop_name"], "Rovinj")
+        self.assertIn("2026-05-28", photos[0]["taken_at"])
+
 
 if __name__ == "__main__":
     unittest.main()

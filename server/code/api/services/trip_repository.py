@@ -627,7 +627,8 @@ def photo_links_with_photo_paths(
         rows = con.execute(
             f"""SELECT l.*, p.image_path AS photo_image_path,
                        p.description AS photo_description,
-                       p.date_value AS photo_date_value
+                       p.date_value AS photo_date_value,
+                       p.narrator_ready AS photo_narrator_ready
                 FROM trip_photo_links l
                 JOIN photos p ON p.id = l.photo_id
                 WHERE {where}

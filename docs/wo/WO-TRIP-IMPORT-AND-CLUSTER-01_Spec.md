@@ -88,6 +88,17 @@ DOB-needed warning (principle 7 visibility).
 13 tests in `tests/test_trip_timeline_bridge.py` incl. accordion
 projection (fastapi stubbed offline).
 
+### Phase B addendum — timeline photo strips (LANDED 2026-07-05)
+
+Trip entries in the chronology accordion carry up to 6 photo
+thumbnails (memoir-included links, **narrator_ready=1 only** — BUG-238
+precedent: unvetted intake photos never reach the narrator-visible
+room). Clicking a thumbnail opens the existing narrator lightbox
+(#lvNarratorLightbox) with the full-size image + caption + stop name +
+date; stopPropagation keeps the era-focus click intact. Backend:
+`photos` array on trip accordion items; FE: `cr-trip-photos` strip in
+chronology-accordion.js + `crOpenTripPhoto` registry-based opener.
+
 ### Phase 1 addenda (same session)
 
 - `PATCH /api/trips/stops/{stop_id}` — operator date/GPS/notes correction (drives clustering accuracy).
