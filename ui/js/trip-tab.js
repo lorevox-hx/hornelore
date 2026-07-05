@@ -16,8 +16,18 @@
   var LS_NARRATOR = "trip_tab_narrator_id_v1";
   var LS_TRIP = "trip_tab_trip_id_v1";
 
+  // Active-narrator handoff from the main shell (2026-07-06): the
+  // launch card passes ?narrator_id=<active narrator>, which WINS over
+  // the locally-remembered picker value. The picker remains for the
+  // direct-URL / no-active-narrator case.
+  var _urlNarrator = "";
+  try {
+    _urlNarrator = new URLSearchParams(window.location.search)
+      .get("narrator_id") || "";
+  } catch (e) { _urlNarrator = ""; }
+
   var state = {
-    narratorId: localStorage.getItem(LS_NARRATOR) || "",
+    narratorId: _urlNarrator || localStorage.getItem(LS_NARRATOR) || "",
     tripId: localStorage.getItem(LS_TRIP) || "",
     tree: null,
     flatStops: [],
@@ -315,13 +325,18 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     }).then(function (r) {
-      $("clusterResult").textContent =
+      setStatus("clustering done.");
+      // selectTrip clears the result panel as part of its refresh, so
+      // write the summary AFTER the refresh completes (live-verified
+      // 2026-07-06: the message was being wiped instantly).
+      var summary =
         "photos considered: " + r.photos_considered +
         " · links written: " + r.links_written +
         " · needs review: " + r.needs_review;
-      setStatus("clustering done.");
-      selectTrip(state.tripId);
-      loadQueue(0.5);
+      selectTrip(state.tripId).then(function () {
+        $("clusterResult").textContent = summary;
+        loadQueue(0.5);
+      });
     }).catch(function (e) { setStatus("cluster: " + e.message, true); });
   }
 
@@ -514,6 +529,9 @@
 
   // ── wiring ──────────────────────────────────────────────────────────
   document.addEventListener("DOMContentLoaded", function () {
+    if (_urlNarrator) {
+      localStorage.setItem(LS_NARRATOR, _urlNarrator);
+    }
     loadNarrators().then(loadTrips);
     if (state.tripId) selectTrip(state.tripId);
 
