@@ -129,6 +129,9 @@
     <aside>
       <div class="card">
         <h2>Trips</h2>
+        <div class="row">
+          <button class="btn green" id="newTripBtn" type="button">+ New Trip</button>
+        </div>
         <div id="tripList"><span class="small">No trips loaded yet.</span></div>
       </div>
       <div class="card">
@@ -153,11 +156,21 @@
       <div class="card">
         <h2>Regions &amp; Nested Stops</h2>
         <p class="small">Click ✎ on any stop to correct dates/GPS — then re-run
-        clustering. Operator-confirmed photo links survive re-clustering.</p>
+        clustering. Operator-confirmed photo links survive re-clustering.
+        Deleting a stop promotes its day-trips to top level and unassigns
+        (not deletes) its photos.</p>
+        <div class="row">
+          <button class="btn small" id="addRegionBtn" type="button">+ Add region</button>
+        </div>
+        <div id="regionFormHost"></div>
         <div id="regions"></div>
       </div>
       <div class="card">
         <h2>Themes Across the Trip</h2>
+        <div class="row">
+          <input type="text" id="themeTitleInput" placeholder="New theme (e.g. Roman archaeology)" style="flex:1; min-width:200px;">
+          <button class="btn small" id="addThemeBtn" type="button">+ Add</button>
+        </div>
         <div id="themes"></div>
       </div>
       <div class="card">
@@ -193,6 +206,24 @@
       </div>
     </aside>
   </div>
+
+  <!-- New Trip dialog (Phase A builder) -->
+  <dialog id="newTripDlg">
+    <h3 style="margin-top:0">New Trip</h3>
+    <label class="small">Title</label>
+    <input type="text" id="ntTitle" placeholder="Autumn 2027 Norway">
+    <div class="row">
+      <input type="text" id="ntStart" placeholder="start YYYY-MM-DD" style="flex:1">
+      <input type="text" id="ntEnd" placeholder="end YYYY-MM-DD" style="flex:1">
+    </div>
+    <label class="small">Summary (optional)</label>
+    <textarea id="ntSummary" style="min-height:60px"></textarea>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" id="ntCancel" type="button">Cancel</button>
+      <button class="btn" id="ntCreate" type="button">Create trip</button>
+    </div>
+    <div class="small" id="ntErr" style="color:var(--red)"></div>
+  </dialog>
 
   <!-- Import dialog -->
   <dialog id="importDlg">

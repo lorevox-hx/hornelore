@@ -51,6 +51,23 @@ Readiness-gate bugs from the mockup panel: DEEP-EUROPEAN-ROUTE-LANGUAGE-DRIFT (C
 - `GET /api/trips/{id}/memoir-preview` — deterministic dual-axis JSON.
 - `GET /api/trips/{id}/export-docx` — `services/trip_memoir_docx.py` builds the standalone trip memoir (Part I regions→nested stops w/ dates+notes+photo counts, Part II themes, Part III photo appendix with embedded images from `photos.image_path`, include_in_memoir=1 only). python-docx guarded → 503 when missing. Main-memoir section-proposal injection still open (couples to WO-MEMOIR-STORY-CANDIDATES-WIRE-01).
 
+### Phase A — Trip Builder (LANDED 2026-07-05)
+
+No more import-only creation. Endpoints: `POST /api/trips` (create from
+form), `POST /{trip_id}/regions`, `POST /{trip_id}/regions/{rid}/stops`
+(with parent nesting + ord), `POST /{trip_id}/themes`, `PATCH
+/regions/{rid}`, `DELETE /regions/{rid}` (stops cascade), `DELETE
+/stops/{sid}` (children promote to top level, photo links unassign via
+SET NULL), `DELETE /themes/{tid}`. Stop editor gains ord + re-parent.
+UI: "+ New Trip" dialog, per-trip "+ Add region" form, per-region
+"+ stop" form (type select, dates, GPS, nest-under select, notes),
+per-stop/region/theme delete controls, add-theme row. Landed with the
+system-wide person-deletion coverage fix (WORK-AUDIT-2026-07-05
+headline 3): `_EXTENDED_PERSON_SCOPED_TABLES` in db.py — inventory +
+hard-delete now cover photos/story_candidates/bio_facts/archives/
+safety_events/trips (+ cascades), audit rows survive.
+`tests/test_person_delete_coverage.py` + BuilderFlowTest.
+
 ### Phase 1 addenda (same session)
 
 - `PATCH /api/trips/stops/{stop_id}` — operator date/GPS/notes correction (drives clustering accuracy).

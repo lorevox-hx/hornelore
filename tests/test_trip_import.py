@@ -337,5 +337,71 @@ class TripDocxTest(_TempDbCase):
         self.assertEqual(blob[:2], b"PK")  # docx = zip container
 
 
+class BuilderFlowTest(_TempDbCase):
+    """Phase A builder (2026-07-05): create-from-scratch flow at the
+    repository level — trip -> regions -> stops (nested) -> themes ->
+    edits -> deletes. Mirrors what the New Trip UI drives."""
+
+    def test_full_builder_flow(self):
+        trip_id = trip_repository.trip_create(
+            person_id="builder-p", title="Built From Scratch",
+            start_date="2027-01-01", end_date="2027-01-14",
+            source_document="builder",
+        )
+        r1 = trip_repository.region_create(trip_id, "Norway", ord_=0)
+        r2 = trip_repository.region_create(trip_id, "Return", ord_=1)
+        s_base = trip_repository.stop_create(
+            trip_id, r1, "Oslo", stop_type="base",
+            date_start="2027-01-01", date_end="2027-01-07", ord_=0,
+        )
+        trip_repository.stop_create(
+            trip_id, r1, "Bergen", stop_type="day_trip",
+            parent_trip_stop_id=s_base, ord_=0,
+        )
+        trip_repository.stop_create(trip_id, r2, "Home flight",
+                                    stop_type="transit", ord_=0)
+        trip_repository.theme_create(trip_id, "Fjords", "fjords", ord_=0)
+
+        tree = trip_repository.trip_tree(trip_id)
+        self.assertEqual(len(tree["regions"]), 2)
+        oslo = tree["regions"][0]["stops"][0]
+        self.assertEqual(oslo["location_name"], "Oslo")
+        self.assertEqual(oslo["children"][0]["location_name"], "Bergen")
+        self.assertEqual(len(tree["themes"]), 1)
+
+        # Edit region + reorder stop + re-parent.
+        self.assertTrue(trip_repository.region_update(
+            r1, base_address="Oslo apartment", title="Norway — Oslo base",
+        ))
+        bergen_id = oslo["children"][0]["id"]
+        self.assertTrue(trip_repository.stop_update(
+            bergen_id, clear_parent=True, ord_=5,
+        ))
+        tree = trip_repository.trip_tree(trip_id)
+        self.assertEqual(tree["regions"][0]["base_address"], "Oslo apartment")
+        top_names = [s["location_name"] for s in tree["regions"][0]["stops"]]
+        self.assertIn("Bergen", top_names)  # re-parented to top level
+
+        # Deletes: stop, theme, then region (cascade).
+        self.assertTrue(trip_repository.stop_delete(bergen_id))
+        theme_id = tree["themes"][0]["id"]
+        self.assertTrue(trip_repository.theme_delete(theme_id))
+        self.assertTrue(trip_repository.region_delete(r2))
+        tree = trip_repository.trip_tree(trip_id)
+        self.assertEqual(len(tree["regions"]), 1)
+        self.assertEqual(len(tree["themes"]), 0)
+
+    def test_stop_delete_reparents_children(self):
+        trip_id = trip_repository.trip_create(person_id="p", title="T")
+        r = trip_repository.region_create(trip_id, "R")
+        base = trip_repository.stop_create(trip_id, r, "Base", stop_type="base")
+        trip_repository.stop_create(trip_id, r, "Child",
+                                    parent_trip_stop_id=base)
+        trip_repository.stop_delete(base)
+        tree = trip_repository.trip_tree(trip_id)
+        names = [s["location_name"] for s in tree["regions"][0]["stops"]]
+        self.assertEqual(names, ["Child"])  # survived, promoted to top
+
+
 if __name__ == "__main__":
     unittest.main()

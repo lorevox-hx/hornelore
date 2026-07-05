@@ -157,6 +157,169 @@
       .catch(function (e) { setStatus("tree: " + e.message, true); });
   }
 
+  // ── Phase A builder (2026-07-05) ────────────────────────────────────
+  function _field(labelText, key, placeholder, value) {
+    var wrap = el("div");
+    wrap.appendChild(el("label", null, labelText));
+    var inp = el("input");
+    inp.type = "text";
+    inp.placeholder = placeholder || "";
+    inp.value = value == null ? "" : String(value);
+    inp.dataset.k = key;
+    wrap.appendChild(inp);
+    return wrap;
+  }
+
+  function _collect(formEl) {
+    var body = {};
+    formEl.querySelectorAll("input, select, textarea").forEach(function (inp) {
+      var v = (inp.value || "").trim();
+      if (v === "" || !inp.dataset.k) return;
+      if (inp.dataset.k === "latitude" || inp.dataset.k === "longitude") {
+        var f = parseFloat(v);
+        if (!isNaN(f)) body[inp.dataset.k] = f;
+      } else if (inp.dataset.k === "ord") {
+        var n = parseInt(v, 10);
+        if (!isNaN(n)) body[inp.dataset.k] = n;
+      } else {
+        body[inp.dataset.k] = v;
+      }
+    });
+    return body;
+  }
+
+  function createTrip() {
+    var title = $("ntTitle").value.trim();
+    if (!state.narratorId) { $("ntErr").textContent = "Pick a narrator in the header first."; return; }
+    if (!title) { $("ntErr").textContent = "Trip needs a title."; return; }
+    api("/api/trips", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        person_id: state.narratorId,
+        title: title,
+        start_date: $("ntStart").value.trim() || null,
+        end_date: $("ntEnd").value.trim() || null,
+        summary: $("ntSummary").value.trim() || null,
+      }),
+    }).then(function (r) {
+      $("newTripDlg").close();
+      setStatus("Trip created — add regions, then stops.");
+      loadTrips().then(function () { selectTrip(r.trip_id); });
+    }).catch(function (e) { $("ntErr").textContent = e.message; });
+  }
+
+  function toggleRegionForm() {
+    var host = $("regionFormHost");
+    if (host.firstChild) { host.innerHTML = ""; return; }
+    if (!state.tripId) { setStatus("select or create a trip first", true); return; }
+    var frm = el("div", "frm");
+    frm.style.display = "grid";
+    frm.style.gridTemplateColumns = "1fr 1fr";
+    frm.style.gap = "6px";
+    frm.style.padding = "8px";
+    frm.appendChild(_field("title *", "title", "Croatia (Istria)"));
+    frm.appendChild(_field("country / area", "country_or_area", "Croatia"));
+    frm.appendChild(_field("start (YYYY-MM-DD)", "start_date", ""));
+    frm.appendChild(_field("end (YYYY-MM-DD)", "end_date", ""));
+    frm.appendChild(_field("base address", "base_address", "Medulin apartment"));
+    var saveWrap = el("div");
+    saveWrap.style.gridColumn = "1 / -1";
+    var save = el("button", "btn small", "Add region");
+    save.type = "button";
+    save.addEventListener("click", function () {
+      var body = _collect(frm);
+      if (!body.title) { setStatus("region needs a title", true); return; }
+      api("/api/trips/" + encodeURIComponent(state.tripId) + "/regions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(function () {
+        host.innerHTML = "";
+        setStatus("Region added.");
+        selectTrip(state.tripId);
+      }).catch(function (e) { setStatus("add region: " + e.message, true); });
+    });
+    saveWrap.appendChild(save);
+    frm.appendChild(saveWrap);
+    host.appendChild(frm);
+  }
+
+  function stopAddForm(region) {
+    var frm = el("div", "frm");
+    frm.style.display = "grid";
+    frm.style.gridTemplateColumns = "1fr 1fr";
+    frm.style.gap = "6px";
+    frm.style.padding = "8px";
+    frm.appendChild(_field("location *", "location_name", "Rovinj"));
+    // stop_type select
+    var typeWrap = el("div");
+    typeWrap.appendChild(el("label", null, "type"));
+    var sel = el("select");
+    sel.dataset.k = "stop_type";
+    ["sight", "base", "day_trip", "transit", "lodging", "meal",
+     "disruption", "memory_anchor"].forEach(function (t) {
+      var o = el("option", null, t); o.value = t; sel.appendChild(o);
+    });
+    typeWrap.appendChild(sel);
+    frm.appendChild(typeWrap);
+    frm.appendChild(_field("date start", "date_start", "YYYY-MM-DD"));
+    frm.appendChild(_field("date end", "date_end", "YYYY-MM-DD"));
+    frm.appendChild(_field("latitude", "latitude", "45.0812"));
+    frm.appendChild(_field("longitude", "longitude", "13.6387"));
+    // parent select (nest under a base in this region)
+    var parentWrap = el("div");
+    parentWrap.appendChild(el("label", null, "nest under (optional)"));
+    var psel = el("select");
+    psel.dataset.k = "parent_trip_stop_id";
+    var none = el("option", null, "(top level)"); none.value = "";
+    psel.appendChild(none);
+    state.flatStops.forEach(function (s) {
+      if (s.trip_region_id !== region.id) return;
+      var o = el("option", null, s.location_name);
+      o.value = s.id;
+      psel.appendChild(o);
+    });
+    parentWrap.appendChild(psel);
+    frm.appendChild(parentWrap);
+    frm.appendChild(_field("notes", "notes", ""));
+    var saveWrap = el("div");
+    saveWrap.style.gridColumn = "1 / -1";
+    var save = el("button", "btn small", "Add stop");
+    save.type = "button";
+    save.addEventListener("click", function () {
+      var body = _collect(frm);
+      if (!body.location_name) { setStatus("stop needs a location", true); return; }
+      api("/api/trips/" + encodeURIComponent(state.tripId) +
+          "/regions/" + encodeURIComponent(region.id) + "/stops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(function () {
+        setStatus("Stop added.");
+        selectTrip(state.tripId);
+      }).catch(function (e) { setStatus("add stop: " + e.message, true); });
+    });
+    saveWrap.appendChild(save);
+    frm.appendChild(saveWrap);
+    return frm;
+  }
+
+  function addTheme() {
+    if (!state.tripId) { setStatus("select a trip first", true); return; }
+    var title = $("themeTitleInput").value.trim();
+    if (!title) { setStatus("theme needs a title", true); return; }
+    api("/api/trips/" + encodeURIComponent(state.tripId) + "/themes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title }),
+    }).then(function () {
+      $("themeTitleInput").value = "";
+      setStatus("Theme added.");
+      selectTrip(state.tripId);
+    }).catch(function (e) { setStatus("add theme: " + e.message, true); });
+  }
+
   function renderOverview(tree) {
     var o = $("overview");
     o.innerHTML = "";
@@ -226,6 +389,7 @@
     frm.appendChild(field("longitude", "longitude", stop.longitude, "12.3155"));
     frm.appendChild(field("location_name", "location_name", stop.location_name, ""));
     frm.appendChild(field("notes", "notes", stop.notes, ""));
+    frm.appendChild(field("order (0 = first)", "ord", stop.ord, ""));
     var saveWrap = el("div");
     saveWrap.style.gridColumn = "1 / -1";
     var save = el("button", "btn small", "Save stop");
@@ -238,6 +402,9 @@
         if (inp.dataset.k === "latitude" || inp.dataset.k === "longitude") {
           var f = parseFloat(v);
           if (!isNaN(f)) body[inp.dataset.k] = f;
+        } else if (inp.dataset.k === "ord") {
+          var n = parseInt(v, 10);
+          if (!isNaN(n)) body[inp.dataset.k] = n;
         } else {
           body[inp.dataset.k] = v;
         }
@@ -273,6 +440,17 @@
     if (stop.latitude != null) metaBits.push("gps ✓");
     if (stop.photo_count) metaBits.push(stop.photo_count + " photos");
     div.appendChild(el("span", "meta", metaBits.length ? "  · " + metaBits.join(" · ") : ""));
+    var delStop = el("button", "btn small red", "✕");
+    delStop.type = "button";
+    delStop.title = "Delete stop (day-trips promote to top level; photos unassign, not delete)";
+    delStop.style.cssText = "float:right; margin-left:6px;";
+    delStop.addEventListener("click", function () {
+      if (!confirm("Delete stop \"" + (stop.location_name || "") + "\"?")) return;
+      api("/api/trips/stops/" + encodeURIComponent(stop.id), { method: "DELETE" })
+        .then(function () { setStatus("Stop deleted."); selectTrip(state.tripId); })
+        .catch(function (e) { setStatus("delete stop: " + e.message, true); });
+    });
+    div.appendChild(delStop);
     div.appendChild(stopEditor(stop));
     container.appendChild(div);
     if (stop.children && stop.children.length) {
@@ -295,6 +473,27 @@
         (r.end_date ? " – " + r.end_date : "") +
         (r.base_address ? "  ·  base: " + r.base_address : ""));
       rh.appendChild(span);
+      // Phase A builder controls: add-stop + delete-region.
+      var addStopBtn = el("button", "btn small ghost", "+ stop");
+      addStopBtn.type = "button";
+      addStopBtn.style.marginLeft = "8px";
+      addStopBtn.addEventListener("click", function () {
+        var existing = reg.querySelector(":scope > .frm");
+        if (existing) { existing.remove(); return; }
+        reg.insertBefore(stopAddForm(r), rh.nextSibling);
+      });
+      rh.appendChild(addStopBtn);
+      var delRegionBtn = el("button", "btn small red", "✕");
+      delRegionBtn.type = "button";
+      delRegionBtn.title = "Delete this region and its stops";
+      delRegionBtn.style.marginLeft = "4px";
+      delRegionBtn.addEventListener("click", function () {
+        if (!confirm("Delete region \"" + (r.title || "") + "\" and all its stops?")) return;
+        api("/api/trips/regions/" + encodeURIComponent(r.id), { method: "DELETE" })
+          .then(function () { setStatus("Region deleted."); selectTrip(state.tripId); })
+          .catch(function (e) { setStatus("delete region: " + e.message, true); });
+      });
+      rh.appendChild(delRegionBtn);
       reg.appendChild(rh);
       (r.stops || []).forEach(function (s) { renderStop(s, reg); });
       host.appendChild(reg);
@@ -312,6 +511,16 @@
     themes.forEach(function (t) {
       var chip = el("span", "theme", t.title || t.tag);
       if (t.description) chip.title = t.description;
+      var x = el("button", null, "✕");
+      x.type = "button";
+      x.style.cssText = "background:none;border:0;color:inherit;cursor:pointer;margin-left:6px;font-size:11px;";
+      x.title = "Remove theme";
+      x.addEventListener("click", function () {
+        api("/api/trips/themes/" + encodeURIComponent(t.id), { method: "DELETE" })
+          .then(function () { setStatus("Theme removed."); selectTrip(state.tripId); })
+          .catch(function (e) { setStatus("remove theme: " + e.message, true); });
+      });
+      chip.appendChild(x);
       host.appendChild(chip);
     });
   }
@@ -544,6 +753,16 @@
       loadTrips();
       if (state.tripId) selectTrip(state.tripId);
     });
+    $("newTripBtn").addEventListener("click", function () {
+      $("ntTitle").value = ""; $("ntStart").value = "";
+      $("ntEnd").value = ""; $("ntSummary").value = "";
+      $("ntErr").textContent = "";
+      $("newTripDlg").showModal();
+    });
+    $("ntCancel").addEventListener("click", function () { $("newTripDlg").close(); });
+    $("ntCreate").addEventListener("click", createTrip);
+    $("addRegionBtn").addEventListener("click", toggleRegionForm);
+    $("addThemeBtn").addEventListener("click", addTheme);
     $("importJsonBtn").addEventListener("click", function () { openImport("json"); });
     $("importCsvBtn").addEventListener("click", function () { openImport("csv"); });
     $("importCancel").addEventListener("click", function () { $("importDlg").close(); });

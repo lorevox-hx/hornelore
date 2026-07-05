@@ -226,6 +226,100 @@ def theme_create(
         con.close()
 
 
+def region_update(
+    region_id: str,
+    title: Optional[str] = None,
+    country_or_area: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    summary: Optional[str] = None,
+    base_address: Optional[str] = None,
+    ord_: Optional[int] = None,
+) -> bool:
+    sets: List[str] = []
+    args: List[Any] = []
+    if title is not None:
+        sets.append("title = ?"); args.append(title)
+    if country_or_area is not None:
+        sets.append("country_or_area = ?"); args.append(country_or_area)
+    if start_date is not None:
+        sets.append("start_date = ?"); args.append(start_date)
+    if end_date is not None:
+        sets.append("end_date = ?"); args.append(end_date)
+    if summary is not None:
+        sets.append("summary = ?"); args.append(summary)
+    if base_address is not None:
+        sets.append("base_address = ?"); args.append(base_address)
+    if ord_ is not None:
+        sets.append("ord = ?"); args.append(int(ord_))
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(region_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_regions SET {', '.join(sets)} WHERE id = ?", args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def region_delete(region_id: str) -> bool:
+    """Delete a region and its stops (FK cascade)."""
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_regions WHERE id = ?", (region_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def stop_delete(stop_id: str) -> bool:
+    """Delete a stop. Child day-trips survive with parent SET NULL
+    (they become top-level stops in the region); photo links keep
+    the trip but lose the stop assignment (SET NULL) so re-clustering
+    or operator review can re-home them."""
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_stops WHERE id = ?", (stop_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def theme_delete(theme_id: str) -> bool:
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_themes WHERE id = ?", (theme_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 # ── Photo links ───────────────────────────────────────────────────────────
 
 
@@ -373,6 +467,9 @@ def stop_update(
     notes: Optional[str] = None,
     thematic_tags: Optional[List[str]] = None,
     clear_dates: bool = False,
+    ord_: Optional[int] = None,
+    parent_trip_stop_id: Optional[str] = None,
+    clear_parent: bool = False,
 ) -> bool:
     """Operator correction surface — tightening stop dates/GPS is how
     clustering confidence improves on real photo sets. ``clear_dates``
@@ -402,6 +499,12 @@ def stop_update(
     if thematic_tags is not None:
         sets.append("thematic_tags_json = ?")
         args.append(json.dumps(thematic_tags, ensure_ascii=False))
+    if ord_ is not None:
+        sets.append("ord = ?"); args.append(int(ord_))
+    if clear_parent:
+        sets.append("parent_trip_stop_id = NULL")
+    elif parent_trip_stop_id is not None:
+        sets.append("parent_trip_stop_id = ?"); args.append(parent_trip_stop_id)
     if not sets:
         return False
     sets.append("updated_at = ?"); args.append(_now())

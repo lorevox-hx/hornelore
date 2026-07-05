@@ -14,6 +14,14 @@ mirroring the operator_eval_harness posture):
     PATCH /api/trips/stops/{stop_id}          (operator date/GPS correction)
     DELETE /api/trips/{trip_id}
     GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
+    POST  /api/trips                          (create empty trip — Phase A builder)
+    POST  /api/trips/{trip_id}/regions
+    POST  /api/trips/{trip_id}/regions/{region_id}/stops
+    POST  /api/trips/{trip_id}/themes
+    PATCH /api/trips/regions/{region_id}
+    DELETE /api/trips/regions/{region_id}     (stops cascade)
+    DELETE /api/trips/stops/{stop_id}         (children re-parent to top level)
+    DELETE /api/trips/themes/{theme_id}
 
 Operator-side surface. Nothing here reaches the narrator directly —
 the interview lane consumes trips later via location notes (LOCKED
@@ -72,6 +80,54 @@ class ClusterPhotosRequest(BaseModel):
     narrator_id: Optional[str] = None  # defaults to the trip's person_id
 
 
+class TripCreate(BaseModel):
+    person_id: str
+    title: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class RegionCreate(BaseModel):
+    title: str
+    country_or_area: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    summary: Optional[str] = None
+    base_address: Optional[str] = None
+    ord: Optional[int] = None
+
+
+class RegionPatch(BaseModel):
+    title: Optional[str] = None
+    country_or_area: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    summary: Optional[str] = None
+    base_address: Optional[str] = None
+    ord: Optional[int] = None
+
+
+class StopCreate(BaseModel):
+    location_name: str
+    stop_type: str = "sight"
+    parent_trip_stop_id: Optional[str] = None
+    date_start: Optional[str] = None
+    date_end: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    thematic_tags: Optional[List[str]] = None
+    ord: Optional[int] = None
+
+
+class ThemeCreate(BaseModel):
+    title: str
+    tag: Optional[str] = None
+    description: Optional[str] = None
+
+
 class StopPatch(BaseModel):
     location_name: Optional[str] = None
     stop_type: Optional[str] = None
@@ -83,6 +139,9 @@ class StopPatch(BaseModel):
     notes: Optional[str] = None
     thematic_tags: Optional[List[str]] = None
     clear_dates: bool = False
+    ord: Optional[int] = None
+    parent_trip_stop_id: Optional[str] = None
+    clear_parent: bool = False
 
 
 class PhotoLinkPatch(BaseModel):
@@ -286,12 +345,147 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
         notes=req.notes,
         thematic_tags=req.thematic_tags,
         clear_dates=req.clear_dates,
+        ord_=req.ord,
+        parent_trip_stop_id=req.parent_trip_stop_id,
+        clear_parent=req.clear_parent,
     )
     if not ok:
         raise HTTPException(
             status_code=404, detail="stop not found or nothing to update",
         )
     return {"ok": True, "stop_id": stop_id}
+
+
+@router.post("")
+def create_trip(req: TripCreate) -> Dict[str, Any]:
+    """Phase A builder: create an empty trip from a form (no more
+    import-only creation)."""
+    _require_trips_enabled()
+    if not (req.title or "").strip():
+        raise HTTPException(status_code=422, detail="trip needs a title")
+    trip_id = trip_repository.trip_create(
+        person_id=req.person_id,
+        title=req.title.strip(),
+        start_date=req.start_date,
+        end_date=req.end_date,
+        summary=req.summary,
+        source_document="builder",
+    )
+    logger.info("[trips][builder] trip created trip=%s person=%s",
+                trip_id, req.person_id)
+    return {"trip_id": trip_id, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.post("/{trip_id}/regions")
+def create_region(trip_id: str, req: RegionCreate) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    tree = trip_repository.trip_tree(trip_id)
+    next_ord = req.ord if req.ord is not None else len(tree.get("regions", []))
+    region_id = trip_repository.region_create(
+        trip_id=trip_id,
+        title=req.title,
+        ord_=next_ord,
+        country_or_area=req.country_or_area,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        summary=req.summary,
+        base_address=req.base_address,
+    )
+    return {"region_id": region_id, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.post("/{trip_id}/regions/{region_id}/stops")
+def create_stop(trip_id: str, region_id: str, req: StopCreate) -> Dict[str, Any]:
+    _require_trips_enabled()
+    tree = trip_repository.trip_tree(trip_id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="trip not found")
+    region = next((r for r in tree.get("regions", []) if r["id"] == region_id), None)
+    if not region:
+        raise HTTPException(status_code=404, detail="region not found in this trip")
+    next_ord = req.ord if req.ord is not None else len(region.get("stops", []))
+    stop_id = trip_repository.stop_create(
+        trip_id=trip_id,
+        trip_region_id=region_id,
+        location_name=req.location_name,
+        stop_type=req.stop_type or "sight",
+        ord_=next_ord,
+        parent_trip_stop_id=req.parent_trip_stop_id,
+        date_start=req.date_start,
+        date_end=req.date_end,
+        latitude=req.latitude,
+        longitude=req.longitude,
+        title=req.title,
+        notes=req.notes,
+        thematic_tags=req.thematic_tags,
+    )
+    return {"stop_id": stop_id, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.post("/{trip_id}/themes")
+def create_theme(trip_id: str, req: ThemeCreate) -> Dict[str, Any]:
+    _require_trips_enabled()
+    tree = trip_repository.trip_tree(trip_id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="trip not found")
+    import re as _re
+    tag = (req.tag or "").strip() or _re.sub(
+        r"[^a-z0-9]+", "_", req.title.lower(),
+    ).strip("_") or "theme"
+    theme_id = trip_repository.theme_create(
+        trip_id=trip_id,
+        title=req.title,
+        tag=tag,
+        ord_=len(tree.get("themes", [])),
+        description=req.description,
+    )
+    return {"theme_id": theme_id, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.patch("/regions/{region_id}")
+def patch_region(region_id: str, req: RegionPatch) -> Dict[str, Any]:
+    _require_trips_enabled()
+    ok = trip_repository.region_update(
+        region_id,
+        title=req.title,
+        country_or_area=req.country_or_area,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        summary=req.summary,
+        base_address=req.base_address,
+        ord_=req.ord,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=404, detail="region not found or nothing to update",
+        )
+    return {"ok": True, "region_id": region_id}
+
+
+@router.delete("/regions/{region_id}")
+def delete_region(region_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.region_delete(region_id):
+        raise HTTPException(status_code=404, detail="region not found")
+    return {"ok": True, "region_id": region_id}
+
+
+@router.delete("/stops/{stop_id}")
+def delete_stop(stop_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.stop_delete(stop_id):
+        raise HTTPException(status_code=404, detail="stop not found")
+    return {"ok": True, "stop_id": stop_id}
+
+
+@router.delete("/themes/{theme_id}")
+def delete_theme(theme_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.theme_delete(theme_id):
+        raise HTTPException(status_code=404, detail="theme not found")
+    return {"ok": True, "theme_id": theme_id}
 
 
 @router.delete("/{trip_id}")
