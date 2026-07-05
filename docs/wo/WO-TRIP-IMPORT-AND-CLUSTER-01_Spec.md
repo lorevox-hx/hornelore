@@ -99,6 +99,14 @@ date; stopPropagation keeps the era-focus click intact. Backend:
 `photos` array on trip accordion items; FE: `cr-trip-photos` strip in
 chronology-accordion.js + `crOpenTripPhoto` registry-based opener.
 
+### Phase C — stop-scoped upload + trip-scoped Lori photo sessions (SPEC'd 2026-07-05)
+
+Broken out to its own WO: `docs/wo/WO-TRIP-PHOTO-STOP-UPLOAD-AND-ELICIT-01_Spec.md`.
+Upload photos directly at a stop (operator-truth links, EXIF as cross-check
+not authority), three-class metadata-provenance model (scanned film /
+digital-camera era / phone-with-lossy-export), and Lori photo sessions
+scoped to a trip/stop riding the existing WO-LORI-PHOTO-SHARED-01 lane.
+
 ### Phase 1 addenda (same session)
 
 - `PATCH /api/trips/stops/{stop_id}` — operator date/GPS/notes correction (drives clustering accuracy).
