@@ -54,8 +54,8 @@ Inherited from pre-pivot work. Pre-pivot evidence in `docs/archive/`; post-pivot
 | 2. Atomicity discipline | 🟢 GREEN | landed pre-pivot |
 | 3. Story preservation | 🟢 GREEN | landed pre-pivot |
 | 4. Safety acute path | 🟢 GREEN | landed pre-pivot |
-| 5. Safety soft-trigger | 🟡 CODE LANDED, flag off | WO #1 SAFETY-LLM-CLASSIFIER — needs live-harness GREEN then `HORNELORE_SAFETY_LLM_LAYER=1` |
-| 6. Post-safety recovery | 🟡 CODE LANDED, flag off | WO #2 SOFTENED-MODE-PERSISTENCE — needs live-harness GREEN then flag flip (lockstep with Gate 5) |
+| 5. Safety soft-trigger | 🟢 LIVE (verified 2026-07-05: `HORNELORE_SAFETY_LLM_LAYER=1` in .env) | Remaining: FORMAL verification record — red-team pack on live flags. See docs/reports/WORK-AUDIT-2026-07-05.md |
+| 6. Post-safety recovery | 🟢 LIVE (verified 2026-07-05: `HORNELORE_SOFTENED_RESPONSE=1` in .env) | Remaining: softened-persistence harness evidence on live flags (lockstep with Gate 5) |
 | 7. Truth-pipeline observability | 🔴 RED | scoped separately; not in the 6-WO sequence |
 
 ---
