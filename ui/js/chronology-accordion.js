@@ -100,6 +100,9 @@ function crRenderAccordion(data) {
     body.innerHTML = '<div style="padding:12px;color:#475569;font-size:11px;text-align:center;">No timeline data yet</div>';
     return;
   }
+  // Trip photo registry is rebuilt every render (review fix
+  // 2026-07-05: unbounded growth across re-renders).
+  for (const k in _crTripPhotoRegistry) delete _crTripPhotoRegistry[k];
 
   let html = "";
   for (const decade of data.decades) {

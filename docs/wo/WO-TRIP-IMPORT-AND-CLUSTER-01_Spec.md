@@ -119,3 +119,4 @@ chronology-accordion.js + `crOpenTripPhoto` registry-based opener.
 ## Revision history
 
 - 2026-07-02 — Authored + Phase 1/2 implemented in the same session (Chris's priority call: photo import + travel memoir testing).
+- 2026-07-05 — Phases A + B + photo-strip addendum landed. Post-landing review sweep fixed three findings: (1) accordion N+1 (`trip_tree` per trip for stop names → `stop_location_name` via LEFT JOIN in `photo_links_with_photo_paths`), (2) `_crTripPhotoRegistry` unbounded growth (cleared per render), (3) `meta_json` read-modify-write race (`trip_meta_merge` — single BEGIN IMMEDIATE transaction; bridge sync now merges only its own keys). 50 trip-lane tests green incl. merge-preserves-keys lock-in.

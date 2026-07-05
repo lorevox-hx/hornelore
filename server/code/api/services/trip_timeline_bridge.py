@@ -141,10 +141,12 @@ def sync_trip_to_life_record(trip_id: str) -> Dict[str, Any]:
             event_id = event.get("id")
         result["timeline_event_id"] = event_id
 
-        # Persist era + event link back onto the trip row.
-        meta["era_id"] = era_id
-        meta["timeline_event_id"] = event_id
-        repo.trip_meta_update(trip_id, meta)
+        # Persist era + event link back onto the trip row — atomic
+        # key merge so concurrent syncs can't clobber other meta keys.
+        repo.trip_meta_merge(trip_id, {
+            "era_id": era_id,
+            "timeline_event_id": event_id,
+        })
 
         # 3) Bio suggestion (one per trip; replace prior).
         try:

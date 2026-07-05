@@ -142,6 +142,21 @@ class _BridgeCase(unittest.TestCase):
         con.close()
         self.assertEqual(n, 0)
 
+    def test_meta_merge_preserves_other_keys(self):
+        # Review fix 2026-07-05: sync uses atomic trip_meta_merge, so
+        # unrelated meta keys written by other surfaces must survive.
+        trip_id = self._trip()
+        trip_repository.trip_meta_merge(trip_id, {"operator_note": "keep me"})
+        trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+        trip = trip_repository.trip_get(trip_id)
+        self.assertEqual(trip["meta_json"].get("operator_note"), "keep me")
+        self.assertIsNotNone(trip["meta_json"].get("timeline_event_id"))
+        self.assertIsNotNone(trip["meta_json"].get("era_id"))
+
+    def test_meta_merge_missing_trip_returns_false(self):
+        self.assertFalse(
+            trip_repository.trip_meta_merge("no-such-trip", {"k": "v"}))
+
     def test_child_era_derivation(self):
         # Narrator born 2000, trip at age 8 → early school years.
         con = sqlite3.connect(str(self.db_path))

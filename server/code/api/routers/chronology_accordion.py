@@ -718,17 +718,9 @@ def build_chronology_accordion_payload(
             # FE composes /api/photos/{id}/thumb and /image URLs.
             _photos: List[Dict[str, Any]] = []
             try:
-                _stop_names: Dict[str, str] = {}
-                _tree = _trips_repo.trip_tree(_t["id"]) or {}
-
-                def _walk_names(s):
-                    _stop_names[s["id"]] = s.get("location_name") or ""
-                    for c in s.get("children", []):
-                        _walk_names(c)
-
-                for _r in _tree.get("regions", []):
-                    for _s in _r.get("stops", []):
-                        _walk_names(_s)
+                # Review fix 2026-07-05 (N+1): stop names come from the
+                # photo-links join (LEFT JOIN trip_stops) instead of a
+                # full trip_tree walk per trip — one query per trip.
                 for _link in _trips_repo.photo_links_with_photo_paths(
                         _t["id"], memoir_only=True):
                     # BUG-238 precedent: the narrator room shows ONLY
@@ -752,9 +744,7 @@ def build_chronology_accordion_payload(
                             or _link.get("photo_date_value")
                             or ""
                         ),
-                        "stop_name": _stop_names.get(
-                            _link.get("trip_stop_id") or "", ""
-                        ),
+                        "stop_name": _link.get("stop_location_name") or "",
                     })
             except Exception:
                 _photos = []

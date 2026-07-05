@@ -249,7 +249,8 @@ def region_trip_id(region_id: str) -> Optional[str]:
 
 
 def trip_meta_update(trip_id: str, meta: Dict[str, Any]) -> bool:
-    """Replace trips.meta_json wholesale (callers read-modify-write)."""
+    """Replace trips.meta_json wholesale (callers read-modify-write).
+    Prefer trip_meta_merge for concurrent-safe key updates."""
     con = _connect()
     try:
         cur = con.execute(
@@ -258,6 +259,40 @@ def trip_meta_update(trip_id: str, meta: Dict[str, Any]) -> bool:
         )
         con.commit()
         return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def trip_meta_merge(trip_id: str, patch: Dict[str, Any]) -> bool:
+    """Merge keys into trips.meta_json atomically — the read-modify-
+    write happens inside a single BEGIN IMMEDIATE transaction so two
+    concurrent syncs can't clobber each other's keys (review fix
+    2026-07-05)."""
+    con = _connect()
+    try:
+        con.execute("BEGIN IMMEDIATE;")
+        row = con.execute(
+            "SELECT meta_json FROM trips WHERE id = ?", (trip_id,),
+        ).fetchone()
+        if not row:
+            con.rollback()
+            return False
+        try:
+            meta = json.loads(row["meta_json"] or "{}")
+            if not isinstance(meta, dict):
+                meta = {}
+        except Exception:
+            meta = {}
+        meta.update(patch or {})
+        con.execute(
+            "UPDATE trips SET meta_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(meta, ensure_ascii=False), _now(), trip_id),
+        )
+        con.commit()
+        return True
     except Exception:
         con.rollback()
         raise
@@ -628,9 +663,11 @@ def photo_links_with_photo_paths(
             f"""SELECT l.*, p.image_path AS photo_image_path,
                        p.description AS photo_description,
                        p.date_value AS photo_date_value,
-                       p.narrator_ready AS photo_narrator_ready
+                       p.narrator_ready AS photo_narrator_ready,
+                       s.location_name AS stop_location_name
                 FROM trip_photo_links l
                 JOIN photos p ON p.id = l.photo_id
+                LEFT JOIN trip_stops s ON s.id = l.trip_stop_id
                 WHERE {where}
                 ORDER BY l.taken_at, l.ord""",
             (trip_id,),
