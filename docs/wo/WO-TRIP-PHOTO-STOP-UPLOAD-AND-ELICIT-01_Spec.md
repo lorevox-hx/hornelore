@@ -75,6 +75,46 @@ Chris's framing, verbatim intent: photos arrive with wildly different metadata t
 2. Live (Chris): upload a real scanned print at a Spring 2026 stop → trust badge shows suspect/none, placement sticks; upload a phone photo at the wrong stop → mismatch flag fires; run a Lori photo session on Prague → grounded opener, story lands linked to trip + photo; Melanie iPhone HEIC via email → accepted, trust reflects the strip.
 3. Principle sweep: no narrator-visible operator controls, no invented photo context from Lori, all memory-derived date/place goes through review — audited before close.
 
+## 5a. Competitive gaps ledger (added 2026-07-05 — explore post-live-test, NOT scheduled)
+
+From Chris's survey of the reminiscence + travel-journal field (InspireD /
+Living Memory Home / Reminiscence iOS / TripMemo / Journi / Travel Journal /
+Polarsteps). Where Hornelore already wins: per-photo captions (Polarsteps
+can't), local-first privacy as a commitment not a tier (TripMemo's selling
+point), photo+voice+notes capture (InspireD's model ≈ our photo_memories),
+print-ready memoir (Polarsteps Travel Book ≈ our DOCX export), and the thing
+none of them have — a listener that asks about the photo AND quarantines
+untrusted metadata so it never invents context (only research comparator:
+GoodTimes, JMIR Aging 2024).
+
+Four real gaps, in priority order:
+
+1. **Photos → suggested stops (reverse trip building)** — Journi's trick.
+   Today clustering assigns photos to EXISTING stops; the reverse (drop
+   500 photos, system proposes a stop skeleton from GPS+time clusters,
+   operator confirms/renames each proposed stop) would make the 2,500-photo
+   Spring 2026 case dramatically faster. Fits the review-lane philosophy:
+   proposals, never silent structure. Highest value for Chris's scale test.
+2. **Map view of the trip** — TripMemo/Polarsteps/Journi all lead with it.
+   Stops + photos carry GPS; nothing renders a map. Leaflet + OpenStreetMap
+   is doable local-first but needs a tile strategy (cache vs offline pack) —
+   real chunk of work, biggest visual gap.
+3. **"On this day" resurfacing** — Reminiscence iOS's core loop. Cheap on
+   `photos.date_value`: a room card or Lori opener ("twelve years ago this
+   week you were in Prague"). MUST compose with metadata trust — fires on
+   trusted dates only (a scan date resurfacing as a fake anniversary is the
+   confabulation class this WO exists to prevent).
+4. **Voice note on a photo outside a session** — InspireD attaches voice
+   memos directly to an image. Ours only captures via the structured elicit
+   session; a lightweight "record a thought about this photo" on the
+   lightbox would fill it. Rides the existing photo_memories table +
+   audio_id linkage.
+
+Deliberately NOT wanted from the field: Polarsteps' live/background GPS
+tracking (past trips only is LOCKED; background location tracking of an
+elder narrator is a privacy line we don't cross) and social feed sharing
+(family access comes through memoir export + operator sharing, not a feed).
+
 ## 6. Stop conditions
 - Any surface where Lori asserts unverified photo metadata as fact → hard stop (confabulation class).
 - Elicitation-derived dates writing directly to photos truth without review → hard stop (principle 5 violation).
