@@ -2441,3 +2441,28 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
   cursor: pointer;
 }
 .lv-narrator-trip-console-btn:hover { opacity: 1; }
+
+/* ── Trips popover (2026-07-06) ────────────────────────────────────
+   Opened from the Trips card in the Life Map column. Reuses the
+   narrator-trip-* content styles above. */
+.lv-narrator-trips-popover {
+  max-width: 560px;
+  width: 92%;
+  max-height: 80vh;
+  overflow-y: auto;
+  border: 1px solid var(--lv-line, #2a3644);
+  border-radius: 12px;
+  padding: 18px 20px;
+  background: var(--lv-card, #171f29);
+  color: inherit;
+}
+.lv-narrator-trips-popover::backdrop { background: rgba(0, 0, 0, .55); }
+.lv-narrator-trips-popover-close {
+  margin-top: 12px;
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--lv-line, #2a3644);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}

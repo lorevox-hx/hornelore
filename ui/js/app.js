@@ -496,8 +496,25 @@ function lvShellShowTab(tabName) {
     operator: "lvOperatorTab",
     intake:   "lvIntakeTab",
     narrator: "lvNarratorTab",
+    trips:    "lvTripsTab",
     media:    "lvMediaTab",
   };
+  // Trips tab (2026-07-06): (re)point the embedded console at the
+  // ACTIVE narrator every time the tab is shown, so switching
+  // narrators then clicking Trips always lands scoped correctly.
+  if (tabName === "trips") {
+    const frame = document.getElementById("lvTripsFrame");
+    if (frame) {
+      const pid = state && state.person_id;
+      const src = pid
+        ? `trip-tab.html?narrator_id=${encodeURIComponent(pid)}`
+        : "trip-tab.html";
+      if (frame.getAttribute("data-lv-src") !== src) {
+        frame.src = src;
+        frame.setAttribute("data-lv-src", src);
+      }
+    }
+  }
   const expectedPanel = _LV_TAB_TO_PANEL[tabName] || null;
   panels.forEach(p => {
     p.classList.toggle("lv-shell-panel-active", p.id === expectedPanel);
@@ -940,7 +957,23 @@ function _lvInterviewRenderLifeMap() {
     </button>
   </div>`;
 
+  // Trips inline card (2026-07-06, per Chris) — sits under Peek at
+  // Memoir in the same right-column stack. The original view-tab strip
+  // placement was DEAD UI: .lv-narrator-view-tabs is display:none
+  // ALWAYS since the unified 3-column layout landed (see lori80.css
+  // ~L1602). This card + the Trips popover is the real narrator-room
+  // surface. Summary fills async after render.
+  body += `<div class="lv-interview-peek-inline">
+    <div class="lv-interview-peek-floater-title">Trips</div>
+    <div class="lv-interview-peek-floater-body" id="lvInterviewTripsBody">The journeys you've taken.</div>
+    <button type="button" class="lv-interview-peek-floater-btn"
+            onclick="lvNarratorOpenTripsPopover()">
+      Open trips
+    </button>
+  </div>`;
+
   host.innerHTML = body;
+  _lvInterviewFillTripsCard();
 
   // WO-PARENT-SESSION-HARDENING-01 Phase 5.1 — render-success log marker.
   // Test pack TEST-07 (cold-start) greps for this. Logs era count + active
@@ -1381,8 +1414,8 @@ window.lvExitInterviewMode = lvExitInterviewMode;
    flag or server talk (design principle 3). */
 let _lvNarratorTrips = { list: [], tree: null, loaded: false, loading: false, error: null, _pid: null };
 
-async function _lvNarratorRenderTrips() {
-  const host = document.getElementById("lvNarratorViewHost");
+async function _lvNarratorRenderTrips(hostOverride) {
+  const host = hostOverride || document.getElementById("lvNarratorViewHost");
   if (!host) return;
   host.innerHTML = `
     <h3 class="lv-narrator-view-head">Trips</h3>
@@ -1495,6 +1528,43 @@ function _lvNarratorPaintTripsSlot() {
   }
   _lvNarratorTripsConsoleLink(slot);
 }
+
+async function _lvInterviewFillTripsCard() {
+  const bodyEl = document.getElementById("lvInterviewTripsBody");
+  if (!bodyEl) return;
+  const pid = state && state.person_id;
+  if (!pid) { bodyEl.textContent = "The journeys you've taken."; return; }
+  try {
+    const res = await fetch(`${ORIGIN}/api/trips?person_id=${encodeURIComponent(pid)}`);
+    if (!res.ok) { bodyEl.textContent = "The journeys you've taken."; return; }
+    const j = await res.json();
+    const trips = Array.isArray(j && j.trips) ? j.trips : [];
+    if (!trips.length) {
+      bodyEl.textContent = "No trips recorded yet.";
+    } else if (trips.length === 1) {
+      bodyEl.textContent = trips[0].title || "One trip recorded.";
+    } else {
+      bodyEl.textContent = trips.length + " trips, from " +
+        (trips[trips.length - 1].title || "") + " to " + (trips[0].title || "") + ".";
+    }
+  } catch (_) {
+    bodyEl.textContent = "The journeys you've taken.";
+  }
+}
+
+function lvNarratorOpenTripsPopover() {
+  const pop = document.getElementById("lvNarratorTripsPopover");
+  if (!pop) return;
+  const body = document.getElementById("lvNarratorTripsPopoverBody");
+  if (body) {
+    // Force a refetch each open so the popover always reflects the
+    // current narrator + latest clustering.
+    _lvNarratorTrips.loaded = false;
+    _lvNarratorRenderTrips(body);
+  }
+  if (typeof pop.showPopover === "function") pop.showPopover();
+}
+window.lvNarratorOpenTripsPopover = lvNarratorOpenTripsPopover;
 
 function _lvNarratorTripsConsoleLink(slot) {
   // Operator affordance — NEVER visible while interview mode is

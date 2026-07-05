@@ -2998,6 +2998,9 @@
             class="lv-shell-tab" aria-selected="false"
             aria-controls="lvNarratorTab"
             onclick="lvShellShowTab('narrator')">Narrator Session</button>
+    <button type="button" id="lvShellTabTrips" role="tab" data-tab="trips"
+            class="lv-shell-tab" aria-selected="false"
+            onclick="lvShellShowTab('trips')">Trips</button>
     <button type="button" id="lvShellTabMedia" role="tab" data-tab="media"
             class="lv-shell-tab" aria-selected="false"
             aria-controls="lvMediaTab"
@@ -3542,6 +3545,21 @@
 
   <!-- ── MEDIA TAB — Phase 1 launcher surface.  Opens existing
        photo pages; detailed room lives on WO-LORI-PHOTO lanes. ── -->
+  <!-- ── TRIPS TAB (2026-07-06, per Chris) — top-level shell tab so
+       the trip lane is one unmistakable click from anywhere. Embeds
+       the trip console (trip-tab.html) scoped to the ACTIVE narrator;
+       lvShellShowTab('trips') refreshes the iframe src each show.
+       Operator-safe by construction: the whole shell tab strip is
+       hidden while interview mode is active (lori80.css rule on
+       body.lv-interview-mode-active #lvShellTabs). The narrator-safe
+       in-room view remains the Trips card in the Life Map column. -->
+  <section id="lvTripsTab" class="lv-shell-panel"
+           role="tabpanel" aria-labelledby="lvShellTabTrips">
+    <iframe id="lvTripsFrame" title="Trips console"
+            style="width:100%; height:calc(100vh - 96px); border:0; display:block;"
+            src="about:blank"></iframe>
+  </section>
+
   <section id="lvMediaTab" class="lv-shell-panel"
            role="tabpanel" aria-labelledby="lvShellTabMedia">
     <div class="lv-media-container">
@@ -3639,6 +3657,18 @@
   </div>
 
   <!-- ── MEMOIR SCROLL (slide-out popover) ─────────────────── -->
+  <!-- Trips popover (2026-07-06) — narrator-safe journey view opened
+       from the Trips card in the Life Map column. Same popover="auto"
+       pattern as Life Map / Peek at Memoir. Content rendered by
+       _lvNarratorRenderTrips into #lvNarratorTripsPopoverBody. -->
+  <div id="lvNarratorTripsPopover" popover="auto" class="lv-narrator-trips-popover">
+    <div id="lvNarratorTripsPopoverBody"></div>
+    <button type="button" class="lv-narrator-trips-popover-close"
+            onclick="document.getElementById('lvNarratorTripsPopover')?.hidePopover?.()">
+      Close
+    </button>
+  </div>
+
   <div id="memoirScrollPopover" popover="auto" class="parchment-scroll" data-memoir-state="empty">
     <div class="scroll-header">
       <div class="scroll-heading-group">
