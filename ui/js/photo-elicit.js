@@ -37,6 +37,10 @@
   // URL params — narrator_id is the only Phase 1 route parameter.
   var params = new URLSearchParams(location.search);
   var narratorId = (params.get("narrator_id") || "").trim();
+  // Phase C3: optional trip scope — session shows only that trip/stop's
+  // linked photos, and prompts ground in the stop name.
+  var tripId = (params.get("trip_id") || "").trim();
+  var tripStopId = (params.get("trip_stop_id") || "").trim();
 
   var $ = function (id) { return document.getElementById(id); };
   var el = {
@@ -137,7 +141,12 @@
     fetch(ORIGIN + "/api/photos/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ narrator_id: narratorId }),
+      body: JSON.stringify((function () {
+        var b = { narrator_id: narratorId };
+        if (tripId) b.trip_id = tripId;
+        if (tripStopId) b.trip_stop_id = tripStopId;
+        return b;
+      })()),
     })
     .then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });

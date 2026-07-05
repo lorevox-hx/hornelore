@@ -1525,6 +1525,29 @@ function _lvNarratorPaintTripsSlot() {
         tree.themes.map((t) => t.title).join(", ") + ".";
       slot.appendChild(th);
     }
+    // Phase C3 (WO-TRIP-PHOTO-STOP-UPLOAD-AND-ELICIT-01): narrator-safe
+    // entry into the photo-elicit surface scoped to this trip. The
+    // elicit page is designed for narrators (WO-LORI-PHOTO-SHARED-01
+    // silence ladder), so this passes the role check. Only shown when
+    // the trip actually has narrator-ready linked photos upstream —
+    // photo_count on stops is the cheap signal.
+    const hasPhotos = (tree.regions || []).some((r) =>
+      (r.stops || []).some(function ck(s) {
+        return (s.photo_count || 0) > 0 || (s.children || []).some(ck);
+      }));
+    if (hasPhotos) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "lv-narrator-trip-photos-btn";
+      btn.textContent = "Look at photos from this trip together";
+      btn.addEventListener("click", () => {
+        const pid = (state && state.person_id) || "";
+        window.open("photo-elicit.html?narrator_id=" +
+          encodeURIComponent(pid) +
+          "&trip_id=" + encodeURIComponent(tree.id || ""), "_blank");
+      });
+      slot.appendChild(btn);
+    }
   }
   _lvNarratorTripsConsoleLink(slot);
 }

@@ -638,10 +638,40 @@
     }
   }
 
+  // Phase C1: Google Takeout sidecar pairing. "IMG_1234.jpg.json" or
+  // "IMG_1234.jpg.supplemental-metadata.json" dropped alongside the
+  // image attaches its text to the queued item; the server uses it to
+  // fill date/GPS the stripped image lost. Best-effort, never blocks.
+  function _sidecarTargetName(name) {
+    var n = (name || "");
+    var m = n.match(/^(.*?)(?:\.supplemental-metadata)?\.json$/i);
+    return m ? m[1] : null;
+  }
+
+  function _attachSidecars(jsonFiles) {
+    jsonFiles.forEach(function (jf) {
+      var target = _sidecarTargetName(jf.name);
+      if (!target) return;
+      var item = null;
+      for (var i = batchItems.length - 1; i >= 0; i--) {
+        if (batchItems[i].file && batchItems[i].file.name === target &&
+            batchItems[i].status === "queued") { item = batchItems[i]; break; }
+      }
+      if (!item) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        item.sidecar_json = String(reader.result || "");
+        _setBatchStatus("Sidecar metadata attached: " + target, "ok");
+      };
+      try { reader.readAsText(jf); } catch (e) {}
+    });
+  }
+
   function _addFiles(fileList) {
     if (!fileList || !fileList.length) return;
     var added = 0;
     var skipped_nonimage = 0;
+    var sidecar_jsons = [];
     // P1.4 (code review 2026-04-26 night): capture narrator_id +
     // ready_flag at queue-add time, NOT at upload time. Without this,
     // operator could drop 5 photos as Narrator A, switch the dropdown
@@ -656,7 +686,11 @@
         break;
       }
       var f = fileList[i];
-      if (!_isImageFile(f)) { skipped_nonimage += 1; continue; }
+      if (!_isImageFile(f)) {
+        if (/\.json$/i.test(f.name || "")) { sidecar_jsons.push(f); }
+        else { skipped_nonimage += 1; }
+        continue;
+      }
       var item = {
         id: _nextBatchId(),
         file: f,
@@ -674,8 +708,10 @@
       added += 1;
     }
     var msg = added + " queued";
+    if (sidecar_jsons.length) msg += " · " + sidecar_jsons.length + " sidecar JSON";
     if (skipped_nonimage) msg += " · " + skipped_nonimage + " non-image skipped";
     _setBatchStatus(msg, added ? "ok" : "warn");
+    if (sidecar_jsons.length) _attachSidecars(sidecar_jsons);
     _updateBatchButtons();
   }
 
@@ -698,6 +734,8 @@
     fd.append("date_precision", "unknown");
     fd.append("location_source", "unknown");
     fd.append("narrator_ready", readyFlag ? "true" : "false");
+    // Phase C1: Takeout sidecar metadata rides along when paired.
+    if (item.sidecar_json) fd.append("sidecar_json", item.sidecar_json);
 
     return fetch(ORIGIN + "/api/photos", { method: "POST", body: fd })
       .then(function (r) {
@@ -1348,7 +1386,21 @@
           if (data.plus_code) summary_bits.push("Plus Code");
           summary_bits.push(data.raw_exif_keys + " EXIF tags");
 
-          _setReviewStatus("Found: " + summary_bits.join(", "), "ok");
+          // Phase C1: per-file metadata trust badge.
+          var TRUST_LABELS = {
+            full: "metadata: full (date + GPS)",
+            time_only: "metadata: date only",
+            gps_only: "metadata: GPS only",
+            suspect_scan: "\u26a0 date looks like a scan date \u2014 not trusted",
+            none: "no usable metadata \u2014 placement is manual"
+          };
+          var trustLabel = TRUST_LABELS[data.metadata_trust] || null;
+          var statusLevel = (data.metadata_trust === "suspect_scan" ||
+                             data.metadata_trust === "none") ? "warn" : "ok";
+          _setReviewStatus(
+            "Found: " + summary_bits.join(", ") +
+            (trustLabel ? " \u00b7 " + trustLabel : ""),
+            statusLevel);
         })
         .catch(function (e) {
           _setReviewStatus("Review failed: " + (e.message || e), "err");

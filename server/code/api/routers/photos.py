@@ -47,6 +47,10 @@ from ...services.photos.confidence import needs_confirmation_for_location
 from ...services.photos.provenance import make_provenance
 from ...services.photo_intake.dedupe import sha256_file
 from ...services.photo_intake.exif import extract_exif
+from ...services.photo_intake.metadata_trust import (
+    classify_metadata_trust,
+    parse_takeout_sidecar,
+)
 from ...services.photo_intake.storage import store_photo_file
 from ...services.photo_intake.geocode_real import reverse_geocode
 from ...services.photo_intake.plus_code import short_local_code
@@ -143,6 +147,10 @@ class _PhotoPatch(BaseModel):
 class _SessionCreate(BaseModel):
     narrator_id: str = Field(..., min_length=1)
     session_id: Optional[str] = None
+    # Phase C3 (WO-TRIP-PHOTO-STOP-UPLOAD-AND-ELICIT-01): optional trip
+    # scope — the selector then draws only that trip/stop's photos.
+    trip_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
 
 
 class _MemoryCreate(BaseModel):
@@ -391,12 +399,16 @@ async def preview_photo(
         address.get("city") or "none",
     )
 
+    trust = classify_metadata_trust(exif)
+
     return JSONResponse(
         status_code=200,
         content={
             "captured_at": exif.get("captured_at"),
             "captured_at_precision": exif.get("captured_at_precision"),
             "captured_dt_full": captured_dt_full,
+            "metadata_trust": trust.get("trust"),
+            "trust_reasons": trust.get("reasons") or [],
             "gps": {
                 "latitude": lat,
                 "longitude": lng,
@@ -428,6 +440,7 @@ async def upload_photo(
     narrator_ready: Optional[str] = Form(None),
     people: Optional[str] = Form(None),   # JSON array of {person_label, person_id?}
     events: Optional[str] = Form(None),   # JSON array of {event_label,  event_id?}
+    sidecar_json: Optional[str] = Form(None),  # Google Takeout supplemental metadata (Phase C1)
 ) -> JSONResponse:
     _require_enabled()
 
@@ -506,14 +519,43 @@ async def upload_photo(
     effective_latitude: Optional[float] = None
     effective_longitude: Optional[float] = None
     metadata_payload: Optional[Dict[str, Any]] = None
+    metadata_trust: Optional[Dict[str, Any]] = None
     exif_used = []  # for log
 
     if flags.photo_intake_enabled():
         exif = extract_exif(stored["image_path"])
 
-        # Date: only fill if curator left date_value blank.
+        # Phase C1: Google Takeout sidecar JSON — when the image's own
+        # EXIF is missing a signal, the sidecar (photoTakenTime /
+        # geoData) fills it. Image EXIF wins where both exist.
+        sidecar = parse_takeout_sidecar(sidecar_json) if sidecar_json else None
+        if sidecar:
+            if not exif.get("captured_at") and sidecar.get("captured_at"):
+                exif = dict(exif)
+                exif["captured_at"] = sidecar["captured_at"]
+                exif["captured_at_precision"] = "exact"
+                exif_used.append("sidecar_date")
+            gps_now = exif.get("gps") or {}
+            if gps_now.get("latitude") is None and sidecar.get("latitude") is not None:
+                exif = dict(exif)
+                exif["gps"] = {
+                    "latitude": sidecar["latitude"],
+                    "longitude": sidecar["longitude"],
+                    "source": "exif_gps",
+                    "present_unparseable": False,
+                }
+                exif_used.append("sidecar_gps")
+
+        # Phase C1: classify per-file metadata trust (scanned film /
+        # stripped share / pristine capture). Consumed by clustering,
+        # the intake badge, and Lori's photo grounding.
+        metadata_trust = classify_metadata_trust(exif)
+
+        # Date: only fill if curator left date_value blank — and never
+        # auto-fill from a suspect scan date (the whole point of the
+        # classification; the operator can still type a date).
         if not (date_value and date_value.strip()):
-            if exif.get("captured_at"):
+            if exif.get("captured_at") and metadata_trust.get("trust") != "suspect_scan":
                 effective_date_value = exif["captured_at"]
                 # Only override precision when curator left it default.
                 if effective_date_precision in (None, "", "unknown"):
@@ -546,6 +588,8 @@ async def upload_photo(
             "exif_orientation": exif.get("orientation"),
             "exif_captured_at": exif.get("captured_at"),
             "exif_gps": gps,
+            "metadata_trust": (metadata_trust or {}).get("trust"),
+            "trust_reasons": (metadata_trust or {}).get("reasons") or [],
         }
 
         if exif_used:
@@ -575,6 +619,15 @@ async def upload_photo(
         needs_confirmation=derived_needs_confirmation,
         metadata=metadata_payload,
     )
+
+    # Phase C1: persist trust to its column (defensive — tolerates DBs
+    # that haven't applied migration 0016 yet; metadata_json above is
+    # the always-works record).
+    if metadata_trust:
+        try:
+            photo_repo.set_metadata_trust(row["id"], metadata_trust.get("trust"))
+        except Exception as exc:
+            log.info("[photos][trust] column write skipped: %s", exc)
 
     # Attach curator-provided people / events (best-effort — each row
     # carries its own provenance stamp).
@@ -838,6 +891,8 @@ def create_photo_session(body: _SessionCreate) -> JSONResponse:
     row = photo_repo.create_photo_session(
         narrator_id=body.narrator_id,
         session_id=body.session_id,
+        trip_id=body.trip_id,
+        trip_stop_id=body.trip_stop_id,
     )
     return JSONResponse(status_code=201, content=row)
 
@@ -857,9 +912,37 @@ def show_next(photo_session_id: str) -> Dict[str, Any]:
     if session.get("ended_at"):
         raise HTTPException(status_code=409, detail="photo session already ended")
 
+    # Phase C3: trip-scoped session → allowlist of linked photo ids +
+    # stop-name grounding for the prompt. Grounding uses OPERATOR truth
+    # (the stop the photo was placed at) — never invented context.
+    allowed_ids = None
+    stop_name_by_photo: Dict[str, str] = {}
+    if session.get("trip_id"):
+        try:
+            from ..services import trip_repository as _trip_repo
+            links = _trip_repo.photo_links_list(str(session["trip_id"]))
+            scope_stop = session.get("trip_stop_id")
+            allowed_ids = []
+            stop_names: Dict[str, str] = {}
+            for link in links:
+                if scope_stop and link.get("trip_stop_id") != scope_stop:
+                    continue
+                allowed_ids.append(str(link["photo_id"]))
+                sid = link.get("trip_stop_id")
+                if sid:
+                    if sid not in stop_names:
+                        stop = _trip_repo.stop_get(sid)
+                        stop_names[sid] = (stop or {}).get("location_name") or ""
+                    if stop_names[sid]:
+                        stop_name_by_photo[str(link["photo_id"])] = stop_names[sid]
+        except Exception as exc:
+            log.warning("[photos][session] trip scope read failed: %s", exc)
+            allowed_ids = None
+
     picked = select_next_photo(
         narrator_id=session["narrator_id"],
         repository=photo_repo,
+        photo_ids=allowed_ids,
     )
     if picked is None:
         return {"photo": None, "show_id": None, "prompt_text": None}
@@ -870,7 +953,10 @@ def show_next(photo_session_id: str) -> Dict[str, Any]:
     prompt_text = build_photo_prompt(
         {
             "people": [p.get("person_label") for p in enriched.get("people", []) if p.get("person_label")],
-            "place": enriched.get("location_label"),
+            # Stop name (operator placement) grounds the prompt when the
+            # photo itself carries no location.
+            "place": enriched.get("location_label")
+                     or stop_name_by_photo.get(str(enriched.get("id"))),
             "date": enriched.get("date_value"),
         }
     )

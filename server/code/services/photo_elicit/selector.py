@@ -73,6 +73,7 @@ def _count_shows_since(
 def select_next_photo(
     narrator_id: str,
     repository: Any,
+    photo_ids: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """Pick the next photo to show this narrator, or ``None`` if no candidate.
 
@@ -87,6 +88,12 @@ def select_next_photo(
         narrator_ready=True,
         deleted=False,
     )
+    # Phase C3: trip-scoped sessions pass an allowlist of photo ids
+    # (the trip/stop's linked photos). Cooldowns + ordering unchanged.
+    if photo_ids is not None:
+        allowed = {str(p) for p in photo_ids}
+        ready_photos = [p for p in ready_photos
+                        if str(_photo_id(p)) in allowed]
     if not ready_photos:
         return None
 

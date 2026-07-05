@@ -135,6 +135,19 @@ def build_photo_prompt(photo: Dict[str, Any]) -> str:
     if tier == TIER_ZERO:
         return _ZERO_TIER_TEMPLATE
     if tier == TIER_MEDIUM:
+        # Phase C3 (WO-TRIP-PHOTO-STOP-UPLOAD-AND-ELICIT-01): when a
+        # place or date IS known (e.g. operator placed the photo at a
+        # trip stop), ground the opener in it instead of the generic
+        # "little information" line. Only ever states known values —
+        # never invented context (anti-confabulation rule).
+        place_known = _pick(photo, "place", "location_label") or ""
+        date_known = _pick(photo, "date", "date_approx") or ""
+        if place_known:
+            return (f"This one is from {place_known}. "
+                    "Tell me what you remember about it.")
+        if date_known:
+            return (f"This one is from around {date_known}. "
+                    "Tell me what you remember about it.")
         return _MEDIUM_TIER_TEMPLATE
 
     # High tier — assemble "This photo shows {people} in {place} in {date}."

@@ -237,6 +237,19 @@ def stop_trip_id(stop_id: str) -> Optional[str]:
         con.close()
 
 
+def stop_get(stop_id: str) -> Optional[Dict[str, Any]]:
+    """Single stop row (Phase C2 — stop-scoped upload needs the stop's
+    dates/GPS/region for the mismatch cross-check + link write)."""
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_stops WHERE id = ?", (stop_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
 def region_trip_id(region_id: str) -> Optional[str]:
     con = _connect()
     try:

@@ -12,6 +12,7 @@ mirroring the operator_eval_harness posture):
     PATCH /api/trips/photo-links/{link_id}
     GET   /api/trips/{trip_id}/memoir-preview
     PATCH /api/trips/stops/{stop_id}          (operator date/GPS correction)
+    POST  /api/trips/stops/{stop_id}/photos   (Phase C2 — upload AT a stop)
     DELETE /api/trips/{trip_id}
     GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
     POST  /api/trips                          (create empty trip — Phase A builder)
@@ -36,7 +37,7 @@ import os
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ..services import (
@@ -169,11 +170,20 @@ def _photos_for_narrator(narrator_id: str) -> List[Dict[str, Any]]:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA busy_timeout = 5000;")  # BUG-DBLOCK hygiene
     try:
-        rows = con.execute(
-            "SELECT id, date_value, latitude, longitude FROM photos "
-            "WHERE narrator_id = ? AND deleted_at IS NULL",
-            (narrator_id,),
-        ).fetchall()
+        try:
+            rows = con.execute(
+                "SELECT id, date_value, latitude, longitude, metadata_trust "
+                "FROM photos WHERE narrator_id = ? AND deleted_at IS NULL",
+                (narrator_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Pre-0016 DB — no trust column yet; clusterer treats
+            # missing trust as trusted (legacy behavior).
+            rows = con.execute(
+                "SELECT id, date_value, latitude, longitude FROM photos "
+                "WHERE narrator_id = ? AND deleted_at IS NULL",
+                (narrator_id,),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         con.close()
@@ -248,6 +258,148 @@ def get_trip_tree(trip_id: str) -> Dict[str, Any]:
     if not tree:
         raise HTTPException(status_code=404, detail="trip not found")
     return tree
+
+
+@router.post("/stops/{stop_id}/photos")
+async def upload_photos_at_stop(
+    stop_id: str,
+    files: List[UploadFile] = File(...),
+    uploaded_by_user_id: str = Form("operator"),
+    narrator_ready: str = Form("true"),
+    caption: str = Form(""),
+    sidecar_json: str = Form(""),
+):
+    """Phase C2 — upload photos directly AT a stop (Czechia → Prague 1).
+
+    The link is written immediately as operator truth (the operator is
+    deliberately placing it — principle 8); EXIF runs as a CROSS-CHECK,
+    not an authority: GPS >200 km from the stop or a trusted datetime
+    outside the trip window ±3 days flags a non-blocking mismatch. A
+    mismatched link keeps the operator's placement + operator method
+    (re-clustering can't move it) but carries cluster_confidence 0.45
+    so it surfaces in the existing review queue.
+
+    narrator_ready defaults TRUE here (deliberate placement into the
+    narrator's trip) — per-upload opt-out via the form field.
+    """
+    _require_trips_enabled()
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+
+    try:
+        from ...services.photo_intake.ingest import ingest_photo_file
+    except ImportError:
+        # Offline test env roots sys.path at server/code (top-level
+        # package is `api`, not `code`) — absolute import works there.
+        from services.photo_intake.ingest import ingest_photo_file  # type: ignore
+    from ..services.trip_photo_clustering import _haversine_km, _parse_dt
+
+    stop = trip_repository.stop_get(stop_id)
+    if not stop:
+        raise HTTPException(status_code=404, detail="stop not found")
+    trip = trip_repository.trip_get(stop["trip_id"])
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip not found")
+    person_id = str(trip.get("person_id") or "")
+    ready_flag = str(narrator_ready).strip().lower() not in ("0", "false", "no", "")
+
+    results: List[Dict[str, Any]] = []
+    for up in files:
+        tmp_fd, tmp_path = _tempfile.mkstemp(prefix="trip_stop_photo_", suffix=".bin")
+        try:
+            with os.fdopen(tmp_fd, "wb") as out:
+                while True:
+                    chunk = await up.read(65536)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            ing = ingest_photo_file(
+                narrator_id=person_id,
+                tmp_path=tmp_path,
+                original_filename=up.filename or "upload.bin",
+                uploaded_by_user_id=uploaded_by_user_id,
+                narrator_ready=ready_flag,
+                sidecar_json=sidecar_json or None,
+                trip_start_date=trip.get("start_date"),
+            )
+        except Exception as exc:
+            logger.warning("[trips][stop-upload] ingest failed file=%s: %s",
+                           up.filename, exc)
+            results.append({"filename": up.filename, "error": str(exc)})
+            continue
+        finally:
+            try:
+                if _Path(tmp_path).exists():
+                    _Path(tmp_path).unlink()
+            except OSError:
+                pass
+
+        photo = ing["photo"]
+
+        # ---- EXIF cross-check (§3.2: cross-check, not authority) ----
+        mismatch: Dict[str, Any] = {}
+        exif_lat, exif_lng = ing.get("exif_latitude"), ing.get("exif_longitude")
+        if (exif_lat is not None and exif_lng is not None
+                and stop.get("latitude") is not None
+                and stop.get("longitude") is not None):
+            km = _haversine_km(exif_lat, exif_lng,
+                               stop["latitude"], stop["longitude"])
+            if km is not None and km > 200.0:
+                mismatch["gps_km_from_stop"] = round(km, 1)
+        if ing.get("metadata_trust") in ("full", "time_only"):
+            cap = _parse_dt(ing.get("exif_captured_at"))
+            t_start = _parse_dt(trip.get("start_date"))
+            t_end = _parse_dt(trip.get("end_date")) or t_start
+            if cap and t_start and t_end:
+                pad = 3  # days
+                if ((t_start - cap).days > pad) or ((cap - t_end).days > pad):
+                    mismatch["date_outside_trip_window"] = str(
+                        ing.get("exif_captured_at"))[:10]
+
+        # ---- link as operator truth --------------------------------
+        link_id = trip_repository.photo_link_upsert(
+            trip_id=trip["id"],
+            photo_id=photo["id"],
+            trip_region_id=stop.get("trip_region_id"),
+            trip_stop_id=stop_id,
+            taken_at=ing.get("exif_captured_at"),
+            latitude=exif_lat,
+            longitude=exif_lng,
+            assignment_method="operator",
+            cluster_confidence=0.45 if mismatch else 1.0,
+        )
+        # Upsert preserves prior operator placements — force this one:
+        # a stop-scoped upload IS fresh operator intent.
+        trip_repository.photo_link_update(
+            link_id,
+            trip_stop_id=stop_id,
+            caption=(caption or None),
+            confirm=not mismatch,
+        )
+        logger.info(
+            "[trips][stop-upload] photo=%s stop=%s trust=%s dup=%s mismatch=%s",
+            photo["id"], stop_id, ing.get("metadata_trust"),
+            ing.get("duplicate"), mismatch or "none",
+        )
+        results.append({
+            "filename": up.filename,
+            "photo_id": photo["id"],
+            "link_id": link_id,
+            "duplicate": bool(ing.get("duplicate")),
+            "metadata_trust": ing.get("metadata_trust"),
+            "trust_reasons": ing.get("trust_reasons") or [],
+            "mismatch": mismatch or None,
+        })
+
+    return {
+        "stop_id": stop_id,
+        "trip_id": trip["id"],
+        "uploaded": sum(1 for r in results if r.get("photo_id") and not r.get("duplicate")),
+        "duplicates": sum(1 for r in results if r.get("duplicate")),
+        "mismatches": sum(1 for r in results if r.get("mismatch")),
+        "errors": sum(1 for r in results if r.get("error")),
+        "results": results,
+    }
 
 
 @router.post("/{trip_id}/cluster-photos")

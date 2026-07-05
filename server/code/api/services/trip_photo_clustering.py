@@ -100,12 +100,25 @@ def _gps_score(
     return 0.05
 
 
+_UNTRUSTED_DATE_LEVELS = frozenset({"suspect_scan", "none"})
+
+
+def _photo_taken_dt(photo: Dict[str, Any]) -> Optional[str]:
+    """Photo datetime usable for time scoring — Phase C1: a scan date
+    (or a no-metadata row) must NOT contribute a time score; a scan
+    date would confidently mis-cluster decades-old prints onto
+    yesterday's stop."""
+    if str(photo.get("metadata_trust") or "") in _UNTRUSTED_DATE_LEVELS:
+        return None
+    return photo.get("taken_at") or photo.get("date_value")
+
+
 def score_photo_against_stop(
     photo: Dict[str, Any],
     stop: Dict[str, Any],
 ) -> Tuple[float, str]:
     """Return (confidence, assignment_method) for one photo x stop."""
-    taken = _parse_dt(photo.get("taken_at") or photo.get("date_value"))
+    taken = _parse_dt(_photo_taken_dt(photo))
     t = _time_score(
         taken,
         _parse_dt(stop.get("date_start")),
@@ -151,7 +164,7 @@ def cluster_photos_to_stops(
             if conf > best_conf:
                 best_conf, best_method, best_stop = conf, method, stop
         has_signal = bool(
-            _parse_dt(photo.get("taken_at") or photo.get("date_value"))
+            _parse_dt(_photo_taken_dt(photo))
             or (photo.get("latitude") is not None
                 and photo.get("longitude") is not None)
         )

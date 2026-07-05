@@ -42,7 +42,12 @@ def _connect() -> sqlite3.Connection:
     # to climb to code.api.db. Surfaced when the saved-photos list panel
     # was first loaded -- POST upload path didn't exercise list_photos
     # so this latent import bug shipped through Phase 1 unnoticed.
-    from ...api.db import _connect as legacy_connect  # type: ignore
+    try:
+        from ...api.db import _connect as legacy_connect  # type: ignore
+    except ImportError:
+        # Offline test env roots sys.path at server/code — the package
+        # is `services.photos`, so three dots climb beyond top-level.
+        from api.db import _connect as legacy_connect  # type: ignore
 
     return legacy_connect()
 
@@ -493,22 +498,69 @@ def delete_all_photo_events(photo_id: str) -> int:
 # -----------------------------------------------------------------------------
 # Sessions / shows
 # -----------------------------------------------------------------------------
+def set_metadata_trust(photo_id: str, trust: Optional[str]) -> bool:
+    """Phase C1: write the metadata_trust column (migration 0016).
+    Defensive — raises sqlite3.OperationalError on pre-0016 DBs; the
+    caller treats that as non-fatal (metadata_json carries the value)."""
+    if not trust:
+        return False
+    con = _connect()
+    try:
+        cur = con.execute(
+            "UPDATE photos SET metadata_trust = ?, updated_at = ? WHERE id = ?;",
+            (str(trust), _now_iso(), photo_id),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
 def create_photo_session(
     narrator_id: str,
     session_id: Optional[str] = None,
+    trip_id: Optional[str] = None,
+    trip_stop_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     sid = _uuid()
     now = _now_iso()
     con = _connect()
     try:
-        con.execute(
-            """
-            INSERT INTO photo_sessions (
-                id, narrator_id, session_id, started_at, created_at
-            ) VALUES (?, ?, ?, ?, ?);
-            """,
-            (sid, narrator_id, session_id, now, now),
-        )
+        if trip_id or trip_stop_id:
+            # Phase C3 trip-scoped session (migration 0017). Falls back
+            # to the unscoped insert on pre-0017 DBs.
+            try:
+                con.execute(
+                    """
+                    INSERT INTO photo_sessions (
+                        id, narrator_id, session_id, trip_id,
+                        trip_stop_id, started_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (sid, narrator_id, session_id, trip_id,
+                     trip_stop_id, now, now),
+                )
+            except sqlite3.OperationalError:
+                logger.warning(
+                    "[photo-session] trip scope requested but migration "
+                    "0017 not applied — creating unscoped session")
+                con.execute(
+                    """
+                    INSERT INTO photo_sessions (
+                        id, narrator_id, session_id, started_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?);
+                    """,
+                    (sid, narrator_id, session_id, now, now),
+                )
+        else:
+            con.execute(
+                """
+                INSERT INTO photo_sessions (
+                    id, narrator_id, session_id, started_at, created_at
+                ) VALUES (?, ?, ?, ?, ?);
+                """,
+                (sid, narrator_id, session_id, now, now),
+            )
         con.commit()
         row = con.execute(
             "SELECT * FROM photo_sessions WHERE id = ?;", (sid,)

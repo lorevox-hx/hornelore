@@ -360,6 +360,16 @@
     ));
     h.appendChild(badges);
     var row = el("div", "row");
+    // Phase C3: whole-trip Lori photo session (all linked photos).
+    var tripTalk = el("button", "btn small", "📷 Photo session with Lori");
+    tripTalk.type = "button";
+    tripTalk.title = "Open a narrator photo session scoped to this trip's photos";
+    tripTalk.addEventListener("click", function () {
+      window.open("photo-elicit.html?narrator_id=" +
+        encodeURIComponent(state.narratorId || "") +
+        "&trip_id=" + encodeURIComponent(state.tripId || ""), "_blank");
+    });
+    row.appendChild(tripTalk);
     var delBtn = el("button", "btn red small", "Delete trip");
     delBtn.type = "button";
     delBtn.addEventListener("click", function () {
@@ -464,6 +474,95 @@
         .catch(function (e) { setStatus("delete stop: " + e.message, true); });
     });
     div.appendChild(delStop);
+
+    // Phase C2: upload photos directly AT this stop (operator-truth
+    // links; EXIF runs as a cross-check — mismatches land in the
+    // review queue instead of blocking).
+    var addPhotos = el("button", "btn small", "+ photos");
+    addPhotos.type = "button";
+    addPhotos.title = "Upload photos to this stop (EXIF checked against the stop; mismatches flagged for review)";
+    addPhotos.style.cssText = "float:right; margin-left:6px;";
+    var photoInput = document.createElement("input");
+    photoInput.type = "file";
+    photoInput.multiple = true;
+    photoInput.accept = "image/*,.heic,.heif,.json";
+    photoInput.style.display = "none";
+    addPhotos.addEventListener("click", function () { photoInput.click(); });
+    photoInput.addEventListener("change", function () {
+      var files = Array.prototype.slice.call(photoInput.files || []);
+      photoInput.value = "";
+      if (!files.length) return;
+      // Pair Takeout sidecar JSONs (name.jpg.json / name.jpg.supplemental-metadata.json)
+      var sidecars = {};
+      var images = [];
+      files.forEach(function (f) {
+        var m = (f.name || "").match(/^(.*?)(?:\.supplemental-metadata)?\.json$/i);
+        if (m) { sidecars[m[1]] = f; } else { images.push(f); }
+      });
+      if (!images.length) { setStatus("No image files in that selection.", true); return; }
+      setStatus("Uploading " + images.length + " photo(s) to " + (stop.location_name || "stop") + "…");
+      var idx = 0, summary = { ok: 0, dup: 0, warn: 0, err: 0 };
+      function next() {
+        if (idx >= images.length) {
+          var bits = [summary.ok + " uploaded"];
+          if (summary.dup) bits.push(summary.dup + " duplicate");
+          if (summary.warn) bits.push(summary.warn + " EXIF mismatch → review queue");
+          if (summary.err) bits.push(summary.err + " failed");
+          setStatus(bits.join(" · "), summary.err > 0);
+          selectTrip(state.tripId);
+          return;
+        }
+        var img = images[idx++];
+        var fd = new FormData();
+        fd.append("files", img);
+        fd.append("uploaded_by_user_id", "operator");
+        fd.append("narrator_ready", "true");
+        var sc = sidecars[img.name];
+        function send() {
+          api("/api/trips/stops/" + encodeURIComponent(stop.id) + "/photos",
+              { method: "POST", body: fd })
+            .then(function (resp) {
+              var r = (resp.results && resp.results[0]) || {};
+              if (r.error) { summary.err++; }
+              else if (r.mismatch) { summary.warn++; }
+              else if (r.duplicate) { summary.dup++; }
+              else { summary.ok++; }
+              setStatus("Uploading… " + idx + "/" + images.length +
+                        (r.metadata_trust ? " · last: " + r.metadata_trust : ""));
+            })
+            .catch(function () { summary.err++; })
+            .then(next);
+        }
+        if (sc) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            fd.append("sidecar_json", String(reader.result || ""));
+            send();
+          };
+          reader.onerror = send;
+          try { reader.readAsText(sc); } catch (e) { send(); }
+        } else { send(); }
+      }
+      next();
+    });
+    div.appendChild(addPhotos);
+    div.appendChild(photoInput);
+
+    // Phase C3: open a Lori photo session scoped to this stop's
+    // photos (rides the existing photo-elicit narrator surface).
+    var talkBtn = el("button", "btn small", "📷 Lori");
+    talkBtn.type = "button";
+    talkBtn.title = "Photo session with Lori about this stop's photos";
+    talkBtn.style.cssText = "float:right; margin-left:6px;";
+    talkBtn.addEventListener("click", function () {
+      var url = "photo-elicit.html?narrator_id=" +
+        encodeURIComponent(state.narratorId || "") +
+        "&trip_id=" + encodeURIComponent(state.tripId || "") +
+        "&trip_stop_id=" + encodeURIComponent(stop.id);
+      window.open(url, "_blank");
+    });
+    div.appendChild(talkBtn);
+
     div.appendChild(stopEditor(stop));
     container.appendChild(div);
     if (stop.children && stop.children.length) {
