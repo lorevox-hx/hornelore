@@ -4321,6 +4321,94 @@ def list_affect_events(session_id: str, limit: int = 50) -> List[Dict]:
 # Narrator Delete — Phase 2 (dependency inventory, soft/hard delete, restore, audit)
 # -----------------------------------------------------------------------------
 
+# ── Extended person-scoped deletion coverage ──────────────────────────
+# WORK-AUDIT-2026-07-05 headline 3: ~14 person-scoped tables landed
+# after the original delete-inventory/hard-delete were written, most
+# WITHOUT an FK to people — hard-deleting a narrator silently orphaned
+# photos, story candidates, bio facts, archives, safety events, and
+# trips. Locked principle 4 ("no partial resets") requires deletion to
+# be total. Every table below is guarded by existence checks so older
+# DBs without a given migration don't break.
+#
+# Deletion order matters for the NO-ACTION FK children:
+#   media_archive_links / media_archive_family_lines must go before
+#   media_archive_items (their FKs would block the parent delete).
+#   photos cascades photo_events/photo_session_shows/photo_memories;
+#   trips cascades its whole trip_* family (foreign_keys=ON in
+#   _connect). narrator_delete_audit is intentionally EXCLUDED — the
+#   audit trail must survive the delete it records.
+_EXTENDED_PERSON_SCOPED_TABLES: List[tuple] = [
+    ("photos", "narrator_id"),
+    ("photo_sessions", "narrator_id"),
+    ("photo_people", "person_id"),
+    ("story_candidates", "narrator_id"),
+    ("bio_facts", "narrator_id"),
+    ("follow_up_bank", "person_id"),
+    ("memory_archive_turns", "person_id"),
+    ("memory_archive_sessions", "person_id"),
+    ("media_archive_items", "person_id"),
+    ("media_archive_people", "person_id"),
+    ("safety_events", "person_id"),
+    ("section_summaries", "person_id"),
+    ("trip_bio_suggestions", "person_id"),
+    ("trips", "person_id"),
+]
+
+
+def _table_column_exists(con, table: str, column: str) -> bool:
+    try:
+        row = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+            (table,),
+        ).fetchone()
+        if not row:
+            return False
+        cols = [r[1] for r in con.execute(f"PRAGMA table_info({table});").fetchall()]
+        return column in cols
+    except Exception:
+        return False
+
+
+def _extended_person_scoped_counts(con, person_id: str) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for table, col in _EXTENDED_PERSON_SCOPED_TABLES:
+        if not _table_column_exists(con, table, col):
+            continue
+        try:
+            row = con.execute(
+                f"SELECT COUNT(*) AS cnt FROM {table} WHERE {col}=?;",  # noqa: S608
+                (person_id,),
+            ).fetchone()
+            counts[table] = row["cnt"] if row else 0
+        except Exception:
+            counts[table] = -1  # visible signal that the count failed
+    return counts
+
+
+def _extended_person_scoped_delete(con, person_id: str) -> None:
+    """Delete extended person-scoped rows inside the caller's
+    transaction (no commit here — hard_delete_person owns the
+    all-or-nothing boundary)."""
+    # NO-ACTION FK children of media_archive_items go first.
+    if _table_column_exists(con, "media_archive_items", "person_id"):
+        for child, fk_col in (
+            ("media_archive_links", "archive_item_id"),
+            ("media_archive_family_lines", "archive_item_id"),
+        ):
+            if _table_column_exists(con, child, fk_col):
+                con.execute(
+                    f"DELETE FROM {child} WHERE {fk_col} IN "  # noqa: S608
+                    f"(SELECT id FROM media_archive_items WHERE person_id=?);",
+                    (person_id,),
+                )
+    for table, col in _EXTENDED_PERSON_SCOPED_TABLES:
+        if _table_column_exists(con, table, col):
+            con.execute(
+                f"DELETE FROM {table} WHERE {col}=?;",  # noqa: S608
+                (person_id,),
+            )
+
+
 def person_delete_inventory(person_id: str) -> Optional[Dict[str, Any]]:
     """Return dependency counts for a person, used before deletion confirmation."""
     init_db()
@@ -4348,6 +4436,10 @@ def person_delete_inventory(person_id: str) -> Optional[Dict[str, Any]]:
             (person_id,),
         ).fetchone()
         counts[table] = row["cnt"] if row else 0
+
+    # Extended coverage (WORK-AUDIT-2026-07-05) — photos, archives,
+    # story candidates, bio facts, safety events, trips, etc.
+    counts.update(_extended_person_scoped_counts(con, person_id))
 
     # Media: count rows where person_id matches (ON DELETE SET NULL)
     media_row = con.execute(
@@ -4555,6 +4647,10 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
     counts = inv["counts"]
 
     try:
+        # Extended person-scoped tables first (no FK to people — the
+        # cascade can't reach them). See _EXTENDED_PERSON_SCOPED_TABLES.
+        _extended_person_scoped_delete(con, person_id)
+
         # FK CASCADE handles dependent rows automatically when we delete the people row.
         # media.person_id and media_attachments.person_id get SET NULL.
         con.execute("DELETE FROM people WHERE id = ?;", (person_id,))
