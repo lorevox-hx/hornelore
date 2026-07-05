@@ -694,6 +694,35 @@ def build_chronology_accordion_payload(
     spine_items = [it for it in spine_items if it.get("event_kind") not in existing_kinds]
     lane_b_with_spine = lane_b + spine_items
 
+    # WO-TRIP-IMPORT-AND-CLUSTER-01 Phase B (2026-07-05): trips are
+    # part of the life record — project each dated trip as a personal
+    # anchor so the chronology accordion (and the era buckets it feeds)
+    # show the journey alongside births, schools, and promoted truth.
+    # Guarded import + failure tolerance: the accordion must render
+    # even if the trip tables are absent (pre-0015 DB) or the trips
+    # feature is off; trips data, once present, is canonical rows, so
+    # it renders regardless of the HORNELORE_TRIPS API gate.
+    trip_items: List[Dict[str, Any]] = []
+    try:
+        from ..services import trip_repository as _trips_repo
+        for _t in _trips_repo.trip_list(person_id):
+            _yr_src = _t.get("start_date") or _t.get("end_date") or ""
+            try:
+                _yr = int(str(_yr_src)[:4])
+            except (TypeError, ValueError):
+                continue
+            trip_items.append({
+                "year": _yr,
+                "label": f"Trip — {_t.get('title') or 'Journey'}",
+                "lane": "personal",
+                "event_kind": "trip",
+                "dedup_key": f"trip:{_t.get('id')}",
+                "source": "trip",
+            })
+    except Exception:
+        trip_items = []
+    lane_b_with_spine = lane_b_with_spine + trip_items
+
     lane_c = build_band_ghosts(birth_year, periods, lane_b_with_spine)
 
     # Merge all items

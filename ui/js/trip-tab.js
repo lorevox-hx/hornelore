@@ -345,6 +345,19 @@
     if (tree.unassigned_photo_count) {
       badges.appendChild(el("span", "badge warn", tree.unassigned_photo_count + " unassigned"));
     }
+    // Phase B life-record badges: derived era + timeline + bio
+    // suggestion visibility (locked principle 7 — mechanical truth
+    // must visibly project).
+    var meta = (tree.meta_json && typeof tree.meta_json === "object") ? tree.meta_json : {};
+    if (meta.era_id) {
+      badges.appendChild(el("span", "badge green", "era: " + meta.era_id));
+    } else if (tree.start_date) {
+      badges.appendChild(el("span", "badge warn", "era: needs narrator DOB"));
+    }
+    badges.appendChild(el(
+      "span", "badge " + (meta.timeline_event_id ? "green" : "warn"),
+      meta.timeline_event_id ? "on timeline ✓" : "not on timeline"
+    ));
     h.appendChild(badges);
     var row = el("div", "row");
     var delBtn = el("button", "btn red small", "Delete trip");

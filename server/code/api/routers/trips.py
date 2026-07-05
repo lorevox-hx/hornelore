@@ -39,7 +39,12 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..services import trip_import, trip_photo_clustering, trip_repository
+from ..services import (
+    trip_import,
+    trip_photo_clustering,
+    trip_repository,
+    trip_timeline_bridge,
+)
 
 logger = logging.getLogger("code.api.routers.trips")
 
@@ -204,6 +209,7 @@ def import_itinerary(req: ImportItineraryRequest) -> Dict[str, Any]:
         "[trips][import] itinerary imported trip=%s person=%s",
         trip_id, req.person_id,
     )
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"trip_id": trip_id, "tree": trip_repository.trip_tree(trip_id)}
 
 
@@ -225,6 +231,7 @@ def import_csv(req: ImportCsvRequest) -> Dict[str, Any]:
         "[trips][import] csv imported trip=%s person=%s",
         trip_id, req.person_id,
     )
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"trip_id": trip_id, "tree": trip_repository.trip_tree(trip_id)}
 
 
@@ -353,6 +360,9 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
         raise HTTPException(
             status_code=404, detail="stop not found or nothing to update",
         )
+    _tid = trip_repository.stop_trip_id(stop_id)
+    if _tid:
+        trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "stop_id": stop_id}
 
 
@@ -373,6 +383,7 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     )
     logger.info("[trips][builder] trip created trip=%s person=%s",
                 trip_id, req.person_id)
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"trip_id": trip_id, "tree": trip_repository.trip_tree(trip_id)}
 
 
@@ -393,6 +404,7 @@ def create_region(trip_id: str, req: RegionCreate) -> Dict[str, Any]:
         summary=req.summary,
         base_address=req.base_address,
     )
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"region_id": region_id, "tree": trip_repository.trip_tree(trip_id)}
 
 
@@ -421,6 +433,7 @@ def create_stop(trip_id: str, region_id: str, req: StopCreate) -> Dict[str, Any]
         notes=req.notes,
         thematic_tags=req.thematic_tags,
     )
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"stop_id": stop_id, "tree": trip_repository.trip_tree(trip_id)}
 
 
@@ -467,16 +480,22 @@ def patch_region(region_id: str, req: RegionPatch) -> Dict[str, Any]:
 @router.delete("/regions/{region_id}")
 def delete_region(region_id: str) -> Dict[str, Any]:
     _require_trips_enabled()
+    _tid = trip_repository.region_trip_id(region_id)
     if not trip_repository.region_delete(region_id):
         raise HTTPException(status_code=404, detail="region not found")
+    if _tid:
+        trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "region_id": region_id}
 
 
 @router.delete("/stops/{stop_id}")
 def delete_stop(stop_id: str) -> Dict[str, Any]:
     _require_trips_enabled()
+    _tid = trip_repository.stop_trip_id(stop_id)
     if not trip_repository.stop_delete(stop_id):
         raise HTTPException(status_code=404, detail="stop not found")
+    if _tid:
+        trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "stop_id": stop_id}
 
 
@@ -494,6 +513,12 @@ def delete_trip(trip_id: str) -> Dict[str, Any]:
     links cascade). Photos themselves are never touched — the links
     are joins, not ownership."""
     _require_trips_enabled()
+    trip = trip_repository.trip_get(trip_id)
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip not found")
+    # Phase B: remove the trip's timeline event BEFORE the row goes —
+    # the life record must not keep a ghost of a deleted trip.
+    trip_timeline_bridge.remove_trip_from_life_record(trip)
     ok = trip_repository.trip_delete(trip_id)
     if not ok:
         raise HTTPException(status_code=404, detail="trip not found")

@@ -68,6 +68,26 @@ hard-delete now cover photos/story_candidates/bio_facts/archives/
 safety_events/trips (+ cascades), audit rows survive.
 `tests/test_person_delete_coverage.py` + BuilderFlowTest.
 
+### Phase B — Life-record integration (LANDED 2026-07-05)
+
+Trips are no longer a silo. `services/trip_timeline_bridge.py`:
+(1) ERA derived from narrator DOB + trip start_date via canonical
+`lv_eras.era_id_from_age` (never derives `today`; missing/fuzzy DOB →
+era None, recorded not guessed) — stored in `trips.meta_json.era_id`.
+(2) TIMELINE: one `timeline_events` row per trip (kind="trip",
+person-FK cascade), idempotent delete-and-recreate sync called after
+every trip/region/stop mutation; removed BEFORE trip delete (no ghost
+events). Trips also project into the chronology accordion payload as
+personal-lane anchors (`event_kind="trip"`, dedup by trip id) so the
+room's left column shows the journey in its decade + era bucket.
+(3) BIOBUILDER: one `trip_bio_suggestions` row per trip
+(field_key="travel.trip", status='suggested') — the designed lane;
+promotion to bio truth stays a review decision (principle 5), never
+automatic. UI: overview badges show derived era / "on timeline ✓" /
+DOB-needed warning (principle 7 visibility).
+13 tests in `tests/test_trip_timeline_bridge.py` incl. accordion
+projection (fastapi stubbed offline).
+
 ### Phase 1 addenda (same session)
 
 - `PATCH /api/trips/stops/{stop_id}` — operator date/GPS/notes correction (drives clustering accuracy).

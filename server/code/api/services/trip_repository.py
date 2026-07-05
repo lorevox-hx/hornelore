@@ -226,6 +226,78 @@ def theme_create(
         con.close()
 
 
+def stop_trip_id(stop_id: str) -> Optional[str]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT trip_id FROM trip_stops WHERE id = ?", (stop_id,),
+        ).fetchone()
+        return row["trip_id"] if row else None
+    finally:
+        con.close()
+
+
+def region_trip_id(region_id: str) -> Optional[str]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT trip_id FROM trip_regions WHERE id = ?", (region_id,),
+        ).fetchone()
+        return row["trip_id"] if row else None
+    finally:
+        con.close()
+
+
+def trip_meta_update(trip_id: str, meta: Dict[str, Any]) -> bool:
+    """Replace trips.meta_json wholesale (callers read-modify-write)."""
+    con = _connect()
+    try:
+        cur = con.execute(
+            "UPDATE trips SET meta_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(meta or {}, ensure_ascii=False), _now(), trip_id),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def bio_suggestion_replace_for_trip(
+    trip_id: str,
+    person_id: str,
+    field_key: str,
+    suggested_value: str,
+) -> str:
+    """One suggestion row per (trip, field_key) — replace on re-sync.
+    Stays status='suggested'; promotion to bio truth is a review
+    decision, never automatic (locked principle 5)."""
+    con = _connect()
+    try:
+        con.execute(
+            "DELETE FROM trip_bio_suggestions WHERE trip_id = ? AND field_key = ?",
+            (trip_id, field_key),
+        )
+        sid = _new_id()
+        con.execute(
+            """INSERT INTO trip_bio_suggestions
+               (id, trip_id, person_id, field_key, suggested_value,
+                status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'suggested', ?, ?)""",
+            (sid, trip_id, person_id, field_key, suggested_value,
+             _now(), _now()),
+        )
+        con.commit()
+        return sid
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def region_update(
     region_id: str,
     title: Optional[str] = None,
