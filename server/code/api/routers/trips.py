@@ -533,6 +533,16 @@ def list_photo_links(
 @router.patch("/photo-links/{link_id}")
 def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
     _require_trips_enabled()
+    # BUG-TRIP-PHOTO-LINK-REGION-STOP-DESYNC-01 (review 2026-07-05):
+    # moving a photo to a stop in ANOTHER region left the link with the
+    # old trip_region_id. Resolve the target stop's region and update
+    # both together; also 404 on a bogus stop id.
+    region_id = None
+    if req.trip_stop_id:
+        _target = trip_repository.stop_get(req.trip_stop_id)
+        if not _target:
+            raise HTTPException(status_code=404, detail="stop not found")
+        region_id = _target.get("trip_region_id")
     ok = trip_repository.photo_link_update(
         link_id,
         trip_stop_id=req.trip_stop_id,
@@ -540,6 +550,7 @@ def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
         caption=req.caption,
         narrator_caption=req.narrator_caption,
         confirm=req.confirm,
+        trip_region_id=region_id,
     )
     if not ok:
         raise HTTPException(
@@ -569,7 +580,8 @@ def trip_date_confirmations(trip_id: str) -> Dict[str, Any]:
     try:
         try:
             rows = con.execute(
-                """SELECT s.location_name AS stop_name,
+                """SELECT s.id AS stop_id,
+                          s.location_name AS stop_name,
                           MIN(COALESCE(l.taken_at, p.date_value)) AS date,
                           COUNT(*) AS photo_count
                    FROM trip_photo_links l
@@ -589,7 +601,8 @@ def trip_date_confirmations(trip_id: str) -> Dict[str, Any]:
     return {
         "trip_id": trip_id,
         "confirmations": [
-            {"stop_name": r["stop_name"],
+            {"stop_id": r["stop_id"],
+             "stop_name": r["stop_name"],
              "date": str(r["date"])[:10],
              "photo_count": r["photo_count"]}
             for r in rows if r["stop_name"]
@@ -613,6 +626,37 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
     cluster-photos after corrections; operator-confirmed links are
     preserved."""
     _require_trips_enabled()
+    # BUG-TRIP-STOP-PARENT-VALIDATION-01 (review 2026-07-05): reparent
+    # must validate — parent exists, same trip, same region, not self,
+    # and not a descendant of this stop (cycle protection).
+    if req.parent_trip_stop_id:
+        if req.parent_trip_stop_id == stop_id:
+            raise HTTPException(status_code=400,
+                                detail="a stop cannot be its own parent")
+        _child = trip_repository.stop_get(stop_id)
+        _parent = trip_repository.stop_get(req.parent_trip_stop_id)
+        if not _child:
+            raise HTTPException(status_code=404, detail="stop not found")
+        if not _parent:
+            raise HTTPException(status_code=404, detail="parent stop not found")
+        if _parent.get("trip_id") != _child.get("trip_id"):
+            raise HTTPException(status_code=400,
+                                detail="parent stop belongs to another trip")
+        if _parent.get("trip_region_id") != _child.get("trip_region_id"):
+            raise HTTPException(status_code=400,
+                                detail="parent stop belongs to another region")
+        # Cycle walk: climb the parent chain from the proposed parent;
+        # if we reach this stop, the reparent would create a loop.
+        _cursor = _parent
+        _hops = 0
+        while _cursor and _cursor.get("parent_trip_stop_id") and _hops < 50:
+            if _cursor["parent_trip_stop_id"] == stop_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="reparent would create a cycle "
+                           "(parent is a descendant of this stop)")
+            _cursor = trip_repository.stop_get(_cursor["parent_trip_stop_id"])
+            _hops += 1
     ok = trip_repository.stop_update(
         stop_id,
         location_name=req.location_name,
@@ -690,6 +734,20 @@ def create_stop(trip_id: str, region_id: str, req: StopCreate) -> Dict[str, Any]
     region = next((r for r in tree.get("regions", []) if r["id"] == region_id), None)
     if not region:
         raise HTTPException(status_code=404, detail="region not found in this trip")
+    # BUG-TRIP-STOP-PARENT-VALIDATION-01 (review 2026-07-05): parent
+    # must exist, belong to THIS trip and THIS region, and cannot be
+    # the child itself. (Descendant-cycle check matters once reparent
+    # UI exists — creation can't cycle since the child is new.)
+    if req.parent_trip_stop_id:
+        _parent = trip_repository.stop_get(req.parent_trip_stop_id)
+        if not _parent:
+            raise HTTPException(status_code=404, detail="parent stop not found")
+        if _parent.get("trip_id") != trip_id:
+            raise HTTPException(status_code=400,
+                                detail="parent stop belongs to another trip")
+        if _parent.get("trip_region_id") != region_id:
+            raise HTTPException(status_code=400,
+                                detail="parent stop belongs to another region")
     next_ord = req.ord if req.ord is not None else len(region.get("stops", []))
     stop_id = trip_repository.stop_create(
         trip_id=trip_id,

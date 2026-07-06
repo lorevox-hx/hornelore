@@ -285,6 +285,20 @@ def apply_trip_narration(
         if parse.get("confidence") == "none":
             return summary
 
+        # BUG-TRIP-NARRATION-ACTIVE-TRIP-OWNERSHIP-VALIDATION-01
+        # (review 2026-07-05): never trust a frontend-supplied trip id
+        # blindly — a stale/wrong active_trip_id in runtime71 must not
+        # let narration write into another narrator's trip.
+        if active_trip_id:
+            _owned = repo.trip_get(active_trip_id)
+            if not _owned or str(_owned.get("person_id")) != str(person_id):
+                logger.warning(
+                    "[trip-narration] ownership check failed: trip=%s does "
+                    "not belong to narrator=%s — no writes",
+                    active_trip_id, person_id)
+                summary["error"] = "active trip not found for narrator"
+                return summary
+
         trip_id = active_trip_id
         # ── no active trip: duplicate guard, then deterministic create ──
         if not trip_id:

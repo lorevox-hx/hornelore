@@ -534,15 +534,21 @@ def photo_link_update(
     caption: Optional[str] = None,
     narrator_caption: Optional[str] = None,
     confirm: bool = False,
+    trip_region_id: Optional[str] = None,
 ) -> bool:
     """Operator review action. ``confirm=True`` stamps the link as
     operator truth (method='operator', confidence=1.0) so re-clustering
-    never overwrites it."""
+    never overwrites it. BUG-TRIP-PHOTO-LINK-REGION-STOP-DESYNC-01:
+    when a photo moves to a stop in another region, callers must pass
+    the stop's region so the pair stays consistent."""
     sets: List[str] = []
     args: List[Any] = []
     if trip_stop_id is not None:
         sets.append("trip_stop_id = ?")
         args.append(trip_stop_id)
+    if trip_region_id is not None:
+        sets.append("trip_region_id = ?")
+        args.append(trip_region_id)
     if include_in_memoir is not None:
         sets.append("include_in_memoir = ?")
         args.append(1 if include_in_memoir else 0)
