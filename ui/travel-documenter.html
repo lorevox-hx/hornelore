@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HorneLore Travel Documenter</title>
+  <link rel="stylesheet" href="css/travel-documenter.css" />
+</head>
+<body>
+  <header class="td-shell-head">
+    <div>
+      <p class="td-kicker">HorneLore API Tool</p>
+      <h1>Travel Documenter</h1>
+      <p class="td-lede">Separate surface for building trips, regions, stops, photos, and memoir previews. It does not touch Lori or the Life Map Travels shelf.</p>
+    </div>
+    <div class="td-status-card" id="tdStatusCard"><span class="td-dot" id="tdDot"></span><span id="tdStatusText">Not connected</span></div>
+  </header>
+
+  <main class="td-layout">
+    <section class="td-panel td-setup-panel">
+      <h2>Connection</h2>
+      <label>API base<input id="tdApiBase" type="text" spellcheck="false" value="http://localhost:8000" /></label>
+      <label>Narrator / person_id<input id="tdPersonId" type="text" spellcheck="false" placeholder="paste person_id or use ?person_id=..." /></label>
+      <div class="td-button-row"><button id="tdLoadTrips" type="button">Load trips</button><button id="tdPing" type="button" class="td-secondary">Check API</button></div>
+      <p class="td-help">Requires <code>HORNELORE_TRIPS=1</code>. This page uses the existing HorneLore trips and photo endpoints.</p>
+    </section>
+
+    <section class="td-panel">
+      <h2>Create trip</h2>
+      <div class="td-grid-2">
+        <label>Title<input id="tdTripTitle" type="text" placeholder="Spring 2026 Europe" /></label>
+        <label>Start date<input id="tdTripStart" type="date" /></label>
+        <label>End date<input id="tdTripEnd" type="date" /></label>
+      </div>
+      <label>Summary<textarea id="tdTripSummary" rows="3" placeholder="Short summary of the trip."></textarea></label>
+      <button id="tdCreateTrip" type="button">Create trip</button>
+    </section>
+
+    <section class="td-panel td-trip-list-panel">
+      <div class="td-panel-head"><h2>Trips</h2><button id="tdRefreshTrips" type="button" class="td-small td-secondary">Refresh</button></div>
+      <div id="tdTripList" class="td-trip-list td-empty">Load a narrator's trips.</div>
+    </section>
+
+    <section class="td-panel td-active-panel">
+      <div class="td-panel-head">
+        <div><p class="td-kicker">Selected trip</p><h2 id="tdActiveTripTitle">None selected</h2></div>
+        <div class="td-button-row"><button id="tdReloadTree" type="button" class="td-small td-secondary">Reload</button><button id="tdMemoirPreview" type="button" class="td-small">Memoir preview</button></div>
+      </div>
+      <div id="tdTripMeta" class="td-muted">Choose a trip to document.</div>
+      <div id="tdTree" class="td-tree"></div>
+    </section>
+
+    <section class="td-panel">
+      <h2>Add region</h2>
+      <div class="td-grid-2">
+        <label>Region title<input id="tdRegionName" type="text" placeholder="Germany / Bavaria" /></label>
+        <label>Country or area<input id="tdRegionArea" type="text" placeholder="Germany" /></label>
+        <label>Start date<input id="tdRegionStart" type="date" /></label>
+        <label>End date<input id="tdRegionEnd" type="date" /></label>
+      </div>
+      <label>Base address / lodging<input id="tdRegionBase" type="text" placeholder="Hotel, rental, city base" /></label>
+      <button id="tdCreateRegion" type="button">Add region</button>
+    </section>
+
+    <section class="td-panel">
+      <h2>Add stop</h2>
+      <div class="td-grid-2">
+        <label>Region<select id="tdStopRegion"></select></label>
+        <label>Parent stop / day trip under<select id="tdStopParent"></select></label>
+        <label>Place name<input id="tdStopName" type="text" placeholder="Munich" /></label>
+        <label>Stop type<select id="tdStopType"><option value="base">base</option><option value="sight" selected>sight</option><option value="travel_day">travel_day</option><option value="meal">meal</option><option value="lodging">lodging</option><option value="day_trip">day_trip</option></select></label>
+        <label>Start date<input id="tdStopStart" type="date" /></label>
+        <label>End date<input id="tdStopEnd" type="date" /></label>
+      </div>
+      <label>Notes<textarea id="tdStopNotes" rows="3" placeholder="Route details, lodging, meals, people, memories."></textarea></label>
+      <button id="tdCreateStop" type="button">Add stop</button>
+    </section>
+
+    <section class="td-panel">
+      <h2>Trip photos</h2>
+      <p class="td-help">Uploads land at trip level as narrator-ready review items. Clustering can place them later.</p>
+      <label>Add photos to selected trip<input id="tdPhotoFiles" type="file" accept="image/*,.heic,.heif" multiple /></label>
+      <div class="td-button-row"><button id="tdUploadPhotos" type="button">Upload photos</button><button id="tdClusterPhotos" type="button" class="td-secondary">Cluster photos</button></div>
+      <div id="tdPhotoStrip" class="td-photo-strip td-empty">No trip selected.</div>
+    </section>
+
+    <section class="td-panel td-wide">
+      <div class="td-panel-head"><h2>Output</h2><button id="tdClearOutput" type="button" class="td-small td-secondary">Clear</button></div>
+      <pre id="tdOutput" class="td-output">Ready.</pre>
+    </section>
+  </main>
+
+  <script src="js/travel-documenter.js"></script>
+</body>
+</html>
