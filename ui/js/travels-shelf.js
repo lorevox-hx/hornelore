@@ -152,12 +152,16 @@
   }
 
   function _zeroTrips(panel) {
+    // BUG-TRAVELS-ZERO-TRIP-SCOPE-FLAG-CLEARED-IMMEDIATELY-01 (review
+    // 2026-07-05): _stopZeroTripPoll() clears travelsShelfOpen — it
+    // must run BEFORE the scope flag is set, or the flag is dead
+    // before the narrator's next turn ever reaches runtime71.
+    _stopZeroTripPoll();
     var s = _session();
     s.travelsShelfOpen = true;   // runtime71.travels_shelf_open → hook scope
     s.activeTripId = null;
     panel.innerHTML =
       '<p class="lv-travels-note">No journeys here yet — tell Lori about one whenever you’d like.</p>';
-    _stopZeroTripPoll();
     var pid = (window.state && state.person_id) || "";
     _zeroTripPoll = setInterval(function () {
       if (!_session().travelsPanelOpen) { _stopZeroTripPoll(); return; }

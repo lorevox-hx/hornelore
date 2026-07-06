@@ -262,6 +262,26 @@ class ZeroTripHookRegressionTest(_WriteCase):
         app = (_REPO_ROOT / "ui" / "js" / "app.js").read_text(encoding="utf-8")
         self.assertIn("travels_shelf_open:", app)
 
+    def test_zero_trip_scope_flag_survives_poll_reset(self):
+        # BUG-TRAVELS-ZERO-TRIP-SCOPE-FLAG-CLEARED-IMMEDIATELY-01:
+        # _stopZeroTripPoll() clears travelsShelfOpen, so inside
+        # _zeroTrips() it must run BEFORE the flag is set true —
+        # otherwise the shelf scope is dead before the narrator's next
+        # turn and the first trip can never be born.
+        import re as _re
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        m = _re.search(r"function _zeroTrips\([\s\S]*?\n  \}", js)
+        self.assertIsNotNone(m)
+        body = m.group(0)
+        stop_idx = body.find("_stopZeroTripPoll()")
+        flag_idx = body.find("travelsShelfOpen = true")
+        self.assertGreater(stop_idx, -1, "_zeroTrips must reset the poll")
+        self.assertGreater(flag_idx, -1, "_zeroTrips must set shelf scope")
+        self.assertLess(stop_idx, flag_idx,
+                        "_stopZeroTripPoll() must run BEFORE the scope "
+                        "flag is set (it clears travelsShelfOpen)")
+
     def test_date_confirm_not_dispatched_at_trip_open(self):
         # BUG-TRAVELS-OPEN-DISPATCHES-DATE-CONFIRM-TOO-SOON-01: one
         # deliberate prompt per gesture; the WO-9 queue holds a single
