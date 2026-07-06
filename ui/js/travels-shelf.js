@@ -137,26 +137,47 @@
     });
   }
 
+  var _dispatchedTrips = {};  // trip_id → true; once per page session
+
   function _dispatchTripOpen(trip, tree) {
     // Identity gate — same rule as era clicks.
     if (typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74()) {
       console.info("[travels-shelf] BLOCKED Lori dispatch — identity incomplete");
       return;
     }
+    // Dedup (live finding 2026-07-05): toggling the shelf closed/open
+    // re-ran _openTrip and double-dispatched the trip prompt. One
+    // deliberate prompt per trip per page session; re-opens repaint
+    // the panel silently.
+    if (_dispatchedTrips[trip.id]) {
+      console.info("[travels-shelf] dispatch skipped — trip already opened this session");
+      return;
+    }
+    _dispatchedTrips[trip.id] = true;
     var span = [trip.start_date, trip.end_date].filter(Boolean).join(" to ");
     var regions = (tree.regions || []).map(function (r) { return r.title; })
       .filter(Boolean).slice(0, 6).join(", ");
     // Deterministic, mechanical-truth-only directive (era-click pattern).
+    //
+    // LIVE FINDING 2026-07-05 (Mirano bug): region list order is ENTRY
+    // order, not journey order — the old "you may name the first place
+    // on record" line let Lori confidently assert "you started in
+    // Mirano" when the journey started in Munich. The directive now
+    // FORBIDS claiming sequence; only the narrator establishes order.
     _dispatch(
       "[SYSTEM: The narrator just opened their trip '" + (trip.title || "a trip") + "'" +
       (span ? " (" + span + ")" : "") + " from the Travels shelf on the Life Map." +
-      (regions ? " Places on record for this trip: " + regions + "." : "") +
-      " Ask ONE warm question inviting them to start telling the story of this " +
-      "journey wherever they’d like — you may name the first place on record. " +
+      (regions ? " Places on record for this trip (in NO particular order): " +
+        regions + "." : "") +
+      " Ask ONE warm question inviting them to begin telling the story of this " +
+      "journey wherever they’d like. You may mention one or two of the places " +
+      "on record, but do NOT claim or guess which place came first, last, or " +
+      "in what order they traveled — only the narrator knows the route. " +
       "Frame in PAST TENSE. Reference ONLY the details given above; do not " +
       "invent any other place, person, or event. Do NOT ask them to recall " +
-      "calendar dates. Maximum 55 words. ONE question only. No menu choices. " +
-      "No compound 'and how / and what' follow-ups.]");
+      "calendar dates. Do NOT phrase the question as a fill-in-the-blank " +
+      "('and then you traveled to...?'). Maximum 55 words. ONE question only. " +
+      "No menu choices. No compound 'and how / and what' follow-ups.]");
   }
 
   // ── Live trip outline panel (narrator-facing, human labels) ──
