@@ -5739,6 +5739,26 @@ def story_candidate_list_unreviewed(
         con.close()
 
 
+def story_candidate_list_for_memoir(narrator_id: str) -> List[Dict[str, Any]]:
+    """WO-MEMOIR-STORY-CANDIDATES-WIRE-01: captured stories that the
+    operator has cleared for the memoir — review_status 'promoted' or
+    'memoir_only' (the export gate; unreviewed/discarded never reach a
+    family-facing artifact). Ordered oldest-first so stories read in
+    the order they were told."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM story_candidates "
+            "WHERE narrator_id = ? "
+            "  AND review_status IN ('promoted', 'memoir_only') "
+            "ORDER BY created_at ASC",
+            (narrator_id,),
+        ).fetchall()
+        return [_row_to_story_candidate(r) for r in rows]
+    finally:
+        con.close()
+
+
 def story_candidate_update_placement(
     candidate_id: str,
     *,

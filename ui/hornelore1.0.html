@@ -8191,6 +8191,10 @@ async function memoirExportDOCX() {
     attached_photos: attachedPhotos,
     source_language: _sourceLang,
     target_language: _exportLang,
+    // WO-MEMOIR-STORY-CANDIDATES-WIRE-01: server harvests operator-
+    // cleared captured stories (promoted / memoir_only) for this
+    // narrator and appends them verbatim as era-grouped sections.
+    person_id: (typeof state !== "undefined" && state && state.person_id) || null,
   };
 
   // Operator visibility: language picker can sit far from this

@@ -93,6 +93,14 @@ class MemoirExportRequest(BaseModel):
     """
     narrator_name: str = Field(default="Narrator")
     memoir_state: str = Field(default="threads")
+    # WO-MEMOIR-STORY-CANDIDATES-WIRE-01 (2026-07-06): when person_id
+    # is present, the server harvests operator-cleared captured
+    # stories (story_candidates with review_status promoted or
+    # memoir_only) and appends them as era-grouped sections in the
+    # narrator's OWN words. Absent person_id = byte-stable with every
+    # pre-wire caller. include_captured_stories=False opts out.
+    person_id: Optional[str] = Field(default=None)
+    include_captured_stories: bool = Field(default=True)
     sections: List[MemoirSection] = Field(default_factory=list)
     prose: Optional[str] = Field(default=None)
     arc_roles: List[str] = Field(default_factory=list)
@@ -547,6 +555,68 @@ def _build_draft_docx_bilingual(
 
 # ── Route ─────────────────────────────────────────────────────────────────────
 
+# ── WO-MEMOIR-STORY-CANDIDATES-WIRE-01: captured-story harvest ────────────
+
+_MEMOIR_ERA_ORDER = [
+    "earliest_years", "early_school_years", "adolescence",
+    "coming_of_age", "building_years", "later_years", "today",
+]
+
+
+def _captured_story_sections(person_id: str) -> List[MemoirSection]:
+    """Harvest operator-cleared story candidates into era-grouped
+    memoir sections. VERBATIM narrator transcripts — the whole point
+    of the story-preservation lane is the narrator's own words, so no
+    summarization, no rewriting. Era placement comes from the first
+    era_candidate; stories with no era land in a trailing group.
+    Never raises — memoir export must not fail because story rows are
+    unreadable."""
+    try:
+        from .. import db as _db
+        candidates = _db.story_candidate_list_for_memoir(person_id)
+    except Exception as exc:
+        logger.warning("[memoir-docx] story harvest failed: %s", exc)
+        return []
+    if not candidates:
+        return []
+
+    try:
+        from ..lv_eras import era_id_to_warm_label as _warm
+    except Exception:
+        _warm = lambda e: e  # noqa: E731
+
+    by_era: Dict[str, List[str]] = {}
+    for c in candidates:
+        transcript = (c.get("transcript") or "").strip()
+        if not transcript:
+            continue
+        eras = c.get("era_candidates") or []
+        if isinstance(eras, str):
+            try:
+                import json as _json
+                eras = _json.loads(eras)
+            except Exception:
+                eras = []
+        era = eras[0] if eras else "_unplaced"
+        by_era.setdefault(era, []).append(transcript)
+
+    sections: List[MemoirSection] = []
+    ordered = [e for e in _MEMOIR_ERA_ORDER if e in by_era]
+    ordered += [e for e in by_era if e not in _MEMOIR_ERA_ORDER and e != "_unplaced"]
+    for era in ordered:
+        try:
+            label = "In their own words — " + str(_warm(era))
+        except Exception:
+            label = "In their own words"
+        sections.append(MemoirSection(
+            id=f"captured_stories_{era}", label=label, items=by_era[era]))
+    if "_unplaced" in by_era:
+        sections.append(MemoirSection(
+            id="captured_stories_more", label="In their own words — More stories",
+            items=by_era["_unplaced"]))
+    return sections
+
+
 @router.post("/export-docx")
 def api_memoir_export_docx(req: MemoirExportRequest):
     """
@@ -567,6 +637,26 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         )
 
     target_lang = _normalize_target_lang(req)
+
+    # WO-MEMOIR-STORY-CANDIDATES-WIRE-01: append operator-cleared
+    # captured stories (verbatim) as era-grouped sections. Only fires
+    # when the caller supplies person_id; pre-wire callers byte-stable.
+    if req.person_id and req.include_captured_stories:
+        _story_sections = _captured_story_sections(req.person_id)
+        if _story_sections:
+            req = req.model_copy(update={
+                "sections": list(req.sections) + _story_sections,
+            }) if hasattr(req, "model_copy") else req
+            if not hasattr(req, "model_copy"):
+                req.sections = list(req.sections) + _story_sections
+            logger.info(
+                "[memoir-docx] captured stories appended: %d section(s), "
+                "%d stor%s",
+                len(_story_sections),
+                sum(len(s.items) for s in _story_sections),
+                "y" if sum(len(s.items) for s in _story_sections) == 1 else "ies",
+            )
+
     logger.info(
         "[memoir-docx] export narrator=%s state=%s src=%s tgt=%s sections=%d photos=%d prose_len=%d",
         req.narrator_name, req.memoir_state, req.source_language, target_lang,
