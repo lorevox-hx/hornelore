@@ -5741,6 +5741,21 @@ async function lv80LoadPeople() {
 async function lv80SwitchPerson(personId) {
   if (!personId) return;
 
+  // WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01 (review fix): a narrator
+  // switch invalidates the mounted Travel Documenter. Null the mount
+  // marker so the next tab-show remounts; if the operator is SITTING
+  // on the Travel Doc tab right now, remount immediately (deferred so
+  // state.person_id has been updated by the switch flow below).
+  try {
+    window._lvTravelDocMountedFor = null;
+    const _tdPanel = document.getElementById("lvTravelDocTab");
+    if (_tdPanel && _tdPanel.classList.contains("lv-shell-panel-active")) {
+      setTimeout(() => {
+        try { lvShellShowTab("traveldoc"); } catch (_) {}
+      }, 400);
+    }
+  } catch (_) {}
+
   // #145: always close the narrator-switcher popover on any narrator change.
   // It renders in the browser's top layer and covers the header Cam/Mic
   // buttons; left open, the first Cam click is consumed by popover="auto"

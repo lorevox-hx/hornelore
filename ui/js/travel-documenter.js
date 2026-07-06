@@ -23,9 +23,11 @@
      - NEVER touches Lori/Travels state: nothing here writes the
        trip-session scope the narrator shelf owns, nothing consumed
        by the chat runtime, and no system-prompt dispatch of any kind.
-     - Uses existing trips endpoints only; photo uploads land at
-       trip level (trip_upload method — cluster-placeable, review
-       metadata stamped server-side).
+     - Uses existing trips endpoints only. Photo uploads land at
+       trip level (trip_upload method — unplaced, cluster-placeable)
+       and are narrator-ready immediately: the operator IS the
+       reviewer on this surface, unlike travels_shelf uploads which
+       get needs_operator_review stamped server-side.
 ═══════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
@@ -109,7 +111,7 @@
       '</section>' +
       '<section class="td-panel">' +
       '<h2>Trip photos</h2>' +
-      '<p class="td-help">Uploads land at trip level as review items; clustering can place them later.</p>' +
+      '<p class="td-help">Uploads are trusted operator additions: narrator-ready immediately, unplaced at trip level \u2014 run Cluster photos to place them at stops.</p>' +
       '<label>Add photos to selected trip<input data-td="photoFiles" type="file" accept="image/*,.heic,.heif" multiple /></label>' +
       '<div class="td-button-row"><button data-td="uploadPhotos" type="button">Upload photos</button><button data-td="clusterPhotos" type="button" class="td-secondary">Cluster photos</button></div>' +
       '<div data-td="photoStrip" class="td-photo-strip td-empty">No trip selected.</div>' +
@@ -255,6 +257,24 @@
       });
     }
 
+    function rebuildParentOptions() {
+      var regionSel = $("stopRegion");
+      var parentSel = $("stopParent");
+      if (!parentSel) return;
+      parentSel.innerHTML = "<option value=''>No parent / top-level stop</option>";
+      if (!st.tree) return;
+      var selectedRegion = (regionSel && regionSel.value) || "";
+      allStops(st.tree).forEach(function (s) {
+        if (selectedRegion && s.region_id !== selectedRegion) return;
+        var opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = new Array((s.depth || 0) + 1).join("\u2014 ") +
+          (s.location_name || s.title || "Stop") +
+          " (" + (s.region_title || "region") + ")";
+        parentSel.appendChild(opt);
+      });
+    }
+
     function renderTree() {
       var title = $("activeTripTitle");
       var meta = $("tripMeta");
@@ -284,15 +304,10 @@
         regionSel.appendChild(opt);
       });
 
-      parentSel.innerHTML = "<option value=''>No parent / top-level stop</option>";
-      allStops(st.tree).forEach(function (s) {
-        var opt = document.createElement("option");
-        opt.value = s.id;
-        opt.textContent = new Array((s.depth || 0) + 1).join("\u2014 ") +
-          (s.location_name || s.title || "Stop") +
-          " (" + (s.region_title || "region") + ")";
-        parentSel.appendChild(opt);
-      });
+      // Review fix: the backend rejects parents from another region,
+      // so only offer parents from the SELECTED region. Rebuilds on
+      // region change too (listener wired once below).
+      rebuildParentOptions();
 
       if (!regions.length) {
         treeHost.innerHTML = '<p class="td-empty">No regions yet. Add the first region.</p>';
@@ -483,6 +498,10 @@
     bind("ping", ping);
     var clearBtn = $("clearOutput");
     if (clearBtn) clearBtn.addEventListener("click", function () { log("Ready."); });
+    var regionSelEl = $("stopRegion");
+    if (regionSelEl) {
+      regionSelEl.addEventListener("change", rebuildParentOptions);
+    }
 
     renderTree();
     setStatus("", "");

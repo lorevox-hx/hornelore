@@ -103,5 +103,46 @@ class BoundaryTest(unittest.TestCase):
                             f"unsanctioned endpoint: {u}")
 
 
+class ReviewFixesTest(unittest.TestCase):
+    """Review 2026-07-06 — polish fixes locked in."""
+
+    def test_css_fully_scoped(self):
+        # Every .td-* component rule must be scoped under .td-root or
+        # body.td-standalone; vars defined on BOTH roots.
+        css = (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+               ).read_text(encoding="utf-8")
+        self.assertIn(".td-root,\nbody.td-standalone {", css)
+        for ln in css.splitlines():
+            s = ln.strip()
+            if s.startswith(".td-") and "{" in s and not s.startswith(".td-root"):
+                self.fail(f"unscoped .td rule: {s[:60]}")
+        # No bare element rules either.
+        for bare in ("\nbody {", "\nbutton {", "\ninput, select"):
+            self.assertNotIn(bare, css)
+
+    def test_narrator_switch_remounts_travel_doc(self):
+        html = _HTML.read_text(encoding="utf-8")
+        m = re.search(r"async function lv80SwitchPerson[\s\S]{0,1200}", html)
+        self.assertIsNotNone(m)
+        block = m.group(0)
+        self.assertIn("_lvTravelDocMountedFor = null", block)
+        self.assertIn('lvShellShowTab("traveldoc")', block)
+
+    def test_parent_dropdown_filters_by_region(self):
+        src = _stripped_js()
+        self.assertIn("rebuildParentOptions", src)
+        self.assertIn("s.region_id !== selectedRegion", src)
+        # Region change rebuilds the parent list.
+        self.assertIn('addEventListener("change", rebuildParentOptions)', src)
+
+    def test_upload_help_text_is_honest(self):
+        # Uploads are narrator-ready operator additions, not "review
+        # items" (needs_operator_review is only stamped for
+        # travels_shelf uploads server-side).
+        src = _JS.read_text(encoding="utf-8")
+        self.assertIn("narrator-ready immediately", src)
+        self.assertNotIn("as review items", src)
+
+
 if __name__ == "__main__":
     unittest.main()
