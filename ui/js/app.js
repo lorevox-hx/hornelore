@@ -505,6 +505,27 @@ function lvShellShowTab(tabName) {
   // the tab is shown. Operator-only (the whole tab strip hides in
   // interview mode). This mount never touches Lori / runtime71 /
   // Travels-shelf state — it is a pure trips-API console.
+  //
+  // BUG-TRAVEL-DOC-HIDDEN-SELECT-LABEL-STALE-01 (2026-07-06): the label
+  // must come from the ACTIVE narrator card (lv80ActiveNarratorName) /
+  // state.profile.basics — NEVER from lv80PersonSelect.selectedOptions.
+  // The hidden select can hold a stale value during async narrator
+  // switch, which showed "Documenting trips for Melanie Zollner" while
+  // the active narrator (and mount person_id) was Chris.
+  function _lvCurrentNarratorDisplayLabel(pid) {
+    let label = "";
+    try {
+      const card = document.getElementById("lv80ActiveNarratorName");
+      label = ((card && card.textContent) || "").trim();
+      if (!label || /loading|choose a narrator/i.test(label)) label = "";
+    } catch (_) {}
+    if (!label && typeof state !== "undefined" && state &&
+        state.profile && state.profile.basics) {
+      const b = state.profile.basics;
+      label = b.preferred || b.preferredName || b.fullname || b.fullName || "";
+    }
+    return label || pid;
+  }
   if (tabName === "traveldoc") {
     try {
       const host = document.getElementById("lvTravelDocHost");
@@ -517,13 +538,8 @@ function lvShellShowTab(tabName) {
             '<p class="lv-traveldoc-empty">Choose a narrator first.</p>';
         } else if (window._lvTravelDocMountedFor !== pid) {
           // New narrator (or first open) → fresh mount scoped to them.
-          let label = pid;
-          try {
-            const sel = document.getElementById("lv80PersonSelect");
-            if (sel && sel.selectedOptions && sel.selectedOptions[0]) {
-              label = sel.selectedOptions[0].textContent || pid;
-            }
-          } catch (e) {}
+          // Label from the active narrator card, never the hidden select.
+          const label = _lvCurrentNarratorDisplayLabel(pid);
           if (typeof lvTravelDocumenterMount === "function") {
             lvTravelDocumenterMount(host, {
               person_id: pid,

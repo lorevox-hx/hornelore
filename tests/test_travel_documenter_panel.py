@@ -144,5 +144,44 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertNotIn("as review items", src)
 
 
+class StaleSelectLabelTest(unittest.TestCase):
+    """BUG-TRAVEL-DOC-HIDDEN-SELECT-LABEL-STALE-01 (2026-07-06).
+
+    Live proof: hidden lv80PersonSelect held a stale value during async
+    narrator switch, so Travel Doc said "Documenting trips for Melanie
+    Zollner" while state.person_id (and the mount) was Chris. The label
+    must come from the active narrator card / state.profile.basics —
+    NEVER from the hidden select's selectedOptions.
+    """
+
+    def _mount_block(self) -> str:
+        app = _APP.read_text(encoding="utf-8")
+        m = re.search(r'if \(tabName === "traveldoc"\) \{[\s\S]*?\n  \}', app)
+        assert m is not None, "traveldoc mount block missing"
+        return m.group(0)
+
+    def test_mount_block_never_reads_hidden_select(self):
+        block = self._mount_block()
+        self.assertNotIn("selectedOptions", block)
+        self.assertNotIn("lv80PersonSelect", block)
+
+    def test_label_helper_reads_active_narrator_card(self):
+        app = _APP.read_text(encoding="utf-8")
+        m = re.search(
+            r"function _lvCurrentNarratorDisplayLabel[\s\S]*?\n  \}", app)
+        self.assertIsNotNone(m, "label helper missing")
+        helper = m.group(0)
+        self.assertIn("lv80ActiveNarratorName", helper)
+        # state.profile.basics fallback, then pid — never the select.
+        self.assertIn("state.profile.basics", helper)
+        self.assertNotIn("lv80PersonSelect", helper)
+        # Placeholder card text must not become the label.
+        self.assertIn("loading|choose a narrator", helper)
+
+    def test_mount_uses_the_helper(self):
+        self.assertIn("_lvCurrentNarratorDisplayLabel(pid)",
+                      self._mount_block())
+
+
 if __name__ == "__main__":
     unittest.main()

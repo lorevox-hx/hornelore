@@ -75,6 +75,15 @@
     try {
       const resp = await fetch(url, { credentials: 'same-origin' });
       if (resp.status === 404) {
+        // BUG-PAST-TENSE-FLAGS-ENDPOINT-MISSING-01 (2026-07-06): gate
+        // off server-side (HORNELORE_OPERATOR_PAST_TENSE_REVIEW=0).
+        // One calm notice; no auto re-probe (only the Refresh button
+        // or lvBpPastTenseRefresh re-probes).
+        if (_state.enabled !== false) {
+          console.info(
+            '[past-tense-review] endpoint unavailable (gate off); ' +
+            'panel disabled for this session.');
+        }
         _state.enabled = false;
         _state.items = [];
         _state.count = 0;

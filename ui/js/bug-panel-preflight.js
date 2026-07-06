@@ -213,7 +213,15 @@
     const save = m.querySelector('[data-action="save"]');
     if (save) save.addEventListener("click", _onSave, { once: true });
     const refresh = m.querySelector('[data-action="refresh"]');
-    if (refresh) refresh.addEventListener("click", _poll, { once: true });
+    // Manual Refresh re-arms the followup-bank probe (see
+    // BUG-FOLLOWUP-BANK-404-SPAM-01) — deliberate operator action is
+    // the only path that re-probes a known-off gate.
+    if (refresh) {
+      refresh.addEventListener("click", function () {
+        _bankGateOff = false;
+        _poll();
+      }, { once: true });
+    }
   }
 
   // ── Network ───────────────────────────────────────────────────────────────
@@ -233,11 +241,19 @@
   }
 
   async function _fetchBankCount(sid) {
+    // BUG-FOLLOWUP-BANK-404-SPAM-01 (2026-07-06): once the gate is
+    // known off, do NOT re-probe on every focus/visibility/panel-
+    // toggle — that produced repeated 404 console spam per narrator/
+    // session switch. Manual Refresh (lvPreflightRefresh) re-arms.
+    if (_bankGateOff) return null;
     try {
       const resp = await fetch(BANK_ALL(sid));
       if (resp.status === 404) {
-        // Gate is off (HORNELORE_OPERATOR_FOLLOWUP_BANK=0). Quiet.
+        // Gate is off (HORNELORE_OPERATOR_FOLLOWUP_BANK=0).
         _bankGateOff = true;
+        console.info(
+          "[preflight] followup-bank unavailable (gate off); " +
+          "disabling probes for this session.");
         return null;
       }
       if (!resp.ok) {
@@ -364,7 +380,12 @@
   }
 
   // Manual refresh hook for ops that want to repoll on demand.
-  window.lvPreflightRefresh = _poll;
+  // Re-arms the followup-bank probe so a flag flip + stack restart can
+  // be picked up without a page reload.
+  window.lvPreflightRefresh = function () {
+    _bankGateOff = false;
+    return _poll();
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", _start, { once: true });
