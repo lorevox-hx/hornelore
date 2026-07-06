@@ -812,6 +812,66 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _frame_exc,
                 )
 
+        # ── WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01 Phases 2+3 ──────
+        # Trip narration capture: the narrator TALKS, the SYSTEM builds
+        # the route. Deterministic parser (trip_narration_capture) —
+        # Lori never writes structure (principle 6); writes are
+        # provisional and conservative (create-only-obvious, never
+        # delete, operator rows never moved).
+        #
+        # Gate: HORNELORE_TRIP_NARRATION
+        #   0 (default) -> off entirely
+        #   log         -> parse + [trip-narration] log, ZERO writes
+        #                  (the spec's dry-run rollout stage)
+        #   1           -> parse + provisional writes
+        # Scope: only fires when the narrator has a trip open on the
+        # Travels shelf (runtime71.active_trip_id) — general chat is
+        # never trip-parsed. Failure never breaks the turn.
+        _trip_narration_mode = os.getenv("HORNELORE_TRIP_NARRATION", "0").strip().lower()
+        if (
+            _trip_narration_mode in ("log", "1", "true")
+            and user_text
+            and user_text.strip()
+            and not _is_system_directive
+            and person_id
+        ):
+            try:
+                _rt71_trip = (params.get("runtime71") or {})
+                _active_trip_id = _rt71_trip.get("active_trip_id")
+                if _active_trip_id:
+                    from ..services import trip_narration_capture as _tnc
+                    _tn_parse = _tnc.parse_trip_narration(user_text)
+                    logger.info(
+                        "[trip-narration] conv=%s trip=%s conf=%s start=%s "
+                        "stops=%s suppressed=%s corrections=%d obs=%d mode=%s",
+                        conv_id, _active_trip_id, _tn_parse.get("confidence"),
+                        _tn_parse.get("start_place") or "-",
+                        [s["place"] for s in _tn_parse.get("stops", [])] or "-",
+                        _tn_parse.get("suppressed") or "-",
+                        len(_tn_parse.get("corrections", [])),
+                        len(_tn_parse.get("observations", [])),
+                        _trip_narration_mode,
+                    )
+                    if (_trip_narration_mode in ("1", "true")
+                            and _tn_parse.get("confidence") != "none"):
+                        _tn_out = _tnc.apply_trip_narration(
+                            _tn_parse, person_id=person_id,
+                            active_trip_id=_active_trip_id,
+                        )
+                        if _tn_out.get("applied"):
+                            logger.info(
+                                "[trip-narration] writes: trip=%s added=%s "
+                                "reordered=%s",
+                                _tn_out.get("trip_id"),
+                                _tn_out.get("stops_added"),
+                                _tn_out.get("reordered"),
+                            )
+            except Exception as _tn_exc:
+                logger.warning(
+                    "[trip-narration] hook failed (conv=%s): %s — turn continues",
+                    conv_id, _tn_exc,
+                )
+
         # ── WO-NARRATIVE-CUE-LIBRARY-01 Phase 4: observability-only log ──
         # Run the narrative cue detector against this narrator turn and
         # emit a single [lori-cue] log line. This is OBSERVATION ONLY:

@@ -1,6 +1,18 @@
 # WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01
 
-**Status:** v2 — REVISED PER REVIEW 2026-07-05 ("SPEC GOOD — APPROVE AFTER SMALL REVISION"). All six requested revisions folded in below (marked ★REV). Ready for build on Chris's go.
+**Status:** ALL PHASES LANDED 2026-07-05 (same day as v2 approval). Live-tested Phase 1 mid-build; three live findings + three review findings fixed en route.
+
+**Landing summary (2026-07-05):**
+- **Phase 1 + 1.5** — Travels shelf (amber, between Later Years and Today, structurally never an era), picker, trip open → ONE deterministic Lori prompt in the main conversation (identity-gated, dedup'd per session), live trip outline panel (human labels only), photo strip → lightbox + metadata-only grounded prompt, "+ Add photos" (trip-level endpoint), runtime71 carries `active_trip_id`/`trip_style`.
+- **Phase 2** — `services/trip_narration_capture.py`: deterministic parser (start/sequence/duration/month-year, negation suppression, uncertainty→observation, order + start corrections, place blocklist), chat_ws hook gated `HORNELORE_TRIP_NARRATION` (0 / **log** = dry-run / 1 = writes) — fires ONLY when a trip is open on the shelf; general chat is never trip-parsed.
+- **Phase 3** — `apply_trip_narration`: provisional writes (stops with incrementing ord + `meta_json.source="narration"`), find-or-create "Journey" region, deterministic Untitled-trip birth (Lori never titles), duplicate-trip guard (needs_disambiguation, no create), reorders touch narration rows only, NEVER deletes; 8s panel auto-refresh while open so the outline visibly assembles.
+- **Phase 4** — `GET /api/trips/{id}/date-confirmations` (metadata_trust full/time_only ONLY), FE offers ONE recognition confirmation per stop ever (localStorage offered-ledger — a shrug is never re-asked), order confirm pass fires ONCE per session after ≥2 narration-added stops ("did I get the order right?" — confirming what was heard).
+- **Phase 5** — `guided_trip_walk` operator-selectable via `localStorage["lv_trip_style"]` (never default): hook-anchored directive variant with stories-win + shrug-once rules inline. NOTE: story-wins is directive-level in this landing; the runtime scheduler-suppression version (spec §3.5 REV 6) awaits a server-side route scheduler — tracked as the ONE open item, revisit after live narration evidence.
+- **Live findings fixed en route:** Mirano order-confabulation (directive forbids sequence claims), double dispatch on shelf re-toggle (dedup), silent photo upload (ack prompt).
+- **Review findings fixed en route:** BUG-TRIP-LEVEL-UPLOAD-OPERATOR-CONFIRMS-UNPLACED-PHOTO-01 (trip-level drops now `assignment_method='trip_upload'` conf 0.3 unconfirmed — cluster-placeable; migration 0018 extends the CHECK), BUG-TRAVELS-DISPATCH-BYPASSES-WO9-WARMUP-QUEUE-01 (queue-first dispatch), BUG-TRAVELS-DIRECTIVE-VALUE-SANITIZE-01 (`_promptSafe` on all interpolated values).
+- **Tests:** 19 parser/writes (incl. Munich verbatim, negation-Vienna, maybe-Brno, operator-rows-never-moved, never-delete, duplicate guard, Untitled birth), 8 isolation/directive-discipline (comment-aware), 4 trip-level upload lock-ins.
+
+v2 revision notes below preserved for design history.
 **Lane:** Trips / narrator experience (Lane 2 behavior + Lane trips)
 **Severity:** HIGH — the surface that makes trips usable by narrators, not just the operator.
 **Parent specs:** `WO-TRIP-IMPORT-AND-CLUSTER-01` (schema/CRUD/bridge), `WO-TRIP-PHOTO-STOP-UPLOAD-AND-ELICIT-01` (Phases C1–C3), WO-TRIP-MEMOIR-01 (locked hierarchical schema).
