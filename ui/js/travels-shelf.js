@@ -268,7 +268,26 @@
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/photos",
             { method: "POST", body: fd })
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function () { _openTrip(trip); })  // repaint with new photos
+        .then(function (resp) {
+          _openTrip(trip);  // repaint with new photos (dispatch deduped)
+          // LIVE FINDING 2026-07-05: uploading got no Lori response —
+          // but adding a photo is as deliberate a gesture as clicking
+          // one. ONE grounded prompt per upload batch, metadata-only
+          // (count + trip title; nothing about image content).
+          var n = (resp && (resp.uploaded + (resp.duplicates || 0))) || 0;
+          if (n > 0 &&
+              !(typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74())) {
+            _dispatch(
+              "[SYSTEM: The narrator just added " + n + " photo" +
+              (n === 1 ? "" : "s") + " to their trip '" +
+              (trip.title || "a trip") + "'. Invite them, in ONE short warm " +
+              "question, to tell you about one of the pictures they just " +
+              "added. Do NOT guess or describe what is in any photo, who is " +
+              "in it, or where it was taken — you have not seen it. Do NOT " +
+              "ask them to recall calendar dates. Maximum 40 words. ONE " +
+              "question only.]");
+          }
+        })
         .catch(function () {
           addBtn.disabled = false;
           addBtn.textContent = "+ Add photos to this trip";
