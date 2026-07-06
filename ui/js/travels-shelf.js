@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    travels-shelf.js — WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01
-   Phase 1 (read-only) + Phase 1.5 (session state).
+   Phases 1–5 (shelf + panel + trip session state + narration scope +
+   EXIF date confirmations + guided style).
 
    The "Travels" shelf on the Life Map: narrator entry point into
    trips. Opens the trip in the MAIN Lori conversation (era-click
@@ -23,8 +24,12 @@
      panel has no trust column by design).
    - Identity gate: same rule as era clicks (BUG-LORI-IDENTITY-MUST-
      BLOCK-LIFEMAP-01) — no Lori dispatch before name/DOB/POB.
-   - Phase 1 is read-only: no narration parser, no trip creation.
-     Zero-trip state dispatches a warm invitation directive only.
+   - Zero-trip state dispatches a warm invitation AND flags
+     travels_shelf_open on runtime71 so the server-side narration
+     parser (trip_narration_capture, gated HORNELORE_TRIP_NARRATION)
+     can create the FIRST provisional trip from what the narrator
+     says; the panel polls and opens that trip silently. Closing the
+     shelf clears ALL trip scope — general chat is never trip-parsed.
 ═══════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
@@ -96,7 +101,12 @@
       if (!Array.isArray(links)) links = [];
       _paintOutline(tree, links, trip);
       _maybeOfferOrderConfirm(trip, tree);
-      if (!_dateConfirmTried[trip.id]) {
+      // BUG-TRAVELS-DATE-CONFIRM-STILL-TIMER-RACES-TRIP-OPEN-01
+      // (review 2026-07-05): the 8s tick can land while the trip-open
+      // reply is still generating. Gate on the narrator having spoken
+      // at least once since the trip opened — a turn signal, not a
+      // timer guess.
+      if (!_dateConfirmTried[trip.id] && _narratorTurnsSinceOpen >= 1) {
         _dateConfirmTried[trip.id] = true;
         _maybeOfferDateConfirmation(trip);
       }
@@ -104,14 +114,27 @@
   }
 
   var _dateConfirmTried = {};  // trip_id → true (once per page session)
+  var _narratorTurnsSinceOpen = 0;
+  // app.js notifies on every narrator send (one-line hook).
+  window._lvTravelsNarratorTurn = function () { _narratorTurnsSinceOpen += 1; };
 
   // ── Shelf toggle ──────────────────────────────────────────────
   function lvTravelsShelfToggle() {
     var panel = _panel();
     if (!panel) return;
     if (!panel.hidden) {           // open → close
+      // BUG-TRAVELS-CLOSE-LEAVES-ACTIVE-TRIP-SCOPE-01 (review
+      // 2026-07-05): closing Travels must clear ALL trip scope —
+      // activeTripId kept riding runtime71 after close, so normal
+      // chat could still be parsed into the last trip.
       panel.hidden = true;
-      _session().travelsPanelOpen = false;
+      var sClose = _session();
+      sClose.travelsPanelOpen = false;
+      sClose.travelsShelfOpen = false;
+      sClose.activeTripId = null;
+      sClose.activeTripTitle = "";
+      sClose.activeTripStopId = null;
+      sClose.tripStyle = null;
       _stopPanelRefresh();
       _stopZeroTripPoll();
       return;
@@ -189,6 +212,12 @@
   }
 
   function _paintPicker(panel, trips) {
+    // No active trip until the narrator actually picks one — the
+    // picker itself must not leave a stale trip scope in runtime71.
+    var sPick = _session();
+    sPick.activeTripId = null;
+    sPick.activeTripTitle = "";
+    sPick.activeTripStopId = null;
     panel.innerHTML = '<p class="lv-travels-note">Which journey would you like to visit?</p>';
     trips.forEach(function (t) {
       var card = document.createElement("button");
@@ -222,6 +251,7 @@
       _paintOutline(tree || {}, links, trip);
       _seedKnownStops(tree || {});
       _session().travelsShelfOpen = true;  // trip open ⇒ still shelf scope
+      _narratorTurnsSinceOpen = 0;         // date-confirm waits for a turn
       _dispatchTripOpen(trip, tree || {});
       _startPanelRefresh(trip);
       // BUG-TRAVELS-OPEN-DISPATCHES-DATE-CONFIRM-TOO-SOON-01: the
@@ -500,13 +530,20 @@
         var offers = (j && j.confirmations) || [];
         if (!offers.length) return;
         if (typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74()) return;
+        // BUG-TRAVELS-DATE-CONFIRM-LEDGER-USES-STOP-NAME-01 (review
+        // 2026-07-05): repeated names ("Paris arrival"/"Paris return")
+        // could suppress the wrong stop — ledger keys on stop_id now,
+        // with stop_name fallback for pre-fix ledger entries.
         var led = _offeredLedger(trip.id);
         var next = null;
         for (var i = 0; i < offers.length; i++) {
-          if (led.indexOf(offers[i].stop_name) < 0) { next = offers[i]; break; }
+          var key = offers[i].stop_id || offers[i].stop_name;
+          if (led.indexOf(key) < 0 && led.indexOf(offers[i].stop_name) < 0) {
+            next = offers[i]; break;
+          }
         }
         if (!next) return;  // everything already offered once — never re-ask
-        _markOffered(trip.id, next.stop_name);
+        _markOffered(trip.id, next.stop_id || next.stop_name);
         _dispatch(
           "[SYSTEM: The narrator's pictures from " + _promptSafe(next.stop_name) +
           " are dated around " + _promptSafe(next.date) + " (from the photos " +

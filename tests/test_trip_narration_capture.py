@@ -299,6 +299,158 @@ class ZeroTripHookRegressionTest(_WriteCase):
         self.assertIn("_maybeOfferDateConfirmation", m2.group(0))
 
 
+class ScopeLifetimeRegressionTest(_WriteCase):
+    """Review 2026-07-05 round 2 — frontend state lifetime + backend
+    trust bugs."""
+
+    def test_ownership_check_blocks_foreign_trip(self):
+        # BUG-TRIP-NARRATION-ACTIVE-TRIP-OWNERSHIP-VALIDATION-01: a
+        # stale/wrong active_trip_id must never write into another
+        # narrator's trip.
+        other_person = str(uuid.uuid4())
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO people (id, display_name, created_at, updated_at) "
+            "VALUES (?, 'Other', '2026-07-05', '2026-07-05');",
+            (other_person,))
+        con.commit()
+        con.close()
+        foreign_trip = trip_repository.trip_create(
+            person_id=other_person, title="Someone else's trip",
+            start_date="2026-05-01")
+        p = tnc.parse_trip_narration("We started in Munich, then on to Prague.")
+        out = tnc.apply_trip_narration(p, person_id=self.person_id,
+                                       active_trip_id=foreign_trip)
+        self.assertFalse(out["applied"])
+        self.assertEqual(out["error"], "active trip not found for narrator")
+        self.assertEqual(self._stop_names(foreign_trip), [])  # untouched
+
+    def test_close_clears_all_trip_scope(self):
+        # BUG-TRAVELS-CLOSE-LEAVES-ACTIVE-TRIP-SCOPE-01: the close
+        # branch must clear activeTripId + shelf flag so general chat
+        # is never parsed into the last trip.
+        import re as _re
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        m = _re.search(r"if \(!panel\.hidden\) \{[\s\S]*?return;\n    \}", js)
+        self.assertIsNotNone(m, "close branch missing")
+        body = m.group(0)
+        for must in ("travelsShelfOpen = false", "activeTripId = null",
+                     "tripStyle = null"):
+            self.assertIn(must, body, f"close branch must clear: {must}")
+
+    def test_picker_clears_active_trip_until_selection(self):
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        import re as _re
+        m = _re.search(r"function _paintPicker\([\s\S]*?\n  \}", js)
+        self.assertIsNotNone(m)
+        self.assertIn("activeTripId = null", m.group(0))
+
+    def test_date_confirm_waits_for_narrator_turn(self):
+        # BUG-TRAVELS-DATE-CONFIRM-STILL-TIMER-RACES-TRIP-OPEN-01: the
+        # refresh-tick offer must gate on >=1 narrator turn since open,
+        # not just the timer.
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        self.assertIn("_narratorTurnsSinceOpen >= 1", js)
+        self.assertIn("_lvTravelsNarratorTurn", js)
+        app = (_REPO_ROOT / "ui" / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("_lvTravelsNarratorTurn", app)  # send-path hook wired
+
+    def test_date_confirm_ledger_keys_on_stop_id(self):
+        # BUG-TRAVELS-DATE-CONFIRM-LEDGER-USES-STOP-NAME-01.
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        self.assertIn("next.stop_id || next.stop_name", js)
+
+    def test_photo_link_update_accepts_region(self):
+        # BUG-TRIP-PHOTO-LINK-REGION-STOP-DESYNC-01: repository can
+        # move region + stop together; router resolves the region.
+        trip_id = trip_repository.trip_create(
+            person_id=self.person_id, title="T", start_date="2026-05-01")
+        r1 = trip_repository.region_create(trip_id, "R1")
+        r2 = trip_repository.region_create(trip_id, "R2")
+        s1 = trip_repository.stop_create(trip_id, r1, "Paris")
+        s2 = trip_repository.stop_create(trip_id, r2, "Rome")
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash) "
+            "VALUES ('ph-x', ?, '/tmp/x.jpg', 'h-x');", (self.person_id,))
+        con.commit()
+        con.close()
+        link_id = trip_repository.photo_link_upsert(
+            trip_id, "ph-x", trip_region_id=r1, trip_stop_id=s1,
+            assignment_method="exif_time", cluster_confidence=0.8)
+        # Move to a stop in ANOTHER region, passing the region too.
+        trip_repository.photo_link_update(
+            link_id, trip_stop_id=s2, trip_region_id=r2, confirm=True)
+        links = trip_repository.photo_links_list(trip_id)
+        self.assertEqual(links[0]["trip_stop_id"], s2)
+        self.assertEqual(links[0]["trip_region_id"], r2)  # no desync
+
+    def test_stop_reparent_rejects_self_and_cross_trip(self):
+        # BUG-TRIP-STOP-PARENT-VALIDATION-01 — router-level gate.
+        import types as _types
+        if "fastapi" not in sys.modules:
+            stub = _types.ModuleType("fastapi")
+
+            class _APIRouter:
+                def __init__(self, *a, **k):
+                    pass
+
+                def _deco(self, *a, **k):
+                    def wrap(f):
+                        return f
+                    return wrap
+                get = post = patch = delete = put = _deco
+
+            class _HTTPException(Exception):
+                def __init__(self, status_code=0, detail=""):
+                    self.status_code, self.detail = status_code, detail
+                    super().__init__(detail)
+
+            stub.APIRouter = _APIRouter
+            stub.HTTPException = _HTTPException
+            stub.Query = lambda default=None, **k: default
+            stub.File = lambda default=None, **k: default
+            stub.Form = lambda default=None, **k: default
+            stub.UploadFile = object
+            sys.modules["fastapi"] = stub
+        if "pydantic" not in sys.modules:
+            pstub = _types.ModuleType("pydantic")
+            pstub.BaseModel = type("BaseModel", (), {})
+            pstub.Field = lambda default=None, **k: default
+            sys.modules["pydantic"] = pstub
+        import os as _os
+        _os.environ["HORNELORE_TRIPS"] = "1"
+        from api.routers.trips import patch_stop
+        from fastapi import HTTPException
+
+        trip_a = trip_repository.trip_create(
+            person_id=self.person_id, title="A", start_date="2026-05-01")
+        trip_b = trip_repository.trip_create(
+            person_id=self.person_id, title="B", start_date="2026-06-01")
+        ra = trip_repository.region_create(trip_a, "RA")
+        rb = trip_repository.region_create(trip_b, "RB")
+        sa = trip_repository.stop_create(trip_a, ra, "Paris")
+        sb = trip_repository.stop_create(trip_b, rb, "Rome")
+
+        class _Req:
+            location_name = None; stop_type = None; date_start = None
+            date_end = None; latitude = None; longitude = None
+            title = None; notes = None; thematic_tags = None
+            clear_dates = False; ord = None; clear_parent = False
+            parent_trip_stop_id = None
+
+        r = _Req(); r.parent_trip_stop_id = sa   # self-parent
+        with self.assertRaises(HTTPException):
+            patch_stop(sa, r)
+        r2 = _Req(); r2.parent_trip_stop_id = sb  # cross-trip parent
+        with self.assertRaises(HTTPException):
+            patch_stop(sa, r2)
+
+
 class IsolationTest(unittest.TestCase):
     """LAW 3-style: the parser module must not import runtime surfaces."""
 

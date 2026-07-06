@@ -5515,6 +5515,11 @@ async function sendUserMessage(){
   }
   unlockAudio();
   const text=getv("chatInput").trim(); if(!text) return;
+  // Travels shelf (Phase 4 gating): notify the shelf that the
+  // narrator spoke — date confirmations wait for >=1 narrator turn
+  // after trip-open (turn signal, not a timer guess). One-line hook;
+  // no-op when the shelf isn't loaded.
+  try { if (window._lvTravelsNarratorTurn) window._lvTravelsNarratorTurn(); } catch (e) {}
   // WO-MIC-UI-02A: Confirm send source and content
   console.log("[WO-MIC-UI-02A] sendUserMessage() — source: #chatInput, length:", text.length, "preview:", text.slice(0, 80));
   // WO-STT-LIVE-02 (#99) — when no speech capture is staged (or it's
