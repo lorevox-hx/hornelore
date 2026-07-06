@@ -52,9 +52,51 @@
     s.activeTripId = trip ? trip.id : null;
     s.activeTripTitle = trip ? (trip.title || "") : "";
     s.activeTripStopId = null;
-    if (!s.tripStyle) s.tripStyle = "trip_listening"; // guided_trip_walk = operator-selectable (Phase 5)
+    // Phase 5: guided_trip_walk is OPERATOR-selectable (never default —
+    // spec §3.5). Operator sets localStorage["lv_trip_style"] =
+    // "guided_trip_walk"; anything else means listening mode.
+    var opStyle = null;
+    try { opStyle = localStorage.getItem("lv_trip_style"); } catch (e) {}
+    s.tripStyle = (opStyle === "guided_trip_walk")
+      ? "guided_trip_walk" : "trip_listening";
     console.info("[travels-shelf] active_trip=" + (s.activeTripId || "none") +
       " style=" + s.tripStyle);
+  }
+
+  // ── Phase 3: live panel refresh while open ────────────────────
+  // The narration parser writes provisional stops server-side; this
+  // keeps the outline visibly assembling while the narrator talks.
+  var _refreshTimer = null;
+  var _knownStopIds = {};   // for the "just added" cue + order confirm
+  var _newStopsThisSession = [];
+
+  function _startPanelRefresh(trip) {
+    _stopPanelRefresh();
+    _refreshTimer = setInterval(function () {
+      var s = _session();
+      if (!s.travelsPanelOpen || !s.activeTripId) { _stopPanelRefresh(); return; }
+      _refetchAndPaint(trip);
+    }, 8000);
+  }
+
+  function _stopPanelRefresh() {
+    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  }
+
+  function _refetchAndPaint(trip) {
+    Promise.all([
+      fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/tree")
+        .then(function (r) { return r.ok ? r.json() : null; }),
+      fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/photo-links")
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; }),
+    ]).then(function (out) {
+      var tree = out[0], links = (out[1] && out[1].photo_links) || [];
+      if (!tree) return;
+      if (!Array.isArray(links)) links = [];
+      _paintOutline(tree, links, trip);
+      _maybeOfferOrderConfirm(trip, tree);
+    }).catch(function () {});
   }
 
   // ── Shelf toggle ──────────────────────────────────────────────
@@ -64,6 +106,7 @@
     if (!panel.hidden) {           // open → close
       panel.hidden = true;
       _session().travelsPanelOpen = false;
+      _stopPanelRefresh();
       return;
     }
     panel.hidden = false;
@@ -131,7 +174,10 @@
       var tree = out[0], links = (out[1] && out[1].photo_links) || [];
       if (!Array.isArray(links)) links = [];
       _paintOutline(tree || {}, links, trip);
+      _seedKnownStops(tree || {});
       _dispatchTripOpen(trip, tree || {});
+      _startPanelRefresh(trip);
+      _maybeOfferDateConfirmation(trip);
     }).catch(function () {
       if (panel) panel.innerHTML = '<p class="lv-travels-note">Couldn’t open that trip right now.</p>';
     });
@@ -157,6 +203,29 @@
     var span = [trip.start_date, trip.end_date].filter(Boolean).join(" to ");
     var regions = (tree.regions || []).map(function (r) { return r.title; })
       .filter(Boolean).slice(0, 6).join(", ");
+
+    // Phase 5: guided_trip_walk (operator-selected only, never default).
+    // Hook-anchored per the research base — "How did the trip begin?"
+    // is a hook; "what was the start date?" is a memory test. The two
+    // QF-proof rules ride in the directive: stories always win, and a
+    // shrug is accepted once and never re-asked.
+    if (_session().tripStyle === "guided_trip_walk") {
+      _dispatch(
+        "[SYSTEM: The narrator opened their trip '" + _promptSafe(trip.title || "a trip") + "'" +
+        (span ? " (" + _promptSafe(span) + ")" : "") + " in guided mode." +
+        (regions ? " Places on record (in NO particular order): " +
+          _promptSafe(regions) + "." : "") +
+        " Walk the journey with them chronologically as a listener: open " +
+        "with ONE hook-anchored question such as 'How did the trip begin?'. " +
+        "Per stop, at most one question about arrival, a meal or moment, or " +
+        "who was there — then move onward. RULES: if they start telling a " +
+        "story, FOLLOW THE STORY and drop your next route question. If they " +
+        "say they don't remember something, accept it once and NEVER ask " +
+        "that again. Do NOT claim or guess the order of places — only the " +
+        "narrator knows the route. Do NOT ask them to recall " +
+        "calendar dates. Maximum 55 words. ONE question only. No menu choices.]");
+      return;
+    }
     // Deterministic, mechanical-truth-only directive (era-click pattern).
     //
     // LIVE FINDING 2026-07-05 (Mirano bug): region list order is ENTRY
@@ -165,10 +234,10 @@
     // Mirano" when the journey started in Munich. The directive now
     // FORBIDS claiming sequence; only the narrator establishes order.
     _dispatch(
-      "[SYSTEM: The narrator just opened their trip '" + (trip.title || "a trip") + "'" +
-      (span ? " (" + span + ")" : "") + " from the Travels shelf on the Life Map." +
+      "[SYSTEM: The narrator just opened their trip '" + _promptSafe(trip.title || "a trip") + "'" +
+      (span ? " (" + _promptSafe(span) + ")" : "") + " from the Travels shelf on the Life Map." +
       (regions ? " Places on record for this trip (in NO particular order): " +
-        regions + "." : "") +
+        _promptSafe(regions) + "." : "") +
       " Ask ONE warm question inviting them to begin telling the story of this " +
       "journey wherever they’d like. You may mention one or two of the places " +
       "on record, but do NOT claim or guess which place came first, last, or " +
@@ -267,7 +336,10 @@
       fd.append("uploaded_from_surface", "travels_shelf");
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/photos",
             { method: "POST", body: fd })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          if (!r.ok) throw new Error("upload failed (" + r.status + ")");
+          return r.json();
+        })
         .then(function (resp) {
           _openTrip(trip);  // repaint with new photos (dispatch deduped)
           // LIVE FINDING 2026-07-05: uploading got no Lori response —
@@ -280,11 +352,11 @@
             _dispatch(
               "[SYSTEM: The narrator just added " + n + " photo" +
               (n === 1 ? "" : "s") + " to their trip '" +
-              (trip.title || "a trip") + "'. Invite them, in ONE short warm " +
-              "question, to tell you about one of the pictures they just " +
-              "added. Do NOT guess or describe what is in any photo, who is " +
-              "in it, or where it was taken — you have not seen it. Do NOT " +
-              "ask them to recall calendar dates. Maximum 40 words. ONE " +
+              _promptSafe(trip.title || "a trip") + "'. Invite them, in ONE " +
+              "short warm question, to tell you about one of those " +
+              "pictures. Do NOT guess or describe what is in any photo, who " +
+              "is in it, or where it was taken — you have not seen it. Do " +
+              "NOT ask them to recall calendar dates. Maximum 40 words. ONE " +
               "question only.]");
           }
         })
@@ -320,11 +392,11 @@
     // date grounding lands with Phase 4). No inference about image
     // content, people, or feelings.
     var known = [];
-    if (stopName) known.push("place: " + stopName);
-    if (link.caption) known.push("note: " + link.caption);
+    if (stopName) known.push("place: " + _promptSafe(stopName));
+    if (link.caption) known.push("note: " + _promptSafe(link.caption));
     _dispatch(
       "[SYSTEM: The narrator is looking at a photo from their trip '" +
-      (trip.title || "a trip") + "'." +
+      _promptSafe(trip.title || "a trip") + "'." +
       (known.length ? " Known details — " + known.join("; ") + "." : "") +
       " Invite them to tell you about this photo in ONE short, warm question, " +
       "referencing ONLY the known details above. Do NOT guess what is in the " +
@@ -333,17 +405,127 @@
   }
 
   // ── Dispatch through the main conversation ────────────────────
-  function _dispatch(directive) {
-    if (typeof sendSystemPrompt === "function") {
-      try { sendSystemPrompt(directive); return; } catch (e) {
-        console.warn("[travels-shelf] sendSystemPrompt threw:", e);
+  // ── Stop tracking (Phase 3 cue + Phase 4 order confirm) ───────
+  function _allStops(tree) {
+    var out = [];
+    (tree.regions || []).forEach(function (r) {
+      var walk = function (s) {
+        out.push(s);
+        (s.children || []).forEach(walk);
+      };
+      (r.stops || []).forEach(walk);
+    });
+    return out;
+  }
+
+  function _seedKnownStops(tree) {
+    _knownStopIds = {};
+    _newStopsThisSession = [];
+    _allStops(tree).forEach(function (s) { _knownStopIds[s.id] = true; });
+  }
+
+  // ── Phase 4: EXIF date confirmation (recognition over recall) ──
+  // Oral-history practice: the interviewer SUPPLIES known dates to jog
+  // memory rather than asking for them. One offer per stop, ever —
+  // the offered-ledger persists so a shrug is never re-asked.
+  function _offeredLedger(tripId) {
+    try {
+      return JSON.parse(localStorage.getItem("lv_trip_confirm_offered_" + tripId) || "[]");
+    } catch (e) { return []; }
+  }
+
+  function _markOffered(tripId, stopName) {
+    try {
+      var led = _offeredLedger(tripId);
+      if (led.indexOf(stopName) < 0) led.push(stopName);
+      localStorage.setItem("lv_trip_confirm_offered_" + tripId,
+                           JSON.stringify(led));
+    } catch (e) {}
+  }
+
+  function _maybeOfferDateConfirmation(trip) {
+    fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/date-confirmations")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        var offers = (j && j.confirmations) || [];
+        if (!offers.length) return;
+        if (typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74()) return;
+        var led = _offeredLedger(trip.id);
+        var next = null;
+        for (var i = 0; i < offers.length; i++) {
+          if (led.indexOf(offers[i].stop_name) < 0) { next = offers[i]; break; }
+        }
+        if (!next) return;  // everything already offered once — never re-ask
+        _markOffered(trip.id, next.stop_name);
+        _dispatch(
+          "[SYSTEM: The narrator's pictures from " + _promptSafe(next.stop_name) +
+          " are dated around " + _promptSafe(next.date) + " (from the photos " +
+          "themselves — trusted). Offer this ONE date gently for confirmation, " +
+          "e.g. 'Your pictures from " + _promptSafe(next.stop_name) +
+          " are from around " + _promptSafe(next.date) + " — does that sound " +
+          "right?' If they say no or don't remember, accept it warmly and " +
+          "move on — never press. Do NOT ask them to recall calendar dates " +
+          "themselves. Maximum 40 words. ONE question only.]");
+      })
+      .catch(function () {});
+  }
+
+  // ── Phase 4: order confirmation pass ──────────────────────────
+  // After the narration parser has added >=2 new stops this session,
+  // ONE summary confirmation — confirming what was HEARD (allowed,
+  // WO-LORI-CONFIRM-01 pattern), never asking for what's missing.
+  var _orderConfirmDone = false;
+
+  function _maybeOfferOrderConfirm(trip, tree) {
+    if (_orderConfirmDone) return;
+    var stops = _allStops(tree);
+    stops.forEach(function (s) {
+      if (!_knownStopIds[s.id]) {
+        _knownStopIds[s.id] = true;
+        _newStopsThisSession.push(s.title || s.location_name || "");
       }
-    }
+    });
+    if (_newStopsThisSession.filter(Boolean).length < 2) return;
+    if (typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74()) return;
+    _orderConfirmDone = true;
+    var names = _newStopsThisSession.filter(Boolean).slice(0, 5)
+      .map(_promptSafe).join(", then ");
+    _dispatch(
+      "[SYSTEM: From the narrator's telling so far, these places were " +
+      "noted in this order: " + names + ". Confirm ONCE, gently: e.g. " +
+      "'So far I have " + names + " — did I get the order right?' If they " +
+      "correct you, thank them and follow their correction. Do NOT ask " +
+      "them to recall calendar dates. Maximum 45 words. ONE question only.]");
+  }
+
+  // BUG-TRAVELS-DISPATCH-BYPASSES-WO9-WARMUP-QUEUE-01 (review
+  // 2026-07-05): the WO-9 queue must come FIRST — it holds system
+  // prompts until _llmReady and drains in order. Calling
+  // sendSystemPrompt directly bypassed the warmup gate.
+  function _dispatch(directive) {
     if (typeof wo9SendOrQueueSystemPrompt === "function") {
-      try { wo9SendOrQueueSystemPrompt(directive); } catch (e) {
+      try { wo9SendOrQueueSystemPrompt(directive); return; } catch (e) {
         console.warn("[travels-shelf] queue dispatch threw:", e);
       }
     }
+    if (typeof sendSystemPrompt === "function") {
+      try { sendSystemPrompt(directive); } catch (e) {
+        console.warn("[travels-shelf] sendSystemPrompt threw:", e);
+      }
+    }
+  }
+
+  // BUG-TRAVELS-DIRECTIVE-VALUE-SANITIZE-01 (review 2026-07-05):
+  // narrator-editable values (trip titles, region/stop names, photo
+  // captions) are interpolated into [SYSTEM: ...] directives. Strip
+  // newlines + bracket characters so a weird title can't close the
+  // directive or smuggle instruction-shaped text; hard length cap.
+  function _promptSafe(s) {
+    return String(s == null ? "" : s)
+      .replace(/[\r\n]+/g, " ")
+      .replace(/\]/g, ")")
+      .replace(/\[/g, "(")
+      .slice(0, 160);
   }
 
   // ── Re-render survival: Life Map re-renders wipe the panel ───

@@ -74,9 +74,16 @@ class DirectiveDisciplineTest(unittest.TestCase):
         r"which\s+year", r"what\s+month",
     ]
 
-    def test_no_calendar_date_recall_in_directives(self):
+    @staticmethod
+    def _directives():
         js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(encoding="utf-8")
-        directives = re.findall(r"\[SYSTEM:.*?\]", js, re.DOTALL)
+        # Strip comments first — a comment MENTIONING "[SYSTEM: ...]"
+        # is not a directive (caught live 2026-07-05).
+        js = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", js)
+        return re.findall(r"\[SYSTEM:.*?\]", js, re.DOTALL)
+
+    def test_no_calendar_date_recall_in_directives(self):
+        directives = self._directives()
         self.assertGreaterEqual(len(directives), 3)  # zero-trip, open, photo
         for d in directives:
             for pat in self._BANNED:
@@ -84,8 +91,7 @@ class DirectiveDisciplineTest(unittest.TestCase):
                                     f"banned date-recall phrasing in: {d[:80]}")
 
     def test_every_directive_carries_the_date_ban(self):
-        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(encoding="utf-8")
-        directives = re.findall(r"\[SYSTEM:.*?\]", js, re.DOTALL)
+        directives = self._directives()
         for d in directives:
             self.assertIn("calendar dates", d,
                           "directive missing the explicit date-recall ban")
