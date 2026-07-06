@@ -1,6 +1,6 @@
 # WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01
 
-**Status:** ALL PHASES LANDED 2026-07-05 (same day as v2 approval). Live-tested Phase 1 mid-build; three live findings + three review findings fixed en route.
+**Status:** Phases 1–5 LANDED 2026-07-05 (same day as v2 approval), **with one open Phase 5 runtime-hardening item**: guided_trip_walk story-wins suppression is directive-level only — do not call guided mode fully hardened until a runtime route scheduler exists. Live-tested Phase 1 mid-build; three live findings + five review findings fixed en route (incl. BUG-TRAVELS-ZERO-TRIP-NARRATION-HOOK-NEVER-CREATES-TRIP-01 — the chat_ws hook now also fires in shelf-open/new-trip scope via runtime71.travels_shelf_open so the FIRST trip can be born from narration, with the panel silently opening the created trip; and BUG-TRAVELS-OPEN-DISPATCHES-DATE-CONFIRM-TOO-SOON-01 — the EXIF confirmation is deferred to the refresh tick so trip-open stays one deliberate prompt and never collides with the single-slot WO-9 queue).
 
 **Landing summary (2026-07-05):**
 - **Phase 1 + 1.5** — Travels shelf (amber, between Later Years and Today, structurally never an era), picker, trip open → ONE deterministic Lori prompt in the main conversation (identity-gated, dedup'd per session), live trip outline panel (human labels only), photo strip → lightbox + metadata-only grounded prompt, "+ Add photos" (trip-level endpoint), runtime71 carries `active_trip_id`/`trip_style`.
@@ -141,28 +141,4 @@ Kept from the challenge: structured styles are operator-selectable overrides of 
 4. **Runtime story-wins:** a turn carrying chain/story cues in guided mode suppresses the next scheduled route question (unit test on the scheduler, not just prompt text).
 5. **Panel boundary:** narrator panel renders no confidence/method/trust/provisional/system vocabulary (render test + eyeball).
 6. **Narrator uploads:** `narrator_ready=1` + `needs_operator_review=1` + `review_reason="narrator_uploaded"` + surface stamp; row appears in operator queue.
-7. **Live (Chris):** open Travels → Spring 2026 → panel shows stops+photos; narrate a NEW small trip in guided mode → watch candidates then provisional stops assemble; one wrong-order correction → panel reorders; one "I don't remember" → never re-asked. Janice-style test in listening mode when parent sessions resume.
-
-## 6. Stop conditions
-- Lori asks a calendar-date-recall question → hard stop (memory-test class).
-- Any parser write landing as confirmed/promoted truth without narrator confirmation or operator action → hard stop (principle 5).
-- Parser deletes anything, ever → hard stop.
-- Duplicate trip created from ambiguous narration → hard stop until the guard is fixed.
-- Guided mode re-asks a declined slot or plows past a story disclosure → hard stop, back to listening-only (BUG-212 class).
-- Narrator panel observed showing operator vocabulary (confidence/trust/provisional/etc.) → hard stop (principle 2, no operator leakage).
-
-## 7. Sources
-- GoodTimes AI photo album (W-questions; 92% positive; cognitively-intact scope): https://aging.jmir.org/2024/1/e49415
-- Conversational collection vs forms, SUS 80.2 vs 61.9: https://www.jmir.org/2024/1/e55164
-- Chatbots improve completion + data detail vs web forms: https://www.mdpi.com/2073-431X/14/1/21
-- Smithsonian oral history guide (interviewer supplies known dates; hooks): https://siarchives.si.edu/history/how-do-oral-history
-- Oral History Association best practices: https://oralhistory.org/best-practices/
-- PHMC conducting oral history interviews: https://www.phmc.state.pa.us/portal/communities/oral-history/conduct.html
-- Journalfy bounded per-entry prompt model: https://journalfy.co/pages/about-the-journalfy-travel-journal-app
-- Polarsteps step model: https://www.polarsteps.com/
-- Chorus of the Past, CHI 2025 (future reading for Phase 5+): https://dl.acm.org/doi/10.1145/3706598.3713810
-- In-repo: CLAUDE.md locked principles 2/5/6/7/8; WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01; BUG-212; WO-LORI-CONFIRM-01; 2026-05-02 Patch B postmortem; WO-LORI-STORY-CAPTURE-01 golfball LAWs.
-
-## Revision history
-- 2026-07-05 — v1 authored for review after the Travels-shelf design conversation + QF adjudication + research pass.
-- 2026-07-05 — v2 per review ("SPEC GOOD — APPROVE AFTER SMALL REVISION"): (1) "timeline" renamed to live trip outline panel (word reserved for timeline_events surfaces); (2) hard narrator-panel vocabulary boundary; (3) parser staged — dry-run candidates before provisional writes, never-delete explicit; (4) deterministic first-trip creation fields, Lori never titles; (5) duplicate-trip protection requirement + disambiguation prompt; (6) story-wins moved to runtime enforcement; (7) low-confidence no-write mode; (8) photo-click metadata-only grounding rule; (9) narrator-upload review metadata; (10) date ban precised to calendar-date recall; phases reordered 1 / 1.5 / 2-dry-run / 3-writes / 4 / 5; acceptance tests expanded per review list.
+7. **Live (Chris):** open Travels → Spring 2026 → panel shows stops+photos; narrate a NEW small trip in guided mode → watch candidates then provisional stops assemble; one
