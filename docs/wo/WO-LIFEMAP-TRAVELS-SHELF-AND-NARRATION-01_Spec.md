@@ -12,6 +12,8 @@
 - **Review findings fixed en route:** BUG-TRIP-LEVEL-UPLOAD-OPERATOR-CONFIRMS-UNPLACED-PHOTO-01 (trip-level drops now `assignment_method='trip_upload'` conf 0.3 unconfirmed — cluster-placeable; migration 0018 extends the CHECK), BUG-TRAVELS-DISPATCH-BYPASSES-WO9-WARMUP-QUEUE-01 (queue-first dispatch), BUG-TRAVELS-DIRECTIVE-VALUE-SANITIZE-01 (`_promptSafe` on all interpolated values).
 - **Tests:** 19 parser/writes (incl. Munich verbatim, negation-Vienna, maybe-Brno, operator-rows-never-moved, never-delete, duplicate guard, Untitled birth), 8 isolation/directive-discipline (comment-aware), 4 trip-level upload lock-ins.
 
+**Review round 3 (2026-07-05, post-push) — five more fixed:** BUG-TRAVELS-PHOTO-STRIP-LEAKS-NON-NARRATOR-READY-PHOTOS-01 (new narrator-safe `GET /narrator-photo-links` — narrator_ready=1 + not deleted; all three shelf reads use it; operator Trip Tab keeps the unfiltered endpoint), BUG-TRAVELS-DATE-CONFIRM-USES-NON-NARRATOR-READY-PHOTOS-01 (same filters on the confirmations query), BUG-TRAVELS-DATE-CONFIRM-TRIED-SET-BEFORE-OFFER-FOUND-01 (tried flag set only at dispatch — empty offers/fetch failures don't burn the attempt), BUG-TRIP-PHOTO-LINK-CROSS-TRIP-STOP-ASSIGNMENT-01 (`photo_link_get` + same-trip check in patch), BUG-TRAVELS-ORDER-CONFIRM-STATE-GLOBAL-ACROSS-TRIPS-01 (per-trip state). **Open (deferred, low priority):** BUG-TRIP-PHOTO-LINK-CANNOT-CLEAR-STOP-ASSIGNMENT-01 — `photo_link_update(trip_stop_id=None)` means "unchanged", so review workflows can't unassign a stop yet; build when a UI needs it.
+
 v2 revision notes below preserved for design history.
 **Lane:** Trips / narrator experience (Lane 2 behavior + Lane trips)
 **Severity:** HIGH — the surface that makes trips usable by narrators, not just the operator.

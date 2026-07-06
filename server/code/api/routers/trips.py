@@ -15,6 +15,7 @@ mirroring the operator_eval_harness posture):
     POST  /api/trips/stops/{stop_id}/photos   (Phase C2 — upload AT a stop)
     POST  /api/trips/{trip_id}/photos         (Travels shelf — trip-level drop)
     GET   /api/trips/{trip_id}/date-confirmations  (Phase 4 recognition offers)
+    GET   /api/trips/{trip_id}/narrator-photo-links (narrator-ready only)
     DELETE /api/trips/{trip_id}
     GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
     POST  /api/trips                          (create empty trip — Phase A builder)
@@ -530,6 +531,17 @@ def list_photo_links(
     return {"trip_id": trip_id, "count": len(links), "photo_links": links}
 
 
+@router.get("/{trip_id}/narrator-photo-links")
+def list_narrator_photo_links(trip_id: str) -> Dict[str, Any]:
+    """Narrator-safe photo links for the Travels shelf strip —
+    narrator_ready=1 + not deleted only (BUG-TRAVELS-PHOTO-STRIP-
+    LEAKS-NON-NARRATOR-READY-PHOTOS-01). Operator surfaces keep the
+    unfiltered /photo-links."""
+    _require_trips_enabled()
+    links = trip_repository.narrator_photo_links(trip_id)
+    return {"trip_id": trip_id, "count": len(links), "photo_links": links}
+
+
 @router.patch("/photo-links/{link_id}")
 def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
     _require_trips_enabled()
@@ -542,6 +554,16 @@ def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
         _target = trip_repository.stop_get(req.trip_stop_id)
         if not _target:
             raise HTTPException(status_code=404, detail="stop not found")
+        # BUG-TRIP-PHOTO-LINK-CROSS-TRIP-STOP-ASSIGNMENT-01 (review
+        # 2026-07-05): the target stop must belong to the SAME trip as
+        # the link — otherwise a bad request could point a Trip A link
+        # at a Trip B stop/region.
+        _link = trip_repository.photo_link_get(link_id)
+        if not _link:
+            raise HTTPException(status_code=404, detail="link not found")
+        if _target.get("trip_id") != _link.get("trip_id"):
+            raise HTTPException(status_code=400,
+                                detail="stop belongs to another trip")
         region_id = _target.get("trip_region_id")
     ok = trip_repository.photo_link_update(
         link_id,
@@ -589,6 +611,8 @@ def trip_date_confirmations(trip_id: str) -> Dict[str, Any]:
                    JOIN trip_stops s ON s.id = l.trip_stop_id
                    WHERE l.trip_id = ?
                      AND p.metadata_trust IN ('full', 'time_only')
+                     AND p.narrator_ready = 1
+                     AND p.deleted_at IS NULL
                      AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
                    GROUP BY s.id
                    ORDER BY date""",

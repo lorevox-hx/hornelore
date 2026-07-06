@@ -503,6 +503,42 @@ def photo_link_upsert(
         con.close()
 
 
+def photo_link_get(link_id: str) -> Optional[Dict[str, Any]]:
+    """Single link row — BUG-TRIP-PHOTO-LINK-CROSS-TRIP-STOP-ASSIGNMENT-01:
+    patch callers need the link's trip_id to validate the target stop."""
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_photo_links WHERE id = ?", (link_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
+def narrator_photo_links(trip_id: str) -> List[Dict[str, Any]]:
+    """Narrator-safe link read — BUG-TRAVELS-PHOTO-STRIP-LEAKS-NON-
+    NARRATOR-READY-PHOTOS-01: the Travels shelf strip must only show
+    photos the narrator is cleared to see (BUG-238 rule: unvetted
+    intake photos never reach narrator-visible surfaces). Joins photos
+    and filters narrator_ready=1 + not deleted. The operator Trip Tab
+    keeps the unfiltered photo_links_list."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            """SELECT l.* FROM trip_photo_links l
+               JOIN photos p ON p.id = l.photo_id
+               WHERE l.trip_id = ?
+                 AND p.narrator_ready = 1
+                 AND p.deleted_at IS NULL
+               ORDER BY l.taken_at, l.ord""",
+            (trip_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        con.close()
+
+
 def photo_links_list(
     trip_id: str,
     max_confidence: Optional[float] = None,
