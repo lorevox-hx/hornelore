@@ -1,4 +1,8 @@
-:root {
+/* WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01: all element-level rules are
+   SCOPED under .td-root so the panel can mount natively inside
+   hornelore1.0.html without bleeding into app CSS. body styles apply
+   only to the standalone wrapper page (body.td-standalone). */
+.td-root {
   --td-bg: #f7f4ed;
   --td-panel: #fffaf0;
   --td-panel-2: #fff3d8;
@@ -12,18 +16,18 @@
   --td-shadow: 0 14px 36px rgba(64, 42, 16, 0.12);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-* { box-sizing: border-box; }
-body { margin: 0; background: radial-gradient(circle at top left, #fff7df, var(--td-bg) 42rem); color: var(--td-text); }
-button, input, select, textarea { font: inherit; }
-button { border: 0; border-radius: 12px; padding: 0.72rem 1rem; background: var(--td-accent); color: #fff; font-weight: 750; cursor: pointer; box-shadow: 0 6px 14px rgba(126, 73, 12, 0.18); }
-button:hover { filter: brightness(1.03); }
-button:disabled { opacity: 0.55; cursor: not-allowed; }
-button.td-secondary { background: #efe3cc; color: var(--td-accent-2); box-shadow: none; border: 1px solid var(--td-line); }
-button.td-small { padding: 0.48rem 0.7rem; font-size: 0.9rem; }
-input, select, textarea { width: 100%; border: 1px solid var(--td-line); border-radius: 12px; padding: 0.68rem 0.75rem; background: #fffdf7; color: var(--td-text); }
-textarea { resize: vertical; }
-label { display: grid; gap: 0.38rem; font-size: 0.86rem; font-weight: 750; color: var(--td-muted); }
-code { background: #f3e2bd; border: 1px solid var(--td-line); border-radius: 6px; padding: 0.06rem 0.25rem; }
+.td-root *, .td-root { box-sizing: border-box; }
+body.td-standalone { margin: 0; background: radial-gradient(circle at top left, #fff7df, var(--td-bg) 42rem); color: var(--td-text); }
+.td-root button, .td-root input, .td-root select, .td-root textarea { font: inherit; }
+.td-root button { border: 0; border-radius: 12px; padding: 0.72rem 1rem; background: var(--td-accent); color: #fff; font-weight: 750; cursor: pointer; box-shadow: 0 6px 14px rgba(126, 73, 12, 0.18); }
+.td-root button:hover { filter: brightness(1.03); }
+.td-root button:disabled { opacity: 0.55; cursor: not-allowed; }
+.td-root button.td-secondary { background: #efe3cc; color: var(--td-accent-2); box-shadow: none; border: 1px solid var(--td-line); }
+.td-root button.td-small { padding: 0.48rem 0.7rem; font-size: 0.9rem; }
+.td-root input, .td-root select, .td-root textarea { width: 100%; border: 1px solid var(--td-line); border-radius: 12px; padding: 0.68rem 0.75rem; background: #fffdf7; color: var(--td-text); }
+.td-root textarea { resize: vertical; }
+.td-root label { display: grid; gap: 0.38rem; font-size: 0.86rem; font-weight: 750; color: var(--td-muted); }
+.td-root code { background: #f3e2bd; border: 1px solid var(--td-line); border-radius: 6px; padding: 0.06rem 0.25rem; }
 .td-shell-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 2rem; max-width: 1500px; margin: 0 auto; }
 .td-shell-head h1 { margin: 0; font-size: clamp(2rem, 5vw, 4.3rem); line-height: 0.95; letter-spacing: -0.05em; }
 .td-kicker { margin: 0 0 0.35rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--td-accent-2); font-size: 0.76rem; font-weight: 850; }
@@ -56,3 +60,16 @@ code { background: #f3e2bd; border: 1px solid var(--td-line); border-radius: 6px
 .td-output { margin: 0; min-height: 12rem; max-height: 30rem; overflow: auto; white-space: pre-wrap; background: #241a10; color: #fff4d7; border-radius: 16px; padding: 1rem; font-size: 0.9rem; line-height: 1.45; }
 @media (max-width: 1100px) { .td-layout { grid-template-columns: 1fr 1fr; } .td-active-panel, .td-wide { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .td-shell-head { display: grid; padding: 1rem; } .td-layout { grid-template-columns: 1fr; padding: 0 1rem 1rem; } .td-grid-2 { grid-template-columns: 1fr; } .td-wide, .td-active-panel { grid-column: auto; } }
+
+/* ── Native mount extras ─────────────────────────────────────────── */
+.td-root { color: var(--td-text); }
+#lvTravelDocHost.td-root { padding: 14px; }
+#lvTravelDocHost .td-layout { margin: 0; padding: 0; max-width: none; }
+.td-narrator-line { margin: 0; color: var(--td-muted); }
+.td-narrator-line strong { color: var(--td-accent-2); }
+.td-status-inline { font-size: 0.85rem; color: var(--td-muted); margin-left: auto; }
+.td-status-inline.good { color: var(--td-good); }
+.td-status-inline.bad { color: var(--td-bad); }
+.lv-traveldoc-empty {
+  padding: 28px; text-align: center; font-size: 15px; opacity: .85;
+}

@@ -497,8 +497,47 @@ function lvShellShowTab(tabName) {
     intake:   "lvIntakeTab",
     narrator: "lvNarratorTab",
     trips:    "lvTripsTab",
+    traveldoc: "lvTravelDocTab",
     media:    "lvMediaTab",
   };
+  // WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01: mount/remount the native
+  // Travel Documenter with the CURRENTLY selected narrator every time
+  // the tab is shown. Operator-only (the whole tab strip hides in
+  // interview mode). This mount never touches Lori / runtime71 /
+  // Travels-shelf state — it is a pure trips-API console.
+  if (tabName === "traveldoc") {
+    try {
+      const host = document.getElementById("lvTravelDocHost");
+      const pid = (state && state.person_id) || "";
+      if (host) {
+        if (!pid) {
+          window._lvTravelDocMountedFor = null;
+          host.classList.remove("td-root");
+          host.innerHTML =
+            '<p class="lv-traveldoc-empty">Choose a narrator first.</p>';
+        } else if (window._lvTravelDocMountedFor !== pid) {
+          // New narrator (or first open) → fresh mount scoped to them.
+          let label = pid;
+          try {
+            const sel = document.getElementById("lv80PersonSelect");
+            if (sel && sel.selectedOptions && sel.selectedOptions[0]) {
+              label = sel.selectedOptions[0].textContent || pid;
+            }
+          } catch (e) {}
+          if (typeof lvTravelDocumenterMount === "function") {
+            lvTravelDocumenterMount(host, {
+              person_id: pid,
+              person_label: label,
+              apiBase: window.LOREVOX_API || "http://localhost:8000",
+            });
+            window._lvTravelDocMountedFor = pid;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[travel-doc] mount failed:", e);
+    }
+  }
   // Trips tab (2026-07-06): (re)point the embedded console at the
   // ACTIVE narrator every time the tab is shown, so switching
   // narrators then clicking Trips always lands scoped correctly.
