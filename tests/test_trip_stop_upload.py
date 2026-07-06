@@ -311,5 +311,78 @@ class StopUploadEndpointTest(_StopUploadCase):
         self.assertEqual(links[0]["assignment_method"], "operator")
 
 
+class TripLevelUploadTest(_StopUploadCase):
+    """BUG-TRIP-LEVEL-UPLOAD-OPERATOR-CONFIRMS-UNPLACED-PHOTO-01 lock-in
+    (review 2026-07-05): a trip-level drop (no stop) must stay
+    cluster-placeable — never operator/confirmed while unplaced."""
+
+    def _trip_upload(self, filename="loose.jpg", **form):
+        from api.routers.trips import upload_photos_to_trip
+        return asyncio.run(upload_photos_to_trip(
+            self.trip_id,
+            files=[_FakeUpload(_TINY_JPEG, filename)],
+            uploaded_by_user_id=form.get("uploaded_by_user_id", "narrator"),
+            narrator_ready=form.get("narrator_ready", "true"),
+            caption=form.get("caption", ""),
+            sidecar_json=form.get("sidecar_json", ""),
+            uploaded_from_surface=form.get("uploaded_from_surface",
+                                           "travels_shelf"),
+        ))
+
+    def test_trip_level_upload_is_not_operator_confirmed(self):
+        resp = self._trip_upload()
+        self.assertEqual(resp["errors"], 0)
+        links = trip_repository.photo_links_list(self.trip_id)
+        self.assertEqual(len(links), 1)
+        link = links[0]
+        self.assertIsNone(link["trip_stop_id"])           # unplaced
+        self.assertNotEqual(link["assignment_method"], "operator")
+        self.assertEqual(link["assignment_method"], "trip_upload")
+        self.assertLess(link["cluster_confidence"], 0.5)  # review range
+
+    def test_cluster_can_place_trip_level_upload_later(self):
+        resp = self._trip_upload()
+        photo_id = resp["results"][0]["photo_id"]
+        # Give the photo a date inside the stop window so clustering
+        # has signal (trip-level ingest left date empty for no-EXIF).
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE photos SET date_value='2026-05-28', "
+                    "metadata_trust='time_only' WHERE id=?;", (photo_id,))
+        con.commit()
+        con.close()
+        # Re-cluster: upsert must be allowed to move a trip_upload link.
+        link_id = trip_repository.photo_link_upsert(
+            trip_id=self.trip_id, photo_id=photo_id,
+            trip_region_id=self.region_id, trip_stop_id=self.stop_id,
+            taken_at="2026-05-28", assignment_method="exif_time",
+            cluster_confidence=0.8,
+        )
+        links = trip_repository.photo_links_list(self.trip_id)
+        self.assertEqual(len(links), 1)
+        self.assertEqual(links[0]["id"], link_id)
+        self.assertEqual(links[0]["trip_stop_id"], self.stop_id)  # placed!
+
+    def test_narrator_surface_stamps_review_metadata(self):
+        resp = self._trip_upload()
+        photo_id = resp["results"][0]["photo_id"]
+        con = sqlite3.connect(str(self.db_path))
+        raw = con.execute("SELECT metadata_json FROM photos WHERE id=?;",
+                          (photo_id,)).fetchone()[0]
+        con.close()
+        import json as _json
+        meta = _json.loads(raw)
+        self.assertEqual(meta.get("uploaded_from_surface"), "travels_shelf")
+        self.assertEqual(meta.get("needs_operator_review"), 1)
+        self.assertEqual(meta.get("review_reason"), "narrator_uploaded")
+
+    def test_stop_scoped_upload_still_operator_confirmed(self):
+        # Regression guard: the fix must NOT weaken stop placement.
+        resp = self._upload()
+        self.assertEqual(resp["errors"], 0)
+        links = trip_repository.photo_links_list(self.trip_id)
+        self.assertEqual(links[0]["assignment_method"], "operator")
+        self.assertEqual(links[0]["cluster_confidence"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,8 @@ mirroring the operator_eval_harness posture):
     GET   /api/trips/{trip_id}/memoir-preview
     PATCH /api/trips/stops/{stop_id}          (operator date/GPS correction)
     POST  /api/trips/stops/{stop_id}/photos   (Phase C2 — upload AT a stop)
+    POST  /api/trips/{trip_id}/photos         (Travels shelf — trip-level drop)
+    GET   /api/trips/{trip_id}/date-confirmations  (Phase 4 recognition offers)
     DELETE /api/trips/{trip_id}
     GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
     POST  /api/trips                          (create empty trip — Phase A builder)
@@ -360,7 +362,21 @@ async def _ingest_uploads_to_trip(
                     mismatch["date_outside_trip_window"] = str(
                         ing.get("exif_captured_at"))[:10]
 
-        # ---- link (operator truth when stop-placed) ------------------
+        # ---- link ----------------------------------------------------
+        # BUG-TRIP-LEVEL-UPLOAD-OPERATOR-CONFIRMS-UNPLACED-PHOTO-01
+        # (review 2026-07-05): trip-level uploads (stop=None) must NOT
+        # be stamped operator/confirmed — that made an UNPLACED photo
+        # immune to later cluster-photos placement ("operator truth
+        # wins" skip). Only a deliberate stop placement is operator
+        # truth; a trip-level drop stays cluster-placeable.
+        if stop is not None:
+            _method = "operator"
+            _confidence = 0.45 if mismatch else 1.0
+            _confirm = not mismatch
+        else:
+            _method = "trip_upload"
+            _confidence = 0.3  # review-queue range; re-cluster may place
+            _confirm = False
         link_id = trip_repository.photo_link_upsert(
             trip_id=trip["id"],
             photo_id=photo["id"],
@@ -369,17 +385,18 @@ async def _ingest_uploads_to_trip(
             taken_at=ing.get("exif_captured_at"),
             latitude=exif_lat,
             longitude=exif_lng,
-            assignment_method="operator",
-            cluster_confidence=0.45 if mismatch else 1.0,
+            assignment_method=_method,
+            cluster_confidence=_confidence,
         )
         # Upsert preserves prior operator placements — force this one
-        # when a stop was explicitly chosen: fresh operator intent.
-        trip_repository.photo_link_update(
-            link_id,
-            trip_stop_id=(stop or {}).get("id"),
-            caption=(caption or None),
-            confirm=not mismatch,
-        )
+        # only when a stop was explicitly chosen: fresh operator intent.
+        if stop is not None or caption:
+            trip_repository.photo_link_update(
+                link_id,
+                trip_stop_id=(stop or {}).get("id") if stop is not None else None,
+                caption=(caption or None),
+                confirm=_confirm,
+            )
         logger.info(
             "[trips][photo-upload] photo=%s trip=%s stop=%s trust=%s dup=%s "
             "mismatch=%s surface=%s",
@@ -529,6 +546,55 @@ def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
             status_code=404, detail="link not found or nothing to update",
         )
     return {"ok": True, "link_id": link_id}
+
+
+@router.get("/{trip_id}/date-confirmations")
+def trip_date_confirmations(trip_id: str) -> Dict[str, Any]:
+    """Phase 4 (WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01 §3.4) —
+    recognition-over-recall material: for each stop with linked photos
+    whose dates are TRUSTED (metadata_trust full/time_only ONLY —
+    suspect scan dates must never become fake memories), return the
+    stop name + representative photo date + count. The FE offers ONE
+    of these as a confirmation ("Your pictures from Munich are from
+    around May 22nd — does that sound right?") and never re-offers
+    (shrug ledger client-side)."""
+    _require_trips_enabled()
+    trip = trip_repository.trip_get(trip_id)
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip not found")
+    from .. import db as _db
+    con = sqlite3.connect(str(_db.DB_PATH))
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout = 5000;")
+    try:
+        try:
+            rows = con.execute(
+                """SELECT s.location_name AS stop_name,
+                          MIN(COALESCE(l.taken_at, p.date_value)) AS date,
+                          COUNT(*) AS photo_count
+                   FROM trip_photo_links l
+                   JOIN photos p ON p.id = l.photo_id
+                   JOIN trip_stops s ON s.id = l.trip_stop_id
+                   WHERE l.trip_id = ?
+                     AND p.metadata_trust IN ('full', 'time_only')
+                     AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
+                   GROUP BY s.id
+                   ORDER BY date""",
+                (trip_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []  # pre-0016 DB — no trust column, offer nothing
+    finally:
+        con.close()
+    return {
+        "trip_id": trip_id,
+        "confirmations": [
+            {"stop_name": r["stop_name"],
+             "date": str(r["date"])[:10],
+             "photo_count": r["photo_count"]}
+            for r in rows if r["stop_name"]
+        ],
+    }
 
 
 @router.get("/{trip_id}/memoir-preview")
