@@ -2702,6 +2702,11 @@ function buildRuntime71() {
        NO behavior change while HORNELORE_TRIP_NARRATION=0. */
     active_trip_id:   (state.session && state.session.activeTripId)   || null,
     active_trip_stop_id: (state.session && state.session.activeTripStopId) || null,
+    /* BUG-TRAVELS-ZERO-TRIP-NARRATION-HOOK-NEVER-CREATES-TRIP-01:
+       true while the Travels shelf is open with NO trip yet — lets the
+       server narration hook run in new-trip mode (create provisional
+       Untitled trip). General chat stays unparsed. */
+    travels_shelf_open: !!(state.session && state.session.travelsShelfOpen),
     trip_style:       (state.session && state.session.activeTripId)
                         ? ((state.session && state.session.tripStyle) || "trip_listening")
                         : null,

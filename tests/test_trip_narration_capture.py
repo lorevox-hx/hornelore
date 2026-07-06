@@ -234,6 +234,51 @@ class ProvisionalWriteTest(_WriteCase):
         self.assertIsNotNone(out)  # summary returned, no exception
 
 
+class ZeroTripHookRegressionTest(_WriteCase):
+    """BUG-TRAVELS-ZERO-TRIP-NARRATION-HOOK-NEVER-CREATES-TRIP-01:
+    zero trips + shelf open + the Munich sentence must create the
+    Untitled trip WITHOUT an active_trip_id, and the chat_ws hook must
+    accept the shelf-open scope."""
+
+    def test_munich_sentence_creates_first_trip_without_active_id(self):
+        p = tnc.parse_trip_narration(
+            "I took a trip in May 2026 starting in Munich")
+        out = tnc.apply_trip_narration(p, person_id=self.person_id,
+                                       active_trip_id=None)
+        self.assertTrue(out["created_trip"])
+        trip = trip_repository.trip_get(out["trip_id"])
+        self.assertEqual(trip["title"], "Untitled trip")
+        self.assertIn("Munich", self._stop_names(out["trip_id"]))
+
+    def test_chat_ws_hook_accepts_shelf_open_scope(self):
+        src = (_SERVER_CODE / "api" / "routers" / "chat_ws.py").read_text(
+            encoding="utf-8")
+        # The gating condition must include the shelf-open flag, not
+        # only active_trip_id (the bug: first trip could never be born).
+        self.assertIn("travels_shelf_open", src)
+        self.assertIn("_active_trip_id or _shelf_open", src)
+
+    def test_shelf_open_flag_rides_runtime71(self):
+        app = (_REPO_ROOT / "ui" / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("travels_shelf_open:", app)
+
+    def test_date_confirm_not_dispatched_at_trip_open(self):
+        # BUG-TRAVELS-OPEN-DISPATCHES-DATE-CONFIRM-TOO-SOON-01: one
+        # deliberate prompt per gesture; the WO-9 queue holds a single
+        # system prompt. The confirmation must live in the refresh
+        # tick, not in _openTrip.
+        import re as _re
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        js_nc = _re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", js)
+        m = _re.search(r"function _openTrip\([\s\S]*?\n  \}", js_nc)
+        self.assertIsNotNone(m)
+        self.assertNotIn("_maybeOfferDateConfirmation", m.group(0))
+        m2 = _re.search(r"function _refetchAndPaint\([\s\S]*?\n  \}", js_nc)
+        self.assertIsNotNone(m2)
+        self.assertIn("_maybeOfferDateConfirmation", m2.group(0))
+
+
 class IsolationTest(unittest.TestCase):
     """LAW 3-style: the parser module must not import runtime surfaces."""
 

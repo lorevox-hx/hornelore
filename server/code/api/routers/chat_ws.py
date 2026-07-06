@@ -838,13 +838,19 @@ async def ws_chat(ws: WebSocket):
             try:
                 _rt71_trip = (params.get("runtime71") or {})
                 _active_trip_id = _rt71_trip.get("active_trip_id")
-                if _active_trip_id:
+                # BUG-TRAVELS-ZERO-TRIP-NARRATION-HOOK-NEVER-CREATES-TRIP-01
+                # (review 2026-07-05): zero-trip narration must be able
+                # to CREATE the first trip — the shelf-open flag scopes
+                # the hook without opening general chat to trip parsing.
+                _shelf_open = bool(_rt71_trip.get("travels_shelf_open"))
+                if _active_trip_id or _shelf_open:
                     from ..services import trip_narration_capture as _tnc
                     _tn_parse = _tnc.parse_trip_narration(user_text)
                     logger.info(
                         "[trip-narration] conv=%s trip=%s conf=%s start=%s "
                         "stops=%s suppressed=%s corrections=%d obs=%d mode=%s",
-                        conv_id, _active_trip_id, _tn_parse.get("confidence"),
+                        conv_id, _active_trip_id or "<new-trip-scope>",
+                        _tn_parse.get("confidence"),
                         _tn_parse.get("start_place") or "-",
                         [s["place"] for s in _tn_parse.get("stops", [])] or "-",
                         _tn_parse.get("suppressed") or "-",

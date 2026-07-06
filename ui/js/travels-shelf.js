@@ -96,8 +96,14 @@
       if (!Array.isArray(links)) links = [];
       _paintOutline(tree, links, trip);
       _maybeOfferOrderConfirm(trip, tree);
+      if (!_dateConfirmTried[trip.id]) {
+        _dateConfirmTried[trip.id] = true;
+        _maybeOfferDateConfirmation(trip);
+      }
     }).catch(function () {});
   }
+
+  var _dateConfirmTried = {};  // trip_id → true (once per page session)
 
   // ── Shelf toggle ──────────────────────────────────────────────
   function lvTravelsShelfToggle() {
@@ -107,6 +113,7 @@
       panel.hidden = true;
       _session().travelsPanelOpen = false;
       _stopPanelRefresh();
+      _stopZeroTripPoll();
       return;
     }
     panel.hidden = false;
@@ -130,9 +137,44 @@
       });
   }
 
+  // BUG-TRAVELS-ZERO-TRIP-NARRATION-HOOK-NEVER-CREATES-TRIP-01
+  // (review 2026-07-05): the chat_ws hook only fired with an
+  // active_trip_id — so the FIRST trip could never be born from
+  // narration. Zero-trip state now (a) flags travels_shelf_open in
+  // session state (rides runtime71 → server hook), (b) polls for the
+  // trip the parser creates and opens it SILENTLY (the narrator just
+  // narrated; Lori's natural reply is the response — no extra prompt).
+  var _zeroTripPoll = null;
+
+  function _stopZeroTripPoll() {
+    if (_zeroTripPoll) { clearInterval(_zeroTripPoll); _zeroTripPoll = null; }
+    _session().travelsShelfOpen = false;
+  }
+
   function _zeroTrips(panel) {
+    var s = _session();
+    s.travelsShelfOpen = true;   // runtime71.travels_shelf_open → hook scope
+    s.activeTripId = null;
     panel.innerHTML =
       '<p class="lv-travels-note">No journeys here yet — tell Lori about one whenever you’d like.</p>';
+    _stopZeroTripPoll();
+    var pid = (window.state && state.person_id) || "";
+    _zeroTripPoll = setInterval(function () {
+      if (!_session().travelsPanelOpen) { _stopZeroTripPoll(); return; }
+      fetch(ORIGIN + "/api/trips?person_id=" + encodeURIComponent(pid))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var trips = (j && j.trips) || [];
+          if (trips.length) {
+            _stopZeroTripPoll();
+            // Silent open: the parser just created this from the
+            // narrator's own words — no trip-open prompt on top.
+            _dispatchedTrips[trips[0].id] = true;
+            _openTrip(trips[0]);
+          }
+        })
+        .catch(function () {});
+    }, 6000);
     _dispatch(
       "[SYSTEM: The narrator just opened the Travels shelf on their Life Map, " +
       "but no trips are on record yet. Ask ONE warm, open question inviting " +
@@ -175,9 +217,13 @@
       if (!Array.isArray(links)) links = [];
       _paintOutline(tree || {}, links, trip);
       _seedKnownStops(tree || {});
+      _session().travelsShelfOpen = true;  // trip open ⇒ still shelf scope
       _dispatchTripOpen(trip, tree || {});
       _startPanelRefresh(trip);
-      _maybeOfferDateConfirmation(trip);
+      // BUG-TRAVELS-OPEN-DISPATCHES-DATE-CONFIRM-TOO-SOON-01: the
+      // date confirmation is DEFERRED to the refresh tick (>=8s after
+      // open) — one deliberate prompt per gesture, and the WO-9 queue
+      // only holds one system prompt at a time.
     }).catch(function () {
       if (panel) panel.innerHTML = '<p class="lv-travels-note">Couldn’t open that trip right now.</p>';
     });
