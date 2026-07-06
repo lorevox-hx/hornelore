@@ -931,6 +931,21 @@ function _lvInterviewRenderLifeMap() {
     </button>`;
   });
 
+  // WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01 Phase 1 — the Travels
+  // SHELF. Sits between Later Years and Today per the approved spec.
+  // HARD RULE: this is NOT an era. It never enters LV_ERAS, never
+  // feeds era_id_from_age / memoir ordering / era prompts, and is
+  // rendered as its own visually-distinct element. Click toggles the
+  // live trip outline panel + (on trip open) ONE deliberate Lori
+  // prompt via the era-click dispatch pattern (travels-shelf.js).
+  body += `<h3 class="lv-interview-lifemap-travels-head">Travels</h3>
+    <button type="button" class="lv-interview-lifemap-travels-btn"
+            data-travels-shelf="1"
+            onclick="lvTravelsShelfToggle()">
+      ✈ Travels
+    </button>
+    <div id="lvTravelsOutlinePanel" class="lv-travels-panel" hidden></div>`;
+
   // Today anchor — clickable, fires the same focus event as the era buttons.
   // Stores the canonical era_id "today" (no era: prefix) on click. Today
   // also routes through the confirmation popover (Step 7) so the
@@ -974,6 +989,11 @@ function _lvInterviewRenderLifeMap() {
 
   host.innerHTML = body;
   _lvInterviewFillTripsCard();
+  // Travels shelf: repaint the outline panel if it was open (Life Map
+  // re-renders on every era click and would otherwise wipe it).
+  if (typeof _lvTravelsRestorePanel === "function") {
+    try { _lvTravelsRestorePanel(); } catch (e) {}
+  }
 
   // WO-PARENT-SESSION-HARDENING-01 Phase 5.1 — render-success log marker.
   // Test pack TEST-07 (cold-start) greps for this. Logs era count + active
@@ -2676,6 +2696,15 @@ function buildRuntime71() {
     current_pass,
     current_era,
     current_mode,
+    /* WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01 Phase 1.5 — trip
+       session state. null when no trip is open. Consumed server-side
+       by the Phase 2 narration parser hook + trip directives; carries
+       NO behavior change while HORNELORE_TRIP_NARRATION=0. */
+    active_trip_id:   (state.session && state.session.activeTripId)   || null,
+    active_trip_stop_id: (state.session && state.session.activeTripStopId) || null,
+    trip_style:       (state.session && state.session.activeTripId)
+                        ? ((state.session && state.session.tripStyle) || "trip_listening")
+                        : null,
     affect_state,
     affect_confidence,
     cognitive_mode:  state.runtime?.cognitiveMode||null,
