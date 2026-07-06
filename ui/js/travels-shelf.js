@@ -92,7 +92,7 @@
     Promise.all([
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/tree")
         .then(function (r) { return r.ok ? r.json() : null; }),
-      fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/photo-links")
+      fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/narrator-photo-links")
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; }),
     ]).then(function (out) {
@@ -107,7 +107,10 @@
       // at least once since the trip opened — a turn signal, not a
       // timer guess.
       if (!_dateConfirmTried[trip.id] && _narratorTurnsSinceOpen >= 1) {
-        _dateConfirmTried[trip.id] = true;
+        // BUG-TRAVELS-DATE-CONFIRM-TRIED-SET-BEFORE-OFFER-FOUND-01:
+        // the tried flag is set INSIDE _maybeOfferDateConfirmation,
+        // just before dispatch — a fetch failure or empty offer list
+        // must not burn the one attempt (photos may arrive later).
         _maybeOfferDateConfirmation(trip);
       }
     }).catch(function () {});
@@ -242,7 +245,7 @@
     Promise.all([
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/tree")
         .then(function (r) { return r.ok ? r.json() : null; }),
-      fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/photo-links")
+      fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/narrator-photo-links")
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; }),
     ]).then(function (out) {
@@ -543,6 +546,7 @@
           }
         }
         if (!next) return;  // everything already offered once — never re-ask
+        _dateConfirmTried[trip.id] = true;  // real offer found → tried
         _markOffered(trip.id, next.stop_id || next.stop_name);
         _dispatch(
           "[SYSTEM: The narrator's pictures from " + _promptSafe(next.stop_name) +
@@ -561,10 +565,12 @@
   // After the narration parser has added >=2 new stops this session,
   // ONE summary confirmation — confirming what was HEARD (allowed,
   // WO-LORI-CONFIRM-01 pattern), never asking for what's missing.
-  var _orderConfirmDone = false;
+  // BUG-TRAVELS-ORDER-CONFIRM-STATE-GLOBAL-ACROSS-TRIPS-01: per-trip,
+  // not global — Trip A's confirmation must not block Trip B's.
+  var _orderConfirmDoneByTrip = {};
 
   function _maybeOfferOrderConfirm(trip, tree) {
-    if (_orderConfirmDone) return;
+    if (_orderConfirmDoneByTrip[trip.id]) return;
     var stops = _allStops(tree);
     stops.forEach(function (s) {
       if (!_knownStopIds[s.id]) {
@@ -574,7 +580,7 @@
     });
     if (_newStopsThisSession.filter(Boolean).length < 2) return;
     if (typeof hasIdentityBasics74 === "function" && !hasIdentityBasics74()) return;
-    _orderConfirmDone = true;
+    _orderConfirmDoneByTrip[trip.id] = true;
     var names = _newStopsThisSession.filter(Boolean).slice(0, 5)
       .map(_promptSafe).join(", then ");
     _dispatch(
@@ -626,7 +632,7 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (tree) {
         if (!tree) return;
-        fetch(ORIGIN + "/api/trips/" + encodeURIComponent(s.activeTripId) + "/photo-links")
+        fetch(ORIGIN + "/api/trips/" + encodeURIComponent(s.activeTripId) + "/narrator-photo-links")
           .then(function (r) { return r.ok ? r.json() : []; })
           .catch(function () { return []; })
           .then(function (links) {

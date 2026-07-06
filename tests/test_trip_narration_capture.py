@@ -451,6 +451,150 @@ class ScopeLifetimeRegressionTest(_WriteCase):
             patch_stop(sa, r2)
 
 
+class NarratorPhotoSafetyTest(_WriteCase):
+    """Review 2026-07-05 round 3 — narrator-ready photo boundary +
+    link/state integrity."""
+
+    def _seed_trip_with_photos(self):
+        trip_id = trip_repository.trip_create(
+            person_id=self.person_id, title="T", start_date="2026-05-01")
+        rid = trip_repository.region_create(trip_id, "R")
+        sid = trip_repository.stop_create(trip_id, rid, "Prague")
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "date_value, metadata_trust, narrator_ready) VALUES "
+            "('ph-ready', ?, '/tmp/a.jpg', 'h-a', '2026-05-02', 'full', 1);",
+            (self.person_id,))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "date_value, metadata_trust, narrator_ready) VALUES "
+            "('ph-unvetted', ?, '/tmp/b.jpg', 'h-b', '2026-05-03', 'full', 0);",
+            (self.person_id,))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "date_value, metadata_trust, narrator_ready, deleted_at) VALUES "
+            "('ph-deleted', ?, '/tmp/c.jpg', 'h-c', '2026-05-04', 'full', 1, "
+            "'2026-07-01');", (self.person_id,))
+        con.commit()
+        con.close()
+        for pid in ("ph-ready", "ph-unvetted", "ph-deleted"):
+            trip_repository.photo_link_upsert(
+                trip_id, pid, trip_region_id=rid, trip_stop_id=sid,
+                taken_at="2026-05-02", assignment_method="exif_time",
+                cluster_confidence=0.9)
+        return trip_id, rid, sid
+
+    def test_narrator_photo_links_filters_unready_and_deleted(self):
+        # BUG-TRAVELS-PHOTO-STRIP-LEAKS-NON-NARRATOR-READY-PHOTOS-01.
+        trip_id, _, _ = self._seed_trip_with_photos()
+        links = trip_repository.narrator_photo_links(trip_id)
+        ids = [l["photo_id"] for l in links]
+        self.assertEqual(ids, ["ph-ready"])
+        # Operator surface still sees everything.
+        self.assertEqual(len(trip_repository.photo_links_list(trip_id)), 3)
+
+    def test_shelf_strip_uses_narrator_endpoint(self):
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        self.assertNotIn('"/photo-links")', js)   # raw endpoint gone
+        self.assertEqual(js.count('"/narrator-photo-links")'), 3)
+
+    def test_date_confirmations_exclude_unready_and_deleted(self):
+        # BUG-TRAVELS-DATE-CONFIRM-USES-NON-NARRATOR-READY-PHOTOS-01:
+        # gate the SQL itself (endpoint runs the same query).
+        src = (_SERVER_CODE / "api" / "routers" / "trips.py").read_text(
+            encoding="utf-8")
+        import re as _re
+        m = _re.search(r"def trip_date_confirmations[\s\S]*?ORDER BY date", src)
+        self.assertIsNotNone(m)
+        q = m.group(0)
+        self.assertIn("p.narrator_ready = 1", q)
+        self.assertIn("p.deleted_at IS NULL", q)
+
+    def test_cross_trip_stop_assignment_rejected(self):
+        # BUG-TRIP-PHOTO-LINK-CROSS-TRIP-STOP-ASSIGNMENT-01.
+        import types as _types
+        if "fastapi" not in sys.modules:
+            stub = _types.ModuleType("fastapi")
+
+            class _APIRouter:
+                def __init__(self, *a, **k):
+                    pass
+
+                def _deco(self, *a, **k):
+                    def wrap(f):
+                        return f
+                    return wrap
+                get = post = patch = delete = put = _deco
+
+            class _HTTPException(Exception):
+                def __init__(self, status_code=0, detail=""):
+                    self.status_code, self.detail = status_code, detail
+                    super().__init__(detail)
+
+            stub.APIRouter = _APIRouter
+            stub.HTTPException = _HTTPException
+            stub.Query = lambda default=None, **k: default
+            stub.File = lambda default=None, **k: default
+            stub.Form = lambda default=None, **k: default
+            stub.UploadFile = object
+            sys.modules["fastapi"] = stub
+        if "pydantic" not in sys.modules:
+            pstub = _types.ModuleType("pydantic")
+            pstub.BaseModel = type("BaseModel", (), {})
+            pstub.Field = lambda default=None, **k: default
+            sys.modules["pydantic"] = pstub
+        import os as _os
+        _os.environ["HORNELORE_TRIPS"] = "1"
+        from api.routers.trips import patch_photo_link
+        from fastapi import HTTPException
+
+        trip_a, _, _ = self._seed_trip_with_photos()
+        trip_b = trip_repository.trip_create(
+            person_id=self.person_id, title="B", start_date="2026-06-01")
+        rb = trip_repository.region_create(trip_b, "RB")
+        sb = trip_repository.stop_create(trip_b, rb, "Rome")
+        link_a = trip_repository.photo_links_list(trip_a)[0]
+
+        class _Req:
+            trip_stop_id = None; include_in_memoir = None
+            caption = None; narrator_caption = None; confirm = False
+
+        r = _Req(); r.trip_stop_id = sb   # Trip B stop onto Trip A link
+        with self.assertRaises(HTTPException):
+            patch_photo_link(link_a["id"], r)
+
+    def test_order_confirm_state_is_per_trip(self):
+        # BUG-TRAVELS-ORDER-CONFIRM-STATE-GLOBAL-ACROSS-TRIPS-01.
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        self.assertIn("_orderConfirmDoneByTrip[trip.id]", js)
+        self.assertNotIn("_orderConfirmDone = true", js)
+
+    def test_date_confirm_tried_only_set_at_dispatch(self):
+        # BUG-TRAVELS-DATE-CONFIRM-TRIED-SET-BEFORE-OFFER-FOUND-01: the
+        # tried flag must be set inside _maybeOfferDateConfirmation
+        # (after `next` is found), not at the refresh-tick call site.
+        import re as _re
+        js = (_REPO_ROOT / "ui" / "js" / "travels-shelf.js").read_text(
+            encoding="utf-8")
+        js_nc = _re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", js)
+        m = _re.search(r"function _refetchAndPaint\([\s\S]*?\n  \}", js_nc)
+        self.assertIsNotNone(m)
+        self.assertNotIn("_dateConfirmTried[trip.id] = true", m.group(0))
+        m2 = _re.search(r"function _maybeOfferDateConfirmation\([\s\S]*?\n  \}",
+                        js_nc)
+        self.assertIsNotNone(m2)
+        body = m2.group(0)
+        tried_idx = body.find("_dateConfirmTried[trip.id] = true")
+        next_idx = body.find("if (!next) return")
+        self.assertGreater(tried_idx, -1)
+        self.assertGreater(next_idx, -1)
+        self.assertLess(next_idx, tried_idx,
+                        "tried flag must be set AFTER the offer is found")
+
+
 class IsolationTest(unittest.TestCase):
     """LAW 3-style: the parser module must not import runtime surfaces."""
 
