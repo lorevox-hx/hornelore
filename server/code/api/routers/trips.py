@@ -260,29 +260,30 @@ def get_trip_tree(trip_id: str) -> Dict[str, Any]:
     return tree
 
 
-@router.post("/stops/{stop_id}/photos")
-async def upload_photos_at_stop(
-    stop_id: str,
-    files: List[UploadFile] = File(...),
-    uploaded_by_user_id: str = Form("operator"),
-    narrator_ready: str = Form("true"),
-    caption: str = Form(""),
-    sidecar_json: str = Form(""),
-):
-    """Phase C2 — upload photos directly AT a stop (Czechia → Prague 1).
+async def _ingest_uploads_to_trip(
+    trip: Dict[str, Any],
+    stop: Optional[Dict[str, Any]],
+    files: "List[UploadFile]",
+    uploaded_by_user_id: str,
+    narrator_ready: str,
+    caption: str,
+    sidecar_json: str,
+    uploaded_from_surface: str = "",
+) -> Dict[str, Any]:
+    """Shared upload core for stop-scoped AND trip-level photo drops.
 
-    The link is written immediately as operator truth (the operator is
-    deliberately placing it — principle 8); EXIF runs as a CROSS-CHECK,
-    not an authority: GPS >200 km from the stop or a trusted datetime
-    outside the trip window ±3 days flags a non-blocking mismatch. A
-    mismatched link keeps the operator's placement + operator method
-    (re-clustering can't move it) but carries cluster_confidence 0.45
-    so it surfaces in the existing review queue.
+    Phase C2 semantics (stop-scoped): operator-truth link; EXIF is a
+    CROSS-CHECK, not an authority — GPS >200 km from the stop or a
+    trusted datetime outside the trip window ±3 days flags a
+    non-blocking mismatch (placement kept, method=operator, confidence
+    0.45 → surfaces in the review queue).
 
-    narrator_ready defaults TRUE here (deliberate placement into the
-    narrator's trip) — per-upload opt-out via the form field.
+    Travels-shelf semantics (WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01
+    §3.6 REV 9): when uploaded_from_surface="travels_shelf" the photo
+    metadata is stamped needs_operator_review=1 +
+    review_reason="narrator_uploaded" so the narrator keeps flowing
+    while the operator still gets a queue item.
     """
-    _require_trips_enabled()
     import tempfile as _tempfile
     from pathlib import Path as _Path
 
@@ -294,18 +295,19 @@ async def upload_photos_at_stop(
         from services.photo_intake.ingest import ingest_photo_file  # type: ignore
     from ..services.trip_photo_clustering import _haversine_km, _parse_dt
 
-    stop = trip_repository.stop_get(stop_id)
-    if not stop:
-        raise HTTPException(status_code=404, detail="stop not found")
-    trip = trip_repository.trip_get(stop["trip_id"])
-    if not trip:
-        raise HTTPException(status_code=404, detail="trip not found")
     person_id = str(trip.get("person_id") or "")
     ready_flag = str(narrator_ready).strip().lower() not in ("0", "false", "no", "")
+    surface = (uploaded_from_surface or "").strip()
+    extra_meta: Dict[str, Any] = {}
+    if surface:
+        extra_meta["uploaded_from_surface"] = surface
+    if surface == "travels_shelf":
+        extra_meta["needs_operator_review"] = 1
+        extra_meta["review_reason"] = "narrator_uploaded"
 
     results: List[Dict[str, Any]] = []
     for up in files:
-        tmp_fd, tmp_path = _tempfile.mkstemp(prefix="trip_stop_photo_", suffix=".bin")
+        tmp_fd, tmp_path = _tempfile.mkstemp(prefix="trip_photo_", suffix=".bin")
         try:
             with os.fdopen(tmp_fd, "wb") as out:
                 while True:
@@ -321,9 +323,10 @@ async def upload_photos_at_stop(
                 narrator_ready=ready_flag,
                 sidecar_json=sidecar_json or None,
                 trip_start_date=trip.get("start_date"),
+                extra_metadata=extra_meta or None,
             )
         except Exception as exc:
-            logger.warning("[trips][stop-upload] ingest failed file=%s: %s",
+            logger.warning("[trips][photo-upload] ingest failed file=%s: %s",
                            up.filename, exc)
             results.append({"filename": up.filename, "error": str(exc)})
             continue
@@ -339,7 +342,8 @@ async def upload_photos_at_stop(
         # ---- EXIF cross-check (§3.2: cross-check, not authority) ----
         mismatch: Dict[str, Any] = {}
         exif_lat, exif_lng = ing.get("exif_latitude"), ing.get("exif_longitude")
-        if (exif_lat is not None and exif_lng is not None
+        if (stop is not None
+                and exif_lat is not None and exif_lng is not None
                 and stop.get("latitude") is not None
                 and stop.get("longitude") is not None):
             km = _haversine_km(exif_lat, exif_lng,
@@ -356,30 +360,32 @@ async def upload_photos_at_stop(
                     mismatch["date_outside_trip_window"] = str(
                         ing.get("exif_captured_at"))[:10]
 
-        # ---- link as operator truth --------------------------------
+        # ---- link (operator truth when stop-placed) ------------------
         link_id = trip_repository.photo_link_upsert(
             trip_id=trip["id"],
             photo_id=photo["id"],
-            trip_region_id=stop.get("trip_region_id"),
-            trip_stop_id=stop_id,
+            trip_region_id=(stop or {}).get("trip_region_id"),
+            trip_stop_id=(stop or {}).get("id"),
             taken_at=ing.get("exif_captured_at"),
             latitude=exif_lat,
             longitude=exif_lng,
             assignment_method="operator",
             cluster_confidence=0.45 if mismatch else 1.0,
         )
-        # Upsert preserves prior operator placements — force this one:
-        # a stop-scoped upload IS fresh operator intent.
+        # Upsert preserves prior operator placements — force this one
+        # when a stop was explicitly chosen: fresh operator intent.
         trip_repository.photo_link_update(
             link_id,
-            trip_stop_id=stop_id,
+            trip_stop_id=(stop or {}).get("id"),
             caption=(caption or None),
             confirm=not mismatch,
         )
         logger.info(
-            "[trips][stop-upload] photo=%s stop=%s trust=%s dup=%s mismatch=%s",
-            photo["id"], stop_id, ing.get("metadata_trust"),
-            ing.get("duplicate"), mismatch or "none",
+            "[trips][photo-upload] photo=%s trip=%s stop=%s trust=%s dup=%s "
+            "mismatch=%s surface=%s",
+            photo["id"], trip["id"], (stop or {}).get("id") or "none",
+            ing.get("metadata_trust"), ing.get("duplicate"),
+            mismatch or "none", surface or "operator-tab",
         )
         results.append({
             "filename": up.filename,
@@ -392,7 +398,7 @@ async def upload_photos_at_stop(
         })
 
     return {
-        "stop_id": stop_id,
+        "stop_id": (stop or {}).get("id"),
         "trip_id": trip["id"],
         "uploaded": sum(1 for r in results if r.get("photo_id") and not r.get("duplicate")),
         "duplicates": sum(1 for r in results if r.get("duplicate")),
@@ -400,6 +406,55 @@ async def upload_photos_at_stop(
         "errors": sum(1 for r in results if r.get("error")),
         "results": results,
     }
+
+
+@router.post("/stops/{stop_id}/photos")
+async def upload_photos_at_stop(
+    stop_id: str,
+    files: List[UploadFile] = File(...),
+    uploaded_by_user_id: str = Form("operator"),
+    narrator_ready: str = Form("true"),
+    caption: str = Form(""),
+    sidecar_json: str = Form(""),
+    uploaded_from_surface: str = Form(""),
+):
+    """Phase C2 — upload photos directly AT a stop (Czechia → Prague 1).
+    See _ingest_uploads_to_trip for semantics."""
+    _require_trips_enabled()
+    stop = trip_repository.stop_get(stop_id)
+    if not stop:
+        raise HTTPException(status_code=404, detail="stop not found")
+    trip = trip_repository.trip_get(stop["trip_id"])
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip not found")
+    return await _ingest_uploads_to_trip(
+        trip, stop, files, uploaded_by_user_id, narrator_ready,
+        caption, sidecar_json, uploaded_from_surface,
+    )
+
+
+@router.post("/{trip_id}/photos")
+async def upload_photos_to_trip(
+    trip_id: str,
+    files: List[UploadFile] = File(...),
+    uploaded_by_user_id: str = Form("operator"),
+    narrator_ready: str = Form("true"),
+    caption: str = Form(""),
+    sidecar_json: str = Form(""),
+    uploaded_from_surface: str = Form(""),
+):
+    """Travels-shelf Phase 1 — trip-level photo drop (no stop chosen).
+    Links land with trip_stop_id NULL; the operator (or a later cluster
+    run) places them. Date-window cross-check still applies; GPS check
+    is skipped (no stop anchor)."""
+    _require_trips_enabled()
+    trip = trip_repository.trip_get(trip_id)
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip not found")
+    return await _ingest_uploads_to_trip(
+        trip, None, files, uploaded_by_user_id, narrator_ready,
+        caption, sidecar_json, uploaded_from_surface,
+    )
 
 
 @router.post("/{trip_id}/cluster-photos")

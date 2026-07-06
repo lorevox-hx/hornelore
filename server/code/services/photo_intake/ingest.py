@@ -37,6 +37,7 @@ def ingest_photo_file(
     description: Optional[str] = None,
     sidecar_json: Optional[str] = None,
     trip_start_date: Optional[str] = None,
+    extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Ingest one photo file. Returns::
 
@@ -130,6 +131,7 @@ def ingest_photo_file(
             "metadata_trust": trust.get("trust"),
             "trust_reasons": trust.get("reasons") or [],
             "sidecar_used": bool(sidecar),
+            **(extra_metadata or {}),
         },
     )
     try:
