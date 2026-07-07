@@ -5831,7 +5831,22 @@ async function sendUserMessage(){
     }, 30000);
     return;
   }
-  await streamSse(payload);
+  // BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01 (2026-07-07): the SSE
+  // fallback used a client-built legacy prompt + /api/chat/stream,
+  // bypassing the chat_ws turn machinery entirely — no safety cascade,
+  // no deterministic routing, no response guards, no archive writer,
+  // and no user-turn persistence. A narrator session must NEVER
+  // silently degrade onto that path. Default: surface the outage
+  // honestly instead. Dev escape hatch: window.LV_ALLOW_SSE_FALLBACK
+  // = true (console) re-enables the legacy path for diagnostics only.
+  if (window.LV_ALLOW_SSE_FALLBACK === true) {
+    console.warn("[chat-state] WS unavailable — LEGACY SSE fallback (unguarded, dev-only)");
+    await streamSse(payload);
+    return;
+  }
+  console.warn("[chat-state] WS unavailable — SSE fallback disabled (unguarded path); showing outage notice");
+  appendBubble("ai","Chat service unavailable — start or restart the Hornelore AI backend to enable responses.");
+  setLoriState("ready");
 }
 
 async function sendSystemPrompt(instruction){
@@ -5888,7 +5903,16 @@ async function sendSystemPrompt(instruction){
     }, 120000);
     return;
   }
-  await streamSse(instruction,bubble);
+  // BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01: same rule as
+  // sendUserMessage — no silent unguarded fallback for system prompts.
+  if (window.LV_ALLOW_SSE_FALLBACK === true) {
+    console.warn("[chat-state] WS unavailable — LEGACY SSE fallback for system prompt (unguarded, dev-only)");
+    await streamSse(instruction,bubble);
+    return;
+  }
+  console.warn("[chat-state] WS unavailable — system prompt dropped (SSE fallback disabled)");
+  try { _bubbleBody(bubble).textContent = "Chat service unavailable — start or restart the Hornelore AI backend to enable responses."; } catch (_) {}
+  setLoriState("ready");
 }
 
 async function streamSse(text,overrideBubble=null){
