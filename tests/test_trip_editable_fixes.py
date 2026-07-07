@@ -349,5 +349,15 @@ class _EditableFixesCase(unittest.TestCase):
         self.assertIsNone(stop["date_end"])
 
 
+    # ── Region patch triggers life-record sync (review 2026-07-07) ──────
+
+    def test_patch_region_syncs_life_record(self):
+        calls = []
+        trips.trip_timeline_bridge.sync_trip_to_life_record = \
+            lambda tid, *a, **k: calls.append(tid)
+        trips.patch_region(self.czechia, _region_patch_req(title="Bohemia"))
+        self.assertIn(self.trip_id, calls)
+
+
 if __name__ == "__main__":
     unittest.main()

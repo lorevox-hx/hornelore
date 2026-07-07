@@ -655,9 +655,9 @@ def stop_move(
         # changes region its links must follow, or memoir/cluster reads see a
         # link pointing at the wrong region.
         con.execute(
-            "UPDATE trip_photo_links SET trip_region_id = ? "
+            "UPDATE trip_photo_links SET trip_region_id = ?, updated_at = ? "
             "WHERE trip_id = ? AND trip_stop_id = ?",
-            (region_id, trip_id, stop_id),
+            (region_id, _now(), trip_id, stop_id),
         )
 
         # A parent moves as a UNIT: on a region change, every descendant
@@ -672,9 +672,9 @@ def stop_move(
             while frontier:
                 qs = ",".join("?" * len(frontier))
                 kids = [r["id"] for r in con.execute(
-                    "SELECT id FROM trip_stops "
-                    "WHERE parent_trip_stop_id IN (%s)" % qs,
-                    frontier).fetchall()]
+                    "SELECT id FROM trip_stops WHERE trip_id = ? "
+                    "AND parent_trip_stop_id IN (%s)" % qs,
+                    [trip_id] + frontier).fetchall()]
                 subtree.extend(kids)
                 frontier = kids
             descendants = subtree[1:]  # moved stop itself already updated
@@ -685,9 +685,10 @@ def stop_move(
                     "WHERE id IN (%s)" % qs,
                     [region_id, _now()] + descendants)
                 con.execute(
-                    "UPDATE trip_photo_links SET trip_region_id = ? "
+                    "UPDATE trip_photo_links SET trip_region_id = ?, "
+                    "updated_at = ? "
                     "WHERE trip_id = ? AND trip_stop_id IN (%s)" % qs,
-                    [region_id, trip_id] + descendants)
+                    [region_id, _now(), trip_id] + descendants)
 
         def _group_ids(reg, par):
             if par is None:

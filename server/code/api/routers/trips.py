@@ -890,6 +890,7 @@ def create_theme(trip_id: str, req: ThemeCreate) -> Dict[str, Any]:
 @router.patch("/regions/{region_id}")
 def patch_region(region_id: str, req: RegionPatch) -> Dict[str, Any]:
     _require_trips_enabled()
+    _tid = trip_repository.region_trip_id(region_id)
     ok = trip_repository.region_update(
         region_id,
         title=req.title,
@@ -909,6 +910,8 @@ def patch_region(region_id: str, req: RegionPatch) -> Dict[str, Any]:
         raise HTTPException(
             status_code=404, detail="region not found or nothing to update",
         )
+    if _tid:
+        trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "region_id": region_id}
 
 
