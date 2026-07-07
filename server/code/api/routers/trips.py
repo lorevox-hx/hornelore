@@ -167,6 +167,8 @@ class StopPatch(BaseModel):
     notes: Optional[str] = None
     thematic_tags: Optional[List[str]] = None
     clear_dates: bool = False
+    clear_start_date: bool = False
+    clear_end_date: bool = False
     clear_notes: bool = False
     ord: Optional[int] = None
     parent_trip_stop_id: Optional[str] = None
@@ -730,6 +732,8 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
         notes=req.notes,
         thematic_tags=req.thematic_tags,
         clear_dates=req.clear_dates,
+        clear_start_date=req.clear_start_date,
+        clear_end_date=req.clear_end_date,
         clear_notes=req.clear_notes,
         ord_=req.ord,
         parent_trip_stop_id=req.parent_trip_stop_id,

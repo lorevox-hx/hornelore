@@ -89,6 +89,7 @@ def _stop_patch_req(**kw):
     base = dict(location_name=None, stop_type=None, date_start=None,
                date_end=None, latitude=None, longitude=None, title=None,
                notes=None, thematic_tags=None, clear_dates=False,
+               clear_start_date=False, clear_end_date=False,
                clear_notes=False, ord=None, parent_trip_stop_id=None,
                clear_parent=False)
     base.update(kw)
@@ -277,6 +278,75 @@ class _EditableFixesCase(unittest.TestCase):
         self.assertIn("Kutna Hora", names)
         self.assertNotIn("Prague", names)
         self.assertEqual(len(names), 3)
+
+
+    # ── Subtree move: a parent moves as a unit (review 2026-07-07) ───────
+
+    def test_move_parent_moves_children_region(self):
+        # Nest Kutna Hora under Prague, link a photo to the CHILD, then move
+        # Prague to Austria. The child's region + its photo link must follow.
+        child = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Kutna Hora",
+            parent_trip_stop_id=self.prague, ord_=0, stop_type="day_trip")
+        child_link = trip_repository.photo_link_upsert(
+            self.trip_id, "photo-child", trip_region_id=self.czechia,
+            trip_stop_id=child, assignment_method="operator")
+        trips.move_stop(self.trip_id, self.prague, _Req(
+            region_id=self.austria, parent_trip_stop_id=None,
+            before_stop_id=None, after_stop_id=None))
+        moved_parent = trip_repository.stop_get(self.prague)
+        moved_child = trip_repository.stop_get(child)
+        self.assertEqual(moved_parent["trip_region_id"], self.austria)
+        # Child follows the parent to the new region...
+        self.assertEqual(moved_child["trip_region_id"], self.austria)
+        # ...but stays parented under it (subtree shape preserved).
+        self.assertEqual(moved_child["parent_trip_stop_id"], self.prague)
+        # ...and the descendant's photo link follows too.
+        link = trip_repository.photo_link_get(child_link)
+        self.assertEqual(link["trip_region_id"], self.austria)
+
+    def test_move_parent_moves_grandchildren_region(self):
+        # Two levels deep: Prague > Kutna Hora > Sedlec. Move Prague; the
+        # whole subtree lands in Austria.
+        child = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Kutna Hora",
+            parent_trip_stop_id=self.prague, ord_=0, stop_type="day_trip")
+        grand = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Sedlec Ossuary",
+            parent_trip_stop_id=child, ord_=0, stop_type="sight")
+        trips.move_stop(self.trip_id, self.prague, _Req(
+            region_id=self.austria, parent_trip_stop_id=None,
+            before_stop_id=None, after_stop_id=None))
+        self.assertEqual(
+            trip_repository.stop_get(grand)["trip_region_id"], self.austria)
+
+    def test_move_within_region_leaves_child_region(self):
+        # No region change (re-order/reparent within Czechia) must NOT rewrite
+        # child regions.
+        child = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Kutna Hora",
+            parent_trip_stop_id=self.prague, ord_=0, stop_type="day_trip")
+        trips.move_stop(self.trip_id, self.prague, _Req(
+            region_id=self.czechia, parent_trip_stop_id=None,
+            before_stop_id=self.graz, after_stop_id=None))
+        self.assertEqual(
+            trip_repository.stop_get(child)["trip_region_id"], self.czechia)
+
+    # ── Per-date stop clears ─────────────────────────────────────────────
+
+    def test_clear_only_start_date(self):
+        trips.patch_stop(self.prague, _stop_patch_req(
+            location_name="Prague", clear_start_date=True))
+        stop = trip_repository.stop_get(self.prague)
+        self.assertIsNone(stop["date_start"])
+        self.assertEqual(stop["date_end"], "2026-05-04")  # kept
+
+    def test_clear_only_end_date(self):
+        trips.patch_stop(self.prague, _stop_patch_req(
+            location_name="Prague", clear_end_date=True))
+        stop = trip_repository.stop_get(self.prague)
+        self.assertEqual(stop["date_start"], "2026-05-02")  # kept
+        self.assertIsNone(stop["date_end"])
 
 
 if __name__ == "__main__":

@@ -660,6 +660,35 @@ def stop_move(
             (region_id, trip_id, stop_id),
         )
 
+        # A parent moves as a UNIT: on a region change, every descendant
+        # (day-trips nested under the moved stop, at any depth) follows it to
+        # the new region, and so do their photo links. The parent chain is
+        # untouched, so the subtree keeps its shape — only trip_region_id
+        # moves. Without this the tree would show a child under a parent in a
+        # different region (a cross-region parent/child inconsistency).
+        if old_region != region_id:
+            subtree = [stop_id]
+            frontier = [stop_id]
+            while frontier:
+                qs = ",".join("?" * len(frontier))
+                kids = [r["id"] for r in con.execute(
+                    "SELECT id FROM trip_stops "
+                    "WHERE parent_trip_stop_id IN (%s)" % qs,
+                    frontier).fetchall()]
+                subtree.extend(kids)
+                frontier = kids
+            descendants = subtree[1:]  # moved stop itself already updated
+            if descendants:
+                qs = ",".join("?" * len(descendants))
+                con.execute(
+                    "UPDATE trip_stops SET trip_region_id = ?, updated_at = ? "
+                    "WHERE id IN (%s)" % qs,
+                    [region_id, _now()] + descendants)
+                con.execute(
+                    "UPDATE trip_photo_links SET trip_region_id = ? "
+                    "WHERE trip_id = ? AND trip_stop_id IN (%s)" % qs,
+                    [region_id, trip_id] + descendants)
+
         def _group_ids(reg, par):
             if par is None:
                 rows2 = con.execute(
@@ -894,6 +923,8 @@ def stop_update(
     notes: Optional[str] = None,
     thematic_tags: Optional[List[str]] = None,
     clear_dates: bool = False,
+    clear_start_date: bool = False,
+    clear_end_date: bool = False,
     clear_notes: bool = False,
     ord_: Optional[int] = None,
     parent_trip_stop_id: Optional[str] = None,
@@ -908,14 +939,14 @@ def stop_update(
         sets.append("location_name = ?"); args.append(location_name)
     if stop_type is not None:
         sets.append("stop_type = ?"); args.append(stop_type)
-    if clear_dates:
+    if clear_dates or clear_start_date:
         sets.append("date_start = NULL")
+    elif date_start is not None:
+        sets.append("date_start = ?"); args.append(date_start)
+    if clear_dates or clear_end_date:
         sets.append("date_end = NULL")
-    else:
-        if date_start is not None:
-            sets.append("date_start = ?"); args.append(date_start)
-        if date_end is not None:
-            sets.append("date_end = ?"); args.append(date_end)
+    elif date_end is not None:
+        sets.append("date_end = ?"); args.append(date_end)
     if latitude is not None:
         sets.append("latitude = ?"); args.append(latitude)
     if longitude is not None:
