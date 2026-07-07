@@ -27,7 +27,13 @@ Turn the Travel Doc from an add-only documentation panel into a real editable it
 
 165 trip-lane tests green (incl. `test_trip_reorder_move` 18, `test_trip_editable_fixes` 15, `test_trip_patch` 4). Router validation is defence-in-depth with repository WHERE-scoping behind it. Boundary gate intact (panel still never references Lori/Travels state; endpoints all sanctioned). Non-blocking observations: (a) stop-editor save issues PATCH then MOVE → life-record syncs twice per save (harmless); (b) cycle walk hop cap 50 — fine at realistic depths; (c) region `summary` not editable from the FE editor (deliberate field selection); (d) same-region move still touches the moved stop's photo-link region (no-op value, `updated_at` churn only).
 
-## Live test checklist (pending)
+## Live test results (2026-07-07, Claude-in-Chrome — PASS)
+
+Ran against the Spring 2026 Central Europe fixture on the live stack: label reads active narrator ("Documenting trips for Chris") not the hidden select ✓ · Munich inserted BEFORE Prague via +Before → ord 0/1, persisted ✓ · memoir preview Part One lists Munich then Prague ✓ · move-up button renumbers cleanly ✓ · cross-region move appends + gap-closes source ✓ · Mirano (6 children) moved Italy→Slovenia and back — entire subtree followed both ways, gap-closed both sides ✓ · delete removes + persists across reload ✓ · trip-session scope untouched by all Travel Doc actions (state.session trip keys never set) ✓. Photo-link-follows not exercisable live (fixture has no photo links) — unit-covered.
+
+**Live finding fixed same day:** deleting a CHILDLESS stop left an ord gap (Salzburg:0, Graz:2) — delete_stop only renumbered on child promotion. Patched to renumber unconditionally (child-group renumber when the deleted stop was itself a child); 2 new tests in DeleteGapCloseTest. Requires stack restart to go live.
+
+## Original live test checklist
 
 Open Spring 2026 Europe → add Munich before Prague → reload, order persists → memoir preview follows route order → edit + clear one field at each level → move a stop between regions → move a parent stop with a nested day-trip (subtree + photo links follow) → delete a test stop (children promote, order clean) → confirm no Lori/runtime71/Travels-shelf behavior changed.
 
