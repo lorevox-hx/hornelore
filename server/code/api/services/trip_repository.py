@@ -440,6 +440,169 @@ def theme_delete(theme_id: str) -> bool:
         con.close()
 
 
+# ── Reorder / move (WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01) ─────────────
+#
+# Operator tile order is the route authority (dates are metadata). The
+# `ord` column already exists on trip_regions / trip_stops and the tree
+# read + memoir preview already sort by it — these helpers renumber
+# siblings cleanly (0, 1, 2, …) inside ONE transaction so no two siblings
+# ever share an ord. The router validates ownership/completeness before
+# calling; each UPDATE is also scoped in its WHERE clause so a foreign id
+# simply doesn't match (defence in depth). Rows updated is returned so the
+# router can assert the full sibling set moved.
+
+
+def regions_reorder(trip_id: str, ordered_ids: List[str]) -> int:
+    """Renumber a trip's regions to match ``ordered_ids`` (index -> ord).
+    Only rows that belong to ``trip_id`` are touched. Returns rows updated."""
+    con = _connect()
+    try:
+        n = 0
+        for i, rid in enumerate(ordered_ids):
+            cur = con.execute(
+                "UPDATE trip_regions SET ord = ?, updated_at = ? "
+                "WHERE id = ? AND trip_id = ?",
+                (i, _now(), rid, trip_id),
+            )
+            n += cur.rowcount
+        con.commit()
+        return n
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def stops_reorder(
+    trip_id: str,
+    region_id: str,
+    parent_trip_stop_id: Optional[str],
+    ordered_ids: List[str],
+) -> int:
+    """Renumber one sibling group of stops. Siblings = same trip + same
+    region + same parent (NULL parent = top-level stops). Only rows that
+    match that scope are touched. Returns rows updated."""
+    con = _connect()
+    try:
+        n = 0
+        for i, sid in enumerate(ordered_ids):
+            if parent_trip_stop_id is None:
+                cur = con.execute(
+                    "UPDATE trip_stops SET ord = ?, updated_at = ? "
+                    "WHERE id = ? AND trip_id = ? AND trip_region_id = ? "
+                    "AND parent_trip_stop_id IS NULL",
+                    (i, _now(), sid, trip_id, region_id),
+                )
+            else:
+                cur = con.execute(
+                    "UPDATE trip_stops SET ord = ?, updated_at = ? "
+                    "WHERE id = ? AND trip_id = ? AND trip_region_id = ? "
+                    "AND parent_trip_stop_id = ?",
+                    (i, _now(), sid, trip_id, region_id, parent_trip_stop_id),
+                )
+            n += cur.rowcount
+        con.commit()
+        return n
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def sibling_stop_ids(
+    trip_id: str,
+    region_id: str,
+    parent_trip_stop_id: Optional[str],
+) -> List[str]:
+    """Current sibling stop ids (in ord order) for a region + parent scope.
+    Used by the router to validate a reorder covers exactly the group, and
+    to build the insert order for a move."""
+    con = _connect()
+    try:
+        if parent_trip_stop_id is None:
+            rows = con.execute(
+                "SELECT id FROM trip_stops WHERE trip_id = ? "
+                "AND trip_region_id = ? AND parent_trip_stop_id IS NULL "
+                "ORDER BY ord, created_at",
+                (trip_id, region_id),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT id FROM trip_stops WHERE trip_id = ? "
+                "AND trip_region_id = ? AND parent_trip_stop_id = ? "
+                "ORDER BY ord, created_at",
+                (trip_id, region_id, parent_trip_stop_id),
+            ).fetchall()
+        return [r["id"] for r in rows]
+    finally:
+        con.close()
+
+
+def stop_move(
+    trip_id: str,
+    stop_id: str,
+    region_id: str,
+    parent_trip_stop_id: Optional[str] = None,
+    before_stop_id: Optional[str] = None,
+    after_stop_id: Optional[str] = None,
+) -> bool:
+    """Move a stop to a target region/parent and position it relative to a
+    sibling — all in one transaction so ord stays clean. If neither
+    before_stop_id nor after_stop_id resolves, the stop is appended to the
+    end of the target sibling group. Returns False if the stop row (scoped
+    to trip_id) didn't exist. The router owns validation (parent/region
+    ownership, cycle protection)."""
+    con = _connect()
+    try:
+        cur = con.execute(
+            "UPDATE trip_stops SET trip_region_id = ?, "
+            "parent_trip_stop_id = ?, updated_at = ? "
+            "WHERE id = ? AND trip_id = ?",
+            (region_id, parent_trip_stop_id, _now(), stop_id, trip_id),
+        )
+        if cur.rowcount == 0:
+            con.rollback()
+            return False
+        # Target sibling group AFTER the move (moved stop now lives here).
+        if parent_trip_stop_id is None:
+            rows = con.execute(
+                "SELECT id FROM trip_stops WHERE trip_id = ? "
+                "AND trip_region_id = ? AND parent_trip_stop_id IS NULL "
+                "ORDER BY ord, created_at",
+                (trip_id, region_id),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT id FROM trip_stops WHERE trip_id = ? "
+                "AND trip_region_id = ? AND parent_trip_stop_id = ? "
+                "ORDER BY ord, created_at",
+                (trip_id, region_id, parent_trip_stop_id),
+            ).fetchall()
+        siblings = [r["id"] for r in rows if r["id"] != stop_id]
+        if before_stop_id and before_stop_id in siblings:
+            idx = siblings.index(before_stop_id)
+        elif after_stop_id and after_stop_id in siblings:
+            idx = siblings.index(after_stop_id) + 1
+        else:
+            idx = len(siblings)  # append
+        ordered = siblings[:idx] + [stop_id] + siblings[idx:]
+        for i, sid in enumerate(ordered):
+            con.execute(
+                "UPDATE trip_stops SET ord = ? WHERE id = ?", (i, sid),
+            )
+        con.commit()
+        return True
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+
+
 # ── Photo links ───────────────────────────────────────────────────────────
 
 

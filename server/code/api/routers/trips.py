@@ -26,6 +26,9 @@ mirroring the operator_eval_harness posture):
     DELETE /api/trips/regions/{region_id}     (stops cascade)
     DELETE /api/trips/stops/{stop_id}         (children re-parent to top level)
     DELETE /api/trips/themes/{theme_id}
+    POST  /api/trips/{trip_id}/regions/reorder      {ordered_ids}
+    POST  /api/trips/{trip_id}/stops/reorder        {region_id, parent?, ordered_ids}
+    POST  /api/trips/{trip_id}/stops/{stop_id}/move {region_id, parent?, before?/after?}
 
 Operator-side surface. Nothing here reaches the narrator directly —
 the interview lane consumes trips later via location notes (LOCKED
@@ -159,6 +162,23 @@ class PhotoLinkPatch(BaseModel):
     caption: Optional[str] = None
     narrator_caption: Optional[str] = None
     confirm: bool = False
+
+
+class RegionsReorder(BaseModel):
+    ordered_ids: List[str]
+
+
+class StopsReorder(BaseModel):
+    region_id: str
+    parent_trip_stop_id: Optional[str] = None
+    ordered_ids: List[str]
+
+
+class StopMove(BaseModel):
+    region_id: str
+    parent_trip_stop_id: Optional[str] = None
+    before_stop_id: Optional[str] = None
+    after_stop_id: Optional[str] = None
 
 
 # ── Photo source read (photos table from the Photo Intake lane) ──────────
@@ -852,6 +872,136 @@ def delete_stop(stop_id: str) -> Dict[str, Any]:
     if _tid:
         trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "stop_id": stop_id}
+
+
+@router.post("/{trip_id}/regions/reorder")
+def reorder_regions(trip_id: str, req: RegionsReorder) -> Dict[str, Any]:
+    """Set the operator's route order for a trip's regions. ``ordered_ids``
+    must be exactly the trip's region ids (a full permutation) — this keeps
+    ord a clean 0..n with no gaps or duplicates. Returns the updated tree."""
+    _require_trips_enabled()
+    tree = trip_repository.trip_tree(trip_id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="trip not found")
+    current = {r["id"] for r in tree.get("regions", [])}
+    proposed = list(req.ordered_ids or [])
+    if len(set(proposed)) != len(proposed):
+        raise HTTPException(status_code=400,
+                            detail="ordered_ids contains duplicates")
+    if set(proposed) != current:
+        raise HTTPException(
+            status_code=400,
+            detail="ordered_ids must be exactly this trip's region ids")
+    updated = trip_repository.regions_reorder(trip_id, proposed)
+    if updated != len(proposed):
+        raise HTTPException(status_code=400,
+                            detail="reorder touched an unexpected row count")
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    return {"ok": True, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.post("/{trip_id}/stops/reorder")
+def reorder_stops(trip_id: str, req: StopsReorder) -> Dict[str, Any]:
+    """Reorder ONE sibling group of stops. Siblings = same trip + same
+    region + same parent (parent_trip_stop_id null = top-level stops).
+    ``ordered_ids`` must be exactly that group's current members. Returns
+    the updated tree."""
+    _require_trips_enabled()
+    tree = trip_repository.trip_tree(trip_id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="trip not found")
+    region = next((r for r in tree.get("regions", [])
+                   if r["id"] == req.region_id), None)
+    if not region:
+        raise HTTPException(status_code=404, detail="region not found in this trip")
+    if req.parent_trip_stop_id:
+        parent = trip_repository.stop_get(req.parent_trip_stop_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail="parent stop not found")
+        if parent.get("trip_id") != trip_id or \
+                parent.get("trip_region_id") != req.region_id:
+            raise HTTPException(status_code=400,
+                                detail="parent stop is not in this region")
+    current = set(trip_repository.sibling_stop_ids(
+        trip_id, req.region_id, req.parent_trip_stop_id or None))
+    proposed = list(req.ordered_ids or [])
+    if len(set(proposed)) != len(proposed):
+        raise HTTPException(status_code=400,
+                            detail="ordered_ids contains duplicates")
+    if set(proposed) != current:
+        raise HTTPException(
+            status_code=400,
+            detail="ordered_ids must be exactly this sibling group's stops")
+    updated = trip_repository.stops_reorder(
+        trip_id, req.region_id, req.parent_trip_stop_id or None, proposed)
+    if updated != len(proposed):
+        raise HTTPException(status_code=400,
+                            detail="reorder touched an unexpected row count")
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    return {"ok": True, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.post("/{trip_id}/stops/{stop_id}/move")
+def move_stop(trip_id: str, stop_id: str, req: StopMove) -> Dict[str, Any]:
+    """Move a stop to a target region/parent and position it before or
+    after a sibling (or append if neither resolves). Validates ownership,
+    parent placement, and cycle protection, then renumbers the target
+    sibling group atomically. Returns the updated tree."""
+    _require_trips_enabled()
+    stop = trip_repository.stop_get(stop_id)
+    if not stop or stop.get("trip_id") != trip_id:
+        raise HTTPException(status_code=404, detail="stop not found in this trip")
+    if trip_repository.region_trip_id(req.region_id) != trip_id:
+        raise HTTPException(status_code=404,
+                            detail="target region not found in this trip")
+    # Parent placement + cycle protection (mirrors patch_stop reparent).
+    if req.parent_trip_stop_id:
+        if req.parent_trip_stop_id == stop_id:
+            raise HTTPException(status_code=400,
+                                detail="a stop cannot be its own parent")
+        parent = trip_repository.stop_get(req.parent_trip_stop_id)
+        if not parent:
+            raise HTTPException(status_code=404, detail="parent stop not found")
+        if parent.get("trip_id") != trip_id:
+            raise HTTPException(status_code=400,
+                                detail="parent stop belongs to another trip")
+        if parent.get("trip_region_id") != req.region_id:
+            raise HTTPException(status_code=400,
+                                detail="parent stop is not in the target region")
+        cursor = parent
+        hops = 0
+        while cursor and cursor.get("parent_trip_stop_id") and hops < 50:
+            if cursor["parent_trip_stop_id"] == stop_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="move would create a cycle "
+                           "(parent is a descendant of this stop)")
+            cursor = trip_repository.stop_get(cursor["parent_trip_stop_id"])
+            hops += 1
+    # Positional sibling refs, if given, must live in the target group.
+    for ref in (req.before_stop_id, req.after_stop_id):
+        if not ref:
+            continue
+        ref_stop = trip_repository.stop_get(ref)
+        if not ref_stop or ref_stop.get("trip_id") != trip_id or \
+                ref_stop.get("trip_region_id") != req.region_id or \
+                (ref_stop.get("parent_trip_stop_id") or None) != \
+                (req.parent_trip_stop_id or None):
+            raise HTTPException(
+                status_code=400,
+                detail="before/after stop is not in the target sibling group")
+    ok = trip_repository.stop_move(
+        trip_id=trip_id,
+        stop_id=stop_id,
+        region_id=req.region_id,
+        parent_trip_stop_id=req.parent_trip_stop_id or None,
+        before_stop_id=req.before_stop_id,
+        after_stop_id=req.after_stop_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="stop not found")
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    return {"ok": True, "tree": trip_repository.trip_tree(trip_id)}
 
 
 @router.delete("/themes/{theme_id}")
