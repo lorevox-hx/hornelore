@@ -369,6 +369,14 @@ _META_PREAMBLE_RX = re.compile(
     r"(?:i'?ll|i will|i shall) (?:respond|reply|reflect) (?:by|with|using)"
     r"|"
     r"following the (?:rules|guidelines|instructions)"
+    r"|"
+    # BUG-LORI-META-PREAMBLE-LEAK-01 (2026-07-07) — live trip-open leak
+    # reached the narrator verbatim: 'Here is the response in the
+    # requested format: "Prague and Salzburg stand out..."'. The
+    # repair's quoted-draft recovery already handled this shape; the
+    # DETECTOR did not (verb list above requires follows/reflects/...).
+    r"here(?:'s| is) (?:a |the |my )?(?:response|reflection|reply|answer)"
+    r"[^.!?\n]{0,60}?\bin the (?:requested|specified|required|correct) format"
     r")[^\n.]*[:.\n]",
     re.IGNORECASE,
 )
@@ -940,13 +948,14 @@ def apply_response_guards(
     meta-leak guard and before the dangling-determiner check.
 
     `surface` (default "narrator") names the conversational surface
-    the reply is being delivered on. Per 2026-06-24 product call, the
-    language-drift repair block is SKIPPED on the "trip" surface
-    because European place-name pile-ups (Spring 2026 Central Europe
-    canary) trip the detector destructively on legitimate English
-    trip narration. All other guards (code-mix / meta-leak / seeded-
-    fact / dangling-determiner) run on every surface — they don't
-    suffer from the trip-route false-positive class.
+    the reply is being delivered on. DOC-LORI-RESPONSE-GUARDS-TRIP-
+    SURFACE-STALE-COMMENT-01 (2026-07-07): the drift repair is ACTIVE
+    on EVERY surface — the skip set is EMPTY. The earlier trip-surface
+    skip (2026-06-24) was retired on 2026-07-02 when the two-tier
+    looks_spanish detector fixed the European place-name false
+    positives at the detector level (see module header, ~L97). Do NOT
+    reintroduce a trip skip here; guard behavior is tuned in the
+    detector, not by exempting surfaces.
     """
     fired: List[str] = []
     text = assistant_text or ""

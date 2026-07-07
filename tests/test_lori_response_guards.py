@@ -344,5 +344,42 @@ class SensoryPivotOnChainTest(unittest.TestCase):
         self.assertEqual(final, self.T6_REPLY)
 
 
+class MetaPreambleRequestedFormatTest(unittest.TestCase):
+    """BUG-LORI-META-PREAMBLE-LEAK-01 (2026-07-07) — live trip-open leak.
+
+    The narrator saw: 'Here is the response in the requested format:
+    "Prague and Salzburg stand out..."'. The repair's quoted-draft
+    recovery handled this shape but the DETECTOR did not, so the guard
+    never fired and the meta-framing reached the bubble + archive.
+    """
+
+    LIVE = ('Here is the response in the requested format: "Prague and '
+            'Salzburg stand out from that spring trip to Central Europe '
+            'and Northern Italy. What comes to mind as you look back on '
+            'those travels?"')
+
+    def test_live_line_detected(self):
+        self.assertTrue(g.detect_meta_response_leak(self.LIVE))
+
+    def test_live_line_repairs_to_quoted_draft(self):
+        repaired = g.repair_meta_response_leak(self.LIVE)
+        self.assertTrue(repaired.startswith("Prague and Salzburg"))
+        self.assertNotIn("requested format", repaired)
+
+    def test_full_guard_pipeline_strips_it(self):
+        final, fired = g.apply_response_guards(
+            assistant_text=self.LIVE,
+            narrator_text="Tell me about the trip.",
+            recent_narrator_turns=["Tell me about the trip."],
+            target_language="en",
+        )
+        self.assertTrue(final.startswith("Prague and Salzburg"))
+        self.assertTrue(any("meta" in f for f in fired), fired)
+
+    def test_benign_requested_format_mention_not_flagged(self):
+        ok = ("You mentioned the paperwork had to be in the requested "
+              "format for the visa office. What happened next?")
+        self.assertFalse(g.detect_meta_response_leak(ok))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
