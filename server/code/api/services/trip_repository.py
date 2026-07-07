@@ -118,6 +118,44 @@ def trip_get(trip_id: str) -> Optional[Dict[str, Any]]:
         con.close()
 
 
+def trip_update(
+    trip_id: str,
+    title: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    summary: Optional[str] = None,
+) -> bool:
+    """Operator edit of trip-level fields. Only non-None fields are written
+    (partial patch). Returns True if a row changed. Mirrors region_update /
+    stop_update; trip meta_json has its own trip_meta_* helpers."""
+    sets: List[str] = []
+    args: List[Any] = []
+    if title is not None:
+        sets.append("title = ?"); args.append(title)
+    if start_date is not None:
+        sets.append("start_date = ?"); args.append(start_date)
+    if end_date is not None:
+        sets.append("end_date = ?"); args.append(end_date)
+    if summary is not None:
+        sets.append("summary = ?"); args.append(summary)
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(trip_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trips SET {', '.join(sets)} WHERE id = ?", args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 # ── Regions / stops / themes ──────────────────────────────────────────────
 
 

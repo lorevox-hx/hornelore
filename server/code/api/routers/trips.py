@@ -19,6 +19,7 @@ mirroring the operator_eval_harness posture):
     DELETE /api/trips/{trip_id}
     GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
     POST  /api/trips                          (create empty trip — Phase A builder)
+    PATCH /api/trips/{trip_id}                (edit title/dates/summary)
     POST  /api/trips/{trip_id}/regions
     POST  /api/trips/{trip_id}/regions/{region_id}/stops
     POST  /api/trips/{trip_id}/themes
@@ -95,6 +96,13 @@ class ClusterPhotosRequest(BaseModel):
 class TripCreate(BaseModel):
     person_id: str
     title: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class TripPatch(BaseModel):
+    title: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     summary: Optional[str] = None
@@ -746,6 +754,28 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
                 trip_id, req.person_id)
     trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"trip_id": trip_id, "tree": trip_repository.trip_tree(trip_id)}
+
+
+@router.patch("/{trip_id}")
+def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
+    """Operator edit of trip-level fields (title/dates/summary). Regions,
+    stops, and photos are edited through their own endpoints."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    ok = trip_repository.trip_update(
+        trip_id,
+        title=req.title,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        summary=req.summary,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400, detail="nothing to update")
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    return {"ok": True, "trip_id": trip_id,
+            "tree": trip_repository.trip_tree(trip_id)}
 
 
 @router.post("/{trip_id}/regions")
