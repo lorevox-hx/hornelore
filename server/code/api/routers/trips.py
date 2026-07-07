@@ -938,11 +938,21 @@ def delete_stop(stop_id: str) -> Dict[str, Any]:
     # them BEFORE the delete so we can renumber the region's top-level group
     # afterward and stop their old child ords from colliding.
     child_ids = trip_repository.stop_child_ids(stop_id)
+    _parent = stop.get("parent_trip_stop_id") or None
     if not trip_repository.stop_delete(stop_id):
         raise HTTPException(status_code=404, detail="stop not found")
-    if child_ids and _tid and _region:
-        top_ids = trip_repository.sibling_stop_ids(_tid, _region, None)
-        trip_repository.stops_reorder(_tid, _region, None, top_ids)
+    if _tid and _region:
+        # Renumber unconditionally (live-test finding 2026-07-07: deleting a
+        # CHILDLESS stop left an ord gap — Salzburg:0, Graz:2 — because the
+        # renumber only ran on child promotion). Close the gap in the group
+        # the stop left; when children were promoted, the top-level group is
+        # the one that changed, so renumber that too.
+        if _parent:
+            sib = trip_repository.sibling_stop_ids(_tid, _region, _parent)
+            trip_repository.stops_reorder(_tid, _region, _parent, sib)
+        if child_ids or not _parent:
+            top_ids = trip_repository.sibling_stop_ids(_tid, _region, None)
+            trip_repository.stops_reorder(_tid, _region, None, top_ids)
     if _tid:
         trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "stop_id": stop_id}

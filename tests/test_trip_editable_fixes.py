@@ -359,5 +359,32 @@ class _EditableFixesCase(unittest.TestCase):
         self.assertIn(self.trip_id, calls)
 
 
+class DeleteGapCloseTest(_EditableFixesCase):
+    """Live-test finding 2026-07-07: deleting a CHILDLESS stop left an ord
+    gap (Salzburg:0, Graz:2 on the Spring 2026 fixture) because delete_stop
+    only renumbered on child promotion. Renumber must be unconditional."""
+
+    def test_delete_childless_mid_stop_closes_gap(self):
+        # Salzburg sits at ord 1 between Prague (0) and Graz (2).
+        trips.delete_stop(self.salzburg)
+        ords = self._raw_ords(self.czechia)
+        self.assertEqual(ords, list(range(len(ords))))  # contiguous 0..n
+
+    def test_delete_child_stop_renumbers_child_group(self):
+        c1 = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Kutna Hora",
+            parent_trip_stop_id=self.prague, ord_=0, stop_type="day_trip")
+        c2 = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Sedlec",
+            parent_trip_stop_id=self.prague, ord_=1, stop_type="day_trip")
+        c3 = trip_repository.stop_create(
+            self.trip_id, self.czechia, "Kolin",
+            parent_trip_stop_id=self.prague, ord_=2, stop_type="day_trip")
+        trips.delete_stop(c2)  # middle child
+        ords = self._raw_ords(self.czechia, parent=self.prague)
+        self.assertEqual(ords, list(range(len(ords))))
+        # Top-level group untouched in membership and still contiguous.
+        self.assertEqual(self._raw_ords(self.czechia), [0, 1, 2])
+
 if __name__ == "__main__":
     unittest.main()
