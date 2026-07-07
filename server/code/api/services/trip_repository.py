@@ -124,19 +124,30 @@ def trip_update(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     summary: Optional[str] = None,
+    clear_start_date: bool = False,
+    clear_end_date: bool = False,
+    clear_summary: bool = False,
 ) -> bool:
-    """Operator edit of trip-level fields. Only non-None fields are written
-    (partial patch). Returns True if a row changed. Mirrors region_update /
-    stop_update; trip meta_json has its own trip_meta_* helpers."""
+    """Operator edit of trip-level fields. Non-None fields are written; a
+    matching clear_* flag NULLs a field (blank-means-unchanged otherwise, so
+    the operator can actually erase a date or summary). Returns True if a row
+    changed. Mirrors region_update / stop_update; trip meta_json has its own
+    trip_meta_* helpers."""
     sets: List[str] = []
     args: List[Any] = []
     if title is not None:
         sets.append("title = ?"); args.append(title)
-    if start_date is not None:
+    if clear_start_date:
+        sets.append("start_date = NULL")
+    elif start_date is not None:
         sets.append("start_date = ?"); args.append(start_date)
-    if end_date is not None:
+    if clear_end_date:
+        sets.append("end_date = NULL")
+    elif end_date is not None:
         sets.append("end_date = ?"); args.append(end_date)
-    if summary is not None:
+    if clear_summary:
+        sets.append("summary = NULL")
+    elif summary is not None:
         sets.append("summary = ?"); args.append(summary)
     if not sets:
         return False
@@ -393,20 +404,35 @@ def region_update(
     summary: Optional[str] = None,
     base_address: Optional[str] = None,
     ord_: Optional[int] = None,
+    clear_country_or_area: bool = False,
+    clear_start_date: bool = False,
+    clear_end_date: bool = False,
+    clear_summary: bool = False,
+    clear_base_address: bool = False,
 ) -> bool:
     sets: List[str] = []
     args: List[Any] = []
     if title is not None:
         sets.append("title = ?"); args.append(title)
-    if country_or_area is not None:
+    if clear_country_or_area:
+        sets.append("country_or_area = NULL")
+    elif country_or_area is not None:
         sets.append("country_or_area = ?"); args.append(country_or_area)
-    if start_date is not None:
+    if clear_start_date:
+        sets.append("start_date = NULL")
+    elif start_date is not None:
         sets.append("start_date = ?"); args.append(start_date)
-    if end_date is not None:
+    if clear_end_date:
+        sets.append("end_date = NULL")
+    elif end_date is not None:
         sets.append("end_date = ?"); args.append(end_date)
-    if summary is not None:
+    if clear_summary:
+        sets.append("summary = NULL")
+    elif summary is not None:
         sets.append("summary = ?"); args.append(summary)
-    if base_address is not None:
+    if clear_base_address:
+        sets.append("base_address = NULL")
+    elif base_address is not None:
         sets.append("base_address = ?"); args.append(base_address)
     if ord_ is not None:
         sets.append("ord = ?"); args.append(int(ord_))
@@ -578,6 +604,21 @@ def sibling_stop_ids(
         con.close()
 
 
+def stop_child_ids(parent_stop_id: str) -> List[str]:
+    """Direct child stop ids of a parent (used to detect promotion on delete —
+    when a parent stop is deleted the FK SET NULLs its children up to top
+    level, and their ord then needs renumbering)."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT id FROM trip_stops WHERE parent_trip_stop_id = ?",
+            (parent_stop_id,),
+        ).fetchall()
+        return [r["id"] for r in rows]
+    finally:
+        con.close()
+
+
 def stop_move(
     trip_id: str,
     stop_id: str,
@@ -594,42 +635,65 @@ def stop_move(
     ownership, cycle protection)."""
     con = _connect()
     try:
-        cur = con.execute(
+        prior = con.execute(
+            "SELECT trip_region_id, parent_trip_stop_id FROM trip_stops "
+            "WHERE id = ? AND trip_id = ?", (stop_id, trip_id),
+        ).fetchone()
+        if not prior:
+            con.rollback()
+            return False
+        old_region = prior["trip_region_id"]
+        old_parent = prior["parent_trip_stop_id"]
+
+        con.execute(
             "UPDATE trip_stops SET trip_region_id = ?, "
             "parent_trip_stop_id = ?, updated_at = ? "
             "WHERE id = ? AND trip_id = ?",
             (region_id, parent_trip_stop_id, _now(), stop_id, trip_id),
         )
-        if cur.rowcount == 0:
-            con.rollback()
-            return False
-        # Target sibling group AFTER the move (moved stop now lives here).
-        if parent_trip_stop_id is None:
-            rows = con.execute(
-                "SELECT id FROM trip_stops WHERE trip_id = ? "
-                "AND trip_region_id = ? AND parent_trip_stop_id IS NULL "
-                "ORDER BY ord, created_at",
-                (trip_id, region_id),
-            ).fetchall()
+        # Photo links carry a denormalized trip_region_id; when the stop
+        # changes region its links must follow, or memoir/cluster reads see a
+        # link pointing at the wrong region.
+        con.execute(
+            "UPDATE trip_photo_links SET trip_region_id = ? "
+            "WHERE trip_id = ? AND trip_stop_id = ?",
+            (region_id, trip_id, stop_id),
+        )
+
+        def _group_ids(reg, par):
+            if par is None:
+                rows2 = con.execute(
+                    "SELECT id FROM trip_stops WHERE trip_id = ? "
+                    "AND trip_region_id = ? AND parent_trip_stop_id IS NULL "
+                    "ORDER BY ord, created_at", (trip_id, reg)).fetchall()
+            else:
+                rows2 = con.execute(
+                    "SELECT id FROM trip_stops WHERE trip_id = ? "
+                    "AND trip_region_id = ? AND parent_trip_stop_id = ? "
+                    "ORDER BY ord, created_at", (trip_id, reg, par)).fetchall()
+            return [r["id"] for r in rows2]
+
+        # Renumber the target group with the moved stop positioned relative
+        # to a sibling (or appended).
+        target = [sid for sid in _group_ids(region_id, parent_trip_stop_id)
+                  if sid != stop_id]
+        if before_stop_id and before_stop_id in target:
+            idx = target.index(before_stop_id)
+        elif after_stop_id and after_stop_id in target:
+            idx = target.index(after_stop_id) + 1
         else:
-            rows = con.execute(
-                "SELECT id FROM trip_stops WHERE trip_id = ? "
-                "AND trip_region_id = ? AND parent_trip_stop_id = ? "
-                "ORDER BY ord, created_at",
-                (trip_id, region_id, parent_trip_stop_id),
-            ).fetchall()
-        siblings = [r["id"] for r in rows if r["id"] != stop_id]
-        if before_stop_id and before_stop_id in siblings:
-            idx = siblings.index(before_stop_id)
-        elif after_stop_id and after_stop_id in siblings:
-            idx = siblings.index(after_stop_id) + 1
-        else:
-            idx = len(siblings)  # append
-        ordered = siblings[:idx] + [stop_id] + siblings[idx:]
+            idx = len(target)  # append
+        ordered = target[:idx] + [stop_id] + target[idx:]
         for i, sid in enumerate(ordered):
-            con.execute(
-                "UPDATE trip_stops SET ord = ? WHERE id = ?", (i, sid),
-            )
+            con.execute("UPDATE trip_stops SET ord = ? WHERE id = ?", (i, sid))
+
+        # If the stop left a different group, close the gap it left behind by
+        # renumbering that old group 0..n too.
+        if (old_region, old_parent) != (region_id, parent_trip_stop_id):
+            for i, sid in enumerate(_group_ids(old_region, old_parent)):
+                con.execute(
+                    "UPDATE trip_stops SET ord = ? WHERE id = ?", (i, sid))
+
         con.commit()
         return True
     except Exception:
@@ -830,6 +894,7 @@ def stop_update(
     notes: Optional[str] = None,
     thematic_tags: Optional[List[str]] = None,
     clear_dates: bool = False,
+    clear_notes: bool = False,
     ord_: Optional[int] = None,
     parent_trip_stop_id: Optional[str] = None,
     clear_parent: bool = False,
@@ -857,7 +922,9 @@ def stop_update(
         sets.append("longitude = ?"); args.append(longitude)
     if title is not None:
         sets.append("title = ?"); args.append(title)
-    if notes is not None:
+    if clear_notes:
+        sets.append("notes = NULL")
+    elif notes is not None:
         sets.append("notes = ?"); args.append(notes)
     if thematic_tags is not None:
         sets.append("thematic_tags_json = ?")

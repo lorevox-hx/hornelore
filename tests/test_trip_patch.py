@@ -71,6 +71,11 @@ from api.routers import trips  # noqa: E402
 
 class _Req:
     def __init__(self, **kw):
+        # Clear-flag defaults so patch_trip (which reads them) works even
+        # when a test only sets the value fields.
+        self.clear_start_date = False
+        self.clear_end_date = False
+        self.clear_summary = False
         self.__dict__.update(kw)
 
 

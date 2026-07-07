@@ -588,8 +588,11 @@
           body: JSON.stringify({
             title: name,
             start_date: vStart.value || null,
+            clear_start_date: !vStart.value,
             end_date: vEnd.value || null,
+            clear_end_date: !vEnd.value,
             summary: vSummary.value || null,
+            clear_summary: !vSummary.value,
           }),
         }).then(function (out) {
           log("Trip updated", out);
@@ -621,9 +624,13 @@
           body: JSON.stringify({
             title: name,
             country_or_area: vArea.value || null,
+            clear_country_or_area: !vArea.value,
             start_date: vStart.value || null,
+            clear_start_date: !vStart.value,
             end_date: vEnd.value || null,
+            clear_end_date: !vEnd.value,
             base_address: vBase.value || null,
+            clear_base_address: !vBase.value,
           }),
         }).then(function (out) {
           log("Region updated", out);
@@ -698,7 +705,9 @@
             stop_type: vType.value || "sight",
             date_start: vStart.value || null,
             date_end: vEnd.value || null,
+            clear_dates: !vStart.value && !vEnd.value,
             notes: vNotes.value || null,
+            clear_notes: !vNotes.value,
           }),
         });
         return patch.then(function () {

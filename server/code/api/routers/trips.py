@@ -106,6 +106,9 @@ class TripPatch(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     summary: Optional[str] = None
+    clear_start_date: bool = False
+    clear_end_date: bool = False
+    clear_summary: bool = False
 
 
 class RegionCreate(BaseModel):
@@ -126,6 +129,11 @@ class RegionPatch(BaseModel):
     summary: Optional[str] = None
     base_address: Optional[str] = None
     ord: Optional[int] = None
+    clear_country_or_area: bool = False
+    clear_start_date: bool = False
+    clear_end_date: bool = False
+    clear_summary: bool = False
+    clear_base_address: bool = False
 
 
 class StopCreate(BaseModel):
@@ -159,6 +167,7 @@ class StopPatch(BaseModel):
     notes: Optional[str] = None
     thematic_tags: Optional[List[str]] = None
     clear_dates: bool = False
+    clear_notes: bool = False
     ord: Optional[int] = None
     parent_trip_stop_id: Optional[str] = None
     clear_parent: bool = False
@@ -721,6 +730,7 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
         notes=req.notes,
         thematic_tags=req.thematic_tags,
         clear_dates=req.clear_dates,
+        clear_notes=req.clear_notes,
         ord_=req.ord,
         parent_trip_stop_id=req.parent_trip_stop_id,
         clear_parent=req.clear_parent,
@@ -769,6 +779,9 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
         start_date=req.start_date,
         end_date=req.end_date,
         summary=req.summary,
+        clear_start_date=req.clear_start_date,
+        clear_end_date=req.clear_end_date,
+        clear_summary=req.clear_summary,
     )
     if not ok:
         raise HTTPException(
@@ -822,7 +835,15 @@ def create_stop(trip_id: str, region_id: str, req: StopCreate) -> Dict[str, Any]
         if _parent.get("trip_region_id") != region_id:
             raise HTTPException(status_code=400,
                                 detail="parent stop belongs to another region")
-    next_ord = req.ord if req.ord is not None else len(region.get("stops", []))
+    if req.ord is not None:
+        next_ord = req.ord
+    elif req.parent_trip_stop_id:
+        # Child/day-trip: append within the parent's sibling group, NOT the
+        # region's top-level count (which would collide on ord).
+        next_ord = len(trip_repository.sibling_stop_ids(
+            trip_id, region_id, req.parent_trip_stop_id))
+    else:
+        next_ord = len(region.get("stops", []))
     stop_id = trip_repository.stop_create(
         trip_id=trip_id,
         trip_region_id=region_id,
@@ -874,6 +895,11 @@ def patch_region(region_id: str, req: RegionPatch) -> Dict[str, Any]:
         summary=req.summary,
         base_address=req.base_address,
         ord_=req.ord,
+        clear_country_or_area=req.clear_country_or_area,
+        clear_start_date=req.clear_start_date,
+        clear_end_date=req.clear_end_date,
+        clear_summary=req.clear_summary,
+        clear_base_address=req.clear_base_address,
     )
     if not ok:
         raise HTTPException(
@@ -896,9 +922,20 @@ def delete_region(region_id: str) -> Dict[str, Any]:
 @router.delete("/stops/{stop_id}")
 def delete_stop(stop_id: str) -> Dict[str, Any]:
     _require_trips_enabled()
-    _tid = trip_repository.stop_trip_id(stop_id)
+    stop = trip_repository.stop_get(stop_id)
+    if not stop:
+        raise HTTPException(status_code=404, detail="stop not found")
+    _tid = stop.get("trip_id")
+    _region = stop.get("trip_region_id")
+    # Children of this stop get promoted to top level (FK SET NULL). Capture
+    # them BEFORE the delete so we can renumber the region's top-level group
+    # afterward and stop their old child ords from colliding.
+    child_ids = trip_repository.stop_child_ids(stop_id)
     if not trip_repository.stop_delete(stop_id):
         raise HTTPException(status_code=404, detail="stop not found")
+    if child_ids and _tid and _region:
+        top_ids = trip_repository.sibling_stop_ids(_tid, _region, None)
+        trip_repository.stops_reorder(_tid, _region, None, top_ids)
     if _tid:
         trip_timeline_bridge.sync_trip_to_life_record(_tid)
     return {"ok": True, "stop_id": stop_id}
