@@ -359,12 +359,25 @@ def apply_trip_narration(
         if parse.get("start_place"):
             ordered_places.append({"place": parse["start_place"], "nights": None})
         ordered_places.extend(parse.get("stops", []))
-        _max_ord = 0
+        # HARDEN-TRIP-NARRATION-SIBLING-ORD-APPEND-01 (2026-07-07):
+        # append within the TARGET sibling group (top-level stops of
+        # region_id), matching the clean-ord rule the Travel Doc
+        # reorder/move/delete lane now enforces. The old computation
+        # took the max ord across ALL regions AND child groups, so a
+        # narration stop could land at e.g. ord 7 in a region whose
+        # own top-level stops end at ord 2 — legal (reads sort by
+        # ord) but inconsistent sibling spacing.
+        # Max ord WITHIN the target region's top-level group (not
+        # len-1 of the sibling list — a legacy gap would make len-1
+        # collide with an existing ord, which is worse than a gap).
+        # A region created just above isn't in `regions` yet: max
+        # stays -1 and the first narration stop lands at ord 0.
+        _max_ord = -1
         for r in regions:
+            if r.get("id") != region_id:
+                continue
             for s in r.get("stops", []):
-                _max_ord = max(_max_ord, s.get("ord") or 0)
-                for c in s.get("children", []):
-                    _max_ord = max(_max_ord, c.get("ord") or 0)
+                _max_ord = max(_max_ord, s.get("ord") if s.get("ord") is not None else -1)
         for sp in ordered_places:
             key = sp["place"].lower()
             if key in existing_stop_names:

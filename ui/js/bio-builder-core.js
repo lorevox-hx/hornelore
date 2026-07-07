@@ -388,13 +388,18 @@
           bb.questionnaire_meta = (j._meta && typeof j._meta === "object")
             ? j._meta : {};
           bb.questionnaire_source = j.source || "legacy_blob";
-          _qqDebugSnapshot("restore_backend", stampedPid, bb);
           console.log("[bb-core] ✅ Questionnaire restored from backend for " + stampedPid.slice(0, 8)
             + " (source=" + bb.questionnaire_source + ")");
           // Update transient localStorage to match backend (wrap in { v, d } for localStorage format)
           try {
             localStorage.setItem(_LS_QQ_PREFIX + stampedPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
           } catch (e) {}
+          // BUG-BIO-BUILDER-FALSE-DRIFT-WARNING-01 (2026-07-07): the
+          // snapshot used to run BEFORE the setItem above, so mem/disk
+          // key comparison fired KEY MISMATCH on every backend restore
+          // (disk still empty at snapshot time). Snapshot AFTER the
+          // mirror write so it only warns on real persistence drift.
+          _qqDebugSnapshot("restore_backend", stampedPid, bb);
         }
       })
       .catch(function (e) {

@@ -392,6 +392,13 @@
         // Load Camera utility
         if (typeof Camera === 'undefined') {
           console.error('[LoreVoxEmotion] MediaPipe Camera not loaded.');
+          // BUG-EMOTION-CAMERA-MISSING-VIDEO-LEAK-01 (2026-07-07): the
+          // hidden <video> was appended above; this early return used
+          // to skip the catch-block cleanup and orphan it in the DOM.
+          if (_videoEl) {
+            try { _videoEl.remove(); } catch (_) {}
+            _videoEl = null;
+          }
           return false;
         }
 

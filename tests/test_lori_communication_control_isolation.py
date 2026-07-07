@@ -99,10 +99,19 @@ class LoriCommunicationControlIsolationTests(unittest.TestCase):
                         #   lori_softened_response — softened word-limit /
                         #                            directive (lazy import in
                         #                            safety path)
+                        #   lori_spanish_guard   — looks_spanish() language
+                        #                          gate on the Step 6b chain
+                        #                          anchor-echo injection
+                        #                          (added 2026-07-02; pure-
+                        #                          stdlib sibling, allowlist
+                        #                          lagged until 2026-07-07)
                         allowed = (
                             "question_atomicity",
                             "lori_reflection",
                             "lori_softened_response",
+                            "lori_spanish_guard",
+                            "reflection_grounding",
+                            "question_hierarchy",
                         )
                         self.assertTrue(
                             any(name in target for name in allowed),
