@@ -3030,13 +3030,21 @@ async def ws_chat(ws: WebSocket):
         # parent session that is unsafe — he could hear the bad
         # response before validation. Buffer in witness-receipt mode
         # by construction; client receives only the validated final.
-        try:
-            from ..prompt_composer import _discipline_filter_enabled
-            _buffer_mode = _discipline_filter_enabled()
-        except Exception:
-            _buffer_mode = False
+        # BUG-LORI-RAW-STREAM-BEFORE-GUARDS-01 (2026-07-07): buffer
+        # UNCONDITIONALLY. Raw tokens used to stream to the client while
+        # the response guards (meta-preamble class, language drift,
+        # seeded-fact, sensory-pivot) only ran after generation — the
+        # narrator could see leaked text before the repaired final_text
+        # replaced the bubble on `done` (live evidence 2026-07-07: the
+        # trip-open "Here is the response in the requested format:"
+        # leak). All narrator-visible LLM output now buffers server-side
+        # and emits ONCE, after apply_response_guards, via the deferred
+        # single-delta block just before `done` (witness-receipt mode
+        # pioneered this posture; it now applies to every LLM turn on
+        # this path). The discipline-filter flag no longer gates
+        # buffering — it only gates the trim itself.
+        _buffer_mode = True
         if _witness_use_llm_receipt:
-            _buffer_mode = True
             logger.info(
                 "[chat_ws][witness][buffered-stream] conv=%s — "
                 "tokens buffered server-side; emitting only validated "
@@ -3303,6 +3311,12 @@ async def ws_chat(ws: WebSocket):
         # itself was carefully composed to be the right shape; the
         # one-question discipline is for normal interview turns.
         _is_safety_turn = bool(_safety_result and _safety_result.triggered)
+        # BUG-LORI-RAW-STREAM-BEFORE-GUARDS-01: no pre-guard emits.
+        # Every branch below marks the emit as pending; the single
+        # delta fires AFTER apply_response_guards (deferred block
+        # before `done`). This also fixes a mismatch where safety
+        # turns SHOWED pre-guard text but ARCHIVED post-guard text.
+        _deferred_emit_pending = False
         if _is_safety_turn and _buffer_mode and final_text:
             logger.info(
                 "[lori][discipline][safety-exempt] trim skipped conv=%s "
@@ -3310,7 +3324,7 @@ async def ws_chat(ws: WebSocket):
                 conv_id,
                 _safety_result.category if _safety_result else "?",
             )
-            await _ws_send(ws, {"type": "token", "delta": final_text})
+            _deferred_emit_pending = True
             # Skip the normal trim path for this turn entirely.
             _buffer_mode_for_trim = False
         else:
@@ -3338,7 +3352,9 @@ async def ws_chat(ws: WebSocket):
                 # delta emit to AFTER the validator (L2660+ via the
                 # post-validator block we add there).
                 if not _witness_use_llm_receipt:
-                    await _ws_send(ws, {"type": "token", "delta": final_text})
+                    # BUG-LORI-RAW-STREAM-BEFORE-GUARDS-01: defer —
+                    # response guards haven't run yet.
+                    _deferred_emit_pending = True
                 else:
                     logger.info(
                         "[chat_ws][witness][buffered-stream] conv=%s — "
@@ -3347,12 +3363,12 @@ async def ws_chat(ws: WebSocket):
                     )
         except Exception as _disc_exc:
             # Filter is a safety net — never let it kill a turn. If trim
-            # raised in buffer mode, send the untrimmed text so the narrator
-            # still sees an answer.
+            # raised in buffer mode, the untrimmed text still reaches the
+            # narrator via the deferred post-guard emit.
             logger.warning("[lori][discipline] filter raised, passing through: %s", _disc_exc)
             if _buffer_mode_for_trim and final_text:
                 if not _witness_use_llm_receipt:
-                    await _ws_send(ws, {"type": "token", "delta": final_text})
+                    _deferred_emit_pending = True
 
         # Phase G: fail-closed — only persist if generation completed cleanly
         if ev.is_set():
@@ -4046,12 +4062,13 @@ async def ws_chat(ws: WebSocket):
         # validated/repaired text. Emit it as a single delta so the
         # client UI gets the same token+done shape it expects, and
         # Kent's chat-bubble fills with ONLY the validated text.
-        if _witness_use_llm_receipt and final_text:
+        if (_witness_use_llm_receipt or _deferred_emit_pending) and final_text:
             try:
                 await _ws_send(ws, {"type": "token", "delta": final_text})
                 logger.info(
-                    "[chat_ws][witness][buffered-stream] conv=%s — "
-                    "deferred token emitted post-validator words=%d",
+                    "[chat_ws][%s][buffered-stream] conv=%s — "
+                    "deferred token emitted post-guards words=%d",
+                    "witness" if _witness_use_llm_receipt else "guards",
                     conv_id, len(final_text.split()),
                 )
             except Exception as _emit_exc:
