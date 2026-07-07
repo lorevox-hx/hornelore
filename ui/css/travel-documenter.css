@@ -75,3 +75,26 @@ body.td-standalone .td-dot.bad { background: var(--td-bad); }
 .lv-traveldoc-empty {
   padding: 28px; text-align: center; font-size: 15px; opacity: .85;
 }
+/* ── Editable itinerary tiles (WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01) ──
+   Every rule is a single line beginning with .td-root (+ body.td-standalone)
+   so the scoping gate in test_travel_documenter_panel stays green. */
+.td-root .td-tile, body.td-standalone .td-tile { border: 1px solid var(--td-line); border-radius: 14px; background: rgba(255, 250, 240, 0.72); padding: 0.55rem 0.65rem; }
+.td-root .td-tile.is-selected, body.td-standalone .td-tile.is-selected { outline: 2px solid var(--td-accent); background: #fff6e0; }
+.td-root .td-region-tile, body.td-standalone .td-region-tile { background: #fff7e4; }
+.td-root .td-region-stops, body.td-standalone .td-region-stops { display: grid; gap: 0.4rem; margin-top: 0.5rem; }
+.td-root .td-stop-tile, body.td-standalone .td-stop-tile { margin-top: 0; background: rgba(255, 253, 247, 0.9); border-left: 4px solid var(--td-accent); }
+.td-root .td-tile-head, body.td-standalone .td-tile-head { display: flex; align-items: flex-start; gap: 0.6rem; }
+.td-root .td-tile-main, body.td-standalone .td-tile-main { flex: 1; min-width: 0; text-align: left; background: transparent; color: var(--td-text); border: 0; box-shadow: none; padding: 0.1rem 0.15rem; cursor: pointer; }
+.td-root .td-tile-main:hover, body.td-standalone .td-tile-main:hover { filter: none; background: rgba(181, 107, 18, 0.06); border-radius: 8px; }
+.td-root .td-tile-main strong, body.td-standalone .td-tile-main strong { display: block; font-size: 0.98rem; }
+.td-root .td-tile-main small, body.td-standalone .td-tile-main small { display: block; margin-top: 0.15rem; color: var(--td-muted); line-height: 1.35; font-weight: 600; }
+.td-root .td-tile-actions, body.td-standalone .td-tile-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: flex-end; }
+.td-root .td-tile-btn, body.td-standalone .td-tile-btn { border: 1px solid var(--td-line); background: rgba(181, 107, 18, 0.1); color: var(--td-accent-2); box-shadow: none; border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; }
+.td-root .td-tile-btn:hover, body.td-standalone .td-tile-btn:hover { background: rgba(181, 107, 18, 0.2); filter: none; }
+.td-root .td-tile-btn.danger, body.td-standalone .td-tile-btn.danger, .td-root .td-danger, body.td-standalone .td-danger { border: 1px solid rgba(166, 64, 47, 0.4); background: rgba(166, 64, 47, 0.09); color: var(--td-bad); box-shadow: none; }
+.td-root .td-tile-btn.danger:hover, body.td-standalone .td-tile-btn.danger:hover, .td-root .td-danger:hover, body.td-standalone .td-danger:hover { background: rgba(166, 64, 47, 0.18); filter: none; }
+.td-root .td-editor-body, body.td-standalone .td-editor-body { display: grid; gap: 0.6rem; }
+.td-root .td-editor-form, body.td-standalone .td-editor-form { display: grid; gap: 0.6rem; }
+.td-root .td-ed-field, body.td-standalone .td-ed-field { display: grid; gap: 0.3rem; }
+.td-root .td-ed-label, body.td-standalone .td-ed-label { font-size: 0.82rem; font-weight: 750; color: var(--td-muted); }
+.td-root .td-ed-actions, body.td-standalone .td-ed-actions { margin-top: 0.2rem; }
