@@ -343,11 +343,18 @@
 
       _faceMesh = new FaceMesh({
         locateFile: (file) => {
-          // Force non-SIMD WASM binary — SIMD variant crashes at loadGraph on this machine.
-          // Both JS loaders remain present; only the WASM binary is redirected.
-          if (file === 'face_mesh_solution_simd_wasm_bin.wasm') {
-            console.log('[LoreVoxEmotion] Redirecting SIMD WASM → non-SIMD WASM');
-            return `vendor/mediapipe/face_mesh/face_mesh_solution_wasm_bin.wasm`;
+          // BUG-CAMERA-MEDIAPIPE-ASSET-MISMATCH-01 (2026-07-07): serve a
+          // COHERENT non-SIMD bundle. The old redirect swapped ONLY the
+          // .wasm, leaving the SIMD JS loader in play — mixing the SIMD JS
+          // with the non-SIMD wasm aborted with "No EM_ASM constant found".
+          // The vendor snapshot has no usable SIMD assets anyway (SIMD
+          // .wasm parked in _simd_hold/, SIMD .data is zero bytes), so
+          // redirect EVERY *_simd_wasm_bin.* request to its non-SIMD twin.
+          const f = String(file);
+          if (f.indexOf('_simd_wasm_bin') !== -1) {
+            const redirected = f.replace('_simd_wasm_bin', '_wasm_bin');
+            console.info('[LoreVoxEmotion] SIMD asset → non-SIMD:', f, '→', redirected);
+            return `vendor/mediapipe/face_mesh/${redirected}`;
           }
           return `vendor/mediapipe/face_mesh/${file}`;
         },
@@ -388,10 +395,29 @@
           return false;
         }
 
+        let _sendFailures = 0;
         _camera = new Camera(_videoEl, {
           onFrame: async () => {
-            if (_active && _faceMesh) {
+            if (!(_active && _faceMesh)) return;
+            try {
               await _faceMesh.send({ image: _videoEl });
+              _sendFailures = 0;
+            } catch (err) {
+              // BUG-CAMERA-MEDIAPIPE-ASSET-MISMATCH-01: a broken FaceMesh
+              // runtime (missing face_mesh.binarypb graph, wasm abort)
+              // rejects on every frame. Without this catch each frame threw
+              // an uncaught promise rejection. Three strikes -> disable
+              // affect detection calmly; the narrator session continues.
+              _sendFailures += 1;
+              if (_sendFailures === 1) {
+                console.warn('[LoreVoxEmotion] FaceMesh frame failed:', err);
+              }
+              if (_sendFailures >= 3) {
+                console.info('[LoreVoxEmotion] FaceMesh unavailable — ' +
+                  'affect detection disabled for this session ' +
+                  '(camera/emotion assets missing or incompatible).');
+                try { LoreVoxEmotion.stop(); } catch (_) {}
+              }
             }
           },
           width: 320,
