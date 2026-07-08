@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    travel-documenter.js — WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01
                         + WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01
+                        + WO-TRAVEL-DOC-LAYOUT-REFLOW-01
 
    OPERATOR-ONLY trip documentation panel, mountable:
 
@@ -11,34 +12,24 @@
        standalone,     // true = show connection inputs (demo page)
      })
 
-   Consumed two ways:
-     1. NATIVE: the main app mounts it into the "Travel Doc" shell
-        tab with the currently selected narrator (no pasted ids).
-     2. STANDALONE: ui/travel-documenter.html is a thin wrapper that
-        mounts with {standalone:true} and its own inputs.
-
    HARD BOUNDARIES (spec + regression-tested):
      - Operator tool ONLY. The shell tab strip is hidden during
-       interview mode (body.lv-interview-mode-active #lvShellTabs),
-       so this panel is unreachable by narrators.
-     - NEVER touches Lori/Travels state: nothing here writes the
-       trip-session scope the narrator shelf owns, nothing consumed
-       by the chat runtime, and no system-prompt dispatch of any kind.
-     - Uses existing trips endpoints only. Photo uploads land at
-       trip level (trip_upload method — unplaced, cluster-placeable)
-       and are narrator-ready immediately: the operator IS the
-       reviewer on this surface, unlike travels_shelf uploads which
-       get needs_operator_review stamped server-side.
+       interview mode (body.lv-interview-mode-active #lvShellTabs).
+     - NEVER touches Lori/Travels state: no trip-session scope writes,
+       nothing consumed by the chat runtime, no system-prompt dispatch.
+       Focus mode only toggles a body CSS class (document.body) that
+       compresses the shell header visually on the Travel Doc tab; it
+       writes no runtime/session state.
+     - Uses existing trips endpoints only.
 
-   EDITABLE ITINERARY (WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01):
-     Operator tile order is the route authority (dates are metadata).
-     The selected-trip tree is a DOM tile board: each region/stop tile
-     carries Edit / Delete / Move up-down / Add before-after; the right
-     editor panel edits the selected trip/region/stop. Reorder + move
-     persist via the backend `ord` column so a reload — and the memoir
-     preview — reflect the same order. Delete semantics (server-side):
-     deleting a region CASCADES its stops; deleting a parent stop
-     PROMOTES its children to top level (parent set null).
+   LAYOUT REFLOW (WO-TRAVEL-DOC-LAYOUT-REFLOW-01):
+     The itinerary tile board is the star. Left column = narrator +
+     trips list + "New trip"; main column = selected-trip header +
+     toolbar (Edit trip / +Region / +Stop / Reload / Memoir) + tile
+     board; right sticky column = context editor. Create trip, Add
+     region, and Add stop are MODALS (add-stop opens at the tile you
+     insert from). Trip photos + Output are collapsed by default;
+     Output auto-expands on error.
 ═══════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
@@ -61,7 +52,12 @@
   }
 
   function template(opts) {
-    var connection = opts.standalone
+    var stopTypeOptions = STOP_TYPES.map(function (t) {
+      return '<option value="' + t + '"' + (t === "sight" ? " selected" : "") + '>' + t + "</option>";
+    }).join("");
+
+    // ── Left column top: connection (standalone) or narrator (native) ──
+    var leftTop = opts.standalone
       ? '<section class="td-panel td-setup-panel">' +
         '<h2>Connection</h2>' +
         '<label>API base<input data-td="apiBase" type="text" spellcheck="false" value="' + esc(opts.apiBase || "http://localhost:8000") + '" /></label>' +
@@ -69,47 +65,83 @@
         '<div class="td-button-row"><button data-td="loadTrips" type="button">Load trips</button><button data-td="ping" type="button" class="td-secondary">Check API</button></div>' +
         '<p class="td-help">Requires <code>HORNELORE_TRIPS=1</code>.</p>' +
         '</section>'
-      : '<section class="td-panel td-setup-panel">' +
+      : '<section class="td-panel td-narrator-panel">' +
         '<h2>Narrator</h2>' +
         '<p class="td-narrator-line">Documenting trips for <strong>' +
         esc(opts.person_label || opts.person_id || "—") + '</strong></p>' +
-        '<div class="td-button-row"><button data-td="loadTrips" type="button">Reload trips</button></div>' +
+        '<div class="td-button-row"><button data-td="loadTrips" type="button" class="td-small td-secondary">Reload trips</button><button data-td="focusToggle" type="button" class="td-small td-secondary">Focus</button></div>' +
         '</section>';
 
-    var stopTypeOptions = STOP_TYPES.map(function (t) {
-      return '<option value="' + t + '"' + (t === "sight" ? " selected" : "") + '>' + t + "</option>";
-    }).join("");
+    var leftCol =
+      '<aside class="td-col td-col-left">' + leftTop +
+      '<section class="td-panel td-trip-list-panel">' +
+      '<div class="td-panel-head"><h2>Trips</h2><button data-td="refreshTrips" type="button" class="td-small td-secondary">Refresh</button></div>' +
+      '<div data-td="tripList" class="td-trip-list td-empty">Load a narrator’s trips.</div>' +
+      '<button data-td="openCreateTrip" type="button" class="td-newtrip-btn">+ New trip</button>' +
+      '</section>' +
+      '</aside>';
 
-    return '<div class="td-layout">' + connection +
-      '<section class="td-panel">' +
-      '<h2>Create trip</h2>' +
+    var mainCol =
+      '<main class="td-col td-col-main">' +
+      '<section class="td-panel td-active-panel">' +
+      '<div class="td-panel-head"><div>' +
+      '<p class="td-kicker">Selected trip</p>' +
+      '<h2 data-td="activeTripTitle">None selected</h2>' +
+      '<div data-td="tripMeta" class="td-muted">Choose a trip to document.</div>' +
+      '</div></div>' +
+      '<div class="td-button-row td-trip-toolbar">' +
+      '<button data-td="editTrip" type="button" class="td-small td-secondary">Edit trip</button>' +
+      '<button data-td="addRegionBtn" type="button" class="td-small">+ Region</button>' +
+      '<button data-td="addStopBtn" type="button" class="td-small">+ Stop</button>' +
+      '<button data-td="reloadTree" type="button" class="td-small td-secondary">Reload</button>' +
+      '<button data-td="memoirPreview" type="button" class="td-small td-secondary">Memoir preview</button>' +
+      '</div>' +
+      '<p class="td-help">Tile order is the route order. Use the tile buttons to reorder, insert, or restructure — dates are just metadata.</p>' +
+      '<div data-td="tree" class="td-tree"></div>' +
+      '</section>' +
+      '</main>';
+
+    var rightCol =
+      '<aside class="td-col td-col-right">' +
+      '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
+      '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
+      '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
+      '</section>' +
+      '</aside>';
+
+    var bottom =
+      '<section class="td-panel td-wide td-collapse-panel">' +
+      '<div class="td-panel-head"><button data-td="togglePhotos" type="button" class="td-collapse-toggle">▸ Trip photos</button></div>' +
+      '<div data-td="photosBody" class="td-collapse-body" hidden>' +
+      '<p class="td-help">Uploads are trusted operator additions: narrator-ready immediately, unplaced at trip level — run Cluster photos to place them at stops.</p>' +
+      '<label>Add photos to selected trip<input data-td="photoFiles" type="file" accept="image/*,.heic,.heif" multiple /></label>' +
+      '<div class="td-button-row"><button data-td="uploadPhotos" type="button">Upload photos</button><button data-td="clusterPhotos" type="button" class="td-secondary">Cluster photos</button></div>' +
+      '<div data-td="photoStrip" class="td-photo-strip td-empty">No trip selected.</div>' +
+      '</div>' +
+      '</section>' +
+      '<section class="td-panel td-wide td-collapse-panel">' +
+      '<div class="td-panel-head"><button data-td="toggleOutput" type="button" class="td-collapse-toggle">▸ Output</button><span data-td="statusLine" class="td-status-inline"></span><button data-td="clearOutput" type="button" class="td-small td-secondary">Clear</button></div>' +
+      '<pre data-td="output" class="td-output" hidden>Ready.</pre>' +
+      '</section>';
+
+    // ── Modals (inside hostEl so CSS stays .td-root-scoped) ──
+    var modalCreateTrip =
+      '<div class="td-modal-overlay" data-td="modalCreateTrip" hidden>' +
+      '<div class="td-modal"><div class="td-modal-head"><h2>Create trip</h2>' +
+      '<button data-td="closeCreateTrip" type="button" class="td-modal-x" title="Close">✕</button></div>' +
       '<div class="td-grid-2">' +
       '<label>Title<input data-td="tripTitle" type="text" placeholder="Spring 2026 Europe" /></label>' +
       '<label>Start date<input data-td="tripStart" type="date" /></label>' +
       '<label>End date<input data-td="tripEnd" type="date" /></label>' +
       '</div>' +
       '<label>Summary<textarea data-td="tripSummary" rows="3" placeholder="Short summary of the trip."></textarea></label>' +
-      '<button data-td="createTrip" type="button">Create trip</button>' +
-      '</section>' +
-      '<section class="td-panel td-trip-list-panel">' +
-      '<div class="td-panel-head"><h2>Trips</h2><button data-td="refreshTrips" type="button" class="td-small td-secondary">Refresh</button></div>' +
-      '<div data-td="tripList" class="td-trip-list td-empty">Load a narrator’s trips.</div>' +
-      '</section>' +
-      '<section class="td-panel td-active-panel">' +
-      '<div class="td-panel-head">' +
-      '<div><p class="td-kicker">Selected trip</p><h2 data-td="activeTripTitle">None selected</h2></div>' +
-      '<div class="td-button-row"><button data-td="editTrip" type="button" class="td-small td-secondary">Edit trip</button><button data-td="reloadTree" type="button" class="td-small td-secondary">Reload</button><button data-td="memoirPreview" type="button" class="td-small">Memoir preview</button></div>' +
-      '</div>' +
-      '<div data-td="tripMeta" class="td-muted">Choose a trip to document.</div>' +
-      '<p class="td-help">Tile order is the route order. Use the tile buttons to reorder, insert, or restructure — dates are just metadata.</p>' +
-      '<div data-td="tree" class="td-tree"></div>' +
-      '</section>' +
-      '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
-      '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
-      '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
-      '</section>' +
-      '<section class="td-panel">' +
-      '<h2>Add region</h2>' +
+      '<div class="td-button-row"><button data-td="createTrip" type="button">Create trip</button><button data-td="cancelCreateTrip" type="button" class="td-secondary">Cancel</button></div>' +
+      '</div></div>';
+
+    var modalAddRegion =
+      '<div class="td-modal-overlay" data-td="modalAddRegion" hidden>' +
+      '<div class="td-modal"><div class="td-modal-head"><h2>Add region</h2>' +
+      '<button data-td="closeAddRegion" type="button" class="td-modal-x" title="Close">✕</button></div>' +
       '<div class="td-grid-2">' +
       '<label>Region title<input data-td="regionName" type="text" placeholder="Germany / Bavaria" /></label>' +
       '<label>Country or area<input data-td="regionArea" type="text" placeholder="Germany" /></label>' +
@@ -117,10 +149,14 @@
       '<label>End date<input data-td="regionEnd" type="date" /></label>' +
       '</div>' +
       '<label>Base address / lodging<input data-td="regionBase" type="text" placeholder="Hotel, rental, city base" /></label>' +
-      '<button data-td="createRegion" type="button">Add region</button>' +
-      '</section>' +
-      '<section class="td-panel">' +
-      '<div class="td-panel-head"><h2>Add stop</h2><span data-td="insertHint" class="td-status-inline"></span></div>' +
+      '<div class="td-button-row"><button data-td="createRegion" type="button">Add region</button><button data-td="cancelAddRegion" type="button" class="td-secondary">Cancel</button></div>' +
+      '</div></div>';
+
+    var modalAddStop =
+      '<div class="td-modal-overlay" data-td="modalAddStop" hidden>' +
+      '<div class="td-modal"><div class="td-modal-head"><h2>Add stop</h2>' +
+      '<span data-td="insertHint" class="td-status-inline"></span>' +
+      '<button data-td="closeAddStop" type="button" class="td-modal-x" title="Close">✕</button></div>' +
       '<div class="td-grid-2">' +
       '<label>Region<select data-td="stopRegion"></select></label>' +
       '<label>Parent stop / day trip under<select data-td="stopParent"></select></label>' +
@@ -130,20 +166,11 @@
       '<label>End date<input data-td="stopEnd" type="date" /></label>' +
       '</div>' +
       '<label>Notes<textarea data-td="stopNotes" rows="3" placeholder="Route details, lodging, meals, people, memories."></textarea></label>' +
-      '<div class="td-button-row"><button data-td="createStop" type="button">Add stop</button><button data-td="cancelInsert" type="button" class="td-small td-secondary" hidden>Cancel insert</button></div>' +
-      '</section>' +
-      '<section class="td-panel">' +
-      '<h2>Trip photos</h2>' +
-      '<p class="td-help">Uploads are trusted operator additions: narrator-ready immediately, unplaced at trip level — run Cluster photos to place them at stops.</p>' +
-      '<label>Add photos to selected trip<input data-td="photoFiles" type="file" accept="image/*,.heic,.heif" multiple /></label>' +
-      '<div class="td-button-row"><button data-td="uploadPhotos" type="button">Upload photos</button><button data-td="clusterPhotos" type="button" class="td-secondary">Cluster photos</button></div>' +
-      '<div data-td="photoStrip" class="td-photo-strip td-empty">No trip selected.</div>' +
-      '</section>' +
-      '<section class="td-panel td-wide">' +
-      '<div class="td-panel-head"><h2>Output</h2><span data-td="statusLine" class="td-status-inline"></span><button data-td="clearOutput" type="button" class="td-small td-secondary">Clear</button></div>' +
-      '<pre data-td="output" class="td-output">Ready.</pre>' +
-      '</section>' +
-      '</div>';
+      '<div class="td-button-row"><button data-td="createStop" type="button">Add stop</button><button data-td="cancelAddStop" type="button" class="td-secondary">Cancel</button></div>' +
+      '</div></div>';
+
+    return '<div class="td-layout">' + leftCol + mainCol + rightCol + bottom +
+      modalCreateTrip + modalAddRegion + modalAddStop + '</div>';
   }
 
   window.lvTravelDocumenterMount = function (hostEl, opts) {
@@ -153,9 +180,7 @@
         .replace(/\/$/, ""),
       personId: opts.person_id || "",
       trips: [], trip: null, tree: null, photoLinks: [],
-      // { kind: "trip"|"region"|"stop", id }
       selected: null,
-      // { region_id, parent_stop_id, sibling_stop_id, where: "before"|"after" }
       insertContext: null,
     };
 
@@ -181,6 +206,40 @@
       if (!el2) return;
       el2.className = "td-status-inline" + (kind ? " " + kind : "");
       el2.textContent = text || "";
+    }
+
+    // Output is collapsed by default; surface it automatically on error.
+    function expandOutput() {
+      var o = $("output");
+      if (o && o.hidden) {
+        o.hidden = false;
+        var btn = $("toggleOutput");
+        if (btn) btn.textContent = "▾ Output";
+      }
+    }
+    function logError(msg, obj) {
+      setStatus("bad", "Error");
+      log(msg, obj);
+      expandOutput();
+    }
+    function toggleHidden(bodyName, btnName, labelBase) {
+      var b = $(bodyName), btn = $(btnName);
+      if (!b) return;
+      b.hidden = !b.hidden;
+      if (btn) btn.textContent = (b.hidden ? "▸ " : "▾ ") + labelBase;
+    }
+
+    // ── Modals ──────────────────────────────────────────────────────────
+    function openModal(name) { var m = $(name); if (m) m.hidden = false; }
+    function closeModal(name) { var m = $(name); if (m) m.hidden = true; }
+    function clearFields(names) {
+      names.forEach(function (n) { var e2 = $(n); if (e2) e2.value = ""; });
+    }
+
+    function toggleFocus() {
+      var on = document.body.classList.toggle("lv-td-focus");
+      var b = $("focusToggle");
+      if (b) b.textContent = on ? "Exit focus" : "Focus";
     }
 
     function syncInputs() {
@@ -223,7 +282,6 @@
       return out;
     }
 
-    // Live tree node (with children) + its region + parent node.
     function locateStop(stopId) {
       var res = null;
       ((st.tree && st.tree.regions) || []).forEach(function (r) {
@@ -261,14 +319,12 @@
       renderTree();
     }
 
-    // Reload trips + re-open the current trip by id, preserving selection.
     function refreshCurrentTrip() {
       if (!st.trip) return Promise.resolve();
       var tid = st.trip.id;
       return loadTrips().then(function () {
         var t = st.trips.filter(function (x) { return x.id === tid; })[0];
         if (t) return openTrip(t);
-        // Trip was deleted out from under us.
         st.trip = null; st.tree = null; st.selected = null;
         renderTree();
       });
@@ -298,6 +354,7 @@
 
     function renderPhotos() {
       var host = $("photoStrip");
+      if (!host) return;
       if (!st.trip) {
         host.className = "td-photo-strip td-empty";
         host.textContent = "No trip selected.";
@@ -351,8 +408,7 @@
       b.addEventListener("click", function (e) {
         e.stopPropagation();
         Promise.resolve().then(onClick).catch(function (err) {
-          setStatus("bad", "Error");
-          log("Error", { message: err.message });
+          logError("Error", { message: err.message });
         });
       });
       return b;
@@ -467,8 +523,8 @@
         title.textContent = "None selected";
         meta.textContent = "Choose a trip to document.";
         treeHost.innerHTML = "";
-        regionSel.innerHTML = "<option value=''>Select a trip first</option>";
-        parentSel.innerHTML = "<option value=''>No parent</option>";
+        if (regionSel) regionSel.innerHTML = "<option value=''>Select a trip first</option>";
+        if (parentSel) parentSel.innerHTML = "<option value=''>No parent</option>";
         renderPhotos();
         renderEditor();
         return;
@@ -478,21 +534,20 @@
       meta.textContent = dateSpan(st.trip.start_date, st.trip.end_date) || st.trip.id;
 
       var regions = st.tree.regions || [];
-      regionSel.innerHTML = regions.length ? "" : "<option value=''>Add a region first</option>";
-      regions.forEach(function (r) {
-        var opt = document.createElement("option");
-        opt.value = r.id;
-        opt.textContent = r.title || "Region";
-        regionSel.appendChild(opt);
-      });
-
-      // Backend rejects parents from another region, so only offer parents
-      // from the SELECTED region. Rebuilds on region change too.
+      if (regionSel) {
+        regionSel.innerHTML = regions.length ? "" : "<option value=''>Add a region first</option>";
+        regions.forEach(function (r) {
+          var opt = document.createElement("option");
+          opt.value = r.id;
+          opt.textContent = r.title || "Region";
+          regionSel.appendChild(opt);
+        });
+      }
       rebuildParentOptions();
 
       treeHost.innerHTML = "";
       if (!regions.length) {
-        treeHost.appendChild(el("p", "td-empty", "No regions yet. Add the first region."));
+        treeHost.appendChild(el("p", "td-empty", "No regions yet. Use + Region to add the first one."));
       } else {
         regions.forEach(function (r) { treeHost.appendChild(renderRegionTile(r)); });
       }
@@ -525,7 +580,6 @@
       return edField(parent, label, t);
     }
     function edSelect(parent, label, options, value) {
-      // options: [{value,label}]
       var s = document.createElement("select");
       options.forEach(function (o) {
         var opt = document.createElement("option");
@@ -540,7 +594,7 @@
       var save = el("button", "", "Save"); save.type = "button";
       save.addEventListener("click", function () {
         Promise.resolve().then(saveFn).catch(function (e) {
-          setStatus("bad", "Error"); log("Error", { message: e.message });
+          logError("Error", { message: e.message });
         });
       });
       row.appendChild(save);
@@ -548,7 +602,7 @@
         var del = el("button", "td-danger", "Delete"); del.type = "button";
         del.addEventListener("click", function () {
           Promise.resolve().then(deleteFn).catch(function (e) {
-            setStatus("bad", "Error"); log("Error", { message: e.message });
+            logError("Error", { message: e.message });
           });
         });
         row.appendChild(del);
@@ -658,9 +712,6 @@
       var vEnd = edDate(f, "End date", stop.date_end);
       var vNotes = edArea(f, "Notes", stop.notes);
 
-      // Move controls: region + parent. Changing either issues a move so
-      // ord is renumbered cleanly. Parent options exclude this stop's own
-      // subtree (backend also rejects cycles).
       var regionOpts = (st.tree.regions || []).map(function (r) {
         return { value: r.id, label: r.title || "Region" };
       });
@@ -765,22 +816,19 @@
       }).then(function () { return refreshCurrentTrip(); });
     }
 
-    // ── Insert before/after + plain add ─────────────────────────────────
+    // ── Insert before/after + plain add (open the Add-stop modal) ───────
 
     function updateInsertHint() {
       var hint = $("insertHint");
-      var cancel = $("cancelInsert");
       if (!hint) return;
       if (st.insertContext) {
         var loc = locateStop(st.insertContext.sibling_stop_id);
         var name = loc ? (loc.node.location_name || loc.node.title || "stop") : "stop";
         hint.className = "td-status-inline good";
         hint.textContent = "Inserting " + st.insertContext.where + " " + name;
-        if (cancel) cancel.hidden = false;
       } else {
         hint.className = "td-status-inline";
         hint.textContent = "";
-        if (cancel) cancel.hidden = true;
       }
     }
 
@@ -791,10 +839,11 @@
       rebuildParentOptions();
       var parentSel = $("stopParent");
       if (parentSel) parentSel.value = "";
-      var name = $("stopName");
-      if (name) { name.value = ""; name.focus(); }
+      clearFields(["stopName", "stopStart", "stopEnd", "stopNotes"]);
       updateInsertHint();
-      setStatus("", "Adding a stop to the selected region");
+      openModal("modalAddStop");
+      var name = $("stopName");
+      if (name) name.focus();
     }
 
     function beginInsertStop(regionId, parentStopId, siblingStopId, where) {
@@ -809,16 +858,16 @@
       rebuildParentOptions();
       var parentSel = $("stopParent");
       if (parentSel) parentSel.value = parentStopId || "";
-      var name = $("stopName");
-      if (name) { name.value = ""; name.focus(); }
+      clearFields(["stopName", "stopStart", "stopEnd", "stopNotes"]);
       updateInsertHint();
-      setStatus("", "Adding stop " + where + " the selected stop");
+      openModal("modalAddStop");
+      var name = $("stopName");
+      if (name) name.focus();
     }
 
     function cancelInsert() {
       st.insertContext = null;
       updateInsertHint();
-      setStatus("", "");
     }
 
     // ── CRUD actions ────────────────────────────────────────────────────
@@ -871,6 +920,7 @@
       return api("/api/trips", { method: "POST", body: JSON.stringify(body) })
         .then(function (out) {
           log("Trip created", out);
+          clearFields(["tripTitle", "tripStart", "tripEnd", "tripSummary"]);
           return loadTrips().then(function () {
             var created = st.trips.filter(function (t) {
               return t.id === out.trip_id;
@@ -895,9 +945,7 @@
         { method: "POST", body: JSON.stringify(body) })
         .then(function (out) {
           log("Region added", out);
-          ["regionName", "regionArea", "regionBase"].forEach(function (n) {
-            var e2 = $(n); if (e2) e2.value = "";
-          });
+          clearFields(["regionName", "regionArea", "regionStart", "regionEnd", "regionBase"]);
           return refreshCurrentTrip();
         });
     }
@@ -922,10 +970,9 @@
         { method: "POST", body: JSON.stringify(body) })
         .then(function (out) {
           log("Stop added", out);
-          $("stopName").value = "";
-          $("stopNotes").value = "";
-          // Backend appends at end; if we were inserting relative to a
-          // sibling, position it now via the move endpoint (fallback path).
+          clearFields(["stopName", "stopStart", "stopEnd", "stopNotes"]);
+          // Backend appends at end; if inserting relative to a sibling,
+          // position it now via the move endpoint.
           if (ctx && out && out.stop_id) {
             st.insertContext = null;
             updateInsertHint();
@@ -1024,7 +1071,7 @@
     function memoirPreview() {
       if (!st.trip) return Promise.reject(new Error("select a trip first"));
       return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/memoir-preview")
-        .then(function (out) { log("Memoir preview", out); });
+        .then(function (out) { log("Memoir preview", out); expandOutput(); });
     }
 
     function ping() {
@@ -1036,8 +1083,7 @@
         setStatus("good", "API reachable");
         log("API reachable. If trips return 404, set HORNELORE_TRIPS=1 and restart.");
       }).catch(function (e) {
-        setStatus("bad", "API issue");
-        log("API check failed", { error: e.message });
+        logError("API check failed", { error: e.message });
       });
     }
 
@@ -1046,37 +1092,94 @@
       if (!el2) return;
       el2.addEventListener("click", function () {
         Promise.resolve().then(fn).catch(function (e) {
-          setStatus("bad", "Error");
-          log("Error", { message: e.message });
+          logError("Error", { message: e.message });
         });
       });
     }
 
+    // Setup / list
     bind("loadTrips", loadTrips);
     bind("refreshTrips", loadTrips);
-    bind("createTrip", createTrip);
-    bind("editTrip", function () { if (st.trip) selectItem("trip", st.trip.id); });
+    bind("ping", ping);
+    bind("focusToggle", toggleFocus);
+
+    // Create trip (modal)
+    bind("openCreateTrip", function () {
+      clearFields(["tripTitle", "tripStart", "tripEnd", "tripSummary"]);
+      openModal("modalCreateTrip");
+      var t = $("tripTitle"); if (t) t.focus();
+    });
+    bind("createTrip", function () {
+      return createTrip().then(function () { closeModal("modalCreateTrip"); });
+    });
+    bind("closeCreateTrip", function () { closeModal("modalCreateTrip"); });
+    bind("cancelCreateTrip", function () { closeModal("modalCreateTrip"); });
+
+    // Selected-trip toolbar
+    bind("editTrip", function () {
+      if (!st.trip) throw new Error("select a trip first");
+      selectItem("trip", st.trip.id);
+    });
     bind("reloadTree", function () { if (st.trip) return openTrip(st.trip); });
-    bind("createRegion", createRegion);
-    bind("createStop", createStop);
-    bind("cancelInsert", cancelInsert);
-    bind("uploadPhotos", uploadPhotos);
-    bind("clusterPhotos", clusterPhotos);
     bind("memoirPreview", memoirPreview);
     bind("editorClear", clearSelection);
-    bind("ping", ping);
+
+    // Add region (modal)
+    bind("addRegionBtn", function () {
+      if (!st.trip) throw new Error("select a trip first");
+      clearFields(["regionName", "regionArea", "regionStart", "regionEnd", "regionBase"]);
+      openModal("modalAddRegion");
+      var n = $("regionName"); if (n) n.focus();
+    });
+    bind("createRegion", function () {
+      return createRegion().then(function () { closeModal("modalAddRegion"); });
+    });
+    bind("closeAddRegion", function () { closeModal("modalAddRegion"); });
+    bind("cancelAddRegion", function () { closeModal("modalAddRegion"); });
+
+    // Add stop (modal — opened here or from tile +Stop/+Before/+After)
+    bind("addStopBtn", function () {
+      if (!st.trip) throw new Error("select a trip first");
+      var regions = (st.tree && st.tree.regions) || [];
+      if (!regions.length) throw new Error("add a region first");
+      var rid = (st.selected && st.selected.kind === "region")
+        ? st.selected.id : regions[0].id;
+      beginAddStop(rid);
+    });
+    bind("createStop", function () {
+      return createStop().then(function () { closeModal("modalAddStop"); });
+    });
+    bind("closeAddStop", function () { cancelInsert(); closeModal("modalAddStop"); });
+    bind("cancelAddStop", function () { cancelInsert(); closeModal("modalAddStop"); });
+
+    // Photos + output (collapsibles)
+    bind("uploadPhotos", uploadPhotos);
+    bind("clusterPhotos", clusterPhotos);
+    bind("togglePhotos", function () { toggleHidden("photosBody", "togglePhotos", "Trip photos"); });
+    bind("toggleOutput", function () { toggleHidden("output", "toggleOutput", "Output"); });
     var clearBtn = $("clearOutput");
     if (clearBtn) clearBtn.addEventListener("click", function () { log("Ready."); });
+
     var regionSelEl = $("stopRegion");
     if (regionSelEl) regionSelEl.addEventListener("change", rebuildParentOptions);
 
+    // Backdrop click closes modals.
+    ["modalCreateTrip", "modalAddRegion", "modalAddStop"].forEach(function (mn) {
+      var ov = $(mn);
+      if (!ov) return;
+      ov.addEventListener("click", function (e) {
+        if (e.target === ov) {
+          if (mn === "modalAddStop") cancelInsert();
+          closeModal(mn);
+        }
+      });
+    });
+
     renderTree();
     setStatus("", "");
-    // Native mode: the narrator is already known — load immediately.
     if (st.personId && !opts.standalone) {
       loadTrips().catch(function (e) {
-        setStatus("bad", "Error");
-        log("Could not load trips", { message: e.message });
+        logError("Could not load trips", { message: e.message });
       });
     }
 
@@ -1084,6 +1187,7 @@
       person_id: st.personId,
       reload: loadTrips,
       destroy: function () {
+        document.body.classList.remove("lv-td-focus");
         hostEl.innerHTML = "";
         hostEl.classList.remove("td-root");
       },

@@ -2532,3 +2532,16 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
   color: inherit;
   cursor: pointer;
 }
+
+/* ── Travel Doc focus mode (WO-TRAVEL-DOC-LAYOUT-REFLOW-01) ──────────────
+   Toggled by the "Focus" button in the operator Travel Doc panel, which
+   flips body.lv-td-focus. Scoped to the Travel Doc tab via the
+   data-shell-tab attribute lvShellShowTab already sets, so it auto-clears
+   the moment the operator switches tabs — no JS cleanup needed.
+   Compresses the interview mode controls (Lori's role segmented control +
+   posture badge) to give the trip workspace more vertical room. Narrator
+   identity, brand, and Mic/Cam/Bug stay visible. Visual only — no Lori,
+   runtime71, or Travels-shelf state is touched. */
+body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header .memory-segmented-control,
+body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header .lv80-posture-badge { display: none; }
+body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header { padding-top: 8px; padding-bottom: 8px; }
