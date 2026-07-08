@@ -132,8 +132,13 @@ class ReviewFixesTest(unittest.TestCase):
         src = _stripped_js()
         self.assertIn("rebuildParentOptions", src)
         self.assertIn("s.region_id !== selectedRegion", src)
-        # Region change rebuilds the parent list.
-        self.assertIn('addEventListener("change", rebuildParentOptions)', src)
+        # Region change rebuilds the parent list. (WO-TRAVEL-DOC-LAYOUT-
+        # REFLOW-01: the change handler is now an inline function that also
+        # drops a stale insert context before rebuilding, so match the call
+        # rather than the old bare-reference form.)
+        self.assertIn('$("stopRegion")', src)
+        self.assertIn('addEventListener("change", function', src)
+        self.assertIn("rebuildParentOptions();", src)
 
     def test_upload_help_text_is_honest(self):
         # Uploads are narrator-ready operator additions, not "review

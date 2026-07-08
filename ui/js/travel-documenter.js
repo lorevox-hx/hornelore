@@ -881,6 +881,10 @@
           renderTrips();
           setStatus("good", "Loaded " + st.trips.length + " trip" +
             (st.trips.length === 1 ? "" : "s"));
+          // One trip and nothing open yet → open it so the operator lands
+          // straight on the itinerary board (no "I have a trip but can't
+          // do anything" dead end).
+          if (!st.trip && st.trips.length === 1) return openTrip(st.trips[0]);
         });
     }
 
@@ -1142,9 +1146,14 @@
       if (!st.trip) throw new Error("select a trip first");
       var regions = (st.tree && st.tree.regions) || [];
       if (!regions.length) throw new Error("add a region first");
-      var rid = (st.selected && st.selected.kind === "region")
-        ? st.selected.id : regions[0].id;
-      beginAddStop(rid);
+      var rid = null;
+      if (st.selected && st.selected.kind === "region") {
+        rid = st.selected.id;
+      } else if (st.selected && st.selected.kind === "stop") {
+        var loc = locateStop(st.selected.id);
+        if (loc) rid = loc.region.id;
+      }
+      beginAddStop(rid || regions[0].id);
     });
     bind("createStop", function () {
       return createStop().then(function () { closeModal("modalAddStop"); });
@@ -1160,8 +1169,19 @@
     var clearBtn = $("clearOutput");
     if (clearBtn) clearBtn.addEventListener("click", function () { log("Ready."); });
 
+    // If the operator changes the target Region or Parent while an
+    // insert-before/after is staged, the original sibling no longer
+    // applies — drop the insert context so the stop is a plain add in the
+    // new location (rather than silently honoring the stale sibling).
     var regionSelEl = $("stopRegion");
-    if (regionSelEl) regionSelEl.addEventListener("change", rebuildParentOptions);
+    if (regionSelEl) regionSelEl.addEventListener("change", function () {
+      if (st.insertContext) { st.insertContext = null; updateInsertHint(); }
+      rebuildParentOptions();
+    });
+    var parentSelEl = $("stopParent");
+    if (parentSelEl) parentSelEl.addEventListener("change", function () {
+      if (st.insertContext) { st.insertContext = null; updateInsertHint(); }
+    });
 
     // Backdrop click closes modals.
     ["modalCreateTrip", "modalAddRegion", "modalAddStop"].forEach(function (mn) {
@@ -1175,6 +1195,20 @@
       });
     });
 
+    // Escape closes whichever modal is open (add-stop also clears insert
+    // context). Listener is removed on destroy to avoid leaks across mounts.
+    function onKeydown(e) {
+      if (e.key !== "Escape" && e.key !== "Esc") return;
+      ["modalCreateTrip", "modalAddRegion", "modalAddStop"].forEach(function (mn) {
+        var m = $(mn);
+        if (m && !m.hidden) {
+          if (mn === "modalAddStop") cancelInsert();
+          closeModal(mn);
+        }
+      });
+    }
+    document.addEventListener("keydown", onKeydown);
+
     renderTree();
     setStatus("", "");
     if (st.personId && !opts.standalone) {
@@ -1187,6 +1221,7 @@
       person_id: st.personId,
       reload: loadTrips,
       destroy: function () {
+        document.removeEventListener("keydown", onKeydown);
         document.body.classList.remove("lv-td-focus");
         hostEl.innerHTML = "";
         hostEl.classList.remove("td-root");

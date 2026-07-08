@@ -553,6 +553,12 @@ function lvShellShowTab(tabName) {
     } catch (e) {
       console.warn("[travel-doc] mount failed:", e);
     }
+    try {
+      const _tdHost = document.getElementById("lvTravelDocHost");
+      const _fb = _tdHost && _tdHost.querySelector('[data-td="focusToggle"]');
+      if (_fb) _fb.textContent =
+        document.body.classList.contains("lv-td-focus") ? "Exit focus" : "Focus";
+    } catch (_) {}
   }
   // Trips tab (2026-07-06): (re)point the embedded console at the
   // ACTIVE narrator every time the tab is shown, so switching
@@ -576,6 +582,13 @@ function lvShellShowTab(tabName) {
   });
   // Reflect on body for any CSS hooks.
   try { document.body.setAttribute("data-shell-tab", tabName); } catch (_) {}
+  // WO-TRAVEL-DOC-LAYOUT-REFLOW-01: Travel Doc "Focus" mode is a per-tab
+  // visual state (body.lv-td-focus compresses the shell header). Clear it
+  // whenever we leave the Travel Doc tab so the header returns to normal
+  // everywhere else. The CSS is also data-shell-tab scoped as a backstop.
+  if (tabName !== "traveldoc") {
+    try { document.body.classList.remove("lv-td-focus"); } catch (_) {}
+  }
   // Media tab preflight — single-shot probe for /api/photos so we can
   // surface the "not enabled" hint without navigating away.
   if (tabName === "media") _lvMediaPreflightOnce();
