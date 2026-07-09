@@ -273,6 +273,20 @@ def is_trip_knowledge_question(text: Optional[str]) -> bool:
     return bool(_TRIP_KNOWLEDGE_RX.search(str(text or "")))
 
 
+# Display-only spelling fixups for place labels (NEVER mutates the DB — the
+# operator's stored value is untouched; this only cleans what Lori says aloud).
+_DISPLAY_PLACE_FIXUPS = (
+    (re.compile(r"(?i)\bbraveria\b"), "Bavaria"),
+)
+
+
+def _normalize_place_label(label: str) -> str:
+    out = str(label or "")
+    for rx, repl in _DISPLAY_PLACE_FIXUPS:
+        out = rx.sub(repl, out)
+    return out
+
+
 def compose_direct_answer(ctx: Dict[str, Any]) -> str:
     """A warm, grounded answer built ONLY from approved trip context. Names
     the trip + dates + a few places on record, optionally one approved note.
@@ -285,16 +299,28 @@ def compose_direct_answer(ctx: Dict[str, Any]) -> str:
         lead += ", from " + _safe(span)
     parts.append(lead + ".")
 
+    # De-duplicated place list. Region titles already name their stops
+    # ("Czechia — Prague"), so a stop is skipped when its name is already
+    # inside an added place (either direction). No route-order is implied —
+    # this is a set of places, not a sequence.
     place_names: List[str] = []
+
+    def _add_place(nm: Optional[str]) -> None:
+        nm = _normalize_place_label(_safe(nm))
+        if not nm:
+            return
+        low = nm.lower()
+        for existing in place_names:
+            el = existing.lower()
+            if low in el or el in low:      # substring either way = same place
+                return
+        place_names.append(nm)
+
     for r in ctx.get("route", []) or []:
-        nm = _safe(r.get("region"))
-        if nm:
-            place_names.append(nm)
+        _add_place(r.get("region"))
         for st in (r.get("stops") or []):
-            st = _safe(st)
-            if st:
-                place_names.append(st)
-    place_names = [p for p in place_names if p][:8]
+            _add_place(st)
+    place_names = place_names[:8]
     if place_names:
         parts.append("The places on record include " + ", ".join(place_names) + ".")
 

@@ -358,5 +358,34 @@ class _ContextCase(unittest.TestCase):
         for q in ("the weather was cold", "we loved Munich", "yes"):
             self.assertFalse(tic.is_trip_knowledge_question(q), q)
 
+
+    # ── Phase 12: direct answer dedupes places + normalizes display ──────
+    def test_direct_answer_dedupes_and_normalizes(self):
+        ctx = {
+            "title": "Spring 2026 Central Europe & Northern Italy",
+            "date_span": "2026-05-22 to 2026-06-13",
+            "route": [
+                {"region": "Germany/Braveria", "stops": []},
+                {"region": "Czechia — Prague", "stops": ["Prague"]},
+                {"region": "Austria — Salzburg / Graz", "stops": ["Salzburg", "Graz"]},
+                {"region": "Slovenia — Ljubljana / drive routes", "stops": ["Ljubljana"]},
+            ],
+            "notes": [], "photo_captions": [],
+        }
+        a = tic.compose_direct_answer(ctx)
+        # No duplicated place tokens
+        self.assertNotIn("Prague, Prague", a)
+        self.assertNotIn("Salzburg / Graz, Salzburg", a)
+        self.assertNotIn("Ljubljana / drive routes, Ljubljana", a)
+        # each stop that is inside its region title appears only once
+        self.assertEqual(a.count("Prague"), 1)
+        self.assertEqual(a.count("Ljubljana"), 1)
+        # Braveria normalized to Bavaria for display
+        self.assertIn("Bavaria", a)
+        self.assertNotIn("Braveria", a)
+        # region titles still present
+        self.assertIn("Czechia", a)
+        self.assertIn("Slovenia", a)
+
 if __name__ == "__main__":
     unittest.main()
