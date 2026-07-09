@@ -105,9 +105,17 @@
 
     var rightCol =
       '<aside class="td-col td-col-right">' +
+      '<div class="td-right-toggle">' +
+      '<button data-td="viewEditor" type="button" class="td-rtab is-active">Editor</button>' +
+      '<button data-td="viewTimeline" type="button" class="td-rtab">Timeline</button>' +
+      '</div>' +
       '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
       '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><span data-td="editorStatus" class="td-ed-status"></span><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
       '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
+      '</section>' +
+      '<section class="td-panel td-timeline-panel" data-td="timelinePanel" hidden>' +
+      '<div class="td-panel-head"><h2>Timeline</h2></div>' +
+      '<div data-td="timelineBody" class="td-timeline-body"></div>' +
       '</section>' +
       '</aside>';
 
@@ -186,6 +194,7 @@
       selected: null,
       insertContext: null,
       editorTab: "edit",       // edit | notes | photos | sources
+      rightView: "editor",     // editor | timeline
       locationNotes: [],
       sources: [],
     };
@@ -383,7 +392,7 @@
       var links = st.photoLinks || [];
       if (!links.length) {
         host.className = "td-photo-strip td-empty";
-        host.textContent = "No narrator-ready linked photos yet.";
+        host.textContent = "No linked photos yet.";
         return;
       }
       host.className = "td-photo-strip";
@@ -573,6 +582,7 @@
       }
       renderPhotos();
       renderEditor();
+      if (st.rightView === "timeline") renderTimeline();
     }
 
     // ── Editor panel ────────────────────────────────────────────────────
@@ -695,7 +705,7 @@
       return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes")
         .then(function (out) {
           st.locationNotes = (out && out.notes) || [];
-          renderEditor();
+          renderTree();   // refresh tile badges too, not just the editor
         });
     }
 
@@ -942,7 +952,7 @@
       return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources")
         .then(function (out) {
           st.sources = (out && out.sources) || [];
-          renderEditor();
+          renderTree();   // refresh tile badges too, not just the editor
         });
     }
 
@@ -1083,6 +1093,79 @@
       row.appendChild(addBtn);
       f.appendChild(row);
       pane.appendChild(f);
+    }
+
+    // ── Right-column view toggle + accordion Timeline (read-only nav) ───
+
+    function applyRightView() {
+      var ep = $("editorPanel"), tp = $("timelinePanel");
+      var ve = $("viewEditor"), vt = $("viewTimeline");
+      var timeline = st.rightView === "timeline";
+      if (ep) ep.hidden = timeline;
+      if (tp) tp.hidden = !timeline;
+      if (ve) ve.className = "td-rtab" + (timeline ? "" : " is-active");
+      if (vt) vt.className = "td-rtab" + (timeline ? " is-active" : "");
+      if (timeline) renderTimeline();
+    }
+
+    function firstThumbFor(kind, item) {
+      var links = (st.photoLinks || []).filter(function (l) {
+        return kind === "region" ? (l.trip_region_id === item.id)
+                                 : (l.trip_stop_id === item.id);
+      });
+      return links.length ? links[0].photo_id : null;
+    }
+
+    function renderTlRow(kind, item, depth) {
+      var row = document.createElement("button");
+      row.type = "button";
+      row.className = "td-tl-row" +
+        (st.selected && st.selected.kind === kind && st.selected.id === item.id
+          ? " is-selected" : "");
+      row.style.marginLeft = (depth * 14) + "px";
+      var thumbId = firstThumbFor(kind, item);
+      var thumb = thumbId
+        ? '<img class="td-tl-thumb" loading="lazy" alt="" src="' +
+          esc(st.apiBase + "/api/photos/" + encodeURIComponent(thumbId) + "/thumb") + '">'
+        : '<span class="td-tl-thumb td-tl-thumb-empty"></span>';
+      var name = kind === "region" ? (item.title || "Region")
+                                   : (item.location_name || item.title || "Stop");
+      var dates = kind === "region"
+        ? dateSpan(item.start_date, item.end_date)
+        : dateSpan(item.date_start, item.date_end);
+      var counts = kind === "region" ? regionIndicators(item) : stopIndicators(item);
+      row.innerHTML = thumb + '<span class="td-tl-main"><strong>' + esc(name) +
+        '</strong>' + (dates ? '<small class="td-muted">' + esc(dates) + '</small>' : '') +
+        (counts || '') + '</span>';
+      row.addEventListener("click", function () {
+        selectItem(kind, item.id);
+        st.rightView = "editor";
+        applyRightView();
+      });
+      return row;
+    }
+
+    function renderTimeline() {
+      var body = $("timelineBody");
+      if (!body) return;
+      body.innerHTML = "";
+      if (!st.trip || !st.tree) {
+        body.appendChild(el("p", "td-muted", "Select a trip to see its timeline."));
+        return;
+      }
+      var head = el("div", "td-tl-trip");
+      head.appendChild(el("strong", "", st.trip.title || "Trip"));
+      var td = dateSpan(st.trip.start_date, st.trip.end_date);
+      if (td) head.appendChild(el("small", "td-muted", td));
+      body.appendChild(head);
+      function walkStop(s, depth) {
+        body.appendChild(renderTlRow("stop", s, depth));
+        (s.children || []).forEach(function (c) { walkStop(c, depth + 1); });
+      }
+      (st.tree.regions || []).forEach(function (r) {
+        body.appendChild(renderTlRow("region", r, 0));
+        (r.stops || []).forEach(function (s) { walkStop(s, 1); });
+      });
     }
 
     function renderTripEditor(pane) {
@@ -1610,6 +1693,8 @@
     bind("reloadTree", function () { if (st.trip) return openTrip(st.trip); });
     bind("memoirPreview", memoirPreview);
     bind("editorClear", clearSelection);
+    bind("viewEditor", function () { st.rightView = "editor"; applyRightView(); });
+    bind("viewTimeline", function () { st.rightView = "timeline"; applyRightView(); });
     // Explicit, narrator-visible: hand the selected trip to the narrator
     // Travels shelf (which owns all Lori/session state). Travel Doc never
     // dispatches prompts or writes session scope itself.

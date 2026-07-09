@@ -156,7 +156,8 @@ def build_trip_docx(
     _groups: Dict[str, List[Dict[str, Any]]] = {}
     _order: List[str] = []
     for row in photo_rows or []:
-        key = str(row.get("stop_location_name") or "Unplaced")
+        key = str(row.get("stop_location_name")
+                  or row.get("region_title") or "Unplaced")
         if key not in _groups:
             _groups[key] = []
             _order.append(key)

@@ -1330,10 +1330,12 @@ def photo_links_with_photo_paths(
                        p.description AS photo_description,
                        p.date_value AS photo_date_value,
                        p.narrator_ready AS photo_narrator_ready,
-                       s.location_name AS stop_location_name
+                       s.location_name AS stop_location_name,
+                       r.title AS region_title
                 FROM trip_photo_links l
                 JOIN photos p ON p.id = l.photo_id
                 LEFT JOIN trip_stops s ON s.id = l.trip_stop_id
+                LEFT JOIN trip_regions r ON r.id = l.trip_region_id
                 WHERE {where}
                 ORDER BY l.taken_at, l.ord""",
             (trip_id,),

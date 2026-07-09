@@ -472,6 +472,10 @@ async def _ingest_uploads_to_trip(
             _method = "operator"
             _confidence = 0.45 if mismatch else 1.0
             _confirm = not mismatch
+        elif region_id:
+            _method = "region_upload"  # dropped at region; cluster may refine
+            _confidence = 0.3
+            _confirm = False
         else:
             _method = "trip_upload"
             _confidence = 0.3  # review-queue range; re-cluster may place
