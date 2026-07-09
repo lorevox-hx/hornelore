@@ -2829,6 +2829,24 @@ async def ws_chat(ws: WebSocket):
 
         system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
 
+        # WO-TRIP-INTERVIEW-CONTEXT-01 Step 2 — when a trip is actively open
+        # on the Travels shelf, append a compact, narrator-safe trip context
+        # block so Lori can ask grounded questions. Default-OFF flag
+        # (HORNELORE_TRIP_INTERVIEW_CONTEXT); the service owns the gate
+        # (flag + active_trip_id + shelf open + trip owned by person_id) and
+        # is read-only (no writes / dispatch / runtime mutation). Non-fatal:
+        # the chat turn always proceeds even if this errors.
+        try:
+            from ..services import trip_interview_context as _tic
+            _tic_block = _tic.context_block_for_turn(person_id, runtime71)
+            if _tic_block:
+                system_prompt = system_prompt + _tic_block
+                logger.info("[chat_ws][trip-context] injected trip context "
+                            "conv=%s person=%s", conv_id, person_id or "(none)")
+        except Exception as _tic_exc:
+            logger.warning("[chat_ws][trip-context] skipped conv=%s: %s",
+                           conv_id, _tic_exc)
+
         # ── Debug logging ───────────────────────────────────────────────
         # Always log a compact runtime summary at INFO level.
         rt_summary = (

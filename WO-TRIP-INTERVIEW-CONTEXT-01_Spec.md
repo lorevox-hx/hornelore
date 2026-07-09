@@ -34,15 +34,34 @@ extraction, no memory writes, no Travel Doc state writes.
 memoir-only excluded, narrator-ready captions in / non-ready out, no raw
 source text, compactness, active-stop, isolation).
 
-## Step 2 — chat wiring — PENDING APPROVAL (NOT STARTED)
+## Step 1.5 — prompt-safety + wording (review 2026-07-08)
 
-Minimal read into `chat_ws`/`prompt_composer` behind a default-off flag
-`HORNELORE_TRIP_INTERVIEW_CONTEXT=0`. Gates: flag on AND
-`runtime71.active_trip_id` set AND Travels shelf open AND trip belongs to
-the active person. Insert ONLY the compact `text` block into Lori's prompt.
-Travel Doc still never dispatches or mutates runtime/session state. Keep
-the "Lori context candidate — not used live yet" UI wording until Step 2
-lands. Do not begin until approved.
+Before wiring: added `_safe()` prompt sanitizer (neutralizes `[`/`]`,
+`SYSTEM:` directive shape, newlines; word + char clip) applied to every
+dynamic value in the rendered `text`; changed route wording to "Places on
+the Travel Doc route board: …" + "Do not claim the narrator personally
+confirmed this order unless they have said so." Tests added for injection
+sanitizing + wording.
+
+## Step 2 — chat wiring — LANDED 2026-07-08 (default-OFF)
+
+`trip_interview_context.context_block_for_turn(person_id, runtime71)` owns
+the gate: flag `HORNELORE_TRIP_INTERVIEW_CONTEXT` ON, AND
+`runtime71.active_trip_id`, AND `travels_shelf_open`, AND the trip owned by
+`person_id` (via `build_trip_interview_context`). Returns a prompt-ready
+block or "".
+
+`chat_ws.py` (right after `compose_system_prompt`) appends that block to the
+system prompt — minimal, non-fatal (try/except), read-only. **Default OFF →
+live behavior byte-identical until the flag is set.** Travel Doc still never
+dispatches or mutates runtime/session state; prompt_composer is untouched.
+
+8 gate/boundary tests added: flag off; flag on + no active trip; shelf
+closed; wrong owner; approved note appears; unapproved notes/sources/
+non-ready captions excluded; injection sanitized. 18 tests total green.
+
+Keep the "Lori context candidate — not used live yet" UI wording until you
+flip the flag and verify live.
 
 ## Later
 

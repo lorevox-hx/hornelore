@@ -23,20 +23,41 @@ Hard exclusions (never in the output):
 """
 from __future__ import annotations
 
+import os
+import re
 from typing import Any, Dict, List, Optional
 
 from . import trip_repository
 
 _MAX_NOTES = 8
 _MAX_CAPTIONS = 10
-_CLIP_WORDS = 40  # keep each note/caption compact
+_CLIP_WORDS = 40   # keep each note/caption compact
+_MAX_CHARS = 240   # hard cap per sanitized value
+
+_SYSTEM_RX = re.compile(r"(?i)\bsystem\s*:")
 
 
-def _clip(text: Optional[str], n: int = _CLIP_WORDS) -> str:
-    words = str(text or "").split()
-    if not words:
-        return ""
-    return " ".join(words[:n]) + (" …" if len(words) > n else "")
+def _safe(text: Optional[str], words: int = _CLIP_WORDS) -> str:
+    """Prompt-safety sanitizer for operator/narrator-entered text that will
+    eventually sit inside Lori's system prompt (same spirit as the Travels
+    shelf _promptSafe): neutralize bracket/directive characters, collapse
+    newlines, and clip length so a note or caption can never smuggle an
+    instruction into the prompt."""
+    s = str(text or "")
+    s = s.replace("[", "(").replace("]", ")")   # can't open a [SYSTEM: ...]
+    s = s.replace("\r", " ").replace("\n", " ")
+    s = _SYSTEM_RX.sub("system-", s)             # neutralize directive shape
+    s = re.sub(r"\s+", " ", s).strip()
+    parts = s.split(" ")
+    if len(parts) > words:
+        s = " ".join(parts[:words]) + " …"
+    if len(s) > _MAX_CHARS:
+        s = s[:_MAX_CHARS].rstrip() + " …"
+    return s
+
+
+# Back-compat alias (structured fields are sanitized too).
+_clip = _safe
 
 
 def _date_span(a: Optional[str], b: Optional[str]) -> str:
@@ -140,30 +161,75 @@ def _to_prompt_text(ctx: Dict[str, Any]) -> str:
     lines: List[str] = []
     span = ctx.get("date_span")
     lines.append(
-        "Trip on record: '" + str(ctx.get("title") or "a trip") + "'"
-        + ((" (" + span + ")") if span else "") + "."
+        "Trip on record: '" + _safe(ctx.get("title") or "a trip") + "'"
+        + ((" (" + _safe(span) + ")") if span else "") + "."
     )
     places: List[str] = []
     for r in ctx.get("route", []):
-        seg = str(r.get("region") or "")
+        seg = _safe(r.get("region"))
         if r.get("stops"):
-            seg = (seg + " (" + ", ".join(r["stops"]) + ")").strip()
+            stops = ", ".join(_safe(s) for s in r["stops"])
+            seg = (seg + " (" + stops + ")").strip()
         if seg:
             places.append(seg)
     if places:
         lines.append(
-            "Places on record (NOT in journey order): " + "; ".join(places) + "."
+            "Places on the Travel Doc route board: " + "; ".join(places) + ". "
+            "Do not claim the narrator personally confirmed this order unless "
+            "they have said so."
         )
     active = ctx.get("active")
     if active:
         lines.append(
-            "Currently looking at: " + str(active.get("name"))
-            + ((" in " + active["region"]) if active.get("region") else "") + "."
+            "Currently looking at: " + _safe(active.get("name"))
+            + ((" in " + _safe(active["region"])) if active.get("region") else "")
+            + "."
         )
     for n in ctx.get("notes", []):
-        title = (str(n.get("title")) + ": ") if n.get("title") else ""
-        lines.append("Note (" + str(n.get("scope")) + "): " + title + str(n.get("text")))
+        title = (_safe(n.get("title")) + ": ") if n.get("title") else ""
+        lines.append("Note (" + _safe(n.get("scope")) + "): " + title +
+                     _safe(n.get("text")))
     for c in ctx.get("photo_captions", []):
-        where = (" (" + str(c["where"]) + ")") if c.get("where") else ""
-        lines.append("Photo caption" + where + ": " + str(c.get("caption")))
+        where = (" (" + _safe(c["where"]) + ")") if c.get("where") else ""
+        lines.append("Photo caption" + where + ": " + _safe(c.get("caption")))
     return "\n".join(lines)
+
+
+# ── Step 2 turn gate (default-OFF flag; used by chat_ws) ────────────────────
+
+_FLAG = "HORNELORE_TRIP_INTERVIEW_CONTEXT"
+
+_BLOCK_HEADER = (
+    "\n\n[TRIP CONTEXT — the narrator has this trip open on the Travels "
+    "shelf. Use it to ask ONE warm, grounded question in PAST TENSE. "
+    "Reference only what is below; do not invent places, people, or events; "
+    "do not claim you saw any photo.]\n"
+)
+
+
+def _flag_on() -> bool:
+    return os.getenv(_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def context_block_for_turn(
+    person_id: Optional[str],
+    runtime71: Optional[Dict[str, Any]],
+) -> str:
+    """Gate + render for a chat turn. Returns a prompt-ready block string, or
+    "" when the gates are not met. READ-ONLY and safe to call every turn.
+
+    Gates: default-OFF flag HORNELORE_TRIP_INTERVIEW_CONTEXT on, AND
+    runtime71.active_trip_id present, AND Travels shelf open, AND the trip is
+    owned by ``person_id`` (checked inside build_trip_interview_context).
+    """
+    if not _flag_on():
+        return ""
+    rt = runtime71 or {}
+    trip_id = rt.get("active_trip_id")
+    if not (person_id and trip_id and rt.get("travels_shelf_open")):
+        return ""
+    ctx = build_trip_interview_context(
+        person_id, trip_id, active_trip_stop_id=rt.get("active_trip_stop_id"))
+    if not ctx or not ctx.get("text"):
+        return ""
+    return _BLOCK_HEADER + ctx["text"]
