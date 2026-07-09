@@ -56,7 +56,7 @@
     var s = _session();
     s.activeTripId = trip ? trip.id : null;
     s.activeTripTitle = trip ? (trip.title || "") : "";
-    s.activeTripStopId = null;
+    s.activeTripStopId = null; s.activeTripPhotoLinkId = null;
     // Phase 5: guided_trip_walk is OPERATOR-selectable (never default —
     // spec §3.5). Operator sets localStorage["lv_trip_style"] =
     // "guided_trip_walk"; anything else means listening mode.
@@ -100,7 +100,7 @@
       "): " + (s.activeTripId || "none"));
     s.activeTripId = null;
     s.activeTripTitle = "";
-    s.activeTripStopId = null;
+    s.activeTripStopId = null; s.activeTripPhotoLinkId = null;
     s.tripStyle = null;
     s.travelsShelfOpen = false;
     s.travelsPanelOpen = false;
@@ -161,7 +161,7 @@
       sClose.travelsShelfOpen = false;
       sClose.activeTripId = null;
       sClose.activeTripTitle = "";
-      sClose.activeTripStopId = null;
+      sClose.activeTripStopId = null; sClose.activeTripPhotoLinkId = null;
       sClose.tripStyle = null;
       _stopPanelRefresh();
       _stopZeroTripPoll();
@@ -245,7 +245,7 @@
     var sPick = _session();
     sPick.activeTripId = null;
     sPick.activeTripTitle = "";
-    sPick.activeTripStopId = null;
+    sPick.activeTripStopId = null; sPick.activeTripPhotoLinkId = null;
     panel.innerHTML = '<p class="lv-travels-note">Which journey would you like to visit?</p>';
     trips.forEach(function (t) {
       var card = document.createElement("button");
@@ -740,11 +740,14 @@
     catch (e) { /* best-effort — the safe Lori prompt is the real confirmation */ }
   }
   function _dispatchSafePrompt(title) {
-    var msg = "[SYSTEM: The narrator just added a photo to their open trip '" +
-      _safe(title || "a trip") + "'. You have NOT seen the photo. Do NOT " +
-      "describe it, guess what is in it, who is in it, or where it was taken. " +
-      "Ask ONE short warm question inviting them to tell you what they " +
-      "remember about this picture. Maximum 40 words. ONE question only.]";
+    // Short + deterministic. Do NOT name the trip or any place (that produced
+    // the wordy "Central Europe … your Spring 2026 …" echo) — just anchor on
+    // "that moment" and let the narrator describe it.
+    var msg = "[SYSTEM: The narrator just added a photo to the trip they have " +
+      "open. You have NOT seen it — do not describe, guess, or name what is in " +
+      "it. Do NOT name the trip or any place. Ask ONE short warm question " +
+      "(maximum 15 words) inviting them to say what they remember about that " +
+      "moment. ONE question only. No preamble.]";
     try {
       if (typeof window.wo9SendOrQueueSystemPrompt === "function") window.wo9SendOrQueueSystemPrompt(msg);
       else if (typeof window.sendSystemPrompt === "function") window.sendSystemPrompt(msg);
@@ -767,9 +770,23 @@
         return r.json();
       })
       .then(function (resp) {
-        var n = (resp && (resp.uploaded + (resp.duplicates || 0))) || files.length;
-        _chip("📷 " + (n === 1 ? "Photo" : n + " photos") +
-              " added to this trip. Lori will ask you about it.");
+        var results = (resp && resp.results) || [];
+        var first = null;
+        for (var i = 0; i < results.length; i++) {
+          if (results[i] && results[i].photo_id) { first = results[i]; break; }
+        }
+        if (first) {
+          // Phase 3 — anchor the uploaded photo so the NEXT narrator answer
+          // captures as a photo-linked note (source_ref=photo_link:<id>).
+          s.activeTripPhotoLinkId = first.link_id || null;
+          s.activeTripPhotoId = first.photo_id || null;
+          s.activeTripPhotoFilename = first.filename || null;
+          // Phase 1 — show the actual photo in chat (Lori still can't see it).
+          _renderPhotoCard(first.photo_id, first.filename);
+        } else {
+          var n = (resp && (resp.uploaded + (resp.duplicates || 0))) || files.length;
+          _chip("📷 " + (n === 1 ? "Photo" : n + " photos") + " added to this trip.");
+        }
         _dispatchSafePrompt(s.activeTripTitle);
       })
       .catch(function (e) {
@@ -781,6 +798,50 @@
         if (b) { b.disabled = false; b.textContent = "+ Add trip photo"; }
       });
   }
+  function _renderPhotoCard(photoId, filename) {
+    try {
+      var host = document.getElementById("chatMessages");
+      if (!host || !photoId) {
+        _chip("📷 Photo added to this trip. Lori will ask you about it.");
+        return;
+      }
+      var card = document.createElement("div");
+      card.className = "lv-chat-photo-card";
+      var img = document.createElement("img");
+      img.className = "lv-chat-photo-thumb";
+      img.src = API + "/api/photos/" + encodeURIComponent(photoId) + "/thumb";
+      img.alt = "the photo you added";
+      img.title = "Click to view larger";
+      img.addEventListener("click", function () {
+        window.open(API + "/api/photos/" + encodeURIComponent(photoId) + "/image", "_blank");
+      });
+      var meta = document.createElement("div");
+      meta.className = "lv-chat-photo-meta";
+      var t = document.createElement("div");
+      t.className = "lv-chat-photo-title";
+      t.textContent = "📷 Photo added to this trip";
+      meta.appendChild(t);
+      if (filename) {
+        var fn = document.createElement("div");
+        fn.className = "lv-chat-photo-fn";
+        fn.textContent = filename;
+        meta.appendChild(fn);
+      }
+      var hint = document.createElement("div");
+      hint.className = "lv-chat-photo-hint";
+      hint.textContent = "Look at it while you talk — Lori can't see it, so tell her " +
+        "what you remember.";
+      meta.appendChild(hint);
+      card.appendChild(img);
+      card.appendChild(meta);
+      host.appendChild(card);
+      host.scrollTop = host.scrollHeight;
+    } catch (e) {
+      console.warn("[in-chat-photo] card render failed:", e);
+      _chip("📷 Photo added to this trip. Lori will ask you about it.");
+    }
+  }
+
   function _wire() {
     var btn = document.getElementById("lvAddTripPhotoBtn");
     var input = document.getElementById("lvAddTripPhotoInput");

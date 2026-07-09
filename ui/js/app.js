@@ -2770,6 +2770,11 @@ function buildRuntime71() {
        NO behavior change while HORNELORE_TRIP_NARRATION=0. */
     active_trip_id:   (state.session && state.session.activeTripId)   || null,
     active_trip_stop_id: (state.session && state.session.activeTripStopId) || null,
+    /* WO-TRIP-LORI-REAL-BETA-USABILITY-01 Phase 3 — the photo the narrator is
+       actively discussing on the shelf. When set, the next narrator answer is
+       captured as a photo-linked Travel Doc note (source_ref=photo_link:<id>).
+       Set on in-chat upload; cleared on trip open/close/new-upload. */
+    active_photo_link_id: (state.session && state.session.activeTripPhotoLinkId) || null,
     /* BUG-TRAVELS-ZERO-TRIP-NARRATION-HOOK-NEVER-CREATES-TRIP-01:
        true while the Travels shelf is open with NO trip yet — lets the
        server narration hook run in new-trip mode (create provisional

@@ -26,7 +26,8 @@ tail -f .runtime/logs/api.log | grep -E "trip-story-capture|trip-direct-answer|t
 3. Ask: **what do you know about my trip**
 
 Expected:
-- Lori answers with the trip name, dates, and the places on record.
+- Lori answers with the trip name, dates, and the places on record
+  (de-duplicated — no 'Prague, Prague'; 'Bavaria' shown, not 'Braveria').
 - She does **not** deflect ("where would you like to continue", "let's start
   again").
 - Log shows `[chat_ws][trip-direct-answer] handled=true`.
@@ -58,9 +59,13 @@ Expected:
 4. Answer with what you remember.
 
 Expected:
+- A **photo card with the thumbnail** appears in chat immediately (click it
+  to open the full image). Lori still never claims to see it.
 - Photo attaches to the active trip (`narrator_ready=true`).
-- Log: `[chat_ws][trip-story-capture] captured=True … source=photo`
-  (the answer carries `source_ref=photo_link:<id>`).
+- Lori's photo question is short ("What do you remember about that moment?")
+  — no trip-name/place echo.
+- Your answer is captured **photo-linked**: the note carries
+  `source_ref=photo_link:<id>` (runtime71 now sends `active_photo_link_id`).
 - Travel Doc shows the linked note + the photo.
 - The button is only visible while a trip is open on the shelf.
 
