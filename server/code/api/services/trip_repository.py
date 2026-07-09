@@ -1177,6 +1177,10 @@ def photo_link_update(
     narrator_caption: Optional[str] = None,
     confirm: bool = False,
     trip_region_id: Optional[str] = None,
+    caption_approved_for_lori: Optional[bool] = None,
+    operator_context_note: Optional[str] = None,
+    clear_operator_context_note: bool = False,
+    operator_context_approved_for_lori: Optional[bool] = None,
 ) -> bool:
     """Operator review action. ``confirm=True`` stamps the link as
     operator truth (method='operator', confidence=1.0) so re-clustering
@@ -1200,6 +1204,26 @@ def photo_link_update(
     if narrator_caption is not None:
         sets.append("narrator_caption = ?")
         args.append(narrator_caption)
+    # WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph5: approval-gated
+    # photo context. Editing the operator caption REVOKES its approval
+    # unless the same request re-approves it — approval always refers
+    # to the text the operator actually reviewed.
+    if caption is not None and caption_approved_for_lori is None:
+        sets.append("caption_approved_for_lori = 0")
+    if caption_approved_for_lori is not None:
+        sets.append("caption_approved_for_lori = ?")
+        args.append(1 if caption_approved_for_lori else 0)
+    if clear_operator_context_note:
+        sets.append("operator_context_note = NULL")
+        sets.append("operator_context_approved_for_lori = 0")
+    elif operator_context_note is not None:
+        sets.append("operator_context_note = ?")
+        args.append(operator_context_note)
+        if operator_context_approved_for_lori is None:
+            sets.append("operator_context_approved_for_lori = 0")
+    if operator_context_approved_for_lori is not None and not clear_operator_context_note:
+        sets.append("operator_context_approved_for_lori = ?")
+        args.append(1 if operator_context_approved_for_lori else 0)
     if confirm:
         sets.append("assignment_method = 'operator'")
         sets.append("cluster_confidence = 1.0")

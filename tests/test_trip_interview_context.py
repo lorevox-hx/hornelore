@@ -91,12 +91,19 @@ class _ContextCase(unittest.TestCase):
             self.trip_id, "p_unready", trip_region_id=self.region_id,
             trip_stop_id=self.stop_id, assignment_method="operator")
         con = sqlite3.connect(str(self.db_path))
-        con.execute("UPDATE trip_photo_links SET caption=? WHERE id=?",
+        # Ph5 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): operator
+        # captions need caption_approved_for_lori=1 to surface. The
+        # ready photo's caption is APPROVED here; the unready photo's
+        # caption is approved too — narrator_ready still gates it out.
+        con.execute("UPDATE trip_photo_links SET caption=?, "
+                    "caption_approved_for_lori=1 WHERE id=?",
                     ("the train station in Munich", lr))
-        con.execute("UPDATE trip_photo_links SET caption=? WHERE id=?",
+        con.execute("UPDATE trip_photo_links SET caption=?, "
+                    "caption_approved_for_lori=1 WHERE id=?",
                     ("SECRET_UNREADY_CAPTION", lu))
         con.commit()
         con.close()
+        self.link_ready = lr
 
     def tearDown(self):
         _db.DB_PATH = self._orig_db
@@ -133,11 +140,66 @@ class _ContextCase(unittest.TestCase):
         self.assertNotIn("memoir only note", texts)       # memoir-only excluded
         self.assertNotIn("private unpromoted note", texts)  # neither excluded
 
-    # 5
-    def test_includes_narrator_ready_caption(self):
+    # 5 — Ph5: approved operator caption on a narrator-ready photo surfaces.
+    def test_includes_approved_narrator_ready_caption(self):
         c = self._ctx()
         joined = c["text"] + " " + " ".join(x["caption"] for x in c["photo_captions"])
         self.assertIn("the train station in Munich", joined)
+
+    # 5b — Ph5 gate: UNAPPROVED operator caption never reaches Lori,
+    # even on a narrator-ready photo.
+    def test_unapproved_operator_caption_withheld(self):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE trip_photo_links SET "
+                    "caption='UNAPPROVED_OPERATOR_CAPTION', "
+                    "caption_approved_for_lori=0 WHERE id=?",
+                    (self.link_ready,))
+        con.commit(); con.close()
+        c = self._ctx()
+        self.assertNotIn("UNAPPROVED_OPERATOR_CAPTION", c["text"])
+
+    # 5c — Ph5: narrator_caption (narrator's own words) is allowed by
+    # construction — no approval flag needed.
+    def test_narrator_caption_allowed_without_flag(self):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE trip_photo_links SET "
+                    "narrator_caption='my own words about the station', "
+                    "caption=NULL, caption_approved_for_lori=0 WHERE id=?",
+                    (self.link_ready,))
+        con.commit(); con.close()
+        c = self._ctx()
+        self.assertIn("my own words about the station", c["text"])
+
+    # 5d — Ph5: operator context note gated on its own approval flag.
+    def test_operator_context_note_gated(self):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE trip_photo_links SET "
+                    "operator_context_note='SECRET_CONTEXT_NOTE', "
+                    "operator_context_approved_for_lori=0 WHERE id=?",
+                    (self.link_ready,))
+        con.commit(); con.close()
+        c = self._ctx()
+        self.assertNotIn("SECRET_CONTEXT_NOTE", c["text"])
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE trip_photo_links SET "
+                    "operator_context_approved_for_lori=1 WHERE id=?",
+                    (self.link_ready,))
+        con.commit(); con.close()
+        c2 = self._ctx()
+        self.assertIn("SECRET_CONTEXT_NOTE", c2["text"])
+        self.assertIn("Approved photo context", c2["text"])
+
+    # 5e — Ph5: editing the operator caption REVOKES approval (approval
+    # refers to the text the operator actually reviewed).
+    def test_caption_edit_revokes_approval(self):
+        trip_repository.photo_link_update(
+            self.link_ready, caption="a brand new caption")
+        c = self._ctx()
+        self.assertNotIn("a brand new caption", c["text"])
+        trip_repository.photo_link_update(
+            self.link_ready, caption_approved_for_lori=True)
+        c2 = self._ctx()
+        self.assertIn("a brand new caption", c2["text"])
 
     # 6
     def test_excludes_non_narrator_ready_caption(self):

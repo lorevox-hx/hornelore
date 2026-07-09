@@ -170,3 +170,14 @@ body.td-standalone .td-dot.bad { background: var(--td-bad); }
 
 /* ── Soft date-range warning (2026-07-08) ── */
 .td-root .td-date-warn, body.td-standalone .td-date-warn { font-size: 0.8rem; font-weight: 700; color: #8a5a1f; background: rgba(181, 107, 18, 0.08); border: 1px solid rgba(181, 107, 18, 0.3); border-radius: 8px; padding: 0.3rem 0.5rem; }
+
+
+/* WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph5 — photo context */
+.td-root .td-photo-narrator-cap,
+body.td-standalone .td-photo-narrator-cap {
+  display: block; font-style: italic; opacity: 0.85; margin: 2px 0;
+}
+.td-root textarea.td-photo-cap,
+body.td-standalone textarea.td-photo-cap {
+  width: 100%; font-size: 0.85em; margin-top: 4px; resize: vertical;
+}

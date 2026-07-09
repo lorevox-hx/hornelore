@@ -192,6 +192,12 @@ class PhotoLinkPatch(BaseModel):
     caption: Optional[str] = None
     narrator_caption: Optional[str] = None
     confirm: bool = False
+    # WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph5 — approval-gated
+    # photo context (defaults keep pre-Ph5 payloads byte-stable).
+    caption_approved_for_lori: Optional[bool] = None
+    operator_context_note: Optional[str] = None
+    clear_operator_context_note: bool = False
+    operator_context_approved_for_lori: Optional[bool] = None
 
 
 class RegionsReorder(BaseModel):
@@ -622,6 +628,13 @@ def cluster_photos(trip_id: str, req: ClusterPhotosRequest) -> Dict[str, Any]:
     trip = trip_repository.trip_get(trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="trip not found")
+    # Review 2026-07-09 (BUG-TRIP-CLUSTER-FOREIGN-NARRATOR-01): a
+    # request could pass ANY narrator_id and pull that narrator's photos
+    # into THIS trip. The trip's owner is the only legal photo source.
+    if req.narrator_id and str(req.narrator_id) != str(trip.get("person_id")):
+        raise HTTPException(
+            status_code=400,
+            detail="narrator_id does not own this trip")
     narrator_id = req.narrator_id or trip.get("person_id")
     photos = _photos_for_narrator(str(narrator_id))
     stops = _flat_stops(trip_id)
@@ -714,6 +727,10 @@ def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
         narrator_caption=req.narrator_caption,
         confirm=req.confirm,
         trip_region_id=region_id,
+        caption_approved_for_lori=req.caption_approved_for_lori,
+        operator_context_note=req.operator_context_note,
+        clear_operator_context_note=req.clear_operator_context_note,
+        operator_context_approved_for_lori=req.operator_context_approved_for_lori,
     )
     if not ok:
         raise HTTPException(

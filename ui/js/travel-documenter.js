@@ -913,17 +913,84 @@
       var place = l.trip_stop_id ? stopNameById(l.trip_stop_id)
         : (l.trip_region_id ? regionNameById(l.trip_region_id) : "unplaced");
       card.appendChild(el("small", "td-muted", place));
+      // WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph5: the caption
+      // and the operator context note are LORI-APPROVAL-GATED. Nothing
+      // typed here reaches Lori's prompt until its checkbox is ticked;
+      // the server revokes caption approval whenever the caption text
+      // changes (approval refers to the reviewed text) — the checkbox
+      // unticks locally to mirror that.
+      if (l.narrator_caption && String(l.narrator_caption).trim()) {
+        card.appendChild(el("small", "td-photo-narrator-cap",
+          "Narrator: \u201C" + l.narrator_caption + "\u201D"));
+      }
       var cap = document.createElement("input");
       cap.type = "text"; cap.value = l.caption || ""; cap.placeholder = "caption";
       cap.className = "td-photo-cap";
+      var capLori = document.createElement("input");
       cap.addEventListener("change", function () {
         Promise.resolve().then(function () {
           return api("/api/trips/photo-links/" + encodeURIComponent(l.id),
             { method: "PATCH", body: JSON.stringify({ caption: cap.value }) })
-            .then(function () { setStatus("good", "Caption saved"); });
+            .then(function () {
+              capLori.checked = false;   // server revoked approval
+              setStatus("good", "Caption saved (Lori approval cleared — re-tick to re-approve)");
+            });
         }).catch(function (e) { logError("Error", { message: e.message }); });
       });
       card.appendChild(cap);
+      var capWrap = el("label", "td-note-toggle");
+      capLori.type = "checkbox";
+      capLori.checked = !!l.caption_approved_for_lori;
+      capLori.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return api("/api/trips/photo-links/" + encodeURIComponent(l.id),
+            { method: "PATCH", body: JSON.stringify(
+              { caption_approved_for_lori: capLori.checked }) })
+            .then(function () { setStatus("good", "Updated"); });
+        }).catch(function (e) {
+          capLori.checked = !capLori.checked;
+          logError("Error", { message: e.message });
+        });
+      });
+      capWrap.appendChild(capLori);
+      capWrap.appendChild(el("span", "", "Caption \u2192 Lori"));
+      card.appendChild(capWrap);
+      var note = document.createElement("textarea");
+      note.rows = 2; note.className = "td-photo-cap";
+      note.placeholder = "context note for Lori's questions (operator-only)";
+      note.value = l.operator_context_note || "";
+      var noteLori = document.createElement("input");
+      note.addEventListener("change", function () {
+        var body = (note.value && note.value.trim())
+          ? { operator_context_note: note.value }
+          : { clear_operator_context_note: true };
+        Promise.resolve().then(function () {
+          return api("/api/trips/photo-links/" + encodeURIComponent(l.id),
+            { method: "PATCH", body: JSON.stringify(body) })
+            .then(function () {
+              noteLori.checked = false;  // server cleared/reset approval
+              setStatus("good", "Context note saved (Lori approval cleared)");
+            });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      card.appendChild(note);
+      var noteWrap = el("label", "td-note-toggle");
+      noteLori.type = "checkbox";
+      noteLori.checked = !!l.operator_context_approved_for_lori;
+      noteLori.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return api("/api/trips/photo-links/" + encodeURIComponent(l.id),
+            { method: "PATCH", body: JSON.stringify(
+              { operator_context_approved_for_lori: noteLori.checked }) })
+            .then(function () { setStatus("good", "Updated"); });
+        }).catch(function (e) {
+          noteLori.checked = !noteLori.checked;
+          logError("Error", { message: e.message });
+        });
+      });
+      noteWrap.appendChild(noteLori);
+      noteWrap.appendChild(el("span", "", "Note \u2192 Lori"));
+      card.appendChild(noteWrap);
       var wrap = el("label", "td-note-toggle");
       var cb = document.createElement("input");
       cb.type = "checkbox"; cb.checked = !!l.include_in_memoir;

@@ -21,6 +21,11 @@ Hard exclusions (never in the output):
     interview-approval flag yet (only include_in_memoir), so NOTHING from
     sources is surfaced here. A dedicated flag must be added first.
   - notes NOT flagged include_in_interview_context=1
+  - operator captions NOT flagged caption_approved_for_lori=1
+    (narrator_caption — the narrator's OWN words from a photo-elicit
+    session — is allowed by construction; WO-TRIP-PHOTO-CONTEXT-
+    ENRICHMENT-FOR-LORI-01 Ph5)
+  - operator context notes NOT flagged operator_context_approved_for_lori=1
   - any image/pixel interpretation
 """
 from __future__ import annotations
@@ -131,18 +136,33 @@ def build_trip_interview_context(
         if len(notes) >= _MAX_NOTES:
             break
 
-    # Photo captions: narrator-ready links only, only those WITH a caption.
+    # Photo captions — WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph5.
+    # narrator-ready links only, AND:
+    #   - narrator_caption: allowed by construction (narrator's own words)
+    #   - operator caption: ONLY when caption_approved_for_lori=1
+    #     (review 2026-07-09 closed the gate — narrator_ready alone no
+    #     longer surfaces operator text to Lori)
+    # Approved operator context notes ride along as photo_context.
     captions: List[Dict[str, Any]] = []
+    photo_context: List[Dict[str, Any]] = []
     for l in trip_repository.narrator_photo_links(active_trip_id):
-        cap = (l.get("narrator_caption") or l.get("caption") or "").strip()
-        if not cap:
-            continue
         sid, rid = l.get("trip_stop_id"), l.get("trip_region_id")
         where = (stop_name.get(sid) if sid
                  else (region_name.get(rid) if rid else None))
-        captions.append({"where": where, "caption": _clip(cap)})
-        if len(captions) >= _MAX_CAPTIONS:
-            break
+        ncap = (l.get("narrator_caption") or "").strip()
+        ocap = (l.get("caption") or "").strip()
+        if ncap:
+            cap = ncap
+        elif ocap and l.get("caption_approved_for_lori"):
+            cap = ocap
+        else:
+            cap = ""
+        if cap and len(captions) < _MAX_CAPTIONS:
+            captions.append({"where": where, "caption": _clip(cap)})
+        note = (l.get("operator_context_note") or "").strip()
+        if (note and l.get("operator_context_approved_for_lori")
+                and len(photo_context) < _MAX_CAPTIONS):
+            photo_context.append({"where": where, "context": _clip(note)})
 
     ctx: Dict[str, Any] = {
         "trip_id": active_trip_id,
@@ -152,6 +172,7 @@ def build_trip_interview_context(
         "active": active,
         "notes": notes,
         "photo_captions": captions,
+        "photo_context": photo_context,
     }
     ctx["text"] = _to_prompt_text(ctx)
     return ctx
@@ -194,6 +215,12 @@ def _to_prompt_text(ctx: Dict[str, Any]) -> str:
     for c in ctx.get("photo_captions", []):
         where = (" (" + _safe(c["where"]) + ")") if c.get("where") else ""
         lines.append("Photo caption" + where + ": " + _safe(c.get("caption")))
+    for pc in ctx.get("photo_context", []):
+        where = (" (" + _safe(pc["where"]) + ")") if pc.get("where") else ""
+        # Locked phrasing rule: Lori speaks from "the approved text/
+        # notes", never "I can see".
+        lines.append("Approved photo context" + where + ": "
+                     + _safe(pc.get("context")))
     return "\n".join(lines)
 
 
