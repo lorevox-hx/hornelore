@@ -149,6 +149,7 @@
       '<label>End date<input data-td="regionEnd" type="date" /></label>' +
       '</div>' +
       '<label>Base address / lodging<input data-td="regionBase" type="text" placeholder="Hotel, rental, city base" /></label>' +
+      '<label>Story / narrative<textarea data-td="regionSummary" rows="3" placeholder="Short synopsis of this leg (e.g. Germany was the first leg — flew into Munich, then train to Prague)."></textarea></label>' +
       '<div class="td-button-row"><button data-td="createRegion" type="button">Add region</button><button data-td="cancelAddRegion" type="button" class="td-secondary">Cancel</button></div>' +
       '</div></div>';
 
@@ -670,6 +671,7 @@
       var vStart = edDate(f, "Start date", region.start_date);
       var vEnd = edDate(f, "End date", region.end_date);
       var vBase = edText(f, "Base address / lodging", region.base_address);
+      var vSummary = edArea(f, "Story / narrative", region.summary);
       edActions(f, function () {
         var name = (vTitle.value || "").trim();
         if (!name) throw new Error("region title is required");
@@ -685,6 +687,8 @@
             clear_end_date: !vEnd.value,
             base_address: vBase.value || null,
             clear_base_address: !vBase.value,
+            summary: vSummary.value || null,
+            clear_summary: !vSummary.value,
           }),
         }).then(function (out) {
           log("Region updated", out);
@@ -710,7 +714,7 @@
         stop.stop_type || "sight");
       var vStart = edDate(f, "Start date", stop.date_start);
       var vEnd = edDate(f, "End date", stop.date_end);
-      var vNotes = edArea(f, "Notes", stop.notes);
+      var vNotes = edArea(f, "Story / notes", stop.notes);
 
       var regionOpts = (st.tree.regions || []).map(function (r) {
         return { value: r.id, label: r.title || "Region" };
@@ -741,6 +745,24 @@
       vRegion.addEventListener("change", function () {
         fillParentOptions(vRegion.value);
       });
+
+      // Per-stop photo upload (operator truth — lands directly on this stop).
+      var photoWrap = el("div", "td-ed-field");
+      photoWrap.appendChild(el("span", "td-ed-label", "Add photos to this stop"));
+      var stopFileIn = document.createElement("input");
+      stopFileIn.type = "file";
+      stopFileIn.accept = "image/*,.heic,.heif";
+      stopFileIn.multiple = true;
+      photoWrap.appendChild(stopFileIn);
+      var stopUpBtn = el("button", "td-small", "Upload to this stop");
+      stopUpBtn.type = "button";
+      stopUpBtn.addEventListener("click", function () {
+        Promise.resolve().then(function () {
+          return uploadPhotosToStop(stop.id, stopFileIn);
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      photoWrap.appendChild(stopUpBtn);
+      f.appendChild(photoWrap);
 
       edActions(f, function () {
         var name = (vName.value || "").trim();
@@ -944,12 +966,13 @@
         start_date: val("regionStart") || null,
         end_date: val("regionEnd") || null,
         base_address: val("regionBase") || null,
+        summary: val("regionSummary") || null,
       };
       return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/regions",
         { method: "POST", body: JSON.stringify(body) })
         .then(function (out) {
           log("Region added", out);
-          clearFields(["regionName", "regionArea", "regionStart", "regionEnd", "regionBase"]);
+          clearFields(["regionName", "regionArea", "regionStart", "regionEnd", "regionBase", "regionSummary"]);
           return refreshCurrentTrip();
         });
     }
@@ -1043,6 +1066,23 @@
         });
     }
 
+    function uploadPhotosToStop(stopId, fileInput) {
+      var files = Array.prototype.slice.call((fileInput && fileInput.files) || []);
+      if (!files.length) return Promise.reject(new Error("choose at least one photo"));
+      var fd = new FormData();
+      files.forEach(function (f) { fd.append("files", f); });
+      fd.append("uploaded_by_user_id", "travel_documenter");
+      fd.append("narrator_ready", "true");
+      fd.append("uploaded_from_surface", "travel_documenter");
+      return api("/api/trips/stops/" + encodeURIComponent(stopId) + "/photos",
+        { method: "POST", body: fd })
+        .then(function (out) {
+          log("Photos uploaded to stop", out);
+          setStatus("good", "Photos added to this stop");
+          return refreshCurrentTrip();
+        });
+    }
+
     function uploadPhotos() {
       if (!st.trip) return Promise.reject(new Error("select a trip first"));
       var files = Array.prototype.slice.call($("photoFiles").files || []);
@@ -1131,7 +1171,7 @@
     // Add region (modal)
     bind("addRegionBtn", function () {
       if (!st.trip) throw new Error("select a trip first");
-      clearFields(["regionName", "regionArea", "regionStart", "regionEnd", "regionBase"]);
+      clearFields(["regionName", "regionArea", "regionStart", "regionEnd", "regionBase", "regionSummary"]);
       openModal("modalAddRegion");
       var n = $("regionName"); if (n) n.focus();
     });
