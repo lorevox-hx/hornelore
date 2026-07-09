@@ -2548,3 +2548,19 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
 body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header .memory-segmented-control,
 body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header .lv80-posture-badge { display: none; }
 body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header { padding-top: 8px; padding-bottom: 8px; }
+
+/* WO-TRIP-LORI-REAL-BETA-USABILITY-01 Phase 2 — in-chat add-trip-photo button */
+#lvAddTripPhotoBtn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(99,102,241,0.4);
+  background: rgba(99,102,241,0.12);
+  color: #a5b4fc;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#lvAddTripPhotoBtn:hover { background: rgba(99,102,241,0.22); }
+#lvAddTripPhotoBtn[hidden] { display: none !important; }
+#lvAddTripPhotoBtn:disabled { opacity: 0.6; cursor: default; }

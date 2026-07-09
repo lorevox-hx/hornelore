@@ -3483,6 +3483,12 @@
       <div id="lv80LoriDot" title="Lori Status"></div>
 
       <button id="btnPause" type="button" onclick="lv80TogglePauseListening()">Pause</button>
+      <!-- WO-TRIP-LORI-REAL-BETA-USABILITY-01 Phase 2: in-chat trip photo add.
+           Hidden by default; travels-shelf.js shows it only when a trip is
+           open on the shelf and owned by the active narrator. -->
+      <button id="lvAddTripPhotoBtn" type="button" class="lv-add-trip-photo-btn" hidden
+              title="Add a photo to the trip you have open">+ Add trip photo</button>
+      <input id="lvAddTripPhotoInput" type="file" accept="image/*,.heic,.heif" multiple hidden>
       <button id="lv80SendBtn" onclick="sendUserMessage()">Send</button>
     </div>
   </footer>

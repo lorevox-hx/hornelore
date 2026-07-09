@@ -709,3 +709,94 @@
   window.lvTravelsShelfToggle = lvTravelsShelfToggle;
   window._lvTravelsRestorePanel = _lvTravelsRestorePanel;
 })();
+
+/* WO-TRIP-LORI-REAL-BETA-USABILITY-01 Phase 2 — in-chat "+ Add trip photo".
+   A visible upload affordance in the conversation footer, shown ONLY when a
+   trip is open on the Travels shelf. Reuses the trip photo endpoint; after
+   upload it dispatches ONE safe Lori prompt (metadata only — never describes
+   the image). Self-contained: reads state.session, uses global dispatch. */
+(function () {
+  "use strict";
+  var API = (window.LOREVOX_API || "http://localhost:8000").replace(/\/$/, "");
+
+  function _ss() {
+    try {
+      return (typeof state !== "undefined" && state && state.session) ? state.session : {};
+    } catch (e) { return {}; }
+  }
+  function _safe(t) {
+    return String(t == null ? "" : t)
+      .replace(/[\[\]]/g, " ").replace(/\r?\n/g, " ")
+      .replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+  function _syncBtn() {
+    var btn = document.getElementById("lvAddTripPhotoBtn");
+    if (!btn) return;
+    var s = _ss();
+    btn.hidden = !(s.activeTripId && s.travelsShelfOpen);
+  }
+  function _chip(text) {
+    try { if (typeof window.appendBubble === "function") window.appendBubble("system", text); }
+    catch (e) { /* best-effort — the safe Lori prompt is the real confirmation */ }
+  }
+  function _dispatchSafePrompt(title) {
+    var msg = "[SYSTEM: The narrator just added a photo to their open trip '" +
+      _safe(title || "a trip") + "'. You have NOT seen the photo. Do NOT " +
+      "describe it, guess what is in it, who is in it, or where it was taken. " +
+      "Ask ONE short warm question inviting them to tell you what they " +
+      "remember about this picture. Maximum 40 words. ONE question only.]";
+    try {
+      if (typeof window.wo9SendOrQueueSystemPrompt === "function") window.wo9SendOrQueueSystemPrompt(msg);
+      else if (typeof window.sendSystemPrompt === "function") window.sendSystemPrompt(msg);
+    } catch (e) { console.warn("[in-chat-photo] prompt dispatch failed:", e); }
+  }
+  function _upload(files) {
+    var s = _ss();
+    if (!s.activeTripId || !files.length) return;
+    var btn = document.getElementById("lvAddTripPhotoBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Adding photo…"; }
+    var fd = new FormData();
+    files.forEach(function (f) { fd.append("files", f); });
+    fd.append("uploaded_by_user_id", "narrator");
+    fd.append("narrator_ready", "true");
+    fd.append("uploaded_from_surface", "travels_shelf");
+    fetch(API + "/api/trips/" + encodeURIComponent(s.activeTripId) + "/photos",
+          { method: "POST", body: fd })
+      .then(function (r) {
+        if (!r.ok) throw new Error("upload failed (" + r.status + ")");
+        return r.json();
+      })
+      .then(function (resp) {
+        var n = (resp && (resp.uploaded + (resp.duplicates || 0))) || files.length;
+        _chip("📷 " + (n === 1 ? "Photo" : n + " photos") +
+              " added to this trip. Lori will ask you about it.");
+        _dispatchSafePrompt(s.activeTripTitle);
+      })
+      .catch(function (e) {
+        console.warn("[in-chat-photo] upload error:", e);
+        _chip("Sorry — that photo didn't upload. Please try again.");
+      })
+      .then(function () {
+        var b = document.getElementById("lvAddTripPhotoBtn");
+        if (b) { b.disabled = false; b.textContent = "+ Add trip photo"; }
+      });
+  }
+  function _wire() {
+    var btn = document.getElementById("lvAddTripPhotoBtn");
+    var input = document.getElementById("lvAddTripPhotoInput");
+    if (btn && input && !btn._lvWired) {
+      btn._lvWired = true;
+      btn.addEventListener("click", function () { input.click(); });
+      input.addEventListener("change", function () {
+        var files = Array.prototype.slice.call(input.files || []);
+        input.value = "";
+        if (files.length) _upload(files);
+      });
+    }
+    _syncBtn();
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _wire);
+  else _wire();
+  setInterval(_syncBtn, 1500);
+  window.lvSyncAddTripPhotoBtn = _syncBtn;
+})();
