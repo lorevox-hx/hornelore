@@ -36,6 +36,23 @@ def build_trip_docx(
 
     doc = Document()
 
+    def _story_notes(notes, indent=0.0):
+        # Promoted story notes (include_in_memoir=1). Empty stays empty —
+        # no invented prose.
+        for note in notes or []:
+            t = (note.get("note_title") or "").strip()
+            body = (note.get("note_text") or "").strip()
+            if t:
+                h = doc.add_paragraph()
+                r = h.add_run(t); r.bold = True; r.font.size = Pt(10)
+                if indent:
+                    h.paragraph_format.left_indent = Inches(indent)
+            if body:
+                pn = doc.add_paragraph(body)
+                pn.runs[0].font.size = Pt(10)
+                if indent:
+                    pn.paragraph_format.left_indent = Inches(indent)
+
     title = preview.get("title") or "Trip Memoir"
     dr = preview.get("date_range") or {}
     doc.add_heading(str(title), level=0)
@@ -47,6 +64,7 @@ def build_trip_docx(
         p.runs[0].font.size = Pt(11)
     if preview.get("summary"):
         doc.add_paragraph(str(preview["summary"]))
+    _story_notes(preview.get("story_notes"))
 
     # ── Part I — The Journey in Order ────────────────────────────────
     doc.add_heading("Part I — The Journey in Order", level=1)
@@ -71,6 +89,7 @@ def build_trip_docx(
             note = doc.add_paragraph(str(stop["notes"]))
             note.paragraph_format.left_indent = Inches(0.5 + 0.25 * depth)
             note.runs[0].font.size = Pt(10)
+        _story_notes(stop.get("story_notes"), indent=0.5 + 0.25 * depth)
         for child in stop.get("day_trips", []):
             _stop_paragraph(child, depth + 1)
 
@@ -84,6 +103,7 @@ def build_trip_docx(
             doc.add_paragraph(f"Base: {region['base_address']}")
         if region.get("summary"):
             doc.add_paragraph(str(region["summary"]))
+        _story_notes(region.get("story_notes"))
         for stop in region.get("stops", []):
             _stop_paragraph(stop, 0)
 
@@ -111,30 +131,42 @@ def build_trip_docx(
     )
     embedded = 0
     skipped = 0
+    # Group photos under their stop instead of a single flat list. Rows with
+    # no stop fall under "Unplaced".
+    _groups: Dict[str, List[Dict[str, Any]]] = {}
+    _order: List[str] = []
     for row in photo_rows or []:
-        path = row.get("photo_image_path")
-        if not path or not os.path.isfile(str(path)):
-            skipped += 1
-            continue
-        try:
-            doc.add_picture(str(path), width=Inches(4.5))
-            caption = (
-                row.get("narrator_caption")
-                or row.get("caption")
-                or row.get("photo_description")
-                or ""
-            )
-            when = row.get("taken_at") or row.get("photo_date_value") or ""
-            cap_bits = [b for b in (str(caption).strip(), str(when).strip()) if b]
-            if cap_bits:
-                cp = doc.add_paragraph(" — ".join(cap_bits))
-                cp.runs[0].font.size = Pt(9)
-            embedded += 1
-        except Exception as exc:
-            skipped += 1
-            logger.warning(
-                "[trip-docx] photo embed failed path=%s: %s", path, exc,
-            )
+        key = str(row.get("stop_location_name") or "Unplaced")
+        if key not in _groups:
+            _groups[key] = []
+            _order.append(key)
+        _groups[key].append(row)
+    for key in _order:
+        doc.add_heading(key, level=2)
+        for row in _groups[key]:
+            path = row.get("photo_image_path")
+            if not path or not os.path.isfile(str(path)):
+                skipped += 1
+                continue
+            try:
+                doc.add_picture(str(path), width=Inches(4.5))
+                caption = (
+                    row.get("narrator_caption")
+                    or row.get("caption")
+                    or row.get("photo_description")
+                    or ""
+                )
+                when = row.get("taken_at") or row.get("photo_date_value") or ""
+                cap_bits = [b for b in (str(caption).strip(), str(when).strip()) if b]
+                if cap_bits:
+                    cp = doc.add_paragraph(" — ".join(cap_bits))
+                    cp.runs[0].font.size = Pt(9)
+                embedded += 1
+            except Exception as exc:
+                skipped += 1
+                logger.warning(
+                    "[trip-docx] photo embed failed path=%s: %s", path, exc,
+                )
     if photo_rows is not None:
         doc.add_paragraph(
             f"({embedded} photo{'s' if embedded != 1 else ''} embedded"

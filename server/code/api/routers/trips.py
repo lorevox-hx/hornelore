@@ -30,6 +30,15 @@ mirroring the operator_eval_harness posture):
     POST  /api/trips/{trip_id}/regions/reorder      {ordered_ids}
     POST  /api/trips/{trip_id}/stops/reorder        {region_id, parent?, ordered_ids}
     POST  /api/trips/{trip_id}/stops/{stop_id}/move {region_id, parent?, before?/after?}
+    GET   /api/trips/{trip_id}/location-notes  [?region_id=&stop_id=] (story layer)
+    POST  /api/trips/{trip_id}/location-notes  {note_text, scope, source_type, flags}
+    PATCH /api/trips/location-notes/{note_id}
+    DELETE /api/trips/location-notes/{note_id}
+    GET   /api/trips/{trip_id}/sources  [?region_id=&stop_id=]  (documents lane)
+    POST  /api/trips/{trip_id}/sources         {source_type, pasted_text|link_url}
+    POST  /api/trips/{trip_id}/sources/upload  (multipart file[s])
+    PATCH /api/trips/sources/{source_id}
+    DELETE /api/trips/sources/{source_id}
 
 Operator-side surface. Nothing here reaches the narrator directly —
 the interview lane consumes trips later via location notes (LOCKED
@@ -42,6 +51,7 @@ import json
 import logging
 import os
 import sqlite3
+import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -198,6 +208,52 @@ class StopMove(BaseModel):
     parent_trip_stop_id: Optional[str] = None
     before_stop_id: Optional[str] = None
     after_stop_id: Optional[str] = None
+
+
+class LocationNoteCreate(BaseModel):
+    note_text: str
+    note_title: Optional[str] = None
+    trip_region_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
+    source_type: str = "operator"
+    source_ref: Optional[str] = None
+    include_in_memoir: bool = False
+    include_in_interview_context: bool = False
+    target_language: str = "en"
+
+
+class LocationNotePatch(BaseModel):
+    note_title: Optional[str] = None
+    note_text: Optional[str] = None
+    source_type: Optional[str] = None
+    source_ref: Optional[str] = None
+    include_in_memoir: Optional[bool] = None
+    include_in_interview_context: Optional[bool] = None
+    ord: Optional[int] = None
+    clear_title: bool = False
+
+
+class SourceCreate(BaseModel):
+    source_type: str = "other"
+    title: Optional[str] = None
+    trip_region_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
+    pasted_text: Optional[str] = None
+    link_url: Optional[str] = None
+    source_date: Optional[str] = None
+    summary: Optional[str] = None
+    include_in_memoir: bool = False
+
+
+class SourcePatch(BaseModel):
+    source_type: Optional[str] = None
+    title: Optional[str] = None
+    pasted_text: Optional[str] = None
+    link_url: Optional[str] = None
+    source_date: Optional[str] = None
+    summary: Optional[str] = None
+    include_in_memoir: Optional[bool] = None
+    ord: Optional[int] = None
 
 
 # ── Photo source read (photos table from the Photo Intake lane) ──────────
@@ -1113,6 +1169,227 @@ def delete_trip(trip_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="trip not found")
     logger.info("[trips][delete] trip=%s", trip_id)
     return {"ok": True, "trip_id": trip_id}
+
+
+_LOCATION_NOTE_SOURCE_TYPES = ("operator", "lori", "external", "draft")
+
+
+@router.get("/{trip_id}/location-notes")
+def list_location_notes(trip_id: str, region_id: Optional[str] = None,
+                        stop_id: Optional[str] = None) -> Dict[str, Any]:
+    """Story-layer notes for a trip, optionally scoped. stop_id -> that
+    stop's notes; region_id (no stop) -> that region's own notes (stop is
+    null); neither -> trip-level notes (both scopes null)."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    notes = trip_repository.location_notes_list(trip_id)
+    if stop_id:
+        notes = [n for n in notes if n.get("trip_stop_id") == stop_id]
+    elif region_id:
+        notes = [n for n in notes
+                 if n.get("trip_region_id") == region_id and not n.get("trip_stop_id")]
+    return {"notes": notes}
+
+
+@router.post("/{trip_id}/location-notes")
+def create_location_note(trip_id: str, req: LocationNoteCreate) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    if not (req.note_text or "").strip():
+        raise HTTPException(status_code=422, detail="note needs text")
+    if req.source_type not in _LOCATION_NOTE_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail="invalid source_type")
+    if req.trip_stop_id:
+        stop = trip_repository.stop_get(req.trip_stop_id)
+        if not stop or stop.get("trip_id") != trip_id:
+            raise HTTPException(status_code=400, detail="stop not in this trip")
+    if req.trip_region_id and \
+            trip_repository.region_trip_id(req.trip_region_id) != trip_id:
+        raise HTTPException(status_code=400, detail="region not in this trip")
+    note_id = trip_repository.location_note_create(
+        trip_id=trip_id,
+        note_text=req.note_text,
+        note_title=req.note_title,
+        trip_region_id=req.trip_region_id,
+        trip_stop_id=req.trip_stop_id,
+        source_type=req.source_type,
+        source_ref=req.source_ref,
+        include_in_memoir=req.include_in_memoir,
+        include_in_interview_context=req.include_in_interview_context,
+        target_language=req.target_language or "en",
+    )
+    return {"note_id": note_id, "note": trip_repository.location_note_get(note_id)}
+
+
+@router.patch("/location-notes/{note_id}")
+def patch_location_note(note_id: str, req: LocationNotePatch) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.location_note_get(note_id):
+        raise HTTPException(status_code=404, detail="note not found")
+    if req.source_type is not None and \
+            req.source_type not in _LOCATION_NOTE_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail="invalid source_type")
+    ok = trip_repository.location_note_update(
+        note_id,
+        note_title=req.note_title,
+        note_text=req.note_text,
+        source_type=req.source_type,
+        source_ref=req.source_ref,
+        include_in_memoir=req.include_in_memoir,
+        include_in_interview_context=req.include_in_interview_context,
+        ord_=req.ord,
+        clear_title=req.clear_title,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    return {"ok": True, "note": trip_repository.location_note_get(note_id)}
+
+
+@router.delete("/location-notes/{note_id}")
+def delete_location_note(note_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.location_note_delete(note_id):
+        raise HTTPException(status_code=404, detail="note not found")
+    return {"ok": True, "note_id": note_id}
+
+
+_TRIP_SOURCE_TYPES = ("itinerary", "receipt", "hotel", "ticket",
+                      "note", "map", "link", "other")
+
+
+def _validate_source_scope(trip_id: str, region_id, stop_id) -> None:
+    if stop_id:
+        stop = trip_repository.stop_get(stop_id)
+        if not stop or stop.get("trip_id") != trip_id:
+            raise HTTPException(status_code=400, detail="stop not in this trip")
+    if region_id and trip_repository.region_trip_id(region_id) != trip_id:
+        raise HTTPException(status_code=400, detail="region not in this trip")
+
+
+@router.get("/{trip_id}/sources")
+def list_sources(trip_id: str, region_id: Optional[str] = None,
+                 stop_id: Optional[str] = None) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    rows = trip_repository.sources_list(trip_id)
+    if stop_id:
+        rows = [s for s in rows if s.get("trip_stop_id") == stop_id]
+    elif region_id:
+        rows = [s for s in rows
+                if s.get("trip_region_id") == region_id and not s.get("trip_stop_id")]
+    return {"sources": rows}
+
+
+@router.post("/{trip_id}/sources")
+def create_source(trip_id: str, req: SourceCreate) -> Dict[str, Any]:
+    """Create a non-file source (pasted text / link / metadata note)."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    if req.source_type not in _TRIP_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail="invalid source_type")
+    if not (req.pasted_text or req.link_url or req.title or req.summary):
+        raise HTTPException(status_code=422,
+                            detail="source needs text, a link, or a title")
+    _validate_source_scope(trip_id, req.trip_region_id, req.trip_stop_id)
+    sid = trip_repository.source_create(
+        trip_id=trip_id,
+        source_type=req.source_type,
+        title=req.title,
+        trip_region_id=req.trip_region_id,
+        trip_stop_id=req.trip_stop_id,
+        pasted_text=req.pasted_text,
+        link_url=req.link_url,
+        source_date=req.source_date,
+        summary=req.summary,
+        include_in_memoir=req.include_in_memoir,
+    )
+    return {"source_id": sid, "source": trip_repository.source_get(sid)}
+
+
+@router.post("/{trip_id}/sources/upload")
+async def upload_source(
+    trip_id: str,
+    files: List[UploadFile] = File(...),
+    source_type: str = Form("other"),
+    trip_region_id: str = Form(""),
+    trip_stop_id: str = Form(""),
+    title: str = Form(""),
+):
+    """Upload one or more source documents (PDF, ticket, receipt, ...).
+    Stored under DATA_DIR/trip_sources/<id>/ — NOT the photo pipeline."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    st_type = source_type if source_type in _TRIP_SOURCE_TYPES else "other"
+    region = trip_region_id or None
+    stop = trip_stop_id or None
+    _validate_source_scope(trip_id, region, stop)
+    data_dir = os.getenv("DATA_DIR", "data")
+    created: List[str] = []
+    for f in files:
+        sid = str(uuid.uuid4())
+        safe = os.path.basename((getattr(f, "filename", None) or "file"))
+        dest_dir = os.path.join(data_dir, "trip_sources", sid)
+        os.makedirs(dest_dir, exist_ok=True)
+        path = os.path.join(dest_dir, safe)
+        data = await f.read()
+        with open(path, "wb") as out:
+            out.write(data)
+        trip_repository.source_create(
+            trip_id=trip_id, source_type=st_type, title=title or safe,
+            trip_region_id=region, trip_stop_id=stop, filename=safe,
+            mime_type=getattr(f, "content_type", None), storage_path=path,
+            source_id=sid,
+        )
+        created.append(sid)
+    return {"source_ids": created,
+            "sources": trip_repository.sources_list(trip_id)}
+
+
+@router.patch("/sources/{source_id}")
+def patch_source(source_id: str, req: SourcePatch) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.source_get(source_id):
+        raise HTTPException(status_code=404, detail="source not found")
+    if req.source_type is not None and req.source_type not in _TRIP_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail="invalid source_type")
+    ok = trip_repository.source_update(
+        source_id,
+        source_type=req.source_type,
+        title=req.title,
+        pasted_text=req.pasted_text,
+        link_url=req.link_url,
+        source_date=req.source_date,
+        summary=req.summary,
+        include_in_memoir=req.include_in_memoir,
+        ord_=req.ord,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    return {"ok": True, "source": trip_repository.source_get(source_id)}
+
+
+@router.delete("/sources/{source_id}")
+def delete_source(source_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    src_row = trip_repository.source_get(source_id)
+    if not src_row:
+        raise HTTPException(status_code=404, detail="source not found")
+    if not trip_repository.source_delete(source_id):
+        raise HTTPException(status_code=404, detail="source not found")
+    # Best-effort: remove the stored file (row is the authority; a leftover
+    # blob is harmless but we clean up).
+    sp = src_row.get("storage_path")
+    if sp:
+        try:
+            os.remove(sp)
+        except OSError:
+            pass
+    return {"ok": True, "source_id": source_id}
 
 
 @router.get("/{trip_id}/export-docx")

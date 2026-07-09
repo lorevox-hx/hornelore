@@ -117,3 +117,23 @@ body.td-standalone .td-dot.bad { background: var(--td-bad); }
 .td-root .td-modal-head h2, body.td-standalone .td-modal-head h2 { margin: 0; font-size: 1.15rem; }
 .td-root .td-modal-x, body.td-standalone .td-modal-x { background: transparent; color: var(--td-muted); box-shadow: none; border: 0; font-size: 1.1rem; line-height: 1; padding: 0.3rem 0.5rem; cursor: pointer; margin-left: auto; }
 .td-root .td-modal-x:hover, body.td-standalone .td-modal-x:hover { color: var(--td-bad); filter: none; }
+
+/* ── Story notes / editor tabs (WO-TRAVEL-DOC-STORY-LAYER-01) — single-line
+   rules, each prefixed .td-root for the scoping gate. ── */
+.td-root .td-ed-tabs, body.td-standalone .td-ed-tabs { display: flex; gap: 0.3rem; border-bottom: 1px solid var(--td-line); margin-bottom: 0.75rem; }
+.td-root .td-ed-tab, body.td-standalone .td-ed-tab { background: transparent; color: var(--td-muted); box-shadow: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 0.4rem 0.6rem; font-weight: 750; font-size: 0.9rem; cursor: pointer; }
+.td-root .td-ed-tab:hover, body.td-standalone .td-ed-tab:hover { filter: none; color: var(--td-accent-2); }
+.td-root .td-ed-tab.is-active, body.td-standalone .td-ed-tab.is-active { color: var(--td-accent-2); border-bottom-color: var(--td-accent); }
+.td-root .td-ed-pane, body.td-standalone .td-ed-pane { display: grid; gap: 0.75rem; }
+.td-root .td-note-add-h, body.td-standalone .td-note-add-h { margin: 0.5rem 0 0; font-size: 0.95rem; color: var(--td-accent-2); }
+.td-root .td-note-card, body.td-standalone .td-note-card { border: 1px solid var(--td-line); border-radius: 12px; background: rgba(255, 253, 247, 0.9); padding: 0.6rem 0.7rem; display: grid; gap: 0.4rem; }
+.td-root .td-note-head, body.td-standalone .td-note-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.td-root .td-note-badge, body.td-standalone .td-note-badge { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.12rem 0.4rem; border-radius: 999px; border: 1px solid var(--td-line); color: var(--td-muted); }
+.td-root .td-src-operator, body.td-standalone .td-src-operator { background: rgba(34, 131, 95, 0.12); color: var(--td-good); border-color: rgba(34, 131, 95, 0.3); }
+.td-root .td-src-lori, body.td-standalone .td-src-lori { background: rgba(181, 107, 18, 0.12); color: var(--td-accent-2); border-color: rgba(181, 107, 18, 0.3); }
+.td-root .td-src-external, body.td-standalone .td-src-external { background: rgba(90, 90, 120, 0.12); color: #5a5a78; border-color: rgba(90, 90, 120, 0.3); }
+.td-root .td-src-draft, body.td-standalone .td-src-draft { background: rgba(166, 64, 47, 0.1); color: var(--td-bad); border-color: rgba(166, 64, 47, 0.3); }
+.td-root .td-note-text, body.td-standalone .td-note-text { margin: 0; white-space: pre-wrap; line-height: 1.4; color: var(--td-text); }
+.td-root .td-note-flags, body.td-standalone .td-note-flags { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.td-root .td-note-toggle, body.td-standalone .td-note-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; font-weight: 700; color: var(--td-muted); cursor: pointer; }
+.td-root .td-note-toggle input, body.td-standalone .td-note-toggle input { width: auto; }

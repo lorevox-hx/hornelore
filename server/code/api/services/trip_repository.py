@@ -735,6 +735,317 @@ def stop_move(
 
 
 
+# ── Location notes (story layer — WO-TRAVEL-DOC-STORY-LAYER-01) ─────────────
+#
+# Many notes per place, with provenance (source_type) and two promotion
+# flags that default OFF. Nothing here reaches the memoir or the interview
+# lane until the operator flips include_in_memoir / include_in_interview_context.
+
+_LOCATION_NOTE_SOURCE_TYPES = ("operator", "lori", "external", "draft")
+
+
+def location_note_create(
+    trip_id: str,
+    note_text: str,
+    note_title: Optional[str] = None,
+    trip_region_id: Optional[str] = None,
+    trip_stop_id: Optional[str] = None,
+    source_type: str = "operator",
+    source_ref: Optional[str] = None,
+    include_in_memoir: bool = False,
+    include_in_interview_context: bool = False,
+    target_language: str = "en",
+    ord_: int = 0,
+    note_id: Optional[str] = None,
+) -> str:
+    if source_type not in _LOCATION_NOTE_SOURCE_TYPES:
+        source_type = "operator"
+    nid = note_id or _new_id()
+    con = _connect()
+    try:
+        con.execute(
+            """INSERT INTO trip_location_notes
+               (id, trip_id, trip_region_id, trip_stop_id, note_title,
+                note_text, source_type, source_ref, include_in_memoir,
+                include_in_interview_context, target_language, ord,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                nid, trip_id, trip_region_id, trip_stop_id, note_title,
+                note_text, source_type, source_ref,
+                1 if include_in_memoir else 0,
+                1 if include_in_interview_context else 0,
+                target_language, int(ord_), _now(), _now(),
+            ),
+        )
+        con.commit()
+        return nid
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def location_notes_list(trip_id: str) -> List[Dict[str, Any]]:
+    """All notes for a trip, ordered. Scope filtering (trip/region/stop)
+    is done by the caller so one read serves the UI and the memoir.
+    Tolerant of a pre-0019 DB (old table shape / missing) — returns []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_location_notes WHERE trip_id = ? "
+            "ORDER BY ord, created_at",
+            (trip_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def location_note_get(note_id: str) -> Optional[Dict[str, Any]]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_location_notes WHERE id = ?", (note_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
+def location_note_trip_id(note_id: str) -> Optional[str]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT trip_id FROM trip_location_notes WHERE id = ?", (note_id,),
+        ).fetchone()
+        return row["trip_id"] if row else None
+    finally:
+        con.close()
+
+
+def location_note_update(
+    note_id: str,
+    note_title: Optional[str] = None,
+    note_text: Optional[str] = None,
+    source_type: Optional[str] = None,
+    source_ref: Optional[str] = None,
+    include_in_memoir: Optional[bool] = None,
+    include_in_interview_context: Optional[bool] = None,
+    ord_: Optional[int] = None,
+    clear_title: bool = False,
+) -> bool:
+    """Partial update. Text fields: None = unchanged. Booleans: None =
+    unchanged, else written. clear_title NULLs the title."""
+    sets: List[str] = []
+    args: List[Any] = []
+    if clear_title:
+        sets.append("note_title = NULL")
+    elif note_title is not None:
+        sets.append("note_title = ?"); args.append(note_title)
+    if note_text is not None:
+        sets.append("note_text = ?"); args.append(note_text)
+    if source_type is not None and source_type in _LOCATION_NOTE_SOURCE_TYPES:
+        sets.append("source_type = ?"); args.append(source_type)
+    if source_ref is not None:
+        sets.append("source_ref = ?"); args.append(source_ref)
+    if include_in_memoir is not None:
+        sets.append("include_in_memoir = ?"); args.append(1 if include_in_memoir else 0)
+    if include_in_interview_context is not None:
+        sets.append("include_in_interview_context = ?")
+        args.append(1 if include_in_interview_context else 0)
+    if ord_ is not None:
+        sets.append("ord = ?"); args.append(int(ord_))
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(note_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_location_notes SET {', '.join(sets)} WHERE id = ?", args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def location_note_delete(note_id: str) -> bool:
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_location_notes WHERE id = ?", (note_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+# ── Sources (documents — WO-TRAVEL-DOC-SOURCES-01) ─────────────────────────
+#
+# Non-photo source material (files, pasted text, links) attached to a
+# trip/region/stop. Separate from the photo pipeline. include_in_memoir
+# defaults OFF.
+
+_TRIP_SOURCE_TYPES = ("itinerary", "receipt", "hotel", "ticket",
+                      "note", "map", "link", "other")
+
+
+def source_create(
+    trip_id: str,
+    source_type: str = "other",
+    title: Optional[str] = None,
+    trip_region_id: Optional[str] = None,
+    trip_stop_id: Optional[str] = None,
+    filename: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    storage_path: Optional[str] = None,
+    pasted_text: Optional[str] = None,
+    link_url: Optional[str] = None,
+    source_date: Optional[str] = None,
+    summary: Optional[str] = None,
+    include_in_memoir: bool = False,
+    ord_: int = 0,
+    source_id: Optional[str] = None,
+) -> str:
+    if source_type not in _TRIP_SOURCE_TYPES:
+        source_type = "other"
+    sid = source_id or _new_id()
+    con = _connect()
+    try:
+        con.execute(
+            """INSERT INTO trip_sources
+               (id, trip_id, trip_region_id, trip_stop_id, source_type,
+                title, filename, mime_type, storage_path, pasted_text,
+                link_url, source_date, summary, include_in_memoir, ord,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                sid, trip_id, trip_region_id, trip_stop_id, source_type,
+                title, filename, mime_type, storage_path, pasted_text,
+                link_url, source_date, summary,
+                1 if include_in_memoir else 0, int(ord_), _now(), _now(),
+            ),
+        )
+        con.commit()
+        return sid
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def sources_list(trip_id: str) -> List[Dict[str, Any]]:
+    """Tolerant of a pre-0020 DB (trip_sources missing) — returns []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_sources WHERE trip_id = ? ORDER BY ord, created_at",
+            (trip_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def source_get(source_id: str) -> Optional[Dict[str, Any]]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_sources WHERE id = ?", (source_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
+def source_trip_id(source_id: str) -> Optional[str]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT trip_id FROM trip_sources WHERE id = ?", (source_id,),
+        ).fetchone()
+        return row["trip_id"] if row else None
+    finally:
+        con.close()
+
+
+def source_update(
+    source_id: str,
+    source_type: Optional[str] = None,
+    title: Optional[str] = None,
+    pasted_text: Optional[str] = None,
+    link_url: Optional[str] = None,
+    source_date: Optional[str] = None,
+    summary: Optional[str] = None,
+    include_in_memoir: Optional[bool] = None,
+    ord_: Optional[int] = None,
+) -> bool:
+    sets: List[str] = []
+    args: List[Any] = []
+    if source_type is not None and source_type in _TRIP_SOURCE_TYPES:
+        sets.append("source_type = ?"); args.append(source_type)
+    if title is not None:
+        sets.append("title = ?"); args.append(title)
+    if pasted_text is not None:
+        sets.append("pasted_text = ?"); args.append(pasted_text)
+    if link_url is not None:
+        sets.append("link_url = ?"); args.append(link_url)
+    if source_date is not None:
+        sets.append("source_date = ?"); args.append(source_date)
+    if summary is not None:
+        sets.append("summary = ?"); args.append(summary)
+    if include_in_memoir is not None:
+        sets.append("include_in_memoir = ?"); args.append(1 if include_in_memoir else 0)
+    if ord_ is not None:
+        sets.append("ord = ?"); args.append(int(ord_))
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(source_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_sources SET {', '.join(sets)} WHERE id = ?", args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def source_delete(source_id: str) -> bool:
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_sources WHERE id = ?", (source_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 # ── Photo links ───────────────────────────────────────────────────────────
 
 
@@ -1102,14 +1413,35 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     if not tree:
         return None
 
+    # Promoted story notes (include_in_memoir=1) grouped by scope. Notes
+    # NOT flagged never reach the memoir (WO-TRAVEL-DOC-STORY-LAYER-01).
+    _notes_stop: Dict[str, List[Dict[str, Any]]] = {}
+    _notes_region: Dict[str, List[Dict[str, Any]]] = {}
+    _notes_trip: List[Dict[str, Any]] = []
+    for _n in location_notes_list(trip_id):
+        if not _n.get("include_in_memoir"):
+            continue
+        _entry = {"note_title": _n.get("note_title"),
+                  "note_text": _n.get("note_text"),
+                  "source_type": _n.get("source_type")}
+        _sid, _rid = _n.get("trip_stop_id"), _n.get("trip_region_id")
+        if _sid:
+            _notes_stop.setdefault(_sid, []).append(_entry)
+        elif _rid:
+            _notes_region.setdefault(_rid, []).append(_entry)
+        else:
+            _notes_trip.append(_entry)
+
     def _stop_line(stop: Dict[str, Any]) -> Dict[str, Any]:
         return {
+            "id": stop.get("id"),
             "location_name": stop.get("location_name"),
             "title": stop.get("title"),
             "stop_type": stop.get("stop_type"),
             "date_start": stop.get("date_start"),
             "date_end": stop.get("date_end"),
             "notes": stop.get("notes"),
+            "story_notes": _notes_stop.get(stop.get("id"), []),
             "photo_count": stop.get("photo_count", 0),
             "day_trips": [_stop_line(c) for c in stop.get("children", [])],
         }
@@ -1134,6 +1466,7 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
             },
             "base_address": region.get("base_address"),
             "summary": region.get("summary"),
+            "story_notes": _notes_region.get(region.get("id"), []),
             "stops": [_stop_line(s) for s in region.get("stops", [])],
         })
 
@@ -1160,6 +1493,7 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
             "end": tree.get("end_date"),
         },
         "summary": tree.get("summary"),
+        "story_notes": _notes_trip,
         "part_one_journey_in_order": part_one,
         "part_two_themes": part_two,
         "part_three_photo_appendix": {

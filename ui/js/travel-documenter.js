@@ -91,6 +91,8 @@
       '</div></div>' +
       '<div class="td-button-row td-trip-toolbar">' +
       '<button data-td="editTrip" type="button" class="td-small td-secondary">Edit trip</button>' +
+      (opts.standalone ? '' :
+        '<button data-td="talkLori" type="button" class="td-small td-secondary">Talk with Lori</button>') +
       '<button data-td="addRegionBtn" type="button" class="td-small">+ Region</button>' +
       '<button data-td="addStopBtn" type="button" class="td-small">+ Stop</button>' +
       '<button data-td="reloadTree" type="button" class="td-small td-secondary">Reload</button>' +
@@ -183,6 +185,9 @@
       trips: [], trip: null, tree: null, photoLinks: [],
       selected: null,
       insertContext: null,
+      editorTab: "edit",       // edit | notes | photos | sources
+      locationNotes: [],
+      sources: [],
     };
 
     hostEl.classList.add("td-root");
@@ -611,6 +616,27 @@
       parent.appendChild(row);
     }
 
+    function editorScopeName() {
+      if (!st.selected) return "";
+      if (st.selected.kind === "trip") return (st.trip && st.trip.title) || "trip";
+      if (st.selected.kind === "region") {
+        var r = findRegion(st.selected.id);
+        return r ? (r.title || "region") : "region";
+      }
+      var l = locateStop(st.selected.id);
+      return l ? (l.node.location_name || l.node.title || "stop") : "stop";
+    }
+
+    function editorScope() {
+      if (!st.selected) return { region_id: null, stop_id: null };
+      if (st.selected.kind === "region") return { region_id: st.selected.id, stop_id: null };
+      if (st.selected.kind === "stop") {
+        var l = locateStop(st.selected.id);
+        return { region_id: l ? l.region.id : null, stop_id: st.selected.id };
+      }
+      return { region_id: null, stop_id: null };
+    }
+
     function renderEditor() {
       var title = $("editorTitle");
       var body = $("editorBody");
@@ -621,15 +647,347 @@
         body.innerHTML = '<p class="td-muted">Select a trip, region, or stop tile to edit it.</p>';
         return;
       }
-      if (st.selected.kind === "trip") return renderTripEditor(title, body);
-      if (st.selected.kind === "region") return renderRegionEditor(title, body);
-      if (st.selected.kind === "stop") return renderStopEditor(title, body);
+      var kind = st.selected.kind;
+      title.textContent = kind.charAt(0).toUpperCase() + kind.slice(1) +
+        " · " + editorScopeName();
+      body.innerHTML = "";
+      var tabsBar = el("div", "td-ed-tabs");
+      [["edit", "Edit"], ["notes", "Story notes"], ["photos", "Photos"],
+       ["sources", "Sources"]]
+        .forEach(function (t) {
+          var b = el("button", "td-ed-tab" +
+            (st.editorTab === t[0] ? " is-active" : ""), t[1]);
+          b.type = "button";
+          b.addEventListener("click", function () {
+            st.editorTab = t[0];
+            renderEditor();
+          });
+          tabsBar.appendChild(b);
+        });
+      body.appendChild(tabsBar);
+      var pane = el("div", "td-ed-pane");
+      body.appendChild(pane);
+      if (st.editorTab === "notes") return renderNotesTab(pane);
+      if (st.editorTab === "photos") return renderPhotosTab(pane);
+      if (st.editorTab === "sources") return renderSourcesTab(pane);
+      if (kind === "trip") return renderTripEditor(pane);
+      if (kind === "region") return renderRegionEditor(pane);
+      if (kind === "stop") return renderStopEditor(pane);
     }
 
-    function renderTripEditor(title, body) {
+    // ── Story notes tab ─────────────────────────────────────────────────
+
+    function reloadNotes() {
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes")
+        .then(function (out) {
+          st.locationNotes = (out && out.notes) || [];
+          renderEditor();
+        });
+    }
+
+    function noteToggle(n, field, label) {
+      var wrap = el("label", "td-note-toggle");
+      var cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = !!n[field];
+      cb.addEventListener("change", function () {
+        var patch = {}; patch[field] = cb.checked;
+        Promise.resolve().then(function () {
+          return api("/api/trips/location-notes/" + encodeURIComponent(n.id),
+            { method: "PATCH", body: JSON.stringify(patch) })
+            .then(function () { return reloadNotes(); });
+        }).catch(function (e) {
+          cb.checked = !cb.checked;
+          logError("Error", { message: e.message });
+        });
+      });
+      wrap.appendChild(cb);
+      wrap.appendChild(el("span", "", label));
+      return wrap;
+    }
+
+    function renderNoteCard(n) {
+      var card = el("div", "td-note-card");
+      var head = el("div", "td-note-head");
+      head.appendChild(el("strong", "", n.note_title || "(untitled)"));
+      head.appendChild(el("span", "td-note-badge td-src-" + (n.source_type || "operator"),
+        n.source_type || "operator"));
+      card.appendChild(head);
+      card.appendChild(el("p", "td-note-text", n.note_text || ""));
+      var flags = el("div", "td-note-flags");
+      flags.appendChild(noteToggle(n, "include_in_memoir", "In memoir"));
+      flags.appendChild(noteToggle(n, "include_in_interview_context", "Lori context"));
+      var del = el("button", "td-tile-btn danger", "Delete");
+      del.type = "button";
+      del.addEventListener("click", function () {
+        if (!window.confirm("Delete this story note?")) return;
+        Promise.resolve().then(function () {
+          return api("/api/trips/location-notes/" + encodeURIComponent(n.id),
+            { method: "DELETE" })
+            .then(function () { setStatus("good", "Note deleted"); return reloadNotes(); });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      flags.appendChild(del);
+      card.appendChild(flags);
+      return card;
+    }
+
+    function renderNotesTab(pane) {
+      var scope = editorScope();
+      var kind = st.selected.kind;
+      var notes = (st.locationNotes || []).filter(function (n) {
+        if (kind === "stop") return n.trip_stop_id === scope.stop_id;
+        if (kind === "region") return n.trip_region_id === scope.region_id && !n.trip_stop_id;
+        return !n.trip_region_id && !n.trip_stop_id;
+      });
+      pane.appendChild(el("p", "td-help",
+        "Notes here are private until you flip a flag. In memoir = goes into the "
+        + "travel memoir. Lori context = Lori may use it in conversation."));
+      if (!notes.length) {
+        pane.appendChild(el("p", "td-muted", "No story notes for this " + kind + " yet."));
+      } else {
+        notes.forEach(function (n) { pane.appendChild(renderNoteCard(n)); });
+      }
+      pane.appendChild(el("h3", "td-note-add-h", "Add a story note"));
+      var f = el("div", "td-editor-form");
+      var vTitle = edText(f, "Title (optional)", "");
+      var vText = edArea(f, "Story note", "");
+      var row = el("div", "td-button-row");
+      var addBtn = el("button", "", "Add note"); addBtn.type = "button";
+      addBtn.addEventListener("click", function () {
+        Promise.resolve().then(function () {
+          var text = (vText.value || "").trim();
+          if (!text) throw new Error("note text is required");
+          return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes", {
+            method: "POST",
+            body: JSON.stringify({
+              note_text: text,
+              note_title: vTitle.value || null,
+              trip_region_id: scope.region_id,
+              trip_stop_id: scope.stop_id,
+              source_type: "operator",
+            }),
+          }).then(function () { setStatus("good", "Note added"); return reloadNotes(); });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      row.appendChild(addBtn);
+      f.appendChild(row);
+      pane.appendChild(f);
+    }
+
+    // ── Photos tab (scope upload + scoped thumbnails) ───────────────────
+
+    function uploadPhotosToTrip(fileInput) {
+      if (!st.trip) return Promise.reject(new Error("select a trip first"));
+      var files = Array.prototype.slice.call((fileInput && fileInput.files) || []);
+      if (!files.length) return Promise.reject(new Error("choose at least one photo"));
+      var fd = new FormData();
+      files.forEach(function (f) { fd.append("files", f); });
+      fd.append("uploaded_by_user_id", "travel_documenter");
+      fd.append("narrator_ready", "true");
+      fd.append("uploaded_from_surface", "travel_documenter");
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/photos",
+        { method: "POST", body: fd })
+        .then(function (out) {
+          log("Photos uploaded", out);
+          setStatus("good", "Photos uploaded");
+          return refreshCurrentTrip();
+        });
+    }
+
+    function renderPhotosTab(pane) {
+      var scope = editorScope();
+      var kind = st.selected.kind;
+      var f = el("div", "td-editor-form");
+      var fileIn = document.createElement("input");
+      fileIn.type = "file"; fileIn.accept = "image/*,.heic,.heif"; fileIn.multiple = true;
+      edField(f, kind === "stop" ? "Add photos to this stop" : "Add photos", fileIn);
+      var row = el("div", "td-button-row");
+      var upBtn = el("button", "", "Upload"); upBtn.type = "button";
+      upBtn.addEventListener("click", function () {
+        Promise.resolve().then(function () {
+          if (kind === "stop") return uploadPhotosToStop(scope.stop_id, fileIn);
+          return uploadPhotosToTrip(fileIn);
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      row.appendChild(upBtn);
+      f.appendChild(row);
+      pane.appendChild(f);
+      if (kind === "region") {
+        pane.appendChild(el("p", "td-help",
+          "Region uploads land at trip level (unplaced) — run Cluster photos, or "
+          + "upload directly on a stop to place them there."));
+      }
+      var links = (st.photoLinks || []).filter(function (l) {
+        if (kind === "stop") return l.trip_stop_id === scope.stop_id;
+        if (kind === "region") return l.trip_region_id === scope.region_id;
+        return true;
+      });
+      var strip = el("div", "td-photo-strip" + (links.length ? "" : " td-empty"));
+      if (!links.length) {
+        strip.textContent = "No linked photos here yet.";
+      } else {
+        links.slice(0, 60).forEach(function (l) {
+          var img = document.createElement("img");
+          img.loading = "lazy"; img.alt = l.caption || "Trip photo";
+          img.src = st.apiBase + "/api/photos/" + encodeURIComponent(l.photo_id) + "/thumb";
+          img.addEventListener("error", function () { img.remove(); });
+          strip.appendChild(img);
+        });
+      }
+      pane.appendChild(strip);
+    }
+
+    // ── Sources tab (documents lane — WO-TRAVEL-DOC-SOURCES-01) ─────────
+
+    function reloadSources() {
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources")
+        .then(function (out) {
+          st.sources = (out && out.sources) || [];
+          renderEditor();
+        });
+    }
+
+    function sourceTypeSelect() {
+      var s = document.createElement("select");
+      ["itinerary", "receipt", "hotel", "ticket", "note", "map", "link", "other"]
+        .forEach(function (t) {
+          var o = document.createElement("option");
+          o.value = t; o.textContent = t;
+          if (t === "other") o.selected = true;
+          s.appendChild(o);
+        });
+      return s;
+    }
+
+    function sourceMemoirToggle(s) {
+      var wrap = el("label", "td-note-toggle");
+      var cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = !!s.include_in_memoir;
+      cb.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return api("/api/trips/sources/" + encodeURIComponent(s.id),
+            { method: "PATCH", body: JSON.stringify({ include_in_memoir: cb.checked }) })
+            .then(function () { return reloadSources(); });
+        }).catch(function (e) {
+          cb.checked = !cb.checked;
+          logError("Error", { message: e.message });
+        });
+      });
+      wrap.appendChild(cb);
+      wrap.appendChild(el("span", "", "In memoir"));
+      return wrap;
+    }
+
+    function renderSourceCard(s) {
+      var card = el("div", "td-note-card");
+      var head = el("div", "td-note-head");
+      head.appendChild(el("strong", "", s.title || s.filename || "(untitled source)"));
+      head.appendChild(el("span", "td-note-badge", s.source_type || "other"));
+      card.appendChild(head);
+      var meta = [s.filename, s.link_url, s.source_date].filter(Boolean);
+      if (meta.length) card.appendChild(el("small", "td-muted", meta.join(" · ")));
+      if (s.pasted_text) card.appendChild(el("p", "td-note-text", s.pasted_text));
+      if (s.summary) card.appendChild(el("p", "td-note-text", s.summary));
+      var flags = el("div", "td-note-flags");
+      flags.appendChild(sourceMemoirToggle(s));
+      var del = el("button", "td-tile-btn danger", "Delete");
+      del.type = "button";
+      del.addEventListener("click", function () {
+        if (!window.confirm("Delete this source?")) return;
+        Promise.resolve().then(function () {
+          return api("/api/trips/sources/" + encodeURIComponent(s.id),
+            { method: "DELETE" })
+            .then(function () { setStatus("good", "Source deleted"); return reloadSources(); });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      flags.appendChild(del);
+      card.appendChild(flags);
+      return card;
+    }
+
+    function uploadSourceFiles(fileInput, sourceType, scope) {
+      var files = Array.prototype.slice.call((fileInput && fileInput.files) || []);
+      if (!files.length) return Promise.reject(new Error("choose at least one file"));
+      var fd = new FormData();
+      files.forEach(function (f) { fd.append("files", f); });
+      fd.append("source_type", sourceType || "other");
+      if (scope.region_id) fd.append("trip_region_id", scope.region_id);
+      if (scope.stop_id) fd.append("trip_stop_id", scope.stop_id);
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources/upload",
+        { method: "POST", body: fd })
+        .then(function () { setStatus("good", "Document uploaded"); return reloadSources(); });
+    }
+
+    function renderSourcesTab(pane) {
+      var scope = editorScope();
+      var kind = st.selected.kind;
+      var rows = (st.sources || []).filter(function (s) {
+        if (kind === "stop") return s.trip_stop_id === scope.stop_id;
+        if (kind === "region") return s.trip_region_id === scope.region_id && !s.trip_stop_id;
+        return !s.trip_region_id && !s.trip_stop_id;
+      });
+      pane.appendChild(el("p", "td-help",
+        "Documents, tickets, receipts, links, or pasted notes for this " + kind +
+        ". Private unless you flip In memoir."));
+      if (!rows.length) {
+        pane.appendChild(el("p", "td-muted", "No sources here yet."));
+      } else {
+        rows.forEach(function (s) { pane.appendChild(renderSourceCard(s)); });
+      }
+      // Upload a file
+      pane.appendChild(el("h3", "td-note-add-h", "Upload a document"));
+      var upf = el("div", "td-editor-form");
+      var fileIn = document.createElement("input");
+      fileIn.type = "file"; fileIn.multiple = true;
+      edField(upf, "File(s) — PDF, ticket, receipt, screenshot…", fileIn);
+      var upType = sourceTypeSelect();
+      edField(upf, "Type", upType);
+      var upRow = el("div", "td-button-row");
+      var upBtn = el("button", "", "Upload"); upBtn.type = "button";
+      upBtn.addEventListener("click", function () {
+        Promise.resolve().then(function () {
+          return uploadSourceFiles(fileIn, upType.value, scope);
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      upRow.appendChild(upBtn);
+      upf.appendChild(upRow);
+      pane.appendChild(upf);
+      // Or paste text / link
+      pane.appendChild(el("h3", "td-note-add-h", "Or add a note / link"));
+      var f = el("div", "td-editor-form");
+      var vTitle = edText(f, "Title (optional)", "");
+      var vType = sourceTypeSelect();
+      edField(f, "Type", vType);
+      var vLink = edText(f, "Link URL (optional)", "");
+      var vText = edArea(f, "Pasted text / note", "");
+      var row = el("div", "td-button-row");
+      var addBtn = el("button", "", "Add source"); addBtn.type = "button";
+      addBtn.addEventListener("click", function () {
+        Promise.resolve().then(function () {
+          if (!(vText.value || "").trim() && !(vLink.value || "").trim() &&
+              !(vTitle.value || "").trim()) {
+            throw new Error("add text, a link, or a title");
+          }
+          return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources", {
+            method: "POST",
+            body: JSON.stringify({
+              source_type: vType.value || "other",
+              title: vTitle.value || null,
+              trip_region_id: scope.region_id,
+              trip_stop_id: scope.stop_id,
+              pasted_text: vText.value || null,
+              link_url: vLink.value || null,
+            }),
+          }).then(function () { setStatus("good", "Source added"); return reloadSources(); });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      row.appendChild(addBtn);
+      f.appendChild(row);
+      pane.appendChild(f);
+    }
+
+    function renderTripEditor(pane) {
       var trip = st.trip;
-      title.textContent = "Edit trip";
-      body.innerHTML = "";
       var f = el("div", "td-editor-form");
       var vTitle = edText(f, "Title", trip.title);
       var vStart = edDate(f, "Start date", trip.start_date);
@@ -657,14 +1015,12 @@
       }, function () {
         return deleteTrip(trip);
       });
-      body.appendChild(f);
+      pane.appendChild(f);
     }
 
-    function renderRegionEditor(title, body) {
+    function renderRegionEditor(pane) {
       var region = findRegion(st.selected.id);
       if (!region) { st.selected = null; return renderEditor(); }
-      title.textContent = "Edit region";
-      body.innerHTML = "";
       var f = el("div", "td-editor-form");
       var vTitle = edText(f, "Region title", region.title);
       var vArea = edText(f, "Country or area", region.country_or_area);
@@ -698,15 +1054,13 @@
       }, function () {
         return deleteRegion(region);
       });
-      body.appendChild(f);
+      pane.appendChild(f);
     }
 
-    function renderStopEditor(title, body) {
+    function renderStopEditor(pane) {
       var loc = locateStop(st.selected.id);
       if (!loc) { st.selected = null; return renderEditor(); }
       var stop = loc.node, region = loc.region, parent = loc.parent;
-      title.textContent = "Edit stop";
-      body.innerHTML = "";
       var f = el("div", "td-editor-form");
       var vName = edText(f, "Place name", stop.location_name || stop.title);
       var vType = edSelect(f, "Stop type",
@@ -745,24 +1099,6 @@
       vRegion.addEventListener("change", function () {
         fillParentOptions(vRegion.value);
       });
-
-      // Per-stop photo upload (operator truth — lands directly on this stop).
-      var photoWrap = el("div", "td-ed-field");
-      photoWrap.appendChild(el("span", "td-ed-label", "Add photos to this stop"));
-      var stopFileIn = document.createElement("input");
-      stopFileIn.type = "file";
-      stopFileIn.accept = "image/*,.heic,.heif";
-      stopFileIn.multiple = true;
-      photoWrap.appendChild(stopFileIn);
-      var stopUpBtn = el("button", "td-small", "Upload to this stop");
-      stopUpBtn.type = "button";
-      stopUpBtn.addEventListener("click", function () {
-        Promise.resolve().then(function () {
-          return uploadPhotosToStop(stop.id, stopFileIn);
-        }).catch(function (e) { logError("Error", { message: e.message }); });
-      });
-      photoWrap.appendChild(stopUpBtn);
-      f.appendChild(photoWrap);
 
       edActions(f, function () {
         var name = (vName.value || "").trim();
@@ -805,7 +1141,7 @@
       }, function () {
         return deleteStop(stop);
       });
-      body.appendChild(f);
+      pane.appendChild(f);
     }
 
     // ── Reorder / move actions ──────────────────────────────────────────
@@ -917,10 +1253,18 @@
         api("/api/trips/" + encodeURIComponent(trip.id) + "/tree"),
         api("/api/trips/" + encodeURIComponent(trip.id) + "/narrator-photo-links")
           .catch(function () { return { photo_links: [] }; }),
+        api("/api/trips/" + encodeURIComponent(trip.id) + "/location-notes")
+          .catch(function () { return { notes: [] }; }),
+        api("/api/trips/" + encodeURIComponent(trip.id) + "/sources")
+          .catch(function () { return { sources: [] }; }),
       ]).then(function (out) {
         st.tree = out[0];
         st.photoLinks = Array.isArray(out[1] && out[1].photo_links)
           ? out[1].photo_links : [];
+        st.locationNotes = Array.isArray(out[2] && out[2].notes)
+          ? out[2].notes : [];
+        st.sources = Array.isArray(out[3] && out[3].sources)
+          ? out[3].sources : [];
         renderTree();
         updateInsertHint();
         log("Trip loaded", {
@@ -1167,6 +1511,18 @@
     bind("reloadTree", function () { if (st.trip) return openTrip(st.trip); });
     bind("memoirPreview", memoirPreview);
     bind("editorClear", clearSelection);
+    // Explicit, narrator-visible: hand the selected trip to the narrator
+    // Travels shelf (which owns all Lori/session state). Travel Doc never
+    // dispatches prompts or writes session scope itself.
+    bind("talkLori", function () {
+      if (!st.trip) throw new Error("select a trip first");
+      if (typeof window.lvTravelsOpenTripById === "function") {
+        window.lvTravelsOpenTripById(st.trip.id);
+        setStatus("good", "Opening this trip with Lori…");
+      } else {
+        throw new Error("the Travels shelf isn't available here");
+      }
+    });
 
     // Add region (modal)
     bind("addRegionBtn", function () {

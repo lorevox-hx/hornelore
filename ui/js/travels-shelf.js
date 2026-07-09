@@ -646,6 +646,35 @@
       .catch(function () {});
   }
 
+  // WO-TRAVELS-SHELF-LAUNCH-FROM-TRAVEL-DOC-01 — public opener so the
+  // operator Travel Doc can point the narrator Travels shelf at a specific
+  // trip via ONE explicit, narrator-visible action. The shelf stays the
+  // sole owner of activeTripId / tripStyle / prompt dispatch; Travel Doc
+  // only calls this function and never touches session/runtime state.
+  function lvTravelsOpenTripById(tripId) {
+    var pid = (window.state && window.state.person_id) || "";
+    if (!pid || !tripId) return;
+    try {
+      if (typeof window.lvShellShowTab === "function") {
+        window.lvShellShowTab("narrator");
+      }
+    } catch (_) {}
+    var panel = _panel();
+    if (panel && panel.hidden) {
+      panel.hidden = false;
+      try { _session().travelsPanelOpen = true; } catch (_) {}
+    }
+    fetch(ORIGIN + "/api/trips?person_id=" + encodeURIComponent(pid))
+      .then(function (r) { return r.ok ? r.json() : { trips: [] }; })
+      .then(function (j) {
+        var t = ((j && j.trips) || []).filter(function (x) {
+          return x.id === tripId;
+        })[0];
+        if (t) _openTrip(t);
+      })
+      .catch(function () {});
+  }
+  window.lvTravelsOpenTripById = lvTravelsOpenTripById;
   window.lvTravelsShelfToggle = lvTravelsShelfToggle;
   window._lvTravelsRestorePanel = _lvTravelsRestorePanel;
 })();
