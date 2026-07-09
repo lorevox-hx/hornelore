@@ -242,8 +242,8 @@
     // live Lori-chat capture surface (that is Travel Doc \u2192 Story notes).
     if (_state.collapsed) {
       mount.appendChild(el('div', { class: 'story-empty' }, [
-        'Collapsed. Past-session operator backlog (not live Lori chat). '
-        + 'Click the header to expand.',
+        'These are historical operator candidates. Lori did not '
+        + 'necessarily see or say these today. Click the header to expand.',
       ]));
       return;
     }
