@@ -44,10 +44,39 @@ What landed:
 - `_TRIP_PREV_LORI` / `_TRIP_LAST_CAPTURE` chat_ws globals grow unbounded per conv_id.
 - `upload_source` multipart path untested.
 
+## Enrichment-engine decision (LOCKED 2026-07-09, Chris)
+
+**Local-first stays. The local LLM is the enrichment engine; no offline
+datasets; no web.** Rationale: the rule protects narrator-data egress, not
+system knowledge; Llama-3.1-8B carries the world knowledge the motivating
+example needs (Christi Himmelfahrt/Vatertag, Maibock, Tracht); and the
+approval gate structurally contains hallucination — every LLM draft lands
+`approved_for_lori=0` and is reviewed by the operator who was on the trip.
+
+- **Ph3 + Ph6 become LLM-draft lanes** — operator-triggered "Suggest
+  context" prompts the LOCAL LLM with approved date/place/OCR text and
+  writes DRAFT cards (provenance `source=local_llm`, flags 0). No
+  `holidays` package.
+- **Ph2 becomes "place from context, not coordinates"** — an 8B LLM
+  confabulates lat/lon→city, so place labels come from the clustered stop,
+  filename, OCR text, or the operator typing it. Raw GPS stays stored
+  private and unused. A narrowly-scoped operator-side web-lookup flag
+  (minimal public-fact queries only; never narrator content; Lori never
+  browses) is a POSSIBLE LATER carve-out if real usage demands it —
+  default absent.
+- **Ph4 OCR is the one true dependency add** — `pytesseract` +
+  system `tesseract-ocr` + `tesseract-ocr-deu` (CPU-only, zero VRAM
+  pressure; draft quality is acceptable because output is approval-gated).
+  Note: pytesseract was deliberately excluded from the lean hornelore venv
+  (requirements-gpu.txt notes) — re-adding is a conscious, documented call.
+- Enrichment runs as an OPERATOR-CONSOLE action, never inside Lori's
+  runtime — locked rule 5 untouched.
+
 ## Remaining phases (build order)
 
-Ph1 EXIF/file metadata (build on `metadata_trust` — extraction exists; add `date_confidence`, `location_approved_for_lori`/`date_approved_for_lori` default 0, "No embedded EXIF found" display) → Ph3 date/event enrichment (`photo_context_events`, provenance, approved_for_lori=0) → Ph4 OCR draft (`ocr_draft_text`/`ocr_approved_text`, approved only to Lori) → Ph2 geocode broad label (raw GPS stays private) + Ph6 cultural cards → Ph7 context feed (extend the Ph5 block) → Ph8/9 question generation + direct factual answers ("I don't know that from the approved trip record yet") → Ph10 capture (exists: `trip_location_notes` source_type=lori, source_ref=photo_link:<id>, flags 0) → Ph11 tests throughout.
+Ph1 EXIF/file metadata (build on `metadata_trust` — extraction exists; add `date_confidence`, `location_approved_for_lori`/`date_approved_for_lori` default 0, "No embedded EXIF found" display) → Ph3 date/event enrichment (LOCAL-LLM draft cards in `photo_context_events`, provenance, approved_for_lori=0) → Ph4 OCR draft (`ocr_draft_text`/`ocr_approved_text`, approved only to Lori; pytesseract) → Ph2 place-from-context + Ph6 cultural cards (LOCAL-LLM drafts) → Ph7 context feed (extend the Ph5 block) → Ph8/9 question generation + direct factual answers ("I don't know that from the approved trip record yet") → Ph10 capture (exists: `trip_location_notes` source_type=lori, source_ref=photo_link:<id>, flags 0) → Ph11 tests throughout.
 
 ## Revision history
 
 - 2026-07-09 — Spec banked; Ph5 landed same session with the code-review sweep that motivated its ordering.
+- 2026-07-09 (later) — Enrichment-engine decision locked: local LLM drafts for Ph3/Ph6, place-from-context for Ph2 (no coordinates, no datasets, no web), pytesseract the only dependency add (Ph4). Local-first rule NOT lifted.
