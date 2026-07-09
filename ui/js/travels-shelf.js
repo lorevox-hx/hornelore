@@ -312,8 +312,25 @@
     }
     _dispatchedTrips[trip.id] = true;
     var span = [trip.start_date, trip.end_date].filter(Boolean).join(" to ");
-    var regions = (tree.regions || []).map(function (r) { return r.title; })
-      .filter(Boolean).slice(0, 6).join(", ");
+    // BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (C): the trip-open directive
+    // used RAW region titles — live prompt carried "Germany/Braveria".
+    // Apply the same display-only fixups the direct trip answer uses
+    // (trip_interview_context._normalize_place_label) + dedupe. NEVER
+    // mutates the DB — the operator's stored value is untouched.
+    function _fixPlaceLabel(s) {
+      return String(s || "").replace(/\bBraveria\b/gi, "Bavaria");
+    }
+    var _seenPlaces = [];
+    var regions = (tree.regions || []).map(function (r) { return _fixPlaceLabel(r.title); })
+      .filter(function (t) {
+        if (!t) return false;
+        var low = t.toLowerCase();
+        for (var i = 0; i < _seenPlaces.length; i++) {
+          if (low.indexOf(_seenPlaces[i]) !== -1 || _seenPlaces[i].indexOf(low) !== -1) return false;
+        }
+        _seenPlaces.push(low);
+        return true;
+      }).slice(0, 6).join(", ");
 
     // Phase 5: guided_trip_walk (operator-selected only, never default).
     // Hook-anchored per the research base — "How did the trip begin?"

@@ -381,5 +381,73 @@ class MetaPreambleRequestedFormatTest(unittest.TestCase):
               "format for the visa office. What happened next?")
         self.assertFalse(g.detect_meta_response_leak(ok))
 
+class VisibleLeakHardeningTest(unittest.TestCase):
+    """BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (2026-07-09) — live transcript
+    switch_mrdyv3r4_uhbc: three narrator-visible failures."""
+
+    # A1 — trip-open leak, second shape.
+    GUIDELINES = ('Here\'s a potential response that meets the guidelines:'
+                  '\n\n"As you reflect on your Spring 2026 trip, what stood out?"')
+
+    def test_guidelines_preamble_detected_and_recovered(self):
+        self.assertTrue(g.detect_meta_response_leak(self.GUIDELINES))
+        self.assertEqual(
+            g.repair_meta_response_leak(self.GUIDELINES),
+            "As you reflect on your Spring 2026 trip, what stood out?")
+
+    # A2 — photo-added leak: literal SYSTEM prefix.
+    def test_leading_system_prefix_stripped(self):
+        t = "SYSTEM. What comes to mind when you look at that photo?"
+        self.assertTrue(g.detect_meta_response_leak(t))
+        self.assertEqual(
+            g.repair_meta_response_leak(t),
+            "What comes to mind when you look at that photo?")
+        t2 = "System: What comes to mind when you look at that photo?"
+        self.assertTrue(g.detect_meta_response_leak(t2))
+        self.assertNotIn("System", g.repair_meta_response_leak(t2))
+
+    def test_bare_here_is_the_response(self):
+        t = 'Here is the response: "What was the drive like on that day?"'
+        self.assertTrue(g.detect_meta_response_leak(t))
+        self.assertTrue(
+            g.repair_meta_response_leak(t).startswith("What was the drive"))
+
+    def test_benign_response_mention_not_flagged(self):
+        self.assertFalse(g.detect_meta_response_leak(
+            "The response you gave about Munich was lovely — "
+            "tell me more about the market?"))
+
+    # B — anti-echo guard.
+    NARRATOR = "It was May 14 fathers day there"
+    ECHO = ("It was May 14 fathers day there... "
+            "What does that day mean to you now?")
+
+    def test_exact_echo_blocked(self):
+        self.assertTrue(g.detect_narrator_echo(self.ECHO, self.NARRATOR))
+        final, fired = g.apply_response_guards(
+            assistant_text=self.ECHO, narrator_text=self.NARRATOR,
+            recent_narrator_turns=[self.NARRATOR], target_language="en")
+        self.assertIn("narrator_echo", fired)
+        self.assertNotIn("fathers day there", final.lower())
+
+    def test_near_echo_blocked(self):
+        near = "it was may 14, Fathers Day there. How does it feel?"
+        self.assertTrue(g.detect_narrator_echo(near, self.NARRATOR))
+
+    def test_normal_reflection_not_blocked(self):
+        ok = ("Father's Day — that helps place the scene. "
+              "Were people celebrating around you?")
+        self.assertFalse(g.detect_narrator_echo(ok, self.NARRATOR))
+
+    def test_short_narrator_turn_never_triggers(self):
+        self.assertFalse(g.detect_narrator_echo(
+            "Munich. What do you remember about Munich?", "Munich."))
+
+    def test_echo_repair_invents_nothing(self):
+        r = g.repair_narrator_echo(self.ECHO, self.NARRATOR).lower()
+        for bad in ("i can see", "i see the", "in the photo",
+                    "the image", "ascension"):
+            self.assertNotIn(bad, r)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

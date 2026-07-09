@@ -109,5 +109,20 @@ class DirectiveDisciplineTest(unittest.TestCase):
                              f"operator vocabulary '{term}' in panel code")
 
 
+class RouteNormalizationTest(unittest.TestCase):
+    """BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (C): the trip-open directive
+    must normalize place labels (Braveria -> Bavaria, display-only) and
+    dedupe before they enter the [SYSTEM:] prompt."""
+
+    def test_trip_open_places_normalized(self):
+        js = (Path(__file__).resolve().parent.parent / "ui" / "js" /
+              "travels-shelf.js").read_text(encoding="utf-8")
+        self.assertIn("_fixPlaceLabel", js)
+        self.assertIn("Braveria", js)   # the fixup rule itself
+        self.assertIn("Bavaria", js)
+        # regions list must be built through the fixup
+        self.assertIn("_fixPlaceLabel(r.title)", js)
+
+
 if __name__ == "__main__":
     unittest.main()

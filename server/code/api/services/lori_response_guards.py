@@ -370,6 +370,18 @@ _META_PREAMBLE_RX = re.compile(
     r"|"
     r"following the (?:rules|guidelines|instructions)"
     r"|"
+    # BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (2026-07-09) — second live
+    # trip-open leak shape: "Here's a potential response that meets the
+    # guidelines:". 'potential/possible/...' adjective slot + a verb the
+    # 2026-07-07 list lacked (meets/matches/satisfies).
+    r"here(?:'s| is) (?:a |the |my )?(?:potential |possible |suggested |draft |revised )?"
+    r"(?:response|reflection|reply|answer)[^.!?\n]{0,60}?"
+    r"(?:meets?|matches|satisfies|follows) the (?:guidelines|requirements|rules|criteria)"
+    r"|"
+    # Bare "Here is the response:" / "Here's my answer:" — Lori never
+    # legitimately opens like this; requirements list it explicitly.
+    r"here(?:'s| is) (?:the |a |my )?(?:response|answer|reply)(?=\s*:)"
+    r"|"
     # BUG-LORI-META-PREAMBLE-LEAK-01 (2026-07-07) — live trip-open leak
     # reached the narrator verbatim: 'Here is the response in the
     # requested format: "Prague and Salzburg stand out..."'. The
@@ -508,10 +520,19 @@ _FAKE_WARMTH_ES_RX = re.compile(
 )
 
 
+# BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (2026-07-09): the photo-added
+# reply leaked a literal directive prefix to the narrator — "SYSTEM.
+# What comes to mind when you look at that photo?". Any leading
+# SYSTEM./SYSTEM:/System. is prompt scaffolding, never Lori.
+_LEADING_SYSTEM_RX = re.compile(r'^\s*["\'\u201c]?(?:SYSTEM|System)\s*[.:]\s*')
+
+
 def detect_meta_response_leak(assistant_text: str) -> bool:
     """Return True if the response contains meta-instruction leakage."""
     if not assistant_text:
         return False
+    if _LEADING_SYSTEM_RX.search(assistant_text):
+        return True
     if _META_PREAMBLE_RX.search(assistant_text):
         return True
     if _META_POSTAMBLE_RX.search(assistant_text):
@@ -545,6 +566,11 @@ def repair_meta_response_leak(
       3. Otherwise return a deterministic continuation prompt.
     """
     text = (assistant_text or "").strip()
+
+    # Leading SYSTEM./System: prefix is scaffolding — drop it first so
+    # the remainder ("What comes to mind when you look at that photo?")
+    # survives as the visible reply.
+    text = _LEADING_SYSTEM_RX.sub("", text).strip()
 
     # Try to recover a quoted draft. The LLM frequently writes
     #   Here is a response: "Real response goes here."
@@ -928,6 +954,65 @@ def repair_sensory_pivot(
     )
 
 
+# ── BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (B): anti-echo guard ─────────────
+# Live evidence 2026-07-09: narrator said "It was May 14 fathers day
+# there"; Lori replied "It was May 14 fathers day there... What does that
+# day mean to you now?" — parroting the whole narrator turn. Reflection
+# discipline reflects ONE anchor, never the full utterance. Detection
+# requires the narrator turn (>=4 words) to appear substantially inside
+# the reply, so legitimate short-anchor reflections never trip it.
+
+_ECHO_MIN_NARRATOR_WORDS = 4
+
+
+def _norm_tokens(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9']+", str(text or "").lower())
+
+
+def detect_narrator_echo(assistant_text: str, narrator_text: str) -> bool:
+    """True when the reply substantially repeats the narrator's turn:
+    the normalized narrator text appears verbatim inside the reply, OR
+    the reply's first sentence is a near-copy (>=85% of the narrator's
+    tokens, similar length)."""
+    n_toks = _norm_tokens(narrator_text)
+    if len(n_toks) < _ECHO_MIN_NARRATOR_WORDS:
+        return False
+    a_norm = " ".join(_norm_tokens(assistant_text))
+    if not a_norm:
+        return False
+    if " ".join(n_toks) in a_norm:
+        return True
+    first_sent = re.split(r"[.!?\u2026]", str(assistant_text or ""), 1)[0]
+    s_toks = _norm_tokens(first_sent)
+    if not s_toks:
+        return False
+    overlap = len(set(n_toks) & set(s_toks)) / float(len(set(n_toks)))
+    return overlap >= 0.85 and len(s_toks) <= len(n_toks) + 3
+
+
+def repair_narrator_echo(
+    assistant_text: str, narrator_text: str, target_language: str = "en",
+) -> str:
+    """Drop the echoed sentence; keep a substantive non-echo question if
+    one survives, else a deterministic grounded continuation. Never
+    invents facts, never claims image vision."""
+    n_norm = " ".join(_norm_tokens(narrator_text))
+    kept: List[str] = []
+    for sent in re.split(r"(?<=[.!?])\s+|(?<=\u2026)\s*", str(assistant_text or "")):
+        s_norm = " ".join(_norm_tokens(sent))
+        if not s_norm:
+            continue
+        if n_norm and (n_norm in s_norm or s_norm in n_norm):
+            continue  # the echo itself
+        kept.append(sent.strip())
+    remainder = " ".join(kept).strip()
+    if len(_norm_tokens(remainder)) >= 4:
+        return remainder
+    if str(target_language or "en").lower().startswith("es"):
+        return "Lo tengo. ¿Qué recuerdas de lo que había a tu alrededor?"
+    return "I\u2019ve got that. What do you remember seeing around you?"
+
+
 def apply_response_guards(
     assistant_text: str,
     narrator_text: str = "",
@@ -983,6 +1068,14 @@ def apply_response_guards(
         fired.append("meta_response_leak")
         # Recovered text still needs the rest of the checks.
 
+    # BUG-LORI-TRIP-PHOTO-VISIBLE-LEAKS-01 (B): a reply that parrots the
+    # narrator's whole turn is blocked and replaced with a grounded
+    # continuation (or its own surviving non-echo question).
+    if detect_narrator_echo(text, narrator_text):
+        text = repair_narrator_echo(text, narrator_text, target_language)
+        fired.append("narrator_echo")
+        return text, fired
+
     # WO-SPANISH-LIVE-READINESS-01 Patch 2 (2026-06-17): broken Spanish/
     # English code-mix guard. Mid-generation drift produces "Tú had..."
     # or "Capté Santa Fe y David. ¿Qué pasó después?" — the narrator
@@ -1031,6 +1124,8 @@ __all__ = [
     "detect_language_drift",
     "repair_language_drift",
     "detect_meta_response_leak",
+    "detect_narrator_echo",
+    "repair_narrator_echo",
     "repair_meta_response_leak",
     "strip_meta_response_leak",
     "sanitize_lori_response",
