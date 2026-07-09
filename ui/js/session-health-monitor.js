@@ -26,32 +26,64 @@
 window.lvSessionHealthMonitor = (function () {
   "use strict";
 
-  // ── Classification rules (per WO-SESSION-HEALTH-MONITOR-01 spec) ──
-  // Categories whose FAILs are blocking (RED).
-  const _RED_CATEGORIES = new Set([
-    "startup", "operator", "switch", "session", "archive",
-    "mic",       // mic preflight FAIL is RED
+  // ── Classification rules (revised 2026-07-08 — stop crying wolf) ──
+  // The panel used to make EVERY FAIL a RED "stop sign," so stale
+  // expectation mismatches (style/media counts) and optional-feature
+  // probes drowned out real session dangers.  New model:
+  //   RED    → only a live-session danger (session-critical below).
+  //   AMBER  → optional/disabled/non-blocking FAILs + WARN.
+  //   STALE  → product-shape/count checks that are OLDER than the product
+  //            (harness expectation behind config) — informational.
+  //   GREEN  → PASS + benign SKIP/INFO.
+  //
+  // SESSION-CRITICAL: a FAIL in one of these categories, OR matching one of
+  // the critical name fragments, is the ONLY thing that turns the top RED.
+  const _SESSION_CRITICAL_CATEGORIES = new Set([
+    "startup",   // app shell missing = unusable
+    "switch",    // narrator / person_id integrity
+    "archive",   // transcript writer / archive path (data loss risk)
+    "mic",       // mic preflight for a voice session
   ]);
-  // Specific check-name fragments that are blocking regardless of category.
-  const _RED_NAME_FRAGMENTS = [
-    /BB person scope/i,
+  const _SESSION_CRITICAL_NAME_FRAGMENTS = [
+    // narrator / bio integrity
+    /BB person scope/i, /Bio Builder scope/i,
     /BB questionnaire identity/i,
     /BB localStorage draft key/i,
     /BB narrator-switch generation/i,
-    /transcript writer wiring/i,
-    /archive feature enabled/i,
+    /person_id mismatch/i, /narrator.*mismatch/i,
+    // transcript / archive (data loss)
+    /transcript writer/i,
+    /archive feature enabled/i, /archive writer/i,
     /session_id stamped/i,
     /audio preflight overall/i,
+    // live conversation path
+    /web ?socket/i, /chat path/i, /chat ws/i, /chat unavailable/i,
+    /LLM unavailable/i, /LLM not ready/i, /warmup.*fail/i,
+    /API unreachable/i, /api unavailable/i,
+    // safety infrastructure (only surfaces when enabled)
+    /safety.*(unavailable|not loaded|infrastructure|missing)/i,
+    // active trip that points at a deleted trip and can't self-recover
+    /deleted trip.*cannot recover/i, /active trip.*unrecoverable/i,
   ];
   // Specific check-name fragments that are EXPLICITLY downgraded to AMBER
-  // even if they FAIL (per spec "do not block on" list).
+  // even if they FAIL (optional / feature-flagged surfaces).
   const _DOWNGRADE_TO_AMBER_FRAGMENTS = [
     /Photos/i,
     /Memory River/i, /Life Map/i, /Peek at Memoir/i,
-    /Media Tab/i, /Disabled note state/i,
+    /Media Tab/i, /Document Archive/i, /Disabled note state/i,
     /hands-free state fields/i,
     /face mesh/i, /faceMesh/i, /emotion engine/i,
     /Take-a-break overlay/i,
+    /followup bank/i, /past tense/i,
+  ];
+  // Product-shape / count checks: when these FAIL it almost always means the
+  // harness expectation is behind the product (e.g. "expected 4 styles, found
+  // 5").  Classified STALE, not RED — a nudge to update the probe, not a stop.
+  const _STALE_SHAPE_FRAGMENTS = [
+    /session style/i, /style (radio|picker|count)/i, /validStyles/i,
+    /media (launcher )?card/i, /media card count/i, /launcher card/i,
+    /expected \d+.*found \d+/i, /expected \d+.*got \d+/i,
+    /card count/i, /tab count/i, /button count/i, /radio count/i,
   ];
   // Conditions that trigger AMBER on their own (not RED, not GREEN).
   const _AMBER_HINTS = [
@@ -108,54 +140,55 @@ window.lvSessionHealthMonitor = (function () {
   }
 
   function _classifyResult(r) {
-    // Returns "RED" | "AMBER" | "GREEN" | "IGNORE" for a single harness row.
+    // Returns "RED" | "AMBER" | "STALE" | "GREEN" | "IGNORE" for one row.
     if (!r) return "IGNORE";
     const status = r.status;
     const name = r.name || "";
     const cat = r.category || "";
+    const detail = r.detail || "";
     // PASS / SKIP / DISABLED / NOT_INSTALLED / INFO are all GREEN-equivalent
     // unless the spec says otherwise.
     if (status === "PASS") return "GREEN";
-    // DISABLED / NOT_INSTALLED for Photos and similar feature-flagged things → AMBER, never RED.
-    if (status === "DISABLED" || status === "NOT_INSTALLED") {
-      if (_matchesAny(name, _DOWNGRADE_TO_AMBER_FRAGMENTS)) return "AMBER";
-      // unknown disabled feature → AMBER, not RED
-      return "AMBER";
-    }
+    // DISABLED / NOT_INSTALLED = feature flag off / optional route not mounted
+    // → AMBER, never RED.
+    if (status === "DISABLED" || status === "NOT_INSTALLED") return "AMBER";
     if (status === "SKIP" || status === "INFO") {
       // these are observational; no narrator → AMBER
-      if (/no narrator/i.test(r.detail || "") || /pick a narrator/i.test(r.detail || "")) return "AMBER";
+      if (/no narrator/i.test(detail) || /pick a narrator/i.test(detail)) return "AMBER";
       return "GREEN";
     }
-    if (status === "WARN") {
-      // WARN on AMBER-list categories → AMBER.  WARN elsewhere → AMBER (be permissive on WARN).
-      return "AMBER";
-    }
+    if (status === "WARN") return "AMBER";
     if (status === "FAIL") {
-      // FAIL — check if explicitly downgraded.
+      // 1. Explicit optional-feature downgrade → AMBER.
       if (_matchesAny(name, _DOWNGRADE_TO_AMBER_FRAGMENTS)) return "AMBER";
-      // FAIL inside a RED category → RED.
-      if (_RED_CATEGORIES.has(cat)) return "RED";
-      // FAIL with a known RED name fragment → RED.
-      if (_matchesAny(name, _RED_NAME_FRAGMENTS)) return "RED";
-      // Otherwise FAIL is RED by default (spec leans cautious).
-      return "RED";
+      // 2. Product-shape / count mismatch → STALE (harness behind product).
+      if (_matchesAny(name, _STALE_SHAPE_FRAGMENTS) ||
+          _matchesAny(detail, _STALE_SHAPE_FRAGMENTS)) return "STALE";
+      // 3. Session-critical failure → RED (the ONLY path to RED).
+      if (_SESSION_CRITICAL_CATEGORIES.has(cat) ||
+          _matchesAny(name, _SESSION_CRITICAL_NAME_FRAGMENTS)) return "RED";
+      // 4. DEFAULT: a FAIL that is NOT session-critical is AMBER, not RED.
+      //    (Revised 2026-07-08 — only live-session dangers turn the top RED.)
+      return "AMBER";
     }
     return "GREEN";
   }
 
   function _classifyResults(results) {
-    let red = [], amber = [], green = 0;
+    let red = [], amber = [], stale = [], green = 0;
     (results || []).forEach((r) => {
       const cls = _classifyResult(r);
       if (cls === "RED") red.push(r);
       else if (cls === "AMBER") amber.push(r);
+      else if (cls === "STALE") stale.push(r);
       else if (cls === "GREEN") green++;
     });
+    // Priority: RED > AMBER > STALE > GREEN.
     let status = "GREEN";
     if (red.length > 0) status = "RED";
     else if (amber.length > 0) status = "AMBER";
-    return { status, red, amber, greenCount: green };
+    else if (stale.length > 0) status = "STALE";
+    return { status, red, amber, stale, greenCount: green };
   }
 
   function _summarizeReasons(red, amber, status) {
@@ -287,14 +320,20 @@ window.lvSessionHealthMonitor = (function () {
     if (gate3.status === "RED") cls.red.push({ category: "gate", name: gate3.reason, detail: gate3.detail });
     if (gate3.status === "AMBER") cls.amber.push({ category: "gate", name: gate3.reason, detail: gate3.detail });
 
-    // Recompute final status.
+    const stale = cls.stale || [];
+
+    // Recompute final status.  Priority: RED > AMBER > STALE > GREEN.
     let status = "GREEN";
     if (cls.red.length > 0) status = "RED";
     else if (cls.amber.length > 0) status = "AMBER";
+    else if (stale.length > 0) status = "STALE";
 
-    const reasons = _summarizeReasons(cls.red, cls.amber, status);
+    const reasons = (status === "STALE")
+      ? _summarizeReasons(stale, stale, "STALE")
+      : _summarizeReasons(cls.red, cls.amber, status);
     const details = [
-      "topline: " + cls.greenCount + " PASS · " + cls.amber.length + " AMBER · " + cls.red.length + " RED",
+      "topline: " + cls.greenCount + " PASS · " + cls.amber.length + " AMBER · " +
+        stale.length + " STALE · " + cls.red.length + " RED",
       "narrator: " + (_narratorName() || "(none)"),
       "person_id: " + ((_personId() || "(none)").slice(0, 8)),
       "conv_id: " + ((_convId() || "(none)").slice(0, 16)),
@@ -308,6 +347,7 @@ window.lvSessionHealthMonitor = (function () {
       session_id: _convId(),
       _red: cls.red.map((r) => ({ category: r.category, name: r.name, detail: r.detail })),
       _amber: cls.amber.map((r) => ({ category: r.category, name: r.name, detail: r.detail })),
+      _stale: stale.map((r) => ({ category: r.category, name: r.name, detail: r.detail })),
     };
     _lastStatus = out;
     _renderCard(out);
@@ -377,6 +417,16 @@ window.lvSessionHealthMonitor = (function () {
       });
       lines.push("");
     }
+    if (result._stale && result._stale.length) {
+      lines.push("## STALE — harness expectation older than product");
+      lines.push("");
+      lines.push("_These are not session failures. Update the health-check probe to match current product config._");
+      lines.push("");
+      result._stale.forEach((r) => {
+        lines.push("- **" + (r.name || "(unknown)") + "** (" + (r.category || "?") + ") — " + (r.detail || ""));
+      });
+      lines.push("");
+    }
     lines.push("## Archive export");
     lines.push("");
     if (extra && extra.exportFilename) {
@@ -394,6 +444,8 @@ window.lvSessionHealthMonitor = (function () {
       lines.push("- All gates green. Proceed with next test session or parent session.");
     } else if (result.status === "AMBER") {
       lines.push("- Ready with notes. Review the AMBER items above; non-blocking but worth knowing.");
+    } else if (result.status === "STALE") {
+      lines.push("- Session is safe. The only flags are STALE product-shape probes — update the health checker to match current config when convenient.");
     } else {
       lines.push("- HOLD. Resolve RED items above before running another session.");
     }
@@ -430,12 +482,14 @@ window.lvSessionHealthMonitor = (function () {
     if (labelEl) {
       labelEl.textContent = (s.status === "GREEN") ? "Ready"
         : (s.status === "AMBER") ? "Ready with notes"
+        : (s.status === "STALE") ? "Ready — panel out of date"
         : "Hold";
     }
     if (subEl) {
       const tail = (s.reasons && s.reasons.length) ? s.reasons.join(" · ") : "";
       const baseLine = (s.status === "GREEN") ? "All gates green for this narrator."
         : (s.status === "AMBER") ? "Notes (non-blocking):"
+        : (s.status === "STALE") ? "Session is fine — these probes are older than the product:"
         : "Resolve before next session:";
       subEl.textContent = tail ? (baseLine + " " + tail) : baseLine;
     }

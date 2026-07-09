@@ -612,11 +612,13 @@ mark.fragment-fact {
 }
 .lv-session-health-card[data-status="GREEN"] { border-left-color: #22c55e; }
 .lv-session-health-card[data-status="AMBER"] { border-left-color: #eab308; }
+.lv-session-health-card[data-status="STALE"] { border-left-color: #38bdf8; }
 .lv-session-health-card[data-status="RED"]   { border-left-color: #f43f5e; }
 .lv-session-health-meta { display: flex; flex-direction: column; gap: 2px; }
 .lv-session-health-label { font-size: 16px; font-weight: 700; color: #e2e8f0; letter-spacing: 0.2px; }
 .lv-session-health-card[data-status="GREEN"] .lv-session-health-label { color: #4ade80; }
 .lv-session-health-card[data-status="AMBER"] .lv-session-health-label { color: #facc15; }
+.lv-session-health-card[data-status="STALE"] .lv-session-health-label { color: #7dd3fc; }
 .lv-session-health-card[data-status="RED"]   .lv-session-health-label { color: #fb7185; }
 .lv-session-health-sub  { font-size: 13px; color: #cbd5e1; line-height: 1.45; }
 .lv-session-health-pill {
@@ -633,6 +635,7 @@ mark.fragment-fact {
   flex-shrink: 0;
 }
 .lv-session-health-pill[data-status="AMBER"] { color: #facc15; border-color: #eab308; }
+.lv-session-health-pill[data-status="STALE"] { color: #7dd3fc; border-color: #38bdf8; }
 .lv-session-health-pill[data-status="RED"]   { color: #fb7185; border-color: #f43f5e; }
 
 /* Session style radio grid — five cards */
