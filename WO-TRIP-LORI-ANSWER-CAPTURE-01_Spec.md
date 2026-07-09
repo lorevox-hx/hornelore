@@ -66,10 +66,14 @@ source_ref, scope}`. `reason` ∈ `meaningful_trip_answer`, `duplicate`,
    another trip does not scope the turn on its own. Test:
    `test_photo_link_from_other_trip_not_scoped`.
 
-## Step 2 — chat wiring — SPEC ONLY (NOT BUILT)
+## Step 2 — chat wiring — LANDED 2026-07-08 (default-OFF)
 
-**Do not build until reviewed.** When approved, wire exactly this — nothing
-more:
+Wired per WO-TRIP-LORI-CAPTURE-TO-TESTABLE-BETA-01. Default-OFF flag
+`HORNELORE_TRIP_STORY_CAPTURE`; live behavior byte-identical until set.
+Prior-turn trip-scope uses the **server-tracked** option: chat_ws stamps a
+per-conversation `_TRIP_PREV_LORI[conv_id]` where the trip-interview-context
+block is (not) injected, and the next narrator answer reads it — so capture
+fires only after a genuinely trip-scoped Lori turn. As built:
 
 ### Flag
 `HORNELORE_TRIP_STORY_CAPTURE=0` (default OFF, same posture as
@@ -117,7 +121,7 @@ passed for traceability but is never the dedupe key.
 - Non-fatal: log `[chat_ws][trip-story-capture]` on capture/skip; never raise.
 - No raw image inference; photo answers carry only `source_ref=photo_link:<id>`.
 
-### Boundary tests to add at wiring
+### Boundary tests (landed — tests/test_trip_story_capture.py)
 1. flag off → never captures.
 2. flag on, no active trip → no capture.
 3. flag on, shelf closed → no capture.
@@ -138,3 +142,21 @@ passed for traceability but is never the dedupe key.
 - Sources need a dedicated `include_in_interview_context` (or
   `approved_for_lori_context`) flag before their summaries can enter Lori's
   prompt — do NOT reuse `include_in_memoir`.
+
+## Beta batch — LANDED 2026-07-08 (WO-TRIP-LORI-CAPTURE-TO-TESTABLE-BETA-01)
+
+- **Phase 1/2** chat_ws capture hook (narrator turns only, non-fatal,
+  `[chat_ws][trip-story-capture]` log) + per-conv prior-turn trip-scope memory.
+- **Phase 3** 15 boundary tests (flag/shelf/ownership/scope/trivial/dedupe/
+  two-turns/photo/non-fatal/no-UI-import) — 43 capture tests green.
+- **Phase 4** Travel Doc Story notes badge `from Lori chat` + source_ref line;
+  In-memoir / Lori-context toggles + delete already present; Lori notes count
+  in tile indicators.
+- **Phase 5** `GET /api/trips/capture-status` (gated) + Bug Panel "Trip Story
+  Capture" probe — DISABLED/INFO only, never RED.
+- **Phase 6** stale-comment cleanup (this spec, trip_interview_context.py,
+  travel-documenter.js header).
+- **Phase 7** `docs/testing/TRIP_LORI_CAPTURE_LOCAL_TEST.md`.
+
+Still pending: sources need their own `include_in_interview_context` flag;
+optional Life Map trip photo projection (WO-TRIP-PHOTO-LIFEMAP-PROJECTION-01).

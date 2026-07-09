@@ -252,6 +252,17 @@ async def _safety_notify_operator(
         logger.error("[chat_ws][safety][persist] save_safety_event failed: %s", _persist_exc)
 
 
+# WO-TRIP-LORI-ANSWER-CAPTURE-01 Step 2 (2026-07-08): per-conversation memory
+# for trip story capture. _TRIP_PREV_LORI[conv_id] records whether the Lori
+# turn we just composed was trip-scoped, so the NEXT narrator answer can be
+# captured as a candidate Travel Doc note. _TRIP_LAST_CAPTURE[conv_id] holds
+# the most recent capture result for operator visibility (logs / Bug Panel).
+# Overwritten each turn; one entry per active conversation. Not a hidden
+# global — every read/write is logged under [chat_ws][trip-story-capture].
+_TRIP_PREV_LORI: Dict[str, Dict[str, Any]] = {}
+_TRIP_LAST_CAPTURE: Dict[str, Dict[str, Any]] = {}
+
+
 @router.websocket("/ws")
 async def ws_chat(ws: WebSocket):
     await ws.accept()
@@ -876,6 +887,49 @@ async def ws_chat(ws: WebSocket):
                 logger.warning(
                     "[trip-narration] hook failed (conv=%s): %s — turn continues",
                     conv_id, _tn_exc,
+                )
+
+        # ── WO-TRIP-LORI-ANSWER-CAPTURE-01 Step 2: trip STORY capture ────
+        # Sibling to trip-narration above, but the OTHER lane: narration
+        # captures route/structure (places, order); THIS captures memoir
+        # material (the narrator's answer to a trip-scoped Lori question) as
+        # a CANDIDATE trip_location_notes row (source_type=lori, both
+        # promotion flags OFF — never auto-promoted). Default-OFF flag
+        # HORNELORE_TRIP_STORY_CAPTURE (checked inside the service).
+        # NON-FATAL: capture never blocks the turn, never dispatches a
+        # prompt, never mutates runtime71. Skips SYSTEM/operator directives.
+        # Uses the prior-turn trip-scope memory stamped where the trip
+        # interview-context block is (not) injected below.
+        if (
+            user_text
+            and user_text.strip()
+            and not _is_system_directive
+        ):
+            try:
+                from ..services import trip_story_capture as _tsc
+                if _tsc.capture_enabled():
+                    _tsc_prev = _TRIP_PREV_LORI.get(conv_id) or {}
+                    _tsc_res = _tsc.capture_for_turn(
+                        person_id,
+                        params.get("runtime71"),
+                        user_text,
+                        previous_lori_text=_tsc_prev.get("lori_text"),
+                        previous_prompt_kind=_tsc_prev.get("prompt_kind"),
+                        conv_id=conv_id,
+                        turn_id=(params.get("turn_id") or _audio_id_for_archive),
+                    )
+                    _TRIP_LAST_CAPTURE[conv_id] = _tsc_res
+                    logger.info(
+                        "[chat_ws][trip-story-capture] conv=%s captured=%s "
+                        "reason=%s scope=%s note=%s",
+                        conv_id, _tsc_res.get("captured"),
+                        _tsc_res.get("reason"), _tsc_res.get("scope"),
+                        (_tsc_res.get("note_id") or "-"),
+                    )
+            except Exception as _tsc_exc:
+                logger.warning(
+                    "[chat_ws][trip-story-capture] skipped (conv=%s): %s "
+                    "— turn continues", conv_id, _tsc_exc,
                 )
 
         # ── WO-NARRATIVE-CUE-LIBRARY-01 Phase 4: observability-only log ──
@@ -2843,6 +2897,13 @@ async def ws_chat(ws: WebSocket):
                 system_prompt = system_prompt + _tic_block
                 logger.info("[chat_ws][trip-context] injected trip context "
                             "conv=%s person=%s", conv_id, person_id or "(none)")
+            # Stamp prior-turn trip-scope for the NEXT narrator answer's
+            # story capture (Step 2). The Lori turn we are composing now is
+            # trip-scoped iff a trip-context block was injected.
+            _TRIP_PREV_LORI[conv_id] = {
+                "trip_scoped": bool(_tic_block),
+                "prompt_kind": "trip" if _tic_block else None,
+            }
         except Exception as _tic_exc:
             logger.warning("[chat_ws][trip-context] skipped conv=%s: %s",
                            conv_id, _tic_exc)

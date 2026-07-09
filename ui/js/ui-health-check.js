@@ -60,6 +60,7 @@ window.lvUiHealthCheck = (function () {
     { key: "memoir",     label: "Peek at Memoir",      fn: _check_peek_memoir    },
     { key: "media",      label: "Media Tab",           fn: _check_media_tab      },
     { key: "photos",     label: "Photos",              fn: _check_photos         },
+    { key: "trip_capture", label: "Trip Story Capture",  fn: _check_trip_capture   },
     { key: "media_archive", label: "Document Archive", fn: _check_media_archive  },
     { key: "archive",    label: "Archive",             fn: _check_archive        },
     { key: "session",    label: "Session Style",       fn: _check_session_style  },
@@ -1541,6 +1542,48 @@ window.lvUiHealthCheck = (function () {
       _render();
     }
     return _state.results.slice();
+  }
+
+  // ── Category: Trip Story Capture (WO-TRIP-LORI-ANSWER-CAPTURE-01 Ph5) ──
+  // Optional operator loop — NEVER session-critical. Surfaces the capture
+  // flag + last result via /api/trips/capture-status. Emits DISABLED / INFO /
+  // PASS / WARN only (never FAIL), so it can never turn the top status RED.
+  async function _check_trip_capture() {
+    const cat = "trip_capture";
+    const res = await _fetchJSON("/api/trips/capture-status");
+    if (!res || res.status === 404) {
+      _push(cat, "trip story capture", STATUS.DISABLED,
+        "trips gate off (HORNELORE_TRIPS=0) or endpoint unmounted");
+      return;
+    }
+    if (!res.ok || !res.body) {
+      _push(cat, "capture-status probe", STATUS.WARN,
+        "probe failed (status=" + (res.status || 0) + ")");
+      return;
+    }
+    const flagOn = !!res.body.flag_on;
+    if (!flagOn) {
+      _push(cat, "capture flag", STATUS.DISABLED,
+        "HORNELORE_TRIP_STORY_CAPTURE=0 — narrator answers not captured");
+      return;
+    }
+    _push(cat, "capture flag", STATUS.PASS, "HORNELORE_TRIP_STORY_CAPTURE=1");
+    const ss = (typeof state !== "undefined" && state.session) ? state.session : {};
+    _push(cat, "active trip", ss.activeTripId ? STATUS.INFO : STATUS.SKIP,
+      "activeTripId=" + (ss.activeTripId || "(none)") +
+      " shelf_open=" + (!!ss.travelsShelfOpen));
+    const last = res.body.last || {};
+    if (last.reason == null) {
+      _push(cat, "last capture", STATUS.INFO, "no capture attempted yet this run");
+    } else if (last.reason === "error") {
+      _push(cat, "last capture", STATUS.WARN,
+        "last capture errored (non-fatal; chat continued)");
+    } else if (last.captured) {
+      _push(cat, "last capture", STATUS.PASS,
+        "captured (" + (last.scope || "?") + ") note=" + (last.note_id || "-"));
+    } else {
+      _push(cat, "last capture", STATUS.INFO, "skipped: " + last.reason);
+    }
   }
 
   function _summary() {

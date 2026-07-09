@@ -27,6 +27,7 @@ A build-gated isolation test enforces this.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -329,3 +330,86 @@ def capture_trip_story_answer(
         trip_stop_id=scope["trip_stop_id"],
         source_ref=source_ref, scope=scope["scope"],
     )
+
+
+# ── Step 2 chat-turn gate (default-OFF flag; used by chat_ws) ────────────────
+
+_FLAG = "HORNELORE_TRIP_STORY_CAPTURE"
+
+
+def capture_enabled() -> bool:
+    """Default-OFF. When off, chat_ws must not capture anything (byte-stable)."""
+    return os.getenv(_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _capture_for_turn_impl(
+    person_id: Optional[str],
+    runtime71: Optional[Dict[str, Any]],
+    narrator_text: Optional[str],
+    previous_lori_text: Optional[str] = None,
+    previous_prompt_kind: Optional[str] = None,
+    photo_link_id: Optional[str] = None,
+    conv_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Gate + capture for a single narrator chat turn. Safe to call every turn.
+
+    Gates the flag + Travels-shelf-open here; everything else (active trip,
+    ownership, trip-scope, trivial, scope validation, dedupe) is delegated to
+    capture_trip_story_answer. Reads scope ids from runtime71.
+
+    NON-FATAL by contract: any internal error returns an ``error`` result
+    instead of raising, so a caller can wrap-or-not and the chat turn is never
+    put at risk. Returns the same result shape as capture_trip_story_answer,
+    plus ``flag_off`` / ``shelf_closed`` / ``error`` skip reasons.
+    """
+    try:
+        if not capture_enabled():
+            return _result(False, "flag_off")
+        rt = runtime71 or {}
+        if not rt.get("travels_shelf_open"):
+            return _result(False, "shelf_closed")
+        return capture_trip_story_answer(
+            person_id=person_id,
+            active_trip_id=rt.get("active_trip_id"),
+            narrator_text=narrator_text,
+            previous_lori_text=previous_lori_text,
+            previous_prompt_kind=previous_prompt_kind,
+            active_trip_region_id=rt.get("active_trip_region_id"),
+            active_trip_stop_id=rt.get("active_trip_stop_id"),
+            photo_link_id=photo_link_id or rt.get("active_photo_link_id"),
+            conv_id=conv_id,
+            turn_id=turn_id,
+        )
+    except Exception as exc:  # never let capture break the chat turn
+        return _result(False, "error", error=str(exc))
+
+
+# ── Last-status snapshot for operator visibility (Bug Panel / logs) ──────────
+_LAST_STATUS: Dict[str, Any] = {
+    "flag_on": False, "captured": None, "reason": None,
+    "scope": None, "note_id": None,
+}
+
+
+def capture_for_turn(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Public gate — delegates to the impl and records a bounded last-status
+    snapshot so an operator surface can show what the last capture did. Never
+    raises (the impl is already non-fatal)."""
+    res = _capture_for_turn_impl(*args, **kwargs)
+    try:
+        _LAST_STATUS.update({
+            "flag_on": capture_enabled(),
+            "captured": res.get("captured"),
+            "reason": res.get("reason"),
+            "scope": res.get("scope"),
+            "note_id": res.get("note_id"),
+        })
+    except Exception:
+        pass
+    return res
+
+
+def capture_status() -> Dict[str, Any]:
+    """Read-only status for the Bug Panel: flag state + last capture result."""
+    return {"flag_on": capture_enabled(), "last": dict(_LAST_STATUS)}

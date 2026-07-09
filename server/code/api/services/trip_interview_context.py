@@ -1,9 +1,11 @@
-"""Trip interview context — WO-TRIP-INTERVIEW-CONTEXT-01 Step 1.
+"""Trip interview context — WO-TRIP-INTERVIEW-CONTEXT-01.
 
 READ-ONLY assembly of a compact, SAFE trip context block for a narrator
-with an actively-open trip. STEP 1 IS THE SERVICE + TESTS ONLY — nothing
-here is wired into chat_ws / prompt_composer yet (that is Step 2, behind a
-default-off flag, with separate approval).
+with an actively-open trip. Step 2 IS wired: chat_ws appends
+``context_block_for_turn(...)`` to Lori's system prompt behind the
+default-off flag ``HORNELORE_TRIP_INTERVIEW_CONTEXT`` (see below). This
+module stays READ-ONLY — it never writes, dispatches, or mutates
+runtime/session state; prompt_composer is untouched.
 
 LAW 3: this module imports ONLY the trip data layer (trip_repository). It
 does NOT import chat_ws, prompt_composer, extract, the Lori runtime, or any

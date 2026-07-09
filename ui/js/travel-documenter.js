@@ -15,11 +15,13 @@
    HARD BOUNDARIES (spec + regression-tested):
      - Operator tool ONLY. The shell tab strip is hidden during
        interview mode (body.lv-interview-mode-active #lvShellTabs).
-     - NEVER touches Lori/Travels state: no trip-session scope writes,
-       nothing consumed by the chat runtime, no system-prompt dispatch.
-       Focus mode only toggles a body CSS class (document.body) that
-       compresses the shell header visually on the Travel Doc tab; it
-       writes no runtime/session state.
+     - Travel Doc never mutates Lori/runtime/session state and never
+       dispatches prompts itself. The ONE bridge to Lori is the explicit
+       "Talk with Lori" button, which calls the Travels shelf PUBLIC opener
+       (window.lvTravelsOpenTripById) — the Travels shelf, not Travel Doc,
+       owns activeTripId / tripStyle / prompt dispatch. Focus mode only
+       toggles a body CSS class (document.body) that compresses the shell
+       header visually on the Travel Doc tab; it writes no runtime state.
      - Uses existing trips endpoints only.
 
    LAYOUT REFLOW (WO-TRAVEL-DOC-LAYOUT-REFLOW-01):
@@ -757,10 +759,14 @@
       var card = el("div", "td-note-card");
       var head = el("div", "td-note-head");
       head.appendChild(el("strong", "", n.note_title || "(untitled)"));
-      head.appendChild(el("span", "td-note-badge td-src-" + (n.source_type || "operator"),
-        n.source_type || "operator"));
+      var _srcType = n.source_type || "operator";
+      var _srcLabel = (_srcType === "lori") ? "from Lori chat" : _srcType;
+      head.appendChild(el("span", "td-note-badge td-src-" + _srcType, _srcLabel));
       card.appendChild(head);
       card.appendChild(el("p", "td-note-text", n.note_text || ""));
+      if (n.source_ref) {
+        card.appendChild(el("p", "td-note-srcref", n.source_ref));
+      }
       var flags = el("div", "td-note-flags");
       flags.appendChild(noteToggle(n, "include_in_memoir", "In memoir"));
       flags.appendChild(noteToggle(n, "include_in_interview_context", "Lori context candidate"));

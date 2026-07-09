@@ -350,6 +350,16 @@ def list_trips(person_id: Optional[str] = None) -> Dict[str, Any]:
     return {"trips": trip_repository.trip_list(person_id)}
 
 
+@router.get("/capture-status")
+def trip_capture_status() -> Dict[str, Any]:
+    """WO-TRIP-LORI-ANSWER-CAPTURE-01 Phase 5 — operator visibility for the
+    trip story-capture flag + last result. Read-only, no narrator content
+    (only flag + skip/capture reason + scope + note id)."""
+    _require_trips_enabled()
+    from ..services import trip_story_capture as _tsc
+    return _tsc.capture_status()
+
+
 @router.get("/{trip_id}/tree")
 def get_trip_tree(trip_id: str) -> Dict[str, Any]:
     _require_trips_enabled()

@@ -316,5 +316,145 @@ class _CaptureCase(unittest.TestCase):
         self.assertEqual(len(self._notes()), 0)
 
 
+
+class _CaptureForTurnCase(_CaptureCase):
+    """Step 2 gate (capture_for_turn) — flag + shelf + delegation + non-fatal."""
+
+    def tearDown(self):
+        os.environ.pop(tsc._FLAG, None)
+        super().tearDown()
+
+    def _rt(self, **kw):
+        base = {"active_trip_id": self.trip_id, "travels_shelf_open": True}
+        base.update(kw)
+        return base
+
+    # 1. flag OFF → never captures (byte-stable default)
+    def test_flag_off_no_capture(self):
+        os.environ.pop(tsc._FLAG, None)
+        r = tsc.capture_for_turn(
+            self.person_id, self._rt(), "A long meaningful trip answer here.",
+            previous_prompt_kind="trip", turn_id="t-1")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "flag_off")
+        self.assertEqual(len(self._notes()), 0)
+
+    # 2. flag on, no active trip → no note
+    def test_flag_on_no_active_trip(self):
+        os.environ[tsc._FLAG] = "1"
+        r = tsc.capture_for_turn(
+            self.person_id, self._rt(active_trip_id=None),
+            "A long meaningful trip answer here.",
+            previous_prompt_kind="trip", turn_id="t-2")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "no_active_trip")
+
+    # 3. flag on, shelf closed → no note
+    def test_flag_on_shelf_closed(self):
+        os.environ[tsc._FLAG] = "1"
+        r = tsc.capture_for_turn(
+            self.person_id, self._rt(travels_shelf_open=False),
+            "A long meaningful trip answer here.",
+            previous_prompt_kind="trip", turn_id="t-3")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "shelf_closed")
+
+    # 4. wrong owner → no note
+    def test_flag_on_wrong_owner(self):
+        os.environ[tsc._FLAG] = "1"
+        r = tsc.capture_for_turn(
+            self.other_person, self._rt(), "A long meaningful trip answer here.",
+            previous_prompt_kind="trip", turn_id="t-4")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "trip_not_owned")
+        self.assertEqual(len(self._notes()), 0)
+
+    # 5. previous turn not trip-scoped → no note
+    def test_flag_on_not_trip_scoped(self):
+        os.environ[tsc._FLAG] = "1"
+        r = tsc.capture_for_turn(
+            self.person_id, self._rt(), "A long meaningful answer with no scope.",
+            previous_prompt_kind=None, turn_id="t-5")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "not_trip_scoped")
+
+    # 6. trivial reply → no note
+    def test_flag_on_trivial(self):
+        os.environ[tsc._FLAG] = "1"
+        r = tsc.capture_for_turn(
+            self.person_id, self._rt(), "Yes.",
+            previous_prompt_kind="trip", turn_id="t-6")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "trivial_reply")
+
+    # 7 + 8 + 9. meaningful → one source_type=lori note, both flags 0
+    def test_flag_on_meaningful_creates_note(self):
+        os.environ[tsc._FLAG] = "1"
+        r = tsc.capture_for_turn(
+            self.person_id, self._rt(),
+            "The little square in Munich stayed with me for years.",
+            previous_prompt_kind="trip", turn_id="t-7")
+        self.assertTrue(r["captured"])
+        self.assertEqual(r["reason"], "meaningful_trip_answer")
+        row = trip_repository.location_note_get(r["note_id"])
+        self.assertEqual(row["source_type"], "lori")
+        self.assertEqual(row["include_in_memoir"], 0)
+        self.assertEqual(row["include_in_interview_context"], 0)
+
+    # 10 + 11. dedupe same turn only; two turn_ids → two notes
+    def test_dedupe_same_turn_two_turns_two_notes(self):
+        os.environ[tsc._FLAG] = "1"
+        a = dict(previous_prompt_kind="trip")
+        r1 = tsc.capture_for_turn(self.person_id, self._rt(),
+            "We wandered the old streets until the light faded.", turn_id="tt", **a)
+        r1b = tsc.capture_for_turn(self.person_id, self._rt(),
+            "We wandered the old streets until the light faded.", turn_id="tt", **a)
+        self.assertEqual(r1b["reason"], "duplicate")
+        r2 = tsc.capture_for_turn(self.person_id, self._rt(),
+            "The next morning we found a market by the river.", turn_id="tu", **a)
+        self.assertTrue(r2["captured"])
+        self.assertEqual(r2["reason"], "meaningful_trip_answer")
+        self.assertEqual(len(self._notes()), 2)
+
+    # 12. photo answer via runtime → source_ref photo_link only when valid
+    def test_photo_scope_via_runtime(self):
+        os.environ[tsc._FLAG] = "1"
+        rt = self._rt(active_photo_link_id=self.link_id)
+        r = tsc.capture_for_turn(
+            self.person_id, rt, "That was the station right after we arrived.",
+            previous_prompt_kind="photo", turn_id="tp")
+        self.assertTrue(r["captured"])
+        self.assertEqual(r["source_ref"], "photo_link:" + self.link_id)
+        self.assertEqual(r["scope"], "stop")
+
+    # 13. non-fatal: an internal error returns error result, never raises
+    def test_capture_for_turn_non_fatal_on_error(self):
+        os.environ[tsc._FLAG] = "1"
+        orig = trip_repository.trip_get
+        def _boom(*a, **k):
+            raise RuntimeError("simulated repo failure")
+        trip_repository.trip_get = _boom
+        try:
+            r = tsc.capture_for_turn(
+                self.person_id, self._rt(),
+                "A meaningful trip answer that should not crash the turn.",
+                previous_prompt_kind="trip", turn_id="t-err")
+        finally:
+            trip_repository.trip_get = orig
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "error")
+
+    # 15. chat_ws wiring imports only the isolated service, never UI
+    def test_chat_ws_wiring_no_ui_import(self):
+        p = _SERVER_CODE / "api" / "routers" / "chat_ws.py"
+        src = p.read_text(encoding="utf-8")
+        self.assertIn("from ..services import trip_story_capture", src)
+        for line in src.splitlines():
+            st = line.strip()
+            self.assertFalse(st.startswith("import ui"), st)
+            self.assertFalse(st.startswith("from ui "), st)
+            self.assertFalse(st.startswith("from ui."), st)
+
+
 if __name__ == "__main__":
     unittest.main()
