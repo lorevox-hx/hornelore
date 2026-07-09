@@ -449,5 +449,38 @@ class _ContextCase(unittest.TestCase):
         self.assertIn("Czechia", a)
         self.assertIn("Slovenia", a)
 
+class DirectQuestionDodgeTest(_ContextCase):
+    """BUG-LORI-TRIP-DIRECT-QUESTION-DODGE-01 (live 2026-07-09): 'what
+    date was that taken' and 'can you tell me about the photo' produced
+    continuation boilerplate. They must answer honestly instead."""
+
+    # _rt(**kw) is inherited from _ContextCase.
+
+    def setUp(self):
+        super().setUp()
+        import os
+        os.environ["HORNELORE_TRIP_INTERVIEW_CONTEXT"] = "1"
+
+    def tearDown(self):
+        import os
+        os.environ.pop("HORNELORE_TRIP_INTERVIEW_CONTEXT", None)
+        super().tearDown()
+
+    def test_date_taken_answers_unknown_honestly(self):
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt(), "what date was that taken")
+        self.assertIsNotNone(a)
+        self.assertIn("approved trip record", a)
+        self.assertNotIn("Shall we continue", a)
+
+    def test_about_photo_uses_approved_caption(self):
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt(), "can you tell me about the photo")
+        self.assertIsNotNone(a)
+        # setUp approves 'the train station in Munich' on the ready photo
+        self.assertIn("train station in Munich", a)
+        self.assertNotIn("i can see", a.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

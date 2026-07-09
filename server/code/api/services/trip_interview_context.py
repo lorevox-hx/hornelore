@@ -289,8 +289,26 @@ _TRIP_KNOWLEDGE_RX = re.compile(
     r"what places do you know|"
     r"what do you know about \w[\w' -]* on (this|the|my) trip|"
     r"do you know (anything |much )?about (my|this|the) trip|"
-    r"what do you know about (this|the|my) photo"
+    r"what do you know about (this|the|my) photo|"
+    # BUG-LORI-TRIP-DIRECT-QUESTION-DODGE-01 (live 2026-07-09): these two
+    # produced continuation boilerplate instead of an answer.
+    r"what date was (that|this|it|the photo) taken|"
+    r"when was (that|this|it|the photo) taken|"
+    r"can you tell me about (the|that|this) photo|"
+    r"tell me about (the|that|this) photo"
     r")"
+)
+
+# Direct photo/date fact questions get an HONEST answer, never deflection.
+_PHOTO_FACT_RX = re.compile(
+    r"(?i)(what date was|when was) (that|this|it|the photo) taken")
+_PHOTO_ABOUT_RX = re.compile(
+    r"(?i)(can you )?tell me about (the|that|this) photo|"
+    r"what do you know about (this|the|my) photo")
+
+_UNKNOWN_FACT_ANSWER = (
+    "I don't know that from the approved trip record yet — but you might. "
+    "What do you remember about that moment?"
 )
 
 
@@ -384,4 +402,22 @@ def direct_answer_for_turn(
         person_id, trip_id, active_trip_stop_id=rt.get("active_trip_stop_id"))
     if not ctx:
         return None
+    # BUG-LORI-TRIP-DIRECT-QUESTION-DODGE-01: date-taken and about-the-
+    # photo questions answer from APPROVED context or admit unknown —
+    # never continuation boilerplate. (Per-photo approved dates reach
+    # this surface in Ph7; until then captions are the approved photo
+    # context we can honestly offer.)
+    text = str(narrator_text or "")
+    if _PHOTO_FACT_RX.search(text):
+        return _UNKNOWN_FACT_ANSWER
+    if _PHOTO_ABOUT_RX.search(text):
+        caps = ctx.get("photo_captions") or []
+        pctx = ctx.get("photo_context") or []
+        if caps or pctx:
+            bits = [c.get("caption") for c in caps[:2] if c.get("caption")]
+            bits += [p.get("context") for p in pctx[:1] if p.get("context")]
+            return ("The approved notes on the trip photos say: "
+                    + "; ".join(bits) +
+                    ". What do you remember about that moment?")
+        return _UNKNOWN_FACT_ANSWER
     return compose_direct_answer(ctx)
