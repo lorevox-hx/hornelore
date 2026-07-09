@@ -203,9 +203,17 @@ _FLAG = "HORNELORE_TRIP_INTERVIEW_CONTEXT"
 
 _BLOCK_HEADER = (
     "\n\n[TRIP CONTEXT — the narrator has this trip open on the Travels "
-    "shelf. Use it to ask ONE warm, grounded question in PAST TENSE. "
-    "Reference only what is below; do not invent places, people, or events; "
-    "do not claim you saw any photo.]\n"
+    "shelf. The facts below are what you know about this trip.\n"
+    "IF THE NARRATOR ASKS WHAT YOU KNOW OR REMEMBER ABOUT THE TRIP (e.g. "
+    "'what do you know about my trip', 'what can you tell me about it', "
+    "'tell me about my trip'): ANSWER THEM DIRECTLY AND WARMLY using ONLY "
+    "these facts — say the trip's name and dates and name a few of the "
+    "places on record — then invite them to begin wherever they like. Do "
+    "NOT deflect, do NOT say 'where would you like to continue', and do NOT "
+    "answer a direct question with another question.\n"
+    "OTHERWISE, use these facts to ask ONE warm, grounded question in PAST "
+    "TENSE. Reference only what is below; do not invent places, people, or "
+    "events; do not claim you saw any photo.]\n"
 )
 
 

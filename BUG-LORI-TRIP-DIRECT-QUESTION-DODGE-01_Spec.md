@@ -51,3 +51,20 @@ this reads as not listening.
   "answer-first when the narrator asks a direct trip question" rule),
   composing with the existing ACTIVE-LISTENING / discipline rules. Scope +
   eval before wiring.
+
+## First fix — 2026-07-09 (directive in the trip-context block)
+
+The trip-context block header (`trip_interview_context._BLOCK_HEADER`) used to
+say only "use it to ask ONE warm question," which actively pushed Lori to
+deflect direct questions. Rewrote it to lead with: *if the narrator asks what
+you know/remember about the trip, ANSWER directly from these facts (name +
+dates + a few places), do not deflect, do not answer a question with a
+question; OTHERWISE ask one warm question.* Since the block is appended last to
+the system prompt it is the most salient guidance. 18 context tests still green.
+
+**If this prompt directive proves insufficient** (Lori still deflects under the
+strong interview-discipline steering), the robust fix per this codebase's own
+locked pattern is a **deterministic intercept**: detect a trip-info question
+when a trip is open + owned, compose a warm answer from
+`build_trip_interview_context`, and send it deterministically (mirroring
+`lori_meta_question`). Scope + eval before wiring that.
