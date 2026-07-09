@@ -88,10 +88,35 @@
     if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
   }
 
+  // BUG-TRAVELS-STALE-DELETED-TRIP-TREE-404-01 (2026-07-09): a persisted
+  // activeTripId for a DELETED trip kept 404-ing on /tree (restore + 8s
+  // refresh + open) and poisoned the current active-trip scope. When
+  // /tree returns 404 (the trip is gone), clear ALL trip scope cleanly —
+  // the same fields the close path clears — so a stale id never rides
+  // runtime71 into the chat turn.
+  function _clearStaleTrip(reason) {
+    var s = _session();
+    console.info("[travels-shelf] clearing stale trip scope (" + reason +
+      "): " + (s.activeTripId || "none"));
+    s.activeTripId = null;
+    s.activeTripTitle = "";
+    s.activeTripStopId = null;
+    s.tripStyle = null;
+    s.travelsShelfOpen = false;
+    s.travelsPanelOpen = false;
+    _stopPanelRefresh();
+    try { _stopZeroTripPoll(); } catch (e) {}
+    var panel = _panel();
+    if (panel) panel.hidden = true;
+  }
+
   function _refetchAndPaint(trip) {
     Promise.all([
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/tree")
-        .then(function (r) { return r.ok ? r.json() : null; }),
+        .then(function (r) {
+          if (r.status === 404) { _clearStaleTrip("tree_404"); return null; }
+          return r.ok ? r.json() : null;
+        }),
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/narrator-photo-links")
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; }),
@@ -244,7 +269,10 @@
     }
     Promise.all([
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/tree")
-        .then(function (r) { return r.ok ? r.json() : null; }),
+        .then(function (r) {
+          if (r.status === 404) { _clearStaleTrip("tree_404"); return null; }
+          return r.ok ? r.json() : null;
+        }),
       fetch(ORIGIN + "/api/trips/" + encodeURIComponent(trip.id) + "/narrator-photo-links")
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; }),
@@ -629,7 +657,10 @@
     if (!panel) return;
     panel.hidden = false;
     fetch(ORIGIN + "/api/trips/" + encodeURIComponent(s.activeTripId) + "/tree")
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        if (r.status === 404) { _clearStaleTrip("tree_404_restore"); return null; }
+        return r.ok ? r.json() : null;
+      })
       .then(function (tree) {
         if (!tree) return;
         fetch(ORIGIN + "/api/trips/" + encodeURIComponent(s.activeTripId) + "/narrator-photo-links")

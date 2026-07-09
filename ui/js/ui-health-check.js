@@ -90,7 +90,12 @@ window.lvUiHealthCheck = (function () {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { signal: ctl.signal });
+      // Probes for /api/... must hit the API server, not the UI origin
+      // (when the page is served from :8082 a relative /api/ call 404s).
+      const API = (window.LOREVOX_API || "http://localhost:8000").replace(/\/$/, "");
+      const target = (typeof url === "string" && url.indexOf("/api/") === 0)
+        ? (API + url) : url;
+      const res = await fetch(target, { signal: ctl.signal });
       let body = null;
       try { body = await res.json(); } catch (_) { body = null; }
       return { ok: res.ok, status: res.status, body };
@@ -162,8 +167,8 @@ window.lvUiHealthCheck = (function () {
     // Operator-tab session style picker present (4 styles since
     // memory_exercise dropped 2026-04-25).
     const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
-    _push(cat, "session style picker has 4 options",
-      radios.length === 4 ? STATUS.PASS : STATUS.FAIL,
+    _push(cat, "session style picker has 5 options",
+      radios.length === 5 ? STATUS.PASS : STATUS.FAIL,
       `radio count=${radios.length}`);
 
     // No stale narrator pointer
@@ -225,18 +230,18 @@ window.lvUiHealthCheck = (function () {
 
     // 4 session style radios with the expected values (memory_exercise
     // dropped 2026-04-25 — picker no-op, shelved).
-    const expectedStyles = ["questionnaire_first","clear_direct","warm_storytelling","companion"];
+    const expectedStyles = ["oral_history","questionnaire_first","clear_direct","warm_storytelling","companion"];
     const radios = Array.from(document.querySelectorAll('input[name="lvSessionStyle"]'));
-    if (radios.length === 4) {
+    if (radios.length === 5) {
       const present = radios.map(r => r.value).sort();
       const want = expectedStyles.slice().sort();
       const match = present.length === want.length && present.every((v,i) => v === want[i]);
-      _push(cat, "Session style picker has all 4 expected styles",
+      _push(cat, "Session style picker has all 5 expected styles",
         match ? STATUS.PASS : STATUS.WARN,
         match ? "" : `present=${present.join(",")}`);
     } else {
-      _push(cat, "Session style picker has all 4 expected styles", STATUS.FAIL,
-        `radio count=${radios.length} (expected 4)`);
+      _push(cat, "Session style picker has all 5 expected styles", STATUS.FAIL,
+        `radio count=${radios.length} (expected 5)`);
     }
 
     // Operator launcher grid populated (popovers moved out of header)
@@ -274,7 +279,8 @@ window.lvUiHealthCheck = (function () {
 
     // sessionStyle is one of 4 valid values (memory_exercise dropped 2026-04-25)
     const validStyles = [
-      "questionnaire_first", "clear_direct", "warm_storytelling", "companion",
+      "oral_history", "questionnaire_first", "clear_direct", "warm_storytelling",
+      "companion",
     ];
     const ss = state && state.session && state.session.sessionStyle;
     _push(cat, "state.session.sessionStyle is valid",
@@ -679,8 +685,8 @@ window.lvUiHealthCheck = (function () {
       tabBtn ? "" : "#lvShellTabMedia missing");
 
     const cards = document.querySelectorAll(".lv-media-launch-card");
-    _push(cat, "Media launcher cards present (3)",
-      cards.length === 3 ? STATUS.PASS : STATUS.FAIL,
+    _push(cat, "Media launcher cards present (4)",
+      cards.length === 4 ? STATUS.PASS : STATUS.FAIL,
       `count=${cards.length}`);
 
     // Disabled-note state matches the photo health flag.  This is exactly
@@ -1014,12 +1020,12 @@ window.lvUiHealthCheck = (function () {
   async function _check_session_style() {
     const cat = "session";
 
-    const valid = ["questionnaire_first","clear_direct","warm_storytelling","companion"];
+    const valid = ["oral_history","questionnaire_first","clear_direct","warm_storytelling","companion"];
 
     // 1. state.session.sessionStyle is one of 4 valid values (memory_exercise
     //    dropped 2026-04-25 — picker no-op, shelved for future product work).
     const ss = state && state.session && state.session.sessionStyle;
-    _push(cat, "state.session.sessionStyle is one of 4 valid styles",
+    _push(cat, "state.session.sessionStyle is one of 5 valid styles",
       valid.includes(ss) ? STATUS.PASS : STATUS.FAIL,
       `value=${JSON.stringify(ss)}`);
 
@@ -1043,11 +1049,11 @@ window.lvUiHealthCheck = (function () {
     // 4. Router accessor exposes valid styles (4 since memory_exercise
     //    dropped 2026-04-25).
     const router = window.lvSessionStyleRouter;
-    if (router && Array.isArray(router.validStyles) && router.validStyles.length === 4) {
-      _push(cat, "router.validStyles enumerates all 4 styles", STATUS.PASS,
+    if (router && Array.isArray(router.validStyles) && router.validStyles.length === 5) {
+      _push(cat, "router.validStyles enumerates all 5 styles", STATUS.PASS,
         router.validStyles.join(","));
     } else {
-      _push(cat, "router.validStyles enumerates all 4 styles", STATUS.FAIL,
+      _push(cat, "router.validStyles enumerates all 5 styles", STATUS.FAIL,
         `validStyles=${JSON.stringify(router && router.validStyles)}`);
     }
 
