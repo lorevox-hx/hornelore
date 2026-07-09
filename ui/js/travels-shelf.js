@@ -745,7 +745,8 @@
     // "that moment" and let the narrator describe it.
     var msg = "[SYSTEM: The narrator just added a photo to the trip they have " +
       "open. You have NOT seen it — do not describe, guess, or name what is in " +
-      "it. Do NOT name the trip or any place. Ask ONE short warm question " +
+      "it. Do NOT name the trip or any place. Do NOT ask them to recall " +
+      "calendar dates. Ask ONE short warm question " +
       "(maximum 15 words) inviting them to say what they remember about that " +
       "moment. ONE question only. No preamble.]";
     try {
