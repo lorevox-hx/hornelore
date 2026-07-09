@@ -1,6 +1,6 @@
 # WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01
 
-**Status:** Phase 5 LANDED 2026-07-09 (first phase per the low-risk-first build order). Phases 1-4, 6-9 open; Phase 10 mostly pre-existing (trip_story_capture); Phase 11 grows with each phase.
+**Status:** Phases 5 + 1 LANDED 2026-07-09. Phases 2-4, 6-9 open; Phase 10 mostly pre-existing (trip_story_capture); Phase 11 grows with each phase.
 **Lane:** Trips / Lori grounding.
 **Parents:** `WO-TRIP-INTERVIEW-CONTEXT-01` (read side), `trip_story_capture` (write side), `photo_intake/metadata_trust` (Ph1 foundation).
 
@@ -30,6 +30,19 @@ What landed:
 - **Repository/router** — `photo_link_update` + `PhotoLinkPatch` + `PATCH /api/trips/photo-links/{id}` carry the new fields (`clear_operator_context_note` clears note AND approval); pre-Ph5 payloads byte-stable.
 - **Travel Doc UI** — photo cards in the editor Photos tab gain: narrator-caption read-only line, "Caption → Lori" checkbox, context-note textarea ("operator-only" placeholder), "Note → Lori" checkbox; caption/note edits untick approval locally.
 - **Tests** — `test_trip_interview_context` +4: unapproved caption withheld / narrator caption allowed flag-free / note gated both directions + "Approved photo context" phrasing / edit revokes approval. The leak-locking test flipped to assert the APPROVED path.
+
+## Phase 1 — EXIF/file metadata for review (LANDED 2026-07-09, later same day)
+
+Per Chris's directive: boring and reviewable, no LLM, no OCR, no web, NO dependency changes (locked by test — the parser is pure stdlib).
+
+- **Migration 0023** — `photos` gains `date_source` (exif|filename_guess|operator_confirmed|missing|unknown, default unknown), `taken_at_filename_guess`, `date_approved_for_lori` + `location_approved_for_lori` (both DEFAULT 0). Existing columns already carried the rest (date_value/precision, location_label/source, raw lat/lon private, metadata_trust, metadata_json raw EXIF).
+- **`photo_intake/filename_date.py`** (NEW, pure stdlib) — `parse_filename_date` (PXL_/IMG_/WhatsApp/Samsung/Screenshot/dashed shapes, real-calendar-date validated) + `derive_date_fields`: EXIF wins; a filename guess is stored SEPARATELY and NEVER auto-fills date_value; nothing → 'missing'. Suspect-scan EXIF dates stay quarantined (trust lane unchanged).
+- **Intake** — `ingest.ingest_photo_file` stamps `date_source` + `taken_at_filename_guess` via new `photo_repo.set_date_review_fields` (fail-soft on pre-0023 DB, same posture as the trust column).
+- **Revoke-on-edit at the REPOSITORY layer** — `patch_photo`: editing `date_value` clears `date_approved_for_lori` + stamps `date_source='operator_confirmed'` (unless the patch sets them); editing `location_label` clears `location_approved_for_lori`. Every caller inherits the rule; router adds DATE_SOURCES enum validation.
+- **Operator read** — `trip_repository.photo_links_list` LEFT JOINs photos projecting `photo_date_value/precision/source`, `photo_taken_at_filename_guess`, `photo_location_label`, `photo_metadata_trust`, approval flags, `photo_narrator_ready`, and **`photo_gps_present` as a boolean — raw coordinates deliberately NOT projected**. Narrator read (`narrator_photo_links`) untouched.
+- **Travel Doc photo cards** — "Date: … (EXIF)" / "Date guessed from filename: … (low confidence — not canonical)" / "No embedded EXIF date found"; "GPS found (kept private)" / "No GPS"; broad place-label input; "Date → Lori" + "Place → Lori" checkboxes (untick locally when edits revoke).
+- **NOT in Ph1:** approved metadata does NOT feed Lori yet — that is Ph7. `trip_interview_context` untouched; test locks raw GPS out of the context text.
+- **Tests** — `tests/test_trip_photo_metadata.py` (13): parser shapes + garbage/impossible dates, EXIF-wins, missing-EXIF clean state, filename-guess-never-canonical, suspect-scan demotion, pure-stdlib lock (no-dependency proof), approvals default 0, gps_present without raw coords, raw GPS absent from Lori context, review fields projected, edit-revokes-approval, cross-trip/narrator isolation.
 
 ## Same-session review fixes (2026-07-09)
 
@@ -79,4 +92,5 @@ Ph1 EXIF/file metadata (build on `metadata_trust` — extraction exists; add `da
 ## Revision history
 
 - 2026-07-09 — Spec banked; Ph5 landed same session with the code-review sweep that motivated its ordering.
+- 2026-07-09 (later still) — Phase 1 landed per directive: schema/parser/intake/revoke-at-repository/operator-read/Travel-Doc display + 13 tests; zero dependencies; Lori feed deferred to Ph7.
 - 2026-07-09 (later) — Enrichment-engine decision locked: local LLM drafts for Ph3/Ph6, place-from-context for Ph2 (no coordinates, no datasets, no web), pytesseract the only dependency add (Ph4). Local-first rule NOT lifted.
