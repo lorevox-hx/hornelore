@@ -258,5 +258,105 @@ class _ContextCase(unittest.TestCase):
         self.assertNotIn("[SYSTEM:", block)
 
 
+
+    # ── Phase 1: direct trip-knowledge answer ────────────────────────────
+    def _rt_dq(self, **kw):
+        base = {"active_trip_id": self.trip_id, "travels_shelf_open": True}
+        base.update(kw)
+        return base
+
+    def test_direct_answer_what_do_you_know(self):
+        os.environ[tic._FLAG] = "1"
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "what do you know about my trip")
+        self.assertTrue(a)
+        self.assertIn("Spring 2026", a)
+        self.assertIn("2026-05-22", a)
+        self.assertIn("Germany", a)
+        self.assertIn("Munich", a)
+
+    def test_direct_answer_what_can_you_tell_me(self):
+        os.environ[tic._FLAG] = "1"
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "what can you tell me about my trip")
+        self.assertTrue(a)
+        self.assertIn("Spring 2026", a)
+
+    def test_direct_answer_what_places(self):
+        os.environ[tic._FLAG] = "1"
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "what places do you know about")
+        self.assertTrue(a)
+        self.assertIn("Germany", a)
+        self.assertIn("Munich", a)
+        self.assertIn("places on record", a.lower())   # set framing, not a sequence
+
+    def test_direct_answer_no_active_trip(self):
+        os.environ[tic._FLAG] = "1"
+        self.assertIsNone(tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(active_trip_id=None),
+            "what do you know about my trip"))
+
+    def test_direct_answer_wrong_owner(self):
+        os.environ[tic._FLAG] = "1"
+        self.assertIsNone(tic.direct_answer_for_turn(
+            self.other_person, self._rt_dq(), "what do you know about my trip"))
+
+    def test_direct_answer_non_trip_question(self):
+        os.environ[tic._FLAG] = "1"
+        self.assertIsNone(tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "the weather was cold in Munich"))
+
+    def test_direct_answer_flag_off(self):
+        os.environ.pop(tic._FLAG, None)
+        self.assertIsNone(tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "what do you know about my trip"))
+
+    def test_direct_answer_may_mention_approved_note(self):
+        os.environ[tic._FLAG] = "1"
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "what do you know about my trip")
+        self.assertIn("Germany was the first leg", a)
+
+    def test_direct_answer_excludes_source_and_unready(self):
+        os.environ[tic._FLAG] = "1"
+        a = tic.direct_answer_for_turn(
+            self.person_id, self._rt_dq(), "what do you know about my trip")
+        self.assertNotIn("SECRET_SOURCE_TEXT", a)
+        self.assertNotIn("SECRET_UNREADY_CAPTION", a)
+
+    def test_direct_answer_no_vision_no_invention(self):
+        # controlled ctx (no notes) so we can scan for invented order/vision
+        ctx = {"title": "Trip X", "date_span": "2020 to 2021",
+               "route": [{"region": "Spain", "stops": ["Madrid", "Seville"]}],
+               "notes": [], "photo_captions": []}
+        a = tic.compose_direct_answer(ctx).lower()
+        for bad in ("i can see", "i see the", "in the photo", "the image shows",
+                    "looks like", "then we", "after that", "in that order",
+                    "the order was"):
+            self.assertNotIn(bad, a)
+        self.assertIn("trip x", a)
+        self.assertIn("madrid", a)
+
+    def test_compose_without_notes_title_dates_places(self):
+        ctx = {"title": "Trip Y", "date_span": "1999 to 2000",
+               "route": [{"region": "Peru", "stops": ["Lima"]}],
+               "notes": [], "photo_captions": []}
+        a = tic.compose_direct_answer(ctx)
+        self.assertIn("Trip Y", a)
+        self.assertIn("1999 to 2000", a)
+        self.assertIn("Peru", a)
+        self.assertIn("Lima", a)
+
+    def test_is_trip_knowledge_question(self):
+        for q in ("what do you know about my trip",
+                  "what can you tell me about my trip",
+                  "tell me about my trip", "what places do you know about",
+                  "what do you know about Germany on this trip",
+                  "what do you know about the photo"):
+            self.assertTrue(tic.is_trip_knowledge_question(q), q)
+        for q in ("the weather was cold", "we loved Munich", "yes"):
+            self.assertFalse(tic.is_trip_knowledge_question(q), q)
+
 if __name__ == "__main__":
     unittest.main()

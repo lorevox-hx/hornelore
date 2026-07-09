@@ -1099,6 +1099,37 @@ async def ws_chat(ws: WebSocket):
                 _meta_question_answer = None
                 _is_meta_question = False
 
+        # ── Trip direct-answer intercept (WO-TRIP-LORI-REAL-BETA-USABILITY
+        # -01 Phase 1) — sibling to the meta-question intercept above. When a
+        # trip is open + owned and the narrator asks what Lori knows/remembers
+        # about the trip (or a place on it, or a photo), answer DETERMINISTIC-
+        # ally from approved trip context instead of deflecting. Reuses the
+        # meta-question dispatch machinery by populating _meta_question_answer
+        # with a small trip-answer shim (so skip-safety / skip-LLM / emit all
+        # work unchanged). Gated inside the service (flag + active trip + shelf
+        # open + ownership + question detection). Non-fatal.
+        if (not _is_meta_question and user_text and user_text.strip()
+                and not _is_system_directive):
+            try:
+                from ..services import trip_interview_context as _tdic
+                _trip_direct_text = _tdic.direct_answer_for_turn(
+                    person_id, params.get("runtime71"), user_text)
+                if _trip_direct_text:
+                    class _TripAnswerShim(object):
+                        text = _trip_direct_text
+                        primary_category = "trip_direct"
+                        categories_matched = ["trip_direct"]
+                        language = "en"
+                    _meta_question_answer = _TripAnswerShim()
+                    _is_meta_question = True
+                    logger.info(
+                        "[chat_ws][trip-direct-answer] conv=%s handled=true "
+                        "reason=trip_knowledge_question", conv_id)
+            except Exception as _tda_exc:
+                logger.warning(
+                    "[chat_ws][trip-direct-answer] failed conv=%s: %s "
+                    "— turn continues", conv_id, _tda_exc)
+
         # ── BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 ──────────────────────
         # Witness mode + meta-feedback deterministic intercept. Kent's
         # 2026-05-09 session walked him out: Lori responded to his

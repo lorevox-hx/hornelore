@@ -68,3 +68,14 @@ locked pattern is a **deterministic intercept**: detect a trip-info question
 when a trip is open + owned, compose a warm answer from
 `build_trip_interview_context`, and send it deterministically (mirroring
 `lori_meta_question`). Scope + eval before wiring that.
+
+## Second fix — 2026-07-09 LANDED — deterministic intercept
+
+Per WO-TRIP-LORI-REAL-BETA-USABILITY-01 Phase 1, the robust fix landed:
+`trip_interview_context.direct_answer_for_turn(person_id, runtime71, text)`
+detects a trip-knowledge question (gated: flag on + active trip open + shelf
+open + trip owned), builds the answer from `build_trip_interview_context`, and
+returns deterministic text. chat_ws routes it through the meta-question
+dispatch (skip-LLM, skip-safety, emit) via a shim, logging
+`[chat_ws][trip-direct-answer] handled=true`. No invented order, no raw
+sources, no image vision. 12 tests green.

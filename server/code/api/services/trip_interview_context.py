@@ -243,3 +243,92 @@ def context_block_for_turn(
     if not ctx or not ctx.get("text"):
         return ""
     return _BLOCK_HEADER + ctx["text"]
+
+
+# ── Direct trip-knowledge answer (WO-TRIP-LORI-REAL-BETA-USABILITY-01 Ph1) ──
+# When a trip is open+owned and the narrator asks what Lori knows/remembers
+# about the trip, answer DIRECTLY from approved trip context instead of
+# deflecting. Deterministic (no LLM) — chat_ws routes this through the same
+# dispatch path as lori_meta_question. Read-only; never invents route order,
+# never surfaces raw sources or operator provenance, never claims image vision.
+
+_TRIP_KNOWLEDGE_RX = re.compile(
+    r"(?i)("
+    r"what do you (know|remember) about (my|this|the) (trip|journey)|"
+    r"what can you tell me about (my|this|the) (trip|journey|it)|"
+    r"what can you tell me about it\b|"
+    r"tell me about (my|this|the) (trip|journey)|"
+    r"what do you know about (my|this|the) (trip|journey)|"
+    r"what places do you know|"
+    r"what do you know about \w[\w' -]* on (this|the|my) trip|"
+    r"do you know (anything |much )?about (my|this|the) trip|"
+    r"what do you know about (this|the|my) photo"
+    r")"
+)
+
+
+def is_trip_knowledge_question(text: Optional[str]) -> bool:
+    """True when the narrator is asking what Lori knows/remembers about the
+    trip (or a place on it, or a photo). Deterministic; conservative."""
+    return bool(_TRIP_KNOWLEDGE_RX.search(str(text or "")))
+
+
+def compose_direct_answer(ctx: Dict[str, Any]) -> str:
+    """A warm, grounded answer built ONLY from approved trip context. Names
+    the trip + dates + a few places on record, optionally one approved note.
+    No route-order claims, no raw sources, no image content."""
+    parts: List[str] = []
+    title = _safe(ctx.get("title") or "your trip")
+    span = ctx.get("date_span")
+    lead = "I know this trip is recorded as " + title
+    if span:
+        lead += ", from " + _safe(span)
+    parts.append(lead + ".")
+
+    place_names: List[str] = []
+    for r in ctx.get("route", []) or []:
+        nm = _safe(r.get("region"))
+        if nm:
+            place_names.append(nm)
+        for st in (r.get("stops") or []):
+            st = _safe(st)
+            if st:
+                place_names.append(st)
+    place_names = [p for p in place_names if p][:8]
+    if place_names:
+        parts.append("The places on record include " + ", ".join(place_names) + ".")
+
+    notes = ctx.get("notes") or []
+    if notes:
+        first = _safe(notes[0].get("text"))
+        if first:
+            parts.append("One thing you've shared is: " + first)
+
+    parts.append(
+        "I only know what is in the approved trip record so far — not the full "
+        "story yet. Where would you like to start?"
+    )
+    return " ".join(parts)
+
+
+def direct_answer_for_turn(
+    person_id: Optional[str],
+    runtime71: Optional[Dict[str, Any]],
+    narrator_text: Optional[str],
+) -> Optional[str]:
+    """Gate + compose a direct trip-knowledge answer, or None. Gates: flag on,
+    active trip open on the shelf, trip owned by person_id, AND the turn is a
+    trip-knowledge question. Read-only and safe to call every turn."""
+    if not _flag_on():
+        return None
+    rt = runtime71 or {}
+    trip_id = rt.get("active_trip_id")
+    if not (person_id and trip_id and rt.get("travels_shelf_open")):
+        return None
+    if not is_trip_knowledge_question(narrator_text):
+        return None
+    ctx = build_trip_interview_context(
+        person_id, trip_id, active_trip_stop_id=rt.get("active_trip_stop_id"))
+    if not ctx:
+        return None
+    return compose_direct_answer(ctx)
