@@ -165,3 +165,6 @@ body.td-standalone .td-dot.bad { background: var(--td-bad); }
 .td-root .td-tl-thumb-empty, body.td-standalone .td-tl-thumb-empty { background: #f3ecda; }
 .td-root .td-tl-main, body.td-standalone .td-tl-main { display: grid; gap: 0.05rem; min-width: 0; }
 .td-root .td-tl-main strong, body.td-standalone .td-tl-main strong { font-size: 0.9rem; }
+
+/* ── Soft date-range warning (2026-07-08) ── */
+.td-root .td-date-warn, body.td-standalone .td-date-warn { font-size: 0.8rem; font-weight: 700; color: #8a5a1f; background: rgba(181, 107, 18, 0.08); border: 1px solid rgba(181, 107, 18, 0.3); border-radius: 8px; padding: 0.3rem 0.5rem; }

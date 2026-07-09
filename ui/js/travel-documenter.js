@@ -338,6 +338,30 @@
 
     function dateSpan(a, b) { return [a, b].filter(Boolean).join(" to "); }
 
+    // Soft (non-blocking) out-of-range date check. YYYY-MM-DD compares
+    // lexicographically. Returns a warning string or "".
+    function dateRangeWarning(start, end, boundStart, boundEnd, label) {
+      var bad = (start && boundStart && start < boundStart) ||
+                (end && boundEnd && end > boundEnd) ||
+                (start && boundEnd && start > boundEnd) ||
+                (end && boundStart && end < boundStart);
+      return bad ? ("\u26a0 Dates fall outside the " + label +
+        " range — saved anyway.") : "";
+    }
+
+    function attachDateWarning(parent, vStart, vEnd, boundStart, boundEnd, label) {
+      var warn = el("div", "td-date-warn");
+      function upd() {
+        var msg = dateRangeWarning(vStart.value, vEnd.value, boundStart, boundEnd, label);
+        warn.textContent = msg;
+        warn.style.display = msg ? "" : "none";
+      }
+      upd();
+      vStart.addEventListener("change", upd);
+      vEnd.addEventListener("change", upd);
+      parent.appendChild(warn);
+    }
+
     function selectItem(kind, id) {
       st.selected = kind && id ? { kind: kind, id: id } : null;
       renderTree();
@@ -1210,6 +1234,9 @@
       var vEnd = edDate(f, "End date", region.end_date);
       var vBase = edText(f, "Base address / lodging", region.base_address);
       var vSummary = edArea(f, "Story / narrative", region.summary);
+      if (st.trip) {
+        attachDateWarning(f, vStart, vEnd, st.trip.start_date, st.trip.end_date, "trip");
+      }
       edActions(f, function () {
         var name = (vTitle.value || "").trim();
         if (!name) throw new Error("region title is required");
@@ -1251,6 +1278,10 @@
       var vStart = edDate(f, "Start date", stop.date_start);
       var vEnd = edDate(f, "End date", stop.date_end);
       var vNotes = edArea(f, "Story / notes", stop.notes);
+      var _bStart = region.start_date || (st.trip && st.trip.start_date);
+      var _bEnd = region.end_date || (st.trip && st.trip.end_date);
+      var _bLabel = region.start_date ? "region" : "trip";
+      attachDateWarning(f, vStart, vEnd, _bStart, _bEnd, _bLabel);
 
       var regionOpts = (st.tree.regions || []).map(function (r) {
         return { value: r.id, label: r.title || "Region" };
@@ -1429,6 +1460,7 @@
     }
 
     function openTrip(trip) {
+      var switching = !st.trip || st.trip.id !== trip.id;
       st.trip = trip;
       renderTrips();
       return Promise.all([
@@ -1447,6 +1479,12 @@
           ? out[2].notes : [];
         st.sources = Array.isArray(out[3] && out[3].sources)
           ? out[3].sources : [];
+        // Auto-select the trip so the right editor is never an empty
+        // "select a tile" prompt (on first open / trip switch only —
+        // a same-trip refresh preserves the current selection).
+        if (switching || !st.selected) {
+          st.selected = { kind: "trip", id: trip.id };
+        }
         renderTree();
         updateInsertHint();
         log("Trip loaded", {
@@ -1702,7 +1740,7 @@
       if (!st.trip) throw new Error("select a trip first");
       if (typeof window.lvTravelsOpenTripById === "function") {
         window.lvTravelsOpenTripById(st.trip.id);
-        setStatus("good", "Opening this trip with Lori…");
+        setStatus("good", "Lori is now focused on this trip — opening the Travels shelf.");
       } else {
         throw new Error("the Travels shelf isn't available here");
       }
