@@ -1145,23 +1145,47 @@ def narrator_photo_links(trip_id: str) -> List[Dict[str, Any]]:
         con.close()
 
 
+# Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): the OPERATOR
+# photo-link read carries reviewable photo metadata (date provenance,
+# gps PRESENCE, place label, approval flags) so the Travel Doc can show
+# "date found / guessed / no embedded EXIF" and the approval toggles.
+# Raw GPS coordinates are deliberately NOT projected here — gps_present
+# is a boolean. This is the operator surface; the narrator read
+# (narrator_photo_links) is untouched.
+_PHOTO_REVIEW_COLS = (
+    "p.date_value AS photo_date_value, "
+    "p.date_precision AS photo_date_precision, "
+    "p.date_source AS photo_date_source, "
+    "p.taken_at_filename_guess AS photo_taken_at_filename_guess, "
+    "p.location_label AS photo_location_label, "
+    "p.metadata_trust AS photo_metadata_trust, "
+    "p.date_approved_for_lori AS photo_date_approved_for_lori, "
+    "p.location_approved_for_lori AS photo_location_approved_for_lori, "
+    "p.narrator_ready AS photo_narrator_ready, "
+    "(p.latitude IS NOT NULL) AS photo_gps_present"
+)
+
+
 def photo_links_list(
     trip_id: str,
     max_confidence: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     con = _connect()
     try:
+        base = ("SELECT l.*, " + _PHOTO_REVIEW_COLS +
+                " FROM trip_photo_links l "
+                "LEFT JOIN photos p ON p.id = l.photo_id "
+                "WHERE l.trip_id = ? ")
         if max_confidence is not None:
             rows = con.execute(
-                "SELECT * FROM trip_photo_links WHERE trip_id = ? AND "
-                "(cluster_confidence IS NULL OR cluster_confidence <= ?) "
-                "ORDER BY taken_at, ord",
+                base +
+                "AND (l.cluster_confidence IS NULL OR l.cluster_confidence <= ?) "
+                "ORDER BY l.taken_at, l.ord",
                 (trip_id, max_confidence),
             ).fetchall()
         else:
             rows = con.execute(
-                "SELECT * FROM trip_photo_links WHERE trip_id = ? "
-                "ORDER BY taken_at, ord",
+                base + "ORDER BY l.taken_at, l.ord",
                 (trip_id,),
             ).fetchall()
         return [_row_to_dict(r) for r in rows]

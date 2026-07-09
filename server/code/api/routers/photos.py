@@ -39,6 +39,7 @@ from .. import flags
 from ...services.photos import repository as photo_repo
 from ...services.photos.models import (
     DATE_PRECISIONS,
+    DATE_SOURCES,
     LOCATION_SOURCES,
     MEMORY_TYPES,
     TRANSCRIPT_SOURCES,
@@ -135,6 +136,12 @@ class _PhotoPatch(BaseModel):
     location_source: Optional[str] = None
     narrator_ready: Optional[bool] = None
     needs_confirmation: Optional[bool] = None
+    # WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph1 — date/place
+    # review + Lori approval. taken_at_filename_guess is intake-derived
+    # and deliberately NOT patchable.
+    date_source: Optional[str] = None
+    date_approved_for_lori: Optional[bool] = None
+    location_approved_for_lori: Optional[bool] = None
     # WO-PHOTO-PEOPLE-EDIT-01: when present (non-None), REPLACES the
     # photo's people/events lists wholesale. Server diffs internally
     # (delete_all + add_back). Empty list = wipe all. None = leave
@@ -768,6 +775,9 @@ def patch_photo(photo_id: str, body: _PhotoPatch) -> Dict[str, Any]:
 
     _validate_enum("date_precision", payload.get("date_precision"), DATE_PRECISIONS)
     _validate_enum("location_source", payload.get("location_source"), LOCATION_SOURCES)
+    _validate_enum("date_source", payload.get("date_source"), DATE_SOURCES)
+    # Ph1 revoke-on-edit for date/place approval is enforced in
+    # services.photos.repository.patch_photo (single source of truth).
 
     # Auto-derive needs_confirmation from location_source OR location_label
     # iff the caller didn't explicitly set it. P1.3 (code review 2026-04-26):

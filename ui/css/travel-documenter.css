@@ -181,3 +181,8 @@ body.td-standalone .td-photo-narrator-cap {
 body.td-standalone textarea.td-photo-cap {
   width: 100%; font-size: 0.85em; margin-top: 4px; resize: vertical;
 }
+
+.td-root .td-photo-meta,
+body.td-standalone .td-photo-meta {
+  display: block; opacity: 0.75; font-size: 0.72rem; margin: 1px 0;
+}

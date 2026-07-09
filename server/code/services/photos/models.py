@@ -31,6 +31,16 @@ LOCATION_SOURCES: Tuple[str, ...] = (
     "unknown",
 )
 
+# Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01) — date provenance
+# for the reviewable photo-date lane. 'unknown' = pre-0023 rows.
+DATE_SOURCES: Tuple[str, ...] = (
+    "exif",
+    "filename_guess",
+    "operator_confirmed",
+    "missing",
+    "unknown",
+)
+
 MEMORY_TYPES: Tuple[str, ...] = (
     "episodic_story",
     "emotional_flash",
@@ -192,6 +202,7 @@ class PhotoMemory(BaseModel):
 
 __all__ = [
     "DATE_PRECISIONS",
+    "DATE_SOURCES",
     "LOCATION_SOURCES",
     "MEMORY_TYPES",
     "SHOW_OUTCOMES",

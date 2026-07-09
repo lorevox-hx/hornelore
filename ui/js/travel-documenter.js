@@ -913,6 +913,78 @@
       var place = l.trip_stop_id ? stopNameById(l.trip_stop_id)
         : (l.trip_region_id ? regionNameById(l.trip_region_id) : "unplaced");
       card.appendChild(el("small", "td-muted", place));
+      // ── Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): reviewable
+      // date/place metadata. Shows what the FILE says (EXIF date, a low-
+      // confidence filename guess, or a clean "No embedded EXIF date"),
+      // whether GPS exists (coordinates stay private — never shown, never
+      // sent to Lori), and the operator's broad place label. The two
+      // approval checkboxes gate what MAY later reach Lori (Ph7);
+      // editing date/place revokes approval server-side.
+      function _photoPatch(body) {
+        body.last_edited_by_user_id = "travel_documenter";
+        return api("/api/photos/" + encodeURIComponent(l.photo_id),
+          { method: "PATCH", body: JSON.stringify(body) });
+      }
+      var dateLine;
+      if (l.photo_date_value) {
+        dateLine = "Date: " + l.photo_date_value +
+          (l.photo_date_source === "exif" ? " (EXIF)"
+            : l.photo_date_source === "operator_confirmed" ? " (operator)" : "");
+      } else if (l.photo_taken_at_filename_guess) {
+        dateLine = "Date guessed from filename: " +
+          l.photo_taken_at_filename_guess + " (low confidence — not canonical)";
+      } else {
+        dateLine = "No embedded EXIF date found";
+      }
+      card.appendChild(el("small", "td-photo-meta", dateLine));
+      card.appendChild(el("small", "td-photo-meta",
+        l.photo_gps_present ? "GPS found (kept private)" : "No GPS"));
+      var placeIn = document.createElement("input");
+      placeIn.type = "text"; placeIn.className = "td-photo-cap";
+      placeIn.placeholder = "place label (broad — e.g. Munich area)";
+      placeIn.value = l.photo_location_label || "";
+      var placeLori = document.createElement("input");
+      var dateLori = document.createElement("input");
+      placeIn.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return _photoPatch({ location_label: placeIn.value || null })
+            .then(function () {
+              placeLori.checked = false;   // server revoked approval
+              setStatus("good", "Place label saved (Lori approval cleared)");
+            });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      card.appendChild(placeIn);
+      var dWrap = el("label", "td-note-toggle");
+      dateLori.type = "checkbox";
+      dateLori.checked = !!l.photo_date_approved_for_lori;
+      dateLori.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return _photoPatch({ date_approved_for_lori: dateLori.checked })
+            .then(function () { setStatus("good", "Updated"); });
+        }).catch(function (e) {
+          dateLori.checked = !dateLori.checked;
+          logError("Error", { message: e.message });
+        });
+      });
+      dWrap.appendChild(dateLori);
+      dWrap.appendChild(el("span", "", "Date \u2192 Lori"));
+      card.appendChild(dWrap);
+      var pWrap = el("label", "td-note-toggle");
+      placeLori.type = "checkbox";
+      placeLori.checked = !!l.photo_location_approved_for_lori;
+      placeLori.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return _photoPatch({ location_approved_for_lori: placeLori.checked })
+            .then(function () { setStatus("good", "Updated"); });
+        }).catch(function (e) {
+          placeLori.checked = !placeLori.checked;
+          logError("Error", { message: e.message });
+        });
+      });
+      pWrap.appendChild(placeLori);
+      pWrap.appendChild(el("span", "", "Place \u2192 Lori"));
+      card.appendChild(pWrap);
       // WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph5: the caption
       // and the operator context note are LORI-APPROVAL-GATED. Nothing
       // typed here reaches Lori's prompt until its checkbox is ticked;

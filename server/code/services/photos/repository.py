@@ -312,6 +312,12 @@ _PATCHABLE_PHOTO_COLUMNS = {
     "longitude",
     "narrator_ready",
     "needs_confirmation",
+    # WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph1 — date/place
+    # review + Lori approval flags (router enforces revoke-on-edit;
+    # taken_at_filename_guess is intake-derived, NOT patchable).
+    "date_source",
+    "date_approved_for_lori",
+    "location_approved_for_lori",
 }
 
 
@@ -323,13 +329,27 @@ def patch_photo(
     if not patch:
         return get_photo(photo_id)
 
+    # Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): editing the
+    # date or the place REVOKES its Lori approval unless the same patch
+    # re-approves — approval refers to the value the operator actually
+    # reviewed. A date edit also stamps provenance 'operator_confirmed'
+    # unless the caller set date_source itself. Enforced at the
+    # repository layer so EVERY caller (router, scripts, future
+    # surfaces) inherits the rule.
+    if "date_value" in patch:
+        patch.setdefault("date_approved_for_lori", False)
+        patch.setdefault("date_source", "operator_confirmed")
+    if "location_label" in patch:
+        patch.setdefault("location_approved_for_lori", False)
+
     now = _now_iso()
     set_parts: List[str] = []
     args: List[Any] = []
     for key, value in patch.items():
         if key not in _PATCHABLE_PHOTO_COLUMNS:
             continue
-        if key in {"narrator_ready", "needs_confirmation"}:
+        if key in {"narrator_ready", "needs_confirmation",
+                   "date_approved_for_lori", "location_approved_for_lori"}:
             args.append(_bool_to_int(value))
         else:
             args.append(value)
@@ -512,6 +532,28 @@ def set_metadata_trust(photo_id: str, trust: Optional[str]) -> bool:
         )
         con.commit()
         return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def set_date_review_fields(
+    photo_id: str,
+    date_source: str,
+    taken_at_filename_guess: "Optional[str]" = None,
+) -> None:
+    """Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): stamp intake
+    date provenance. Raises on pre-0023 schema — callers fail-soft."""
+    con = _connect()
+    try:
+        con.execute(
+            "UPDATE photos SET date_source = ?, taken_at_filename_guess = ?, "
+            "updated_at = ? WHERE id = ?",
+            (date_source, taken_at_filename_guess, _now_iso(), photo_id),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
         con.close()
 

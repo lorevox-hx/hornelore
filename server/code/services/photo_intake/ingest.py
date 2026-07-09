@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 
 from .dedupe import sha256_file
 from .exif import extract_exif
+from .filename_date import derive_date_fields
 from .metadata_trust import classify_metadata_trust, parse_takeout_sidecar
 from .storage import store_photo_file
 from ..photos import repository as photo_repo
@@ -99,7 +100,12 @@ def ingest_photo_file(
     gps = exif.get("gps") or {}
     suspect = trust.get("trust") == "suspect_scan"
 
-    date_value = None if suspect else exif.get("captured_at")
+    # WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph1: reviewable date
+    # provenance. EXIF wins; a filename guess is stored SEPARATELY (low
+    # confidence, never auto-fills date_value); otherwise 'missing'.
+    date_fields = derive_date_fields(
+        exif.get("captured_at"), original_filename, suspect=suspect)
+    date_value = date_fields["date_value"]
     date_precision = (
         "unknown" if (suspect or not exif.get("captured_at"))
         else (exif.get("captured_at_precision") or "exact")
@@ -138,6 +144,16 @@ def ingest_photo_file(
         photo_repo.set_metadata_trust(row["id"], trust.get("trust"))
     except Exception as exc:  # pre-0016 DB — metadata_json still has it
         log.info("[ingest] trust column write skipped: %s", exc)
+    try:
+        photo_repo.set_date_review_fields(
+            row["id"],
+            date_source=date_fields["date_source"],
+            taken_at_filename_guess=date_fields["taken_at_filename_guess"],
+        )
+        row["date_source"] = date_fields["date_source"]
+        row["taken_at_filename_guess"] = date_fields["taken_at_filename_guess"]
+    except Exception as exc:  # pre-0023 DB — fail-soft like trust above
+        log.info("[ingest] date-review column write skipped: %s", exc)
 
     log.info(
         "[ingest] photo=%s narrator=%s trust=%s exif_date=%s gps=%s",
