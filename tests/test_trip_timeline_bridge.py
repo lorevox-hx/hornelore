@@ -291,5 +291,57 @@ class AccordionProjectionTest(_BridgeCase):
         self.assertIn("2026-05-28", photos[0]["taken_at"])
 
 
+    def _add_photo(self, pid, ready=1):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "narrator_ready) VALUES (?, ?, ?, ?, ?)",
+            (pid, self.person_id, "/tmp/" + pid + ".jpg", "h-" + pid, ready))
+        con.commit()
+        con.close()
+
+    def test_projection_stats_in_timeline_meta(self):
+        # WO-TRIP-PHOTO-LIFEMAP-PROJECTION-01 — narrator-safe card fields.
+        trip_id = self._trip()
+        r = trip_repository.region_create(trip_id, "R1")
+        stop = trip_repository.stop_create(trip_id, r, "Prague")
+        self._add_photo("pn1", ready=1)   # narrator-ready
+        self._add_photo("pn2", ready=1)   # narrator-ready
+        self._add_photo("pu1", ready=0)   # NOT narrator-ready (must not count)
+        l1 = trip_repository.photo_link_upsert(
+            trip_id, "pn1", trip_region_id=r, trip_stop_id=stop,
+            assignment_method="operator")
+        trip_repository.photo_link_upsert(
+            trip_id, "pn2", trip_region_id=r, trip_stop_id=stop,
+            assignment_method="operator")
+        trip_repository.photo_link_upsert(
+            trip_id, "pu1", trip_region_id=r, trip_stop_id=stop,
+            assignment_method="operator")
+        trip_repository.photo_link_update(l1, include_in_memoir=True)
+        # 3 notes, 1 promoted to memoir.
+        trip_repository.location_note_create(
+            trip_id, "note a", trip_region_id=r, include_in_memoir=True)
+        trip_repository.location_note_create(trip_id, "note b", trip_region_id=r)
+        trip_repository.location_note_create(trip_id, "note c", trip_stop_id=stop)
+
+        trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+        ev = [e for e in _db.list_timeline_events(self.person_id)
+              if e.get("kind") == "trip"][0]
+        m = ev["meta"]
+        # Only the 2 narrator-ready photos count; pu1 excluded.
+        self.assertEqual(m.get("narrator_ready_photo_count"), 2)
+        # Cover is a narrator-ready photo, never the unready one.
+        self.assertIn(m.get("cover_photo_id"), ("pn1", "pn2"))
+        self.assertNotEqual(m.get("cover_photo_id"), "pu1")
+        # Notes: 3 total, 1 promoted.
+        self.assertEqual(m.get("story_note_count"), 3)
+        self.assertEqual(m.get("promoted_story_note_count"), 1)
+        self.assertIn("memoir_photo_count", m)
+        # No operator provenance leaked into the card meta.
+        for banned in ("confidence", "assignment_method", "cluster_confidence",
+                       "image_path", "storage_path"):
+            self.assertNotIn(banned, m)
+
+
 if __name__ == "__main__":
     unittest.main()

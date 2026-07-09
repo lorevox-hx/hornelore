@@ -71,6 +71,46 @@ def derive_trip_era(person_id: str, start_date: Optional[str]) -> Optional[str]:
         return None
 
 
+def _trip_projection_stats(repo: Any, trip_id: str) -> Dict[str, Any]:
+    """WO-TRIP-PHOTO-LIFEMAP-PROJECTION-01: narrator-safe projection stats for
+    the Life Map trip card. Counts + a narrator-READY cover photo id only — no
+    operator provenance (no confidence, method, storage paths). Every read is
+    defensive so the bridge never raises."""
+    stats: Dict[str, Any] = {
+        "cover_photo_id": None,
+        "narrator_ready_photo_count": 0,
+        "memoir_photo_count": 0,
+        "story_note_count": 0,
+        "promoted_story_note_count": 0,
+    }
+    try:
+        # Narrator-ready links are the ONLY photos a narrator-facing card may
+        # count/surface (BUG-238: unvetted intake photos never reach narrator
+        # surfaces). Both photo counts derive from this single safe read.
+        nready = repo.narrator_photo_links(trip_id) or []
+        stats["narrator_ready_photo_count"] = len(nready)
+        stats["memoir_photo_count"] = sum(
+            1 for l in nready if l.get("include_in_memoir"))
+        cover = None
+        for l in nready:                      # prefer a memoir cover
+            if l.get("include_in_memoir"):
+                cover = l.get("photo_id")
+                break
+        if not cover and nready:              # else first narrator-ready photo
+            cover = nready[0].get("photo_id")
+        stats["cover_photo_id"] = cover
+    except Exception as exc:
+        logger.debug("[trip-bridge] photo stats failed trip=%s: %s", trip_id, exc)
+    try:
+        notes = repo.location_notes_list(trip_id) or []
+        stats["story_note_count"] = len(notes)
+        stats["promoted_story_note_count"] = sum(
+            1 for n in notes if n.get("include_in_memoir"))
+    except Exception as exc:
+        logger.debug("[trip-bridge] note stats failed trip=%s: %s", trip_id, exc)
+    return stats
+
+
 def sync_trip_to_life_record(trip_id: str) -> Dict[str, Any]:
     """Idempotent sync: era into trips.meta_json, timeline event
     refreshed, bio suggestion upserted. Returns a summary dict; never
@@ -125,6 +165,7 @@ def sync_trip_to_life_record(trip_id: str) -> Dict[str, Any]:
                     f"{n_regions} region{'s' if n_regions != 1 else ''}, "
                     f"{n_stops} stop{'s' if n_stops != 1 else ''}"
                 )
+            _proj = _trip_projection_stats(repo, trip_id)
             event = _db.add_timeline_event(
                 person_id=person_id,
                 date=str(date),
@@ -136,6 +177,13 @@ def sync_trip_to_life_record(trip_id: str) -> Dict[str, Any]:
                     "era_id": era_id,
                     "end_date": trip.get("end_date"),
                     "source": "trip_sync",
+                    # WO-TRIP-PHOTO-LIFEMAP-PROJECTION-01 — narrator-safe card
+                    # fields (counts + narrator-ready cover). No provenance.
+                    "cover_photo_id": _proj["cover_photo_id"],
+                    "narrator_ready_photo_count": _proj["narrator_ready_photo_count"],
+                    "memoir_photo_count": _proj["memoir_photo_count"],
+                    "story_note_count": _proj["story_note_count"],
+                    "promoted_story_note_count": _proj["promoted_story_note_count"],
                 },
             )
             event_id = event.get("id")
