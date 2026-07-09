@@ -1432,6 +1432,24 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
         else:
             _notes_trip.append(_entry)
 
+    # Promoted sources (include_in_memoir=1) grouped by scope.
+    _src_stop: Dict[str, List[Dict[str, Any]]] = {}
+    _src_region: Dict[str, List[Dict[str, Any]]] = {}
+    _src_trip: List[Dict[str, Any]] = []
+    for _s in sources_list(trip_id):
+        if not _s.get("include_in_memoir"):
+            continue
+        _se = {"title": _s.get("title"), "summary": _s.get("summary"),
+               "pasted_text": _s.get("pasted_text"), "link_url": _s.get("link_url"),
+               "filename": _s.get("filename"), "source_type": _s.get("source_type")}
+        _ssid, _srid = _s.get("trip_stop_id"), _s.get("trip_region_id")
+        if _ssid:
+            _src_stop.setdefault(_ssid, []).append(_se)
+        elif _srid:
+            _src_region.setdefault(_srid, []).append(_se)
+        else:
+            _src_trip.append(_se)
+
     def _stop_line(stop: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": stop.get("id"),
@@ -1442,6 +1460,7 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
             "date_end": stop.get("date_end"),
             "notes": stop.get("notes"),
             "story_notes": _notes_stop.get(stop.get("id"), []),
+            "sources": _src_stop.get(stop.get("id"), []),
             "photo_count": stop.get("photo_count", 0),
             "day_trips": [_stop_line(c) for c in stop.get("children", [])],
         }
@@ -1467,6 +1486,7 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
             "base_address": region.get("base_address"),
             "summary": region.get("summary"),
             "story_notes": _notes_region.get(region.get("id"), []),
+            "sources": _src_region.get(region.get("id"), []),
             "stops": [_stop_line(s) for s in region.get("stops", [])],
         })
 
@@ -1494,6 +1514,7 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
         },
         "summary": tree.get("summary"),
         "story_notes": _notes_trip,
+        "sources": _src_trip,
         "part_one_journey_in_order": part_one,
         "part_two_themes": part_two,
         "part_three_photo_appendix": {

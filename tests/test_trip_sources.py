@@ -170,5 +170,23 @@ class _SourcesCase(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
 
+    def test_promoted_source_in_memoir_preview(self):
+        trips.create_source(self.trip_id, _src_create_req(
+            source_type="hotel", title="Munich hotel", summary="2 nights",
+            trip_region_id=self.region_id, trip_stop_id=self.stop_id,
+            include_in_memoir=True))
+        trips.create_source(self.trip_id, _src_create_req(
+            source_type="receipt", pasted_text="private receipt",
+            trip_region_id=self.region_id, trip_stop_id=self.stop_id,
+            include_in_memoir=False))
+        preview = trip_repository.trip_memoir_preview(self.trip_id)
+        stop = preview["part_one_journey_in_order"][0]["stops"][0]
+        titles = [x.get("title") for x in stop["sources"]]
+        self.assertIn("Munich hotel", titles)
+        # un-promoted source absent
+        texts = [x.get("pasted_text") for x in stop["sources"]]
+        self.assertNotIn("private receipt", texts)
+
+
 if __name__ == "__main__":
     unittest.main()

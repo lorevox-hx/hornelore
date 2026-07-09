@@ -14,6 +14,7 @@ mirroring the operator_eval_harness posture):
     PATCH /api/trips/stops/{stop_id}          (operator date/GPS correction)
     POST  /api/trips/stops/{stop_id}/photos   (Phase C2 — upload AT a stop)
     POST  /api/trips/{trip_id}/photos         (Travels shelf — trip-level drop)
+    POST  /api/trips/{trip_id}/regions/{region_id}/photos (region-level drop)
     GET   /api/trips/{trip_id}/date-confirmations  (Phase 4 recognition offers)
     GET   /api/trips/{trip_id}/narrator-photo-links (narrator-ready only)
     DELETE /api/trips/{trip_id}
@@ -367,8 +368,10 @@ async def _ingest_uploads_to_trip(
     caption: str,
     sidecar_json: str,
     uploaded_from_surface: str = "",
+    region_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Shared upload core for stop-scoped AND trip-level photo drops.
+    """Shared upload core for stop-scoped, region-scoped, AND trip-level
+    photo drops.
 
     Phase C2 semantics (stop-scoped): operator-truth link; EXIF is a
     CROSS-CHECK, not an authority — GPS >200 km from the stop or a
@@ -476,7 +479,8 @@ async def _ingest_uploads_to_trip(
         link_id = trip_repository.photo_link_upsert(
             trip_id=trip["id"],
             photo_id=photo["id"],
-            trip_region_id=(stop or {}).get("trip_region_id"),
+            trip_region_id=((stop or {}).get("trip_region_id")
+                            if stop is not None else region_id),
             trip_stop_id=(stop or {}).get("id"),
             taken_at=ing.get("exif_captured_at"),
             latitude=exif_lat,
@@ -544,6 +548,34 @@ async def upload_photos_at_stop(
         trip, stop, files, uploaded_by_user_id, narrator_ready,
         caption, sidecar_json, uploaded_from_surface,
     )
+
+
+@router.post("/{trip_id}/regions/{region_id}/photos")
+async def upload_photos_at_region(
+    trip_id: str,
+    region_id: str,
+    files: List[UploadFile] = File(...),
+    uploaded_by_user_id: str = Form("operator"),
+    narrator_ready: str = Form("true"),
+    caption: str = Form(""),
+    sidecar_json: str = Form(""),
+    uploaded_from_surface: str = Form(""),
+):
+    """Region-level photo drop (WO-TRAVEL-DOC-SOURCES/PHOTOS): links land
+    with trip_region_id set + trip_stop_id NULL, method=trip_upload so a
+    later cluster run can still place them onto a specific stop."""
+    _require_trips_enabled()
+    trip = trip_repository.trip_get(trip_id)
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip not found")
+    if trip_repository.region_trip_id(region_id) != trip_id:
+        raise HTTPException(status_code=404, detail="region not in this trip")
+    out = await _ingest_uploads_to_trip(
+        trip, None, files, uploaded_by_user_id, narrator_ready,
+        caption, sidecar_json, uploaded_from_surface, region_id=region_id,
+    )
+    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    return out
 
 
 @router.post("/{trip_id}/photos")
@@ -1201,13 +1233,7 @@ def create_location_note(trip_id: str, req: LocationNoteCreate) -> Dict[str, Any
         raise HTTPException(status_code=422, detail="note needs text")
     if req.source_type not in _LOCATION_NOTE_SOURCE_TYPES:
         raise HTTPException(status_code=422, detail="invalid source_type")
-    if req.trip_stop_id:
-        stop = trip_repository.stop_get(req.trip_stop_id)
-        if not stop or stop.get("trip_id") != trip_id:
-            raise HTTPException(status_code=400, detail="stop not in this trip")
-    if req.trip_region_id and \
-            trip_repository.region_trip_id(req.trip_region_id) != trip_id:
-        raise HTTPException(status_code=400, detail="region not in this trip")
+    _validate_source_scope(trip_id, req.trip_region_id, req.trip_stop_id)
     note_id = trip_repository.location_note_create(
         trip_id=trip_id,
         note_text=req.note_text,
@@ -1260,11 +1286,17 @@ _TRIP_SOURCE_TYPES = ("itinerary", "receipt", "hotel", "ticket",
 
 
 def _validate_source_scope(trip_id: str, region_id, stop_id) -> None:
+    """Scope validation shared by notes + sources. If a stop is given the
+    stop must belong to the trip AND (when a region is also given) to that
+    region — no cross-region stop/region pairs."""
     if stop_id:
         stop = trip_repository.stop_get(stop_id)
         if not stop or stop.get("trip_id") != trip_id:
             raise HTTPException(status_code=400, detail="stop not in this trip")
-    if region_id and trip_repository.region_trip_id(region_id) != trip_id:
+        if region_id and stop.get("trip_region_id") != region_id:
+            raise HTTPException(status_code=400,
+                                detail="stop is not in that region")
+    elif region_id and trip_repository.region_trip_id(region_id) != trip_id:
         raise HTTPException(status_code=400, detail="region not in this trip")
 
 

@@ -53,6 +53,23 @@ def build_trip_docx(
                 if indent:
                     pn.paragraph_format.left_indent = Inches(indent)
 
+    def _sources(srcs, indent=0.0):
+        # Promoted sources (include_in_memoir=1) as a compact Sources block.
+        for s in srcs or []:
+            label = (s.get("title") or s.get("filename") or
+                     s.get("source_type") or "Source").strip()
+            h = doc.add_paragraph()
+            r = h.add_run("Source — " + label); r.bold = True; r.font.size = Pt(9)
+            if indent:
+                h.paragraph_format.left_indent = Inches(indent)
+            detail = (s.get("summary") or s.get("pasted_text") or
+                      s.get("link_url") or "").strip()
+            if detail:
+                pn = doc.add_paragraph(detail)
+                pn.runs[0].font.size = Pt(9)
+                if indent:
+                    pn.paragraph_format.left_indent = Inches(indent)
+
     title = preview.get("title") or "Trip Memoir"
     dr = preview.get("date_range") or {}
     doc.add_heading(str(title), level=0)
@@ -65,6 +82,7 @@ def build_trip_docx(
     if preview.get("summary"):
         doc.add_paragraph(str(preview["summary"]))
     _story_notes(preview.get("story_notes"))
+    _sources(preview.get("sources"))
 
     # ── Part I — The Journey in Order ────────────────────────────────
     doc.add_heading("Part I — The Journey in Order", level=1)
@@ -90,6 +108,7 @@ def build_trip_docx(
             note.paragraph_format.left_indent = Inches(0.5 + 0.25 * depth)
             note.runs[0].font.size = Pt(10)
         _story_notes(stop.get("story_notes"), indent=0.5 + 0.25 * depth)
+        _sources(stop.get("sources"), indent=0.5 + 0.25 * depth)
         for child in stop.get("day_trips", []):
             _stop_paragraph(child, depth + 1)
 
@@ -104,6 +123,7 @@ def build_trip_docx(
         if region.get("summary"):
             doc.add_paragraph(str(region["summary"]))
         _story_notes(region.get("story_notes"))
+        _sources(region.get("sources"))
         for stop in region.get("stops", []):
             _stop_paragraph(stop, 0)
 

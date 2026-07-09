@@ -106,7 +106,7 @@
     var rightCol =
       '<aside class="td-col td-col-right">' +
       '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
-      '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
+      '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><span data-td="editorStatus" class="td-ed-status"></span><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
       '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
       '</section>' +
       '</aside>';
@@ -209,9 +209,23 @@
 
     function setStatus(kind, text) {
       var el2 = $("statusLine");
-      if (!el2) return;
-      el2.className = "td-status-inline" + (kind ? " " + kind : "");
-      el2.textContent = text || "";
+      if (el2) {
+        el2.className = "td-status-inline" + (kind ? " " + kind : "");
+        el2.textContent = text || "";
+      }
+      // The Output panel is collapsed by default, so surface status
+      // visibly in the editor panel head too (fades on success).
+      var es = $("editorStatus");
+      if (es) {
+        es.className = "td-ed-status" + (kind ? " " + kind : "");
+        es.textContent = text || "";
+        clearTimeout(es._t);
+        if (kind === "good" && text) {
+          es._t = setTimeout(function () {
+            es.textContent = ""; es.className = "td-ed-status";
+          }, 3000);
+        }
+      }
     }
 
     // Output is collapsed by default; surface it automatically on error.
@@ -435,7 +449,7 @@
       main.innerHTML =
         '<strong>' + esc(stop.location_name || stop.title || "Stop") + '</strong>' +
         '<small>' + esc([stop.stop_type, dateSpan(stop.date_start, stop.date_end), stop.notes]
-          .filter(Boolean).join(" · ")) + '</small>';
+          .filter(Boolean).join(" · ")) + '</small>' + stopIndicators(stop);
       main.addEventListener("click", function () { selectItem("stop", stop.id); });
 
       var actions = el("div", "td-tile-actions");
@@ -482,7 +496,7 @@
       main.innerHTML =
         '<strong>' + esc(region.title || "Region") + '</strong>' +
         '<small>' + esc(dateSpan(region.start_date, region.end_date) ||
-          region.country_or_area || "") + '</small>';
+          region.country_or_area || "") + '</small>' + regionIndicators(region);
       main.addEventListener("click", function () { selectItem("region", region.id); });
 
       var actions = el("div", "td-tile-actions");
@@ -715,7 +729,7 @@
       card.appendChild(el("p", "td-note-text", n.note_text || ""));
       var flags = el("div", "td-note-flags");
       flags.appendChild(noteToggle(n, "include_in_memoir", "In memoir"));
-      flags.appendChild(noteToggle(n, "include_in_interview_context", "Lori context"));
+      flags.appendChild(noteToggle(n, "include_in_interview_context", "Lori context candidate"));
       var del = el("button", "td-tile-btn danger", "Delete");
       del.type = "button";
       del.addEventListener("click", function () {
@@ -741,7 +755,8 @@
       });
       pane.appendChild(el("p", "td-help",
         "Notes here are private until you flip a flag. In memoir = goes into the "
-        + "travel memoir. Lori context = Lori may use it in conversation."));
+        + "travel memoir. Lori context candidate = saved for future Lori context; "
+        + "not used live yet."));
       if (!notes.length) {
         pane.appendChild(el("p", "td-muted", "No story notes for this " + kind + " yet."));
       } else {
@@ -794,6 +809,100 @@
         });
     }
 
+    function regionNameById(id) {
+      var r = findRegion(id); return r ? (r.title || "region") : "region";
+    }
+    function stopNameById(id) {
+      var l = locateStop(id); return l ? (l.node.location_name || l.node.title || "stop") : "stop";
+    }
+    function indBadges(hasStory, notes, srcs, photos) {
+      var parts = [];
+      if (hasStory) parts.push("story");
+      if (notes) parts.push(notes + " note" + (notes > 1 ? "s" : ""));
+      if (srcs) parts.push(srcs + " doc" + (srcs > 1 ? "s" : ""));
+      if (photos) parts.push(photos + " photo" + (photos > 1 ? "s" : ""));
+      return parts.length
+        ? '<span class="td-tile-ind">' + esc(parts.join(" · ")) + '</span>' : '';
+    }
+    function regionIndicators(r) {
+      var notes = (st.locationNotes || []).filter(function (n) {
+        return n.trip_region_id === r.id && !n.trip_stop_id; }).length;
+      var srcs = (st.sources || []).filter(function (s) {
+        return s.trip_region_id === r.id && !s.trip_stop_id; }).length;
+      var photos = (st.photoLinks || []).filter(function (l) {
+        return l.trip_region_id === r.id && !l.trip_stop_id; }).length;
+      return indBadges(!!r.summary, notes, srcs, photos);
+    }
+    function stopIndicators(s) {
+      var notes = (st.locationNotes || []).filter(function (n) {
+        return n.trip_stop_id === s.id; }).length;
+      var srcs = (st.sources || []).filter(function (x) {
+        return x.trip_stop_id === s.id; }).length;
+      var photos = (st.photoLinks || []).filter(function (l) {
+        return l.trip_stop_id === s.id; }).length;
+      return indBadges(!!s.notes, notes, srcs, photos);
+    }
+
+    function uploadPhotosToRegion(regionId, fileInput) {
+      var files = Array.prototype.slice.call((fileInput && fileInput.files) || []);
+      if (!files.length) return Promise.reject(new Error("choose at least one photo"));
+      var fd = new FormData();
+      files.forEach(function (f) { fd.append("files", f); });
+      fd.append("uploaded_by_user_id", "travel_documenter");
+      fd.append("narrator_ready", "true");
+      fd.append("uploaded_from_surface", "travel_documenter");
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+        "/regions/" + encodeURIComponent(regionId) + "/photos",
+        { method: "POST", body: fd })
+        .then(function () {
+          setStatus("good", "Photos added to this region");
+          return refreshCurrentTrip();
+        });
+    }
+
+    function renderPhotoCard(l) {
+      var card = el("div", "td-photo-card");
+      var img = document.createElement("img");
+      img.loading = "lazy"; img.className = "td-photo-card-img";
+      img.alt = l.caption || "Trip photo";
+      img.src = st.apiBase + "/api/photos/" + encodeURIComponent(l.photo_id) + "/thumb";
+      img.addEventListener("error", function () {
+        img.replaceWith(el("div", "td-photo-missing", "no preview"));
+      });
+      card.appendChild(img);
+      var place = l.trip_stop_id ? stopNameById(l.trip_stop_id)
+        : (l.trip_region_id ? regionNameById(l.trip_region_id) : "unplaced");
+      card.appendChild(el("small", "td-muted", place));
+      var cap = document.createElement("input");
+      cap.type = "text"; cap.value = l.caption || ""; cap.placeholder = "caption";
+      cap.className = "td-photo-cap";
+      cap.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return api("/api/trips/photo-links/" + encodeURIComponent(l.id),
+            { method: "PATCH", body: JSON.stringify({ caption: cap.value }) })
+            .then(function () { setStatus("good", "Caption saved"); });
+        }).catch(function (e) { logError("Error", { message: e.message }); });
+      });
+      card.appendChild(cap);
+      var wrap = el("label", "td-note-toggle");
+      var cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = !!l.include_in_memoir;
+      cb.addEventListener("change", function () {
+        Promise.resolve().then(function () {
+          return api("/api/trips/photo-links/" + encodeURIComponent(l.id),
+            { method: "PATCH", body: JSON.stringify({ include_in_memoir: cb.checked }) })
+            .then(function () {
+              setStatus("good", "Updated");
+              return refreshCurrentTrip();
+            });
+        }).catch(function (e) { cb.checked = !cb.checked; logError("Error", { message: e.message }); });
+      });
+      wrap.appendChild(cb);
+      wrap.appendChild(el("span", "", "In memoir"));
+      card.appendChild(wrap);
+      return card;
+    }
+
     function renderPhotosTab(pane) {
       var scope = editorScope();
       var kind = st.selected.kind;
@@ -806,35 +915,25 @@
       upBtn.addEventListener("click", function () {
         Promise.resolve().then(function () {
           if (kind === "stop") return uploadPhotosToStop(scope.stop_id, fileIn);
+          if (kind === "region") return uploadPhotosToRegion(scope.region_id, fileIn);
           return uploadPhotosToTrip(fileIn);
         }).catch(function (e) { logError("Error", { message: e.message }); });
       });
       row.appendChild(upBtn);
       f.appendChild(row);
       pane.appendChild(f);
-      if (kind === "region") {
-        pane.appendChild(el("p", "td-help",
-          "Region uploads land at trip level (unplaced) — run Cluster photos, or "
-          + "upload directly on a stop to place them there."));
-      }
       var links = (st.photoLinks || []).filter(function (l) {
         if (kind === "stop") return l.trip_stop_id === scope.stop_id;
         if (kind === "region") return l.trip_region_id === scope.region_id;
         return true;
       });
-      var strip = el("div", "td-photo-strip" + (links.length ? "" : " td-empty"));
       if (!links.length) {
-        strip.textContent = "No linked photos here yet.";
+        pane.appendChild(el("p", "td-muted", "No linked photos here yet."));
       } else {
-        links.slice(0, 60).forEach(function (l) {
-          var img = document.createElement("img");
-          img.loading = "lazy"; img.alt = l.caption || "Trip photo";
-          img.src = st.apiBase + "/api/photos/" + encodeURIComponent(l.photo_id) + "/thumb";
-          img.addEventListener("error", function () { img.remove(); });
-          strip.appendChild(img);
-        });
+        var grid = el("div", "td-photo-grid");
+        links.slice(0, 80).forEach(function (l) { grid.appendChild(renderPhotoCard(l)); });
+        pane.appendChild(grid);
       }
-      pane.appendChild(strip);
     }
 
     // ── Sources tab (documents lane — WO-TRAVEL-DOC-SOURCES-01) ─────────
@@ -1251,7 +1350,7 @@
       renderTrips();
       return Promise.all([
         api("/api/trips/" + encodeURIComponent(trip.id) + "/tree"),
-        api("/api/trips/" + encodeURIComponent(trip.id) + "/narrator-photo-links")
+        api("/api/trips/" + encodeURIComponent(trip.id) + "/photo-links")
           .catch(function () { return { photo_links: [] }; }),
         api("/api/trips/" + encodeURIComponent(trip.id) + "/location-notes")
           .catch(function () { return { notes: [] }; }),

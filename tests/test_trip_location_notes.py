@@ -271,5 +271,14 @@ class _LocationNotesCase(unittest.TestCase):
                          ["munich stop"])
 
 
+    def test_create_rejects_mismatched_region_stop(self):
+        # stop is in self.region_id; pass a DIFFERENT region for it.
+        region2 = trip_repository.region_create(self.trip_id, "Austria")
+        with self.assertRaises(HTTPException) as ctx:
+            trips.create_location_note(self.trip_id, _note_create_req(
+                note_text="x", trip_region_id=region2, trip_stop_id=self.stop_id))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
