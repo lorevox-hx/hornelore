@@ -456,5 +456,54 @@ class _CaptureForTurnCase(_CaptureCase):
             self.assertFalse(st.startswith("from ui."), st)
 
 
+
+    # ── B. skip direct questions / info requests / meta-comments ──────────
+    def test_skips_direct_questions_and_meta(self):
+        for q in (
+            "what can you tell me about the weather story that i was told "
+            "do you know of anything",
+            "i asked you a question about it.",
+            "do you know anything about that weather system?",
+            "can you explain that?",
+            "why was it raining?",
+            "what is that called?",
+            "no, that's not what I asked",
+        ):
+            r = tsc.capture_trip_story_answer(
+                person_id=self.person_id, active_trip_id=self.trip_id,
+                narrator_text=q, previous_prompt_kind="trip",
+                turn_id="q-" + q[:8])
+            self.assertFalse(r["captured"], q)
+            self.assertEqual(r["reason"], "direct_question_or_command", q)
+        self.assertEqual(len(self._notes()), 0)
+
+    def test_still_captures_real_narrative(self):
+        goods = (
+            "It was cold and rainy in Regensburg, and someone told us it was "
+            "a regional pattern.",
+            "The weather became part of the memory because we were always "
+            "looking for warm food.",
+        )
+        for i, good in enumerate(goods):
+            r = tsc.capture_trip_story_answer(
+                person_id=self.person_id, active_trip_id=self.trip_id,
+                narrator_text=good, previous_prompt_kind="trip",
+                turn_id="g-" + str(i))
+            self.assertTrue(r["captured"], good)
+            self.assertEqual(r["reason"], "meaningful_trip_answer", good)
+        self.assertEqual(len(self._notes()), 2)
+
+    # ── A. note title comes from the prior Lori question ─────────────────
+    def test_note_title_from_prior_lori_question(self):
+        r = tsc.capture_trip_story_answer(
+            person_id=self.person_id, active_trip_id=self.trip_id,
+            narrator_text="Munich felt like the true start of the whole trip.",
+            previous_lori_text="What do you remember about arriving in Munich?",
+            previous_prompt_kind="trip", turn_id="title-1")
+        self.assertTrue(r["captured"])
+        row = trip_repository.location_note_get(r["note_id"])
+        self.assertTrue(row["note_title"])
+        self.assertIn("Munich", row["note_title"])
+
 if __name__ == "__main__":
     unittest.main()

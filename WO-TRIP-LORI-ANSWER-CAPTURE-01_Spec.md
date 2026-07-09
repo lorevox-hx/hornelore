@@ -50,7 +50,7 @@ note.
 Result: `{captured, reason, note_id, trip_id, trip_region_id, trip_stop_id,
 source_ref, scope}`. `reason` ∈ `meaningful_trip_answer`, `duplicate`,
 `no_active_trip`, `no_person`, `trip_not_found`, `trip_not_owned`,
-`not_trip_scoped`, `trivial_reply`.
+`not_trip_scoped`, `trivial_reply`, `direct_question_or_command`.
 
 16 tests green (`tests/test_trip_story_capture.py`).
 
@@ -160,3 +160,21 @@ passed for traceability but is never the dedupe key.
 
 Still pending: sources need their own `include_in_interview_context` flag;
 optional Life Map trip photo projection (WO-TRIP-PHOTO-LIFEMAP-PROJECTION-01).
+
+## Hotfix — 2026-07-09 (post first live run)
+
+- **Note titles**: chat_ws now stamps the Lori turn's final text into
+  `_TRIP_PREV_LORI[conv_id]["lori_text"]`, so the next narrator answer's
+  candidate note is titled with the question Lori asked (clipped/sanitized).
+- **Question/meta skip**: capture now returns `direct_question_or_command`
+  and writes nothing when the narrator turn is a direct question to Lori, an
+  info request, or a meta-correction (e.g. "can you explain that?",
+  "i asked you a question about it") — those are not memoir material. Real
+  declarative narration still captures.
+- **Bug Panel**: the historical "Story Candidates" list is renamed
+  ("Historical unreviewed story candidates — not live Lori context"),
+  collapsed by default, and default-filtered to the active narrator, to
+  stop it being confused with live Lori-chat captures (which live in Travel
+  Doc → Story notes).
+- Separate follow-up filed: `BUG-LORI-TRIP-DIRECT-QUESTION-DODGE-01` (Lori
+  should answer grounded direct questions, not deflect).

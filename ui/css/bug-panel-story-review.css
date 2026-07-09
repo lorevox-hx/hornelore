@@ -21,6 +21,12 @@
   margin-bottom: 8px;
   border-bottom: 1px solid #2c3138;
   padding-bottom: 6px;
+  cursor: pointer;
+}
+#lv10dBpStoryReview .story-section-caret {
+  color: #8a929c;
+  font-size: 11px;
+  margin-right: 6px;
 }
 #lv10dBpStoryReview .story-section-title {
   font-weight: 600;

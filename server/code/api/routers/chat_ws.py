@@ -2903,6 +2903,7 @@ async def ws_chat(ws: WebSocket):
             _TRIP_PREV_LORI[conv_id] = {
                 "trip_scoped": bool(_tic_block),
                 "prompt_kind": "trip" if _tic_block else None,
+                "lori_text": None,   # filled with THIS turn's reply below
             }
         except Exception as _tic_exc:
             logger.warning("[chat_ws][trip-context] skipped conv=%s: %s",
@@ -4156,6 +4157,17 @@ async def ws_chat(ws: WebSocket):
                     "raised conv=%s: %s — done event still fires",
                     conv_id, _emit_exc,
                 )
+
+        # WO-TRIP-LORI-ANSWER-CAPTURE-01 — remember THIS Lori turn's final text
+        # so the NEXT narrator answer's candidate note can be titled with the
+        # question that was asked. Bounded + best-effort; the capture service
+        # re-clips it. Only meaningful on trip turns (dict present only then).
+        try:
+            _tpl_mem = _TRIP_PREV_LORI.get(conv_id)
+            if _tpl_mem is not None and final_text:
+                _tpl_mem["lori_text"] = final_text[:300]
+        except Exception:
+            pass
 
         await _ws_send(ws, {"type": "done", "final_text": final_text, "turn_mode": turn_mode})
 

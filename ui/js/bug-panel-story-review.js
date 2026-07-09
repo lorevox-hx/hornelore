@@ -31,8 +31,16 @@
     count: 0,
     fetchedAt: null,
     narratorFilter: '',
+    collapsed: true,   // historical backlog — collapsed by default
     error: null,
   };
+
+  function _currentPersonId() {
+    try {
+      return (typeof state !== 'undefined' && state && state.person_id)
+        ? String(state.person_id) : '';
+    } catch (_) { return ''; }
+  }
 
   function el(tag, attrs, children) {
     const n = document.createElement(tag);
@@ -191,14 +199,22 @@
     ]);
   }
 
+  const _SECTION_TITLE = 'Historical unreviewed story candidates \u2014 not live Lori context';
+
   function renderHeader() {
     let countText;
-    if (_state.loading) countText = 'Loading…';
+    if (_state.loading) countText = 'Loading\u2026';
     else if (_state.error) countText = 'Error';
     else countText = _state.count + ' unreviewed';
 
-    return el('div', { class: 'story-section-header' }, [
-      el('span', { class: 'story-section-title' }, ['Story Candidates']),
+    return el('div', {
+      class: 'story-section-header',
+      onclick: function () { _state.collapsed = !_state.collapsed; render(); },
+      title: 'Operator backlog from past sessions \u2014 NOT what Lori saw or '
+        + 'said live today. Click to ' + (_state.collapsed ? 'expand' : 'collapse') + '.',
+    }, [
+      el('span', { class: 'story-section-caret' }, [_state.collapsed ? '\u25b8' : '\u25be']),
+      el('span', { class: 'story-section-title' }, [_SECTION_TITLE]),
       el('span', { class: 'story-section-count' }, [countText]),
     ]);
   }
@@ -211,7 +227,7 @@
     // Backend gate is off → quiet placeholder, no controls.
     if (_state.enabled === false) {
       mount.appendChild(el('div', { class: 'story-section-header' }, [
-        el('span', { class: 'story-section-title' }, ['Story Candidates']),
+        el('span', { class: 'story-section-title' }, [_SECTION_TITLE]),
         el('span', { class: 'story-section-count' }, ['feature disabled']),
       ]));
       mount.appendChild(el('div', { class: 'story-empty' }, [
@@ -221,6 +237,17 @@
     }
 
     mount.appendChild(renderHeader());
+
+    // Collapsed by default — this is a historical operator backlog, not the
+    // live Lori-chat capture surface (that is Travel Doc \u2192 Story notes).
+    if (_state.collapsed) {
+      mount.appendChild(el('div', { class: 'story-empty' }, [
+        'Collapsed. Past-session operator backlog (not live Lori chat). '
+        + 'Click the header to expand.',
+      ]));
+      return;
+    }
+
     mount.appendChild(renderControls());
 
     if (_state.error) {
@@ -262,6 +289,9 @@
   // opened (best-effort hook on .bug-panel toggle if present).
   function tryInitialFetch() {
     if (document.getElementById(MOUNT_ID)) {
+      // Default the filter to the ACTIVE narrator so old test-narrator
+      // candidates don't show by default. Operator can clear it to see all.
+      if (!_state.narratorFilter) _state.narratorFilter = _currentPersonId();
       fetchCandidates();
     }
   }

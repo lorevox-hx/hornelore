@@ -89,6 +89,46 @@ def _is_trivial(narrator_text: str) -> bool:
     return False
 
 
+# Narrator turns that are QUESTIONS to Lori, info requests, or meta-comments
+# about the conversation are not memoir material — skip them (review 2026-07-09).
+_LORI_DIRECTED_RX = re.compile(
+    r"(?i)\b("
+    r"can you|could you|would you|will you|do you know|you tell me|"
+    r"tell me about|you know of|you know anything|you know about|"
+    r"you explain|explain that|explain it|explain what|"
+    r"what (is|was|are|were) (that|it|those|these|this)|"
+    r"i asked you|you a question|answer (my|the) question|"
+    r"you did ?n.?t answer|did you answer|"
+    r"that.?s not what i (asked|meant|said)|not what i (asked|meant|said)|"
+    r"i already (asked|told you)"
+    r")\b"
+)
+_QUESTION_OPENERS = (
+    "what", "who", "where", "when", "why", "how", "which", "can", "could",
+    "would", "will", "do", "does", "did", "is", "are", "was", "were",
+)
+
+
+def _is_question_or_meta(narrator_text: str) -> bool:
+    """True when the turn is mainly a question to Lori / a request for facts /
+    a meta-correction about the conversation — not story material. Conservative:
+    declarative narration (starts with a subject, no '?', no Lori-directed
+    phrase) is never flagged, so real memories still capture."""
+    raw = str(narrator_text or "").strip()
+    if not raw:
+        return False
+    if raw.endswith("?"):                       # a direct question
+        return True
+    if _LORI_DIRECTED_RX.search(raw):           # request / meta-comment to Lori
+        return True
+    low = raw.lower()
+    # question-word opener that also addresses Lori ("what did you say ...")
+    first = re.split(r"\W+", low, 1)[0]
+    if first in _QUESTION_OPENERS and re.search(r"\byou\b", low):
+        return True
+    return False
+
+
 def _title_from_question(previous_lori_text: Optional[str]) -> Optional[str]:
     """A short label so the operator can see WHAT Lori asked. Not sanitized
     into the answer — this is display metadata for the review pile."""
@@ -283,6 +323,10 @@ def capture_trip_story_answer(
     # 4. Skip trivial acknowledgments.
     if _is_trivial(narrator_text or ""):
         return _result(False, "trivial_reply")
+
+    # 4b. Skip questions to Lori / info requests / meta-comments — not memoir.
+    if _is_question_or_meta(narrator_text or ""):
+        return _result(False, "direct_question_or_command")
 
     # 5. Resolve scope (validated ids only) + source_ref.
     scope = _resolve_scope(active_trip_id, active_trip_region_id,
