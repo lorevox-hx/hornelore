@@ -277,5 +277,44 @@ class _CaptureCase(unittest.TestCase):
         self.assertIn("We landed late", row["note_text"])
 
 
+    # ── hardening: conv_id-only must NOT over-dedupe (Chris review) ───────
+    def test_conv_id_only_does_not_overdedupe(self):
+        # Two DIFFERENT meaningful answers, same conversation, no turn_id.
+        r1 = tsc.capture_trip_story_answer(
+            person_id=self.person_id, active_trip_id=self.trip_id,
+            narrator_text="The cathedral bells rang across the whole square.",
+            previous_prompt_kind="trip", conv_id="c-shared")
+        r2 = tsc.capture_trip_story_answer(
+            person_id=self.person_id, active_trip_id=self.trip_id,
+            narrator_text="Later we found a tiny bakery down a side street.",
+            previous_prompt_kind="trip", conv_id="c-shared")
+        self.assertTrue(r1["captured"])
+        self.assertTrue(r2["captured"])
+        self.assertEqual(r1["reason"], "meaningful_trip_answer")
+        self.assertEqual(r2["reason"], "meaningful_trip_answer")  # NOT duplicate
+        self.assertEqual(len(self._notes()), 2)
+        # source_ref still records the conversation for traceability.
+        self.assertEqual(r1["source_ref"], "conv:c-shared")
+
+    # ── hardening: photo_link from another trip must not scope (Chris) ────
+    def test_photo_link_from_other_trip_not_scoped(self):
+        con = sqlite3.connect(str(self.db_path))
+        _add_photo(con, "p_florence", self.person_id, 1)
+        con.commit()
+        con.close()
+        other_link = trip_repository.photo_link_upsert(
+            self.trip2_id, "p_florence", trip_region_id=self.region2_id,
+            trip_stop_id=self.stop2_id, assignment_method="operator")
+        # No other trip-scope signal: prompt_kind None, no place named.
+        r = tsc.capture_trip_story_answer(
+            person_id=self.person_id, active_trip_id=self.trip_id,
+            narrator_text="It was a bright and unforgettable afternoon there.",
+            previous_lori_text="Tell me more.",
+            photo_link_id=other_link, turn_id="t-cross")
+        self.assertFalse(r["captured"])
+        self.assertEqual(r["reason"], "not_trip_scoped")
+        self.assertEqual(len(self._notes()), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

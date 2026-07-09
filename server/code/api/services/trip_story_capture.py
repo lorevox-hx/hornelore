@@ -136,16 +136,17 @@ def _mentions_a_place(text: Optional[str], place_names: List[str]) -> bool:
 def _is_trip_scoped(
     previous_prompt_kind: Optional[str],
     previous_lori_text: Optional[str],
-    photo_link_id: Optional[str],
+    photo_scoped: bool,
     trip: Dict[str, Any],
     place_names: List[str],
 ) -> bool:
     """Deterministic: prior turn is trip-scoped if ANY of —
-      - a photo-based question (photo_link_id given), OR
+      - a VALID photo-based question (the photo link belongs to THIS trip —
+        caller validates before passing photo_scoped=True), OR
       - previous_prompt_kind is a known trip-scoped kind, OR
       - the previous Lori text names the trip title or a region/stop.
     No evidence of trip scope => not trip-scoped (conservative)."""
-    if photo_link_id:
+    if photo_scoped:
         return True
     if previous_prompt_kind and str(previous_prompt_kind).strip().lower() in _TRIP_SCOPED_KINDS:
         return True
@@ -265,11 +266,17 @@ def capture_trip_story_answer(
     if trip.get("person_id") != person_id:
         return _result(False, "trip_not_owned")
 
-    # 3. Prior Lori turn must have been trip-scoped.
+    # 3. Prior Lori turn must have been trip-scoped. A photo link only counts
+    #    as trip-scope evidence if it EXISTS and belongs to THIS trip — a link
+    #    from another trip must not scope the turn on its own.
+    photo_valid = False
+    if photo_link_id:
+        _link = trip_repository.photo_link_get(photo_link_id)
+        photo_valid = bool(_link and _link.get("trip_id") == active_trip_id)
     tree = trip_repository.trip_tree(active_trip_id)
     place_names = _collect_place_names(tree)
     if not _is_trip_scoped(previous_prompt_kind, previous_lori_text,
-                           photo_link_id, trip, place_names):
+                           photo_valid, trip, place_names):
         return _result(False, "not_trip_scoped")
 
     # 4. Skip trivial acknowledgments.
@@ -286,8 +293,13 @@ def capture_trip_story_answer(
         elif conv_id:
             source_ref = "conv:" + str(conv_id)
 
-    # 6. Duplicate guard (same conv/turn/photo already captured).
-    existing = _dedupe_existing(active_trip_id, source_ref)
+    # 6. Duplicate guard — ONLY on a strong per-answer identity (turn id or
+    #    photo link). conv:<id> is shared by every turn in a conversation, so
+    #    deduping on it would collapse all later answers into the first one.
+    dedupe_ref = source_ref if (source_ref and (
+        source_ref.startswith("turn:") or
+        source_ref.startswith("photo_link:"))) else None
+    existing = _dedupe_existing(active_trip_id, dedupe_ref)
     if existing:
         return _result(
             True, "duplicate",
