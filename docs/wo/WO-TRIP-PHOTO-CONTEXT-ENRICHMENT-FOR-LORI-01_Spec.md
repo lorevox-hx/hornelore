@@ -44,6 +44,15 @@ Per Chris's directive: boring and reviewable, no LLM, no OCR, no web, NO depende
 - **NOT in Ph1:** approved metadata does NOT feed Lori yet — that is Ph7. `trip_interview_context` untouched; test locks raw GPS out of the context text.
 - **Tests** — `tests/test_trip_photo_metadata.py` (13): parser shapes + garbage/impossible dates, EXIF-wins, missing-EXIF clean state, filename-guess-never-canonical, suspect-scan demotion, pure-stdlib lock (no-dependency proof), approvals default 0, gps_present without raw coords, raw GPS absent from Lori context, review fields projected, edit-revokes-approval, cross-trip/narrator isolation.
 
+## Build 1.5 — visible-leak hardening (LANDED 2026-07-09, after live test)
+
+Live transcript (switch_mrdyv3r4_uhbc) showed three narrator-visible failures; all closed in `lori_response_guards` + `travels-shelf.js`: (A) meta-preamble detector gained the "potential response that meets the guidelines" + bare "Here is the response:" shapes and a leading-SYSTEM-prefix strip; (B) NEW anti-echo guard blocks replies that parrot the narrator's whole turn (repair keeps the reply's own surviving question, else deterministic EN/ES continuation, no invented facts, no vision claims); (C) trip-open directive place labels normalized display-only (Braveria→Bavaria + dedupe — DB untouched). 13 regression tests including the three verbatim live lines.
+
+## Ph1/Ph4 refinements banked from the same triage (build later, not now)
+
+- **Date-field hierarchy (Build-2 refinement):** separate `taken_at_exif` (+offset), `taken_at_sidecar`, `taken_at_approved`; `date_confidence` (confirmed|likely|guess|missing). **Hard rule: Lori may only ever see an approved TAKEN date — `uploaded_at`/`file_saved_at`/`file_modified_at`/download dates are archive/admin dates and never enter trip_interview_context.** Priority: EXIF+offset → EXIF → sidecar → filename guess (low-confidence) → operator-entered → unknown. UI says "Possible taken date from filename: … Needs approval" — never "Taken …" until approved. Travel Doc may show "Uploaded to Hornelore: … (archive only, not Lori context)".
+- **Ph4 OCR decision confirmed:** Tesseract via pytesseract, langs `eng+deu`, fields `ocr_draft_text`/`ocr_engine`/`ocr_langs`/`ocr_confidence`/`ocr_approved_text`/`ocr_approved_for_lori=0`. Install only at Ph4: `sudo apt install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-deu` + pin pytesseract in requirements-gpu.txt. NOT EasyOCR (torch/GPU lane) unless Tesseract fails on real trip photos.
+
 ## Same-session review fixes (2026-07-09)
 
 - **BUG-TRIP-CLUSTER-FOREIGN-NARRATOR-01** — `cluster-photos` accepted any `narrator_id` and linked that narrator's photos into this trip. Now 400 unless it matches the trip owner.
