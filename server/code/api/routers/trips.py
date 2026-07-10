@@ -41,11 +41,13 @@ mirroring the operator_eval_harness posture):
     POST  /api/trips/{trip_id}/location-notes  {note_text, scope, source_type, flags}
     PATCH /api/trips/location-notes/{note_id}
     DELETE /api/trips/location-notes/{note_id}
-    GET   /api/trips/{trip_id}/sources  [?region_id=&stop_id=]  (documents lane)
+    GET   /api/trips/{trip_id}/sources  [?region_id=&stop_id=&day_id=]  (documents lane)
     POST  /api/trips/{trip_id}/sources         {source_type, pasted_text|link_url}
     POST  /api/trips/{trip_id}/sources/upload  (multipart file[s])
     PATCH /api/trips/sources/{source_id}
     DELETE /api/trips/sources/{source_id}
+    GET   /api/trips/{trip_id}/days/reconcile-preview   (read-only date diff)
+    POST  /api/trips/{trip_id}/days/reconcile  {add_missing, mark_out_of_range}
 
 Operator-side surface. Nothing here reaches the narrator directly —
 the interview lane consumes trips later via location notes (LOCKED
@@ -252,6 +254,10 @@ class SourceCreate(BaseModel):
     title: Optional[str] = None
     trip_region_id: Optional[str] = None
     trip_stop_id: Optional[str] = None
+    # WO-TRAVEL-DOC-UI-LAB-03: true day-scoped sources (migration 0029).
+    # A day source needs NO stop/region — the day card is a scope of its
+    # own; when stop/region are ALSO given they are validated as usual.
+    trip_day_id: Optional[str] = None
     pasted_text: Optional[str] = None
     link_url: Optional[str] = None
     source_date: Optional[str] = None
@@ -268,6 +274,10 @@ class SourcePatch(BaseModel):
     summary: Optional[str] = None
     include_in_memoir: Optional[bool] = None
     ord: Optional[int] = None
+    # WO-TRAVEL-DOC-UI-LAB-03: attach/move to a day card; clear_day
+    # detaches (NULLs trip_day_id ONLY — never deletes the source).
+    trip_day_id: Optional[str] = None
+    clear_day: bool = False
 
 
 # ── Photo source read (photos table from the Photo Intake lane) ──────────
@@ -1344,13 +1354,24 @@ def _validate_source_scope(trip_id: str, region_id, stop_id) -> None:
         raise HTTPException(status_code=400, detail="region not in this trip")
 
 
+def _validate_source_day(trip_id: str, day_id) -> None:
+    """WO-TRAVEL-DOC-UI-LAB-03 — a day-scoped source's day card must
+    belong to the same trip (same posture as the day-scoped notes)."""
+    if not day_id:
+        return
+    day = trip_repository.trip_day_get(day_id)
+    if not day or day.get("trip_id") != trip_id:
+        raise HTTPException(status_code=400, detail="day not in this trip")
+
+
 @router.get("/{trip_id}/sources")
 def list_sources(trip_id: str, region_id: Optional[str] = None,
-                 stop_id: Optional[str] = None) -> Dict[str, Any]:
+                 stop_id: Optional[str] = None,
+                 day_id: Optional[str] = None) -> Dict[str, Any]:
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
-    rows = trip_repository.sources_list(trip_id)
+    rows = trip_repository.sources_list(trip_id, day_id=day_id)
     if stop_id:
         rows = [s for s in rows if s.get("trip_stop_id") == stop_id]
     elif region_id:
@@ -1371,12 +1392,14 @@ def create_source(trip_id: str, req: SourceCreate) -> Dict[str, Any]:
         raise HTTPException(status_code=422,
                             detail="source needs text, a link, or a title")
     _validate_source_scope(trip_id, req.trip_region_id, req.trip_stop_id)
+    _validate_source_day(trip_id, getattr(req, "trip_day_id", None))
     sid = trip_repository.source_create(
         trip_id=trip_id,
         source_type=req.source_type,
         title=req.title,
         trip_region_id=req.trip_region_id,
         trip_stop_id=req.trip_stop_id,
+        trip_day_id=getattr(req, "trip_day_id", None),
         pasted_text=req.pasted_text,
         link_url=req.link_url,
         source_date=req.source_date,
@@ -1393,6 +1416,7 @@ async def upload_source(
     source_type: str = Form("other"),
     trip_region_id: str = Form(""),
     trip_stop_id: str = Form(""),
+    trip_day_id: str = Form(""),
     title: str = Form(""),
 ):
     """Upload one or more source documents (PDF, ticket, receipt, ...).
@@ -1403,7 +1427,9 @@ async def upload_source(
     st_type = source_type if source_type in _TRIP_SOURCE_TYPES else "other"
     region = trip_region_id or None
     stop = trip_stop_id or None
+    day = trip_day_id or None
     _validate_source_scope(trip_id, region, stop)
+    _validate_source_day(trip_id, day)
     data_dir = os.getenv("DATA_DIR", "data")
     created: List[str] = []
     for f in files:
@@ -1417,7 +1443,8 @@ async def upload_source(
             out.write(data)
         trip_repository.source_create(
             trip_id=trip_id, source_type=st_type, title=title or safe,
-            trip_region_id=region, trip_stop_id=stop, filename=safe,
+            trip_region_id=region, trip_stop_id=stop, trip_day_id=day,
+            filename=safe,
             mime_type=getattr(f, "content_type", None), storage_path=path,
             source_id=sid,
         )
@@ -1429,10 +1456,14 @@ async def upload_source(
 @router.patch("/sources/{source_id}")
 def patch_source(source_id: str, req: SourcePatch) -> Dict[str, Any]:
     _require_trips_enabled()
-    if not trip_repository.source_get(source_id):
+    src_row = trip_repository.source_get(source_id)
+    if not src_row:
         raise HTTPException(status_code=404, detail="source not found")
     if req.source_type is not None and req.source_type not in _TRIP_SOURCE_TYPES:
         raise HTTPException(status_code=422, detail="invalid source_type")
+    req_day = getattr(req, "trip_day_id", None)
+    if req_day:
+        _validate_source_day(src_row["trip_id"], req_day)
     ok = trip_repository.source_update(
         source_id,
         source_type=req.source_type,
@@ -1443,6 +1474,8 @@ def patch_source(source_id: str, req: SourcePatch) -> Dict[str, Any]:
         summary=req.summary,
         include_in_memoir=req.include_in_memoir,
         ord_=req.ord,
+        trip_day_id=req_day,
+        clear_day=bool(getattr(req, "clear_day", False)),
     )
     if not ok:
         raise HTTPException(status_code=400, detail="nothing to update")
@@ -1789,6 +1822,50 @@ def generate_trip_days(trip_id: str) -> Dict[str, Any]:
     return {"trip_id": trip_id, "created": result["created"],
             "total": result["total"],
             "days": trip_repository.trip_days_list(trip_id)}
+
+
+class TripDaysReconcileReq(BaseModel):
+    add_missing: bool = False
+    mark_out_of_range: bool = False
+
+
+@router.get("/{trip_id}/days/reconcile-preview")
+def reconcile_preview_trip_days(trip_id: str) -> Dict[str, Any]:
+    """WO-TRAVEL-DOC-UI-LAB-03 — READ-ONLY diff between the trip's
+    start/end window and its existing day rows: missing in-range dates,
+    out-of-range day cards (kept, never deleted), duplicate/invalid
+    dates. No writes."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    return trip_repository.trip_days_reconcile_preview(trip_id)
+
+
+@router.post("/{trip_id}/days/reconcile")
+def reconcile_trip_days(trip_id: str,
+                        req: TripDaysReconcileReq) -> Dict[str, Any]:
+    """WO-TRAVEL-DOC-UI-LAB-03 — apply reconcile actions. add_missing
+    creates ONLY missing in-range days (existing/operator-edited rows
+    are never overwritten); mark_out_of_range stamps reconcile_status =
+    'out_of_range_acknowledged' on out-of-range day cards. NOTHING is
+    deleted — out-of-range cards are kept to protect operator notes."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    try:
+        out = trip_repository.trip_days_reconcile(
+            trip_id,
+            add_missing=bool(getattr(req, "add_missing", False)),
+            mark_out_of_range=bool(getattr(req, "mark_out_of_range",
+                                           False)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    logger.info("[trips][days] reconcile trip=%s added=%d marked=%d "
+                "reactivated=%d", trip_id, out["added"],
+                out["marked_out_of_range"], out["reactivated"])
+    out["days"] = trip_repository.trip_days_list(trip_id)
+    return out
 
 
 @router.patch("/days/{day_id}")

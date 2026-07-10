@@ -928,6 +928,7 @@ def source_create(
     include_in_memoir: bool = False,
     ord_: int = 0,
     source_id: Optional[str] = None,
+    trip_day_id: Optional[str] = None,
 ) -> str:
     if source_type not in _TRIP_SOURCE_TYPES:
         source_type = "other"
@@ -936,13 +937,16 @@ def source_create(
     try:
         con.execute(
             """INSERT INTO trip_sources
-               (id, trip_id, trip_region_id, trip_stop_id, source_type,
+               (id, trip_id, trip_region_id, trip_stop_id, trip_day_id,
+                source_type,
                 title, filename, mime_type, storage_path, pasted_text,
                 link_url, source_date, summary, include_in_memoir, ord,
                 created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?)""",
             (
-                sid, trip_id, trip_region_id, trip_stop_id, source_type,
+                sid, trip_id, trip_region_id, trip_stop_id, trip_day_id,
+                source_type,
                 title, filename, mime_type, storage_path, pasted_text,
                 link_url, source_date, summary,
                 1 if include_in_memoir else 0, int(ord_), _now(), _now(),
@@ -957,15 +961,22 @@ def source_create(
         con.close()
 
 
-def sources_list(trip_id: str) -> List[Dict[str, Any]]:
-    """Tolerant of a pre-0020 DB (trip_sources missing) — returns []."""
+def sources_list(trip_id: str,
+                 day_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Tolerant of a pre-0020 DB (trip_sources missing) — returns [].
+    ``day_id`` narrows to sources attached to that day card
+    (trip_sources.trip_day_id, migration 0029)."""
     con = _connect()
     try:
         rows = con.execute(
             "SELECT * FROM trip_sources WHERE trip_id = ? ORDER BY ord, created_at",
             (trip_id,),
         ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        out = [_row_to_dict(r) for r in rows]
+        if day_id:
+            out = [s for s in out
+                   if str(s.get("trip_day_id") or "") == str(day_id)]
+        return out
     except sqlite3.OperationalError:
         return []
     finally:
@@ -1004,9 +1015,18 @@ def source_update(
     summary: Optional[str] = None,
     include_in_memoir: Optional[bool] = None,
     ord_: Optional[int] = None,
+    trip_day_id: Optional[str] = None,
+    clear_day: bool = False,
 ) -> bool:
+    """Partial update. ``trip_day_id`` attaches (or moves) the source to
+    a day card; ``clear_day`` detaches it (NULLs trip_day_id ONLY — the
+    source row itself is never deleted by an unlink)."""
     sets: List[str] = []
     args: List[Any] = []
+    if clear_day:
+        sets.append("trip_day_id = NULL")
+    elif trip_day_id is not None:
+        sets.append("trip_day_id = ?"); args.append(trip_day_id)
     if source_type is not None and source_type in _TRIP_SOURCE_TYPES:
         sets.append("source_type = ?"); args.append(source_type)
     if title is not None:
@@ -2030,8 +2050,12 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
       date prefix). Undated, unattached links count nowhere.
     - notes: rows attached to the day (trip_day_id) count on that day;
       unattached rows count only via the day's linked stop/region scope.
-    - sources / public_context: NOT date- or day-scoped in schema, so a
-      row counts for a day ONLY when its scope link (trip_stop_id, else
+    - sources: rows attached to the day (trip_sources.trip_day_id,
+      migration 0029) count on THAT day first; un-day-linked rows keep
+      the stop/region-scope fallback. Never double-counted — the scope
+      fallback skips any row that carries a trip_day_id.
+    - public_context: NOT date- or day-scoped in schema, so a row counts
+      for a day ONLY when its scope link (trip_stop_id, else
       trip_region_id) equals the day's linked stop/region. Days with no
       link get 0 — no fake numbers.
     """
@@ -2108,17 +2132,180 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                        and not r.get("trip_day_id"))
         return 0
 
-    def _day_note_count(day: Dict[str, Any]) -> int:
+    def _day_attached_count(rows: List[Dict[str, Any]],
+                            day: Dict[str, Any]) -> int:
         did = str(day.get("id"))
-        return sum(1 for n in notes if str(n.get("trip_day_id") or "") == did)
+        return sum(1 for r in rows
+                   if str(r.get("trip_day_id") or "") == did)
 
     out: Dict[str, Dict[str, int]] = {}
     for day in days:
         out[str(day["id"])] = {
             "photos": by_day.get(str(day["id"]), 0)
             + by_date.get(str(day.get("date") or "")[:10], 0),
-            "notes": _day_note_count(day) + _scoped_count(notes, day),
-            "sources": _scoped_count(sources, day),
+            "notes": _day_attached_count(notes, day)
+            + _scoped_count(notes, day),
+            "sources": _day_attached_count(sources, day)
+            + _scoped_count(sources, day),
             "public_context": _scoped_count(pub, day),
         }
     return out
+
+
+
+# ── Trip-day date-range reconcile (WO-TRAVEL-DOC-UI-LAB-03) ────────────────
+#
+# When trip start/end dates change AFTER day cards exist, generation only
+# appends missing dates — it never deletes operator work. The reconcile
+# pair below makes that state visible and operator-resolvable:
+#   * preview — read-only diff of the trip window vs. existing day rows.
+#   * reconcile — add ONLY missing in-range days and/or acknowledge
+#     out-of-range days (reconcile_status, migration 0029). NOTHING is
+#     ever deleted; out-of-range day cards are kept to protect notes.
+
+RECONCILE_STATUS_ACTIVE = "active"
+RECONCILE_STATUS_OUT_OF_RANGE_ACK = "out_of_range_acknowledged"
+
+
+def _parse_iso_date(value):
+    from datetime import date as _date
+
+    raw = (value or "")[:10]
+    if not raw:
+        return None
+    try:
+        return _date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def trip_days_reconcile_preview(trip_id: str) -> Dict[str, Any]:
+    """READ-ONLY diff between the trip's start/end window and its
+    existing trip_days rows. No writes of any kind.
+
+    Returns {trip_id, trip_start_date, trip_end_date, existing_days,
+    missing_dates, out_of_range_days, duplicate_or_invalid_days}.
+    When the trip has no usable date window, missing_dates and
+    out_of_range_days are [] (no window means nothing can honestly be
+    called missing or out of range)."""
+    from datetime import timedelta as _timedelta
+
+    trip = trip_get(trip_id)
+    if not trip:
+        raise ValueError("trip not found")
+    start_raw = (trip.get("start_date") or "")[:10]
+    end_raw = (trip.get("end_date") or "")[:10]
+    start = _parse_iso_date(start_raw)
+    end = _parse_iso_date(end_raw)
+    window_ok = bool(start and end and start <= end
+                     and (end - start).days <= 400)
+
+    days = trip_days_list(trip_id)
+    seen_dates: set = set()
+    duplicate_or_invalid: List[Dict[str, Any]] = []
+    out_of_range: List[Dict[str, Any]] = []
+    for d in days:
+        pd = _parse_iso_date(d.get("date"))
+        if pd is None:
+            duplicate_or_invalid.append(d)
+            continue
+        iso = pd.isoformat()
+        if iso in seen_dates:
+            # UNIQUE(trip_id, date) should make this unreachable for
+            # byte-identical dates; defensive for prefix collisions.
+            duplicate_or_invalid.append(d)
+        seen_dates.add(iso)
+        if window_ok and not (start <= pd <= end):
+            out_of_range.append(d)
+
+    missing: List[str] = []
+    if window_ok:
+        cur = start
+        while cur <= end:
+            iso = cur.isoformat()
+            if iso not in seen_dates:
+                missing.append(iso)
+            cur = cur + _timedelta(days=1)
+
+    return {
+        "trip_id": trip_id,
+        "trip_start_date": start_raw or None,
+        "trip_end_date": end_raw or None,
+        "existing_days": len(days),
+        "missing_dates": missing,
+        "out_of_range_days": out_of_range,
+        "duplicate_or_invalid_days": duplicate_or_invalid,
+    }
+
+
+def trip_days_reconcile(
+    trip_id: str,
+    add_missing: bool = False,
+    mark_out_of_range: bool = False,
+) -> Dict[str, Any]:
+    """Apply the operator-requested reconcile actions.
+
+    * ``add_missing`` creates ONLY the missing in-range day rows — it
+      delegates to trip_days_generate, which skips every existing date,
+      so operator-edited day cards are never overwritten.
+    * ``mark_out_of_range`` stamps reconcile_status =
+      'out_of_range_acknowledged' on out-of-range day rows, and resets
+      in-range rows that were previously acknowledged back to 'active'
+      (honest status when trip dates change again).
+
+    NOTHING is ever deleted here — out-of-range day cards are kept to
+    protect the operator's notes."""
+    preview = trip_days_reconcile_preview(trip_id)
+    added = 0
+    if add_missing and preview["missing_dates"]:
+        added = trip_days_generate(trip_id)["created"]
+
+    marked = 0
+    reactivated = 0
+    if mark_out_of_range:
+        trip = trip_get(trip_id) or {}
+        start = _parse_iso_date(trip.get("start_date"))
+        end = _parse_iso_date(trip.get("end_date"))
+        window_ok = bool(start and end and start <= end
+                         and (end - start).days <= 400)
+        out_ids = {str(d["id"]) for d in preview["out_of_range_days"]}
+        con = _connect()
+        try:
+            for did in out_ids:
+                cur = con.execute(
+                    "UPDATE trip_days SET reconcile_status = ?, "
+                    "updated_at = ? WHERE id = ? AND reconcile_status != ?",
+                    (RECONCILE_STATUS_OUT_OF_RANGE_ACK, _now(), did,
+                     RECONCILE_STATUS_OUT_OF_RANGE_ACK),
+                )
+                marked += cur.rowcount
+            if window_ok:
+                for d in trip_days_list(trip_id):
+                    did = str(d["id"])
+                    if did in out_ids:
+                        continue
+                    pd = _parse_iso_date(d.get("date"))
+                    if pd is None or not (start <= pd <= end):
+                        continue
+                    if d.get("reconcile_status") == \
+                            RECONCILE_STATUS_OUT_OF_RANGE_ACK:
+                        cur = con.execute(
+                            "UPDATE trip_days SET reconcile_status = ?, "
+                            "updated_at = ? WHERE id = ?",
+                            (RECONCILE_STATUS_ACTIVE, _now(), did),
+                        )
+                        reactivated += cur.rowcount
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    return {
+        "trip_id": trip_id,
+        "added": added,
+        "marked_out_of_range": marked,
+        "reactivated": reactivated,
+        "preview": trip_days_reconcile_preview(trip_id),
+    }

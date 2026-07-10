@@ -610,5 +610,201 @@ class DayPhotoLinkTest(_TripDaysCase):
         self.assertEqual(ctx.exception.status_code, 400)
 
 
+class _SrcCreateReq:
+    """SourceCreate stand-in (WO-TRAVEL-DOC-UI-LAB-03 adds trip_day_id)."""
+
+    def __init__(self, **kw):
+        base = dict(source_type="other", title=None, trip_region_id=None,
+                    trip_stop_id=None, trip_day_id=None, pasted_text=None,
+                    link_url=None, source_date=None, summary=None,
+                    include_in_memoir=False)
+        base.update(kw)
+        self.__dict__.update(base)
+
+
+class _SrcPatchReq:
+    """SourcePatch stand-in — trip_day_id + clear_day (UI-LAB-03)."""
+
+    def __init__(self, **kw):
+        base = dict(source_type=None, title=None, pasted_text=None,
+                    link_url=None, source_date=None, summary=None,
+                    include_in_memoir=None, ord=None, trip_day_id=None,
+                    clear_day=False)
+        base.update(kw)
+        self.__dict__.update(base)
+
+
+class _FakeUpload:
+    """Minimal UploadFile stand-in for the multipart lane."""
+
+    filename = "ticket.pdf"
+    content_type = "application/pdf"
+
+    async def read(self):
+        return b"%PDF-1.4 fake ticket"
+
+
+class DaySourceTest(_TripDaysCase):
+    """WO-TRAVEL-DOC-UI-LAB-03 — migration 0029 true day-scoped sources."""
+
+    def setUp(self):
+        super().setUp()
+        trips.generate_trip_days(self.trip_id)
+        self.days = trip_repository.trip_days_list(self.trip_id)
+
+    def test_migration_0029_columns_and_index(self):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            src_cols = {r[1] for r in con.execute(
+                "PRAGMA table_info(trip_sources)")}
+            day_cols = {r[1] for r in con.execute(
+                "PRAGMA table_info(trip_days)")}
+            idx = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_trip_sources_day'").fetchone()
+        finally:
+            con.close()
+        self.assertIn("trip_day_id", src_cols,
+                      "migration 0029 did not apply to trip_sources")
+        self.assertIn("reconcile_status", day_cols,
+                      "migration 0029 did not apply to trip_days")
+        self.assertIsNotNone(idx, "idx_trip_sources_day missing")
+
+    def test_reconcile_status_defaults_active(self):
+        for d in self.days:
+            self.assertEqual(d["reconcile_status"], "active")
+
+    def test_create_day_source_needs_no_stop_or_region(self):
+        out = trips.create_source(self.trip_id, _SrcCreateReq(
+            source_type="receipt", pasted_text="Beer hall receipt",
+            trip_day_id=self.days[1]["id"]))
+        src = out["source"]
+        self.assertEqual(src["trip_day_id"], self.days[1]["id"])
+        self.assertIsNone(src["trip_region_id"])
+        self.assertIsNone(src["trip_stop_id"])
+        # Flags stay operator-side defaults: memoir OFF.
+        self.assertEqual(src["include_in_memoir"], 0)
+
+    def test_create_day_source_cross_trip_day_rejected(self):
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip S",
+            start_date="2026-06-01", end_date="2026-06-02")
+        trip_repository.trip_days_generate(other_trip)
+        foreign_day = trip_repository.trip_days_list(other_trip)[0]
+        with self.assertRaises(HTTPException) as ctx:
+            trips.create_source(self.trip_id, _SrcCreateReq(
+                pasted_text="x", trip_day_id=foreign_day["id"]))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_patch_source_move_between_days_and_clear_day(self):
+        out = trips.create_source(self.trip_id, _SrcCreateReq(
+            source_type="hotel", title="Hotel booking",
+            trip_day_id=self.days[0]["id"]))
+        sid = out["source_id"]
+        # Move to another day.
+        res = trips.patch_source(sid, _SrcPatchReq(
+            trip_day_id=self.days[2]["id"]))
+        self.assertEqual(res["source"]["trip_day_id"], self.days[2]["id"])
+        # Unlink from day: clears trip_day_id ONLY — row survives.
+        res = trips.patch_source(sid, _SrcPatchReq(clear_day=True))
+        self.assertIsNone(res["source"]["trip_day_id"])
+        survivor = trip_repository.source_get(sid)
+        self.assertIsNotNone(survivor, "unlink must never delete the source")
+        self.assertEqual(survivor["title"], "Hotel booking")
+
+    def test_patch_source_cross_trip_day_rejected(self):
+        out = trips.create_source(self.trip_id, _SrcCreateReq(
+            pasted_text="x"))
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip S2",
+            start_date="2026-06-01", end_date="2026-06-02")
+        trip_repository.trip_days_generate(other_trip)
+        foreign_day = trip_repository.trip_days_list(other_trip)[0]
+        with self.assertRaises(HTTPException) as ctx:
+            trips.patch_source(out["source_id"], _SrcPatchReq(
+                trip_day_id=foreign_day["id"]))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_upload_source_accepts_day_form_field(self):
+        import asyncio
+
+        orig_data_dir = os.environ.get("DATA_DIR")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["DATA_DIR"] = tmpdir
+            try:
+                out = asyncio.run(trips.upload_source(
+                    self.trip_id, files=[_FakeUpload()],
+                    source_type="ticket", trip_region_id="",
+                    trip_stop_id="", trip_day_id=self.days[3]["id"],
+                    title="Museum ticket"))
+            finally:
+                if orig_data_dir is None:
+                    os.environ.pop("DATA_DIR", None)
+                else:
+                    os.environ["DATA_DIR"] = orig_data_dir
+        sid = out["source_ids"][0]
+        src = trip_repository.source_get(sid)
+        self.assertEqual(src["trip_day_id"], self.days[3]["id"])
+        self.assertEqual(src["source_type"], "ticket")
+
+    def test_upload_source_cross_trip_day_rejected(self):
+        import asyncio
+
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip S3",
+            start_date="2026-06-01", end_date="2026-06-02")
+        trip_repository.trip_days_generate(other_trip)
+        foreign_day = trip_repository.trip_days_list(other_trip)[0]
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(trips.upload_source(
+                self.trip_id, files=[_FakeUpload()], source_type="ticket",
+                trip_region_id="", trip_stop_id="",
+                trip_day_id=foreign_day["id"], title=""))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_list_sources_day_filter(self):
+        trips.create_source(self.trip_id, _SrcCreateReq(
+            pasted_text="day one thing", trip_day_id=self.days[0]["id"]))
+        trips.create_source(self.trip_id, _SrcCreateReq(
+            pasted_text="trip-level thing"))
+        out = trips.list_sources(self.trip_id, day_id=self.days[0]["id"])
+        self.assertEqual(len(out["sources"]), 1)
+        self.assertEqual(out["sources"][0]["pasted_text"], "day one thing")
+        out_all = trips.list_sources(self.trip_id)
+        self.assertEqual(len(out_all["sources"]), 2)
+
+    def test_day_source_counts_day_first_never_double(self):
+        # Day 1 links to a stop. A source scoped to that stop but
+        # ATTACHED to day 3 counts on day 3 (operator truth) and NOT on
+        # day 1 — one source, one count.
+        region = self._region("Bavaria")
+        stop = self._stop(region)
+        trips.patch_trip_day(self.days[0]["id"], _DayReq(trip_stop_id=stop))
+        trips.create_source(self.trip_id, _SrcCreateReq(
+            source_type="ticket", title="Attached elsewhere",
+            trip_region_id=region, trip_stop_id=stop,
+            trip_day_id=self.days[2]["id"]))
+        # An un-day-linked stop source keeps the stop-scope fallback.
+        trips.create_source(self.trip_id, _SrcCreateReq(
+            source_type="hotel", title="Stop-scope fallback",
+            trip_region_id=region, trip_stop_id=stop))
+        out = trips.list_trip_days(self.trip_id)
+        by_date = {d["date"]: d for d in out["days"]}
+        self.assertEqual(by_date["2026-05-03"]["counts"]["sources"], 1)
+        self.assertEqual(by_date["2026-05-01"]["counts"]["sources"], 1)
+        total = sum(d["counts"]["sources"] for d in out["days"])
+        self.assertEqual(total, 2, "each source must count exactly once")
+
+    def test_day_source_counts_on_unlinked_day(self):
+        # A day with NO stop/region link still counts its day-attached
+        # sources (a day source needs no stop/region).
+        trips.create_source(self.trip_id, _SrcCreateReq(
+            source_type="link", link_url="http://example.test/menu",
+            trip_day_id=self.days[4]["id"]))
+        out = trips.list_trip_days(self.trip_id)
+        self.assertEqual(out["days"][4]["counts"]["sources"], 1)
+        self.assertEqual(out["days"][0]["counts"]["sources"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

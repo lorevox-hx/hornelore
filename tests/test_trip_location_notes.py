@@ -72,7 +72,8 @@ class _Req:
 
 def _note_create_req(**kw):
     base = dict(note_text="a memory", note_title=None, trip_region_id=None,
-               trip_stop_id=None, source_type="operator", source_ref=None,
+               trip_stop_id=None, trip_day_id=None, source_type="operator",
+               source_ref=None,
                include_in_memoir=False, include_in_interview_context=False,
                target_language="en")
     base.update(kw)
