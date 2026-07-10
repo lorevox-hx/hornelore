@@ -125,6 +125,10 @@ Build 1.5 guards verified WORKING live (Bavaria normalized, no SYSTEM leak, no p
 
 `trip_interview_context`: direct photo/date questions ("what date was that taken", "can you tell me about the photo", "when was that taken") now route to the deterministic trip-answer path and reply honestly — approved context when it exists, else "I don't know that from the approved trip record yet — but you might. What do you remember about that moment?" — instead of continuation boilerplate. Duplicate-idle-nudge repetition noted for the modal build (idle nudges should vary or stay silent on repeat).
 
+## LIVE ACCEPTANCE PASSED (2026-07-10, Claude-in-Chrome, real Munich fish photo)
+
+Photo-scoped modal + anchor chip ✓ · "what can you tell me about that photo" → "The file data suggests May 14, 2026. Does that match your memory?" (draft-hedged) ✓ · Date→Lori approved → "The approved taken date for this photo is May 14, 2026." ✓ · memory answer → grounded LLM reply (no parroting, no vision claims) ✓ · capture row: source_surface=travel_doc_modal, source_turn_ref=modal_turn:<conv>:tdmodal_t3, photo-linked, both flags 0 ✓ · Sandbox drawer shows "from Lori modal 📷 … In memoir OFF · Use with Lori OFF" ✓. Deferred: draft place/context composition (needs operator-entered draft fields — the one open spec item).
+
 ## Revision history
 
 - 2026-07-09 — Filed; Build 3 paused; interim honest-unknown fix landed.
