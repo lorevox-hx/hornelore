@@ -1768,3 +1768,271 @@ def photo_raw_gps(photo_id: str):
         return (None, None)
     finally:
         con.close()
+
+
+# ── Trip days (WO-TRAVEL-DOC-UI-LAB-01 — Trip Calendar layer) ──────────────
+#
+# One editable row per calendar date inside the trip window. Generated
+# idempotently from trips.start_date/end_date; the itinerary tree stays
+# the route authority — day rows are the operator's memory-workflow
+# surface (Trip Calendar day cards + day-detail inspector).
+
+
+def _day_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    d = dict(row)
+    for key in ("places_visited_json", "meals_json"):
+        if isinstance(d.get(key), str):
+            try:
+                d[key] = json.loads(d[key])
+            except Exception:
+                d[key] = []
+    return d
+
+
+def trip_days_list(trip_id: str) -> List[Dict[str, Any]]:
+    """All day rows for a trip ordered by day_index. Tolerant of a
+    pre-0027 DB — returns []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_days WHERE trip_id = ? "
+            "ORDER BY day_index, date",
+            (trip_id,),
+        ).fetchall()
+        return [_day_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def trip_day_get(day_id: str) -> Optional[Dict[str, Any]]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_days WHERE id = ?", (day_id,),
+        ).fetchone()
+        return _day_row_to_dict(row) if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
+def _covering_region_id(regions: List[Dict[str, Any]], date_str: str) -> Optional[str]:
+    """Best-effort auto-link: return a region id only when EXACTLY ONE
+    region's [start_date, end_date] range covers the date (ISO string
+    compare on the date prefix). Ambiguity or no coverage -> None."""
+    hits: List[str] = []
+    for r in regions:
+        rs = (r.get("start_date") or "")[:10]
+        re_ = (r.get("end_date") or "")[:10]
+        if rs and re_ and rs <= date_str <= re_:
+            hits.append(str(r["id"]))
+    return hits[0] if len(hits) == 1 else None
+
+
+def trip_days_generate(trip_id: str) -> Dict[str, Any]:
+    """Create one trip_days row per date in the trip's start/end window
+    (inclusive), day_index 1..n. Idempotent: dates that already have a
+    row are SKIPPED (existing operator edits are never overwritten).
+    Auto-fills trip_region_id when exactly one region's date range
+    covers the date. Raises ValueError when the trip has no parseable
+    start/end dates or end < start."""
+    from datetime import date as _date, timedelta as _timedelta
+
+    trip = trip_get(trip_id)
+    if not trip:
+        raise ValueError("trip not found")
+    start_raw = (trip.get("start_date") or "")[:10]
+    end_raw = (trip.get("end_date") or "")[:10]
+    if not start_raw or not end_raw:
+        raise ValueError("trip needs both start_date and end_date "
+                         "to generate day cards")
+    try:
+        start = _date.fromisoformat(start_raw)
+        end = _date.fromisoformat(end_raw)
+    except ValueError:
+        raise ValueError("trip dates are not valid ISO dates")
+    if end < start:
+        raise ValueError("trip end_date is before start_date")
+    if (end - start).days > 400:
+        raise ValueError("trip window too large to generate day cards")
+
+    tree = trip_tree(trip_id) or {}
+    regions = tree.get("regions", [])
+
+    con = _connect()
+    try:
+        existing = {
+            str(r["date"])[:10]
+            for r in con.execute(
+                "SELECT date FROM trip_days WHERE trip_id = ?",
+                (trip_id,),
+            ).fetchall()
+        }
+        created = 0
+        cur_date = start
+        idx = 0
+        while cur_date <= end:
+            idx += 1
+            iso = cur_date.isoformat()
+            if iso not in existing:
+                con.execute(
+                    """INSERT INTO trip_days
+                       (id, trip_id, day_index, date, trip_region_id,
+                        places_visited_json, meals_json,
+                        created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, ?)""",
+                    (
+                        _new_id(), trip_id, idx, iso,
+                        _covering_region_id(regions, iso),
+                        _now(), _now(),
+                    ),
+                )
+                created += 1
+            cur_date = cur_date + _timedelta(days=1)
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+    total = len(trip_days_list(trip_id))
+    return {"created": created, "total": total}
+
+
+def trip_day_update(
+    day_id: str,
+    title: Optional[str] = None,
+    main_location: Optional[str] = None,
+    lodging_base: Optional[str] = None,
+    trip_region_id: Optional[str] = None,
+    trip_stop_id: Optional[str] = None,
+    morning_notes: Optional[str] = None,
+    afternoon_notes: Optional[str] = None,
+    evening_notes: Optional[str] = None,
+    places_visited: Optional[List[str]] = None,
+    meals: Optional[List[str]] = None,
+    clear_title: bool = False,
+    clear_main_location: bool = False,
+    clear_lodging_base: bool = False,
+    clear_morning_notes: bool = False,
+    clear_afternoon_notes: bool = False,
+    clear_evening_notes: bool = False,
+    clear_region: bool = False,
+    clear_stop: bool = False,
+) -> bool:
+    """Partial day update — None means unchanged; the matching clear_*
+    flag NULLs a field (same posture as trip_update/stop_update).
+    List fields replace wholesale when given."""
+    sets: List[str] = []
+    args: List[Any] = []
+    text_fields = (
+        ("title", title, clear_title),
+        ("main_location", main_location, clear_main_location),
+        ("lodging_base", lodging_base, clear_lodging_base),
+        ("morning_notes", morning_notes, clear_morning_notes),
+        ("afternoon_notes", afternoon_notes, clear_afternoon_notes),
+        ("evening_notes", evening_notes, clear_evening_notes),
+    )
+    for col, value, clear in text_fields:
+        if clear:
+            sets.append(f"{col} = NULL")
+        elif value is not None:
+            sets.append(f"{col} = ?"); args.append(value)
+    if clear_region:
+        sets.append("trip_region_id = NULL")
+    elif trip_region_id is not None:
+        sets.append("trip_region_id = ?"); args.append(trip_region_id)
+    if clear_stop:
+        sets.append("trip_stop_id = NULL")
+    elif trip_stop_id is not None:
+        sets.append("trip_stop_id = ?"); args.append(trip_stop_id)
+    if places_visited is not None:
+        sets.append("places_visited_json = ?")
+        args.append(json.dumps([str(p) for p in places_visited],
+                               ensure_ascii=False))
+    if meals is not None:
+        sets.append("meals_json = ?")
+        args.append(json.dumps([str(m) for m in meals], ensure_ascii=False))
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(day_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_days SET {', '.join(sets)} WHERE id = ?", args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
+    """Honest per-day evidence counts keyed by day id.
+
+    - photos: trip photo links whose taken date (COALESCE(link.taken_at,
+      photos.date_value) date prefix) equals the day's date. Best-effort
+      date match only — undated links count nowhere.
+    - notes / sources / public_context: these tables are NOT date-scoped
+      in schema, so a row counts for a day ONLY when its scope link
+      (trip_stop_id, else trip_region_id) equals the day's linked
+      stop/region. Days with no link get 0 — no fake numbers.
+    """
+    days = trip_days_list(trip_id)
+    if not days:
+        return {}
+
+    # Photo counts by date prefix (one query).
+    by_date: Dict[str, int] = {}
+    con = _connect()
+    try:
+        try:
+            rows = con.execute(
+                """SELECT substr(COALESCE(l.taken_at, p.date_value), 1, 10)
+                          AS d, COUNT(*) AS n
+                   FROM trip_photo_links l
+                   LEFT JOIN photos p ON p.id = l.photo_id
+                   WHERE l.trip_id = ?
+                     AND (p.id IS NULL OR p.deleted_at IS NULL)
+                     AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
+                   GROUP BY d""",
+                (trip_id,),
+            ).fetchall()
+            by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+        except sqlite3.OperationalError:
+            by_date = {}
+    finally:
+        con.close()
+
+    notes = location_notes_list(trip_id)
+    sources = sources_list(trip_id)
+    pub = public_context_list(trip_id)
+
+    def _scoped_count(rows: List[Dict[str, Any]], day: Dict[str, Any]) -> int:
+        stop_id = day.get("trip_stop_id")
+        region_id = day.get("trip_region_id")
+        if stop_id:
+            return sum(1 for r in rows if r.get("trip_stop_id") == stop_id)
+        if region_id:
+            return sum(1 for r in rows
+                       if r.get("trip_region_id") == region_id
+                       and not r.get("trip_stop_id"))
+        return 0
+
+    out: Dict[str, Dict[str, int]] = {}
+    for day in days:
+        out[str(day["id"])] = {
+            "photos": by_date.get(str(day.get("date") or "")[:10], 0),
+            "notes": _scoped_count(notes, day),
+            "sources": _scoped_count(sources, day),
+            "public_context": _scoped_count(pub, day),
+        }
+    return out

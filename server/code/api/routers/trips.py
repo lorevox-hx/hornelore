@@ -1709,3 +1709,116 @@ def reverse_geocode_photo_link(link_id: str) -> Dict[str, Any]:
     )
     logger.info("[trips][reverse-geocode] stored ctx=%s link=%s", cid, link_id)
     return {"status": "stored", "context_id": cid, "result_summary": label}
+
+
+# ── Trip days (WO-TRAVEL-DOC-UI-LAB-01 — Trip Calendar layer) ──────────────
+#
+#     GET   /api/trips/{trip_id}/days
+#     POST  /api/trips/{trip_id}/days/generate-from-dates
+#     PATCH /api/trips/days/{day_id}
+#
+# Day rows power the Trip Calendar day cards + day-detail inspector in
+# the (removable) Travel Doc UI Lab. Deliberately NOT built yet:
+# day-scoped note/photo-link POST endpoints — the lab's "Add photos" /
+# "Add note" buttons deep-link to the existing operator flows instead
+# (deferred until the day layer earns them).
+
+
+class TripDayPatch(BaseModel):
+    title: Optional[str] = None
+    main_location: Optional[str] = None
+    lodging_base: Optional[str] = None
+    trip_region_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
+    morning_notes: Optional[str] = None
+    afternoon_notes: Optional[str] = None
+    evening_notes: Optional[str] = None
+    places_visited: Optional[List[str]] = None
+    meals: Optional[List[str]] = None
+    clear_title: bool = False
+    clear_main_location: bool = False
+    clear_lodging_base: bool = False
+    clear_morning_notes: bool = False
+    clear_afternoon_notes: bool = False
+    clear_evening_notes: bool = False
+    clear_region: bool = False
+    clear_stop: bool = False
+
+
+@router.get("/{trip_id}/days")
+def list_trip_days(trip_id: str) -> Dict[str, Any]:
+    """Day rows for a trip with honest per-day evidence counts merged in
+    (photos by taken-date match; notes/sources/public-context only via
+    the day's linked stop/region scope — see trip_day_counts)."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    days = trip_repository.trip_days_list(trip_id)
+    counts = trip_repository.trip_day_counts(trip_id)
+    for d in days:
+        d["counts"] = counts.get(str(d["id"]), {
+            "photos": 0, "notes": 0, "sources": 0, "public_context": 0,
+        })
+    return {"trip_id": trip_id, "count": len(days), "days": days}
+
+
+@router.post("/{trip_id}/days/generate-from-dates")
+def generate_trip_days(trip_id: str) -> Dict[str, Any]:
+    """Generate one day row per date in the trip window (inclusive),
+    skipping dates that already exist — idempotent, never overwrites
+    operator edits. 422 when the trip has no usable start/end dates."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    try:
+        result = trip_repository.trip_days_generate(trip_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    logger.info("[trips][days] generated trip=%s created=%d total=%d",
+                trip_id, result["created"], result["total"])
+    return {"trip_id": trip_id, "created": result["created"],
+            "total": result["total"],
+            "days": trip_repository.trip_days_list(trip_id)}
+
+
+@router.patch("/days/{day_id}")
+def patch_trip_day(day_id: str, req: TripDayPatch) -> Dict[str, Any]:
+    """Edit one day card. Region/stop links are validated against the
+    day's own trip (same cross-trip posture as _validate_source_scope)."""
+    _require_trips_enabled()
+    day = trip_repository.trip_day_get(day_id)
+    if not day:
+        raise HTTPException(status_code=404, detail="day not found")
+    _validate_source_scope(day["trip_id"], req.trip_region_id,
+                           req.trip_stop_id)
+    # When a stop is linked, keep the region consistent with the stop's
+    # own region (mirrors the photo-link region/stop desync rule).
+    region_id = req.trip_region_id
+    if req.trip_stop_id:
+        _stop = trip_repository.stop_get(req.trip_stop_id)
+        if _stop and not region_id:
+            region_id = _stop.get("trip_region_id")
+    ok = trip_repository.trip_day_update(
+        day_id,
+        title=req.title,
+        main_location=req.main_location,
+        lodging_base=req.lodging_base,
+        trip_region_id=region_id,
+        trip_stop_id=req.trip_stop_id,
+        morning_notes=req.morning_notes,
+        afternoon_notes=req.afternoon_notes,
+        evening_notes=req.evening_notes,
+        places_visited=req.places_visited,
+        meals=req.meals,
+        clear_title=req.clear_title,
+        clear_main_location=req.clear_main_location,
+        clear_lodging_base=req.clear_lodging_base,
+        clear_morning_notes=req.clear_morning_notes,
+        clear_afternoon_notes=req.clear_afternoon_notes,
+        clear_evening_notes=req.clear_evening_notes,
+        clear_region=req.clear_region,
+        clear_stop=req.clear_stop,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    return {"ok": True, "day": trip_repository.trip_day_get(day_id)}
