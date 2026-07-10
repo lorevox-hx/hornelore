@@ -39,6 +39,25 @@ modal is an OPERATOR workspace, so its fallback is workspace-aware:
 — because the operator can fix the missing field right there (the photo
 card with Date→Lori / Place→Lori stays visible beside the modal).
 
+## Manual live acceptance (Chrome, real photo — NOT a repo fixture)
+
+Photo: `/mnt/c/Users/chris/Downloads/PXL_20260514_125640482.jpg` (fish
+sculpture, Neuhauser Str., Munich). Expected Ph1 behavior: EXIF may be
+absent → filename guess 2026-05-14, date_source=filename_guess,
+date_approved_for_lori=0. Flow: upload to Spring 2026 trip → modal from
+the photo card → "what date was that taken" → BEFORE approval: "I don't
+have an approved taken date for this photo yet. The Travel Doc can
+store one if you confirm it." → approve date → AFTER approval: "The
+approved taken date for this photo is May 14, 2026." → add approved
+caption ("Fish sculpture outside the German Hunting and Fishing Museum
+in Munich.") + context note (Neuhauser Straße) → "can you tell me about
+the photo" → approved text only, never "I can see". The automated Mark
+Twain gate stays synthetic — never depend on Downloads.
+
+Note for the build: `answer_modal_direct_question` needs the POST-
+approval date answer shape above; filename TIME guess (12:56:40) is
+optional parser polish — date-only is acceptable for the demo.
+
 ## Core acceptance test (the one that matters)
 
 Open Travel Doc → select photo → Talk with Lori → modal opens IN Travel
