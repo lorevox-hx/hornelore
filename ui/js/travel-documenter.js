@@ -1063,6 +1063,12 @@
       noteWrap.appendChild(noteLori);
       noteWrap.appendChild(el("span", "", "Note \u2192 Lori"));
       card.appendChild(noteWrap);
+      // WO-TRAVEL-DOC-LORI-MODAL-02: photo-scoped modal launch — the
+      // modal anchors on THIS photo link until \u2715 Unanchor.
+      var talkBtn = el("button", "td-small", "Talk with Lori about this photo");
+      talkBtn.type = "button";
+      talkBtn.addEventListener("click", function () { modalLori.open(l.id); });
+      card.appendChild(talkBtn);
       var wrap = el("label", "td-note-toggle");
       var cb = document.createElement("input");
       cb.type = "checkbox"; cb.checked = !!l.include_in_memoir;
@@ -1881,14 +1887,187 @@
     // Explicit, narrator-visible: hand the selected trip to the narrator
     // Travels shelf (which owns all Lori/session state). Travel Doc never
     // dispatches prompts or writes session scope itself.
+    // ── WO-TRAVEL-DOC-LORI-MODAL-02: Lori modal (surface=travel_doc_modal) ──
+    // Owns its OWN WebSocket + explicit scope. Never touches Travels
+    // shelf state, runtime71, or narrator-room chat. Captures land
+    // server-side (chat_ws modal branch) as flags-0 candidate notes.
+    var modalLori = {
+      ws: null, el: null, log: null, photoLinkId: null, turn: 0,
+      open: function (photoLinkId) {
+        this.photoLinkId = photoLinkId || null;
+        if (!this.el) this._build();
+        this.el.style.display = "flex";
+        this._paintScope();
+        this._connect();
+      },
+      close: function () {
+        if (this.el) this.el.style.display = "none";
+        try { if (this.ws) this.ws.close(); } catch (_) {}
+        this.ws = null;
+      },
+      unanchor: function () {
+        this.photoLinkId = null;
+        this._paintScope();
+      },
+      _scope: function () {
+        var sel = st.selected || {};
+        return {
+          source_surface: "travel_doc_modal",
+          person_id: st.personId,
+          active_trip_id: st.trip && st.trip.id,
+          active_trip_region_id: (sel.kind === "region" ? sel.id : null),
+          active_trip_stop_id: (sel.kind === "stop" ? sel.id : null),
+          active_photo_link_id: this.photoLinkId,
+          selected_kind: (this.photoLinkId ? "photo" : (sel.kind || "trip")),
+        };
+      },
+      _build: function () {
+        var m = el("div", "td-lori-modal");
+        m.innerHTML =
+          '<div class="td-lori-modal-box">' +
+          '<div class="td-lori-modal-head">' +
+          '<strong>Talk with Lori about this trip</strong>' +
+          '<button type="button" data-td="loriClose" class="td-small td-secondary">Close</button></div>' +
+          '<div data-td="loriScope" class="td-lori-scope"></div>' +
+          '<div data-td="loriLog" class="td-lori-log" aria-live="polite"></div>' +
+          '<div class="td-lori-input-row">' +
+          '<input data-td="loriInput" type="text" placeholder="Say something about this trip\u2026" />' +
+          '<button type="button" data-td="loriSend">Send</button></div>' +
+          '<div class="td-lori-drawer"><strong>Lori Capture Intake Sandbox</strong>' +
+          '<div data-td="loriDrawer" class="td-lori-drawer-list td-muted">' +
+          'Captured notes from this conversation appear here \u2014 In memoir OFF, Use with Lori OFF.</div></div>' +
+          '</div>';
+        hostEl.appendChild(m);
+        this.el = m;
+        this.log = m.querySelector('[data-td="loriLog"]');
+        var self = this;
+        m.querySelector('[data-td="loriClose"]').addEventListener("click", function () { self.close(); });
+        m.querySelector('[data-td="loriSend"]').addEventListener("click", function () { self._send(); });
+        m.querySelector('[data-td="loriInput"]').addEventListener("keydown", function (e) {
+          if (e.key === "Enter") self._send();
+        });
+      },
+      _paintScope: function () {
+        var s = this.el.querySelector('[data-td="loriScope"]');
+        s.innerHTML = "";
+        s.appendChild(el("span", "", "Trip: " + ((st.trip && st.trip.title) || "\u2014")));
+        var sel = st.selected || {};
+        if (sel.kind === "stop" || sel.kind === "region") {
+          s.appendChild(el("span", "", " \u00b7 " + sel.kind + " selected"));
+        }
+        if (this.photoLinkId) {
+          var chip = el("span", "td-lori-photo-chip");
+          var link = (st.photoLinks || []).filter(function (l) {
+            return l.id === modalLori.photoLinkId; })[0];
+          if (link) {
+            var im = document.createElement("img");
+            im.src = st.apiBase + "/api/photos/" +
+              encodeURIComponent(link.photo_id) + "/thumb";
+            im.alt = "anchored photo"; chip.appendChild(im);
+          }
+          chip.appendChild(el("span", "", "Photo anchored"));
+          var x = el("button", "td-small td-secondary", "\u2715 Unanchor");
+          x.type = "button";
+          x.addEventListener("click", function () { modalLori.unanchor(); });
+          chip.appendChild(x);
+          s.appendChild(chip);
+        }
+      },
+      _connect: function () {
+        if (this.ws && this.ws.readyState === 1) return;
+        var url = st.apiBase.replace(/^http/, "ws") + "/api/chat/ws";
+        try { this.ws = new WebSocket(url); } catch (e) {
+          this._line("system", "Lori connection failed \u2014 is the backend running?");
+          return;
+        }
+        var self = this;
+        this.ws.onmessage = function (ev) {
+          var j = {};
+          try { j = JSON.parse(ev.data); } catch (_) { return; }
+          if (j.type === "token" && j.delta) self._append(j.delta);
+          if (j.type === "done") {
+            self._finish(j.final_text);
+            reloadNotes && reloadNotes().catch(function () {});
+            self._refreshDrawer();
+          }
+        };
+      },
+      _bubble: null,
+      _line: function (who, text) {
+        var d = el("div", "td-lori-line td-lori-" + who, text);
+        this.log.appendChild(d);
+        this.log.scrollTop = this.log.scrollHeight;
+        return d;
+      },
+      _append: function (t) {
+        if (!this._bubble) this._bubble = this._line("lori", "");
+        this._bubble.textContent += t;
+        this.log.scrollTop = this.log.scrollHeight;
+      },
+      _finish: function (finalText) {
+        if (this._bubble && finalText) this._bubble.textContent = finalText;
+        this._bubble = null;
+      },
+      _send: function () {
+        var inp = this.el.querySelector('[data-td="loriInput"]');
+        var text = (inp.value || "").trim();
+        if (!text) return;
+        if (!this.ws || this.ws.readyState !== 1) { this._connect(); }
+        this._line("user", text);
+        inp.value = "";
+        this.turn += 1;
+        var payload = {
+          type: "start_turn",
+          session_id: "tdmodal_" + ((st.trip && st.trip.id) || "trip"),
+          message: text,
+          params: {
+            person_id: st.personId,
+            surface: "travel_doc_modal",
+            modal_scope: this._scope(),
+            turn_id: "tdmodal_t" + this.turn,
+          },
+        };
+        var self = this;
+        var trySend = function (attempt) {
+          if (self.ws && self.ws.readyState === 1) {
+            self.ws.send(JSON.stringify(payload));
+          } else if (attempt < 20) {
+            setTimeout(function () { trySend(attempt + 1); }, 250);
+          } else {
+            self._line("system", "Lori connection unavailable.");
+          }
+        };
+        trySend(0);
+      },
+      _refreshDrawer: function () {
+        var d = this.el.querySelector('[data-td="loriDrawer"]');
+        if (!d || !st.trip) return;
+        api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes")
+          .then(function (out) {
+            var mine = ((out && out.notes) || []).filter(function (n) {
+              return n.source_surface === "travel_doc_modal";
+            }).slice(-6).reverse();
+            if (!mine.length) return;
+            d.innerHTML = "";
+            mine.forEach(function (n) {
+              var row = el("div", "td-lori-drawer-row");
+              row.appendChild(el("span", "td-lori-drawer-src", "from Lori modal"));
+              if (n.photo_link_id) row.appendChild(el("span", "td-lori-drawer-src", "\ud83d\udcf7"));
+              row.appendChild(el("span", "", " " + (n.note_text || "").slice(0, 120)));
+              row.appendChild(el("small", "td-muted",
+                " \u00b7 In memoir OFF \u00b7 Use with Lori OFF"));
+              d.appendChild(row);
+            });
+          }).catch(function () {});
+      },
+    };
+
+    // WO-TRAVEL-DOC-LORI-MODAL-02: Talk with Lori STAYS in Travel Doc.
+    // The old behavior handed off to the Travels shelf; the modal owns
+    // its own scope + WS. Photo-scoped launch comes from photo cards.
     bind("talkLori", function () {
       if (!st.trip) throw new Error("select a trip first");
-      if (typeof window.lvTravelsOpenTripById === "function") {
-        window.lvTravelsOpenTripById(st.trip.id);
-        setStatus("good", "Lori is now focused on this trip — opening the Travels shelf.");
-      } else {
-        throw new Error("the Travels shelf isn't available here");
-      }
+      modalLori.open(null);
     });
 
     // Add region (modal)

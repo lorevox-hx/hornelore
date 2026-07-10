@@ -186,3 +186,57 @@ body.td-standalone textarea.td-photo-cap {
 body.td-standalone .td-photo-meta {
   display: block; opacity: 0.75; font-size: 0.72rem; margin: 1px 0;
 }
+
+/* WO-TRAVEL-DOC-LORI-MODAL-02 — Lori modal */
+.td-root .td-lori-modal, body.td-standalone .td-lori-modal {
+  position: fixed; inset: 0; display: flex; align-items: center;
+  justify-content: flex-end; background: rgba(0,0,0,0.35); z-index: 4000;
+}
+.td-root .td-lori-modal-box, body.td-standalone .td-lori-modal-box {
+  width: min(480px, 95vw); height: 90vh; margin: 0 1rem;
+  background: var(--td-panel, #fff); border-radius: 10px; padding: 0.8rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.td-root .td-lori-modal-head, body.td-standalone .td-lori-modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.td-root .td-lori-scope, body.td-standalone .td-lori-scope {
+  font-size: 0.8rem; opacity: 0.85; display: flex; gap: 0.4rem;
+  flex-wrap: wrap; align-items: center;
+}
+.td-root .td-lori-photo-chip, body.td-standalone .td-lori-photo-chip {
+  display: inline-flex; gap: 0.3rem; align-items: center;
+  border: 1px solid rgba(0,0,0,0.2); border-radius: 999px; padding: 2px 8px;
+}
+.td-root .td-lori-photo-chip img, body.td-standalone .td-lori-photo-chip img {
+  width: 26px; height: 26px; object-fit: cover; border-radius: 50%;
+}
+.td-root .td-lori-log, body.td-standalone .td-lori-log {
+  flex: 1; overflow-y: auto; border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 8px; padding: 0.5rem; font-size: 0.85rem;
+}
+.td-root .td-lori-line, body.td-standalone .td-lori-line {
+  margin: 0.3rem 0; padding: 0.35rem 0.55rem; border-radius: 8px;
+}
+.td-root .td-lori-user, body.td-standalone .td-lori-user {
+  background: rgba(70,110,180,0.12); text-align: right;
+}
+.td-root .td-lori-lori, body.td-standalone .td-lori-lori {
+  background: rgba(0,0,0,0.05);
+}
+.td-root .td-lori-input-row, body.td-standalone .td-lori-input-row {
+  display: flex; gap: 0.4rem;
+}
+.td-root .td-lori-input-row input, body.td-standalone .td-lori-input-row input {
+  flex: 1;
+}
+.td-root .td-lori-drawer, body.td-standalone .td-lori-drawer {
+  max-height: 22vh; overflow-y: auto; font-size: 0.78rem;
+  border-top: 1px dashed rgba(0,0,0,0.25); padding-top: 0.4rem;
+}
+.td-root .td-lori-drawer-row, body.td-standalone .td-lori-drawer-row {
+  margin: 0.25rem 0;
+}
+.td-root .td-lori-drawer-src, body.td-standalone .td-lori-drawer-src {
+  font-weight: 600; margin-right: 0.3rem;
+}

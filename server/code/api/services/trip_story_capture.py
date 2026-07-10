@@ -396,6 +396,10 @@ def capture_trip_story_answer(
         include_in_memoir=False,
         include_in_interview_context=False,
         source_surface=source_surface,
+        source_turn_ref=("modal_turn:%s:%s" % (conv_id or "-", turn_id or "-")
+                         if source_surface == "travel_doc_modal" else None),
+        photo_link_id=(photo_link_id if (source_surface == "travel_doc_modal"
+                                         and photo_valid) else None),
     )
 
     return _result(

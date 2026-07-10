@@ -97,7 +97,9 @@ class BoundaryTest(unittest.TestCase):
         src = _stripped_js()
         used = set(re.findall(r'"(/api/[a-z_/?=+-]*?)"', src))
         # Everything the module calls must be in the sanctioned list.
-        allowed_prefixes = ("/api/trips", "/api/photos/")
+        # WO-TRAVEL-DOC-LORI-MODAL-02: the modal owns its own chat WS —
+        # a deliberate, sanctioned addition (surface=travel_doc_modal).
+        allowed_prefixes = ("/api/trips", "/api/photos/", "/api/chat/ws")
         for u in used:
             self.assertTrue(any(u.startswith(p) for p in allowed_prefixes),
                             f"unsanctioned endpoint: {u}")

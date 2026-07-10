@@ -70,7 +70,7 @@ def _insert_photo(con: sqlite3.Connection, photo_id: str, person_id: str) -> Non
         "date_source": "filename_guess",
         "taken_at_filename_guess": "2026-05-14",
         "location_label": "Munich area",
-        "location_source": "operator",
+        "location_source": "unknown",
         "date_approved_for_lori": 0,
         "location_approved_for_lori": 0,
         # Raw GPS must never be surfaced to Lori. These values are fake.
