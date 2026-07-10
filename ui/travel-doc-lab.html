@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lorevox — Travel Doc UI Lab (experimental)</title>
+<!--
+  Travel Doc UI Lab — EXPERIMENTAL, REMOVABLE.
+
+  Standalone redesign lab. Tests the Trip-Calendar-centric Travel Doc
+  redesign (docs/mockups/lorevox-travel-doc-ui-lab-v2/) against real
+  trip data over the live API. NOT part of the production shell; the
+  production Travel Doc panel (ui/js/travel-documenter.js) is untouched.
+
+  Usage:  travel-doc-lab.html?api=http://localhost:8000&person_id=<id>
+  (person_id optional — a picker appears when absent)
+
+  To remove: delete this file + ui/js/travel-doc-lab.js +
+  ui/css/travel-doc-lab.css + tests/test_travel_doc_lab.py.
+-->
+<link rel="stylesheet" href="css/travel-doc-lab.css">
+</head>
+<body class="tdl-body">
+<div id="tdlRoot"></div>
+<script src="js/travel-doc-lab.js"></script>
+</body>
+</html>
