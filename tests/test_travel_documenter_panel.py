@@ -190,5 +190,164 @@ class StaleSelectLabelTest(unittest.TestCase):
                       self._mount_block())
 
 
+
+class ReflowTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-LAYOUT-REFLOW-01 + WO-TRAVEL-DOC-EDITOR-ERGONOMICS-01.
+
+    The right column pins to the viewport and the editor panel is a
+    strict flex column: fixed head (+tabs), scrollable editor BODY, and a
+    DEDICATED footer element as a real flex sibling — NO absolute
+    positioning (Chris rejected the absolute-docked footer). edActions
+    registers Save/Delete into that footer and renderEditor clears it on
+    every render (stale-handler guard, same posture as Quick Save).
+    """
+
+    def _css(self) -> str:
+        return (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+                ).read_text(encoding="utf-8")
+
+    # ── viewport pin + independent body scroll (kept from REFLOW-01) ──
+
+    def test_right_column_pinned_to_viewport(self):
+        line = next((ln for ln in self._css().splitlines()
+                     if ln.strip().startswith(".td-root .td-col-right")
+                     and "calc(100vh" in ln), None)
+        self.assertIsNotNone(line, "no viewport-pinned .td-col-right rule")
+        self.assertIn("position: sticky", line)
+        self.assertIn("flex-direction: column", line)
+        self.assertIn("overflow: hidden", line)
+
+    def test_narrow_viewport_unpins_height(self):
+        # The <=1100px reset must undo the height pin, not just sticky —
+        # otherwise phones get a clipped 100vh column.
+        m = re.search(r"@media \(max-width: 1100px\)[^\n]*", self._css())
+        self.assertIsNotNone(m)
+        self.assertIn("height: auto", m.group(0))
+        self.assertIn("overflow: visible", m.group(0))
+
+    def test_editor_body_scrolls_independently(self):
+        line = next((ln for ln in self._css().splitlines()
+                     if ln.strip().startswith(".td-root .td-editor-body")
+                     and "overflow-y: auto" in ln), None)
+        self.assertIsNotNone(line, "no scrolling .td-editor-body rule")
+        self.assertIn("flex: 1", line)
+        self.assertIn("min-height: 0", line)
+
+    def test_timeline_body_keeps_own_scroll(self):
+        line = next((ln for ln in self._css().splitlines()
+                     if ln.strip().startswith(".td-root .td-timeline-body")
+                     and "flex: 1" in ln), None)
+        self.assertIsNotNone(line, "no flexed .td-timeline-body rule")
+        self.assertIn("overflow-y: auto", line)
+
+    # ── dedicated footer (EDITOR-ERGONOMICS-01) ──
+
+    def test_template_has_footer_sibling_after_editor_body(self):
+        # The footer is a SIBLING after the scrollable body, inside the
+        # editor panel section — not a child of the form.
+        src = _JS.read_text(encoding="utf-8")
+        m = re.search(
+            r'data-td="editorPanel"[\s\S]*?'
+            r'data-td="editorBody"[\s\S]*?'
+            r'<div data-td="editorFooter" class="td-editor-footer"></div>'
+            r'[\s\S]{0,80}?</section>',
+            src)
+        self.assertIsNotNone(
+            m, "editorFooter sibling missing from editor panel template")
+
+    def test_footer_css_is_normal_flex_row_no_absolute(self):
+        css = self._css()
+        line = next((ln for ln in css.splitlines()
+                     if ln.strip().startswith(".td-root .td-editor-footer,")
+                     ), None)
+        self.assertIsNotNone(line, "no scoped .td-editor-footer rule")
+        self.assertIn("body.td-standalone .td-editor-footer", line)
+        self.assertIn("flex: 0 0 auto", line)
+        self.assertIn("display: flex", line)
+        self.assertIn("border-top", line)
+        # Chris REJECTED the absolute-docked footer: no rule for either
+        # the old actions row or the new footer may position:absolute.
+        for ln in css.splitlines():
+            if ".td-ed-actions" in ln or ".td-editor-footer" in ln:
+                self.assertNotIn("position: absolute", ln,
+                                 f"absolute positioning crept back: {ln[:70]}")
+
+    def test_ed_actions_registers_into_footer(self):
+        src = _stripped_js()
+        m = re.search(
+            r"function edActions\(parent, saveFn, deleteFn\) \{[\s\S]*?\n    \}",
+            src)
+        self.assertIsNotNone(m, "edActions not found")
+        body = m.group(0)
+        # Buttons go to the dedicated footer, never into the form.
+        self.assertIn('$("editorFooter")', body)
+        self.assertIn("footer.appendChild(save)", body)
+        self.assertNotIn("parent.appendChild", body)
+
+    def test_render_editor_clears_footer_every_render(self):
+        src = _stripped_js()
+        self.assertIn("function clearEditorFooter", src)
+        m = re.search(r"function renderEditor\(\) \{[\s\S]*?\n    \}", src)
+        self.assertIsNotNone(m, "renderEditor not found")
+        body = m.group(0)
+        # Cleared BEFORE the empty-state / non-edit-tab branches, so
+        # switching trip/region/stop/tab never leaves stale handlers.
+        # (The only thing allowed earlier is the null-DOM guard.)
+        clear_at = body.index("clearEditorFooter();")
+        empty_state = body.index("if (!st.selected")
+        self.assertLess(clear_at, empty_state,
+                        "footer must be cleared before the empty state")
+
+    # ── Quick Save re-bind (kept exactly as REFLOW-01 built it) ──
+
+    def test_quick_save_injected_with_rebind_guard(self):
+        src = _stripped_js()
+        self.assertIn("td-quick-save-btn", src)
+        # Duplicate guard: existing node removed before a fresh bind, so
+        # the button always carries the CURRENT form's saveFn.
+        self.assertIn("function removeQuickSave", src)
+        self.assertIn('querySelector(".td-quick-save-btn")', src)
+        m = re.search(
+            r"function edActions\(parent, saveFn, deleteFn\) \{[\s\S]*?\n    \}",
+            src)
+        self.assertIsNotNone(m, "edActions not found")
+        self.assertIn("injectQuickSave(saveFn)", m.group(0))
+        # Every editor render drops the stale button (non-edit tabs and
+        # the empty state must not keep an orphaned Quick Save).
+        m2 = re.search(r"function renderEditor\(\) \{[\s\S]*?\n    \}", src)
+        self.assertIsNotNone(m2, "renderEditor not found")
+        self.assertIn("removeQuickSave();", m2.group(0))
+
+    # ── wide editor mode ──
+
+    def test_wide_editor_toggle(self):
+        src = _stripped_js()
+        self.assertIn('data-td="wideToggle"', src)
+        self.assertIn('"td-editor-wide"', src)
+        # Module-variable memory only — no localStorage.
+        self.assertIn("var wideEditor = false;", src)
+        self.assertNotIn("localStorage", src.split("var wideEditor")[1][:600])
+        # CSS widens the right column at desktop widths only.
+        css = self._css()
+        m = re.search(r"@media \(min-width: 1101px\)[^\n]*", css)
+        self.assertIsNotNone(m, "wide-editor media rule missing")
+        self.assertIn(".td-layout.td-editor-wide", m.group(0))
+        self.assertIn("grid-template-columns", m.group(0))
+
+    # ── workflow buttons ──
+
+    def test_workflow_buttons_in_trip_toolbar(self):
+        src = _JS.read_text(encoding="utf-8")
+        self.assertIn('data-td="traveloguePreview"', src)
+        self.assertIn('data-td="openPhotosTab"', src)
+        stripped = _stripped_js()
+        m = re.search(r'bind\("openPhotosTab", function \(\) \{[\s\S]*?\n    \}\);',
+                      stripped)
+        self.assertIsNotNone(m, "openPhotosTab bind missing")
+        body = m.group(0)
+        self.assertIn('st.editorTab = "photos"', body)
+        self.assertIn("renderEditor()", body)
+
+
 if __name__ == "__main__":
     unittest.main()
