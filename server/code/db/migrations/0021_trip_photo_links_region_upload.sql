@@ -5,6 +5,15 @@
 -- cluster-placeable to a stop later. SQLite can't alter a CHECK, so
 -- rebuild the table with the extended enum (same copy-forward pattern as
 -- 0018). Preserves all existing rows.
+--
+-- WO-TRIP-LANE-AUDIT-FIXPACK-01 (H2): atomic + idempotent rebuild.
+-- DROP TABLE IF EXISTS clears any temp table left by a previously-failed
+-- run (which would otherwise brick every subsequent boot), and the
+-- BEGIN/COMMIT wrapper rolls the whole rebuild back on any failure.
+
+DROP TABLE IF EXISTS trip_photo_links_new;
+
+BEGIN;
 
 CREATE TABLE trip_photo_links_new (
     id TEXT PRIMARY KEY,
@@ -33,6 +42,8 @@ CREATE TABLE trip_photo_links_new (
 INSERT INTO trip_photo_links_new SELECT * FROM trip_photo_links;
 DROP TABLE trip_photo_links;
 ALTER TABLE trip_photo_links_new RENAME TO trip_photo_links;
+
+COMMIT;
 
 CREATE INDEX IF NOT EXISTS idx_trip_photo_links_trip_id ON trip_photo_links(trip_id);
 CREATE INDEX IF NOT EXISTS idx_trip_photo_links_stop_id ON trip_photo_links(trip_stop_id);

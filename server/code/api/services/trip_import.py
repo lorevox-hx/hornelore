@@ -32,6 +32,18 @@ from typing import Any, Dict, List, Optional
 from . import trip_repository as repo
 
 
+def _valid_stop_type(value: str) -> str:
+    """WO-TRIP-LANE-AUDIT-FIXPACK-01 (H1): reject an off-enum
+    stop_type during import with a clean ValueError (mapped to
+    422 by the import routes) rather than letting the DB CHECK
+    raise IntegrityError mid-import."""
+    if value not in repo.STOP_TYPES:
+        raise ValueError(
+            "invalid stop_type %r; expected one of %s"
+            % (value, ", ".join(repo.STOP_TYPES)))
+    return value
+
+
 def _slug(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
     return s or "item"
@@ -62,7 +74,7 @@ def _import_stop(
         trip_id=trip_id,
         trip_region_id=region_id,
         location_name=str(location),
-        stop_type=str(stop.get("stop_type") or "sight"),
+        stop_type=_valid_stop_type(str(stop.get("stop_type") or "sight")),
         ord_=ord_,
         parent_trip_stop_id=parent_id,
         date_start=stop.get("date_start"),
@@ -187,7 +199,8 @@ def import_csv(
             trip_id=trip_id,
             trip_region_id=region_id,
             location_name=location,
-            stop_type=(row.get("stop_type") or "sight").strip() or "sight",
+            stop_type=_valid_stop_type(
+                (row.get("stop_type") or "sight").strip() or "sight"),
             ord_=stop_ord[region_name],
             parent_trip_stop_id=parent_id,
             date_start=(row.get("date_start") or "").strip() or None,

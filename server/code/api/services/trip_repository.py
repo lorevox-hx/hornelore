@@ -24,6 +24,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+# WO-TRIP-LANE-AUDIT-FIXPACK-01 (H1): single source of truth for the
+# trip_stops.stop_type CHECK enum (migration 0015). API + import
+# layers validate against this so an off-enum value is rejected
+# cleanly instead of surfacing as an unhandled 500 when SQLite
+# raises IntegrityError on insert/update.
+STOP_TYPES = (
+    "base", "day_trip", "transit", "lodging",
+    "meal", "disruption", "sight", "memory_anchor",
+)
+
 
 def _connect() -> sqlite3.Connection:
     from .. import db as _db  # late import so tests can patch DB_PATH
@@ -1152,24 +1162,74 @@ def photo_link_get(link_id: str) -> Optional[Dict[str, Any]]:
         con.close()
 
 
+# WO-TRIP-LANE-AUDIT-FIXPACK-01 (C1): the narrator read is an EXPLICIT
+# allowlist, never SELECT l.*. Raw latitude/longitude are NEVER
+# projected (only a gps_present boolean). The operator caption reaches
+# the narrator ONLY when caption_approved_for_lori=1; operator_context_
+# note ONLY when operator_context_approved_for_lori=1. narrator_caption
+# (the narrator's own words) is preferred and always safe. The single
+# `caption` field the Travels shelf renders is the SAFE caption:
+# narrator_caption first, else approved operator caption, else NULL.
+_NARRATOR_PHOTO_LINK_COLS = (
+    "l.id, l.trip_id, l.trip_region_id, l.trip_stop_id, l.photo_id, "
+    "l.taken_at, l.ord, l.include_in_memoir, l.thematic_tags_json, "
+    "l.created_at, l.updated_at, l.narrator_caption, "
+    "l.caption_approved_for_lori, l.operator_context_approved_for_lori, "
+    "CASE "
+    "  WHEN l.narrator_caption IS NOT NULL AND l.narrator_caption <> '' "
+    "    THEN l.narrator_caption "
+    "  WHEN l.caption_approved_for_lori = 1 THEN l.caption "
+    "  ELSE NULL "
+    "END AS caption, "
+    "CASE WHEN l.operator_context_approved_for_lori = 1 "
+    "  THEN l.operator_context_note ELSE NULL END AS operator_context_note, "
+    "(l.latitude IS NOT NULL) AS gps_present"
+)
+
+# Pre-0022 fallback: approval columns absent. Safe direction — expose
+# only narrator_caption as the caption; never any operator text.
+_NARRATOR_PHOTO_LINK_COLS_LEGACY = (
+    "l.id, l.trip_id, l.trip_region_id, l.trip_stop_id, l.photo_id, "
+    "l.taken_at, l.ord, l.include_in_memoir, l.thematic_tags_json, "
+    "l.created_at, l.updated_at, l.narrator_caption, "
+    "l.narrator_caption AS caption, "
+    "(l.latitude IS NOT NULL) AS gps_present"
+)
+
+
 def narrator_photo_links(trip_id: str) -> List[Dict[str, Any]]:
     """Narrator-safe link read — BUG-TRAVELS-PHOTO-STRIP-LEAKS-NON-
     NARRATOR-READY-PHOTOS-01: the Travels shelf strip must only show
     photos the narrator is cleared to see (BUG-238 rule: unvetted
     intake photos never reach narrator-visible surfaces). Joins photos
     and filters narrator_ready=1 + not deleted. The operator Trip Tab
-    keeps the unfiltered photo_links_list."""
+    keeps the unfiltered photo_links_list.
+
+    WO-TRIP-LANE-AUDIT-FIXPACK-01 (C1): returns an explicit narrator-
+    safe allowlist (no raw GPS, approval-gated operator caption/context)
+    instead of SELECT l.*."""
     con = _connect()
     try:
-        rows = con.execute(
-            """SELECT l.* FROM trip_photo_links l
-               JOIN photos p ON p.id = l.photo_id
-               WHERE l.trip_id = ?
-                 AND p.narrator_ready = 1
-                 AND p.deleted_at IS NULL
-               ORDER BY l.taken_at, l.ord""",
-            (trip_id,),
-        ).fetchall()
+        where = (
+            " FROM trip_photo_links l "
+            " JOIN photos p ON p.id = l.photo_id "
+            " WHERE l.trip_id = ? "
+            "   AND p.narrator_ready = 1 "
+            "   AND p.deleted_at IS NULL "
+            " ORDER BY l.taken_at, l.ord"
+        )
+        try:
+            rows = con.execute(
+                "SELECT " + _NARRATOR_PHOTO_LINK_COLS + where,
+                (trip_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # DB behind on migration 0022 — degrade closed (no operator
+            # text), never fall through to SELECT l.*.
+            rows = con.execute(
+                "SELECT " + _NARRATOR_PHOTO_LINK_COLS_LEGACY + where,
+                (trip_id,),
+            ).fetchall()
         return [_row_to_dict(r) for r in rows]
     finally:
         con.close()

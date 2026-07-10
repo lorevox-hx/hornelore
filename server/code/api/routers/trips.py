@@ -92,6 +92,18 @@ def _require_trips_enabled() -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
+def _validate_stop_type(stop_type: Optional[str]) -> None:
+    """WO-TRIP-LANE-AUDIT-FIXPACK-01 (H1): reject an off-enum
+    stop_type at the API boundary with a clean 422 instead of
+    letting the DB CHECK raise an unhandled 500."""
+    if stop_type is not None and stop_type not in trip_repository.STOP_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail="invalid stop_type %r; expected one of %s"
+            % (stop_type, ", ".join(trip_repository.STOP_TYPES)),
+        )
+
+
 # ── Request models ────────────────────────────────────────────────────────
 
 class ImportItineraryRequest(BaseModel):
@@ -856,25 +868,30 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
                            "(parent is a descendant of this stop)")
             _cursor = trip_repository.stop_get(_cursor["parent_trip_stop_id"])
             _hops += 1
-    ok = trip_repository.stop_update(
-        stop_id,
-        location_name=req.location_name,
-        stop_type=req.stop_type,
-        date_start=req.date_start,
-        date_end=req.date_end,
-        latitude=req.latitude,
-        longitude=req.longitude,
-        title=req.title,
-        notes=req.notes,
-        thematic_tags=req.thematic_tags,
-        clear_dates=req.clear_dates,
-        clear_start_date=req.clear_start_date,
-        clear_end_date=req.clear_end_date,
-        clear_notes=req.clear_notes,
-        ord_=req.ord,
-        parent_trip_stop_id=req.parent_trip_stop_id,
-        clear_parent=req.clear_parent,
-    )
+    _validate_stop_type(req.stop_type)
+    try:
+        ok = trip_repository.stop_update(
+            stop_id,
+            location_name=req.location_name,
+            stop_type=req.stop_type,
+            date_start=req.date_start,
+            date_end=req.date_end,
+            latitude=req.latitude,
+            longitude=req.longitude,
+            title=req.title,
+            notes=req.notes,
+            thematic_tags=req.thematic_tags,
+            clear_dates=req.clear_dates,
+            clear_start_date=req.clear_start_date,
+            clear_end_date=req.clear_end_date,
+            clear_notes=req.clear_notes,
+            ord_=req.ord,
+            parent_trip_stop_id=req.parent_trip_stop_id,
+            clear_parent=req.clear_parent,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400,
+                            detail="invalid stop update: %s" % exc)
     if not ok:
         raise HTTPException(
             status_code=404, detail="stop not found or nothing to update",
@@ -984,21 +1001,26 @@ def create_stop(trip_id: str, region_id: str, req: StopCreate) -> Dict[str, Any]
             trip_id, region_id, req.parent_trip_stop_id))
     else:
         next_ord = len(region.get("stops", []))
-    stop_id = trip_repository.stop_create(
-        trip_id=trip_id,
-        trip_region_id=region_id,
-        location_name=req.location_name,
-        stop_type=req.stop_type or "sight",
-        ord_=next_ord,
-        parent_trip_stop_id=req.parent_trip_stop_id,
-        date_start=req.date_start,
-        date_end=req.date_end,
-        latitude=req.latitude,
-        longitude=req.longitude,
-        title=req.title,
-        notes=req.notes,
-        thematic_tags=req.thematic_tags,
-    )
+    _validate_stop_type(req.stop_type)
+    try:
+        stop_id = trip_repository.stop_create(
+            trip_id=trip_id,
+            trip_region_id=region_id,
+            location_name=req.location_name,
+            stop_type=req.stop_type or "sight",
+            ord_=next_ord,
+            parent_trip_stop_id=req.parent_trip_stop_id,
+            date_start=req.date_start,
+            date_end=req.date_end,
+            latitude=req.latitude,
+            longitude=req.longitude,
+            title=req.title,
+            notes=req.notes,
+            thematic_tags=req.thematic_tags,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400,
+                            detail="invalid stop: %s" % exc)
     trip_timeline_bridge.sync_trip_to_life_record(trip_id)
     return {"stop_id": stop_id, "tree": trip_repository.trip_tree(trip_id)}
 
