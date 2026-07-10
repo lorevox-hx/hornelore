@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mockup 2 — Workspace Redesign</title><link rel="stylesheet" href="styles.css"></head>
+<body><div class="app">
+    <header class="topbar">
+      <div class="logo">Hornelore <small>1.0</small></div>
+      <div class="narrator-pill">
+        <div class="avatar">C</div>
+        <div><div class="kicker">Active Narrator</div><strong>Chris</strong><small>Christopher Todd Horne · Dec 24, 1962 · Williston, North Dakota</small></div>
+      </div>
+      <div class="mode-pills"><span class="active">Life Story</span><span>Memory Exercise</span><span>Companion</span></div>
+      <div class="header-actions"><button class="dark small">● Mic</button><button class="dark small">● Cam</button><button class="dark small">🔍 Bug</button><button class="dark small">⚙</button></div>
+    </header>
+    <nav class="main-tabs"><span>Operator</span><span>Intake</span><span>Narrator Session</span><span>Trips</span><span class="active">Travel Doc</span><span>Media</span></nav>
+    
+<main class="page-shell workspace-grid">
+  <div class="workspace-label">Mockup 2 — Workspace Redesign</div>
+  <aside class="left-rail">
+    <div class="panel" style="box-shadow:none"><div class="form"><h3>Narrator</h3><div style="display:flex;gap:.7rem;align-items:center"><div class="avatar">C</div><b>Chris</b></div><p class="muted">Documenting trips</p><div><button class="small">Reload trips</button> <button class="small">Focus</button></div></div></div>
+    <div class="panel" style="box-shadow:none"><div class="panel-head"><h3>Trips</h3><button class="small">+ New trip</button></div><div class="form"><div class="card trip-card"><b>Spring 2026 Central Europe & Northern Italy</b><p class="muted">2026-05-22 to 2026-06-13</p></div></div></div>
+    <div class="panel" style="box-shadow:none"><div class="form"><h3>Route navigator</h3><div class="route-line">
+      <div class="route-row"><span class="dot active"></span><div><b>Germany/Bavaria</b><br><small class="muted">2026-05-13 to 2026-05-15</small></div></div>
+      <div class="route-row"><span class="dot"></span><div>Czechia — Prague<br><small class="muted">2026-05-22 to 2026-05-24</small></div></div>
+      <div class="route-row"><span class="dot"></span><div>Austria — Salzburg/Graz<br><small class="muted">2026-05-24 to 2026-05-27</small></div></div>
+    </div><button class="ghost">🗺 View full route</button></div></div>
+  </aside>
+  <section class="center-workspace">
+    <div class="subnav"><span class="active">▧ Trip Plan</span><span>▧ Photos</span><span>▤ Story Notes</span><span>□ Travelogue</span><span>▱ Sources</span><span>☄ Lori</span></div>
+    <section class="panel" style="box-shadow:none;padding:1.45rem">
+      <div style="display:flex;justify-content:space-between;gap:1rem"><div><div class="kicker">Selected trip</div><h1>Spring 2026 Central Europe & Northern Italy</h1><p class="muted">May 22, 2026 – June 13, 2026</p><p class="muted">Tile order is the route order. Use the tile buttons to reorder, insert, or restructure — dates are just metadata.</p></div><button class="ghost small">⚙ Trip settings</button></div>
+      <div style="display:flex;gap:.55rem;align-items:center;flex-wrap:wrap"><button class="primary">+ Add region</button><button class="primary">+ Add stop</button><button class="ghost">↔ Reorder</button><button class="ghost">☏ Talk with Lori</button><span class="callout" style="margin-left:auto">⌁ larger workspace</span></div>
+      <div class="big-region-card selected"><div class="icon-circle">△</div><div><h2>Germany/Bavaria</h2><p class="muted">May 13 – May 15, 2026 <span class="chip">region</span></p><p class="muted">0 stops yet.</p></div><div class="tile-actions"><button class="small">↑</button><button class="small">↓</button><button class="small">+ Stop</button><button class="small">Edit</button><button class="small">⋮</button></div></div>
+      <div class="big-region-card"><div class="icon-circle green">♜</div><div><h2>Czechia — Prague</h2><p class="muted">May 22 – May 24, 2026 <span class="chip">region</span></p><div class="card" style="margin-top:.6rem"><b>★ Prague</b><span class="muted"> · base · May 22 – May 24, 2026</span></div></div><div class="tile-actions"><button class="small">↑</button><button class="small">↓</button><button class="small">+ Stop</button><button class="small">Edit</button><button class="small">⋮</button></div></div>
+      <div class="big-region-card"><div class="icon-circle purple">△</div><div><h2>Austria — Salzburg/Graz</h2><p class="muted">May 24 – May 27, 2026 <span class="chip">region</span></p></div><div class="tile-actions"><button class="small">↑</button><button class="small">↓</button><button class="small">+ Stop</button><button class="small">Edit</button><button class="small">⋮</button></div></div>
+    </section>
+  </section>
+  <aside class="inspector">
+    <div class="panel-head"><h2>Inspector</h2><span>⌃</span></div>
+    <div class="inspector-body"><p class="muted">Editing: Region</p><h2>Germany/Bavaria</h2><div class="editor-tabs"><span class="active">Details</span><span>Notes</span><span>Photos</span><span>Sources</span></div>
+      <label>Region title<input value="Germany/Bavaria"></label><label>Country or area<input value="Germany"></label><label>Start date<input value="05/13/2026"></label><label>End date<input value="05/15/2026"></label><label>Description<textarea>Northern Bavaria: Munich and surrounding countryside.</textarea></label>
+    </div>
+    <div class="inspector-footer"><button class="danger">🗑 Delete</button><button class="primary">✓ Save changes</button></div>
+  </aside>
+</main></div></body></html>

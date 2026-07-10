@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Travel Doc redesign prototype — WO-TRAVEL-DOC-UI-REDESIGN-01</title>
+<style>
+/* ---------- base / theme ---------- */
+:root{
+  --cream:#faf6ee; --panel:#f3ead9; --panel-2:#ece0c7; --card:#fffdf7;
+  --ink:#4a3b2a; --muted:#8d7c64; --accent:#b07a2e; --line:#e2d5bb;
+  --review:#a3542e; --ok:#5d7a4e;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--cream);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+h1,h2,h3,h4{margin:0;font-weight:600}
+button{font:inherit;cursor:pointer;color:var(--ink)}
+input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 9px;width:100%}
+textarea{resize:vertical;min-height:64px}
+.muted{color:var(--muted)}
+.badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;background:var(--panel-2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.badge.ok{background:#e9edda;color:var(--ok);border-color:#ccd6b3}
+.badge.accent{background:#f3e3c6;color:var(--accent);border-color:#e2c68f}
+.badge.review{background:#f6e3d3;color:var(--review);border-color:#e8c9ae}
+.badge.draft{background:none;border-style:dashed}
+.flag-review{color:var(--review);font-size:12px;font-weight:600}
+.btn-primary{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 18px;font-weight:600}
+.btn-primary:hover{filter:brightness(1.06)}
+.btn-ghost{background:none;border:1px solid var(--line);border-radius:10px;padding:8px 16px}
+.btn-ghost:hover{background:var(--panel)}
+
+/* ---------- top switcher ---------- */
+.switcher{display:flex;gap:12px;align-items:center;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--cream);position:sticky;top:0;z-index:60}
+.sw-btn{padding:10px 22px;border-radius:12px;border:1px solid var(--line);background:var(--card);font-size:15px;font-weight:600}
+.sw-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sw-note{margin-left:auto;color:var(--muted);font-size:12.5px;text-align:right}
+
+/* ---------- VIEW A — current layout (deliberately cramped) ---------- */
+.va{font-size:12.5px;padding:8px 10px;max-width:1280px;margin:0 auto}
+.va-banner{font-size:12px;color:var(--muted);margin:2px 0 6px}
+.va-toolbar{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.va-toolbar button{padding:3px 8px;font-size:11.5px;border:1px solid var(--line);background:var(--panel);border-radius:5px}
+.va-cols{display:grid;grid-template-columns:212px 1fr 292px;gap:6px;align-items:start}
+.va-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px}
+.va-h{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:2px 0 5px}
+.va-trip{padding:5px 6px;border:1px solid var(--line);border-radius:4px;margin-bottom:4px;background:var(--card);cursor:pointer;line-height:1.3}
+.va-trip.sel{outline:2px solid var(--accent)}
+.va-trip .sub{font-size:10.5px;color:var(--muted)}
+.va-form input{padding:3px 6px;border-radius:4px;font-size:11.5px;margin-bottom:3px}
+.va-form button{width:100%;padding:3px 0;font-size:11.5px;border:1px solid var(--line);background:var(--panel-2);border-radius:4px}
+.va-tile{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:5px 7px;margin-bottom:4px;cursor:pointer}
+.va-tile.region{background:var(--panel-2)}
+.va-tile.sel{outline:2px solid var(--accent)}
+.va-tile .t-name{font-weight:600;font-size:12px}
+.va-tile .t-sub{font-size:10.5px;color:var(--muted)}
+.va-btns{display:flex;gap:3px;flex-wrap:wrap;margin-top:3px}
+.va-btns button{font-size:10px;padding:1px 6px;border:1px solid var(--line);background:#fff;border-radius:4px}
+.va-stop{margin-left:14px}
+.va-child{margin-left:30px}
+.va-tabs{display:flex;gap:2px;margin-bottom:4px}
+.va-tabs button{flex:1;font-size:11px;padding:3px 0;border:1px solid var(--line);background:var(--panel-2);border-radius:4px 4px 0 0}
+.va-tabs button.active{background:#fff;font-weight:600}
+.va-editor{max-height:400px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;padding:6px}
+.va-editor label{display:block;font-size:10.5px;color:var(--muted);margin:6px 0 2px}
+.va-editor input,.va-editor select,.va-editor textarea{padding:4px 6px;border-radius:4px;font-size:12px}
+.va-editor .va-save-row{display:flex;gap:4px;margin-top:8px}
+.va-editor .va-save-row button{flex:1;font-size:11.5px;padding:4px 0;border:1px solid var(--line);border-radius:4px;background:var(--panel-2)}
+.va-editor .va-save-row .danger{color:var(--review)}
+.va-drawer{margin-top:6px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.va-drawer>button{width:100%;text-align:left;padding:5px 9px;background:none;border:none;font-size:12px;font-weight:600}
+.va-drawer .body{padding:6px 9px;border-top:1px solid var(--line);color:var(--muted);display:none;font-size:11.5px}
+.va-drawer.open .body{display:block}
+
+/* ---------- VIEW B — redesign ---------- */
+.vb-header{padding:26px 32px 8px;max-width:1440px;margin:0 auto}
+.vb-title{font-size:26px;font-weight:650;letter-spacing:-.01em}
+.vb-crumb{color:var(--muted);font-size:13px;margin-top:3px}
+.vb-crumb b{color:var(--ink);font-weight:600}
+.vb-meta{color:var(--muted);font-size:14px;margin-top:6px}
+.vb-tabs-row{display:flex;align-items:center;gap:6px;padding:10px 32px;border-bottom:1px solid var(--line);max-width:1440px;margin:0 auto}
+.vb-tab{padding:8px 16px;border-radius:10px;border:1px solid transparent;background:none;color:var(--muted)}
+.vb-tab:hover{color:var(--ink)}
+.vb-tab.active{background:var(--card);border-color:var(--line);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(74,59,42,.08)}
+.vb-primary{margin-left:auto}
+.vb-body{display:flex;max-width:1440px;margin:0 auto;min-height:640px}
+.vb-rail{width:252px;flex:0 0 252px;border-right:1px solid var(--line);padding:18px 14px}
+.vb-rail-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.vb-rail-head h4{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.rail-collapse{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:2px 9px;font-size:14px;color:var(--muted)}
+.rail-expand{align-self:flex-start;margin:22px 0 0 10px;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 10px;color:var(--muted)}
+.vb-nav-region{font-weight:600;padding:6px 9px;border-radius:8px;cursor:pointer;margin-top:6px}
+.vb-nav-stop{padding:4px 9px 4px 24px;border-radius:8px;color:var(--muted);cursor:pointer;font-size:14px}
+.vb-nav-region:hover,.vb-nav-stop:hover{background:var(--panel)}
+.vb-nav-region.sel,.vb-nav-stop.sel{background:var(--panel);color:var(--ink)}
+.vb-main{flex:1;padding:24px 32px 60px;min-width:0}
+.mode-panel[hidden]{display:none}
+
+/* trip plan */
+.vb-region-head{display:flex;align-items:baseline;gap:10px;margin:28px 0 12px}
+.vb-region-head:first-child{margin-top:0}
+.vb-region-head h3{font-size:18px}
+.vb-region-head .sub{color:var(--muted);font-size:13px}
+.stop-card{display:flex;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;position:relative;align-items:center}
+.stop-card .thumb{width:92px;height:70px;border-radius:10px;background:linear-gradient(135deg,#d8bd8e,#b48755);flex:0 0 92px}
+.stop-card .info{flex:1;min-width:0}
+.stop-card .name{font-size:17px;font-weight:600}
+.stop-card .type{color:var(--muted);font-size:13px;margin-top:1px}
+.stop-card .evidence{font-size:13px;color:var(--muted);margin-top:7px}
+.stop-card .reorder{position:absolute;top:10px;right:14px;opacity:0;transition:opacity .15s;color:var(--muted);font-size:13px;letter-spacing:.2em}
+.stop-card:hover .reorder{opacity:1}
+.stop-card.child{margin-left:36px}
+.stop-card.child .thumb{width:64px;height:50px;flex-basis:64px}
+.add-stop-card{display:block;width:100%;border:2px dashed var(--line);border-radius:14px;padding:13px;text-align:center;color:var(--muted);background:none;margin:2px 0 6px}
+.add-stop-card:hover{border-color:var(--accent);color:var(--accent)}
+
+/* photos */
+.ph-wrap{display:flex;gap:24px}
+.ph-filters{width:186px;flex:0 0 186px}
+.ph-filter{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:9px;border:none;background:none;color:var(--muted);margin-bottom:2px}
+.ph-filter.active{background:var(--panel);color:var(--ink);font-weight:600}
+.ph-grid{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(152px,1fr));gap:14px;align-content:start}
+.ph-item{border-radius:12px;overflow:hidden;background:var(--card);border:1px solid var(--line)}
+.ph-item .img{height:108px;position:relative}
+.ph-item .cap{font-size:11.5px;color:var(--muted);padding:6px 9px;line-height:1.35}
+.ph-item .overlay{position:absolute;inset:0;display:flex;gap:8px;align-items:center;justify-content:center;background:rgba(74,59,42,.45);opacity:0;transition:opacity .15s}
+.ph-item .img:hover .overlay{opacity:1}
+.ph-item .overlay button{font-size:12px;border:none;border-radius:8px;padding:6px 10px;background:var(--card)}
+
+/* story notes */
+.intake{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:22px}
+.intake h3{font-size:15px;margin-bottom:8px}
+.intake-row{display:flex;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.intake-row .txt{flex:1}
+.intake-row button{font-size:12px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card)}
+.note-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:12px}
+.note-meta{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.pill{border:1px solid var(--line);border-radius:999px;padding:4px 13px;font-size:12px;background:var(--panel);color:var(--muted);cursor:pointer}
+.pill.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* travelogue */
+.tl-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+.tl-kind{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;gap:10px;align-items:center}
+.tl-card h3{font-size:17px;margin:6px 0 6px}
+.tl-card p{margin:6px 0;font-size:14.5px}
+.tl-photos{display:flex;gap:10px;margin:12px 0 8px}
+.tl-photos div{width:124px;height:84px;border-radius:10px}
+.tl-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+
+/* sources */
+.src-row{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:8px;font-size:14px}
+.src-row .nm{flex:1;font-weight:600}
+.src-row button{font-size:12px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel)}
+
+/* lori */
+.lori-wrap{display:flex;gap:20px;height:540px}
+.lori-chat{flex:1;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-width:0}
+.lori-scope{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel);font-size:13px}
+.anchor-chip{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 4px;font-size:13px}
+.anchor-chip .a-thumb{width:26px;height:26px;border-radius:999px;background:linear-gradient(135deg,#c9a06a,#8f6b3e)}
+.anchor-chip button{border:none;background:none;color:var(--muted);font-size:13px;padding:2px 6px}
+.anchor-chip button:hover{color:var(--review)}
+.lori-msgs{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:76%;padding:10px 14px;border-radius:14px;font-size:14px}
+.msg.lori{background:var(--panel);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.user{background:var(--accent);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.lori-input{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
+.lori-side{width:284px;flex:0 0 284px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;overflow:auto}
+.lori-side h4{font-size:13px;margin-bottom:8px}
+.capture-note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px}
+
+/* inspector */
+.inspector{position:fixed;top:0;right:0;height:100vh;width:384px;background:var(--card);border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(74,59,42,.14);transform:translateX(105%);transition:transform .25s ease;display:flex;flex-direction:column;z-index:90}
+.inspector.open{transform:none}
+.insp-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;flex:0 0 auto}
+.insp-head h3{font-size:17px}
+.insp-close{border:none;background:none;font-size:19px;color:var(--muted);padding:2px 8px}
+.insp-close:hover{color:var(--review)}
+.insp-tabs{display:flex;gap:4px;padding:8px 14px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.insp-tabs button{padding:6px 13px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-size:13px}
+.insp-tabs button.active{background:var(--panel);color:var(--ink);font-weight:600}
+.insp-body{flex:1;overflow:auto;padding:6px 18px 18px}
+.insp-body label{display:block;font-size:12px;color:var(--muted);margin:13px 0 4px}
+.insp-body .hint{font-size:12px;color:var(--muted);margin-top:14px;padding:10px 12px;background:var(--panel);border-radius:10px}
+.insp-foot{flex:0 0 auto;display:flex;gap:10px;padding:12px 18px;border-top:1px solid var(--line);background:var(--card)}
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  <button id="swA" class="sw-btn active" onclick="showView('a')">1 &middot; Current layout</button>
+  <button id="swB" class="sw-btn" onclick="showView('b')">2 &middot; Redesign</button>
+  <div class="sw-note">Review prototype &middot; WO-TRAVEL-DOC-UI-REDESIGN-01<br>Sample data only &mdash; nothing persists, no network calls</div>
+</div>
+
+<!-- ================= VIEW A — CURRENT (deliberately cramped) ================= -->
+<div id="viewA" class="va">
+  <div class="va-banner">Travel Documenter &mdash; narrator: Christopher Horne &middot; operator console</div>
+  <div class="va-toolbar">
+    <button>Edit trip</button><button>Talk with Lori</button><button>+ Region</button>
+    <button>+ Stop</button><button>Reload</button><button>Memoir preview</button>
+    <button>Travelogue preview</button><button>Photos</button>
+  </div>
+
+  <div class="va-cols">
+    <!-- left: trips -->
+    <div class="va-panel">
+      <div class="va-h">Trips</div>
+      <div class="va-trip sel">Spring 2026 Central Europe &amp; Northern Italy<div class="sub">May 22 &ndash; Jun 13 &middot; 6 regions</div></div>
+      <div class="va-trip">Germany fall 2019<div class="sub">Sep 30 &ndash; Oct 12 &middot; 3 regions</div></div>
+      <div class="va-trip">Baltic capitals 2023<div class="sub">Jun 2 &ndash; Jun 16 &middot; 4 regions</div></div>
+      <div class="va-h" style="margin-top:10px">Create trip</div>
+      <div class="va-form">
+        <input placeholder="Trip name">
+        <input placeholder="Start (YYYY-MM-DD)">
+        <input placeholder="End (YYYY-MM-DD)">
+        <button>Create trip</button>
+      </div>
+    </div>
+
+    <!-- center: itinerary tiles -->
+    <div class="va-panel">
+      <div class="va-h">Itinerary</div>
+
+      <div class="va-tile region" onclick="vaSelect(this,'Czechia — Prague')">
+        <div class="t-name">Czechia &mdash; Prague</div><div class="t-sub">region &middot; ord 2</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Stop</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-stop sel" onclick="vaSelect(this,'Prague')">
+        <div class="t-name">Prague</div><div class="t-sub">city_stay &middot; May 22 &ndash; May 26</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+
+      <div class="va-tile region" onclick="vaSelect(this,'Austria — Salzburg/Graz')">
+        <div class="t-name">Austria &mdash; Salzburg/Graz</div><div class="t-sub">region &middot; ord 3</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Stop</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-stop" onclick="vaSelect(this,'Salzburg')">
+        <div class="t-name">Salzburg</div><div class="t-sub">city_stay &middot; May 26 &ndash; May 29</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-stop" onclick="vaSelect(this,'Graz')">
+        <div class="t-name">Graz</div><div class="t-sub">city_stay &middot; May 29 &ndash; May 31</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+
+      <div class="va-tile region" onclick="vaSelect(this,'Slovenia')">
+        <div class="t-name">Slovenia</div><div class="t-sub">region &middot; ord 4</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Stop</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-stop" onclick="vaSelect(this,'Ljubljana')">
+        <div class="t-name">Ljubljana</div><div class="t-sub">city_stay &middot; May 31 &ndash; Jun 3</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+
+      <div class="va-tile region" onclick="vaSelect(this,'Italy — Veneto')">
+        <div class="t-name">Italy &mdash; Veneto</div><div class="t-sub">region &middot; ord 5</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Stop</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-stop" onclick="vaSelect(this,'Mirano')">
+        <div class="t-name">Mirano</div><div class="t-sub">city_stay &middot; Jun 3 &ndash; Jun 13 &middot; 3 children</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-child" onclick="vaSelect(this,'Venice day trip')">
+        <div class="t-name">Venice day trip</div><div class="t-sub">day_trip &middot; Jun 5</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-child" onclick="vaSelect(this,'Padua day trip')">
+        <div class="t-name">Padua day trip</div><div class="t-sub">day_trip &middot; Jun 8</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+      <div class="va-tile va-child" onclick="vaSelect(this,'Verona day trip')">
+        <div class="t-name">Verona day trip</div><div class="t-sub">day_trip &middot; Jun 10</div>
+        <div class="va-btns"><button>&uarr;</button><button>&darr;</button><button>+ Before</button><button>+ After</button><button>Edit</button><button>Delete</button></div>
+      </div>
+    </div>
+
+    <!-- right: editor -->
+    <div class="va-panel">
+      <div class="va-h" id="vaEditorTitle">Editing: Prague</div>
+      <div class="va-tabs">
+        <button class="active" onclick="vaTab(this)">Edit</button>
+        <button onclick="vaTab(this)">Notes</button>
+        <button onclick="vaTab(this)">Photos</button>
+        <button onclick="vaTab(this)">Sources</button>
+      </div>
+      <div class="va-editor">
+        <label>Stop name</label><input id="vaNameField" value="Prague">
+        <label>Stop type</label>
+        <select><option>city_stay</option><option>day_trip</option><option>travel_leg</option></select>
+        <label>Arrive</label><input value="2026-05-22">
+        <label>Depart</label><input value="2026-05-26">
+        <label>Location label</label><input value="Prague, Czechia">
+        <label>Latitude</label><input value="50.0755">
+        <label>Longitude</label><input value="14.4378">
+        <label>Summary</label><textarea>Four nights in the old town. Walked the Charles Bridge at dawn before the crowds.</textarea>
+        <label>Story angle</label><textarea>The morning market and the astronomical clock.</textarea>
+        <label>Operator notes</label><textarea>Confirm hotel name from booking email before memoir export.</textarea>
+        <label><input type="checkbox" checked style="width:auto;margin-right:6px">Include in memoir</label>
+        <div class="va-save-row"><button>Save</button><button class="danger">Delete stop</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="va-drawer" id="vaDrawerPhotos">
+    <button onclick="vaDrawer('vaDrawerPhotos')">&#9656; Trip photos (14)</button>
+    <div class="body">Photo strip renders here after Reload &mdash; run Cluster photos to place the 3 unplaced items. 2 links below confidence 0.5 are waiting in the review queue.</div>
+  </div>
+  <div class="va-drawer" id="vaDrawerOutput">
+    <button onclick="vaDrawer('vaDrawerOutput')">&#9656; Output</button>
+    <div class="body">Memoir preview / Travelogue preview / Export DOCX render into this drawer when triggered from the toolbar above.</div>
+  </div>
+</div>
+
+<!-- ================= VIEW B — REDESIGN ================= -->
+<div id="viewB" hidden>
+
+  <div class="vb-header">
+    <div class="vb-title">Spring 2026 Central Europe and Northern Italy</div>
+    <div class="vb-crumb" id="vbCrumb">Trip &rsaquo; Czechia &mdash; Prague &rsaquo; <b>Prague</b></div>
+    <div class="vb-meta">May 22 &ndash; Jun 13 &middot; 6 regions &middot; 21 stops &middot; 14 photos</div>
+  </div>
+
+  <div class="vb-tabs-row">
+    <button class="vb-tab active" data-mode="plan" onclick="setMode('plan',this)">Trip plan</button>
+    <button class="vb-tab" data-mode="photos" onclick="setMode('photos',this)">Photos</button>
+    <button class="vb-tab" data-mode="notes" onclick="setMode('notes',this)">Story notes</button>
+    <button class="vb-tab" data-mode="travelogue" onclick="setMode('travelogue',this)">Travelogue</button>
+    <button class="vb-tab" data-mode="sources" onclick="setMode('sources',this)">Sources</button>
+    <button class="vb-tab" data-mode="lori" onclick="setMode('lori',this)">Lori</button>
+    <button class="btn-primary vb-primary" id="vbPrimary" onclick="primaryAction()">+ Add stop</button>
+  </div>
+
+  <div class="vb-body">
+    <!-- left rail: route navigator -->
+    <div class="vb-rail" id="vbRail">
+      <div class="vb-rail-head">
+        <h4>Route</h4>
+        <button class="rail-collapse" onclick="railToggle()" title="Collapse route rail">&lsaquo;</button>
+      </div>
+      <div class="vb-nav-region" onclick="navSelect(this,'Germany — Bavaria')">Germany &mdash; Bavaria</div>
+      <div class="vb-nav-stop" onclick="navSelect(this,'Munich')">Munich</div>
+      <div class="vb-nav-region" onclick="navSelect(this,'Czechia — Prague')">Czechia &mdash; Prague</div>
+      <div class="vb-nav-stop sel" onclick="navSelect(this,'Prague')">Prague</div>
+      <div class="vb-nav-region" onclick="navSelect(this,'Austria — Salzburg/Graz')">Austria &mdash; Salzburg/Graz</div>
+      <div class="vb-nav-stop" onclick="navSelect(this,'Salzburg')">Salzburg</div>
+      <div class="vb-nav-stop" onclick="navSelect(this,'Graz')">Graz</div>
+      <div class="vb-nav-region" onclick="navSelect(this,'Hungary — Budapest')">Hungary &mdash; Budapest</div>
+      <div class="vb-nav-stop" onclick="navSelect(this,'Budapest')">Budapest</div>
+      <div class="vb-nav-region" onclick="navSelect(this,'Slovenia')">Slovenia</div>
+      <div class="vb-nav-stop" onclick="navSelect(this,'Ljubljana')">Ljubljana</div>
+      <div class="vb-nav-region" onclick="navSelect(this,'Italy — Veneto')">Italy &mdash; Veneto</div>
+      <div class="vb-nav-stop" onclick="navSelect(this,'Mirano')">Mirano</div>
+      <div class="vb-nav-stop" style="padding-left:36px" onclick="navSelect(this,'Venice day trip')">Venice day trip</div>
+      <div class="vb-nav-stop" style="padding-left:36px" onclick="navSelect(this,'Padua day trip')">Padua day trip</div>
+      <div class="vb-nav-stop" style="padding-left:36px" onclick="navSelect(this,'Verona day trip')">Verona day trip</div>
+    </div>
+    <button id="railExpand" class="rail-expand" hidden onclick="railToggle()" title="Expand route rail">&rsaquo;</button>
+
+    <!-- center workspace -->
+    <div class="vb-main">
+
+      <!-- ===== Trip plan ===== -->
+      <div class="mode-panel" id="mode-plan">
+        <div class="vb-region-head"><h3>Germany &mdash; Bavaria</h3><span class="sub">May 14 &ndash; May 22 &middot; 1 stop</span></div>
+        <div class="stop-card">
+          <div class="thumb" style="background:linear-gradient(135deg,#caa26b,#9c7443)"></div>
+          <div class="info">
+            <div class="name">Munich</div>
+            <div class="type">City stay &middot; May 14 &ndash; May 22</div>
+            <div class="evidence">3 photos &middot; 2 story notes &middot; date approved for Lori</div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Munich')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <button class="add-stop-card">+ Add stop to this region</button>
+
+        <div class="vb-region-head"><h3>Czechia &mdash; Prague</h3><span class="sub">May 22 &ndash; May 26 &middot; 1 stop</span></div>
+        <div class="stop-card">
+          <div class="thumb" style="background:linear-gradient(135deg,#d8c096,#ab8a58)"></div>
+          <div class="info">
+            <div class="name">Prague</div>
+            <div class="type">City stay &middot; May 22 &ndash; May 26</div>
+            <div class="evidence">2 photos &middot; 1 story note &middot; <span class="flag-review">draft date needs review</span></div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Prague')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <button class="add-stop-card">+ Add stop to this region</button>
+
+        <div class="vb-region-head"><h3>Austria &mdash; Salzburg/Graz</h3><span class="sub">May 26 &ndash; May 31 &middot; 2 stops</span></div>
+        <div class="stop-card">
+          <div class="thumb" style="background:linear-gradient(135deg,#c1975f,#8f6b3e)"></div>
+          <div class="info">
+            <div class="name">Salzburg</div>
+            <div class="type">City stay &middot; May 26 &ndash; May 29</div>
+            <div class="evidence">1 photo &middot; no story notes yet</div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Salzburg')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <div class="stop-card">
+          <div class="thumb" style="background:linear-gradient(135deg,#d1a874,#a0764a)"></div>
+          <div class="info">
+            <div class="name">Graz</div>
+            <div class="type">City stay &middot; May 29 &ndash; May 31</div>
+            <div class="evidence">no photos &middot; 1 story note</div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Graz')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <button class="add-stop-card">+ Add stop to this region</button>
+
+        <div class="vb-region-head"><h3>Italy &mdash; Veneto</h3><span class="sub">Jun 3 &ndash; Jun 13 &middot; 4 stops</span></div>
+        <div class="stop-card">
+          <div class="thumb" style="background:linear-gradient(135deg,#c6b089,#93683c)"></div>
+          <div class="info">
+            <div class="name">Mirano</div>
+            <div class="type">City stay (base) &middot; Jun 3 &ndash; Jun 13 &middot; 3 day trips</div>
+            <div class="evidence">4 photos &middot; 2 story notes &middot; place approved for Lori</div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Mirano')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <div class="stop-card child">
+          <div class="thumb" style="background:linear-gradient(135deg,#b98d5a,#87613a)"></div>
+          <div class="info">
+            <div class="name">Venice day trip</div>
+            <div class="type">Day trip &middot; Jun 5</div>
+            <div class="evidence">2 photos &middot; 1 story note</div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Venice day trip')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <div class="stop-card child">
+          <div class="thumb" style="background:linear-gradient(135deg,#d4b483,#a17847)"></div>
+          <div class="info">
+            <div class="name">Padua day trip</div>
+            <div class="type">Day trip &middot; Jun 8</div>
+            <div class="evidence">no photos &middot; no story notes yet</div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Padua day trip')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <div class="stop-card child">
+          <div class="thumb" style="background:linear-gradient(135deg,#c9a06a,#8f6b3e)"></div>
+          <div class="info">
+            <div class="name">Verona day trip</div>
+            <div class="type">Day trip &middot; Jun 10</div>
+            <div class="evidence">1 photo &middot; <span class="flag-review">guessed date needs review</span></div>
+          </div>
+          <button class="btn-ghost" onclick="openInspector('Verona day trip')">Edit</button>
+          <div class="reorder">&uarr; &darr;</div>
+        </div>
+        <button class="add-stop-card">+ Add stop to this region</button>
+        <p class="muted" style="font-size:13px">2 more regions below &mdash; Hungary &mdash; Budapest, Slovenia (collapsed in this prototype).</p>
+      </div>
+
+      <!-- ===== Photos ===== -->
+      <div class="mode-panel" id="mode-photos" hidden>
+        <div class="ph-wrap">
+          <div class="ph-filters">
+            <button class="ph-filter active" onclick="filterPhotos('all',this)">All &middot; 14</button>
+            <button class="ph-filter" onclick="filterPhotos('unplaced',this)">Unplaced &middot; 3</button>
+            <button class="ph-filter" onclick="filterPhotos('review',this)">Needs review &middot; 2</button>
+            <button class="ph-filter" onclick="filterPhotos('lori',this)">Shared with Lori &middot; 4</button>
+          </div>
+          <div class="ph-grid" id="phGrid">
+            <div class="ph-item" data-cat="lori"><div class="img" style="background:linear-gradient(135deg,#c9a06a,#8f6b3e)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Munich fish fountain')">Edit</button></div></div><div class="cap">May 14 &middot; EXIF &middot; approved &rarr; Lori<br>Munich &middot; fish fountain</div></div>
+            <div class="ph-item" data-cat="lori"><div class="img" style="background:linear-gradient(135deg,#b98d5a,#87613a)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Marienplatz morning')">Edit</button></div></div><div class="cap">May 14 &middot; EXIF &middot; approved &rarr; Lori<br>Munich &middot; Marienplatz</div></div>
+            <div class="ph-item" data-cat="lori"><div class="img" style="background:linear-gradient(135deg,#d4b483,#a17847)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — English Garden')">Edit</button></div></div><div class="cap">May 16 &middot; EXIF &middot; approved &rarr; Lori<br>Munich &middot; English Garden</div></div>
+            <div class="ph-item" data-cat="none"><div class="img" style="background:linear-gradient(135deg,#a97e4f,#7d5a33)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Charles Bridge')">Edit</button></div></div><div class="cap">May 23 &middot; EXIF<br>Prague &middot; Charles Bridge</div></div>
+            <div class="ph-item" data-cat="review"><div class="img" style="background:linear-gradient(135deg,#d8c096,#ab8a58)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — old town square')">Edit</button></div></div><div class="cap">guess &middot; <span class="flag-review">needs review</span><br>Prague &middot; old town square</div></div>
+            <div class="ph-item" data-cat="none"><div class="img" style="background:linear-gradient(135deg,#c1975f,#8f6b3e)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Salzburg fortress')">Edit</button></div></div><div class="cap">May 27 &middot; EXIF<br>Salzburg &middot; fortress</div></div>
+            <div class="ph-item" data-cat="none"><div class="img" style="background:linear-gradient(135deg,#caa26b,#9c7443)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Mirabell gardens')">Edit</button></div></div><div class="cap">May 28 &middot; EXIF<br>Salzburg &middot; Mirabell gardens</div></div>
+            <div class="ph-item" data-cat="unplaced"><div class="img" style="background:linear-gradient(135deg,#c6b089,#93683c)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — unplaced river scene')">Edit</button></div></div><div class="cap">Jun 1 &middot; EXIF &middot; unplaced<br>river scene &middot; run cluster</div></div>
+            <div class="ph-item" data-cat="unplaced"><div class="img" style="background:linear-gradient(135deg,#d1a874,#a0764a)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — unplaced café table')">Edit</button></div></div><div class="cap">no date &middot; scan &middot; unplaced<br>caf&eacute; table</div></div>
+            <div class="ph-item" data-cat="unplaced"><div class="img" style="background:linear-gradient(135deg,#ab8a58,#7d5a33)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — unplaced street corner')">Edit</button></div></div><div class="cap">no date &middot; no GPS &middot; unplaced<br>street corner</div></div>
+            <div class="ph-item" data-cat="none"><div class="img" style="background:linear-gradient(135deg,#d8bd8e,#b48755)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Ljubljana bridge')">Edit</button></div></div><div class="cap">Jun 2 &middot; EXIF<br>Ljubljana &middot; triple bridge</div></div>
+            <div class="ph-item" data-cat="lori"><div class="img" style="background:linear-gradient(135deg,#b48755,#87613a)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Mirano market')">Edit</button></div></div><div class="cap">Jun 9 &middot; EXIF &middot; approved &rarr; Lori<br>Mirano &middot; Monday market</div></div>
+            <div class="ph-item" data-cat="none"><div class="img" style="background:linear-gradient(135deg,#c9a877,#96703f)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Venice canal')">Edit</button></div></div><div class="cap">Jun 5 &middot; EXIF<br>Venice &middot; side canal</div></div>
+            <div class="ph-item" data-cat="review"><div class="img" style="background:linear-gradient(135deg,#c39a63,#8a6238)"><div class="overlay"><button onclick="setMode('lori')">Talk with Lori</button><button onclick="openInspector('Photo — Verona arena')">Edit</button></div></div><div class="cap">guess &middot; <span class="flag-review">needs review</span><br>Verona &middot; arena</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Story notes ===== -->
+      <div class="mode-panel" id="mode-notes" hidden>
+        <div class="intake">
+          <h3>Capture intake &mdash; 2 items awaiting review</h3>
+          <div class="intake-row"><span class="txt">&ldquo;The fish fountain was where we agreed to meet if we got separated.&rdquo; <span class="badge">from Lori modal &middot; photo-linked</span></span><button onclick="approveIntake(this)">Approve</button><button onclick="discardIntake(this)">Discard</button></div>
+          <div class="intake-row"><span class="txt">&ldquo;We almost missed the Graz train because of the bakery line.&rdquo; <span class="badge">from Lori chat</span></span><button onclick="approveIntake(this)">Approve</button><button onclick="discardIntake(this)">Discard</button></div>
+        </div>
+
+        <div class="note-card">
+          <div>We found the fish fountain near Marienplatz on our first morning in Munich. Melanie said it looked smaller than the postcards.</div>
+          <div class="note-meta">
+            <span class="badge">from Lori modal</span><span class="badge">Munich</span>
+            <button class="pill on" data-label="In memoir" onclick="togglePill(this)">In memoir &middot; on</button>
+            <button class="pill" data-label="Use with Lori" onclick="togglePill(this)">Use with Lori &middot; off</button>
+          </div>
+        </div>
+        <div class="note-card">
+          <div>The train from Salzburg to Graz ran along the river most of the way. We had the compartment to ourselves after Bischofshofen.</div>
+          <div class="note-meta">
+            <span class="badge">from Lori chat</span><span class="badge">Graz</span>
+            <button class="pill" data-label="In memoir" onclick="togglePill(this)">In memoir &middot; off</button>
+            <button class="pill" data-label="Use with Lori" onclick="togglePill(this)">Use with Lori &middot; off</button>
+          </div>
+        </div>
+        <div class="note-card">
+          <div>Mirano was our base for the Veneto &mdash; quiet at night, market on Mondays, and the espresso bar by the square knew our order by the third day.</div>
+          <div class="note-meta">
+            <span class="badge">from Lori modal</span><span class="badge">Mirano</span>
+            <button class="pill on" data-label="In memoir" onclick="togglePill(this)">In memoir &middot; on</button>
+            <button class="pill on" data-label="Use with Lori" onclick="togglePill(this)">Use with Lori &middot; on</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Travelogue ===== -->
+      <div class="mode-panel" id="mode-travelogue" hidden>
+        <div class="tl-card">
+          <div class="tl-kind">Region chapter</div>
+          <h3>Bavaria: eight days in Munich</h3>
+          <p>The trip opened in Munich in mid-May, with long light in the evenings and the city easing into early summer. The route from here ran east into Czechia before turning south through Austria toward Italy.</p>
+          <div class="tl-badges"><span class="badge">EXIF</span><span class="badge ok">public context</span></div>
+        </div>
+        <div class="tl-card">
+          <div class="tl-kind">Itinerary tile</div>
+          <h3>Prague &middot; May 22 &ndash; May 26</h3>
+          <p>Four nights in the old town, arriving by train from Munich. Onward to Salzburg on the morning of the 26th.</p>
+          <div class="tl-badges"><span class="badge">EXIF</span></div>
+        </div>
+        <div class="tl-card">
+          <div class="tl-kind">Discovery tile <span class="flag-review">Needs review</span></div>
+          <h3>The fish fountain near Marienplatz</h3>
+          <div class="tl-photos">
+            <div style="background:linear-gradient(135deg,#c9a06a,#8f6b3e)"></div>
+            <div style="background:linear-gradient(135deg,#b98d5a,#87613a)"></div>
+          </div>
+          <p>On the first morning the route passed the Fischbrunnen, the fish fountain at the edge of Marienplatz. The approved notes say it was where the two agreed to meet if they got separated. The fountain has stood on this spot in some form since the Middle Ages.</p>
+          <div class="tl-badges"><span class="badge">EXIF</span><span class="badge ok">public context</span><span class="badge accent">narrator memory</span><span class="badge draft">draft</span></div>
+        </div>
+        <div class="tl-card">
+          <div class="tl-kind">Sensory coda</div>
+          <h3>What stayed</h3>
+          <p>Bells over Marienplatz in the morning. The river smell on the Salzburg platform. Espresso cups clicking in Mirano before the market opened.</p>
+          <div class="tl-badges"><span class="badge accent">narrator memory</span></div>
+        </div>
+      </div>
+
+      <!-- ===== Sources ===== -->
+      <div class="mode-panel" id="mode-sources" hidden>
+        <div class="src-row"><span class="nm">rail-passes-may-2026.pdf</span><span class="muted">uploaded Jun 2 &middot; 4 pages</span><button>View</button></div>
+        <div class="src-row"><span class="nm">hotel-confirmations.eml</span><span class="muted">uploaded Jun 2 &middot; 6 bookings</span><button>View</button></div>
+        <div class="src-row"><span class="nm">museum-tickets-prague.pdf</span><span class="muted">uploaded Jun 4 &middot; 2 pages</span><button>View</button></div>
+        <p class="muted" style="font-size:13px;margin-top:14px">Documents are operator evidence only &mdash; nothing here reaches Lori without explicit approval.</p>
+      </div>
+
+      <!-- ===== Lori ===== -->
+      <div class="mode-panel" id="mode-lori" hidden>
+        <div class="lori-wrap">
+          <div class="lori-chat">
+            <div class="lori-scope">
+              <span class="muted">Scope: this trip &middot; Travel Doc workspace</span>
+              <span class="anchor-chip" id="anchorChip"><span class="a-thumb"></span>Munich fish fountain photo<button onclick="unanchor()" title="Unanchor photo">&times; Unanchor</button></span>
+            </div>
+            <div class="lori-msgs" id="loriMsgs">
+              <div class="msg user">What date was that photo taken?</div>
+              <div class="msg lori">The photo data suggests May 14, 2026. Does that match your memory?</div>
+              <div class="msg user">Yes, that was the morning we found the fish fountain near Marienplatz.</div>
+              <div class="msg lori">Noted for the trip record. Would you like this saved as a story note for the Munich stop?</div>
+              <div class="msg user">Yes please.</div>
+              <div class="msg lori">Saved to the capture intake for your review. What else do you remember about that morning?</div>
+            </div>
+            <div class="lori-input">
+              <input id="loriInput" placeholder="Ask about this photo or add a memory&hellip;" onkeydown="if(event.key==='Enter')loriSend()">
+              <button class="btn-primary" onclick="loriSend()">Send</button>
+            </div>
+          </div>
+          <div class="lori-side">
+            <h4>Capture intake sandbox</h4>
+            <p class="muted" style="font-size:12px;margin:0 0 10px">Everything Lori captures lands here first. Nothing reaches the memoir or Lori&rsquo;s memory until you approve it.</p>
+            <div class="capture-note">
+              &ldquo;Fish fountain near Marienplatz, morning of May 14 &mdash; meeting point if separated.&rdquo;
+              <div class="note-meta">
+                <span class="badge">from Lori modal &middot; photo-linked</span>
+              </div>
+              <div class="note-meta">
+                <button class="pill" data-label="In memoir" onclick="togglePill(this)">In memoir &middot; off</button>
+                <button class="pill" data-label="Use with Lori" onclick="togglePill(this)">Use with Lori &middot; off</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /vb-main -->
+  </div><!-- /vb-body -->
+
+  <!-- inspector (closed by default) -->
+  <div class="inspector" id="inspector">
+    <div class="insp-head">
+      <h3 id="inspTitle">Prague</h3>
+      <button class="insp-close" onclick="closeInspector()" title="Close">&times;</button>
+    </div>
+    <div class="insp-tabs">
+      <button class="active" onclick="inspTab(this)">Details</button>
+      <button onclick="inspTab(this)">Notes</button>
+      <button onclick="inspTab(this)">Photos</button>
+      <button onclick="inspTab(this)">Sources</button>
+    </div>
+    <div class="insp-body">
+      <label>Stop name</label><input id="inspName" value="Prague">
+      <label>Stop type</label>
+      <select><option>City stay</option><option>Day trip</option><option>Travel leg</option></select>
+      <label>Arrive</label><input type="date" value="2026-05-22">
+      <label>Depart</label><input type="date" value="2026-05-26">
+      <label>Location label</label><input value="Prague, Czechia">
+      <label>Latitude</label><input value="50.0755">
+      <label>Longitude</label><input value="14.4378">
+      <label>Summary</label><textarea>Four nights in the old town. Walked the Charles Bridge at dawn before the crowds.</textarea>
+      <label>Story angle</label><textarea>The morning market and the astronomical clock.</textarea>
+      <label>Operator notes</label><textarea>Confirm hotel name from booking email before memoir export.</textarea>
+      <label><input type="checkbox" checked style="width:auto;margin-right:6px">Include in memoir</label>
+      <div class="hint">Evidence: 2 photos linked &middot; 1 story note &middot; draft date from filename guess &mdash; approve or correct before it reaches the travelogue.</div>
+    </div>
+    <div class="insp-foot">
+      <button class="btn-primary" onclick="closeInspector()">Save</button>
+      <button class="btn-ghost" onclick="closeInspector()">Cancel</button>
+    </div>
+  </div>
+
+</div><!-- /viewB -->
+
+<script>
+(function(){
+  "use strict";
+  function $(s,el){ return (el||document).querySelector(s); }
+  function $$(s,el){ return Array.prototype.slice.call((el||document).querySelectorAll(s)); }
+
+  /* ---------- top-level view switch ---------- */
+  window.showView = function(v){
+    $('#viewA').hidden = (v !== 'a');
+    $('#viewB').hidden = (v !== 'b');
+    $('#swA').classList.toggle('active', v === 'a');
+    $('#swB').classList.toggle('active', v === 'b');
+    if (v === 'a') window.closeInspector();
+    window.scrollTo(0, 0);
+  };
+
+  /* ---------- View A (current layout) ---------- */
+  window.vaSelect = function(el, name){
+    $$('#viewA .va-tile').forEach(function(t){ t.classList.remove('sel'); });
+    el.classList.add('sel');
+    $('#vaEditorTitle').textContent = 'Editing: ' + name;
+    $('#vaNameField').value = name;
+  };
+  window.vaTab = function(btn){
+    $$('button', btn.parentElement).forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+  };
+  window.vaDrawer = function(id){
+    var d = document.getElementById(id);
+    d.classList.toggle('open');
+    var b = $('button', d);
+    b.innerHTML = (d.classList.contains('open') ? '&#9662; ' : '&#9656; ') + b.textContent.slice(2);
+  };
+
+  /* ---------- View B (redesign) ---------- */
+  var MODE_ACTIONS = {
+    plan: '+ Add stop',
+    photos: '+ Upload photos',
+    notes: '+ Add note',
+    travelogue: 'Generate draft',
+    sources: '+ Upload document',
+    lori: 'Open Lori chat'
+  };
+  var currentMode = 'plan';
+
+  window.setMode = function(name, btn){
+    currentMode = name;
+    $$('.mode-panel').forEach(function(p){ p.hidden = (p.id !== 'mode-' + name); });
+    $$('.vb-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.mode === name); });
+    $('#vbPrimary').textContent = MODE_ACTIONS[name];
+    if (!btn) window.scrollTo(0, 0);
+  };
+
+  window.primaryAction = function(){
+    if (currentMode === 'lori') { $('#loriInput').focus(); return; }
+    if (currentMode === 'plan') { window.openInspector('New stop'); return; }
+    /* upload / note / draft actions are stubs in this prototype */
+  };
+
+  window.railToggle = function(){
+    var rail = $('#vbRail'), exp = $('#railExpand');
+    rail.hidden = !rail.hidden;
+    exp.hidden = !rail.hidden;
+  };
+
+  window.navSelect = function(el, name){
+    $$('.vb-nav-region, .vb-nav-stop').forEach(function(n){ n.classList.remove('sel'); });
+    el.classList.add('sel');
+    var isRegion = el.classList.contains('vb-nav-region');
+    $('#vbCrumb').innerHTML = isRegion
+      ? 'Trip &rsaquo; <b>' + name + '</b>'
+      : 'Trip &rsaquo; region &rsaquo; <b>' + name + '</b>';
+  };
+
+  /* inspector */
+  window.openInspector = function(name){
+    $('#inspTitle').textContent = name;
+    $('#inspName').value = name;
+    $('#inspector').classList.add('open');
+    $('.insp-body').scrollTop = 0;
+  };
+  window.closeInspector = function(){
+    $('#inspector').classList.remove('open');
+  };
+  window.inspTab = function(btn){
+    $$('button', btn.parentElement).forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+  };
+
+  /* photos filter */
+  window.filterPhotos = function(cat, btn){
+    $$('.ph-filter').forEach(function(b){ b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    $$('#phGrid .ph-item').forEach(function(it){
+      it.style.display = (cat === 'all' || it.dataset.cat === cat) ? '' : 'none';
+    });
+  };
+
+  /* story-note pills + intake */
+  window.togglePill = function(el){
+    var on = el.classList.toggle('on');
+    el.textContent = el.dataset.label + ' · ' + (on ? 'on' : 'off');
+  };
+  window.approveIntake = function(btn){
+    btn.closest('.intake-row').innerHTML =
+      '<span class="muted">Approved — added to story notes below.</span>';
+  };
+  window.discardIntake = function(btn){
+    btn.closest('.intake-row').innerHTML =
+      '<span class="muted">Discarded — raw transcript remains in the archive.</span>';
+  };
+
+  /* lori chat */
+  window.loriSend = function(){
+    var inp = $('#loriInput'), txt = (inp.value || '').trim();
+    if (!txt) return;
+    var msgs = $('#loriMsgs');
+    var u = document.createElement('div');
+    u.className = 'msg user';
+    u.textContent = txt;
+    msgs.appendChild(u);
+    inp.value = '';
+    msgs.scrollTop = msgs.scrollHeight;
+    setTimeout(function(){
+      var l = document.createElement('div');
+      l.className = 'msg lori';
+      l.textContent = 'Noted for the trip record. I’ll keep that with the Munich stop until you approve it in the capture intake.';
+      msgs.appendChild(l);
+      msgs.scrollTop = msgs.scrollHeight;
+    }, 500);
+  };
+  window.unanchor = function(){
+    var chip = $('#anchorChip');
+    if (chip) chip.outerHTML = '<span class="muted">No photo anchored — pick one from the Photos tab.</span>';
+  };
+
+  /* esc closes the inspector */
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') window.closeInspector();
+  });
+
+  /* init */
+  window.setMode('plan');
+})();
+</script>
+</body>
+</html>

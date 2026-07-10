@@ -1,0 +1,54 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Mockup 1 — Current Travel Doc</title><link rel="stylesheet" href="styles.css"></head>
+<body><div class="app">
+    <header class="topbar">
+      <div class="logo">Hornelore <small>1.0</small></div>
+      <div class="narrator-pill">
+        <div class="avatar">C</div>
+        <div><div class="kicker">Active Narrator</div><strong>Chris</strong><small>Christopher Todd Horne · Dec 24, 1962 · Williston, North Dakota</small></div>
+      </div>
+      <div class="mode-pills"><span class="active">Life Story</span><span>Memory Exercise</span><span>Companion</span></div>
+      <div class="header-actions"><button class="dark small">● Mic</button><button class="dark small">● Cam</button><button class="dark small">🔍 Bug</button><button class="dark small">⚙</button></div>
+    </header>
+    <nav class="main-tabs"><span>Operator</span><span>Intake</span><span>Narrator Session</span><span>Trips</span><span class="active">Travel Doc</span><span>Media</span></nav>
+    
+<main class="page-shell current-grid">
+  <div class="workspace-label">Mockup 1 — Current Travel Doc</div>
+  <section class="current-left">
+    <div class="panel"><div class="panel-head"><h2>Narrator</h2></div><div class="form"><p>Documenting trips for <b style="color:#7a4b11">Chris</b></p><div><button>Reload trips</button> <button>Focus</button></div></div></div>
+    <div class="panel"><div class="panel-head"><h2>Trips</h2><button>Refresh</button></div><div class="form"><div class="card trip-card"><h3>Spring 2026 Central Europe & Northern Italy</h3><p class="muted">2026-05-22 to 2026-06-13</p></div><button class="ghost">+ New trip</button></div></div>
+  </section>
+  <section class="current-main panel">
+    <div class="form">
+      <div class="kicker">Selected trip</div>
+      <h1>Spring 2026 Central Europe & Northern Italy</h1>
+      <p class="muted">2026-05-22 to 2026-06-13</p>
+      <hr style="border:0;border-top:1px solid var(--line)">
+      <div style="display:flex;gap:.55rem;flex-wrap:wrap">
+        <button>Edit trip</button><button>Talk with Lori</button><button class="primary">+ Region</button><button class="primary">+ Stop</button><button>Reload</button><button>Memoir preview</button>
+      </div>
+      <p class="muted">Tile order is the route order. Use the tile buttons to reorder, insert, or restructure — dates are just metadata.</p>
+      <div class="tile selected">
+        <div class="tile-head"><div><h2>Germany/Bavaria</h2><p class="muted">2026-05-13 to 2026-05-15</p><b style="color:#805015">story</b><p class="muted">No stops yet.</p></div><div class="tile-actions"><button class="small">↑</button><button class="small">↓</button><button class="small">+ Stop</button><button class="small">Edit</button><button class="small danger">Delete</button></div></div>
+      </div>
+      <div class="tile">
+        <div class="tile-head"><div><h2>Czechia — Prague</h2><p class="muted">2026-05-22 to 2026-05-24</p></div><div class="tile-actions"><button class="small">↑</button><button class="small">↓</button><button class="small">+ Stop</button><button class="small">Edit</button><button class="small danger">Delete</button></div></div>
+        <div class="tile" style="margin-top:.8rem"><div class="tile-head"><div><h3>Prague</h3><p class="muted">base · 2026-05-22 to 2026-05-24</p></div><div class="tile-actions"><button class="small">↑</button><button class="small">↓</button><button class="small">+ Before</button><button class="small">+ After</button><button class="small">Edit</button></div></div></div>
+      </div>
+    </div>
+  </section>
+  <aside class="current-right">
+    <div class="right-toggle"><button class="active">Editor</button><button>Timeline</button></div>
+    <section class="panel">
+      <div class="panel-head"><h2>Region · Germany/Bavaria</h2><button>Clear</button></div>
+      <div class="form">
+        <div class="editor-tabs"><span class="active">Edit</span><span>Story notes</span><span>Photos</span><span>Sources</span></div>
+        <label>Region title<input value="Germany/Bavaria"></label>
+        <label>Country or area<input value="Germany"></label>
+        <label>Start date<input value="05/13/2026"></label>
+        <label>End date<input value="05/15/2026"></label>
+        <label>Base address / lodging<textarea>Hotel Deutsches Theater Landwehrstraße München</textarea></label>
+      </div>
+    </section>
+  </aside>
+</main></div></body></html>
