@@ -1,6 +1,6 @@
 # WO-TRAVEL-DOC-LORI-MODAL-01
 
-**Status:** SPEC (filed 2026-07-09 from ChatGPT/Chris live-workflow triage, transcript switch_mre0txvh_tb7w). **Build 3 (LLM date/event drafts) is PAUSED behind this** — "otherwise we keep adding smart context to the wrong interaction model."
+**Status:** BACKEND CAPTURE SLICE LANDED 2026-07-09 (migration 0024 source_surface + `capture_modal_turn` + chat_ws `surface=travel_doc_modal` branch + question-detector hardening + 8 tests). FE modal (UI + WS scope + sandbox drawer + anchor chip + prompt context) = next session's single focus. (Filed 2026-07-09 from ChatGPT/Chris live-workflow triage, transcript switch_mre0txvh_tb7w). **Build 3 (LLM date/event drafts) is PAUSED behind this** — "otherwise we keep adding smart context to the wrong interaction model."
 **Lane:** Travel Doc / Lori surfaces.
 
 ## Product rule (locked)
@@ -45,6 +45,16 @@ Open Travel Doc → select photo → Talk with Lori → modal opens IN Travel
 Doc. Ask "what date was that taken?" → Lori answers "I don't have an
 approved taken date for this photo yet…" — and the photo card is still
 on screen to approve or edit the date.
+
+## Adopted UI decisions (Chris+ChatGPT+Gemini convergence, 2026-07-09)
+
+**IN the modal build (required, not polish):** (1) **Lori Capture Intake Sandbox** — persistent drawer in the modal: rolling capture feed from the current session, each row shows "from Lori modal" + scope (trip/region/stop/photo, thumbnail badge when photo-linked) + Assign-to-Stop ▼ + edit/delete + In-memoir OFF + Use-with-Lori OFF. (2) **Photo Anchor Chip** — thumbnail + label + ✕ Unanchor beside the modal input when active_photo_link_id is set; captures attach to the photo ONLY while the chip is present; ✕ clears the anchor; NO timeout-based clearing; narrator shelf does NOT get the chip yet.
+
+**Build 7 polish (banked):** approval-block grouping "Shared with Lori" (VETOED wording: "Lori's Eyes Only") with green trusted / amber machine-draft badges + edit-clears-approval micro-animation; amber chronology nudge (child-stop dates outside parent range, non-blocking); big timeline split-pane/subway visual later.
+
+**Rejected wording:** never label provisional inserts "Lori is remembering…" — "Draft"/"Provisional"/dotted outline only (parser drafts; Lori doesn't remember).
+
+**Acceptance test file:** opt-in Mark Twain gate (`HORNELORE_RUN_MODAL_ACCEPTANCE=1`, tests/test_travel_doc_lori_modal_mark_twain.py) — arrives from ChatGPT via upload; review before commit.
 
 ## Tests (15 — from the filing, verbatim intent)
 
