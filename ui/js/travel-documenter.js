@@ -940,7 +940,7 @@
       }
       card.appendChild(el("small", "td-photo-meta", dateLine));
       card.appendChild(el("small", "td-photo-meta",
-        l.photo_gps_present ? "GPS found (kept private)" : "No GPS"));
+        l.photo_gps_present ? "GPS found \u2014 available for Travel Doc context" : "No GPS"));
       var placeIn = document.createElement("input");
       placeIn.type = "text"; placeIn.className = "td-photo-cap";
       placeIn.placeholder = "place label (broad — e.g. Munich area)";

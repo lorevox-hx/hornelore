@@ -46,7 +46,7 @@ def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
         "approved_context": None, "narrator_caption": None,
         "approved_taken_date": None, "draft_context": None,
         "filename_guess": None, "approved_place": None,
-        "draft_date": None, "draft_place": None,
+        "draft_date": None, "draft_place": None, "gps_present": False,
     }
     if not photo_link_id:
         return out
@@ -72,6 +72,7 @@ def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
         elif l.get("photo_date_value"):
             out["draft_date"] = l["photo_date_value"]   # EXIF/unapproved
         out["filename_guess"] = l.get("photo_taken_at_filename_guess")
+        out["gps_present"] = bool(l.get("photo_gps_present"))
         if not out.get("draft_date") and out["filename_guess"]:
             out["draft_date"] = out["filename_guess"]
         if (l.get("photo_location_label")
@@ -156,22 +157,41 @@ def answer_modal_direct_question(
             return ("Your own caption on this photo says: "
                     + pkt["narrator_caption"]
                     + " What else do you remember?")
+        # POLICY 2026-07-10 (two-surface rule): Travel Doc is the
+        # operator memoir workspace — EVIDENCE-RICH, provenance-labeled,
+        # never hidden. Compose everything available; expose lanes that
+        # haven't run yet instead of pleading no-context. Certainty (not
+        # privacy) is the constraint: suggestive wording before
+        # confirmation, approved wording after.
         draft_bits: List[str] = []
         if pkt.get("draft_context"):
             draft_bits.append("the draft photo context suggests "
                               + pkt["draft_context"].rstrip("."))
         if pkt.get("draft_date"):
-            draft_bits.append("the file data suggests "
+            draft_bits.append("the photo data suggests it was taken "
                               + _fmt_date(pkt["draft_date"]))
         if pkt.get("draft_place"):
             draft_bits.append("the location note appears to point to "
                               + pkt["draft_place"].rstrip("."))
+        missing: List[str] = []
+        if pkt.get("gps_present") and not (pkt.get("draft_place")
+                                           or pkt.get("approved_place")):
+            missing.append("GPS coordinates are recorded, but place "
+                           "extraction hasn't run yet")
+        if not pkt.get("draft_context"):
+            missing.append("no image or OCR draft has been added yet")
         if draft_bits:
             joined = draft_bits[0]
             if len(draft_bits) > 1:
                 joined += ", and " + ", and ".join(draft_bits[1:])
-            return (joined[0].upper() + joined[1:]
-                    + ". Does that match your memory?")
+            tail = (" (" + "; ".join(missing) + ")") if missing else ""
+            return (joined[0].upper() + joined[1:] + "."
+                    + tail + " Does that match your memory?")
+        if missing:
+            return ("I don't have drafted context for this photo yet — "
+                    + "; ".join(missing)
+                    + ". The Travel Doc can capture what you remember "
+                    "either way — what stands out from that moment?")
         if not pkt.get("photo_link_id"):
             return ("No photo is anchored right now — open 'Talk with "
                     "Lori about this photo' on a photo card and I can "

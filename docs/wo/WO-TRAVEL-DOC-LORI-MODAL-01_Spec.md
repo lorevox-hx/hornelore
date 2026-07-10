@@ -129,6 +129,21 @@ Build 1.5 guards verified WORKING live (Bavaria normalized, no SYSTEM leak, no p
 
 Photo-scoped modal + anchor chip ✓ · "what can you tell me about that photo" → "The file data suggests May 14, 2026. Does that match your memory?" (draft-hedged) ✓ · Date→Lori approved → "The approved taken date for this photo is May 14, 2026." ✓ · memory answer → grounded LLM reply (no parroting, no vision claims) ✓ · capture row: source_surface=travel_doc_modal, source_turn_ref=modal_turn:<conv>:tdmodal_t3, photo-linked, both flags 0 ✓ · Sandbox drawer shows "from Lori modal 📷 … In memoir OFF · Use with Lori OFF" ✓. Deferred: draft place/context composition (needs operator-entered draft fields — the one open spec item).
 
+## TWO-SURFACE POLICY (LOCKED 2026-07-10 — supersedes narrator-room caution in the modal)
+
+**Narrator Room = conservative. Travel Doc modal = EVIDENCE-RICH.** In the
+modal Lori uses ALL available photo evidence (EXIF/filename date, GPS +
+derived place, OCR, draft vision, captions, context, route, prior notes) —
+never hidden from the operator, only provenance-labeled. Certainty is the
+constraint, not privacy: suggestive wording before confirmation ("The photo
+data suggests… / The GPS metadata appears to place this near… / Does that
+match your memory?"), approved wording after. Missing lanes are exposed
+honestly ("GPS coordinates are recorded, but place extraction hasn't run
+yet"), never pleaded as no-context. UI: "GPS found — available for Travel
+Doc context" (the "kept private" phrasing is narrator-room language and is
+retired from this surface). Landed same day: evidence-composed about-photo
+answers + missing-lane exposure + UI wording.
+
 ## Revision history
 
 - 2026-07-09 — Filed; Build 3 paused; interim honest-unknown fix landed.
