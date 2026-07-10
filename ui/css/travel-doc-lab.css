@@ -163,6 +163,10 @@
 .tdl-picker-cell input[type="checkbox"] { position: absolute; top: .55rem; left: .55rem; width: auto; z-index: 1; }
 .tdl-picker-cell img { width: 100%; aspect-ratio: 1.25; object-fit: cover; border-radius: 7px; border: 1px solid var(--tdl-line); background: #eee6d6; }
 .tdl-picker-meta { display: flex; justify-content: space-between; gap: .3rem; font-size: .74rem; color: #30465d; }
+/* Attach vs Move — reassignment is explicit, never silent */
+.tdl-picker-action { font-size: .72rem; font-weight: 800; color: #35597e; }
+.tdl-picker-action-move { color: #8a5a12; }
+.tdl-move-notice { flex: none; padding: .5rem 1rem; font-size: .8rem; font-weight: 700; color: #8a5a12; background: #fdf3df; border-top: 1px solid var(--tdl-line); }
 
 /* Lori overlay drawer */
 .tdl-lori-overlay-panel { width: min(560px, 96vw); }

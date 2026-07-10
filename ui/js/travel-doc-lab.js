@@ -47,7 +47,8 @@
     selectedPhotoLinkId: null,
     routeSel: null,      // {kind:"region"|"stop", id, regionId}
     photoFilter: "all",
-    loriOverlay: false,      // Lori as a drawer over Trip Plan
+    loriOverlay: false,      // Lori as a drawer over Trip Plan / Photos
+    loriReturnTab: "plan",   // context-aware Back label + return surface
     photoPickerDayId: null,  // in-lab day photo picker drawer
     noteDrawerDayId: null,   // in-lab day note drawer
     mainScroll: 0,           // preserved across re-renders / drawer close
@@ -172,6 +173,7 @@
     st.routeSel = null;
     st.travelogue = null;
     st.loriOverlay = false;
+    st.loriReturnTab = "plan";
     st.photoPickerDayId = null;
     st.noteDrawerDayId = null;
     if (!st.trip) { renderAll(); return Promise.resolve(); }
@@ -498,6 +500,11 @@
     return wrap;
   }
 
+  // DEFERRED (2026-07-10 review): there is no date-range reconcile flow
+  // for regenerated days. If trip dates change after day cards exist,
+  // out-of-range day cards persist by design (generation only appends
+  // missing dates; it never deletes operator work). A reconcile UI /
+  // note for those orphaned cards is a future WO.
   function generateDays() {
     if (!st.trip) return;
     api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/generate-from-dates",
@@ -510,11 +517,13 @@
   // One clear, consistent action row per day — same labels, same order,
   // EVERYWHERE a day is actionable (card + inspector). Full labels wrap
   // to a second line rather than truncating (Chris's laptop review).
+  // "Attach photos" (not "Add photos"): the picker attaches EXISTING
+  // trip photos to the day — new uploads still come in via Photo Intake.
   function dayActionRow(day) {
     var actions = el("div", "tdl-day-actions");
     actions.appendChild(btn("tdl-btn tdl-btn-gold", "💬 Talk with Lori",
       function () { openLoriOverlay(day.id); }));
-    actions.appendChild(btn("tdl-btn", "＋ Add photos",
+    actions.appendChild(btn("tdl-btn", "＋ Attach photos",
       function () { openPhotoPicker(day.id); }));
     actions.appendChild(btn("tdl-btn", "＋ Add note",
       function () { openNoteDrawer(day.id); }));
@@ -579,6 +588,10 @@
 
   // ── Day-detail inspector (fixed header / scroll body / sticky footer) ─
 
+  // DEFERRED (2026-07-10 review): trip_sources has no trip_day_id column
+  // yet, so sources can only be day-scoped by approximation through the
+  // day's linked stop/region. True day-scoped sources need a future
+  // migration adding trip_day_id to trip_sources — out of lab scope.
   function dayScopedRows(rows, day) {
     if (day.trip_stop_id) {
       return rows.filter(function (r) { return r.trip_stop_id === day.trip_stop_id; });
@@ -885,7 +898,7 @@
     if (!dayLinks.length && !dateLinks.length) {
       ph.appendChild(el("p", "tdl-muted", "No photos on this day yet."));
     }
-    ph.appendChild(btn("tdl-btn", "＋ Add photos",
+    ph.appendChild(btn("tdl-btn", "＋ Attach photos",
       function () { openPhotoPicker(day.id); }));
     body.appendChild(ph);
 
@@ -971,7 +984,7 @@
 
     var head = el("div", "tdl-drawer-head");
     var ht = el("div");
-    ht.appendChild(el("div", "tdl-kicker", "Add photos"));
+    ht.appendChild(el("div", "tdl-kicker", "Attach existing trip photos"));
     ht.appendChild(el("strong", "", dayChipText(day)));
     head.appendChild(ht);
     head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Back to Trip Plan",
@@ -984,6 +997,36 @@
       "this day card and show in the day's Photos section."));
 
     var checked = {};
+
+    // Attach vs Move — reassignment is never silent. Links already on
+    // ANOTHER day are labeled "Move to this day" per row, the confirm
+    // button splits the counts, and a one-line notice spells out the
+    // move. Inline notice only — no native confirm() dialogs.
+    function selCounts() {
+      var counts = { attach: 0, move: 0 };
+      Object.keys(checked).forEach(function (k) {
+        if (!checked[k]) return;
+        var l = st.photoLinks.filter(function (x) { return x.id === k; })[0];
+        if (l && l.trip_day_id) counts.move += 1; else counts.attach += 1;
+      });
+      return counts;
+    }
+    function paintAttach() {
+      var c = selCounts();
+      var total = c.attach + c.move;
+      if (!total) {
+        attach.textContent = "Attach selected to " + dayChipText(day);
+      } else if (c.move) {
+        attach.textContent = "Attach " + c.attach + " · Move " + c.move;
+      } else {
+        attach.textContent = "Attach " + c.attach + " to " + dayChipText(day);
+      }
+      attach.disabled = !total;
+      moveNotice.textContent = c.move ?
+        (c.move + " photo(s) will move from other days.") : "";
+      moveNotice.style.display = c.move ? "" : "none";
+    }
+
     var grid = el("div", "tdl-picker-grid");
     var pickable = st.photoLinks.filter(function (l) {
       return l.trip_day_id !== day.id;
@@ -1001,10 +1044,7 @@
       cb.type = "checkbox";
       cb.addEventListener("change", function () {
         checked[l.id] = cb.checked;
-        var n = Object.keys(checked).filter(function (k) { return checked[k]; }).length;
-        attach.textContent = n ? ("Attach " + n + " to " + dayChipText(day)) :
-          ("Attach selected to " + dayChipText(day));
-        attach.disabled = !n;
+        paintAttach();
       });
       cell.appendChild(cb);
       var im = document.createElement("img");
@@ -1020,10 +1060,17 @@
           other ? ("on Day " + other.day_index) : "on another day"));
       }
       cell.appendChild(meta);
+      cell.appendChild(el("small",
+        "tdl-picker-action" + (l.trip_day_id ? " tdl-picker-action-move" : ""),
+        l.trip_day_id ? "Move to this day" : "Attach"));
       grid.appendChild(cell);
     });
     body.appendChild(grid);
     drawer.appendChild(body);
+
+    var moveNotice = el("div", "tdl-move-notice");
+    moveNotice.style.display = "none";
+    drawer.appendChild(moveNotice);
 
     var foot = el("div", "tdl-drawer-foot");
     var attach = btn("tdl-btn tdl-btn-primary",
@@ -1229,7 +1276,11 @@
         ["Note → Lori", sel.operator_context_approved_for_lori],
         ["Date → Lori", sel.photo_date_approved_for_lori],
         ["Place → Lori", sel.photo_location_approved_for_lori],
-        ["GPS on file (private)", sel.photo_gps_present]].forEach(function (f) {
+        // Two-surface doctrine (2026-07-10, locked): Travel Doc is the
+        // EVIDENCE-RICH operator surface — GPS presence is advertised as
+        // usable context here. "(private)" is narrator-room language and
+        // is banned on this surface.
+        ["GPS found — available for Travel Doc context", sel.photo_gps_present]].forEach(function (f) {
         var row = el("div", "tdl-flag-row");
         row.appendChild(el("span", "", f[0]));
         row.appendChild(el("span", f[1] ? "tdl-flag-on" : "tdl-flag-off",
@@ -1241,8 +1292,9 @@
       }
       detail.appendChild(btn("tdl-btn tdl-btn-gold",
         "💬 Talk with Lori about this photo", function () {
-          loriPane.anchorPhoto(sel.id);
-          setTab("lori");
+          // SAME in-context overlay drawer the day cards use — never
+          // tab navigation away from the photo the operator is on.
+          openLoriOverlayForPhoto(sel.id);
         }));
     }
     ws.appendChild(detail);
@@ -1614,6 +1666,7 @@
 
   function openLoriOverlay(dayId) {
     st.tab = "plan";
+    st.loriReturnTab = "plan";
     st.selectedDayId = dayId || st.selectedDayId;
     st.photoPickerDayId = null;
     st.noteDrawerDayId = null;
@@ -1624,9 +1677,25 @@
     if (loriPane.input) loriPane.input.focus();
   }
 
+  // Photo-scoped Lori: the SAME overlay drawer, opened over the Photos
+  // tab. Back returns to Photos with scroll position and the selected
+  // photo intact (closeLoriOverlay never touches tab/selection/scroll).
+  function openLoriOverlayForPhoto(photoLinkId) {
+    st.tab = "photos";
+    st.loriReturnTab = "photos";
+    st.photoPickerDayId = null;
+    st.noteDrawerDayId = null;
+    loriPane.anchorPhoto(photoLinkId || null);
+    st.loriOverlay = true;
+    renderAll();
+    loriPane.connect();
+    if (loriPane.input) loriPane.input.focus();
+  }
+
   function closeLoriOverlay() {
-    // Back to Trip Plan — the selected day + workspace scroll position
-    // are preserved (renderAll restores st.mainScroll).
+    // Back to Trip Plan / Back to Photos — the underlying tab, selected
+    // day/photo, and workspace scroll position are all preserved
+    // (renderAll restores st.mainScroll; st.tab is never changed here).
     st.loriOverlay = false;
     renderAll();
   }
@@ -1647,9 +1716,15 @@
       scopeLine.appendChild(el("span", "tdl-muted",
         " · active_trip_day_id=" + String(loriPane.dayId).slice(0, 8) + "…"));
     }
+    if (loriPane.photoLinkId) {
+      scopeLine.appendChild(el("span", "tdl-muted",
+        " · active_photo_link_id=" + String(loriPane.photoLinkId).slice(0, 8) + "…"));
+    }
     ht.appendChild(scopeLine);
     head.appendChild(ht);
-    head.appendChild(btn("tdl-btn tdl-btn-small", "‹ Back to Trip Plan",
+    // Context-aware back label: the drawer returns wherever it came from.
+    head.appendChild(btn("tdl-btn tdl-btn-small",
+      st.loriReturnTab === "photos" ? "‹ Back to Photos" : "‹ Back to Trip Plan",
       closeLoriOverlay));
     drawer.appendChild(head);
 
@@ -1666,6 +1741,29 @@
       chip.appendChild(x);
       chipRow.appendChild(chip);
       drawer.appendChild(chipRow);
+    }
+
+    if (loriPane.photoLinkId) {
+      var plink = st.photoLinks.filter(function (l) {
+        return l.id === loriPane.photoLinkId;
+      })[0];
+      var pRow = el("div", "tdl-lori-overlay-chip-row");
+      var pchip = el("span", "tdl-lori-chip");
+      if (plink) {
+        var pim = document.createElement("img");
+        pim.src = thumbUrl(plink.photo_id);
+        pim.alt = "anchored photo";
+        pchip.appendChild(pim);
+      }
+      pchip.appendChild(el("span", "", "Photo anchored"));
+      var px = btn("", "✕", function () {
+        loriPane.anchorPhoto(null);
+        renderAll();
+      });
+      px.title = "Unanchor photo";
+      pchip.appendChild(px);
+      pRow.appendChild(pchip);
+      drawer.appendChild(pRow);
     }
 
     if (!loriPane.node) loriPane.build();

@@ -162,10 +162,36 @@ class UsabilityReviewTest(unittest.TestCase):
         self.assertIn("/photos/link", src)
         self.assertIn("/photos/unlink", src)
         self.assertIn("photo_link_ids", src)
-        self.assertIn("Add photos", src)
+        self.assertIn("Attach photos", src)
+        self.assertIn("Attach existing trip photos", src)
         self.assertIn("Unlink", src)
         # Day attachment is first-class in the link rows.
         self.assertIn("trip_day_id", src)
+
+    def test_photo_picker_attach_vs_move_is_explicit(self):
+        # 2026-07-10 review fix 3: links already attached to ANOTHER day
+        # are never silently reassigned. Per-row labels split Attach vs
+        # Move, the confirm button carries both counts, and a one-line
+        # inline notice replaces any native confirm() dialog.
+        src = _stripped_js()
+        self.assertIn("Move to this day", src)
+        self.assertIn('"Attach"', src)
+        self.assertIn("Attach \" + c.attach + \" · Move \" + c.move", src)
+        self.assertIn("will move from other days.", src)
+        self.assertIn("on Day ", src)
+        self.assertIn("tdl-move-notice", src)
+        self.assertNotIn("confirm(", src.replace("paintAttach(", ""))
+        css = _stripped_css()
+        self.assertIn(".tdl-move-notice", css)
+        self.assertIn(".tdl-picker-action", css)
+
+    def test_gps_wording_uses_two_surface_doctrine(self):
+        # 2026-07-10 review fix 2: Travel Doc is the evidence-rich
+        # operator surface. "(private)" GPS phrasing is narrator-room
+        # language and is banned here.
+        src = _stripped_js()
+        self.assertNotIn("GPS on file (private)", src)
+        self.assertIn("GPS found — available for Travel Doc context", src)
 
     def test_in_lab_day_note_drawer(self):
         src = _stripped_js()
@@ -181,17 +207,33 @@ class UsabilityReviewTest(unittest.TestCase):
         self.assertIn("active_trip_day_id", src)
         self.assertIn("Unanchor day", src)
 
+    def test_photo_lori_opens_overlay_drawer_not_tab(self):
+        # 2026-07-10 review fix 1: "Talk with Lori about this photo"
+        # opens the SAME in-context overlay drawer the day cards use.
+        # The photo action must never tab-navigate to the Lori tab.
+        src = _stripped_js()
+        self.assertNotIn('setTab("lori")', src)
+        self.assertIn("openLoriOverlayForPhoto", src)
+        # Context-aware back label: photos return to Photos, day cards
+        # return to Trip Plan.
+        self.assertIn("Back to Photos", src)
+        self.assertIn("loriReturnTab", src)
+        # Photo chip stays visible in the overlay.
+        self.assertIn("Unanchor photo", src)
+        self.assertIn("active_photo_link_id", src)
+
     def test_day_card_actions_are_full_labels_in_one_order(self):
         src = _stripped_js()
         # One consistent action row builder used everywhere.
         self.assertIn("dayActionRow", src)
-        for label in ("Talk with Lori", "Add photos", "Add note", "Edit day"):
+        for label in ("Talk with Lori", "Attach photos", "Add note",
+                      "Edit day"):
             self.assertIn(label, src)
-        # Order locked: Talk with Lori, then Add photos, then Add note,
-        # then Edit day, inside the shared builder.
+        # Order locked: Talk with Lori, then Attach photos, then Add
+        # note, then Edit day, inside the shared builder.
         i = src.index("function dayActionRow")
         block = src[i:i + 700]
-        pos = [block.index("Talk with Lori"), block.index("Add photos"),
+        pos = [block.index("Talk with Lori"), block.index("Attach photos"),
                block.index("Add note"), block.index("Edit day")]
         self.assertEqual(pos, sorted(pos), "day action order drifted")
 
