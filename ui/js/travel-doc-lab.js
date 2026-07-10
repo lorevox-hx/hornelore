@@ -11,6 +11,13 @@
    in-lab day notes, Lori as an in-context drawer over Trip Plan with an
    explicit Back to Trip Plan control, collapsible inspector sections.
 
+   WO-TRAVEL-DOC-UI-LAB-03 (2026-07-10, closes the two deferred gaps):
+   true day-scoped sources (trip_sources.trip_day_id, migration 0029 —
+   attach/move/unlink sources per day card, day-first counts) and the
+   date-range reconcile flow (missing-day / outside-date banners, the
+   reconcile review drawer — day cards are NEVER deleted), plus the
+   lab-only evaluation checklist panel on Trip Plan.
+
    Boundaries (locked, enforced by tests/test_travel_doc_lab.py):
    - Zero impact on production surfaces: does NOT load or reference the
      production Travel Doc module, the narrator room, the Travels shelf,
@@ -47,6 +54,10 @@
     selectedPhotoLinkId: null,
     routeSel: null,      // {kind:"region"|"stop", id, regionId}
     photoFilter: "all",
+    sourceFilter: "all",     // Sources tab: all/day/unattached/memoir
+    reconcile: null,         // /days/reconcile-preview (date-range diff)
+    reconcileDrawerOpen: false,
+    sourceDrawerDayId: null, // in-lab day source drawer
     loriOverlay: false,      // Lori as a drawer over Trip Plan / Photos
     loriReturnTab: "plan",   // context-aware Back label + return surface
     photoPickerDayId: null,  // in-lab day photo picker drawer
@@ -176,6 +187,9 @@
     st.loriReturnTab = "plan";
     st.photoPickerDayId = null;
     st.noteDrawerDayId = null;
+    st.sourceDrawerDayId = null;
+    st.reconcile = null;
+    st.reconcileDrawerOpen = false;
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
   }
@@ -189,6 +203,8 @@
       api("/api/trips/" + t + "/location-notes"),
       api("/api/trips/" + t + "/sources").catch(function () { return { sources: [] }; }),
       api("/api/trips/" + t + "/public-context").catch(function () { return { public_context: [] }; }),
+      api("/api/trips/" + t + "/days/reconcile-preview").catch(function () { return null; }),
+      api("/api/trips/" + t + "/travelogue-preview").catch(function () { return null; }),
     ]).then(function (outs) {
       st.tree = outs[0];
       st.days = outs[1].days || [];
@@ -196,6 +212,8 @@
       st.notes = outs[3].notes || [];
       st.sources = outs[4].sources || [];
       st.publicContext = outs[5].public_context || [];
+      st.reconcile = outs[6];
+      st.travelogue = outs[7];
       st.error = "";
       renderAll();
     }).catch(function (e) {
@@ -220,6 +238,20 @@
     if (!st.trip) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/photo-links")
       .then(function (out) { st.photoLinks = out.photo_links || []; });
+  }
+
+  function reloadSources() {
+    if (!st.trip) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources")
+      .then(function (out) { st.sources = out.sources || []; });
+  }
+
+  function reloadReconcile() {
+    if (!st.trip) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      "/days/reconcile-preview")
+      .then(function (out) { st.reconcile = out; })
+      .catch(function () { st.reconcile = null; });
   }
 
   // ── person picker (no person_id in the URL) ──────────────────────────
@@ -326,6 +358,8 @@
     if (st.trip && st.loriOverlay) app.appendChild(renderLoriOverlay());
     if (st.trip && st.photoPickerDayId) app.appendChild(renderPhotoPicker());
     if (st.trip && st.noteDrawerDayId) app.appendChild(renderNoteDrawer());
+    if (st.trip && st.sourceDrawerDayId) app.appendChild(renderSourceDrawer());
+    if (st.trip && st.reconcileDrawerOpen) app.appendChild(renderReconcileDrawer());
 
     root.appendChild(app);
     main.scrollTop = st.mainScroll || 0;
@@ -465,6 +499,8 @@
     head.appendChild(ht);
     wrap.appendChild(head);
 
+    wrap.appendChild(renderEvalChecklist());
+
     var metrics = el("div", "tdl-metrics");
     [["Days", st.days.length],
       ["Regions", ((st.tree && st.tree.regions) || []).length],
@@ -481,11 +517,34 @@
 
     var bar = el("div", "tdl-toolbar");
     bar.appendChild(btn("tdl-btn tdl-btn-primary",
-      "☑ Generate day cards from trip dates", generateDays));
+      "☑ Generate / reconcile day cards", generateDays));
     bar.appendChild(el("span", "tdl-spacer"));
     bar.appendChild(el("span", "tdl-muted",
       "📅 " + (st.trip.start_date || "?") + " → " + (st.trip.end_date || "?")));
     wrap.appendChild(bar);
+
+    // Date-range reconcile banners (WO-TRAVEL-DOC-UI-LAB-03). Missing
+    // in-range days are addable in one click; day cards outside the
+    // current trip dates are surfaced — never hidden, never deleted.
+    var rec = st.reconcile;
+    if (rec && (rec.missing_dates || []).length) {
+      var mb = el("div", "tdl-reconcile-banner tdl-reconcile-missing");
+      mb.appendChild(el("span", "",
+        "Trip dates include " + rec.missing_dates.length +
+        " day(s) not yet in the calendar."));
+      mb.appendChild(btn("tdl-btn tdl-btn-small", "Add missing days",
+        addMissingDays));
+      wrap.appendChild(mb);
+    }
+    if (rec && (rec.out_of_range_days || []).length) {
+      var ob = el("div", "tdl-reconcile-banner tdl-reconcile-outside");
+      ob.appendChild(el("span", "",
+        rec.out_of_range_days.length + " day card(s) are outside the " +
+        "current trip dates. They were kept to protect your notes."));
+      ob.appendChild(btn("tdl-btn tdl-btn-small", "Review outside-date days",
+        openReconcileDrawer));
+      wrap.appendChild(ob);
+    }
 
     if (!st.days.length) {
       wrap.appendChild(el("div", "tdl-empty",
@@ -500,18 +559,83 @@
     return wrap;
   }
 
-  // DEFERRED (2026-07-10 review): there is no date-range reconcile flow
-  // for regenerated days. If trip dates change after day cards exist,
-  // out-of-range day cards persist by design (generation only appends
-  // missing dates; it never deletes operator work). A reconcile UI /
-  // note for those orphaned cards is a future WO.
+  // Generate / reconcile (WO-TRAVEL-DOC-UI-LAB-03): generation only
+  // appends missing in-range dates — it never deletes operator work.
+  // After generating, the reconcile preview refreshes so the banners
+  // reflect the new state (missing days added, outside-date days kept).
   function generateDays() {
     if (!st.trip) return;
     api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/generate-from-dates",
       { method: "POST", body: {} })
-      .then(function () { return reloadDays(); })
+      .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
       .then(function () { st.error = ""; renderAll(); })
       .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function addMissingDays() {
+    if (!st.trip) return;
+    api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/reconcile",
+      { method: "POST", body: { add_missing: true } })
+      .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function acknowledgeOutsideDays() {
+    if (!st.trip) return;
+    api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/reconcile",
+      { method: "POST", body: { mark_out_of_range: true } })
+      .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function outsideDayIdSet() {
+    var set = {};
+    ((st.reconcile && st.reconcile.out_of_range_days) || []).forEach(function (d) {
+      set[d.id] = true;
+    });
+    return set;
+  }
+
+  // ── Lab-only evaluation checklist (WO-TRAVEL-DOC-UI-LAB-03 Part C) ──
+  // Live booleans over the loaded trip data. This panel is part of the
+  // removable lab — it never ships to production Travel Doc.
+  function renderEvalChecklist() {
+    var rec = st.reconcile;
+    var reconciled = st.days.length > 0 && !!rec &&
+      !(rec.missing_dates || []).length &&
+      !(rec.out_of_range_days || []).length;
+    var items = [
+      ["Day cards generated / reconciled", reconciled],
+      ["Photos attached to days", st.photoLinks.some(function (l) {
+        return !!l.trip_day_id;
+      })],
+      ["Sources attached to days", st.sources.some(function (s) {
+        return !!s.trip_day_id;
+      })],
+      ["Lori day captures present", st.notes.some(function (n) {
+        return n.source_surface === "travel_doc_modal" && !!n.trip_day_id;
+      })],
+      ["Travelogue preview available", !!st.travelogue],
+    ];
+    var panel = el("div", "tdl-eval-panel");
+    var head = el("div", "tdl-eval-head");
+    head.appendChild(el("strong", "", "Lab-only evaluation checklist"));
+    head.appendChild(el("span", "tdl-muted",
+      " · live status of the UI Lab flows — this panel is part of the " +
+      "removable lab, not production Travel Doc."));
+    panel.appendChild(head);
+    var row = el("div", "tdl-eval-items");
+    items.forEach(function (it) {
+      var item = el("span", "tdl-eval-item " +
+        (it[1] ? "tdl-eval-on" : "tdl-eval-off"));
+      item.appendChild(el("b", "", it[1] ? "✓" : "○"));
+      item.appendChild(el("span", "", it[0]));
+      row.appendChild(item);
+    });
+    panel.appendChild(row);
+    return panel;
   }
 
   // One clear, consistent action row per day — same labels, same order,
@@ -527,6 +651,8 @@
       function () { openPhotoPicker(day.id); }));
     actions.appendChild(btn("tdl-btn", "＋ Add note",
       function () { openNoteDrawer(day.id); }));
+    actions.appendChild(btn("tdl-btn", "＋ Attach source",
+      function () { openSourceDrawer(day.id); }));
     actions.appendChild(btn("tdl-btn", "✎ Edit day", function () {
       st.selectedDayId = day.id;
       renderAll();
@@ -550,6 +676,14 @@
 
     var main = el("div", "tdl-day-main");
     main.appendChild(el("h2", "", dayLabel(day)));
+    if (outsideDayIdSet()[day.id]) {
+      // Never hidden by default — outside-date cards stay visible with
+      // an explicit chip (they are kept to protect operator notes).
+      main.appendChild(el("span", "tdl-chip-outside",
+        "Outside current trip dates" +
+        (day.reconcile_status === "out_of_range_acknowledged" ?
+          " · reviewed" : "")));
+    }
     if (day.lodging_base) main.appendChild(el("p", "", "Lodging: " + day.lodging_base));
     var stop = day.trip_stop_id && findStop(day.trip_stop_id);
     var region = day.trip_region_id && findRegion(day.trip_region_id);
@@ -588,10 +722,9 @@
 
   // ── Day-detail inspector (fixed header / scroll body / sticky footer) ─
 
-  // DEFERRED (2026-07-10 review): trip_sources has no trip_day_id column
-  // yet, so sources can only be day-scoped by approximation through the
-  // day's linked stop/region. True day-scoped sources need a future
-  // migration adding trip_day_id to trip_sources — out of lab scope.
+  // Stop/region-scope fallback rows for a day card. Day-ATTACHED rows
+  // (trip_day_id, migrations 0028/0029) are handled by the callers —
+  // this helper deliberately serves only the un-day-linked fallback.
   function dayScopedRows(rows, day) {
     if (day.trip_stop_id) {
       return rows.filter(function (r) { return r.trip_stop_id === day.trip_stop_id; });
@@ -902,16 +1035,37 @@
       function () { openPhotoPicker(day.id); }));
     body.appendChild(ph);
 
-    // ── Section: Sources ──
-    var daySources = dayScopedRows(st.sources, day);
-    var ss = insSection("sources", "Sources (" + daySources.length + ")", false);
-    var sl = el("div", "tdl-mini-list");
-    daySources.slice(0, 6).forEach(function (s) {
-      sl.appendChild(el("div", "", (s.source_type || "source") + " — " +
-        (s.title || s.summary || s.link_url || "untitled")));
+    // ── Section: Sources (day-attached first, then stop/region scope) ──
+    var dayLinkedSources = dayAttachedSources(day);
+    var scopedSources = dayScopedRows(st.sources, day).filter(function (s) {
+      return !s.trip_day_id;
     });
-    if (!daySources.length) sl.appendChild(el("div", "tdl-muted", "None linked."));
-    ss.appendChild(sl);
+    var ss = insSection("sources",
+      "Sources (" + (dayLinkedSources.length + scopedSources.length) + ")",
+      false);
+    if (dayLinkedSources.length) {
+      ss.appendChild(el("div", "tdl-row-title-plain", "Attached to this day"));
+      var sla = el("div", "tdl-mini-list");
+      dayLinkedSources.slice(0, 8).forEach(function (s) {
+        sla.appendChild(sourceMiniRow(s, day));
+      });
+      ss.appendChild(sla);
+    }
+    if (scopedSources.length) {
+      ss.appendChild(el("div", "tdl-row-title-plain", "From linked stop/region"));
+      var slb = el("div", "tdl-mini-list");
+      scopedSources.slice(0, 6).forEach(function (s) {
+        slb.appendChild(sourceMiniRow(s, null));
+      });
+      ss.appendChild(slb);
+    }
+    if (!dayLinkedSources.length && !scopedSources.length) {
+      var sln = el("div", "tdl-mini-list");
+      sln.appendChild(el("div", "tdl-muted", "None linked."));
+      ss.appendChild(sln);
+    }
+    ss.appendChild(btn("tdl-btn", "＋ Attach source",
+      function () { openSourceDrawer(day.id); }));
     body.appendChild(ss);
 
     // ── Section: Lori captures (day-scoped modal notes) ──
@@ -956,6 +1110,364 @@
       if (e.key === "Escape") { e.stopPropagation(); cancelDayEdits(); }
     });
     return ins;
+  }
+
+  // ── Day-scoped sources (WO-TRAVEL-DOC-UI-LAB-03) ─────────────────────
+
+  function dayAttachedSources(day) {
+    return st.sources.filter(function (s) { return s.trip_day_id === day.id; });
+  }
+
+  function sourceTypeBadge(s) {
+    return el("span", "tdl-badge tdl-badge-srctype", s.source_type || "other");
+  }
+
+  function sourceMemoirState(s) {
+    return el("span", s.include_in_memoir ? "tdl-flag-on" : "tdl-flag-off",
+      s.include_in_memoir ? "In memoir ON" : "In memoir OFF");
+  }
+
+  function sourceMiniRow(s, day) {
+    var row = el("div", "tdl-src-row");
+    row.appendChild(sourceTypeBadge(s));
+    row.appendChild(el("span", "",
+      (s.title || s.filename || s.summary || s.link_url || "untitled")));
+    row.appendChild(sourceMemoirState(s));
+    if (day) {
+      // Unlink clears trip_day_id ONLY — the source row is never deleted.
+      row.appendChild(btn("tdl-btn tdl-btn-small", "Unlink from day",
+        function () { unlinkSourceFromDay(s.id); }));
+    }
+    return row;
+  }
+
+  function unlinkSourceFromDay(sourceId) {
+    api("/api/trips/sources/" + encodeURIComponent(sourceId),
+      { method: "PATCH", body: { clear_day: true } })
+      .then(function () { return Promise.all([reloadSources(), reloadDays()]); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function openSourceDrawer(dayId) {
+    st.selectedDayId = dayId;
+    st.sourceDrawerDayId = dayId;
+    st.photoPickerDayId = null;
+    st.noteDrawerDayId = null;
+    st.loriOverlay = false;
+    renderAll();
+  }
+
+  function closeSourceDrawer() {
+    st.sourceDrawerDayId = null;
+    renderAll();
+  }
+
+  var SOURCE_TYPE_OPTIONS = ["receipt", "hotel", "ticket", "itinerary",
+    "link", "note", "map", "other"];
+
+  function renderSourceDrawer() {
+    var day = dayById(st.sourceDrawerDayId);
+    var wrap = el("div", "tdl-drawer-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closeSourceDrawer();
+    });
+    var drawer = el("aside", "tdl-drawer tdl-source-drawer");
+    if (!day) { st.sourceDrawerDayId = null; return wrap; }
+
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker",
+      "Attach source to Day " + day.day_index));
+    ht.appendChild(el("strong", "", dayChipText(day)));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Back to Trip Plan",
+      closeSourceDrawer));
+    drawer.appendChild(head);
+
+    var body = el("div", "tdl-drawer-body");
+
+    // ── New pasted-text / link source, day-scoped ──
+    body.appendChild(el("div", "tdl-row-title-plain", "New source"));
+    function labeled(text, input) {
+      var l = el("label", "tdl-label");
+      l.appendChild(el("span", "", text));
+      l.appendChild(input);
+      return l;
+    }
+    var fTitle = el("input");
+    fTitle.placeholder = "e.g. Hotel booking, museum ticket";
+    var fType = document.createElement("select");
+    SOURCE_TYPE_OPTIONS.forEach(function (t) {
+      var o = el("option", "", t); o.value = t;
+      fType.appendChild(o);
+    });
+    var fDate = el("input");
+    fDate.placeholder = "YYYY-MM-DD (optional)";
+    var fSummary = el("input");
+    fSummary.placeholder = "Optional one-line summary";
+    var fText = el("textarea");
+    fText.placeholder = "Pasted text (confirmation email, receipt text…)";
+    var fUrl = el("input");
+    fUrl.placeholder = "https://… (optional link)";
+    body.appendChild(labeled("Title", fTitle));
+    body.appendChild(labeled("Source type", fType));
+    body.appendChild(labeled("Date", fDate));
+    body.appendChild(labeled("Summary", fSummary));
+    body.appendChild(labeled("Pasted text", fText));
+    body.appendChild(labeled("Link URL", fUrl));
+    body.appendChild(el("p", "tdl-muted",
+      "Saved day-scoped on this day card — In memoir OFF until you flip " +
+      "it in Sources."));
+    body.appendChild(btn("tdl-btn tdl-btn-primary", "✓ Save source to this day",
+      function () {
+        var title = (fTitle.value || "").trim();
+        var text = (fText.value || "").trim();
+        var url = (fUrl.value || "").trim();
+        if (!title && !text && !url) return;
+        api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources",
+          { method: "POST", body: {
+            source_type: fType.value || "other",
+            title: title || null,
+            pasted_text: text || null,
+            link_url: url || null,
+            source_date: (fDate.value || "").trim() || null,
+            summary: (fSummary.value || "").trim() || null,
+            trip_day_id: day.id,
+          } })
+          .then(function () { return Promise.all([reloadSources(), reloadDays()]); })
+          .then(function () {
+            st.error = "";
+            st.sourceDrawerDayId = null;
+            renderAll();
+          })
+          .catch(function (e) { st.error = e.message; renderAll(); });
+      }));
+
+    // ── Attach existing trip sources (Attach vs Move is explicit) ──
+    body.appendChild(el("div", "tdl-row-title-plain", "Attach existing source"));
+    var checked = {};
+    function selCounts() {
+      var counts = { attach: 0, move: 0 };
+      Object.keys(checked).forEach(function (k) {
+        if (!checked[k]) return;
+        var s = st.sources.filter(function (x) { return x.id === k; })[0];
+        if (s && s.trip_day_id) counts.move += 1; else counts.attach += 1;
+      });
+      return counts;
+    }
+    function paintAttachSources() {
+      var c = selCounts();
+      var total = c.attach + c.move;
+      if (!total) {
+        attach.textContent = "Attach selected to " + dayChipText(day);
+      } else if (c.move) {
+        attach.textContent = "Attach " + c.attach + " · Move " + c.move;
+      } else {
+        attach.textContent = "Attach " + c.attach + " to " + dayChipText(day);
+      }
+      attach.disabled = !total;
+      moveNotice.textContent = c.move ?
+        (c.move + " source(s) will move from other days.") : "";
+      moveNotice.style.display = c.move ? "" : "none";
+    }
+    var listWrap = el("div", "tdl-src-pick-list");
+    var pickable = st.sources.filter(function (s) {
+      return s.trip_day_id !== day.id;
+    });
+    if (!pickable.length) {
+      listWrap.appendChild(el("div", "tdl-muted",
+        st.sources.length ?
+          "Every trip source is already attached to this day." :
+          "This trip has no other sources yet."));
+    }
+    pickable.forEach(function (s) {
+      var rowLab = el("label", "tdl-src-pick-row");
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.addEventListener("change", function () {
+        checked[s.id] = cb.checked;
+        paintAttachSources();
+      });
+      rowLab.appendChild(cb);
+      rowLab.appendChild(sourceTypeBadge(s));
+      rowLab.appendChild(el("span", "",
+        s.title || s.filename || s.summary || s.link_url || "untitled"));
+      if (s.trip_day_id) {
+        var other = dayById(s.trip_day_id);
+        rowLab.appendChild(el("small", "tdl-muted",
+          other ? ("on Day " + other.day_index) : "on another day"));
+      }
+      rowLab.appendChild(el("small",
+        "tdl-picker-action" + (s.trip_day_id ? " tdl-picker-action-move" : ""),
+        s.trip_day_id ? "Move to this day" : "Attach"));
+      listWrap.appendChild(rowLab);
+    });
+    body.appendChild(listWrap);
+    drawer.appendChild(body);
+
+    var moveNotice = el("div", "tdl-move-notice");
+    moveNotice.style.display = "none";
+    drawer.appendChild(moveNotice);
+
+    var foot = el("div", "tdl-drawer-foot");
+    var attach = btn("tdl-btn tdl-btn-primary",
+      "Attach selected to " + dayChipText(day), function () {
+        var ids = Object.keys(checked).filter(function (k) { return checked[k]; });
+        if (!ids.length) return;
+        Promise.all(ids.map(function (sid) {
+          return api("/api/trips/sources/" + encodeURIComponent(sid),
+            { method: "PATCH", body: { trip_day_id: day.id } });
+        }))
+          .then(function () { return Promise.all([reloadSources(), reloadDays()]); })
+          .then(function () {
+            st.error = "";
+            st.sourceDrawerDayId = null;
+            renderAll();
+          })
+          .catch(function (e) { st.error = e.message; renderAll(); });
+      });
+    attach.disabled = true;
+    foot.appendChild(attach);
+    foot.appendChild(btn("tdl-btn", "Cancel", closeSourceDrawer));
+    drawer.appendChild(foot);
+
+    wrap.appendChild(drawer);
+    return wrap;
+  }
+
+  // ── Date-range reconcile review drawer (WO-TRAVEL-DOC-UI-LAB-03) ─────
+  // Lists missing in-range dates (addable) and outside-date day cards
+  // with per-day content indicators. There is NO delete control here —
+  // outside-date cards were kept to protect your notes and stay kept.
+
+  function openReconcileDrawer() {
+    st.reconcileDrawerOpen = true;
+    st.photoPickerDayId = null;
+    st.noteDrawerDayId = null;
+    st.sourceDrawerDayId = null;
+    st.loriOverlay = false;
+    renderAll();
+  }
+
+  function closeReconcileDrawer() {
+    st.reconcileDrawerOpen = false;
+    renderAll();
+  }
+
+  function dayLoriCaptureCount(dayId) {
+    return st.notes.filter(function (n) {
+      return n.source_surface === "travel_doc_modal" && n.trip_day_id === dayId;
+    }).length;
+  }
+
+  function renderReconcileDrawer() {
+    var rec = st.reconcile;
+    var wrap = el("div", "tdl-drawer-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closeReconcileDrawer();
+    });
+    var drawer = el("aside", "tdl-drawer tdl-reconcile-drawer");
+
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker", "Reconcile day cards"));
+    ht.appendChild(el("strong", "",
+      "📅 " + (st.trip.start_date || "?") + " → " + (st.trip.end_date || "?")));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Back to Trip Plan",
+      closeReconcileDrawer));
+    drawer.appendChild(head);
+
+    var body = el("div", "tdl-drawer-body");
+    if (!rec) {
+      body.appendChild(el("p", "tdl-muted", "No reconcile data loaded yet."));
+    } else {
+      var missing = rec.missing_dates || [];
+      body.appendChild(el("div", "tdl-row-title-plain",
+        "Missing days (" + missing.length + ")"));
+      if (missing.length) {
+        var ml = el("div", "tdl-mini-list");
+        missing.forEach(function (iso) {
+          ml.appendChild(el("div", "", prettyDate(iso) + " · " + iso));
+        });
+        body.appendChild(ml);
+        body.appendChild(btn("tdl-btn tdl-btn-primary", "Add missing days",
+          function () {
+            addMissingDays();
+            closeReconcileDrawer();
+          }));
+      } else {
+        body.appendChild(el("p", "tdl-muted",
+          "Every date in the trip window has a day card."));
+      }
+
+      var outside = rec.out_of_range_days || [];
+      body.appendChild(el("div", "tdl-row-title-plain",
+        "Outside-date day cards (" + outside.length + ")"));
+      if (outside.length) {
+        body.appendChild(el("p", "tdl-muted",
+          "These day cards sit outside the current trip dates. They were " +
+          "kept to protect your notes — nothing is ever deleted here. " +
+          "Widen the trip dates to bring them back in range, or mark " +
+          "them reviewed."));
+        var ol = el("div", "tdl-mini-list");
+        outside.forEach(function (d) {
+          var full = dayById(d.id) || d;
+          var row = el("div", "tdl-reconcile-day-row");
+          var line1 = el("div");
+          line1.appendChild(el("strong", "",
+            "Day " + full.day_index + " · " + full.date));
+          if (full.title) line1.appendChild(el("span", "", " — " + full.title));
+          line1.appendChild(el("span", "tdl-chip-outside",
+            "Outside current trip dates" +
+            (full.reconcile_status === "out_of_range_acknowledged" ?
+              " · reviewed" : "")));
+          row.appendChild(line1);
+          var counts = full.counts || {};
+          var hasPeriodNotes = !!(full.morning_notes || full.afternoon_notes ||
+            full.evening_notes || full.title || full.lodging_base);
+          var ind = el("div", "tdl-reconcile-indicators");
+          [["📋 notes", (counts.notes || 0) + (hasPeriodNotes ? " +day text" : "")],
+            ["🖼 photos", counts.photos || 0],
+            ["📄 sources", counts.sources || 0],
+            ["💬 Lori captures", dayLoriCaptureCount(full.id) || "—"]]
+            .forEach(function (c) {
+              ind.appendChild(el("span", "", c[0] + ": " + c[1]));
+            });
+          row.appendChild(ind);
+          ol.appendChild(row);
+        });
+        body.appendChild(ol);
+        body.appendChild(btn("tdl-btn",
+          "Mark outside-date days as reviewed (kept)",
+          acknowledgeOutsideDays));
+      } else {
+        body.appendChild(el("p", "tdl-muted",
+          "No day cards are outside the current trip dates."));
+      }
+
+      var badRows = rec.duplicate_or_invalid_days || [];
+      if (badRows.length) {
+        body.appendChild(el("div", "tdl-row-title-plain",
+          "Days with unreadable dates (" + badRows.length + ")"));
+        var bl = el("div", "tdl-mini-list");
+        badRows.forEach(function (d) {
+          bl.appendChild(el("div", "tdl-muted",
+            "Day " + d.day_index + " · date: " + (d.date || "(empty)") +
+            " — fix the date on the day card."));
+        });
+        body.appendChild(bl);
+      }
+    }
+    drawer.appendChild(body);
+
+    var foot = el("div", "tdl-drawer-foot");
+    foot.appendChild(btn("tdl-btn", "Close", closeReconcileDrawer));
+    drawer.appendChild(foot);
+
+    wrap.appendChild(drawer);
+    return wrap;
   }
 
   // ── In-lab day photo picker (drawer — no navigation away) ────────────
@@ -1368,18 +1880,53 @@
 
   // ── Sources ──────────────────────────────────────────────────────────
 
+  var SOURCE_FILTERS = [
+    ["all", "All"],
+    ["day", "Day-scoped"],
+    ["unattached", "Unattached"],
+    ["memoir", "In memoir"],
+  ];
+
+  function sourceMatchesFilter(s, f) {
+    if (f === "day") return !!s.trip_day_id;
+    if (f === "unattached") {
+      return !s.trip_day_id && !s.trip_stop_id && !s.trip_region_id;
+    }
+    if (f === "memoir") return !!s.include_in_memoir;
+    return true;
+  }
+
   function renderSources() {
     var wrap = el("div");
     wrap.appendChild(el("h1", "", "Sources"));
-    if (!st.sources.length) {
-      wrap.appendChild(el("div", "tdl-empty", "No sources yet."));
+    var rail = el("div", "tdl-filter-rail tdl-filter-rail-row");
+    SOURCE_FILTERS.forEach(function (f) {
+      var n = st.sources.filter(function (s) {
+        return sourceMatchesFilter(s, f[0]);
+      }).length;
+      rail.appendChild(btn(st.sourceFilter === f[0] ? "tdl-active" : "",
+        f[1] + " (" + n + ")",
+        function () { st.sourceFilter = f[0]; renderAll(); }));
+    });
+    wrap.appendChild(rail);
+    var rows = st.sources.filter(function (s) {
+      return sourceMatchesFilter(s, st.sourceFilter);
+    });
+    if (!rows.length) {
+      wrap.appendChild(el("div", "tdl-empty",
+        st.sources.length ? "No sources in this filter." : "No sources yet."));
       return wrap;
     }
-    st.sources.forEach(function (s) {
+    rows.forEach(function (s) {
       var row = el("div", "tdl-note-row");
       var badges = el("div", "tdl-note-badges");
       badges.appendChild(el("span", "tdl-badge", s.source_type || "other"));
       if (s.include_in_memoir) badges.appendChild(el("span", "tdl-badge", "in memoir"));
+      if (s.trip_day_id) {
+        var sd = dayById(s.trip_day_id);
+        badges.appendChild(el("span", "tdl-badge tdl-badge-day",
+          sd ? ("Day " + sd.day_index) : "day-scoped"));
+      }
       row.appendChild(badges);
       row.appendChild(el("strong", "", s.title || s.filename || "Untitled source"));
       if (s.summary) row.appendChild(el("p", "", s.summary));

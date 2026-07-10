@@ -261,5 +261,109 @@ class UsabilityReviewTest(unittest.TestCase):
         self.assertIn('insSection("overview", "Overview", true)', src)
 
 
+class Lab03Test(unittest.TestCase):
+    """WO-TRAVEL-DOC-UI-LAB-03 — the two formerly-deferred gaps are now
+    REQUIRED behavior: true day-scoped sources and the date-range
+    reconcile flow, plus the lab-only evaluation checklist. These
+    assertions also lock the never-delete posture (no DELETE calls
+    anywhere in the lab) and preserve the round-2 fixes untouched."""
+
+    def test_day_scoped_sources_ui(self):
+        src = _stripped_js()
+        # Attach-source drawer, day-scoped by construction.
+        self.assertIn("Attach source to Day", src)
+        self.assertIn("＋ Attach source", src)
+        self.assertIn("Save source to this day", src)
+        # Day inspector splits day-attached sources from the scope
+        # fallback, and unlinking clears trip_day_id ONLY.
+        self.assertIn("Attached to this day", src)
+        self.assertIn("From linked stop/region", src)
+        self.assertIn("Unlink from day", src)
+        self.assertIn("clear_day", src)
+        # Flags-honest display state.
+        self.assertIn("In memoir OFF", src)
+
+    def test_source_attach_vs_move_is_explicit(self):
+        # Same Attach-vs-Move doctrine as the photo picker: sources on
+        # another day are never silently reassigned. "Move to this day"
+        # now appears for BOTH pickers (photos + sources), the source
+        # move gets its own inline notice, and there is still no native
+        # confirm() dialog anywhere in the lab.
+        src = _stripped_js()
+        self.assertGreaterEqual(src.count("Move to this day"), 2)
+        self.assertIn("source(s) will move from other days.", src)
+        cleaned = src.replace("paintAttach(", "").replace(
+            "paintAttachSources(", "")
+        self.assertNotIn("confirm(", cleaned)
+
+    def test_sources_tab_day_badge_and_filters(self):
+        src = _stripped_js()
+        self.assertIn("sourceFilter", src)
+        for label in ("Day-scoped", "Unattached", "In memoir"):
+            self.assertIn(label, src)
+        self.assertIn("tdl-badge-day", src)
+
+    def test_reconcile_banners_and_generate_relabel(self):
+        src = _stripped_js()
+        self.assertIn("Generate / reconcile day cards", src)
+        self.assertIn("not yet in the calendar.", src)
+        self.assertIn("Add missing days", src)
+        self.assertIn("outside the current trip dates", src)
+        self.assertIn("kept to protect your notes", src)
+        self.assertIn("Review outside-date days", src)
+        # The UI reads the read-only preview endpoint and refreshes it
+        # after generation.
+        self.assertIn("/days/reconcile-preview", src)
+        self.assertIn("reloadReconcile", src)
+
+    def test_out_of_range_day_cards_visible_never_hidden(self):
+        src = _stripped_js()
+        self.assertIn("Outside current trip dates", src)
+        # Chip renders inside the day card body — cards are never
+        # filtered out of the Trip Plan list.
+        self.assertIn("tdl-chip-outside", src)
+        css = _stripped_css()
+        self.assertIn(".tdl-chip-outside", css)
+        self.assertIn(".tdl-reconcile-banner", css)
+
+    def test_reconcile_drawer_reviews_without_deleting(self):
+        src = _stripped_js()
+        self.assertIn("tdl-reconcile-drawer", src)
+        self.assertIn("Missing days (", src)
+        self.assertIn("Outside-date day cards (", src)
+        # Per-day content indicators in the review drawer.
+        self.assertIn("Lori captures", src)
+        self.assertIn("Mark outside-date days as reviewed (kept)", src)
+        # NEVER-DELETE lock: the lab issues no DELETE request at all —
+        # unlink flows are PATCH clear_day / photos-unlink only.
+        self.assertNotIn('"DELETE"', src)
+        self.assertNotIn("'DELETE'", src)
+
+    def test_lab_only_evaluation_checklist(self):
+        src = _stripped_js()
+        self.assertIn("Lab-only evaluation checklist", src)
+        self.assertIn("removable lab, not production", src)
+        for label in ("Day cards generated / reconciled",
+                      "Photos attached to days",
+                      "Sources attached to days",
+                      "Lori day captures present",
+                      "Travelogue preview available"):
+            self.assertIn(label, src)
+        css = _stripped_css()
+        self.assertIn(".tdl-eval-panel", css)
+
+    def test_round_2_fixes_preserved(self):
+        # WO-TRAVEL-DOC-UI-LAB-03 must not regress the round-2 review
+        # fixes: photo-Lori overlay, GPS two-surface doctrine wording,
+        # explicit Attach vs Move for photos, "Attach photos" naming.
+        src = _stripped_js()
+        self.assertIn("openLoriOverlayForPhoto", src)
+        self.assertIn("GPS found — available for Travel Doc context", src)
+        self.assertNotIn("GPS on file (private)", src)
+        self.assertIn("Attach \" + c.attach + \" · Move \" + c.move", src)
+        self.assertIn("Attach photos", src)
+        self.assertNotIn("Add photos", src)
+
+
 if __name__ == "__main__":
     unittest.main()
