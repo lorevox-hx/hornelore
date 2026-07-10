@@ -19,6 +19,12 @@ mirroring the operator_eval_harness posture):
     GET   /api/trips/{trip_id}/narrator-photo-links (narrator-ready only)
     DELETE /api/trips/{trip_id}
     GET   /api/trips/{trip_id}/export-docx    (Part I/II/III + photo appendix)
+    GET   /api/trips/{trip_id}/travelogue-preview (evidence-rich outline)
+    POST  /api/trips/{trip_id}/public-context  (web/public evidence, DRAFT)
+    GET   /api/trips/{trip_id}/public-context
+    PATCH /api/trips/public-context/{context_id}
+    DELETE /api/trips/public-context/{context_id}
+    POST  /api/trips/photo-links/{link_id}/reverse-geocode
     POST  /api/trips                          (create empty trip — Phase A builder)
     PATCH /api/trips/{trip_id}                (edit title/dates/summary)
     POST  /api/trips/{trip_id}/regions
@@ -1492,3 +1498,214 @@ def export_docx(trip_id: str):
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+# ── Public context + travelogue (WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01) ─
+#
+# Travel Doc mode is EVIDENCE-RICH (locked doctrine 2026-07-10): the
+# local stack MAY use web/public context (holidays, site background,
+# food context, reverse-geocoded broad places). Boundary: private
+# memoir archives never leave the local stack; public context is
+# labeled public/draft until the operator confirms it, and is never
+# presented as personal memory. approved_for_lori / include_in_memoir
+# default OFF — nothing is approved by silence.
+
+_PUBLIC_CONTEXT_SOURCE_TYPES = (
+    "public_web_context", "reverse_geocode", "calendar_context",
+    "food_context", "place_context",
+)
+
+
+class PublicContextCreate(BaseModel):
+    result_summary: str
+    source_type: str = "public_web_context"
+    trip_region_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
+    photo_link_id: Optional[str] = None
+    query: Optional[str] = None
+    source_url: Optional[str] = None
+    confidence: str = "draft"
+    notes: Optional[str] = None
+
+
+class PublicContextPatch(BaseModel):
+    result_summary: Optional[str] = None
+    notes: Optional[str] = None
+    source_url: Optional[str] = None
+    query: Optional[str] = None
+    approved_for_lori: Optional[bool] = None
+    include_in_memoir: Optional[bool] = None
+
+
+def _validate_photo_link_scope(trip_id: str, photo_link_id) -> None:
+    """A photo-scoped public-context row must point at a link in THIS
+    trip (same posture as the cross-trip stop checks)."""
+    if not photo_link_id:
+        return
+    link = trip_repository.photo_link_get(photo_link_id)
+    if not link:
+        raise HTTPException(status_code=404, detail="photo link not found")
+    if link.get("trip_id") != trip_id:
+        raise HTTPException(status_code=400,
+                            detail="photo link belongs to another trip")
+
+
+@router.post("/{trip_id}/public-context")
+def create_public_context(trip_id: str, req: PublicContextCreate) -> Dict[str, Any]:
+    """Store one public/web lookup result as DRAFT evidence. The operator
+    (or a local tool) enters it; nothing is approved by silence."""
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    if not (req.result_summary or "").strip():
+        raise HTTPException(status_code=422,
+                            detail="public context needs a result_summary")
+    if req.source_type not in _PUBLIC_CONTEXT_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail="invalid source_type")
+    _validate_source_scope(trip_id, req.trip_region_id, req.trip_stop_id)
+    _validate_photo_link_scope(trip_id, req.photo_link_id)
+    cid = trip_repository.public_context_create(
+        trip_id=trip_id,
+        result_summary=req.result_summary.strip(),
+        source_type=req.source_type,
+        trip_region_id=req.trip_region_id,
+        trip_stop_id=req.trip_stop_id,
+        photo_link_id=req.photo_link_id,
+        query=req.query,
+        source_url=req.source_url,
+        confidence=req.confidence or "draft",
+        notes=req.notes,
+    )
+    logger.info("[trips][public-context] created ctx=%s trip=%s type=%s",
+                cid, trip_id, req.source_type)
+    return {"context_id": cid,
+            "context": trip_repository.public_context_get(cid)}
+
+
+@router.get("/{trip_id}/public-context")
+def list_public_context(
+    trip_id: str,
+    region_id: Optional[str] = None,
+    stop_id: Optional[str] = None,
+    photo_link_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    rows = trip_repository.public_context_list(trip_id)
+    if photo_link_id:
+        rows = [r for r in rows if r.get("photo_link_id") == photo_link_id]
+    elif stop_id:
+        rows = [r for r in rows if r.get("trip_stop_id") == stop_id]
+    elif region_id:
+        rows = [r for r in rows
+                if r.get("trip_region_id") == region_id
+                and not r.get("trip_stop_id")]
+    return {"trip_id": trip_id, "count": len(rows), "public_context": rows}
+
+
+@router.patch("/public-context/{context_id}")
+def patch_public_context(context_id: str, req: PublicContextPatch) -> Dict[str, Any]:
+    """Approve / edit / include a public-context row. Editing the
+    result_summary revokes approval unless the same request re-approves
+    (approval refers to the text the operator reviewed)."""
+    _require_trips_enabled()
+    if not trip_repository.public_context_get(context_id):
+        raise HTTPException(status_code=404, detail="public context not found")
+    ok = trip_repository.public_context_update(
+        context_id,
+        result_summary=req.result_summary,
+        notes=req.notes,
+        source_url=req.source_url,
+        query=req.query,
+        approved_for_lori=req.approved_for_lori,
+        include_in_memoir=req.include_in_memoir,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    return {"ok": True,
+            "context": trip_repository.public_context_get(context_id)}
+
+
+@router.delete("/public-context/{context_id}")
+def delete_public_context(context_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.public_context_delete(context_id):
+        raise HTTPException(status_code=404, detail="public context not found")
+    return {"ok": True, "context_id": context_id}
+
+
+@router.get("/{trip_id}/travelogue-preview")
+def travelogue_preview(trip_id: str) -> Dict[str, Any]:
+    """Evidence-rich travelogue outline — structured blocks + labeled
+    evidence anchors + per-block llm_prompt. NO prose generation here;
+    read-only walk of canonical rows (see travelogue_builder)."""
+    _require_trips_enabled()
+    from ..services import travelogue_builder
+    outline = travelogue_builder.build_travelogue_outline(trip_id)
+    if not outline:
+        raise HTTPException(status_code=404, detail="trip not found")
+    return outline
+
+
+def _resolve_reverse_geocode(lat: float, lng: float) -> Optional[str]:
+    """Pluggable LOCAL reverse-geocode resolver. Default: no provider →
+    None (the endpoint reports that honestly; nothing is stored, nothing
+    is faked). When HORNELORE_GEOCODE_CMD is set it is treated as a
+    shell command template — `{lat}`/`{lng}` placeholders are
+    substituted (or the coordinates are appended as two arguments) and
+    stdout is used as the broad place label. This is an operator-side
+    local tool hook, never a cloud LLM."""
+    cmd = os.getenv("HORNELORE_GEOCODE_CMD", "").strip()
+    if not cmd:
+        return None
+    import subprocess
+    if "{lat}" in cmd or "{lng}" in cmd:
+        full = cmd.replace("{lat}", str(lat)).replace("{lng}", str(lng))
+    else:
+        full = "%s %s %s" % (cmd, lat, lng)
+    try:
+        out = subprocess.run(full, shell=True, capture_output=True,
+                             text=True, timeout=20)
+        label = (out.stdout or "").strip()
+        return label or None
+    except Exception as exc:
+        logger.warning("[trips][reverse-geocode] resolver failed: %s", exc)
+        return None
+
+
+@router.post("/photo-links/{link_id}/reverse-geocode")
+def reverse_geocode_photo_link(link_id: str) -> Dict[str, Any]:
+    """Resolve a linked photo's private GPS into a broad place label and
+    store it as DRAFT public context (source_type='reverse_geocode').
+    Raw coordinates stay server-side — only the label is stored, and
+    never returned when no provider is configured. Honest posture: no
+    provider = clear message, never fake results."""
+    _require_trips_enabled()
+    link = trip_repository.photo_link_get(link_id)
+    if not link:
+        raise HTTPException(status_code=404, detail="link not found")
+    lat, lng = trip_repository.photo_raw_gps(str(link.get("photo_id") or ""))
+    if lat is None or lng is None:
+        lat, lng = link.get("latitude"), link.get("longitude")
+    if lat is None or lng is None:
+        return {"status": "no_gps",
+                "message": "this photo has no GPS coordinates recorded"}
+    label = _resolve_reverse_geocode(float(lat), float(lng))
+    if label is None:
+        return {"status": "no_provider",
+                "message": "place-name extraction hasn't run — no geocode "
+                           "provider configured (set HORNELORE_GEOCODE_CMD "
+                           "to a local resolver command)"}
+    cid = trip_repository.public_context_create(
+        trip_id=link["trip_id"],
+        result_summary=label,
+        source_type="reverse_geocode",
+        trip_region_id=link.get("trip_region_id"),
+        trip_stop_id=link.get("trip_stop_id"),
+        photo_link_id=link_id,
+        query="reverse_geocode:photo_link:%s" % link_id,
+        confidence="draft",
+    )
+    logger.info("[trips][reverse-geocode] stored ctx=%s link=%s", cid, link_id)
+    return {"status": "stored", "context_id": cid, "result_summary": label}

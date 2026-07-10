@@ -240,3 +240,35 @@ body.td-standalone .td-photo-meta {
 .td-root .td-lori-drawer-src, body.td-standalone .td-lori-drawer-src {
   font-weight: 600; margin-right: 0.3rem;
 }
+
+/* ── Travelogue preview (WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01) ──
+   Structured evidence-rich draft render: overview header, block cards
+   (REGION CHAPTER / ITINERARY TILE / DISCOVERY TILE / SENSORY CODA)
+   with provenance badges + Needs-review markers + thumbs, plus the
+   EPHEMERA intake section. All rules scoped like the rest of the file. */
+.td-root .td-tlg-body, body.td-standalone .td-tlg-body { display: grid; gap: 0.75rem; }
+.td-root .td-tlg-overview, body.td-standalone .td-tlg-overview { display: grid; gap: 0.3rem; border-bottom: 1px solid var(--td-line); padding-bottom: 0.6rem; }
+.td-root .td-tlg-ov-title, body.td-standalone .td-tlg-ov-title { font-size: 1.15rem; }
+.td-root .td-tlg-block, body.td-standalone .td-tlg-block { border: 1px solid var(--td-line); border-radius: 14px; padding: 0.7rem 0.8rem; background: rgba(255, 253, 247, 0.9); display: grid; gap: 0.45rem; }
+.td-root .td-tlg-kind-region_chapter, body.td-standalone .td-tlg-kind-region_chapter { border-left: 4px solid var(--td-accent-2); }
+.td-root .td-tlg-kind-itinerary_tile, body.td-standalone .td-tlg-kind-itinerary_tile { border-left: 4px solid #7d8fb0; }
+.td-root .td-tlg-kind-discovery_tile, body.td-standalone .td-tlg-kind-discovery_tile { border-left: 4px solid var(--td-accent); }
+.td-root .td-tlg-kind-sensory_coda, body.td-standalone .td-tlg-kind-sensory_coda { border-left: 4px solid #9a7bb0; }
+.td-root .td-tlg-head, body.td-standalone .td-tlg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.td-root .td-tlg-kind, body.td-standalone .td-tlg-kind { font-size: 0.68rem; font-weight: 850; letter-spacing: 0.12em; color: var(--td-accent-2); }
+.td-root .td-tlg-title, body.td-standalone .td-tlg-title { font-size: 1rem; }
+.td-root .td-tlg-review, body.td-standalone .td-tlg-review { font-size: 0.72rem; font-weight: 850; color: #7a4d00; background: #ffe9bd; border: 1px solid #e8c98a; border-radius: 999px; padding: 0.12rem 0.5rem; }
+.td-root .td-tlg-badges, body.td-standalone .td-tlg-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.td-root .td-tlg-badge, body.td-standalone .td-tlg-badge { font-size: 0.68rem; font-weight: 750; color: var(--td-accent-2); background: #f3e2bd; border: 1px solid var(--td-line); border-radius: 999px; padding: 0.1rem 0.45rem; }
+.td-root .td-tlg-badge-approved, body.td-standalone .td-tlg-badge-approved { background: #d9efe3; color: var(--td-good); border-color: #b6dcc8; }
+.td-root .td-tlg-badge-draft, body.td-standalone .td-tlg-badge-draft { background: #fdeccb; color: #7a4d00; }
+.td-root .td-tlg-badge-approved-public-context, body.td-standalone .td-tlg-badge-approved-public-context { background: #d9e7ef; color: #1f5b7a; border-color: #b7d3e2; }
+.td-root .td-tlg-badge-public-context-draft, body.td-standalone .td-tlg-badge-public-context-draft { background: #e8eef3; color: #4a6a80; }
+.td-root .td-tlg-anchors, body.td-standalone .td-tlg-anchors { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
+.td-root .td-tlg-anchor-label, body.td-standalone .td-tlg-anchor-label { font-weight: 800; color: var(--td-muted); font-size: 0.82rem; }
+.td-root .td-tlg-anchor-value, body.td-standalone .td-tlg-anchor-value { font-size: 0.88rem; }
+.td-root .td-tlg-thumbs, body.td-standalone .td-tlg-thumbs { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.td-root .td-tlg-thumbs img, body.td-standalone .td-tlg-thumbs img { width: 74px; height: 74px; object-fit: cover; border-radius: 10px; border: 1px solid var(--td-line); }
+.td-root .td-tlg-public, body.td-standalone .td-tlg-public { margin: 0; font-size: 0.86rem; color: var(--td-text); }
+.td-root .td-tlg-intake, body.td-standalone .td-tlg-intake { border: 1px dashed var(--td-line); border-radius: 14px; padding: 0.7rem 0.8rem; background: #fbf6ea; display: grid; gap: 0.35rem; }
+.td-root .td-tlg-intake-row, body.td-standalone .td-tlg-intake-row { font-size: 0.86rem; }

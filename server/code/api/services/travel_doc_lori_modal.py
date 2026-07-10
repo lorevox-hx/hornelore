@@ -10,12 +10,18 @@ draft phrasing ("The draft photo context suggests…"); operator-approved
 context speaks as fact ("The approved photo context says…"). Never
 "I can see" / "the photo shows". Raw GPS and upload/save/modified dates
 never reach an answer.
+
+WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01 (2026-07-09): public/web
+context rows (trip_public_context) join the evidence set under the same
+certainty rule — approved rows speak as "The approved Travel Doc
+context says…", unapproved rows as "The public context suggests…".
+Public context is public background, never personal memory.
 """
 from __future__ import annotations
 
 import datetime
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import trip_repository
 from . import trip_story_capture
@@ -38,50 +44,124 @@ def _fmt_date(iso: str) -> str:
         return str(iso)
 
 
-def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
-    """Approved/draft context for the anchored photo. NEVER includes raw
-    GPS or upload/save/modified timestamps."""
+def _packet_from_link(l: Dict[str, Any]) -> Dict[str, Any]:
+    """Approved/draft evidence packet built from ONE photo-link row (the
+    photo_links_list JOIN shape). Shared by the modal and the travelogue
+    builder so the approved-vs-draft semantics live in one place. NEVER
+    includes raw GPS or upload/save/modified timestamps."""
     out: Dict[str, Any] = {
-        "photo_link_id": photo_link_id, "approved_caption": None,
+        "photo_link_id": l.get("id"), "approved_caption": None,
         "approved_context": None, "narrator_caption": None,
         "approved_taken_date": None, "draft_context": None,
         "filename_guess": None, "approved_place": None,
         "draft_date": None, "draft_place": None, "gps_present": False,
     }
-    if not photo_link_id:
-        return out
-    for l in trip_repository.photo_links_list(trip_id):
-        if l.get("id") != photo_link_id:
-            continue
-        ncap = (l.get("narrator_caption") or "").strip()
-        ocap = (l.get("caption") or "").strip()
-        note = (l.get("operator_context_note") or "").strip()
-        if ncap:
-            out["narrator_caption"] = ncap
-        if ocap and l.get("caption_approved_for_lori"):
-            out["approved_caption"] = ocap
-        elif ocap:
-            out["draft_context"] = ocap          # unapproved caption = draft
-        if note and l.get("operator_context_approved_for_lori"):
-            out["approved_context"] = note
-        elif note and not out["draft_context"]:
-            out["draft_context"] = note
-        if (l.get("photo_date_value")
-                and l.get("photo_date_approved_for_lori")):
-            out["approved_taken_date"] = l["photo_date_value"]
-        elif l.get("photo_date_value"):
-            out["draft_date"] = l["photo_date_value"]   # EXIF/unapproved
-        out["filename_guess"] = l.get("photo_taken_at_filename_guess")
-        out["gps_present"] = bool(l.get("photo_gps_present"))
-        if not out.get("draft_date") and out["filename_guess"]:
-            out["draft_date"] = out["filename_guess"]
-        if (l.get("photo_location_label")
-                and l.get("photo_location_approved_for_lori")):
-            out["approved_place"] = l["photo_location_label"]
-        elif l.get("photo_location_label"):
-            out["draft_place"] = l["photo_location_label"]
-        break
+    ncap = (l.get("narrator_caption") or "").strip()
+    ocap = (l.get("caption") or "").strip()
+    note = (l.get("operator_context_note") or "").strip()
+    if ncap:
+        out["narrator_caption"] = ncap
+    if ocap and l.get("caption_approved_for_lori"):
+        out["approved_caption"] = ocap
+    elif ocap:
+        out["draft_context"] = ocap          # unapproved caption = draft
+    if note and l.get("operator_context_approved_for_lori"):
+        out["approved_context"] = note
+    elif note and not out["draft_context"]:
+        out["draft_context"] = note
+    if (l.get("photo_date_value")
+            and l.get("photo_date_approved_for_lori")):
+        out["approved_taken_date"] = l["photo_date_value"]
+    elif l.get("photo_date_value"):
+        out["draft_date"] = l["photo_date_value"]   # EXIF/unapproved
+    out["filename_guess"] = l.get("photo_taken_at_filename_guess")
+    out["gps_present"] = bool(l.get("photo_gps_present"))
+    if not out.get("draft_date") and out["filename_guess"]:
+        out["draft_date"] = out["filename_guess"]
+    if (l.get("photo_location_label")
+            and l.get("photo_location_approved_for_lori")):
+        out["approved_place"] = l["photo_location_label"]
+    elif l.get("photo_location_label"):
+        out["draft_place"] = l["photo_location_label"]
     return out
+
+
+def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
+    """Approved/draft context for the anchored photo. NEVER includes raw
+    GPS or upload/save/modified timestamps."""
+    if not photo_link_id:
+        return _packet_from_link({})
+    for l in trip_repository.photo_links_list(trip_id):
+        if l.get("id") == photo_link_id:
+            return _packet_from_link(l)
+    # Link id not found in this trip — keep the requested id in the
+    # packet (legacy behavior) so callers don't misreport 'no photo
+    # anchored' for a merely-unresolvable link.
+    out = _packet_from_link({})
+    out["photo_link_id"] = photo_link_id
+    return out
+
+
+def _public_context_for_scope(
+    scope: Dict[str, Any],
+) -> Tuple[List[str], List[str]]:
+    """(approved, draft) public-context summaries that apply to the
+    modal's current scope: photo-scoped rows for the anchored photo,
+    stop-scoped rows for the active stop, region-scoped rows for the
+    active region, and trip-wide rows (no narrower scope) always."""
+    trip_id = scope.get("active_trip_id")
+    if not trip_id:
+        return [], []
+    try:
+        rows = trip_repository.public_context_list(trip_id)
+    except Exception:
+        return [], []
+    link_id = scope.get("active_photo_link_id")
+    stop_id = scope.get("active_trip_stop_id")
+    region_id = scope.get("active_trip_region_id")
+    approved: List[str] = []
+    draft: List[str] = []
+    for r in rows:
+        r_link = r.get("photo_link_id")
+        r_stop = r.get("trip_stop_id")
+        r_region = r.get("trip_region_id")
+        if r_link:
+            match = bool(link_id) and r_link == link_id
+        elif r_stop:
+            match = bool(stop_id) and r_stop == stop_id
+        elif r_region:
+            match = bool(region_id) and r_region == region_id
+        else:
+            match = True  # trip-wide public context
+        if not match:
+            continue
+        summary = (r.get("result_summary") or "").strip()
+        if not summary:
+            continue
+        if r.get("approved_for_lori"):
+            approved.append(summary)
+        else:
+            draft.append(summary)
+    return approved, draft
+
+
+def _public_context_tail(scope: Dict[str, Any]) -> str:
+    """Provenance-worded public-context sentences (leading space) or ''.
+    Approved wording is fact-shaped; draft wording stays suggestive."""
+    approved, draft = _public_context_for_scope(scope)
+    bits: List[str] = []
+    if approved:
+        bits.append("The approved Travel Doc context says: "
+                    + " — ".join(approved))
+    if draft:
+        bits.append("The public context suggests "
+                    + "; ".join(d.rstrip(".") for d in draft)
+                    + " — that's public background, not confirmed for "
+                    "this trip yet")
+    if not bits:
+        return ""
+    return " " + " ".join(
+        b if b.endswith((".", "!", "?")) else b + "." for b in bits)
 
 
 def build_modal_scope(
@@ -144,6 +224,9 @@ def answer_modal_direct_question(
                 "trip record yet. The Travel Doc can store one if you "
                 "confirm it.")
     if _ABOUT_Q_RX.search(text):
+        # Public/web context for this scope — approved rows speak as
+        # fact, draft rows stay suggestive (evidence-rich doctrine).
+        pub_tail = _public_context_tail(sc)
         bits: List[str] = []
         if pkt.get("approved_caption"):
             bits.append(pkt["approved_caption"])
@@ -151,11 +234,11 @@ def answer_modal_direct_question(
             bits.append(pkt["approved_context"])
         if bits:
             return ("The approved photo context says: "
-                    + " — ".join(bits)
+                    + " — ".join(bits) + pub_tail
                     + " What do you remember about that moment?")
         if pkt.get("narrator_caption"):
             return ("Your own caption on this photo says: "
-                    + pkt["narrator_caption"]
+                    + pkt["narrator_caption"] + pub_tail
                     + " What else do you remember?")
         # POLICY 2026-07-10 (two-surface rule): Travel Doc is the
         # operator memoir workspace — EVIDENCE-RICH, provenance-labeled,
@@ -186,7 +269,10 @@ def answer_modal_direct_question(
                 joined += ", and " + ", and ".join(draft_bits[1:])
             tail = (" (" + "; ".join(missing) + ")") if missing else ""
             return (joined[0].upper() + joined[1:] + "."
-                    + tail + " Does that match your memory?")
+                    + tail + pub_tail + " Does that match your memory?")
+        if pub_tail:
+            return (pub_tail.strip()
+                    + " Does that match anything you remember?")
         if missing:
             return ("I don't have drafted context for this photo yet — "
                     + "; ".join(missing)

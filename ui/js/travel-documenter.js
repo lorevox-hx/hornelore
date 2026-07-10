@@ -99,6 +99,7 @@
       '<button data-td="addStopBtn" type="button" class="td-small">+ Stop</button>' +
       '<button data-td="reloadTree" type="button" class="td-small td-secondary">Reload</button>' +
       '<button data-td="memoirPreview" type="button" class="td-small td-secondary">Memoir preview</button>' +
+      '<button data-td="traveloguePreview" type="button" class="td-small td-secondary">Travelogue preview</button>' +
       '</div>' +
       '<p class="td-help">Tile order is the route order. Use the tile buttons to reorder, insert, or restructure — dates are just metadata.</p>' +
       '<div data-td="tree" class="td-tree"></div>' +
@@ -129,6 +130,12 @@
       '<label>Add photos to selected trip<input data-td="photoFiles" type="file" accept="image/*,.heic,.heif" multiple /></label>' +
       '<div class="td-button-row"><button data-td="uploadPhotos" type="button">Upload photos</button><button data-td="clusterPhotos" type="button" class="td-secondary">Cluster photos</button></div>' +
       '<div data-td="photoStrip" class="td-photo-strip td-empty">No trip selected.</div>' +
+      '</div>' +
+      '</section>' +
+      '<section class="td-panel td-wide td-collapse-panel">' +
+      '<div class="td-panel-head"><button data-td="toggleTravelogue" type="button" class="td-collapse-toggle">▸ Travelogue preview</button></div>' +
+      '<div data-td="travelogueBody" class="td-collapse-body td-tlg-body" hidden>' +
+      '<p class="td-muted">Select a trip and press Travelogue preview — an evidence-rich structured draft (anchors + provenance, no invented prose).</p>' +
       '</div>' +
       '</section>' +
       '<section class="td-panel td-wide td-collapse-panel">' +
@@ -941,6 +948,30 @@
       card.appendChild(el("small", "td-photo-meta", dateLine));
       card.appendChild(el("small", "td-photo-meta",
         l.photo_gps_present ? "GPS found \u2014 available for Travel Doc context" : "No GPS"));
+      if (l.photo_gps_present) {
+        // WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01: resolve the private
+        // coordinates into a broad place label, stored server-side as
+        // DRAFT public context. Honest when no provider is configured.
+        var geoBtn = el("button", "td-small td-secondary", "Reverse geocode");
+        geoBtn.type = "button";
+        geoBtn.addEventListener("click", function () {
+          Promise.resolve().then(function () {
+            return api("/api/trips/photo-links/" + encodeURIComponent(l.id) +
+              "/reverse-geocode", { method: "POST", body: JSON.stringify({}) })
+              .then(function (out) {
+                if (out && out.status === "stored") {
+                  setStatus("good", "Draft public context stored: " +
+                    (out.result_summary || ""));
+                } else {
+                  setStatus("", (out && out.message) ||
+                    "No geocode provider configured.");
+                }
+                log("Reverse geocode", out);
+              });
+          }).catch(function (e) { logError("Error", { message: e.message }); });
+        });
+        card.appendChild(geoBtn);
+      }
       var placeIn = document.createElement("input");
       placeIn.type = "text"; placeIn.className = "td-photo-cap";
       placeIn.placeholder = "place label (broad — e.g. Munich area)";
@@ -1835,6 +1866,140 @@
         .then(function (out) { log("Memoir preview", out); expandOutput(); });
     }
 
+    // ── Travelogue preview (WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01) ──
+    // Renders the structured outline: overview header, then REGION
+    // CHAPTER / ITINERARY TILE / DISCOVERY TILE / SENSORY CODA blocks
+    // with provenance badges + Needs-review markers + photo thumbs,
+    // then the EPHEMERA intake section (unpromoted sandbox notes).
+
+    var TLG_KIND_LABELS = {
+      region_chapter: "REGION CHAPTER",
+      itinerary_tile: "ITINERARY TILE",
+      discovery_tile: "DISCOVERY TILE",
+      sensory_coda: "SENSORY CODA",
+    };
+
+    function tlgBadge(text) {
+      var slug = String(text || "").toLowerCase().replace(/[^a-z]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return el("span", "td-tlg-badge td-tlg-badge-" + (slug || "note"), text);
+    }
+
+    function renderTravelogueBlock(b) {
+      var box = el("div", "td-tlg-block td-tlg-kind-" + (b.block_type || ""));
+      var head = el("div", "td-tlg-head");
+      head.appendChild(el("span", "td-tlg-kind",
+        TLG_KIND_LABELS[b.block_type] || b.block_type || "BLOCK"));
+      head.appendChild(el("strong", "td-tlg-title", b.title || ""));
+      if (b.needs_review) {
+        head.appendChild(el("span", "td-tlg-review", "Needs review"));
+      }
+      box.appendChild(head);
+      if ((b.provenance_badges || []).length) {
+        var badges = el("div", "td-tlg-badges");
+        b.provenance_badges.forEach(function (t) {
+          badges.appendChild(tlgBadge(t));
+        });
+        box.appendChild(badges);
+      }
+      if ((b.prose_anchors || []).length) {
+        var ul = el("ul", "td-tlg-anchors");
+        b.prose_anchors.forEach(function (a) {
+          var li = el("li", "td-tlg-anchor");
+          li.appendChild(el("span", "td-tlg-anchor-label",
+            (a.label || "") + ": "));
+          li.appendChild(el("span", "td-tlg-anchor-value", a.value || ""));
+          ul.appendChild(li);
+        });
+        box.appendChild(ul);
+      }
+      var packets = (b.photos || []).filter(function (p) { return p.photo_id; });
+      if (packets.length) {
+        var strip = el("div", "td-tlg-thumbs");
+        packets.forEach(function (pk) {
+          var img = document.createElement("img");
+          img.loading = "lazy";
+          img.alt = pk.narrator_caption || pk.approved_caption || "trip photo";
+          img.src = st.apiBase + "/api/photos/" +
+            encodeURIComponent(pk.photo_id) + "/thumb";
+          img.addEventListener("error", function () { img.remove(); });
+          strip.appendChild(img);
+        });
+        box.appendChild(strip);
+      }
+      (b.public_context || []).forEach(function (pcx) {
+        var line = el("p", "td-tlg-public");
+        line.appendChild(tlgBadge(pcx.approved_for_lori
+          ? "approved public context" : "public context (draft)"));
+        line.appendChild(el("span", "", " " + (pcx.result_summary || "")));
+        box.appendChild(line);
+      });
+      return box;
+    }
+
+    function renderTravelogue(outline) {
+      var host = $("travelogueBody");
+      if (!host) return;
+      host.innerHTML = "";
+      var ov = (outline && outline.overview) || {};
+      var head = el("div", "td-tlg-overview");
+      head.appendChild(el("strong", "td-tlg-ov-title",
+        ov.title || "Trip travelogue"));
+      var span = [ov.date_span && ov.date_span.start,
+                  ov.date_span && ov.date_span.end]
+        .filter(Boolean).join(" to ");
+      head.appendChild(el("div", "td-muted", [
+        span,
+        (ov.region_count || 0) + " regions",
+        (ov.stop_count || 0) + " stops",
+        (ov.photo_count || 0) + " photos",
+        (ov.approved_evidence_count || 0) + " approved / " +
+          (ov.draft_evidence_count || 0) + " draft evidence",
+        (ov.public_context_count || 0) + " public context",
+        (ov.sandbox_note_count || 0) + " sandbox notes",
+      ].filter(Boolean).join(" \u00b7 ")));
+      (ov.public_context || []).forEach(function (pcx) {
+        var line = el("p", "td-tlg-public");
+        line.appendChild(tlgBadge(pcx.approved_for_lori
+          ? "approved public context" : "public context (draft)"));
+        line.appendChild(el("span", "", " " + (pcx.result_summary || "")));
+        head.appendChild(line);
+      });
+      host.appendChild(head);
+      ((outline && outline.blocks) || []).forEach(function (b) {
+        host.appendChild(renderTravelogueBlock(b));
+      });
+      var ir = (outline && outline.intake_review) || {};
+      var eph = el("div", "td-tlg-intake");
+      eph.appendChild(el("strong", "",
+        "EPHEMERA \u2014 intake review (" + (ir.count || 0) + ")"));
+      eph.appendChild(el("p", "td-help",
+        "Unpromoted captures and sandbox notes. Nothing here enters the " +
+        "travelogue until you promote it (In memoir) \u2014 no auto-promotion."));
+      ((ir.notes) || []).forEach(function (n) {
+        var row = el("div", "td-tlg-intake-row");
+        row.appendChild(tlgBadge(n.badge || "note"));
+        row.appendChild(el("span", "", " " + (n.note_text || "")));
+        eph.appendChild(row);
+      });
+      host.appendChild(eph);
+    }
+
+    function traveloguePreview() {
+      if (!st.trip) return Promise.reject(new Error("select a trip first"));
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+        "/travelogue-preview")
+        .then(function (out) {
+          renderTravelogue(out);
+          var body = $("travelogueBody");
+          if (body && body.hidden) {
+            toggleHidden("travelogueBody", "toggleTravelogue",
+              "Travelogue preview");
+          }
+          setStatus("good", "Travelogue preview built");
+        });
+    }
+
     function ping() {
       syncInputs();
       var check = st.personId
@@ -1883,6 +2048,8 @@
     });
     bind("reloadTree", function () { if (st.trip) return openTrip(st.trip); });
     bind("memoirPreview", memoirPreview);
+    bind("traveloguePreview", traveloguePreview);
+    bind("toggleTravelogue", function () { toggleHidden("travelogueBody", "toggleTravelogue", "Travelogue preview"); });
     bind("editorClear", clearSelection);
     bind("viewEditor", function () { st.rightView = "editor"; applyRightView(); });
     bind("viewTimeline", function () { st.rightView = "timeline"; applyRightView(); });

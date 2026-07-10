@@ -1578,3 +1578,193 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
             "unassigned_photos": tree.get("unassigned_photo_count", 0),
         },
     }
+
+
+# ── Public context (WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01) ──────────────
+#
+# Web/public-derived evidence for the OPERATOR Travel Doc workspace
+# (holidays, local events, museum/site background, food context, reverse-
+# geocoded broad place names). Locked doctrine: labeled as public/draft
+# until the operator confirms; never presented as personal memory.
+# approved_for_lori / include_in_memoir DEFAULT OFF. Scope validation
+# (trip-ownership of region/stop/photo-link ids) belongs to the router.
+
+_PUBLIC_CONTEXT_SOURCE_TYPES = (
+    "public_web_context", "reverse_geocode", "calendar_context",
+    "food_context", "place_context",
+)
+
+
+def public_context_create(
+    trip_id: str,
+    result_summary: str,
+    source_type: str = "public_web_context",
+    trip_region_id: Optional[str] = None,
+    trip_stop_id: Optional[str] = None,
+    photo_link_id: Optional[str] = None,
+    query: Optional[str] = None,
+    source_url: Optional[str] = None,
+    confidence: str = "draft",
+    notes: Optional[str] = None,
+    approved_for_lori: bool = False,
+    include_in_memoir: bool = False,
+    context_id: Optional[str] = None,
+) -> str:
+    if source_type not in _PUBLIC_CONTEXT_SOURCE_TYPES:
+        source_type = "public_web_context"
+    cid = context_id or _new_id()
+    con = _connect()
+    try:
+        con.execute(
+            """INSERT INTO trip_public_context
+               (id, trip_id, trip_region_id, trip_stop_id, photo_link_id,
+                query, source_type, source_url, result_summary, confidence,
+                notes, approved_for_lori, include_in_memoir,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                cid, trip_id, trip_region_id, trip_stop_id, photo_link_id,
+                query, source_type, source_url, result_summary,
+                confidence or "draft", notes,
+                1 if approved_for_lori else 0,
+                1 if include_in_memoir else 0,
+                _now(), _now(),
+            ),
+        )
+        con.commit()
+        return cid
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def public_context_list(trip_id: str) -> List[Dict[str, Any]]:
+    """All public-context rows for a trip. Scope filtering is done by the
+    caller. Tolerant of a pre-0026 DB (table missing) — returns []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_public_context WHERE trip_id = ? "
+            "ORDER BY created_at, id",
+            (trip_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def public_context_get(context_id: str) -> Optional[Dict[str, Any]]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_public_context WHERE id = ?", (context_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
+def public_context_update(
+    context_id: str,
+    result_summary: Optional[str] = None,
+    notes: Optional[str] = None,
+    source_url: Optional[str] = None,
+    query: Optional[str] = None,
+    approved_for_lori: Optional[bool] = None,
+    include_in_memoir: Optional[bool] = None,
+) -> bool:
+    """Partial update. Revoke-on-edit (mirrors photo_link_update caption
+    semantics): editing result_summary REVOKES approved_for_lori unless
+    the same request re-approves — approval always refers to the text
+    the operator actually reviewed."""
+    sets: List[str] = []
+    args: List[Any] = []
+    if result_summary is not None:
+        sets.append("result_summary = ?"); args.append(result_summary)
+        if approved_for_lori is None:
+            sets.append("approved_for_lori = 0")
+    if notes is not None:
+        sets.append("notes = ?"); args.append(notes)
+    if source_url is not None:
+        sets.append("source_url = ?"); args.append(source_url)
+    if query is not None:
+        sets.append("query = ?"); args.append(query)
+    if approved_for_lori is not None:
+        sets.append("approved_for_lori = ?")
+        args.append(1 if approved_for_lori else 0)
+    if include_in_memoir is not None:
+        sets.append("include_in_memoir = ?")
+        args.append(1 if include_in_memoir else 0)
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(context_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_public_context SET {', '.join(sets)} WHERE id = ?",
+            args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def public_context_delete(context_id: str) -> bool:
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_public_context WHERE id = ?", (context_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def public_context_trip_id(context_id: str) -> Optional[str]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT trip_id FROM trip_public_context WHERE id = ?",
+            (context_id,),
+        ).fetchone()
+        return row["trip_id"] if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
+def photo_raw_gps(photo_id: str):
+    """SERVER-SIDE ONLY raw GPS read for the reverse-geocode lane.
+    The returned coordinates are consumed by the local resolver and are
+    NEVER serialized into any response, preview JSON, or Lori surface —
+    only the resolved broad place label is stored (as draft public
+    context). Returns (None, None) when absent."""
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT latitude, longitude FROM photos WHERE id = ?",
+            (photo_id,),
+        ).fetchone()
+        if not row:
+            return (None, None)
+        return (row["latitude"], row["longitude"])
+    except sqlite3.OperationalError:
+        return (None, None)
+    finally:
+        con.close()
