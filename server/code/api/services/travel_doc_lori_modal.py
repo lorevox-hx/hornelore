@@ -46,6 +46,7 @@ def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
         "approved_context": None, "narrator_caption": None,
         "approved_taken_date": None, "draft_context": None,
         "filename_guess": None, "approved_place": None,
+        "draft_date": None, "draft_place": None,
     }
     if not photo_link_id:
         return out
@@ -68,10 +69,16 @@ def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
         if (l.get("photo_date_value")
                 and l.get("photo_date_approved_for_lori")):
             out["approved_taken_date"] = l["photo_date_value"]
+        elif l.get("photo_date_value"):
+            out["draft_date"] = l["photo_date_value"]   # EXIF/unapproved
         out["filename_guess"] = l.get("photo_taken_at_filename_guess")
+        if not out.get("draft_date") and out["filename_guess"]:
+            out["draft_date"] = out["filename_guess"]
         if (l.get("photo_location_label")
                 and l.get("photo_location_approved_for_lori")):
             out["approved_place"] = l["photo_location_label"]
+        elif l.get("photo_location_label"):
+            out["draft_place"] = l["photo_location_label"]
         break
     return out
 
@@ -128,9 +135,10 @@ def answer_modal_direct_question(
         if pkt.get("approved_taken_date"):
             return ("The approved taken date for this photo is "
                     + _fmt_date(pkt["approved_taken_date"]) + ".")
-        if pkt.get("filename_guess"):
-            return ("I don't have an approved taken date for this photo "
-                    "yet. The Travel Doc can store one if you confirm it.")
+        if pkt.get("draft_date"):
+            return ("The file data suggests " + _fmt_date(pkt["draft_date"])
+                    + ", but that isn't confirmed yet — the Travel Doc can "
+                    "store it as the taken date if that matches your memory.")
         return ("I don't have a taken date for this photo in the approved "
                 "trip record yet. The Travel Doc can store one if you "
                 "confirm it.")
@@ -148,9 +156,22 @@ def answer_modal_direct_question(
             return ("Your own caption on this photo says: "
                     + pkt["narrator_caption"]
                     + " What else do you remember?")
+        draft_bits: List[str] = []
         if pkt.get("draft_context"):
-            return ("The draft photo context suggests "
-                    + pkt["draft_context"] + " Is that right?")
+            draft_bits.append("the draft photo context suggests "
+                              + pkt["draft_context"].rstrip("."))
+        if pkt.get("draft_date"):
+            draft_bits.append("the file data suggests "
+                              + _fmt_date(pkt["draft_date"]))
+        if pkt.get("draft_place"):
+            draft_bits.append("the location note appears to point to "
+                              + pkt["draft_place"].rstrip("."))
+        if draft_bits:
+            joined = draft_bits[0]
+            if len(draft_bits) > 1:
+                joined += ", and " + ", and ".join(draft_bits[1:])
+            return (joined[0].upper() + joined[1:]
+                    + ". Does that match your memory?")
         if not pkt.get("photo_link_id"):
             return ("No photo is anchored right now — open 'Talk with "
                     "Lori about this photo' on a photo card and I can "

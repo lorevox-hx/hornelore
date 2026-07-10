@@ -173,12 +173,17 @@ class MarkTwainTravelDocLoriModalAcceptance(unittest.TestCase):
         self.assertNotIn("travels_shelf_open", scope)
         self.assertNotIn("activeTripId", scope)
 
-    def test_date_question_hides_unapproved_filename_guess(self):
+    def test_date_question_offers_unapproved_guess_as_draft_only(self):
+        # Directive 2026-07-10: photo data may prompt better questions
+        # WITH provenance — "The file data suggests…" — but never fact
+        # phrasing until the operator approves.
         answer = self._modal().answer_modal_direct_question(
             self.person_id, self._scope(), "what date was that taken")
-        self.assertIn("approved taken date", answer)
         self.assertIn("Travel Doc can store", answer)
-        self.assertNotIn("2026-05-14", answer)  # filename guess is not approved
+        self.assertNotIn("approved taken date for this photo is", answer)
+        if "May 14, 2026" in answer:          # draft offered — must be hedged
+            self.assertIn("file data suggests", answer)
+            self.assertNotIn("definitely", answer)
         for forbidden in ("uploaded_at", "file_saved_at", "file_modified_at",
                           "48.137", "11.576", "I can see"):
             self.assertNotIn(forbidden, answer)
