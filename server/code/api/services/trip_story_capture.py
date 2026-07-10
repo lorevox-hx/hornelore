@@ -126,6 +126,19 @@ def _is_question_or_meta(narrator_text: str) -> bool:
     first = re.split(r"\W+", low, 1)[0]
     if first in _QUESTION_OPENERS and re.search(r"\byou\b", low):
         return True
+    # WO-TRAVEL-DOC-LORI-MODAL-01 (live 2026-07-09): typed fact-questions
+    # often drop the '?' — "what date was that taken". SHORT turns
+    # (<=8 words) opening with an interrogative + an auxiliary in second/
+    # third position are questions, not story material. Long turns are
+    # never flagged here, so narration like "how it was back then, I
+    # remember the smell..." still captures.
+    toks = low.split()
+    if (first in ("what", "when", "where", "who", "why", "how", "which")
+            and len(toks) <= 8 and len(toks) >= 2):
+        _aux = {"was", "is", "are", "were", "did", "do", "does",
+                "has", "have", "can", "could", "would", "will"}
+        if toks[1] in _aux or (len(toks) >= 3 and toks[2] in _aux):
+            return True
     return False
 
 
@@ -284,9 +297,16 @@ def capture_trip_story_answer(
     photo_link_id: Optional[str] = None,
     conv_id: Optional[str] = None,
     turn_id: Optional[str] = None,
+    source_surface: Optional[str] = None,
+    assume_trip_scoped: bool = False,
 ) -> Dict[str, Any]:
     """Save a narrator's trip-scoped answer as a CANDIDATE trip_location_notes
     row (review-only), or explain why it was skipped.
+
+    WO-TRAVEL-DOC-LORI-MODAL-01: ``assume_trip_scoped=True`` skips the
+    prior-turn trip-scope gate — every modal turn happens INSIDE the trip
+    workspace, so scope is established by the surface itself.
+    ``source_surface`` stamps provenance (e.g. 'travel_doc_modal').
 
     Returns a result dict — see _result(). ``captured`` is True only when a row
     was written (or an identical row already existed, reason='duplicate').
@@ -316,8 +336,9 @@ def capture_trip_story_answer(
         photo_valid = bool(_link and _link.get("trip_id") == active_trip_id)
     tree = trip_repository.trip_tree(active_trip_id)
     place_names = _collect_place_names(tree)
-    if not _is_trip_scoped(previous_prompt_kind, previous_lori_text,
-                           photo_valid, trip, place_names):
+    if not assume_trip_scoped and not _is_trip_scoped(
+            previous_prompt_kind, previous_lori_text,
+            photo_valid, trip, place_names):
         return _result(False, "not_trip_scoped")
 
     # 4. Skip trivial acknowledgments.
@@ -331,19 +352,28 @@ def capture_trip_story_answer(
     # 5. Resolve scope (validated ids only) + source_ref.
     scope = _resolve_scope(active_trip_id, active_trip_region_id,
                            active_trip_stop_id, photo_link_id)
-    source_ref = scope["source_ref_photo"]
-    if not source_ref:
-        if turn_id:
-            source_ref = "turn:" + str(turn_id)
-        elif conv_id:
-            source_ref = "conv:" + str(conv_id)
+    if source_surface == "travel_doc_modal":
+        # WO-TRAVEL-DOC-LORI-MODAL-01: modal refs are
+        # modal_turn:<conv>:<turn>, preserving photo_link:<id> alongside
+        # when photo-scoped (both halves reviewable in Story Notes).
+        source_ref = "modal_turn:%s:%s" % (conv_id or "-", turn_id or "-")
+        if scope["source_ref_photo"]:
+            source_ref += "|" + scope["source_ref_photo"]
+    else:
+        source_ref = scope["source_ref_photo"]
+        if not source_ref:
+            if turn_id:
+                source_ref = "turn:" + str(turn_id)
+            elif conv_id:
+                source_ref = "conv:" + str(conv_id)
 
     # 6. Duplicate guard — ONLY on a strong per-answer identity (turn id or
     #    photo link). conv:<id> is shared by every turn in a conversation, so
     #    deduping on it would collapse all later answers into the first one.
     dedupe_ref = source_ref if (source_ref and (
         source_ref.startswith("turn:") or
-        source_ref.startswith("photo_link:"))) else None
+        source_ref.startswith("photo_link:") or
+        source_ref.startswith("modal_turn:"))) else None
     existing = _dedupe_existing(active_trip_id, dedupe_ref)
     if existing:
         return _result(
@@ -365,6 +395,7 @@ def capture_trip_story_answer(
         source_ref=source_ref,
         include_in_memoir=False,
         include_in_interview_context=False,
+        source_surface=source_surface,
     )
 
     return _result(
@@ -384,6 +415,44 @@ _FLAG = "HORNELORE_TRIP_STORY_CAPTURE"
 def capture_enabled() -> bool:
     """Default-OFF. When off, chat_ws must not capture anything (byte-stable)."""
     return os.getenv(_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def capture_modal_turn(
+    person_id: Optional[str],
+    scope: Optional[Dict[str, Any]],
+    narrator_text: Optional[str],
+    previous_lori_text: Optional[str] = None,
+    conv_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """WO-TRAVEL-DOC-LORI-MODAL-01 — capture for the Travel Doc Lori
+    modal. Scope ids come EXPLICITLY from the modal (never runtime71,
+    never the Travels shelf): {active_trip_id, active_trip_region_id,
+    active_trip_stop_id, active_photo_link_id}. Same flag, same
+    trivial/question/ownership/dedupe gates, but the turn is trip-scoped
+    by construction. Writes source_surface='travel_doc_modal',
+    source_ref='modal_turn:<conv>:<turn>' (+ '|photo_link:<id>').
+    Both promotion flags stay OFF. NON-FATAL by contract."""
+    try:
+        if not capture_enabled():
+            return _result(False, "flag_off")
+        sc = scope or {}
+        return capture_trip_story_answer(
+            person_id=person_id,
+            active_trip_id=sc.get("active_trip_id"),
+            narrator_text=narrator_text,
+            previous_lori_text=previous_lori_text,
+            previous_prompt_kind="travel_doc_modal",
+            active_trip_region_id=sc.get("active_trip_region_id"),
+            active_trip_stop_id=sc.get("active_trip_stop_id"),
+            photo_link_id=sc.get("active_photo_link_id"),
+            conv_id=conv_id,
+            turn_id=turn_id,
+            source_surface="travel_doc_modal",
+            assume_trip_scoped=True,
+        )
+    except Exception as exc:  # never let capture break the chat turn
+        return _result(False, "error", error=str(exc))
 
 
 def _capture_for_turn_impl(

@@ -909,15 +909,32 @@ async def ws_chat(ws: WebSocket):
                 from ..services import trip_story_capture as _tsc
                 if _tsc.capture_enabled():
                     _tsc_prev = _TRIP_PREV_LORI.get(conv_id) or {}
-                    _tsc_res = _tsc.capture_for_turn(
-                        person_id,
-                        params.get("runtime71"),
-                        user_text,
-                        previous_lori_text=_tsc_prev.get("lori_text"),
-                        previous_prompt_kind=_tsc_prev.get("prompt_kind"),
-                        conv_id=conv_id,
-                        turn_id=(params.get("turn_id") or _audio_id_for_archive),
-                    )
+                    # WO-TRAVEL-DOC-LORI-MODAL-01: the Travel Doc modal
+                    # sends surface=travel_doc_modal + an explicit
+                    # modal_scope — capture through the modal path
+                    # (trip-scoped by construction, provenance stamped,
+                    # shelf state irrelevant). All other turns keep the
+                    # runtime71/shelf path unchanged.
+                    if (params.get("surface") or "") == "travel_doc_modal":
+                        _tsc_res = _tsc.capture_modal_turn(
+                            person_id,
+                            params.get("modal_scope"),
+                            user_text,
+                            previous_lori_text=_tsc_prev.get("lori_text"),
+                            conv_id=conv_id,
+                            turn_id=(params.get("turn_id")
+                                     or _audio_id_for_archive),
+                        )
+                    else:
+                        _tsc_res = _tsc.capture_for_turn(
+                            person_id,
+                            params.get("runtime71"),
+                            user_text,
+                            previous_lori_text=_tsc_prev.get("lori_text"),
+                            previous_prompt_kind=_tsc_prev.get("prompt_kind"),
+                            conv_id=conv_id,
+                            turn_id=(params.get("turn_id") or _audio_id_for_archive),
+                        )
                     _TRIP_LAST_CAPTURE[conv_id] = _tsc_res
                     logger.info(
                         "[chat_ws][trip-story-capture] conv=%s captured=%s "

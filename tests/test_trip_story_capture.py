@@ -505,5 +505,112 @@ class _CaptureForTurnCase(_CaptureCase):
         self.assertTrue(row["note_title"])
         self.assertIn("Munich", row["note_title"])
 
+class ModalCaptureTest(_CaptureCase):
+    """WO-TRAVEL-DOC-LORI-MODAL-01 — backend capture slice. Modal turns
+    are trip-scoped by construction, stamp source_surface, preserve
+    photo_link refs, and keep both promotion flags OFF."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["HORNELORE_TRIP_STORY_CAPTURE"] = "1"
+
+    def tearDown(self):
+        os.environ.pop("HORNELORE_TRIP_STORY_CAPTURE", None)
+        super().tearDown()
+
+    def _note(self, note_id):
+        con = sqlite3.connect(str(self.db_path))
+        con.row_factory = sqlite3.Row
+        r = con.execute("SELECT * FROM trip_location_notes WHERE id=?",
+                        (note_id,)).fetchone()
+        con.close()
+        return dict(r) if r else None
+
+    def test_modal_answer_creates_candidate_with_provenance(self):
+        res = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "We spent the whole morning at the natural history museum",
+            previous_lori_text="What do you remember about that day?",
+            conv_id="convA", turn_id="t1")
+        self.assertTrue(res["captured"], res)
+        n = self._note(res["note_id"])
+        self.assertEqual(n["source_type"], "lori")
+        self.assertEqual(n["source_surface"], "travel_doc_modal")
+        self.assertEqual(n["source_ref"], "modal_turn:convA:t1")
+        self.assertEqual(n["include_in_memoir"], 0)
+        self.assertEqual(n["include_in_interview_context"], 0)
+
+    def test_photo_scoped_modal_answer_preserves_photo_link(self):
+        res = tsc.capture_modal_turn(
+            self.person_id,
+            {"active_trip_id": self.trip_id,
+             "active_trip_stop_id": self.stop_id,
+             "active_photo_link_id": self.link_id},
+            "A bunch of men in lederhosen outside the beer hall",
+            conv_id="convA", turn_id="t2")
+        self.assertTrue(res["captured"], res)
+        n = self._note(res["note_id"])
+        self.assertIn("modal_turn:convA:t2", n["source_ref"])
+        self.assertIn("photo_link:" + self.link_id, n["source_ref"])
+        self.assertEqual(n["trip_stop_id"], self.stop_id)
+
+    def test_modal_needs_no_shelf_and_no_trip_scope_evidence(self):
+        # No previous_lori_text, no shelf — modal is scoped by surface.
+        res = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "The pretzels were bigger than my head at that market",
+            conv_id="c", turn_id="t3")
+        self.assertTrue(res["captured"], res)
+
+    def test_foreign_trip_rejected(self):
+        res = tsc.capture_modal_turn(
+            self.other_person, {"active_trip_id": self.trip_id},
+            "Trying to write into someone else's trip",
+            conv_id="c", turn_id="t4")
+        self.assertFalse(res["captured"])
+        self.assertEqual(res["reason"], "trip_not_owned")
+
+    def test_trivial_and_questions_still_skipped(self):
+        r1 = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "yes", conv_id="c", turn_id="t5")
+        self.assertFalse(r1["captured"])
+        r2 = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "what date was that taken", conv_id="c", turn_id="t6")
+        self.assertFalse(r2["captured"])
+
+    def test_flag_off_captures_nothing(self):
+        os.environ.pop("HORNELORE_TRIP_STORY_CAPTURE", None)
+        res = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "A full story about the museum morning in Munich",
+            conv_id="c", turn_id="t7")
+        self.assertFalse(res["captured"])
+        self.assertEqual(res["reason"], "flag_off")
+
+    def test_modal_turn_dedupe(self):
+        kw = dict(conv_id="convD", turn_id="t8")
+        a = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "The drive through the Alps took all afternoon", **kw)
+        b = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "The drive through the Alps took all afternoon", **kw)
+        self.assertTrue(a["captured"] and b["captured"])
+        self.assertEqual(b["reason"], "duplicate")
+        self.assertEqual(a["note_id"], b["note_id"])
+
+    def test_shelf_path_unchanged_no_surface_stamp(self):
+        # Legacy shelf capture writes source_surface NULL.
+        res = tsc.capture_trip_story_answer(
+            person_id=self.person_id, active_trip_id=self.trip_id,
+            narrator_text="We started in Munich then drove east",
+            previous_lori_text="Tell me about your trip to Munich",
+            previous_prompt_kind="trip_open", turn_id="t9")
+        self.assertTrue(res["captured"], res)
+        n = self._note(res["note_id"])
+        self.assertIsNone(n["source_surface"])
+
 if __name__ == "__main__":
     unittest.main()

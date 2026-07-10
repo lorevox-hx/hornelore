@@ -757,6 +757,7 @@ def location_note_create(
     target_language: str = "en",
     ord_: int = 0,
     note_id: Optional[str] = None,
+    source_surface: Optional[str] = None,
 ) -> str:
     if source_type not in _LOCATION_NOTE_SOURCE_TYPES:
         source_type = "operator"
@@ -766,13 +767,14 @@ def location_note_create(
         con.execute(
             """INSERT INTO trip_location_notes
                (id, trip_id, trip_region_id, trip_stop_id, note_title,
-                note_text, source_type, source_ref, include_in_memoir,
+                note_text, source_type, source_ref, source_surface,
+                include_in_memoir,
                 include_in_interview_context, target_language, ord,
                 created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 nid, trip_id, trip_region_id, trip_stop_id, note_title,
-                note_text, source_type, source_ref,
+                note_text, source_type, source_ref, source_surface,
                 1 if include_in_memoir else 0,
                 1 if include_in_interview_context else 0,
                 target_language, int(ord_), _now(), _now(),
