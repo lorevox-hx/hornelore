@@ -435,5 +435,180 @@ class CountsTest(_TripDaysCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
 
+class _PhotoLinksReq:
+    """TripDayPhotoLinksReq stand-in."""
+
+    def __init__(self, ids):
+        self.photo_link_ids = list(ids)
+
+
+class DayPhotoLinkTest(_TripDaysCase):
+    """WO-TRAVEL-DOC-UI-LAB-02 — migration 0028 day photo attach/detach."""
+
+    def setUp(self):
+        super().setUp()
+        trips.generate_trip_days(self.trip_id)
+        self.days = trip_repository.trip_days_list(self.trip_id)
+
+    def _photo_row(self, photo_id, date_value=None):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute(
+                "INSERT INTO photos (id, narrator_id, image_path, "
+                "file_hash, date_value) VALUES (?, ?, '/tmp/p.jpg', "
+                "?, ?)",
+                (photo_id, self.person_id, "hash-" + photo_id,
+                 date_value))
+            con.commit()
+        finally:
+            con.close()
+
+    def _link(self, taken_at=None):
+        pid = str(uuid.uuid4())
+        self._photo_row(pid)
+        return trip_repository.photo_link_upsert(
+            trip_id=self.trip_id, photo_id=pid, taken_at=taken_at,
+            assignment_method="exif_time", cluster_confidence=0.9)
+
+    def test_migration_0028_columns_exist(self):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            link_cols = {r[1] for r in con.execute(
+                "PRAGMA table_info(trip_photo_links)")}
+            note_cols = {r[1] for r in con.execute(
+                "PRAGMA table_info(trip_location_notes)")}
+        finally:
+            con.close()
+        self.assertIn("trip_day_id", link_cols,
+                      "migration 0028 did not apply to trip_photo_links")
+        self.assertIn("trip_day_id", note_cols,
+                      "migration 0028 did not apply to trip_location_notes")
+
+    def test_link_and_unlink_photos_to_day(self):
+        lid = self._link()
+        day = self.days[0]
+        out = trips.link_day_photos(self.trip_id, day["id"],
+                                    _PhotoLinksReq([lid]))
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["updated"], 1)
+        row = trip_repository.photo_link_get(lid)
+        self.assertEqual(row["trip_day_id"], day["id"])
+        out = trips.unlink_day_photos(self.trip_id, day["id"],
+                                      _PhotoLinksReq([lid]))
+        self.assertTrue(out["ok"])
+        row = trip_repository.photo_link_get(lid)
+        self.assertIsNone(row["trip_day_id"])
+
+    def test_link_rejects_cross_trip_photo_link(self):
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip",
+            start_date="2026-06-01", end_date="2026-06-02")
+        pid = str(uuid.uuid4())
+        self._photo_row(pid)
+        foreign_link = trip_repository.photo_link_upsert(
+            trip_id=other_trip, photo_id=pid,
+            assignment_method="exif_time")
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(self.trip_id, self.days[0]["id"],
+                                  _PhotoLinksReq([foreign_link]))
+        self.assertEqual(ctx.exception.status_code, 400)
+        row = trip_repository.photo_link_get(foreign_link)
+        self.assertIsNone(row["trip_day_id"])
+
+    def test_link_rejects_cross_trip_day(self):
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip 2",
+            start_date="2026-06-01", end_date="2026-06-02")
+        trip_repository.trip_days_generate(other_trip)
+        other_day = trip_repository.trip_days_list(other_trip)[0]
+        lid = self._link()
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(self.trip_id, other_day["id"],
+                                  _PhotoLinksReq([lid]))
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_link_partial_failure_writes_nothing(self):
+        # One good + one cross-trip id -> the whole batch is rejected,
+        # the good link stays unattached (single transaction).
+        good = self._link()
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip 3")
+        pid = str(uuid.uuid4())
+        self._photo_row(pid)
+        bad = trip_repository.photo_link_upsert(
+            trip_id=other_trip, photo_id=pid,
+            assignment_method="exif_time")
+        with self.assertRaises(HTTPException):
+            trips.link_day_photos(self.trip_id, self.days[0]["id"],
+                                  _PhotoLinksReq([good, bad]))
+        self.assertIsNone(trip_repository.photo_link_get(good)["trip_day_id"])
+
+    def test_link_empty_ids_422(self):
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(self.trip_id, self.days[0]["id"],
+                                  _PhotoLinksReq([]))
+        self.assertEqual(ctx.exception.status_code, 422)
+
+    def test_counts_prefer_trip_day_id_over_date_match(self):
+        # Photo TAKEN on day 2's date but attached to day 1: it counts
+        # on day 1 (operator truth) and NOT on day 2 (no double count).
+        lid = self._link(taken_at="2026-05-02T10:30:00Z")
+        day1 = self.days[0]   # 2026-05-01
+        trips.link_day_photos(self.trip_id, day1["id"],
+                              _PhotoLinksReq([lid]))
+        out = trips.list_trip_days(self.trip_id)
+        by_date = {d["date"]: d for d in out["days"]}
+        self.assertEqual(by_date["2026-05-01"]["counts"]["photos"], 1)
+        self.assertEqual(by_date["2026-05-02"]["counts"]["photos"], 0)
+
+    def test_counts_fall_back_to_date_match_for_unattached(self):
+        self._link(taken_at="2026-05-03T09:00:00Z")   # unattached
+        lid = self._link(taken_at="2026-05-03T12:00:00Z")
+        day3 = self.days[2]   # 2026-05-03
+        trips.link_day_photos(self.trip_id, day3["id"],
+                              _PhotoLinksReq([lid]))
+        out = trips.list_trip_days(self.trip_id)
+        by_date = {d["date"]: d for d in out["days"]}
+        # attached (1) + date-matched unattached (1) on the same day.
+        self.assertEqual(by_date["2026-05-03"]["counts"]["photos"], 2)
+
+    def test_day_scoped_note_counts_on_its_day(self):
+        day2 = self.days[1]
+        trip_repository.location_note_create(
+            trip_id=self.trip_id, note_text="Day-scoped story",
+            source_type="operator", trip_day_id=day2["id"])
+        out = trips.list_trip_days(self.trip_id)
+        self.assertEqual(out["days"][1]["counts"]["notes"], 1)
+        self.assertEqual(out["days"][0]["counts"]["notes"], 0)
+
+    def test_create_location_note_endpoint_validates_day(self):
+        class _NoteReq:
+            note_text = "in-lab day note"
+            note_title = None
+            trip_region_id = None
+            trip_stop_id = None
+            trip_day_id = None
+            source_type = "operator"
+            source_ref = None
+            include_in_memoir = False
+            include_in_interview_context = False
+            target_language = "en"
+
+        req = _NoteReq()
+        req.trip_day_id = self.days[0]["id"]
+        out = trips.create_location_note(self.trip_id, req)
+        self.assertEqual(out["note"]["trip_day_id"], self.days[0]["id"])
+
+        other_trip = trip_repository.trip_create(
+            person_id=self.person_id, title="Other Trip 4",
+            start_date="2026-06-01", end_date="2026-06-02")
+        trip_repository.trip_days_generate(other_trip)
+        req2 = _NoteReq()
+        req2.trip_day_id = trip_repository.trip_days_list(other_trip)[0]["id"]
+        with self.assertRaises(HTTPException) as ctx:
+            trips.create_location_note(self.trip_id, req2)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

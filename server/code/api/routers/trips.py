@@ -228,6 +228,7 @@ class LocationNoteCreate(BaseModel):
     note_title: Optional[str] = None
     trip_region_id: Optional[str] = None
     trip_stop_id: Optional[str] = None
+    trip_day_id: Optional[str] = None
     source_type: str = "operator"
     source_ref: Optional[str] = None
     include_in_memoir: bool = False
@@ -1271,12 +1272,18 @@ def create_location_note(trip_id: str, req: LocationNoteCreate) -> Dict[str, Any
     if req.source_type not in _LOCATION_NOTE_SOURCE_TYPES:
         raise HTTPException(status_code=422, detail="invalid source_type")
     _validate_source_scope(trip_id, req.trip_region_id, req.trip_stop_id)
+    if req.trip_day_id:
+        _day = trip_repository.trip_day_get(req.trip_day_id)
+        if not _day or _day.get("trip_id") != trip_id:
+            raise HTTPException(status_code=400,
+                                detail="day not in this trip")
     note_id = trip_repository.location_note_create(
         trip_id=trip_id,
         note_text=req.note_text,
         note_title=req.note_title,
         trip_region_id=req.trip_region_id,
         trip_stop_id=req.trip_stop_id,
+        trip_day_id=req.trip_day_id,
         source_type=req.source_type,
         source_ref=req.source_ref,
         include_in_memoir=req.include_in_memoir,
@@ -1717,11 +1724,14 @@ def reverse_geocode_photo_link(link_id: str) -> Dict[str, Any]:
 #     POST  /api/trips/{trip_id}/days/generate-from-dates
 #     PATCH /api/trips/days/{day_id}
 #
+#     POST  /api/trips/{trip_id}/days/{day_id}/photos/link
+#     POST  /api/trips/{trip_id}/days/{day_id}/photos/unlink
+#
 # Day rows power the Trip Calendar day cards + day-detail inspector in
-# the (removable) Travel Doc UI Lab. Deliberately NOT built yet:
-# day-scoped note/photo-link POST endpoints — the lab's "Add photos" /
-# "Add note" buttons deep-link to the existing operator flows instead
-# (deferred until the day layer earns them).
+# the (removable) Travel Doc UI Lab. WO-TRAVEL-DOC-UI-LAB-02: day-scoped
+# photo attach/detach + day-scoped notes (LocationNoteCreate.trip_day_id)
+# landed with migration 0028 — the lab's "Add photos" / "Add note"
+# buttons now stay in-lab instead of deep-linking away.
 
 
 class TripDayPatch(BaseModel):
@@ -1822,3 +1832,55 @@ def patch_trip_day(day_id: str, req: TripDayPatch) -> Dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=400, detail="nothing to update")
     return {"ok": True, "day": trip_repository.trip_day_get(day_id)}
+
+
+class TripDayPhotoLinksReq(BaseModel):
+    photo_link_ids: List[str] = []
+
+
+def _require_day_in_trip(trip_id: str, day_id: str) -> Dict[str, Any]:
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    day = trip_repository.trip_day_get(day_id)
+    if not day or day.get("trip_id") != trip_id:
+        raise HTTPException(status_code=404, detail="day not in this trip")
+    return day
+
+
+@router.post("/{trip_id}/days/{day_id}/photos/link")
+def link_day_photos(trip_id: str, day_id: str,
+                    req: TripDayPhotoLinksReq) -> Dict[str, Any]:
+    """Attach existing trip photo links to a day card (0028). Links must
+    belong to this trip; the day must belong to this trip. Attached
+    photos count on their day first (see trip_day_counts)."""
+    _require_trips_enabled()
+    _require_day_in_trip(trip_id, day_id)
+    ids = list(req.photo_link_ids or [])
+    if not ids:
+        raise HTTPException(status_code=422, detail="no photo_link_ids")
+    try:
+        updated = trip_repository.photo_links_set_day(ids, day_id, trip_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    logger.info("[trips][days] photo-link trip=%s day=%s n=%d",
+                trip_id, day_id, updated)
+    return {"ok": True, "updated": updated, "trip_day_id": day_id}
+
+
+@router.post("/{trip_id}/days/{day_id}/photos/unlink")
+def unlink_day_photos(trip_id: str, day_id: str,
+                      req: TripDayPhotoLinksReq) -> Dict[str, Any]:
+    """Detach photo links from a day card (trip_day_id -> NULL). The
+    photos keep their trip link; counts fall back to date match."""
+    _require_trips_enabled()
+    _require_day_in_trip(trip_id, day_id)
+    ids = list(req.photo_link_ids or [])
+    if not ids:
+        raise HTTPException(status_code=422, detail="no photo_link_ids")
+    try:
+        updated = trip_repository.photo_links_set_day(ids, None, trip_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    logger.info("[trips][days] photo-unlink trip=%s day=%s n=%d",
+                trip_id, day_id, updated)
+    return {"ok": True, "updated": updated, "trip_day_id": None}

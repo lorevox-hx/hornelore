@@ -760,6 +760,7 @@ def location_note_create(
     source_surface: Optional[str] = None,
     source_turn_ref: Optional[str] = None,
     photo_link_id: Optional[str] = None,
+    trip_day_id: Optional[str] = None,
 ) -> str:
     if source_type not in _LOCATION_NOTE_SOURCE_TYPES:
         source_type = "operator"
@@ -768,15 +769,18 @@ def location_note_create(
     try:
         con.execute(
             """INSERT INTO trip_location_notes
-               (id, trip_id, trip_region_id, trip_stop_id, note_title,
+               (id, trip_id, trip_region_id, trip_stop_id, trip_day_id,
+                note_title,
                 note_text, source_type, source_ref, source_surface,
                 source_turn_ref, photo_link_id,
                 include_in_memoir,
                 include_in_interview_context, target_language, ord,
                 created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?)""",
             (
-                nid, trip_id, trip_region_id, trip_stop_id, note_title,
+                nid, trip_id, trip_region_id, trip_stop_id, trip_day_id,
+                note_title,
                 note_text, source_type, source_ref, source_surface,
                 source_turn_ref, photo_link_id,
                 1 if include_in_memoir else 0,
@@ -1975,32 +1979,91 @@ def trip_day_update(
         con.close()
 
 
+def photo_links_set_day(
+    link_ids: List[str],
+    day_id: Optional[str],
+    trip_id: str,
+) -> int:
+    """Attach (or detach, day_id=None) trip photo links to a day card
+    (WO-TRAVEL-DOC-UI-LAB-02). Validates that the day AND every link
+    belong to ``trip_id`` — cross-trip ids raise ValueError and nothing
+    is written (one transaction). Returns the number of links updated."""
+    ids = [str(l) for l in (link_ids or []) if l]
+    if not ids:
+        return 0
+    if day_id:
+        day = trip_day_get(day_id)
+        if not day or day.get("trip_id") != trip_id:
+            raise ValueError("day not in this trip")
+    con = _connect()
+    try:
+        for lid in ids:
+            row = con.execute(
+                "SELECT trip_id FROM trip_photo_links WHERE id = ?",
+                (lid,),
+            ).fetchone()
+            if not row or row["trip_id"] != trip_id:
+                raise ValueError("photo link not in this trip: %s" % lid)
+        updated = 0
+        for lid in ids:
+            cur = con.execute(
+                "UPDATE trip_photo_links SET trip_day_id = ?, "
+                "updated_at = ? WHERE id = ?",
+                (day_id, _now(), lid),
+            )
+            updated += cur.rowcount
+        con.commit()
+        return updated
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
     """Honest per-day evidence counts keyed by day id.
 
-    - photos: trip photo links whose taken date (COALESCE(link.taken_at,
-      photos.date_value) date prefix) equals the day's date. Best-effort
-      date match only — undated links count nowhere.
-    - notes / sources / public_context: these tables are NOT date-scoped
-      in schema, so a row counts for a day ONLY when its scope link
-      (trip_stop_id, else trip_region_id) equals the day's linked
-      stop/region. Days with no link get 0 — no fake numbers.
+    - photos: links attached to the day (trip_day_id, migration 0028)
+      count on THAT day first; links without a day attachment fall back
+      to the taken-date match (COALESCE(link.taken_at, photos.date_value)
+      date prefix). Undated, unattached links count nowhere.
+    - notes: rows attached to the day (trip_day_id) count on that day;
+      unattached rows count only via the day's linked stop/region scope.
+    - sources / public_context: NOT date- or day-scoped in schema, so a
+      row counts for a day ONLY when its scope link (trip_stop_id, else
+      trip_region_id) equals the day's linked stop/region. Days with no
+      link get 0 — no fake numbers.
     """
     days = trip_days_list(trip_id)
     if not days:
         return {}
 
-    # Photo counts by date prefix (one query).
+    # Photo counts: day-attached links first (0028), then date-prefix
+    # fallback for unattached links only.
     by_date: Dict[str, int] = {}
+    by_day: Dict[str, int] = {}
     con = _connect()
     try:
         try:
+            rows = con.execute(
+                """SELECT l.trip_day_id AS d, COUNT(*) AS n
+                   FROM trip_photo_links l
+                   LEFT JOIN photos p ON p.id = l.photo_id
+                   WHERE l.trip_id = ?
+                     AND l.trip_day_id IS NOT NULL
+                     AND (p.id IS NULL OR p.deleted_at IS NULL)
+                   GROUP BY l.trip_day_id""",
+                (trip_id,),
+            ).fetchall()
+            by_day = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
             rows = con.execute(
                 """SELECT substr(COALESCE(l.taken_at, p.date_value), 1, 10)
                           AS d, COUNT(*) AS n
                    FROM trip_photo_links l
                    LEFT JOIN photos p ON p.id = l.photo_id
                    WHERE l.trip_id = ?
+                     AND l.trip_day_id IS NULL
                      AND (p.id IS NULL OR p.deleted_at IS NULL)
                      AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
                    GROUP BY d""",
@@ -2008,7 +2071,23 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
             ).fetchall()
             by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
         except sqlite3.OperationalError:
-            by_date = {}
+            # Pre-0028 DB: no trip_day_id column — date match only.
+            by_day = {}
+            try:
+                rows = con.execute(
+                    """SELECT substr(COALESCE(l.taken_at, p.date_value), 1, 10)
+                              AS d, COUNT(*) AS n
+                       FROM trip_photo_links l
+                       LEFT JOIN photos p ON p.id = l.photo_id
+                       WHERE l.trip_id = ?
+                         AND (p.id IS NULL OR p.deleted_at IS NULL)
+                         AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
+                       GROUP BY d""",
+                    (trip_id,),
+                ).fetchall()
+                by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+            except sqlite3.OperationalError:
+                by_date = {}
     finally:
         con.close()
 
@@ -2020,18 +2099,25 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
         stop_id = day.get("trip_stop_id")
         region_id = day.get("trip_region_id")
         if stop_id:
-            return sum(1 for r in rows if r.get("trip_stop_id") == stop_id)
+            return sum(1 for r in rows if r.get("trip_stop_id") == stop_id
+                       and not r.get("trip_day_id"))
         if region_id:
             return sum(1 for r in rows
                        if r.get("trip_region_id") == region_id
-                       and not r.get("trip_stop_id"))
+                       and not r.get("trip_stop_id")
+                       and not r.get("trip_day_id"))
         return 0
+
+    def _day_note_count(day: Dict[str, Any]) -> int:
+        did = str(day.get("id"))
+        return sum(1 for n in notes if str(n.get("trip_day_id") or "") == did)
 
     out: Dict[str, Dict[str, int]] = {}
     for day in days:
         out[str(day["id"])] = {
-            "photos": by_date.get(str(day.get("date") or "")[:10], 0),
-            "notes": _scoped_count(notes, day),
+            "photos": by_day.get(str(day["id"]), 0)
+            + by_date.get(str(day.get("date") or "")[:10], 0),
+            "notes": _day_note_count(day) + _scoped_count(notes, day),
             "sources": _scoped_count(sources, day),
             "public_context": _scoped_count(pub, day),
         }
