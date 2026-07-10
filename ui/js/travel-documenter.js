@@ -16,13 +16,15 @@
    HARD BOUNDARIES (spec + regression-tested):
      - Operator tool ONLY. The shell tab strip is hidden during
        interview mode (body.lv-interview-mode-active #lvShellTabs).
-     - Travel Doc never mutates Lori/runtime/session state and never
-       dispatches prompts itself. The ONE bridge to Lori is the explicit
-       "Talk with Lori" button, which calls the Travels shelf PUBLIC opener
-       (window.lvTravelsOpenTripById) — the Travels shelf, not Travel Doc,
-       owns activeTripId / tripStyle / prompt dispatch. Focus mode only
-       toggles a body CSS class (document.body) that compresses the shell
-       header visually on the Travel Doc tab; it writes no runtime state.
+     - Travel Doc does not touch narrator-room Travels-shelf or
+       runtime71 state — the Travels shelf keeps sole ownership of
+       activeTripId / tripStyle / narrator prompt dispatch. The Travel
+       Doc Lori modal (WO-TRAVEL-DOC-LORI-MODAL-02) owns its OWN operator
+       WebSocket surface with source_surface=travel_doc_modal and an
+       explicit modal scope; it never writes narrator session scope.
+       Focus mode only toggles a body CSS class (document.body) that
+       compresses the shell header visually on the Travel Doc tab; it
+       writes no runtime state.
      - Uses existing trips endpoints only.
 
    LAYOUT REFLOW (WO-TRAVEL-DOC-LAYOUT-REFLOW-01):
@@ -116,6 +118,7 @@
       '</div>' +
       '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
       '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><span data-td="editorStatus" class="td-ed-status"></span><button data-td="wideToggle" type="button" class="td-small td-secondary" title="Widen the editor over the tile board">Wide editor</button><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
+      '<div data-td="editorTabs" class="td-ed-tabs"></div>' +
       '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
       '<div data-td="editorFooter" class="td-editor-footer"></div>' +
       '</section>' +
@@ -748,9 +751,17 @@
     function renderEditor() {
       var title = $("editorTitle");
       var body = $("editorBody");
+      // Post-push review #1: the tab strip is a FIXED flex sibling
+      // (data-td="editorTabs") between the panel head and the scrollable
+      // editor body, so tabs never scroll away with long forms. Cleared
+      // on EVERY render; left empty in the no-selection state so the
+      // :empty CSS rule hides the strip (no orphan tabs, no stray
+      // border-bottom).
+      var tabsBar = $("editorTabs");
       if (!title || !body) return;
       removeQuickSave();
       clearEditorFooter();
+      if (tabsBar) tabsBar.innerHTML = "";
 
       if (!st.selected || !st.trip) {
         title.textContent = "Edit selected";
@@ -761,20 +772,20 @@
       title.textContent = kind.charAt(0).toUpperCase() + kind.slice(1) +
         " · " + editorScopeName();
       body.innerHTML = "";
-      var tabsBar = el("div", "td-ed-tabs");
-      [["edit", "Edit"], ["notes", "Story notes"], ["photos", "Photos"],
-       ["sources", "Sources"]]
-        .forEach(function (t) {
-          var b = el("button", "td-ed-tab" +
-            (st.editorTab === t[0] ? " is-active" : ""), t[1]);
-          b.type = "button";
-          b.addEventListener("click", function () {
-            st.editorTab = t[0];
-            renderEditor();
+      if (tabsBar) {
+        [["edit", "Edit"], ["notes", "Story notes"], ["photos", "Photos"],
+         ["sources", "Sources"]]
+          .forEach(function (t) {
+            var b = el("button", "td-ed-tab" +
+              (st.editorTab === t[0] ? " is-active" : ""), t[1]);
+            b.type = "button";
+            b.addEventListener("click", function () {
+              st.editorTab = t[0];
+              renderEditor();
+            });
+            tabsBar.appendChild(b);
           });
-          tabsBar.appendChild(b);
-        });
-      body.appendChild(tabsBar);
+      }
       var pane = el("div", "td-ed-pane");
       body.appendChild(pane);
       if (st.editorTab === "notes") return renderNotesTab(pane);
@@ -820,7 +831,10 @@
       var head = el("div", "td-note-head");
       head.appendChild(el("strong", "", n.note_title || "(untitled)"));
       var _srcType = n.source_type || "operator";
-      var _srcLabel = (_srcType === "lori") ? "from Lori chat" : _srcType;
+      var _srcLabel = (_srcType === "lori")
+        ? (n.source_surface === "travel_doc_modal"
+            ? "from Lori modal" : "from Lori chat")
+        : _srcType;
       head.appendChild(el("span", "td-note-badge td-src-" + _srcType, _srcLabel));
       card.appendChild(head);
       card.appendChild(el("p", "td-note-text", n.note_text || ""));
@@ -2126,9 +2140,11 @@
       st.rightView = "editor";
       applyRightView();
     });
-    // Explicit, narrator-visible: hand the selected trip to the narrator
-    // Travels shelf (which owns all Lori/session state). Travel Doc never
-    // dispatches prompts or writes session scope itself.
+    // Boundary note (post-push review #4): Travel Doc does not touch
+    // narrator-room Travels-shelf or runtime71 state. The Travel Doc
+    // modal below owns its OWN operator WebSocket surface
+    // (source_surface=travel_doc_modal); captures land server-side as
+    // flags-0 candidate notes, never in narrator session scope.
     // ── WO-TRAVEL-DOC-LORI-MODAL-02: Lori modal (surface=travel_doc_modal) ──
     // Owns its OWN WebSocket + explicit scope. Never touches Travels
     // shelf state, runtime71, or narrator-room chat. Captures land

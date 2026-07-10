@@ -209,13 +209,19 @@ class ReflowTest(unittest.TestCase):
     # ── viewport pin + independent body scroll (kept from REFLOW-01) ──
 
     def test_right_column_pinned_to_viewport(self):
+        # Post-push review #2: dvh (mobile browser chrome safe) +
+        # min-height: 0 + align-self: start on the pinned rule.
         line = next((ln for ln in self._css().splitlines()
                      if ln.strip().startswith(".td-root .td-col-right")
-                     and "calc(100vh" in ln), None)
+                     and "calc(100dvh" in ln), None)
         self.assertIsNotNone(line, "no viewport-pinned .td-col-right rule")
         self.assertIn("position: sticky", line)
         self.assertIn("flex-direction: column", line)
         self.assertIn("overflow: hidden", line)
+        self.assertIn("min-height: 0", line)
+        self.assertIn("align-self: start", line)
+        self.assertNotIn("100vh", line.replace("100dvh", ""),
+                         "vh crept back alongside dvh")
 
     def test_narrow_viewport_unpins_height(self):
         # The <=1100px reset must undo the height pin, not just sticky —
@@ -347,6 +353,61 @@ class ReflowTest(unittest.TestCase):
         body = m.group(0)
         self.assertIn('st.editorTab = "photos"', body)
         self.assertIn("renderEditor()", body)
+
+
+class PostPushReviewPunchListTest(unittest.TestCase):
+    """Post-push review punch-list (2026-07-10) on top of 208678c."""
+
+    def _css(self) -> str:
+        return (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+                ).read_text(encoding="utf-8")
+
+    def test_editor_tabs_are_sibling_before_editor_body(self):
+        # Punch-list #1: the tab strip is a fixed sibling BETWEEN the
+        # panel head and the scrollable editor body — never rendered
+        # inside editorBody, where long forms scroll it away.
+        src = _JS.read_text(encoding="utf-8")
+        m = re.search(
+            r'data-td="editorPanel"[\s\S]*?'
+            r'<div data-td="editorTabs" class="td-ed-tabs"></div>[\s\S]*?'
+            r'data-td="editorBody"',
+            src)
+        self.assertIsNotNone(
+            m, "editorTabs strip missing between panel head and editorBody")
+        stripped = _stripped_js()
+        m2 = re.search(r"function renderEditor\(\) \{[\s\S]*?\n    \}",
+                       stripped)
+        self.assertIsNotNone(m2, "renderEditor not found")
+        body = m2.group(0)
+        # Tabs render into the dedicated strip, cleared every render;
+        # the old tabs-in-body pattern must be gone.
+        self.assertIn('$("editorTabs")', body)
+        self.assertIn('tabsBar.innerHTML = ""', body)
+        self.assertNotIn("body.appendChild(tabsBar)", body)
+        self.assertNotIn('el("div", "td-ed-tabs")', body)
+        # CSS: the strip is a fixed flex child (no scroll participation)
+        # and hides itself when empty (no-selection state).
+        css = self._css()
+        line = next((ln for ln in css.splitlines()
+                     if ln.strip().startswith(".td-root .td-ed-tabs,")), None)
+        self.assertIsNotNone(line, "no scoped .td-ed-tabs rule")
+        self.assertIn("flex: 0 0 auto", line)
+        self.assertIn(".td-root .td-ed-tabs:empty", css)
+
+    def test_modal_lori_notes_label_from_lori_modal(self):
+        # Punch-list #3: story notes captured through the Travel Doc
+        # Lori modal (source_surface=travel_doc_modal) are labeled
+        # "from Lori modal"; plain lori notes keep "from Lori chat".
+        src = _stripped_js()
+        m = re.search(r"function renderNoteCard\(n\) \{[\s\S]*?\n    \}",
+                      src)
+        self.assertIsNotNone(m, "renderNoteCard not found")
+        body = m.group(0)
+        self.assertIn('n.source_surface === "travel_doc_modal"', body)
+        self.assertIn('"from Lori modal"', body)
+        self.assertIn('"from Lori chat"', body)
+        # Branch shape: modal label only on the lori source type.
+        self.assertIn('_srcType === "lori"', body)
 
 
 if __name__ == "__main__":
