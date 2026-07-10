@@ -60,7 +60,7 @@ body.td-standalone .td-dot.bad { background: var(--td-bad); }
 .td-root .td-photo-strip, body.td-standalone .td-photo-strip { display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 4rem; }
 .td-root .td-photo-strip img, body.td-standalone .td-photo-strip img { width: 72px; height: 72px; object-fit: cover; border-radius: 14px; border: 1px solid var(--td-line); background: #efe3cc; }
 .td-root .td-output, body.td-standalone .td-output { margin: 0; min-height: 12rem; max-height: 30rem; overflow: auto; white-space: pre-wrap; background: #241a10; color: #fff4d7; border-radius: 16px; padding: 1rem; font-size: 0.9rem; line-height: 1.45; }
-@media (max-width: 1100px) { .td-root .td-layout, body.td-standalone .td-layout { grid-template-columns: 1fr; } .td-root .td-col-right, body.td-standalone .td-col-right { position: static; } }
+@media (max-width: 1100px) { .td-root .td-layout, body.td-standalone .td-layout { grid-template-columns: 1fr; } .td-root .td-col-right, body.td-standalone .td-col-right { position: static; height: auto; overflow: visible; } }
 @media (max-width: 760px) { body.td-standalone .td-shell-head { display: grid; padding: 1rem; } .td-root .td-layout, body.td-standalone .td-layout { grid-template-columns: 1fr; padding: 0 1rem 1rem; } .td-root .td-grid-2, body.td-standalone .td-grid-2 { grid-template-columns: 1fr; } .td-root .td-wide, .td-root .td-active-panel, body.td-standalone .td-wide, body.td-standalone .td-active-panel { grid-column: auto; } }
 
 /* ── Native mount extras ─────────────────────────────────────────── */
@@ -97,13 +97,12 @@ body.td-standalone .td-dot.bad { background: var(--td-bad); }
 .td-root .td-editor-form, body.td-standalone .td-editor-form { display: grid; gap: 0.6rem; }
 .td-root .td-ed-field, body.td-standalone .td-ed-field { display: grid; gap: 0.3rem; }
 .td-root .td-ed-label, body.td-standalone .td-ed-label { font-size: 0.82rem; font-weight: 750; color: var(--td-muted); }
-.td-root .td-ed-actions, body.td-standalone .td-ed-actions { margin-top: 0.2rem; }
 
 
 /* ── Layout reflow (WO-TRAVEL-DOC-LAYOUT-REFLOW-01) — single-line rules,
    each prefixed .td-root so the scoping gate stays green. ── */
 .td-root .td-col, body.td-standalone .td-col { display: grid; gap: 1rem; align-items: start; min-width: 0; }
-.td-root .td-col-right, body.td-standalone .td-col-right { position: sticky; top: 1rem; align-self: start; }
+.td-root .td-col-right, body.td-standalone .td-col-right { position: sticky; top: 1rem; align-self: start; height: calc(100vh - 2rem); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .td-root .td-newtrip-btn, body.td-standalone .td-newtrip-btn { width: 100%; margin-top: 0.2rem; background: #efe3cc; color: var(--td-accent-2); box-shadow: none; border: 1px dashed var(--td-accent); }
 .td-root .td-newtrip-btn:hover, body.td-standalone .td-newtrip-btn:hover { background: #fff3d8; filter: none; }
 .td-root .td-trip-toolbar, body.td-standalone .td-trip-toolbar { border-top: 1px solid var(--td-line); padding-top: 0.7rem; margin-top: 0.2rem; }
@@ -272,3 +271,26 @@ body.td-standalone .td-photo-meta {
 .td-root .td-tlg-public, body.td-standalone .td-tlg-public { margin: 0; font-size: 0.86rem; color: var(--td-text); }
 .td-root .td-tlg-intake, body.td-standalone .td-tlg-intake { border: 1px dashed var(--td-line); border-radius: 14px; padding: 0.7rem 0.8rem; background: #fbf6ea; display: grid; gap: 0.35rem; }
 .td-root .td-tlg-intake-row, body.td-standalone .td-tlg-intake-row { font-size: 0.86rem; }
+
+/* ── Right-editor reflow (WO-TRAVEL-DOC-LAYOUT-REFLOW-01) ──
+   The right column is pinned to the viewport (rule above); the editor
+   panel becomes a flex column whose BODY owns the scroll, and the
+   Save/Delete row docks to the panel bottom so it never leaves the
+   fold. Quick Save twin lives in the panel head (see edActions in
+   travel-documenter.js). Single-line rules, each prefixed .td-root so
+   the scoping gate stays green. ── */
+.td-root .td-right-toggle, body.td-standalone .td-right-toggle { flex: 0 0 auto; }
+.td-root .td-editor-panel, body.td-standalone .td-editor-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.td-root .td-editor-panel[hidden], body.td-standalone .td-editor-panel[hidden] { display: none; }
+.td-root .td-editor-panel .td-panel-head, body.td-standalone .td-editor-panel .td-panel-head { flex: 0 0 auto; }
+.td-root .td-editor-body, body.td-standalone .td-editor-body { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding-bottom: 0.5rem; }
+.td-root .td-editor-footer, body.td-standalone .td-editor-footer { flex: 0 0 auto; display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.4rem; padding: 0.6rem 0.2rem 0.1rem; border-top: 1px solid var(--td-line); background: var(--td-panel); }
+.td-root .td-editor-footer:empty, body.td-standalone .td-editor-footer:empty { display: none; }
+.td-root .td-timeline-panel, body.td-standalone .td-timeline-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.td-root .td-timeline-panel .td-panel-head, body.td-standalone .td-timeline-panel .td-panel-head { flex: 0 0 auto; }
+.td-root .td-timeline-body, body.td-standalone .td-timeline-body { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
+.td-root .td-quick-save-btn, body.td-standalone .td-quick-save-btn { font-size: 0.82rem; padding: 0.35rem 0.6rem; white-space: nowrap; }
+
+/* ── Editor ergonomics (WO-TRAVEL-DOC-EDITOR-ERGONOMICS-01) ── */
+.td-root .td-wide-on, body.td-standalone .td-wide-on { background: var(--td-accent); color: #fff; border-color: var(--td-accent); }
+@media (min-width: 1101px) { .td-root .td-layout.td-editor-wide, body.td-standalone .td-layout.td-editor-wide { grid-template-columns: minmax(240px, 0.7fr) minmax(300px, 1fr) minmax(480px, 1.7fr); } }

@@ -2,6 +2,7 @@
    travel-documenter.js — WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01
                         + WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01
                         + WO-TRAVEL-DOC-LAYOUT-REFLOW-01
+                        + WO-TRAVEL-DOC-EDITOR-ERGONOMICS-01
 
    OPERATOR-ONLY trip documentation panel, mountable:
 
@@ -100,6 +101,7 @@
       '<button data-td="reloadTree" type="button" class="td-small td-secondary">Reload</button>' +
       '<button data-td="memoirPreview" type="button" class="td-small td-secondary">Memoir preview</button>' +
       '<button data-td="traveloguePreview" type="button" class="td-small td-secondary">Travelogue preview</button>' +
+      '<button data-td="openPhotosTab" type="button" class="td-small td-secondary">Photos</button>' +
       '</div>' +
       '<p class="td-help">Tile order is the route order. Use the tile buttons to reorder, insert, or restructure — dates are just metadata.</p>' +
       '<div data-td="tree" class="td-tree"></div>' +
@@ -113,8 +115,9 @@
       '<button data-td="viewTimeline" type="button" class="td-rtab">Timeline</button>' +
       '</div>' +
       '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
-      '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><span data-td="editorStatus" class="td-ed-status"></span><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
+      '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><span data-td="editorStatus" class="td-ed-status"></span><button data-td="wideToggle" type="button" class="td-small td-secondary" title="Widen the editor over the tile board">Wide editor</button><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
       '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
+      '<div data-td="editorFooter" class="td-editor-footer"></div>' +
       '</section>' +
       '<section class="td-panel td-timeline-panel" data-td="timelinePanel" hidden>' +
       '<div class="td-panel-head"><h2>Timeline</h2></div>' +
@@ -652,15 +655,31 @@
       });
       return edField(parent, label, s);
     }
+    // WO-TRAVEL-DOC-EDITOR-ERGONOMICS-01: Save/Delete live in the
+    // dedicated panel footer — a real flex sibling AFTER the editor body,
+    // NO absolute positioning — never inside the form. renderEditor
+    // clears the footer at the top of EVERY render, so switching
+    // trip/region/stop/tab can never leave a stale Save handler bound to
+    // a form that no longer exists. Non-edit tabs (notes/photos/sources)
+    // and the empty state simply never re-register, leaving the footer
+    // empty (hidden via the :empty CSS rule); their own inline action
+    // buttons are unaffected.
+    function clearEditorFooter() {
+      var footer = $("editorFooter");
+      if (footer) footer.innerHTML = "";
+    }
     function edActions(parent, saveFn, deleteFn) {
-      var row = el("div", "td-button-row td-ed-actions");
+      void parent; // kept for call-site compat; buttons go to the footer
+      var footer = $("editorFooter");
+      if (!footer) return;
+      footer.innerHTML = "";
       var save = el("button", "", "Save"); save.type = "button";
       save.addEventListener("click", function () {
         Promise.resolve().then(saveFn).catch(function (e) {
           logError("Error", { message: e.message });
         });
       });
-      row.appendChild(save);
+      footer.appendChild(save);
       if (deleteFn) {
         var del = el("button", "td-danger", "Delete"); del.type = "button";
         del.addEventListener("click", function () {
@@ -668,9 +687,41 @@
             logError("Error", { message: e.message });
           });
         });
-        row.appendChild(del);
+        footer.appendChild(del);
       }
-      parent.appendChild(row);
+      injectQuickSave(saveFn);
+    }
+
+    // WO-TRAVEL-DOC-LAYOUT-REFLOW-01: low-profile duplicate Save in the
+    // editor panel head, so long forms never force a scroll down to the
+    // docked footer row. The button is REMOVED and re-created on every
+    // editor render — renderEditor rebuilds the forms, so keeping an old
+    // node alive would fire a stale closure against a form that no
+    // longer exists. removeQuickSave() is the duplicate guard; edActions
+    // re-injects with the CURRENT form's saveFn.
+    function removeQuickSave() {
+      var panel = $("editorPanel");
+      if (!panel) return;
+      var head = panel.querySelector(".td-panel-head");
+      var old = head && head.querySelector(".td-quick-save-btn");
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+    function injectQuickSave(saveFn) {
+      var panel = $("editorPanel");
+      if (!panel) return;
+      var head = panel.querySelector(".td-panel-head");
+      if (!head) return;
+      removeQuickSave();
+      var b = el("button", "td-small td-secondary td-quick-save-btn", "Quick Save");
+      b.type = "button";
+      b.addEventListener("click", function () {
+        Promise.resolve().then(saveFn).catch(function (e) {
+          logError("Error", { message: e.message });
+        });
+      });
+      var clearBtn = head.querySelector('[data-td="editorClear"]');
+      if (clearBtn) head.insertBefore(b, clearBtn);
+      else head.appendChild(b);
     }
 
     function editorScopeName() {
@@ -698,6 +749,8 @@
       var title = $("editorTitle");
       var body = $("editorBody");
       if (!title || !body) return;
+      removeQuickSave();
+      clearEditorFooter();
 
       if (!st.selected || !st.trip) {
         title.textContent = "Edit selected";
@@ -2053,6 +2106,26 @@
     bind("editorClear", clearSelection);
     bind("viewEditor", function () { st.rightView = "editor"; applyRightView(); });
     bind("viewTimeline", function () { st.rightView = "timeline"; applyRightView(); });
+    // WO-TRAVEL-DOC-EDITOR-ERGONOMICS-01: wide editor mode. Reversible,
+    // remembered only for this mount (module variable — no localStorage).
+    var wideEditor = false;
+    bind("wideToggle", function () {
+      wideEditor = !wideEditor;
+      var layout = hostEl.querySelector(".td-layout");
+      if (layout) layout.classList.toggle("td-editor-wide", wideEditor);
+      var wb = $("wideToggle");
+      if (wb) wb.classList.toggle("td-wide-on", wideEditor);
+    });
+    // Workflow shortcut: jump straight to the editor's Photos tab for the
+    // current selection (or the trip itself when nothing is selected).
+    bind("openPhotosTab", function () {
+      if (!st.trip) throw new Error("select a trip first");
+      st.editorTab = "photos";
+      if (!st.selected) selectItem("trip", st.trip.id);
+      else renderEditor();
+      st.rightView = "editor";
+      applyRightView();
+    });
     // Explicit, narrator-visible: hand the selected trip to the narrator
     // Travels shelf (which owns all Lori/session state). Travel Doc never
     // dispatches prompts or writes session scope itself.
