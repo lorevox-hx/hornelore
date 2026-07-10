@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Travel Doc UI Lab Recommendations</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main class="index-page">
+    <section class="panel index-hero">
+      <a class="btn" href="index.html">← Back to index</a>
+      <div class="kicker" style="margin-top:1rem">Updated recommendation</div>
+      <h1>Use one coherent Travel Doc, not four competing apps</h1>
+      <pre class="spec">Best structure
+
+Travel Doc
+  Trip Plan      → based on Mockup 2
+  Photos         → based on Mockup 3
+  Story Notes    → simplified mode inside Mockup 2 shell
+  Travelogue     → based on Mockup 4
+  Sources        → simplified mode inside Mockup 2 shell
+  Lori           → modal/drawer from Mockup 3
+
+Mockup 1 stays as the current baseline so Chris can compare old vs new.</pre>
+    </section>
+
+    <section class="panel index-hero">
+      <h2>WO-TRAVEL-DOC-UI-LAB-01</h2>
+      <pre class="spec">Goal:
+Create an API-connected Travel Doc UI Lab so Chris can test multiple Travel Doc layouts against real trip data before replacing the production Travel Doc.
+
+Do not replace the current Travel Doc yet.
+
+Add a new experimental page or route:
+  ui/travel-doc-lab.html
+
+or an internal tab mode:
+  Travel Doc → UI Lab
+
+The lab should support these views:
+
+1. Current
+   - current Travel Doc layout/control view
+   - read from the existing travel-documenter.js behavior if possible
+   - used only for comparison
+
+2. Trip Plan / Calendar
+   - based on revised Mockup 2
+   - main day-by-day trip calendar workspace
+   - start/end dates generate editable day cards
+   - left rail: trips + route navigator
+   - center: one card per trip day
+   - right inspector: selected day detail, day notes, photos, sources, Lori scope
+   - sticky Save/Delete actions
+
+3. Photos
+   - based on Mockup 3
+   - photo grid
+   - selected photo preview
+   - metadata/context inspector
+   - Send to Lori controls
+   - Talk with Lori about this photo
+
+4. Story Notes
+   - simplified mode inside Mockup 2 shell
+   - list captured notes by trip/day/stop/photo
+   - review, edit, promote, exclude
+
+5. Sources
+   - simplified mode inside Mockup 2 shell
+   - tickets, receipts, documents, OCR/public context rows
+   - link sources to trip/day/stop/photo
+
+6. Travelogue
+   - based on Mockup 4
+   - structure sidebar
+   - central travelogue preview
+   - right evidence/anchors/photos/context panel
+   - use existing /travelogue-preview API
+   - do not generate prose yet unless an explicit button is added later
+
+7. Lori
+   - modal/drawer from Mockup 3
+   - scope options:
+       active_trip_id
+       active_trip_day_id
+       active_trip_stop_id
+       active_photo_link_id
+
+Important:
+Use one shared API adapter. Do not duplicate API calls separately inside each mockup.
+
+Shared API adapter should load:
+- trips
+- selected trip tree
+- trip days
+- photo links
+- location notes
+- sources
+- public context
+- travelogue preview
+
+Existing API endpoints to use:
+- GET /api/trips
+- GET /api/trips/{trip_id}/tree
+- GET /api/trips/{trip_id}/photo-links
+- GET /api/trips/{trip_id}/location-notes
+- GET /api/trips/{trip_id}/sources
+- GET /api/trips/{trip_id}/public-context
+- GET /api/trips/{trip_id}/travelogue-preview
+- PATCH existing trip/region/stop/photo/note/source endpoints already used by travel-documenter.js
+
+Likely new API needed:
+- GET /api/trips/{trip_id}/days
+- POST /api/trips/{trip_id}/days/generate-from-dates
+- PATCH /api/trips/days/{day_id}
+- POST /api/trips/days/{day_id}/notes
+- POST /api/trips/days/{day_id}/photos/link
+- POST /api/trips/days/{day_id}/sources/link
+
+Acceptance:
+- User can switch between Current, Trip Plan, Photos, Story Notes, Sources, Travelogue, and Lori.
+- All views use the same selected trip.
+- Selecting a region/stop/day/photo updates the shared state.
+- Day cards are generated from trip start/end dates.
+- Each day card shows date, day number, place/location, lodging/base, linked region/stop, photo count, story note count, source count, public context count, Talk with Lori, Add Photos, Add Note, and Edit Day.
+- Day detail view includes morning/afternoon/evening notes, places visited, meals, photos, sources, and Lori scoped to active_trip_day_id.
+- No narrator-room/runtime71 state is touched.
+- No production Travel Doc replacement yet.
+- UI Lab is safe to delete later.</pre>
+    </section>
+  </main>
+</body></html>
