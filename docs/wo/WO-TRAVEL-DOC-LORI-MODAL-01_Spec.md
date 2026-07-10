@@ -129,6 +129,19 @@ Build 1.5 guards verified WORKING live (Bavaria normalized, no SYSTEM leak, no p
 
 Photo-scoped modal + anchor chip ✓ · "what can you tell me about that photo" → "The file data suggests May 14, 2026. Does that match your memory?" (draft-hedged) ✓ · Date→Lori approved → "The approved taken date for this photo is May 14, 2026." ✓ · memory answer → grounded LLM reply (no parroting, no vision claims) ✓ · capture row: source_surface=travel_doc_modal, source_turn_ref=modal_turn:<conv>:tdmodal_t3, photo-linked, both flags 0 ✓ · Sandbox drawer shows "from Lori modal 📷 … In memoir OFF · Use with Lori OFF" ✓. Deferred: draft place/context composition (needs operator-entered draft fields — the one open spec item).
 
+## DOCTRINE CORRECTION (2026-07-10, later): the rule is NOT "no web"
+
+The local LLM/API MAY use web/public-context tools in Travel Doc mode
+(reverse geocoding, holidays, museum/food/neighborhood context). The
+boundary is: never outsource private narrator memory archives or raw
+memoir transcripts to a cloud LLM. Public context = labeled draft
+evidence until confirmed; never presented as personal memory. Full
+doctrine in README.md + CLAUDE.md; the earlier "no web / no datasets"
+enrichment decision is SUPERSEDED for Travel Doc mode. Successor WO:
+WO-TRAVEL-DOC-EVIDENCE-RICH-TRAVELOGUE-01 (travelogue builder, four
+block types, public-context + photo evidence packets, reverse-geocode
+lane — filed 2026-07-10, next build).
+
 ## TWO-SURFACE POLICY (LOCKED 2026-07-10 — supersedes narrator-room caution in the modal)
 
 **Narrator Room = conservative. Travel Doc modal = EVIDENCE-RICH.** In the

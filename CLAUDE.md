@@ -57,6 +57,28 @@ These eight principles are checked against every UI element, every data write, a
 
 **Canonical extractor architecture reference:** `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`. Consult this when scoping any extractor-lane WO, prompt experiment, or eval. Core Law: *Extraction is semantics-driven, but errors arise from failures in causal attribution at the binding layer.* Five-layer pipeline: Architectural / Control / Binding (primary failure surface) / Decision / Evaluation. Type A/B/C question typology LOCKED.
 
+## Travel Doc Evidence + Web Context Rule (permanent doctrine, 2026-07-10)
+
+Travel Doc mode is the OPERATOR memoir-building workspace — not Narrator
+Room / dementia-safe life-story mode. Narrator Room stays cautious (no
+surprise machine guesses, no raw-metadata overload, gentle and human).
+Travel Doc is EVIDENCE-RICH: use all available evidence (EXIF/filename
+dates, GPS + reverse-geocoded broad place, OCR, draft image observations,
+captions, operator/approved notes, trip route hierarchy, prior notes,
+modal captures, and web/public context) to build the best travelogue,
+with provenance wording.
+
+**The rule is not "no web." The local Hornelore LLM/API may use web and
+public-context tools in Travel Doc mode** (holidays, local events, museum
+and site background, food context, neighborhood context, reverse
+geocoding). The boundary is: **do not outsource private narrator memory
+archives, life-story profiles, or raw memoir transcripts to an
+uncontrolled cloud LLM as the reasoning engine.** Local web-enabled
+evidence enrichment is allowed; cloud life-story outsourcing is not.
+Web-derived context must be labeled as public context or draft evidence
+until confirmed by the operator/narrator, and public context is never
+presented as personal memory.
+
 ## Environment
 
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.

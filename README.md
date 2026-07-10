@@ -503,6 +503,28 @@ Not parent-session blockers. The four spoken-dialogue / role research papers (Ea
 
 ---
 
+## Travel Doc Evidence + Web Context Rule (permanent doctrine, 2026-07-10)
+
+Travel Doc mode is the OPERATOR memoir-building workspace — not Narrator
+Room / dementia-safe life-story mode. Narrator Room stays cautious (no
+surprise machine guesses, no raw-metadata overload, gentle and human).
+Travel Doc is EVIDENCE-RICH: use all available evidence (EXIF/filename
+dates, GPS + reverse-geocoded broad place, OCR, draft image observations,
+captions, operator/approved notes, trip route hierarchy, prior notes,
+modal captures, and web/public context) to build the best travelogue,
+with provenance wording.
+
+**The rule is not "no web." The local Hornelore LLM/API may use web and
+public-context tools in Travel Doc mode** (holidays, local events, museum
+and site background, food context, neighborhood context, reverse
+geocoding). The boundary is: **do not outsource private narrator memory
+archives, life-story profiles, or raw memoir transcripts to an
+uncontrolled cloud LLM as the reasoning engine.** Local web-enabled
+evidence enrichment is allowed; cloud life-story outsourcing is not.
+Web-derived context must be labeled as public context or draft evidence
+until confirmed by the operator/narrator, and public context is never
+presented as personal memory.
+
 ## Local-first AI commitment
 
 Every model used inside Hornelore (and by extension, Lorevox) runs on the narrator's machine. This is a standing architectural commitment, not a default we plan to revisit later under cost pressure.
