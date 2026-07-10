@@ -39,6 +39,44 @@ modal is an OPERATOR workspace, so its fallback is workspace-aware:
 — because the operator can fix the missing field right there (the photo
 card with Date→Lori / Place→Lori stays visible beside the modal).
 
+## Photo-intelligence provenance model (CLARIFIED 2026-07-09 — supersedes a blanket "never vision")
+
+Three tiers, and the rule is about PROVENANCE, not blindness:
+
+1. **Raw image vision** (machine guess: "likely a Wels catfish sculpture")
+2. **OCR / readable text** ("Deutsches Jagd- und Fischereimuseum", "BMZ / Neuhauser Str. 2")
+3. **Approved photo context** (operator-approved fact)
+
+Machine drafts (vision/OCR/metadata) MAY be generated — operator-triggered,
+local tools or stubbed — stored with source/provenance, shown in Travel Doc,
+and Lori MAY use them **only phrased as draft**: "The draft photo context
+suggests… Is that right?" / "The OCR draft reads…" / "The file name
+suggests…". Fact phrasing ("The approved photo context says…") ONLY after
+operator approval. WRONG rule: never look at images / wait for the narrator
+to type every fact. The danger is never image use — it is guesses stated as
+certainty. Hard rules unchanged: no web lookup, no raw GPS to Lori, no
+upload/save/download dates to Lori, filename date is a guess until approved,
+never "I can see…" (reserved for a possible future narrator-facing vision
+mode).
+
+Approval gates for the modal build: draft observation · approved photo
+context · approved OCR text · approved taken date · approved place.
+
+## One-session build scope (Chris directive: "not baby steps")
+
+(1) modal UI, (2) modal-owned chat scope (no shelf switch), (3) photo anchor
+chip, (4) capture intake sandbox, (5) Mark Twain gate, (6) manual Chrome
+acceptance with the real Munich fish photo, (7) draft OCR/vision lane —
+operator-triggered button, stubbed or local-tool-backed (LLM is text-only;
+Tesseract not installed until Ph4 — a stub that accepts operator-entered
+draft observations with provenance labels satisfies the acceptance flow),
+(8) the approval gates above. Acceptance adds: "what can you tell me about
+the photo" BEFORE approval → "The draft photo context suggests this may be a
+large fish sculpture outside the German Hunting and Fishing Museum. Is that
+right?"; AFTER approval → "The approved photo context says this was the Wels
+catfish outside the German Hunting and Fishing Museum in Munich."; memory
+answer lands in the sandbox photo-linked, flags off.
+
 ## Manual live acceptance (Chrome, real photo — NOT a repo fixture)
 
 Photo: `/mnt/c/Users/chris/Downloads/PXL_20260514_125640482.jpg` (fish
