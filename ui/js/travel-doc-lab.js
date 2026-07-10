@@ -190,6 +190,7 @@
     st.sourceDrawerDayId = null;
     st.reconcile = null;
     st.reconcileDrawerOpen = false;
+    loriPane.reset();
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
   }
@@ -654,6 +655,7 @@
     actions.appendChild(btn("tdl-btn", "＋ Attach source",
       function () { openSourceDrawer(day.id); }));
     actions.appendChild(btn("tdl-btn", "✎ Edit day", function () {
+      if (dayFormDirtyBlocks()) return;
       st.selectedDayId = day.id;
       renderAll();
     }));
@@ -772,6 +774,29 @@
     renderAll();
   }
 
+  // WO-TRIP-LANE-AUDIT-FIXPACK-01 (M5): before any action that would
+  // destructively re-render and discard the day inspector's typed-but-
+  // unsaved edits, require an explicit discard confirmation. Returns
+  // true if the caller should ABORT (user chose to keep editing). Save
+  // and Cancel are deliberate and never call this.
+  function dayFormDirtyBlocks() {
+    if (!dayForm || !dayForm.dirty) return false;
+    // Lab doctrine: NO native confirm() dialogs. Rather than silently
+    // discarding typed edits on a destructive re-render, block the
+    // action and flash the existing Save/Cancel affordance so the
+    // operator explicitly Saves (keep) or Cancels (discard).
+    (dayForm.badges || []).forEach(function (b) {
+      b.classList.add("tdl-dirty-flash");
+      b.textContent = "Unsaved changes \u2014 Save or Cancel first";
+    });
+    (dayForm.saveButtons || []).forEach(function (b) { b.disabled = false; });
+    var sb = dayForm.saveButtons && dayForm.saveButtons[0];
+    if (sb && sb.scrollIntoView) {
+      try { sb.scrollIntoView({ block: "center" }); } catch (e) {}
+    }
+    return true;
+  }
+
   function saveDayEdits() {
     if (!dayForm) return;
     var f = dayForm;
@@ -855,13 +880,13 @@
     var nav = el("div");
     var idx = st.days.indexOf(day);
     nav.appendChild(btn("tdl-btn tdl-btn-small", "‹", function () {
-      if (idx > 0) { st.selectedDayId = st.days[idx - 1].id; renderAll(); }
+      if (idx > 0) { if (dayFormDirtyBlocks()) return; st.selectedDayId = st.days[idx - 1].id; renderAll(); }
     }));
     nav.appendChild(btn("tdl-btn tdl-btn-small", "›", function () {
-      if (idx < st.days.length - 1) { st.selectedDayId = st.days[idx + 1].id; renderAll(); }
+      if (idx < st.days.length - 1) { if (dayFormDirtyBlocks()) return; st.selectedDayId = st.days[idx + 1].id; renderAll(); }
     }));
     nav.appendChild(btn("tdl-btn tdl-btn-small", "×", function () {
-      st.selectedDayId = null; dayForm = null; renderAll();
+      if (dayFormDirtyBlocks()) return; st.selectedDayId = null; dayForm = null; renderAll();
     }));
     row1.appendChild(nav);
     head.appendChild(row1);
@@ -1150,6 +1175,7 @@
   }
 
   function openSourceDrawer(dayId) {
+    if (dayFormDirtyBlocks()) return;
     st.selectedDayId = dayId;
     st.sourceDrawerDayId = dayId;
     st.photoPickerDayId = null;
@@ -1473,6 +1499,7 @@
   // ── In-lab day photo picker (drawer — no navigation away) ────────────
 
   function openPhotoPicker(dayId) {
+    if (dayFormDirtyBlocks()) return;
     st.selectedDayId = dayId;
     st.photoPickerDayId = dayId;
     st.noteDrawerDayId = null;
@@ -1612,6 +1639,7 @@
   // ── In-lab day note drawer ────────────────────────────────────────────
 
   function openNoteDrawer(dayId) {
+    if (dayFormDirtyBlocks()) return;
     st.selectedDayId = dayId;
     st.noteDrawerDayId = dayId;
     st.photoPickerDayId = null;
@@ -2023,6 +2051,20 @@
       this.paintScope();
     },
 
+    // WO-TRIP-LANE-AUDIT-FIXPACK-01 (H3): drop ALL per-trip Lori state on
+    // a trip switch so Trip B can never combine its trip id with a
+    // day/photo anchor or transcript left over from Trip A.
+    reset: function () {
+      try { if (this.ws) this.ws.close(); } catch (e) {}
+      this.ws = null;
+      this.dayId = null;
+      this.photoLinkId = null;
+      this.bubble = null;
+      this.turn = 0;
+      if (this.log) this.log.textContent = "";
+      if (this.node) this.paintScope();
+    },
+
     scope: function () {
       var day = this.dayId ? dayById(this.dayId) : null;
       var stopId = (day && day.trip_stop_id) ||
@@ -2212,6 +2254,7 @@
   // ── Lori in context: right drawer over Trip Plan ─────────────────────
 
   function openLoriOverlay(dayId) {
+    if (dayFormDirtyBlocks()) return;
     st.tab = "plan";
     st.loriReturnTab = "plan";
     st.selectedDayId = dayId || st.selectedDayId;
@@ -2228,6 +2271,7 @@
   // tab. Back returns to Photos with scroll position and the selected
   // photo intact (closeLoriOverlay never touches tab/selection/scroll).
   function openLoriOverlayForPhoto(photoLinkId) {
+    if (dayFormDirtyBlocks()) return;
     st.tab = "photos";
     st.loriReturnTab = "photos";
     st.photoPickerDayId = null;

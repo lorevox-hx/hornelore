@@ -2422,6 +2422,10 @@
       reload: loadTrips,
       destroy: function () {
         document.removeEventListener("keydown", onKeydown);
+        // WO-TRIP-LANE-AUDIT-FIXPACK-01 (M6): close the modal Lori
+        // WebSocket so narrator-switch remounts don't leak open sockets
+        // to /api/chat/ws.
+        try { modalLori.close(); } catch (_) {}
         document.body.classList.remove("lv-td-focus");
         hostEl.innerHTML = "";
         hostEl.classList.remove("td-root");

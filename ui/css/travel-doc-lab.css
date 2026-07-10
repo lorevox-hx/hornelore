@@ -295,3 +295,17 @@
 
 /* Sources tab filter rail (horizontal variant of the photo rail) */
 .tdl-filter-rail-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: .35rem; margin-bottom: .8rem; }
+
+/* WO-TRIP-LANE-AUDIT-FIXPACK-01 (M5): dirty-guard flash — when a
+   destructive action is blocked because the day inspector has unsaved
+   edits, the Save/Cancel affordance pulses instead of a native
+   confirm() dialog (lab doctrine forbids confirm()). */
+.tdl-dirty-flash {
+  background: #7a2b2b;
+  color: #fff;
+  animation: tdl-dirty-pulse 0.7s ease-in-out 2;
+}
+@keyframes tdl-dirty-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
