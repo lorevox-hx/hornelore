@@ -912,6 +912,8 @@
       card.appendChild(img);
       var place = l.trip_stop_id ? stopNameById(l.trip_stop_id)
         : (l.trip_region_id ? regionNameById(l.trip_region_id) : "unplaced");
+      // display-only fixup (Braveria -> Bavaria) — DB untouched
+      place = String(place || "").replace(/\bBraveria\b/gi, "Bavaria");
       card.appendChild(el("small", "td-muted", place));
       // ── Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): reviewable
       // date/place metadata. Shows what the FILE says (EXIF date, a low-

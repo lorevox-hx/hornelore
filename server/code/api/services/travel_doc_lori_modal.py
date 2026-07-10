@@ -151,6 +151,10 @@ def answer_modal_direct_question(
         if pkt.get("draft_context"):
             return ("The draft photo context suggests "
                     + pkt["draft_context"] + " Is that right?")
+        if not pkt.get("photo_link_id"):
+            return ("No photo is anchored right now — open 'Talk with "
+                    "Lori about this photo' on a photo card and I can "
+                    "use its approved context.")
         return ("I don't know that from the approved trip record yet — "
                 "the Travel Doc can store a caption or context note if "
                 "you add one.")

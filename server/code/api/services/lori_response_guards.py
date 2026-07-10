@@ -526,12 +526,23 @@ _FAKE_WARMTH_ES_RX = re.compile(
 # SYSTEM./SYSTEM:/System. is prompt scaffolding, never Lori.
 _LEADING_SYSTEM_RX = re.compile(r'^\s*["\'\u201c]?(?:SYSTEM|System)\s*[.:]\s*')
 
+# Live modal leak 2026-07-10 — pure meta-reasoning replies, position-free
+# ("I'll respond with a neutral message", "since there's no prior
+# conversation"). Whole reply is scaffolding; repair falls through to the
+# deterministic continuation.
+_META_REASONING_RX = re.compile(
+    r"(?i)i(?:'ll| will) (?:respond|reply|answer) with a "
+    r"(?:neutral|generic|simple) (?:message|response)"
+    r"|(?i)since there(?:'s| is) no prior conversation")
+
 
 def detect_meta_response_leak(assistant_text: str) -> bool:
     """Return True if the response contains meta-instruction leakage."""
     if not assistant_text:
         return False
     if _LEADING_SYSTEM_RX.search(assistant_text):
+        return True
+    if _META_REASONING_RX.search(assistant_text):
         return True
     if _META_PREAMBLE_RX.search(assistant_text):
         return True
@@ -571,6 +582,13 @@ def repair_meta_response_leak(
     # the remainder ("What comes to mind when you look at that photo?")
     # survives as the visible reply.
     text = _LEADING_SYSTEM_RX.sub("", text).strip()
+    if _META_REASONING_RX.search(text):
+        # Whole reply is meta-reasoning scaffolding — drop the matched
+        # sentences; quoted-draft recovery / deterministic fallback below
+        # handles what (if anything) remains.
+        kept = [s for s in re.split(r"(?<=[.!?])\s+", text)
+                if not _META_REASONING_RX.search(s)]
+        text = " ".join(kept).strip()
 
     # Try to recover a quoted draft. The LLM frequently writes
     #   Here is a response: "Real response goes here."
