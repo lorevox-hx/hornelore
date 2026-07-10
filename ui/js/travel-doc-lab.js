@@ -5,6 +5,12 @@
    Trip-Calendar-centric Travel Doc redesign against REAL trip data.
    Design reference: docs/mockups/lorevox-travel-doc-ui-lab-v2/.
 
+   WO-TRAVEL-DOC-UI-LAB-02 (2026-07-10, Chris's live usability review):
+   sticky Save Day + dirty tracking, laptop drawer layout, consistent
+   day-card actions, in-lab day photo picker (no more deep-linking away),
+   in-lab day notes, Lori as an in-context drawer over Trip Plan with an
+   explicit Back to Trip Plan control, collapsible inspector sections.
+
    Boundaries (locked, enforced by tests/test_travel_doc_lab.py):
    - Zero impact on production surfaces: does NOT load or reference the
      production Travel Doc module, the narrator room, the Travels shelf,
@@ -41,8 +47,17 @@
     selectedPhotoLinkId: null,
     routeSel: null,      // {kind:"region"|"stop", id, regionId}
     photoFilter: "all",
+    loriOverlay: false,      // Lori as a drawer over Trip Plan
+    photoPickerDayId: null,  // in-lab day photo picker drawer
+    noteDrawerDayId: null,   // in-lab day note drawer
+    mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
+
+  // Module vars (survive re-renders; deliberately NOT in st so a trip
+  // switch doesn't reset the operator's layout preference).
+  var railCollapsed = false;           // left rail ⟨ toggle
+  var insOpen = { overview: true };    // inspector collapsible sections
 
   var root = document.getElementById("tdlRoot");
 
@@ -135,6 +150,10 @@
       "Untitled day";
   }
 
+  function dayChipText(day) {
+    return "Day " + day.day_index + " · " + day.date;
+  }
+
   // ── data loading (single shared adapter — no per-view duplication) ───
 
   function loadTrips() {
@@ -152,6 +171,9 @@
     st.selectedPhotoLinkId = null;
     st.routeSel = null;
     st.travelogue = null;
+    st.loriOverlay = false;
+    st.photoPickerDayId = null;
+    st.noteDrawerDayId = null;
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
   }
@@ -190,6 +212,12 @@
     if (!st.trip) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes")
       .then(function (out) { st.notes = out.notes || []; });
+  }
+
+  function reloadPhotoLinks() {
+    if (!st.trip) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/photo-links")
+      .then(function (out) { st.photoLinks = out.photo_links || []; });
   }
 
   // ── person picker (no person_id in the URL) ──────────────────────────
@@ -234,6 +262,7 @@
 
   function setTab(tab) {
     st.tab = tab;
+    st.loriOverlay = false;
     if (tab === "travelogue" && !st.travelogue && st.trip) {
       api("/api/trips/" + encodeURIComponent(st.trip.id) + "/travelogue-preview")
         .then(function (out) { st.travelogue = out; renderAll(); })
@@ -243,6 +272,12 @@
   }
 
   function renderAll() {
+    // Preserve the workspace scroll position across re-renders (drawer
+    // open/close, saves, selection) so "back" always lands where the
+    // operator left off.
+    var prevMain = root.querySelector(".tdl-main");
+    if (prevMain) st.mainScroll = prevMain.scrollTop;
+
     root.innerHTML = "";
     var app = el("div", "tdl-app");
 
@@ -267,7 +302,10 @@
 
     // Layout
     var withInspector = (st.tab === "plan" && st.selectedDayId);
-    var layout = el("section", "tdl-layout" + (withInspector ? " tdl-has-inspector" : ""));
+    var layoutCls = "tdl-layout" +
+      (withInspector ? " tdl-has-inspector" : "") +
+      (railCollapsed ? " tdl-rail-collapsed" : "");
+    var layout = el("section", layoutCls);
     layout.appendChild(renderSidebar());
     var main = el("section", "tdl-main");
     if (st.error) main.appendChild(el("div", "tdl-error", st.error));
@@ -281,14 +319,41 @@
     layout.appendChild(main);
     if (withInspector) layout.appendChild(renderInspector());
     app.appendChild(layout);
+
+    // Drawers / overlays (in-lab — never navigate away).
+    if (st.trip && st.loriOverlay) app.appendChild(renderLoriOverlay());
+    if (st.trip && st.photoPickerDayId) app.appendChild(renderPhotoPicker());
+    if (st.trip && st.noteDrawerDayId) app.appendChild(renderNoteDrawer());
+
     root.appendChild(app);
+    main.scrollTop = st.mainScroll || 0;
   }
 
-  // ── left rail: trip list + route navigator ────────────────────────────
+  // ── left rail: trip list + route navigator (collapsible) ─────────────
+
+  function toggleRail() {
+    railCollapsed = !railCollapsed;
+    renderAll();
+  }
 
   function renderSidebar() {
-    var side = el("aside", "tdl-sidebar");
-    side.appendChild(el("div", "tdl-section-label", "My Trips"));
+    var side = el("aside", "tdl-sidebar" + (railCollapsed ? " tdl-collapsed" : ""));
+
+    if (railCollapsed) {
+      var expand = btn("tdl-rail-toggle", "⟩", toggleRail);
+      expand.title = "Show trips";
+      side.appendChild(expand);
+      side.appendChild(el("div", "tdl-rail-vlabel", "Trips"));
+      return side;
+    }
+
+    var railHead = el("div", "tdl-rail-head");
+    railHead.appendChild(el("div", "tdl-section-label", "My Trips"));
+    var collapse = btn("tdl-rail-toggle", "⟨", toggleRail);
+    collapse.title = "Hide trips";
+    railHead.appendChild(collapse);
+    side.appendChild(railHead);
+
     var list = el("ul", "tdl-trip-list");
     st.trips.forEach(function (t) {
       var li = el("li");
@@ -442,6 +507,24 @@
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
 
+  // One clear, consistent action row per day — same labels, same order,
+  // EVERYWHERE a day is actionable (card + inspector). Full labels wrap
+  // to a second line rather than truncating (Chris's laptop review).
+  function dayActionRow(day) {
+    var actions = el("div", "tdl-day-actions");
+    actions.appendChild(btn("tdl-btn tdl-btn-gold", "💬 Talk with Lori",
+      function () { openLoriOverlay(day.id); }));
+    actions.appendChild(btn("tdl-btn", "＋ Add photos",
+      function () { openPhotoPicker(day.id); }));
+    actions.appendChild(btn("tdl-btn", "＋ Add note",
+      function () { openNoteDrawer(day.id); }));
+    actions.appendChild(btn("tdl-btn", "✎ Edit day", function () {
+      st.selectedDayId = day.id;
+      renderAll();
+    }));
+    return actions;
+  }
+
   function renderDayCard(day) {
     var card = el("article", "tdl-day-card" +
       (st.selectedDayId === day.id ? " tdl-selected" : ""));
@@ -468,7 +551,6 @@
     } else {
       main.appendChild(el("p", "tdl-muted", "No linked region/stop yet"));
     }
-    card.appendChild(main);
 
     var counts = day.counts || {};
     var stats = el("div", "tdl-day-stats");
@@ -482,21 +564,10 @@
       span.appendChild(el("small", "", s[2]));
       stats.appendChild(span);
     });
-    card.appendChild(stats);
+    main.appendChild(stats);
+    card.appendChild(main);
 
-    var actions = el("div", "tdl-day-actions");
-    actions.appendChild(btn("tdl-btn tdl-btn-gold tdl-wide", "💬 Talk with Lori",
-      function () { loriPane.anchorDay(day.id); setTab("lori"); }));
-    actions.appendChild(btn("tdl-btn", "＋ Photos", function () {
-      // Day-scoped upload endpoints are deferred — deep-link to the
-      // existing production upload flow.
-      window.open(prodTravelDocUrl(), "_blank", "noopener");
-    }));
-    actions.appendChild(btn("tdl-btn", "✎ Edit day", function () {
-      st.selectedDayId = day.id;
-      renderAll();
-    }));
-    card.appendChild(actions);
+    card.appendChild(dayActionRow(day));
 
     card.addEventListener("click", function (e) {
       if (e.target.closest("button")) return;
@@ -506,7 +577,7 @@
     return card;
   }
 
-  // ── Day-detail inspector ─────────────────────────────────────────────
+  // ── Day-detail inspector (fixed header / scroll body / sticky footer) ─
 
   function dayScopedRows(rows, day) {
     if (day.trip_stop_id) {
@@ -520,13 +591,120 @@
     return [];
   }
 
+  function dayLinkedNotes(day) {
+    return st.notes.filter(function (n) { return n.trip_day_id === day.id; });
+  }
+
+  function dayLinkedPhotoLinks(day) {
+    return st.photoLinks.filter(function (l) { return l.trip_day_id === day.id; });
+  }
+
+  function dateMatchedPhotoLinks(day) {
+    return st.photoLinks.filter(function (l) {
+      return !l.trip_day_id && linkTakenDate(l) === day.date;
+    });
+  }
+
+  // Dirty-state form registry for the currently open inspector. Field
+  // edits mark it dirty in place (no re-render) so typing never loses
+  // focus; Save/Cancel resolve it.
+  var dayForm = null;
+
+  function markDayFormDirty() {
+    if (!dayForm || dayForm.dirty) {
+      if (dayForm) dayForm.dirty = true;
+      return;
+    }
+    dayForm.dirty = true;
+    dayForm.badges.forEach(function (b) { b.classList.add("tdl-dirty-on"); });
+    dayForm.saveButtons.forEach(function (b) { b.disabled = false; });
+  }
+
+  function cancelDayEdits() {
+    // Esc / Cancel reverts: values re-render from st.days.
+    dayForm = null;
+    renderAll();
+  }
+
+  function saveDayEdits() {
+    if (!dayForm) return;
+    var f = dayForm;
+    var day = f.day;
+    var body_ = {
+      places_visited: f.fPlaces.value.split("\n").map(function (s) { return s.trim(); })
+        .filter(Boolean),
+      meals: f.fMeals.value.split("\n").map(function (s) { return s.trim(); })
+        .filter(Boolean),
+    };
+    function setOrClear(field, value, clearFlag) {
+      var v = value.trim();
+      if (v) body_[field] = v; else body_[clearFlag] = true;
+    }
+    setOrClear("title", f.fTitle.value, "clear_title");
+    setOrClear("main_location", f.fMain.value, "clear_main_location");
+    setOrClear("lodging_base", f.fLodging.value, "clear_lodging_base");
+    setOrClear("morning_notes", f.fMorning.value, "clear_morning_notes");
+    setOrClear("afternoon_notes", f.fAfternoon.value, "clear_afternoon_notes");
+    setOrClear("evening_notes", f.fEvening.value, "clear_evening_notes");
+    if (f.fStop.value) {
+      body_.trip_stop_id = f.fStop.value;
+    } else {
+      body_.clear_stop = true;
+    }
+    if (f.fRegion.value && !f.fStop.value) {
+      body_.trip_region_id = f.fRegion.value;
+    } else if (!f.fRegion.value && !f.fStop.value) {
+      body_.clear_region = true;
+    }
+    api("/api/trips/days/" + encodeURIComponent(day.id),
+      { method: "PATCH", body: body_ })
+      .then(function () { return reloadDays(); })
+      .then(function () { st.error = ""; dayForm = null; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function unlinkDayPhoto(day, linkId) {
+    api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
+      { method: "POST", body: { photo_link_ids: [linkId] } })
+      .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function insSection(key, labelText, openDefault) {
+    var det = document.createElement("details");
+    det.className = "tdl-ins-sec";
+    det.open = (key in insOpen) ? !!insOpen[key] : !!openDefault;
+    var sum = el("summary", "tdl-ins-sec-label", labelText);
+    det.appendChild(sum);
+    det.addEventListener("toggle", function () { insOpen[key] = det.open; });
+    return det;
+  }
+
+  function dirtyBadge() {
+    // Hidden until the form is dirty (tdl-dirty-on).
+    return el("span", "tdl-dirty-badge", "Unsaved changes");
+  }
+
+  function saveBtn(extraCls) {
+    var b = btn("tdl-btn tdl-btn-primary " + (extraCls || ""), "✓ Save Day",
+      saveDayEdits);
+    b.disabled = true; // enabled by the first edit (dirty tracking)
+    return b;
+  }
+
   function renderInspector() {
     var day = dayById(st.selectedDayId);
     var ins = el("aside", "tdl-inspector");
     if (!day) return ins;
 
+    dayForm = { day: day, dirty: false, badges: [], saveButtons: [] };
+
+    // ── fixed header: nav + top mini action row ──
     var head = el("div", "tdl-inspector-head");
-    head.appendChild(el("span", "tdl-kicker",
+    var row1 = el("div", "tdl-inspector-head-row");
+    row1.appendChild(el("span", "tdl-kicker",
       "Day " + day.day_index + " of " + st.days.length));
     var nav = el("div");
     var idx = st.days.indexOf(day);
@@ -537,33 +715,32 @@
       if (idx < st.days.length - 1) { st.selectedDayId = st.days[idx + 1].id; renderAll(); }
     }));
     nav.appendChild(btn("tdl-btn tdl-btn-small", "×", function () {
-      st.selectedDayId = null; renderAll();
+      st.selectedDayId = null; dayForm = null; renderAll();
     }));
-    head.appendChild(nav);
+    row1.appendChild(nav);
+    head.appendChild(row1);
+
+    // Top mini action row: Save Day · Cancel · More — no more hunting
+    // for a Save button at the bottom of a long scroll.
+    var actRow = el("div", "tdl-ins-actions");
+    var topBadge = dirtyBadge();
+    actRow.appendChild(topBadge);
+    dayForm.badges.push(topBadge);
+    var topSave = saveBtn("tdl-btn-small");
+    actRow.appendChild(topSave);
+    dayForm.saveButtons.push(topSave);
+    actRow.appendChild(btn("tdl-btn tdl-btn-small", "Cancel", cancelDayEdits));
+    actRow.appendChild(btn("tdl-btn tdl-btn-small", "More ▾", function () {
+      // Expand every section (quick way to see the whole day).
+      ins.querySelectorAll("details.tdl-ins-sec").forEach(function (d) {
+        d.open = true;
+      });
+    }));
+    head.appendChild(actRow);
     ins.appendChild(head);
 
+    // ── scroll body: collapsible sections ──
     var body = el("div", "tdl-inspector-body");
-
-    var idSec = el("section", "tdl-ins-section");
-    idSec.appendChild(el("h2", "", prettyDate(day.date) + " · " + day.date));
-    idSec.appendChild(el("h3", "", dayLabel(day)));
-    var scopeNote = el("div", "tdl-lori-scope-note");
-    scopeNote.appendChild(el("b", "", "Lori scope: "));
-    scopeNote.appendChild(el("span", "", "active_trip_day_id = " + day.id.slice(0, 8) + "… "));
-    scopeNote.appendChild(el("span", "tdl-muted",
-      "Day-level conversation uses this day plus its linked stop/photos/notes/sources."));
-    idSec.appendChild(scopeNote);
-    body.appendChild(idSec);
-
-    // Editable fields
-    var form = el("section", "tdl-ins-section");
-    var rt = el("div", "tdl-row-title");
-    rt.appendChild(el("span", "", "Day Detail"));
-    form.appendChild(rt);
-    var tabsRow = el("div", "tdl-day-detail-tabs");
-    ["Morning", "Afternoon", "Evening", "Places", "Meals", "Photos", "Sources", "Lori"]
-      .forEach(function (t) { tabsRow.appendChild(el("span", "", t)); });
-    form.appendChild(tabsRow);
 
     function labeled(text, input) {
       var l = el("label", "tdl-label");
@@ -571,15 +748,31 @@
       l.appendChild(input);
       return l;
     }
-    var fTitle = el("input"); fTitle.value = day.title || "";
-    var fMain = el("input"); fMain.value = day.main_location || "";
-    var fLodging = el("input"); fLodging.value = day.lodging_base || "";
-    form.appendChild(labeled("Day title", fTitle));
-    form.appendChild(labeled("Main location", fMain));
-    form.appendChild(labeled("Lodging base", fLodging));
+    function watch(input) {
+      input.addEventListener("input", markDayFormDirty);
+      input.addEventListener("change", markDayFormDirty);
+      return input;
+    }
 
-    // Region / stop links
-    var fRegion = document.createElement("select");
+    // ── Section: Overview (default open) ──
+    var ov = insSection("overview", "Overview", true);
+    ov.appendChild(el("h2", "", prettyDate(day.date) + " · " + day.date));
+    ov.appendChild(el("h3", "", dayLabel(day)));
+    var scopeNote = el("div", "tdl-lori-scope-note");
+    scopeNote.appendChild(el("b", "", "Lori scope: "));
+    scopeNote.appendChild(el("span", "", "active_trip_day_id = " + day.id.slice(0, 8) + "… "));
+    scopeNote.appendChild(el("span", "tdl-muted",
+      "Day-level conversation uses this day plus its linked stop/photos/notes/sources."));
+    ov.appendChild(scopeNote);
+
+    var fTitle = watch(el("input")); fTitle.value = day.title || "";
+    var fMain = watch(el("input")); fMain.value = day.main_location || "";
+    var fLodging = watch(el("input")); fLodging.value = day.lodging_base || "";
+    ov.appendChild(labeled("Day title", fTitle));
+    ov.appendChild(labeled("Main location", fMain));
+    ov.appendChild(labeled("Lodging base", fLodging));
+
+    var fRegion = watch(document.createElement("select"));
     var optNone = el("option", "", "— no region —"); optNone.value = "";
     fRegion.appendChild(optNone);
     ((st.tree && st.tree.regions) || []).forEach(function (r) {
@@ -587,14 +780,14 @@
       if (day.trip_region_id === r.id) o.selected = true;
       fRegion.appendChild(o);
     });
-    var fStop = document.createElement("select");
+    var fStop = watch(document.createElement("select"));
     var so = el("option", "", "— no stop —"); so.value = "";
     fStop.appendChild(so);
     ((st.tree && st.tree.regions) || []).forEach(function (r) {
       (function walk(stops, depth) {
         (stops || []).forEach(function (s) {
           var o = el("option", "",
-            (r.title || "") + " › " + Array(depth + 1).join("  ") +
+            (r.title || "") + " › " + Array(depth + 1).join("  ") +
             (s.location_name || "Stop"));
           o.value = s.id;
           if (day.trip_stop_id === s.id) o.selected = true;
@@ -603,13 +796,17 @@
         });
       })(r.stops, 0);
     });
-    form.appendChild(labeled("Linked region", fRegion));
-    form.appendChild(labeled("Linked stop", fStop));
+    ov.appendChild(labeled("Linked region", fRegion));
+    ov.appendChild(labeled("Linked stop", fStop));
+    ov.appendChild(dayActionRow(day));
+    body.appendChild(ov);
 
+    // ── Section: Notes (day period notes + day story notes) ──
+    var ns = insSection("notes", "Notes", false);
     var per = el("div", "tdl-period-grid");
-    var fMorning = el("textarea"); fMorning.value = day.morning_notes || "";
-    var fAfternoon = el("textarea"); fAfternoon.value = day.afternoon_notes || "";
-    var fEvening = el("textarea"); fEvening.value = day.evening_notes || "";
+    var fMorning = watch(el("textarea")); fMorning.value = day.morning_notes || "";
+    var fAfternoon = watch(el("textarea")); fAfternoon.value = day.afternoon_notes || "";
+    var fEvening = watch(el("textarea")); fEvening.value = day.evening_notes || "";
     [["Morning", fMorning], ["Afternoon", fAfternoon], ["Evening", fEvening]]
       .forEach(function (p) {
         var c = el("div", "tdl-period-card");
@@ -617,83 +814,84 @@
         c.appendChild(p[1]);
         per.appendChild(c);
       });
-    form.appendChild(per);
+    ns.appendChild(per);
 
-    var fPlaces = el("textarea");
+    var fPlaces = watch(el("textarea"));
     fPlaces.value = (day.places_visited_json || []).join("\n");
     fPlaces.placeholder = "One place per line";
-    var fMeals = el("textarea");
+    var fMeals = watch(el("textarea"));
     fMeals.value = (day.meals_json || []).join("\n");
     fMeals.placeholder = "One meal per line";
-    form.appendChild(labeled("Places visited (one per line)", fPlaces));
-    form.appendChild(labeled("Meals (one per line)", fMeals));
-    body.appendChild(form);
+    ns.appendChild(labeled("Places visited (one per line)", fPlaces));
+    ns.appendChild(labeled("Meals (one per line)", fMeals));
 
-    // Quick actions
-    var qa = el("section", "tdl-ins-section");
-    var qat = el("div", "tdl-row-title");
-    qat.appendChild(el("span", "", "Quick Actions"));
-    qa.appendChild(qat);
-    var qaRow = el("div", "tdl-day-actions");
-    qaRow.appendChild(btn("tdl-btn tdl-btn-gold tdl-wide", "💬 Talk with Lori about this day",
-      function () { loriPane.anchorDay(day.id); setTab("lori"); }));
-    qaRow.appendChild(btn("tdl-btn", "＋ Add photos", function () {
-      window.open(prodTravelDocUrl(), "_blank", "noopener");
-    }));
-    qaRow.appendChild(btn("tdl-btn", "＋ Add note", function () {
-      window.open(prodTravelDocUrl(), "_blank", "noopener");
-    }));
-    qa.appendChild(qaRow);
-    body.appendChild(qa);
-
-    // Photos from that day
-    var dayLinks = st.photoLinks.filter(function (l) {
-      return linkTakenDate(l) === day.date;
+    var dNotes = dayLinkedNotes(day);
+    var scopedNotes = dayScopedRows(st.notes, day).filter(function (n) {
+      return !n.trip_day_id;
     });
-    var ph = el("section", "tdl-ins-section");
-    var pht = el("div", "tdl-row-title");
-    pht.appendChild(el("span", "", "Day Photos (" + dayLinks.length + ")"));
-    ph.appendChild(pht);
+    var nt = el("div", "tdl-row-title");
+    nt.appendChild(el("span", "",
+      "Day story notes (" + dNotes.length + ")"));
+    ns.appendChild(nt);
+    var nl = el("div", "tdl-mini-list");
+    dNotes.slice(0, 8).forEach(function (n) {
+      nl.appendChild(el("div", "", (n.note_title ? n.note_title + " — " : "") +
+        (n.note_text || "").slice(0, 90)));
+    });
+    scopedNotes.slice(0, 4).forEach(function (n) {
+      nl.appendChild(el("div", "tdl-muted", "(stop/region) " +
+        (n.note_text || "").slice(0, 90)));
+    });
+    if (!dNotes.length && !scopedNotes.length) {
+      nl.appendChild(el("div", "tdl-muted", "No notes for this day yet."));
+    }
+    ns.appendChild(nl);
+    ns.appendChild(btn("tdl-btn", "＋ Add note",
+      function () { openNoteDrawer(day.id); }));
+    body.appendChild(ns);
+
+    // ── Section: Photos (day-linked first, then date matches) ──
+    var dayLinks = dayLinkedPhotoLinks(day);
+    var dateLinks = dateMatchedPhotoLinks(day);
+    var ph = insSection("photos", "Photos (" + (dayLinks.length + dateLinks.length) + ")", false);
     if (dayLinks.length) {
-      var row = el("div", "tdl-photo-row");
-      dayLinks.slice(0, 8).forEach(function (l) {
+      ph.appendChild(el("div", "tdl-row-title-plain", "Attached to this day"));
+      var rowA = el("div", "tdl-photo-row");
+      dayLinks.slice(0, 12).forEach(function (l) {
+        var cellWrap = el("div", "tdl-photo-cell");
         var im = document.createElement("img");
         im.src = thumbUrl(l.photo_id);
         im.alt = l.caption || "trip photo";
         im.loading = "lazy";
-        row.appendChild(im);
+        cellWrap.appendChild(im);
+        cellWrap.appendChild(btn("tdl-btn tdl-btn-small", "Unlink",
+          function () { unlinkDayPhoto(day, l.id); }));
+        rowA.appendChild(cellWrap);
       });
-      ph.appendChild(row);
-    } else {
-      ph.appendChild(el("p", "tdl-muted", "No photos dated to this day yet."));
+      ph.appendChild(rowA);
     }
+    if (dateLinks.length) {
+      ph.appendChild(el("div", "tdl-row-title-plain", "Dated to this day (not attached)"));
+      var rowB = el("div", "tdl-photo-row");
+      dateLinks.slice(0, 8).forEach(function (l) {
+        var im = document.createElement("img");
+        im.src = thumbUrl(l.photo_id);
+        im.alt = l.caption || "trip photo";
+        im.loading = "lazy";
+        rowB.appendChild(im);
+      });
+      ph.appendChild(rowB);
+    }
+    if (!dayLinks.length && !dateLinks.length) {
+      ph.appendChild(el("p", "tdl-muted", "No photos on this day yet."));
+    }
+    ph.appendChild(btn("tdl-btn", "＋ Add photos",
+      function () { openPhotoPicker(day.id); }));
     body.appendChild(ph);
 
-    // Story notes + sources scoped to the day's link
-    var dayNotes = dayScopedRows(st.notes, day);
-    var ns = el("section", "tdl-ins-section");
-    var nst = el("div", "tdl-row-title");
-    nst.appendChild(el("span", "", "Story Notes (" + dayNotes.length + ")"));
-    ns.appendChild(nst);
-    var nl = el("div", "tdl-mini-list");
-    dayNotes.slice(0, 6).forEach(function (n) {
-      nl.appendChild(el("div", "", (n.note_title ? n.note_title + " — " : "") +
-        (n.note_text || "").slice(0, 90)));
-    });
-    if (!dayNotes.length) {
-      nl.appendChild(el("div", "tdl-muted",
-        day.trip_stop_id || day.trip_region_id ?
-          "No notes on the linked stop/region yet." :
-          "Link a region or stop to see its notes here."));
-    }
-    ns.appendChild(nl);
-    body.appendChild(ns);
-
+    // ── Section: Sources ──
     var daySources = dayScopedRows(st.sources, day);
-    var ss = el("section", "tdl-ins-section");
-    var sst = el("div", "tdl-row-title");
-    sst.appendChild(el("span", "", "Sources (" + daySources.length + ")"));
-    ss.appendChild(sst);
+    var ss = insSection("sources", "Sources (" + daySources.length + ")", false);
     var sl = el("div", "tdl-mini-list");
     daySources.slice(0, 6).forEach(function (s) {
       sl.appendChild(el("div", "", (s.source_type || "source") + " — " +
@@ -703,45 +901,232 @@
     ss.appendChild(sl);
     body.appendChild(ss);
 
+    // ── Section: Lori captures (day-scoped modal notes) ──
+    var loriNotes = st.notes.filter(function (n) {
+      return n.source_surface === "travel_doc_modal" && n.trip_day_id === day.id;
+    });
+    var lc = insSection("lori", "Lori captures (" + loriNotes.length + ")", false);
+    var ll = el("div", "tdl-mini-list");
+    loriNotes.slice(0, 8).forEach(function (n) {
+      var row = el("div");
+      row.appendChild(el("span", "tdl-lori-drawer-src", "from Lori"));
+      row.appendChild(el("span", "", " " + (n.note_text || "").slice(0, 110)));
+      ll.appendChild(row);
+    });
+    if (!loriNotes.length) {
+      ll.appendChild(el("div", "tdl-muted",
+        "Nothing captured for this day yet — use Talk with Lori."));
+    }
+    lc.appendChild(ll);
+    lc.appendChild(btn("tdl-btn tdl-btn-gold", "💬 Talk with Lori",
+      function () { openLoriOverlay(day.id); }));
+    body.appendChild(lc);
+
     ins.appendChild(body);
 
-    // Sticky save footer
+    // ── sticky footer: Save Day (mirror of the top action row) ──
     var foot = el("footer", "tdl-inspector-footer");
-    foot.appendChild(btn("tdl-btn tdl-btn-primary", "✓ Save Day", function () {
-      var body_ = {
-        places_visited: fPlaces.value.split("\n").map(function (s) { return s.trim(); })
-          .filter(Boolean),
-        meals: fMeals.value.split("\n").map(function (s) { return s.trim(); })
-          .filter(Boolean),
-      };
-      function setOrClear(field, value, clearFlag) {
-        var v = value.trim();
-        if (v) body_[field] = v; else body_[clearFlag] = true;
+    var footBadge = dirtyBadge();
+    foot.appendChild(footBadge);
+    dayForm.badges.push(footBadge);
+    var footSave = saveBtn("");
+    foot.appendChild(footSave);
+    dayForm.saveButtons.push(footSave);
+    ins.appendChild(foot);
+
+    // Register form fields for save/cancel + Esc-to-cancel.
+    dayForm.fTitle = fTitle; dayForm.fMain = fMain; dayForm.fLodging = fLodging;
+    dayForm.fRegion = fRegion; dayForm.fStop = fStop;
+    dayForm.fMorning = fMorning; dayForm.fAfternoon = fAfternoon;
+    dayForm.fEvening = fEvening; dayForm.fPlaces = fPlaces; dayForm.fMeals = fMeals;
+    ins.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { e.stopPropagation(); cancelDayEdits(); }
+    });
+    return ins;
+  }
+
+  // ── In-lab day photo picker (drawer — no navigation away) ────────────
+
+  function openPhotoPicker(dayId) {
+    st.selectedDayId = dayId;
+    st.photoPickerDayId = dayId;
+    st.noteDrawerDayId = null;
+    st.loriOverlay = false;
+    renderAll();
+  }
+
+  function closePhotoPicker() {
+    st.photoPickerDayId = null;
+    renderAll();
+  }
+
+  function renderPhotoPicker() {
+    var day = dayById(st.photoPickerDayId);
+    var wrap = el("div", "tdl-drawer-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closePhotoPicker();
+    });
+    var drawer = el("aside", "tdl-drawer tdl-photo-picker");
+    if (!day) { st.photoPickerDayId = null; return wrap; }
+
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker", "Add photos"));
+    ht.appendChild(el("strong", "", dayChipText(day)));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Back to Trip Plan",
+      closePhotoPicker));
+    drawer.appendChild(head);
+
+    var body = el("div", "tdl-drawer-body");
+    body.appendChild(el("p", "tdl-muted",
+      "Pick trip photos to attach to this day. Attached photos count on " +
+      "this day card and show in the day's Photos section."));
+
+    var checked = {};
+    var grid = el("div", "tdl-picker-grid");
+    var pickable = st.photoLinks.filter(function (l) {
+      return l.trip_day_id !== day.id;
+    });
+    if (!pickable.length) {
+      grid.appendChild(el("div", "tdl-empty",
+        st.photoLinks.length ?
+          "Every trip photo is already attached to this day." :
+          "This trip has no photos yet — add them via Photo Intake, then " +
+          "cluster from the production Travel Doc."));
+    }
+    pickable.forEach(function (l) {
+      var cell = el("label", "tdl-picker-cell");
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.addEventListener("change", function () {
+        checked[l.id] = cb.checked;
+        var n = Object.keys(checked).filter(function (k) { return checked[k]; }).length;
+        attach.textContent = n ? ("Attach " + n + " to " + dayChipText(day)) :
+          ("Attach selected to " + dayChipText(day));
+        attach.disabled = !n;
+      });
+      cell.appendChild(cb);
+      var im = document.createElement("img");
+      im.src = thumbUrl(l.photo_id);
+      im.alt = l.caption || "trip photo";
+      im.loading = "lazy";
+      cell.appendChild(im);
+      var meta = el("div", "tdl-picker-meta");
+      meta.appendChild(el("span", "", linkTakenDate(l) || "undated"));
+      if (l.trip_day_id) {
+        var other = dayById(l.trip_day_id);
+        meta.appendChild(el("small", "tdl-muted",
+          other ? ("on Day " + other.day_index) : "on another day"));
       }
-      setOrClear("title", fTitle.value, "clear_title");
-      setOrClear("main_location", fMain.value, "clear_main_location");
-      setOrClear("lodging_base", fLodging.value, "clear_lodging_base");
-      setOrClear("morning_notes", fMorning.value, "clear_morning_notes");
-      setOrClear("afternoon_notes", fAfternoon.value, "clear_afternoon_notes");
-      setOrClear("evening_notes", fEvening.value, "clear_evening_notes");
-      if (fStop.value) {
-        body_.trip_stop_id = fStop.value;
-      } else {
-        body_.clear_stop = true;
-      }
-      if (fRegion.value && !fStop.value) {
-        body_.trip_region_id = fRegion.value;
-      } else if (!fRegion.value && !fStop.value) {
-        body_.clear_region = true;
-      }
-      api("/api/trips/days/" + encodeURIComponent(day.id),
-        { method: "PATCH", body: body_ })
-        .then(function () { return reloadDays(); })
-        .then(function () { st.error = ""; renderAll(); })
+      cell.appendChild(meta);
+      grid.appendChild(cell);
+    });
+    body.appendChild(grid);
+    drawer.appendChild(body);
+
+    var foot = el("div", "tdl-drawer-foot");
+    var attach = btn("tdl-btn tdl-btn-primary",
+      "Attach selected to " + dayChipText(day), function () {
+        var ids = Object.keys(checked).filter(function (k) { return checked[k]; });
+        if (!ids.length) return;
+        api("/api/trips/" + encodeURIComponent(st.trip.id) +
+          "/days/" + encodeURIComponent(day.id) + "/photos/link",
+          { method: "POST", body: { photo_link_ids: ids } })
+          .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+          .then(function () {
+            st.error = "";
+            st.photoPickerDayId = null;
+            renderAll();
+          })
+          .catch(function (e) { st.error = e.message; renderAll(); });
+      });
+    attach.disabled = true;
+    foot.appendChild(attach);
+    foot.appendChild(btn("tdl-btn", "Cancel", closePhotoPicker));
+    drawer.appendChild(foot);
+
+    wrap.appendChild(drawer);
+    return wrap;
+  }
+
+  // ── In-lab day note drawer ────────────────────────────────────────────
+
+  function openNoteDrawer(dayId) {
+    st.selectedDayId = dayId;
+    st.noteDrawerDayId = dayId;
+    st.photoPickerDayId = null;
+    st.loriOverlay = false;
+    renderAll();
+  }
+
+  function closeNoteDrawer() {
+    st.noteDrawerDayId = null;
+    renderAll();
+  }
+
+  function renderNoteDrawer() {
+    var day = dayById(st.noteDrawerDayId);
+    var wrap = el("div", "tdl-drawer-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closeNoteDrawer();
+    });
+    var drawer = el("aside", "tdl-drawer tdl-note-drawer");
+    if (!day) { st.noteDrawerDayId = null; return wrap; }
+
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker", "Add note"));
+    ht.appendChild(el("strong", "", dayChipText(day)));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Back to Trip Plan",
+      closeNoteDrawer));
+    drawer.appendChild(head);
+
+    var body = el("div", "tdl-drawer-body");
+    var fTitle = el("input");
+    fTitle.placeholder = "Optional title";
+    var fText = el("textarea");
+    fText.placeholder = "What happened this day…";
+    var lab1 = el("label", "tdl-label");
+    lab1.appendChild(el("span", "", "Title"));
+    lab1.appendChild(fTitle);
+    var lab2 = el("label", "tdl-label");
+    lab2.appendChild(el("span", "", "Note"));
+    lab2.appendChild(fText);
+    body.appendChild(lab1);
+    body.appendChild(lab2);
+    body.appendChild(el("p", "tdl-muted",
+      "Saved as an operator story note on this day — In memoir OFF, " +
+      "Use with Lori OFF until you flip them in Story Notes."));
+    drawer.appendChild(body);
+
+    var foot = el("div", "tdl-drawer-foot");
+    foot.appendChild(btn("tdl-btn tdl-btn-primary", "✓ Save note", function () {
+      var text = (fText.value || "").trim();
+      if (!text) return;
+      api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes",
+        { method: "POST", body: {
+          note_text: text,
+          note_title: (fTitle.value || "").trim() || null,
+          trip_day_id: day.id,
+          trip_region_id: day.trip_region_id || null,
+          trip_stop_id: day.trip_stop_id || null,
+          source_type: "operator",
+        } })
+        .then(function () { return Promise.all([reloadNotes(), reloadDays()]); })
+        .then(function () {
+          st.error = "";
+          st.noteDrawerDayId = null;
+          renderAll();
+        })
         .catch(function (e) { st.error = e.message; renderAll(); });
     }));
-    ins.appendChild(foot);
-    return ins;
+    foot.appendChild(btn("tdl-btn", "Cancel", closeNoteDrawer));
+    drawer.appendChild(foot);
+
+    wrap.appendChild(drawer);
+    return wrap;
   }
 
   // ── Photos (mockup3) ─────────────────────────────────────────────────
@@ -826,6 +1211,11 @@
         " · date source: " + (sel.photo_date_source || "n/a") +
         " · method: " + (sel.assignment_method || "?") +
         " · confidence: " + (sel.cluster_confidence == null ? "?" : sel.cluster_confidence)));
+      if (sel.trip_day_id) {
+        var linkedDay = dayById(sel.trip_day_id);
+        detail.appendChild(el("p", "",
+          "Attached to " + (linkedDay ? dayChipText(linkedDay) : "a day card")));
+      }
       if (sel.caption) detail.appendChild(el("p", "", "Caption: " + sel.caption));
       if (sel.narrator_caption) {
         detail.appendChild(el("p", "", "Narrator caption: " + sel.narrator_caption));
@@ -880,6 +1270,11 @@
         badges.appendChild(el("span", "tdl-badge tdl-badge-lori", "from Lori modal"));
       }
       if (n.photo_link_id) badges.appendChild(el("span", "tdl-badge", "📷 photo-scoped"));
+      if (n.trip_day_id) {
+        var nd = dayById(n.trip_day_id);
+        badges.appendChild(el("span", "tdl-badge",
+          nd ? ("Day " + nd.day_index) : "day-scoped"));
+      }
       var stop = n.trip_stop_id && findStop(n.trip_stop_id);
       var region = n.trip_region_id && findRegion(n.trip_region_id);
       if (stop) badges.appendChild(el("span", "tdl-badge", stop.location_name || "stop"));
@@ -1092,7 +1487,9 @@
         var day = dayById(this.dayId);
         var chip = el("span", "tdl-lori-chip");
         chip.appendChild(el("span", "",
-          day ? "Day " + day.day_index + " · " + day.date : "Day"));
+          day ? dayChipText(day) : "Day"));
+        chip.appendChild(el("small", "tdl-muted",
+          " active_trip_day_id=" + String(this.dayId).slice(0, 8) + "…"));
         var x = btn("", "✕", function () { self.anchorDay(null); });
         x.title = "Unanchor day";
         chip.appendChild(x);
@@ -1131,7 +1528,9 @@
         if (j.type === "token" && j.delta) self.append(j.delta);
         if (j.type === "done") {
           self.finish(j.final_text);
-          reloadNotes().then(function () { self.refreshDrawer(); }).catch(function () {});
+          Promise.all([reloadNotes(), reloadDays()])
+            .then(function () { self.refreshDrawer(); })
+            .catch(function () {});
         }
       };
     },
@@ -1184,8 +1583,11 @@
 
     refreshDrawer: function () {
       if (!this.drawerList || !st.trip) return;
+      var self = this;
       var mine = st.notes.filter(function (n) {
-        return n.source_surface === "travel_doc_modal";
+        if (n.source_surface !== "travel_doc_modal") return false;
+        if (self.dayId) return n.trip_day_id === self.dayId;
+        return true;
       }).slice(-6).reverse();
       if (!mine.length) return;
       this.drawerList.innerHTML = "";
@@ -1195,6 +1597,11 @@
         var row = el("div", "tdl-lori-drawer-row");
         row.appendChild(el("span", "tdl-lori-drawer-src", "from Lori modal"));
         if (n.photo_link_id) row.appendChild(el("span", "tdl-lori-drawer-src", "📷"));
+        if (n.trip_day_id) {
+          var nd = dayById(n.trip_day_id);
+          row.appendChild(el("span", "tdl-lori-drawer-src",
+            nd ? ("Day " + nd.day_index) : "day"));
+        }
         row.appendChild(el("span", "", " " + (n.note_text || "").slice(0, 120)));
         row.appendChild(el("small", "tdl-muted",
           " · In memoir OFF · Use with Lori OFF"));
@@ -1203,12 +1610,86 @@
     },
   };
 
+  // ── Lori in context: right drawer over Trip Plan ─────────────────────
+
+  function openLoriOverlay(dayId) {
+    st.tab = "plan";
+    st.selectedDayId = dayId || st.selectedDayId;
+    st.photoPickerDayId = null;
+    st.noteDrawerDayId = null;
+    loriPane.anchorDay(dayId || null);
+    st.loriOverlay = true;
+    renderAll();
+    loriPane.connect();
+    if (loriPane.input) loriPane.input.focus();
+  }
+
+  function closeLoriOverlay() {
+    // Back to Trip Plan — the selected day + workspace scroll position
+    // are preserved (renderAll restores st.mainScroll).
+    st.loriOverlay = false;
+    renderAll();
+  }
+
+  function renderLoriOverlay() {
+    var wrap = el("div", "tdl-drawer-scrim tdl-lori-overlay");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closeLoriOverlay();
+    });
+    var drawer = el("aside", "tdl-drawer tdl-lori-overlay-panel");
+
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker", "Talk with Lori"));
+    var scopeLine = el("div", "tdl-lori-overlay-scope");
+    scopeLine.appendChild(el("strong", "", (st.trip && st.trip.title) || "Trip"));
+    if (loriPane.dayId) {
+      scopeLine.appendChild(el("span", "tdl-muted",
+        " · active_trip_day_id=" + String(loriPane.dayId).slice(0, 8) + "…"));
+    }
+    ht.appendChild(scopeLine);
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "‹ Back to Trip Plan",
+      closeLoriOverlay));
+    drawer.appendChild(head);
+
+    if (loriPane.dayId) {
+      var day = dayById(loriPane.dayId);
+      var chipRow = el("div", "tdl-lori-overlay-chip-row");
+      var chip = el("span", "tdl-lori-chip");
+      chip.appendChild(el("span", "", day ? dayChipText(day) : "Day"));
+      var x = btn("", "✕", function () {
+        loriPane.anchorDay(null);
+        renderAll();
+      });
+      x.title = "Unanchor day";
+      chip.appendChild(x);
+      chipRow.appendChild(chip);
+      drawer.appendChild(chipRow);
+    }
+
+    if (!loriPane.node) loriPane.build();
+    loriPane.paintScope();
+    loriPane.refreshDrawer();
+    drawer.appendChild(loriPane.node);
+
+    wrap.appendChild(drawer);
+    return wrap;
+  }
+
   function renderLoriTab() {
     var wrap = el("div");
-    wrap.appendChild(el("h1", "", "Lori"));
-    wrap.appendChild(el("p", "tdl-muted",
+    var headRow = el("div", "tdl-head-row");
+    var ht = el("div");
+    ht.appendChild(el("h1", "", "Lori"));
+    ht.appendChild(el("p", "tdl-muted",
       "Operator workspace conversation. Captures land server-side as " +
       "flags-0 candidate notes (never narrator session scope)."));
+    headRow.appendChild(ht);
+    headRow.appendChild(el("span", "tdl-spacer"));
+    headRow.appendChild(btn("tdl-btn", "‹ Back to Trip Plan",
+      function () { setTab("plan"); }));
+    wrap.appendChild(headRow);
     if (!loriPane.node) loriPane.build();
     loriPane.paintScope();
     loriPane.refreshDrawer();

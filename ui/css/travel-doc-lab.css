@@ -4,6 +4,11 @@
    tdl- namespaced; nothing here touches the production Travel Doc panel
    (travel-documenter.css) or any narrator surface. Visual language ported
    from docs/mockups/lorevox-travel-doc-ui-lab-v2/styles.css.
+
+   WO-TRAVEL-DOC-UI-LAB-02 (laptop review): the workspace column is always
+   minmax(0, 1fr) so the page NEVER horizontal-scrolls; at <=1500px the
+   day inspector becomes an overlaying right drawer and the metrics row
+   becomes compact chips; the left rail is collapsible.
    ========================================================================== */
 
 :root {
@@ -25,7 +30,7 @@
   --tdl-serif: Georgia, "Times New Roman", serif;
 }
 
-.tdl-body { margin: 0; min-height: 100%; font-family: var(--tdl-font); color: var(--tdl-ink); background: var(--tdl-cream); }
+.tdl-body { margin: 0; min-height: 100%; font-family: var(--tdl-font); color: var(--tdl-ink); background: var(--tdl-cream); overflow-x: hidden; }
 .tdl-body * { box-sizing: border-box; }
 .tdl-body button, .tdl-body input, .tdl-body textarea, .tdl-body select { font: inherit; }
 .tdl-body button { cursor: pointer; }
@@ -33,7 +38,8 @@
 .tdl-muted { color: var(--tdl-muted); }
 .tdl-kicker { text-transform: uppercase; letter-spacing: .09em; font-size: .77rem; font-weight: 900; color: #8c5516; }
 
-.tdl-btn { border: 1px solid var(--tdl-line); border-radius: 10px; background: white; color: var(--tdl-ink); padding: .55rem .8rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: .42rem; text-decoration: none; }
+.tdl-btn { border: 1px solid var(--tdl-line); border-radius: 10px; background: white; color: var(--tdl-ink); padding: .55rem .8rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: .42rem; text-decoration: none; white-space: normal; text-align: center; line-height: 1.25; }
+.tdl-btn:disabled { opacity: .45; cursor: default; }
 .tdl-btn-primary { background: var(--tdl-blue); border-color: var(--tdl-blue); color: white; }
 .tdl-btn-gold { background: linear-gradient(180deg, var(--tdl-gold2), #d99b42); border-color: #d79b3e; color: #15243a; }
 .tdl-btn-danger { background: #fff7f6; border-color: #e6b9b5; color: var(--tdl-red); }
@@ -45,21 +51,30 @@
 
 /* Shell */
 .tdl-app { min-height: 100dvh; display: grid; grid-template-rows: 58px 1fr; }
-.tdl-topbar { height: 58px; background: rgba(255, 255, 255, .93); border-bottom: 1px solid var(--tdl-line); display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0 1.25rem; }
-.tdl-brand { display: flex; align-items: center; gap: .7rem; font-size: 1.02rem; }
+.tdl-topbar { height: 58px; background: rgba(255, 255, 255, .93); border-bottom: 1px solid var(--tdl-line); display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0 1.25rem; min-width: 0; }
+.tdl-brand { display: flex; align-items: center; gap: .7rem; font-size: 1.02rem; min-width: 0; }
 .tdl-brand-mark { color: var(--tdl-gold); font-size: 1.25rem; }
 .tdl-divider { height: 28px; width: 1px; background: var(--tdl-line); }
 .tdl-lab-badge { background: #fff1d8; border: 1px solid #efd4a6; color: #8c5516; border-radius: 999px; padding: .2rem .6rem; font-size: .74rem; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; }
-.tdl-tabs { display: flex; gap: .15rem; align-items: stretch; }
+.tdl-tabs { display: flex; gap: .15rem; align-items: stretch; flex-wrap: wrap; }
 .tdl-tabs button { border: 0; background: transparent; padding: .55rem .85rem; color: #6a5e4e; font-weight: 850; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0; }
 .tdl-tabs button.tdl-active { color: #2b2116; border-bottom-color: var(--tdl-gold); background: #fff8eb; }
 
-.tdl-layout { display: grid; grid-template-columns: 295px minmax(520px, 1fr); overflow: hidden; min-height: calc(100dvh - 58px); }
-.tdl-layout.tdl-has-inspector { grid-template-columns: 295px minmax(460px, 1fr) 380px; }
+/* Layout — the CENTER column is minmax(0, 1fr) in EVERY variant so it
+   compresses instead of forcing a horizontal page scroll (laptop rule). */
+.tdl-layout { display: grid; grid-template-columns: 295px minmax(0, 1fr); overflow: hidden; min-height: calc(100dvh - 58px); }
+.tdl-layout.tdl-has-inspector { grid-template-columns: 295px minmax(0, 1fr) 380px; }
+.tdl-layout.tdl-rail-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
+.tdl-layout.tdl-rail-collapsed.tdl-has-inspector { grid-template-columns: 44px minmax(0, 1fr) 380px; }
 
-/* Left rail */
-.tdl-sidebar { background: linear-gradient(180deg, #fffaf0, #f6efe3); border-right: 1px solid var(--tdl-line); padding: 1rem 1.15rem; overflow: auto; }
+/* Left rail (collapsible) */
+.tdl-sidebar { background: linear-gradient(180deg, #fffaf0, #f6efe3); border-right: 1px solid var(--tdl-line); padding: 1rem 1.15rem; overflow: auto; min-width: 0; }
+.tdl-sidebar.tdl-collapsed { padding: .6rem .3rem; display: flex; flex-direction: column; align-items: center; gap: .6rem; }
+.tdl-rail-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.tdl-rail-toggle { border: 1px solid var(--tdl-line); background: white; border-radius: 8px; padding: .15rem .45rem; font-weight: 900; color: var(--tdl-blue); }
+.tdl-rail-vlabel { writing-mode: vertical-rl; text-orientation: mixed; font-size: .74rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; color: var(--tdl-blue); }
 .tdl-section-label { text-transform: uppercase; letter-spacing: .06em; font-size: .78rem; font-weight: 900; color: var(--tdl-blue); margin: .9rem 0 .65rem; }
+.tdl-rail-head .tdl-section-label { margin: 0; }
 .tdl-trip-list { list-style: none; margin: 0 0 1rem; padding: 0 0 1rem; display: grid; gap: .5rem; border-bottom: 1px solid var(--tdl-line); }
 .tdl-trip-list button { position: relative; display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: .25rem 0 .25rem 1.1rem; color: var(--tdl-ink); }
 .tdl-trip-list button:before { content: ""; position: absolute; left: 0; top: .55rem; width: 7px; height: 7px; border-radius: 50%; background: #b6b6b6; }
@@ -72,8 +87,9 @@
 .tdl-route-item.tdl-active { border-left-color: var(--tdl-gold); background: #f2e6d4; font-weight: 850; }
 
 /* Workspace */
-.tdl-main { padding: 1.25rem; overflow: auto; min-width: 0; }
+.tdl-main { padding: 1.25rem; overflow-y: auto; overflow-x: hidden; min-width: 0; }
 .tdl-head-row { display: flex; gap: .85rem; align-items: flex-start; margin-bottom: 1rem; }
+.tdl-head-row .tdl-spacer { flex: 1; }
 .tdl-title-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: #fff1d8; color: var(--tdl-gold); border: 1px solid #efd4a6; font-size: 1.15rem; flex: none; }
 .tdl-metrics { display: grid; grid-template-columns: repeat(6, minmax(58px, 1fr)); border: 1px solid var(--tdl-line); border-radius: 10px; overflow: hidden; background: var(--tdl-paper); margin-bottom: 1rem; }
 .tdl-metrics div { text-align: center; padding: .6rem; border-right: 1px solid var(--tdl-line); }
@@ -84,42 +100,78 @@
 .tdl-toolbar .tdl-spacer { flex: 1; }
 .tdl-note-banner { background: #eef5ff; border: 1px solid #cbdcf2; border-radius: 12px; padding: .75rem; font-size: .86rem; margin-bottom: 1rem; }
 
-/* Day cards */
+/* Day cards — date | detail (with stat chips) | one consistent action
+   column. Action labels are full words and WRAP instead of truncating. */
 .tdl-day-list { display: grid; gap: .7rem; }
-.tdl-day-card { background: var(--tdl-paper); border: 1px solid var(--tdl-line); border-radius: 14px; display: grid; grid-template-columns: 86px minmax(160px, 1fr) minmax(220px, .9fr) 200px; gap: 1rem; align-items: center; min-height: 116px; padding: .95rem 1rem; box-shadow: 0 8px 24px rgba(40, 24, 10, .035); }
+.tdl-day-card { background: var(--tdl-paper); border: 1px solid var(--tdl-line); border-radius: 14px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 190px; gap: 1rem; align-items: start; min-height: 116px; padding: .95rem 1rem; box-shadow: 0 8px 24px rgba(40, 24, 10, .035); }
 .tdl-day-card.tdl-selected { border-color: var(--tdl-gold); box-shadow: 0 0 0 1px var(--tdl-gold), 0 14px 34px rgba(198, 129, 38, .12); background: #fffaf0; }
 .tdl-day-date { align-self: stretch; display: grid; place-items: center; border-right: 1px solid var(--tdl-line); padding-right: 1rem; text-align: center; }
 .tdl-day-date span { font-size: .78rem; color: #334457; display: block; }
 .tdl-day-date strong { font-size: 1.9rem; line-height: 1; }
+.tdl-day-main { min-width: 0; }
 .tdl-day-main h2 { font-size: 1.02rem; margin: 0 0 .4rem; color: #0b2443; }
 .tdl-day-main p { margin: .22rem 0; color: #294056; font-size: .86rem; }
-.tdl-day-stats { display: grid; grid-template-columns: repeat(4, 1fr); border-left: 1px solid var(--tdl-line); border-right: 1px solid var(--tdl-line); }
-.tdl-day-stats span { display: grid; justify-items: center; gap: .12rem; font-size: .82rem; color: #30465d; }
-.tdl-day-stats b { font-size: 1rem; }
+.tdl-day-stats { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .5rem; }
+.tdl-day-stats span { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; color: #30465d; border: 1px solid var(--tdl-line); background: var(--tdl-paper2); border-radius: 999px; padding: .14rem .5rem; }
+.tdl-day-stats b { font-size: .9rem; }
 .tdl-day-stats small { color: var(--tdl-muted); }
-.tdl-day-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
-.tdl-day-actions .tdl-wide { grid-column: 1 / -1; }
+.tdl-day-actions { display: grid; grid-template-columns: 1fr; gap: .45rem; align-content: start; }
+.tdl-day-actions .tdl-btn { width: 100%; }
 
-/* Inspector */
-.tdl-inspector { display: flex; flex-direction: column; background: var(--tdl-paper); border-left: 1px solid var(--tdl-line); box-shadow: -12px 0 28px rgba(41, 27, 10, .05); min-height: 0; }
-.tdl-inspector-head { border-bottom: 1px solid var(--tdl-line); padding: .95rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: .8rem; }
-.tdl-inspector-body { flex: 1; overflow: auto; padding: 1rem; }
-.tdl-inspector-footer { display: grid; grid-template-columns: 1fr; gap: .8rem; border-top: 1px solid var(--tdl-line); padding: 1rem; background: var(--tdl-paper); position: sticky; bottom: 0; }
-.tdl-ins-section { padding: 1rem 0; border-bottom: 1px solid var(--tdl-line); }
-.tdl-row-title { display: flex; justify-content: space-between; gap: 1rem; text-transform: uppercase; font-size: .78rem; font-weight: 950; color: #0b2443; margin-bottom: .65rem; }
-.tdl-day-detail-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin: .8rem 0; }
-.tdl-day-detail-tabs span { border: 1px solid var(--tdl-line); background: #fff8eb; padding: .38rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 850; color: #7a501c; }
+/* Inspector — fixed header / scrolling body / sticky footer, mirrored
+   Save Day at BOTH ends so it never has to be hunted for. */
+.tdl-inspector { display: flex; flex-direction: column; background: var(--tdl-paper); border-left: 1px solid var(--tdl-line); box-shadow: -12px 0 28px rgba(41, 27, 10, .05); min-height: 0; max-height: calc(100dvh - 58px); }
+.tdl-inspector-head { flex: none; border-bottom: 1px solid var(--tdl-line); padding: .75rem 1rem; display: grid; gap: .55rem; background: var(--tdl-paper); position: sticky; top: 0; z-index: 3; }
+.tdl-inspector-head-row { display: flex; justify-content: space-between; align-items: center; gap: .8rem; }
+.tdl-ins-actions { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.tdl-dirty-badge { display: none; background: #fdf0d8; border: 1px solid #eccf96; color: #8a5a10; border-radius: 999px; padding: .14rem .5rem; font-size: .74rem; font-weight: 900; }
+.tdl-dirty-badge.tdl-dirty-on { display: inline-block; }
+.tdl-inspector-body { flex: 1; overflow: auto; padding: .6rem 1rem 1rem; min-height: 0; }
+.tdl-inspector-footer { flex: none; display: flex; align-items: center; gap: .8rem; border-top: 1px solid var(--tdl-line); padding: .8rem 1rem; background: var(--tdl-paper); position: sticky; bottom: 0; z-index: 3; }
+.tdl-inspector-footer .tdl-btn-primary { flex: 1; }
+
+/* Collapsible inspector sections (Overview open by default) */
+.tdl-ins-sec { border-bottom: 1px solid var(--tdl-line); padding: .4rem 0 .9rem; }
+.tdl-ins-sec > summary.tdl-ins-sec-label { cursor: pointer; list-style: none; text-transform: uppercase; font-size: .78rem; font-weight: 950; color: #0b2443; padding: .55rem 0; }
+.tdl-ins-sec > summary.tdl-ins-sec-label::before { content: "▸ "; color: var(--tdl-gold); }
+.tdl-ins-sec[open] > summary.tdl-ins-sec-label::before { content: "▾ "; }
+.tdl-row-title { display: flex; justify-content: space-between; gap: 1rem; text-transform: uppercase; font-size: .78rem; font-weight: 950; color: #0b2443; margin: .8rem 0 .65rem; }
+.tdl-row-title-plain { font-size: .8rem; font-weight: 900; color: #4b6179; margin: .6rem 0 .4rem; }
 .tdl-period-grid { display: grid; grid-template-columns: 1fr; gap: .55rem; }
 .tdl-period-card { border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper); padding: .65rem; }
 .tdl-period-card h4 { margin: 0 0 .35rem; }
 .tdl-mini-list { display: grid; gap: .4rem; }
 .tdl-mini-list > div { border: 1px solid var(--tdl-line); background: var(--tdl-paper); border-radius: 7px; padding: .45rem .55rem; font-size: .84rem; }
-.tdl-lori-scope-note { background: #eef5ff; border: 1px solid #cbdcf2; border-radius: 12px; padding: .75rem; font-size: .85rem; margin-top: .75rem; }
+.tdl-lori-scope-note { background: #eef5ff; border: 1px solid #cbdcf2; border-radius: 12px; padding: .75rem; font-size: .85rem; margin: .75rem 0; }
 .tdl-photo-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: .45rem; }
 .tdl-photo-row img { width: 100%; aspect-ratio: 1.25; object-fit: cover; border-radius: 8px; border: 1px solid var(--tdl-line); background: #eee6d6; }
+.tdl-photo-cell { display: grid; gap: .3rem; }
+.tdl-photo-cell .tdl-btn-small { font-size: .72rem; padding: .15rem .3rem; }
+
+/* Drawers (photo picker / note / Lori-in-context) — in-lab overlays,
+   never a navigation away from the Trip Plan. */
+.tdl-drawer-scrim { position: fixed; inset: 0; background: rgba(16, 25, 40, .34); z-index: 40; }
+.tdl-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 94vw); background: var(--tdl-paper); border-left: 1px solid var(--tdl-line); box-shadow: -18px 0 44px rgba(17, 32, 54, .22); display: flex; flex-direction: column; z-index: 41; }
+.tdl-drawer-head { flex: none; display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; padding: .9rem 1rem; border-bottom: 1px solid var(--tdl-line); background: var(--tdl-paper2); }
+.tdl-drawer-body { flex: 1; overflow: auto; padding: 1rem; min-height: 0; }
+.tdl-drawer-foot { flex: none; display: flex; gap: .55rem; padding: .8rem 1rem; border-top: 1px solid var(--tdl-line); background: var(--tdl-paper); }
+.tdl-drawer-foot .tdl-btn-primary { flex: 1; }
+
+/* Day photo picker */
+.tdl-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: .6rem; }
+.tdl-picker-cell { position: relative; display: grid; gap: .25rem; border: 1px solid var(--tdl-line); border-radius: 10px; padding: .4rem; background: var(--tdl-paper2); cursor: pointer; }
+.tdl-picker-cell input[type="checkbox"] { position: absolute; top: .55rem; left: .55rem; width: auto; z-index: 1; }
+.tdl-picker-cell img { width: 100%; aspect-ratio: 1.25; object-fit: cover; border-radius: 7px; border: 1px solid var(--tdl-line); background: #eee6d6; }
+.tdl-picker-meta { display: flex; justify-content: space-between; gap: .3rem; font-size: .74rem; color: #30465d; }
+
+/* Lori overlay drawer */
+.tdl-lori-overlay-panel { width: min(560px, 96vw); }
+.tdl-lori-overlay-scope { font-size: .85rem; margin-top: .2rem; }
+.tdl-lori-overlay-chip-row { flex: none; padding: .55rem 1rem; border-bottom: 1px solid var(--tdl-line); background: #eef5ff; }
+.tdl-lori-overlay-panel .tdl-lori-pane { border: 0; border-radius: 0; min-height: 0; max-width: none; flex: 1; display: grid; grid-template-rows: auto auto 1fr auto auto; overflow: hidden; }
 
 /* Photos tab */
-.tdl-photo-workspace { display: grid; grid-template-columns: 170px minmax(320px, 1fr) 340px; gap: 1rem; align-items: start; }
+.tdl-photo-workspace { display: grid; grid-template-columns: 170px minmax(0, 1fr) minmax(220px, 340px); gap: 1rem; align-items: start; }
 .tdl-filter-rail { display: grid; gap: .45rem; align-content: start; }
 .tdl-filter-rail button { text-align: left; border: 1px solid var(--tdl-line); border-radius: 10px; background: white; padding: .5rem .65rem; font-weight: 800; }
 .tdl-filter-rail button.tdl-active { border-color: var(--tdl-gold); background: #fff8eb; color: #7a501c; }
@@ -128,7 +180,7 @@
 .tdl-ph img { width: 100%; height: 110px; object-fit: cover; display: block; }
 .tdl-ph.tdl-selected { outline: 3px solid var(--tdl-gold); }
 .tdl-ph-date { position: absolute; bottom: 6px; left: 8px; color: white; font-weight: 850; font-size: .76rem; text-shadow: 0 1px 4px rgba(0, 0, 0, .8); }
-.tdl-photo-detail { background: #fbf7ee; border: 1px solid var(--tdl-line); border-radius: var(--tdl-radius); padding: 1rem; display: grid; gap: .7rem; align-content: start; }
+.tdl-photo-detail { background: #fbf7ee; border: 1px solid var(--tdl-line); border-radius: var(--tdl-radius); padding: 1rem; display: grid; gap: .7rem; align-content: start; min-width: 0; }
 .tdl-photo-detail img { width: 100%; border-radius: 12px; border: 1px solid var(--tdl-line); }
 .tdl-flag-row { display: flex; justify-content: space-between; gap: .6rem; font-size: .85rem; border-bottom: 1px solid #ead9bb; padding: .4rem 0; }
 .tdl-flag-on { color: var(--tdl-green); font-weight: 900; }
@@ -156,7 +208,7 @@
 
 /* Lori pane */
 .tdl-lori-pane { display: grid; grid-template-rows: auto auto 1fr auto auto; gap: 0; border: 1px solid var(--tdl-line); border-radius: var(--tdl-radius); background: #fffaf0; min-height: 62vh; max-width: 760px; overflow: hidden; }
-.tdl-lori-head { padding: .9rem 1rem; border-bottom: 1px solid var(--tdl-line); font-weight: 900; display: flex; justify-content: space-between; align-items: center; }
+.tdl-lori-head { padding: .9rem 1rem; border-bottom: 1px solid var(--tdl-line); font-weight: 900; display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; }
 .tdl-lori-scope { padding: .6rem 1rem; border-bottom: 1px solid var(--tdl-line); background: #eef5ff; font-size: .85rem; display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; }
 .tdl-lori-chip { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid #c6d4ef; background: white; border-radius: 999px; padding: .2rem .55rem; font-weight: 800; font-size: .8rem; }
 .tdl-lori-chip img { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; }
@@ -166,7 +218,7 @@
 .tdl-lori-system { background: #fdeeee; color: #8d3833; font-size: .8rem; }
 .tdl-lori-input-row { padding: 1rem; border-top: 1px solid var(--tdl-line); display: flex; gap: .5rem; }
 .tdl-lori-input-row input { flex: 1; }
-.tdl-lori-drawer { border-top: 1px solid var(--tdl-line); background: var(--tdl-paper2); padding: .8rem 1rem; font-size: .84rem; }
+.tdl-lori-drawer { border-top: 1px solid var(--tdl-line); background: var(--tdl-paper2); padding: .8rem 1rem; font-size: .84rem; max-height: 180px; overflow: auto; }
 .tdl-lori-drawer-row { border: 1px solid var(--tdl-line); background: white; border-radius: 8px; padding: .4rem .55rem; margin-top: .45rem; }
 .tdl-lori-drawer-src { font-weight: 850; color: #274b86; margin-right: .4rem; }
 
@@ -176,9 +228,30 @@
 .tdl-empty { padding: 2rem; text-align: center; color: var(--tdl-muted); }
 .tdl-error { background: #fdeeee; border: 1px solid #eccaca; color: #8d3833; border-radius: 10px; padding: .6rem .8rem; margin-bottom: .8rem; font-size: .86rem; }
 
+/* ── Laptop compact layout (Chris's review: 1280–1500px must never
+      horizontal-scroll; inspector overlays instead of squeezing) ── */
+@media (max-width: 1500px) {
+  /* Inspector leaves the grid and overlays as a right drawer. */
+  .tdl-layout.tdl-has-inspector { grid-template-columns: 295px minmax(0, 1fr); }
+  .tdl-layout.tdl-rail-collapsed.tdl-has-inspector { grid-template-columns: 44px minmax(0, 1fr); }
+  .tdl-inspector { position: fixed; top: 58px; right: 0; bottom: 0; width: min(430px, 92vw); z-index: 30; box-shadow: -18px 0 44px rgba(17, 32, 54, .22); max-height: none; }
+  /* Counts become compact chips. */
+  .tdl-metrics { display: flex; flex-wrap: wrap; border: 0; background: transparent; gap: .4rem; overflow: visible; }
+  .tdl-metrics div { display: inline-flex; align-items: baseline; gap: .3rem; border: 1px solid var(--tdl-line); background: var(--tdl-paper); border-radius: 999px; padding: .22rem .6rem; text-align: left; }
+  .tdl-metrics strong { font-size: .92rem; }
+  .tdl-metrics span { font-size: .72rem; }
+  .tdl-photo-workspace { grid-template-columns: 150px minmax(0, 1fr); }
+  .tdl-photo-workspace .tdl-photo-detail { grid-column: 1 / -1; }
+}
+
 @media (max-width: 1100px) {
-  .tdl-layout, .tdl-layout.tdl-has-inspector { grid-template-columns: 1fr; overflow: auto; }
-  .tdl-day-card { grid-template-columns: 76px 1fr; }
-  .tdl-day-stats, .tdl-day-actions { grid-column: 1 / -1; }
-  .tdl-photo-workspace { grid-template-columns: 1fr; }
+  .tdl-layout, .tdl-layout.tdl-has-inspector,
+  .tdl-layout.tdl-rail-collapsed, .tdl-layout.tdl-rail-collapsed.tdl-has-inspector { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .tdl-sidebar { border-right: 0; border-bottom: 1px solid var(--tdl-line); }
+  .tdl-sidebar.tdl-collapsed { flex-direction: row; }
+  .tdl-rail-vlabel { writing-mode: horizontal-tb; }
+  .tdl-day-card { grid-template-columns: 76px minmax(0, 1fr); }
+  .tdl-day-actions { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  .tdl-photo-workspace { grid-template-columns: minmax(0, 1fr); }
+  .tdl-photo-workspace .tdl-photo-detail { grid-column: auto; }
 }

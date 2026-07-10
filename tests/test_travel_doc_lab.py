@@ -125,5 +125,99 @@ class HtmlPageTest(unittest.TestCase):
         self.assertIn('class="tdl-body"', html)
 
 
+class UsabilityReviewTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UI-LAB-02 — Chris's 2026-07-10 laptop review fixes.
+
+    Locks the ten-item verdict: save without hunting, add photos to THAT
+    day in-lab, Lori stays scoped to the day with an obvious way back,
+    and no crowded horizontal layout on laptop widths.
+    """
+
+    def test_sticky_save_with_top_action_row_and_dirty_badge(self):
+        src = _stripped_js()
+        # Save Day exists at BOTH ends of the inspector (top action row
+        # + sticky footer) and dirty-state gates it.
+        self.assertIn("tdl-ins-actions", src)
+        self.assertIn("tdl-inspector-footer", src)
+        self.assertIn("Unsaved changes", src)
+        self.assertIn("Save Day", src)
+        self.assertIn("Cancel", src)
+        self.assertIn('"Escape"', src)
+        css = _stripped_css()
+        self.assertIn(".tdl-dirty-badge", css)
+        self.assertIn(".tdl-inspector-footer", css)
+        self.assertIn("sticky", css)
+
+    def test_no_navigation_away_from_the_lab(self):
+        # The old "+ Photos" / "+ Add note" buttons deep-linked to the
+        # production Travel Documenter page via window.open — gone. The
+        # only remaining production reference is the sanctioned <a> link
+        # on the Current tab.
+        src = _stripped_js()
+        self.assertNotIn("window.open", src)
+
+    def test_in_lab_day_photo_picker(self):
+        src = _stripped_js()
+        self.assertIn("tdl-photo-picker", src)
+        self.assertIn("/photos/link", src)
+        self.assertIn("/photos/unlink", src)
+        self.assertIn("photo_link_ids", src)
+        self.assertIn("Add photos", src)
+        self.assertIn("Unlink", src)
+        # Day attachment is first-class in the link rows.
+        self.assertIn("trip_day_id", src)
+
+    def test_in_lab_day_note_drawer(self):
+        src = _stripped_js()
+        self.assertIn("tdl-note-drawer", src)
+        self.assertIn("Add note", src)
+        self.assertIn("/location-notes", src)
+
+    def test_lori_opens_as_in_context_drawer_with_back_control(self):
+        src = _stripped_js()
+        self.assertIn("tdl-lori-overlay", src)
+        self.assertIn("Back to Trip Plan", src)
+        # Day chip + scope line stay visible in the overlay.
+        self.assertIn("active_trip_day_id", src)
+        self.assertIn("Unanchor day", src)
+
+    def test_day_card_actions_are_full_labels_in_one_order(self):
+        src = _stripped_js()
+        # One consistent action row builder used everywhere.
+        self.assertIn("dayActionRow", src)
+        for label in ("Talk with Lori", "Add photos", "Add note", "Edit day"):
+            self.assertIn(label, src)
+        # Order locked: Talk with Lori, then Add photos, then Add note,
+        # then Edit day, inside the shared builder.
+        i = src.index("function dayActionRow")
+        block = src[i:i + 700]
+        pos = [block.index("Talk with Lori"), block.index("Add photos"),
+               block.index("Add note"), block.index("Edit day")]
+        self.assertEqual(pos, sorted(pos), "day action order drifted")
+
+    def test_compact_laptop_layout_rules(self):
+        css = _stripped_css()
+        self.assertIn("@media (max-width: 1500px)", css)
+        # The workspace column must be minmax(0, 1fr) so 1280-1500px
+        # widths never horizontal-scroll.
+        self.assertIn("minmax(0, 1fr)", css)
+        self.assertNotIn("minmax(520px", css)
+        self.assertNotIn("minmax(460px", css)
+        # Left rail collapse + inspector drawer + drawer chrome exist.
+        self.assertIn(".tdl-rail-collapsed", css)
+        self.assertIn(".tdl-drawer", css)
+        js = _stripped_js()
+        self.assertIn("railCollapsed", js)
+
+    def test_inspector_sections_are_collapsible(self):
+        src = _stripped_js()
+        self.assertIn("tdl-ins-sec", src)
+        for section in ("Overview", "Notes", "Photos", "Sources",
+                        "Lori captures"):
+            self.assertIn(section, src)
+        # Overview is the only default-open section.
+        self.assertIn('insSection("overview", "Overview", true)', src)
+
+
 if __name__ == "__main__":
     unittest.main()
