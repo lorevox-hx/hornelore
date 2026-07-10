@@ -172,8 +172,13 @@ def build_modal_scope(
     active_photo_link_id: Optional[str] = None,
     conv_id: Optional[str] = None,
     selected_kind: str = "trip",
+    active_trip_day_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Explicit modal scope. No runtime71, no shelf keys, no raw GPS."""
+    """Explicit modal scope. No runtime71, no shelf keys, no raw GPS.
+
+    WO-TRAVEL-DOC-UI-LAB-02: ``active_trip_day_id`` (day-scoped modal)
+    is kept only when it resolves to a day of THIS trip — a cross-trip
+    or unknown day id is dropped to None, never trusted."""
     trip = trip_repository.trip_get(active_trip_id)
     if not trip or trip.get("person_id") != person_id:
         return None
@@ -182,6 +187,14 @@ def build_modal_scope(
         s = trip_repository.stop_get(active_trip_stop_id)
         if s:
             label = s.get("location_name") or s.get("title") or label
+    day_id: Optional[str] = None
+    if active_trip_day_id:
+        try:
+            _day = trip_repository.trip_day_get(active_trip_day_id)
+        except Exception:
+            _day = None
+        if _day and _day.get("trip_id") == active_trip_id:
+            day_id = active_trip_day_id
     return {
         "source_surface": SOURCE_SURFACE,
         "person_id": person_id,
@@ -190,6 +203,7 @@ def build_modal_scope(
         "active_trip_region_id": active_trip_region_id,
         "active_trip_stop_id": active_trip_stop_id,
         "active_photo_link_id": active_photo_link_id,
+        "active_trip_day_id": day_id,
         "selected_kind": selected_kind,
         "selected_label": label,
         "photo_context": _photo_packet(active_trip_id, active_photo_link_id),
@@ -288,6 +302,58 @@ def answer_modal_direct_question(
     return None
 
 
+_ACK_EXCERPT_WORDS = 25
+
+_DAY_CAPTURE_FOLLOW_UP = ("Anything else from that day — where you "
+                          "stayed, or what you ate?")
+
+
+def compose_day_capture_ack(
+    day: Optional[Dict[str, Any]],
+    capture_result: Optional[Dict[str, Any]],
+    narrator_text: Optional[str],
+) -> Optional[str]:
+    """Deterministic Day Capture acknowledgment (WO-TRAVEL-DOC-UI-LAB-02
+    items 6+7). When a day-scoped modal turn was a meaningful memory and
+    the capture path saved it, reply from the day + the narrator's OWN
+    words instead of routing to the LLM — this kills the anchor-echo
+    garbage path for day captures by construction.
+
+    Shape (locked): 'Got it — I saved that as a Day {N} travel note:
+    "{first ~25 words of the narrator's own wording}…" {ONE fixed,
+    warm, fact-oriented follow-up}.' Never "I can see", never invents
+    facts — only the narrator's words plus the day number/date.
+
+    Returns None unless: day row present, capture actually wrote (or
+    deduped to) a note, and there is narrator text to restate."""
+    if not day or not isinstance(day, dict):
+        return None
+    res = capture_result or {}
+    if not res.get("captured"):
+        return None
+    if res.get("reason") not in ("meaningful_trip_answer", "duplicate"):
+        return None
+    text = re.sub(r"\s+", " ", str(narrator_text or "")).strip()
+    text = text.strip('"\u201c\u201d').strip()
+    if not text:
+        return None
+    words = text.split(" ")
+    excerpt = " ".join(words[:_ACK_EXCERPT_WORDS])
+    excerpt = excerpt.rstrip(".,;:!?").rstrip()
+    if not excerpt:
+        return None
+    ellipsis = "\u2026" if len(words) > _ACK_EXCERPT_WORDS else ""
+    try:
+        day_no = int(day.get("day_index"))
+    except (TypeError, ValueError):
+        return None
+    date_bit = ""
+    if day.get("date"):
+        date_bit = " (" + _fmt_date(day["date"]) + ")"
+    return ("Got it — I saved that as a Day %d%s travel note: \"%s%s\" %s"
+            % (day_no, date_bit, excerpt, ellipsis, _DAY_CAPTURE_FOLLOW_UP))
+
+
 def capture_modal_answer(
     person_id: str,
     scope: Optional[Dict[str, Any]],
@@ -307,4 +373,5 @@ def capture_modal_answer(
 
 
 __all__ = ["build_modal_scope", "answer_modal_direct_question",
-           "capture_modal_answer", "SOURCE_SURFACE"]
+           "capture_modal_answer", "compose_day_capture_ack",
+           "SOURCE_SURFACE"]

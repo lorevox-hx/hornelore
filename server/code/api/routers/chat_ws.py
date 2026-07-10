@@ -900,6 +900,10 @@ async def ws_chat(ws: WebSocket):
         # prompt, never mutates runtime71. Skips SYSTEM/operator directives.
         # Uses the prior-turn trip-scope memory stamped where the trip
         # interview-context block is (not) injected below.
+        # WO-TRAVEL-DOC-UI-LAB-02: _modal_capture_res holds THIS turn's
+        # modal capture result (never a stale prior-turn one) so the
+        # Day Capture deterministic ack below can key off it safely.
+        _modal_capture_res = None
         if (
             user_text
             and user_text.strip()
@@ -925,6 +929,7 @@ async def ws_chat(ws: WebSocket):
                             turn_id=(params.get("turn_id")
                                      or _audio_id_for_archive),
                         )
+                        _modal_capture_res = _tsc_res
                     else:
                         _tsc_res = _tsc.capture_for_turn(
                             person_id,
@@ -1144,20 +1149,42 @@ async def ws_chat(ws: WebSocket):
                     active_photo_link_id=_msc.get("active_photo_link_id"),
                     conv_id=conv_id,
                     selected_kind=_msc.get("selected_kind") or "trip",
+                    active_trip_day_id=_msc.get("active_trip_day_id"),
                 ) if _msc.get("active_trip_id") else None
                 _modal_text = _tdm.answer_modal_direct_question(
                     person_id, _modal_scope, user_text) if _modal_scope else None
+                _modal_category = "travel_doc_modal_direct"
+                # WO-TRAVEL-DOC-UI-LAB-02 items 6+7 (Day Capture mode):
+                # not a direct question, the modal is day-scoped, and THIS
+                # turn's capture saved the memory -> reply with the
+                # deterministic capture ack (day + narrator's own words)
+                # instead of the LLM. Kills the chain anchor-echo garbage
+                # on the operator capture surface by construction.
+                if (not _modal_text and _modal_scope
+                        and _modal_scope.get("active_trip_day_id")
+                        and (_modal_capture_res or {}).get("captured")
+                        and (_modal_capture_res or {}).get("reason")
+                        in ("meaningful_trip_answer", "duplicate")):
+                    from ..services import trip_repository as _trip_repo
+                    _day_row = _trip_repo.trip_day_get(
+                        _modal_scope["active_trip_day_id"])
+                    if (_day_row and _day_row.get("trip_id")
+                            == _modal_scope.get("active_trip_id")):
+                        _modal_text = _tdm.compose_day_capture_ack(
+                            _day_row, _modal_capture_res, user_text)
+                        if _modal_text:
+                            _modal_category = "travel_doc_day_capture_ack"
                 if _modal_text:
                     class _ModalAnswerShim(object):
                         text = _modal_text
-                        primary_category = "travel_doc_modal_direct"
-                        categories_matched = ["travel_doc_modal_direct"]
+                        primary_category = _modal_category
+                        categories_matched = [_modal_category]
                         language = "en"
                     _meta_question_answer = _ModalAnswerShim()
                     _is_meta_question = True
                     logger.info(
-                        "[chat_ws][modal-direct-answer] conv=%s handled=true",
-                        conv_id)
+                        "[chat_ws][modal-direct-answer] conv=%s handled=true "
+                        "category=%s", conv_id, _modal_category)
             except Exception as _tdm_exc:
                 logger.warning(
                     "[chat_ws][modal-direct-answer] failed conv=%s: %s "

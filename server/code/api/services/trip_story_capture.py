@@ -299,6 +299,7 @@ def capture_trip_story_answer(
     turn_id: Optional[str] = None,
     source_surface: Optional[str] = None,
     assume_trip_scoped: bool = False,
+    trip_day_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Save a narrator's trip-scoped answer as a CANDIDATE trip_location_notes
     row (review-only), or explain why it was skipped.
@@ -307,6 +308,11 @@ def capture_trip_story_answer(
     prior-turn trip-scope gate — every modal turn happens INSIDE the trip
     workspace, so scope is established by the surface itself.
     ``source_surface`` stamps provenance (e.g. 'travel_doc_modal').
+
+    WO-TRAVEL-DOC-UI-LAB-02: ``trip_day_id`` (from the day-scoped modal)
+    attaches the candidate note to a specific trip day. Conservative:
+    an id that doesn't resolve to a day of THIS trip is dropped to
+    None, never written cross-trip.
 
     Returns a result dict — see _result(). ``captured`` is True only when a row
     was written (or an identical row already existed, reason='duplicate').
@@ -349,6 +355,17 @@ def capture_trip_story_answer(
     if _is_question_or_meta(narrator_text or ""):
         return _result(False, "direct_question_or_command")
 
+    # 4c. Validate the day attachment (0028) — same never-cross-trip
+    # posture as _resolve_scope; invalid ids drop to None.
+    day_id: Optional[str] = None
+    if trip_day_id:
+        try:
+            _day = trip_repository.trip_day_get(trip_day_id)
+        except Exception:
+            _day = None
+        if _day and _day.get("trip_id") == active_trip_id:
+            day_id = trip_day_id
+
     # 5. Resolve scope (validated ids only) + source_ref.
     scope = _resolve_scope(active_trip_id, active_trip_region_id,
                            active_trip_stop_id, photo_link_id)
@@ -382,6 +399,7 @@ def capture_trip_story_answer(
             trip_region_id=scope["trip_region_id"],
             trip_stop_id=scope["trip_stop_id"],
             source_ref=source_ref, scope=scope["scope"],
+            trip_day_id=day_id,
         )
 
     # 7. Write the candidate note — both promotion flags OFF.
@@ -400,6 +418,7 @@ def capture_trip_story_answer(
                          if source_surface == "travel_doc_modal" else None),
         photo_link_id=(photo_link_id if (source_surface == "travel_doc_modal"
                                          and photo_valid) else None),
+        trip_day_id=day_id,
     )
 
     return _result(
@@ -408,6 +427,7 @@ def capture_trip_story_answer(
         trip_region_id=scope["trip_region_id"],
         trip_stop_id=scope["trip_stop_id"],
         source_ref=source_ref, scope=scope["scope"],
+        trip_day_id=day_id,
     )
 
 
@@ -454,6 +474,7 @@ def capture_modal_turn(
             turn_id=turn_id,
             source_surface="travel_doc_modal",
             assume_trip_scoped=True,
+            trip_day_id=sc.get("active_trip_day_id"),
         )
     except Exception as exc:  # never let capture break the chat turn
         return _result(False, "error", error=str(exc))

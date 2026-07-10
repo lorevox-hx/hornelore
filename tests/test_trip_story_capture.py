@@ -320,8 +320,18 @@ class _CaptureCase(unittest.TestCase):
 class _CaptureForTurnCase(_CaptureCase):
     """Step 2 gate (capture_for_turn) — flag + shelf + delegation + non-fatal."""
 
+    def setUp(self):
+        super().setUp()
+        # Test-isolation fix (2026-07-10): restore the process's original
+        # flag instead of popping it (popping leaked flag_off into the
+        # Mark Twain gate when both suites share one unittest process).
+        self._orig_capture_flag = os.environ.get(tsc._FLAG)
+
     def tearDown(self):
-        os.environ.pop(tsc._FLAG, None)
+        if self._orig_capture_flag is None:
+            os.environ.pop(tsc._FLAG, None)
+        else:
+            os.environ[tsc._FLAG] = self._orig_capture_flag
         super().tearDown()
 
     def _rt(self, **kw):
@@ -512,10 +522,19 @@ class ModalCaptureTest(_CaptureCase):
 
     def setUp(self):
         super().setUp()
+        # Test-isolation fix (2026-07-10): RESTORE the process's original
+        # flag value in tearDown instead of popping it — popping broke the
+        # Mark Twain gate when both suites run in one unittest process
+        # with HORNELORE_TRIP_STORY_CAPTURE=1 exported.
+        self._orig_capture_flag = os.environ.get(
+            "HORNELORE_TRIP_STORY_CAPTURE")
         os.environ["HORNELORE_TRIP_STORY_CAPTURE"] = "1"
 
     def tearDown(self):
-        os.environ.pop("HORNELORE_TRIP_STORY_CAPTURE", None)
+        if self._orig_capture_flag is None:
+            os.environ.pop("HORNELORE_TRIP_STORY_CAPTURE", None)
+        else:
+            os.environ["HORNELORE_TRIP_STORY_CAPTURE"] =                 self._orig_capture_flag
         super().tearDown()
 
     def _note(self, note_id):
