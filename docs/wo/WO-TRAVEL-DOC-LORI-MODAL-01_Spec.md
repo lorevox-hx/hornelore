@@ -27,6 +27,25 @@ Approved trip/photo context only; never "I can see"; no browsing; no cold calend
 
 Every meaningful narrator answer → `trip_location_notes` candidate: `source_type=lori`, `source_surface=travel_doc_modal`, `source_ref=modal_turn:<conv_id>:<turn_id>` (+ `photo_link:<id>` when photo-scoped), `include_in_memoir=0`, `include_in_interview_context=0`. No auto-promotion, no auto-approval, no auto-prose. Story Notes tab shows "from Lori modal" + linked photo/stop/region + edit/delete/toggles.
 
+## Modal-specific answer wording (locked 2026-07-09 review)
+
+The shelf's interim fallback ("I don't know that from the approved trip
+record yet — but you might…") is right for the NARRATOR surface. The
+modal is an OPERATOR workspace, so its fallback is workspace-aware:
+
+> "I don't have an approved taken date for this photo yet. The Travel
+> Doc can store one if you confirm it."
+
+— because the operator can fix the missing field right there (the photo
+card with Date→Lori / Place→Lori stays visible beside the modal).
+
+## Core acceptance test (the one that matters)
+
+Open Travel Doc → select photo → Talk with Lori → modal opens IN Travel
+Doc. Ask "what date was that taken?" → Lori answers "I don't have an
+approved taken date for this photo yet…" — and the photo card is still
+on screen to approve or edit the date.
+
 ## Tests (15 — from the filing, verbatim intent)
 
 no-navigation · modal carries trip id · stop scope · photo scope · answer creates candidate note · provenance · flags 0 · photo_link preserved · close returns selection · Travels shelf unchanged · no raw GPS · no unapproved caption/OCR/date/place · no SYSTEM/meta leaks · "what date was that taken" answers from approved taken date or says unknown · "can you tell me about the photo" answers from approved caption/context or says unknown.
