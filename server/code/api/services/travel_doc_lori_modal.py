@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import trip_repository
 from . import trip_story_capture
+from .evidence_text import sanitize_for_prompt
 
 SOURCE_SURFACE = "travel_doc_modal"
 
@@ -135,7 +136,7 @@ def _public_context_for_scope(
             match = True  # trip-wide public context
         if not match:
             continue
-        summary = (r.get("result_summary") or "").strip()
+        summary = sanitize_for_prompt(r.get("result_summary"))
         if not summary:
             continue
         if r.get("approved_for_lori"):
@@ -229,7 +230,7 @@ def _photo_context_rows_for_scope(
     for r in rows:
         if r.get("rejected"):
             continue
-        summ = (r.get("result_summary") or "").strip()
+        summ = sanitize_for_prompt(r.get("result_summary"))
         if not summ:
             continue
         approved = bool(r.get("approved_for_lori"))

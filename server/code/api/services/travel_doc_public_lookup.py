@@ -19,11 +19,14 @@ explicitly enabled; never fabricates a result.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
 import shlex
+import socket
 import subprocess
+from urllib.parse import urlparse
 from typing import Any, Dict, Optional
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -59,22 +62,107 @@ def _visible_text(html: str) -> str:
     return " ".join(text.split())
 
 
-def _fetch_url(url: str):
-    """Return (html, final_url). Prefers httpx, falls back to stdlib
-    urllib so lookup works before httpx is installed. Raises on error."""
-    headers = {"User-Agent": "Hornelore-TravelDoc/1.0"}
+_MAX_REDIRECTS = 5
+
+
+def _host_is_safe(host: str) -> bool:
+    """True only when EVERY IP the host resolves to is a PUBLIC address.
+    Blocks localhost/loopback, private LAN (10/172.16-31/192.168),
+    link-local incl. the 169.254.169.254 cloud-metadata address,
+    reserved, multicast, and unspecified (0.0.0.0). This is the SSRF
+    guard — a 'fetch this URL' feature must only reach the public web."""
+    if not host or host.strip().lower() == "localhost":
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        ip = str(info[4][0]).split("%")[0]
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast
+                or addr.is_unspecified):
+            return False
+    return True
+
+
+def _check_url_safe(url: str):
+    """(ok, reason). Only public http/https URLs pass."""
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False, "unparseable url"
+    if (p.scheme or "").lower() not in ("http", "https"):
+        return False, "only http/https URLs are allowed"
+    if not _host_is_safe(p.hostname or ""):
+        return False, "URL host is not a public address"
+    return True, ""
+
+
+def _fetch_once(url: str, headers):
+    """One hop. Returns (html, final_url) on a real response, or a string
+    (the next URL) on a redirect. NEVER auto-follows redirects and caps
+    the download at _MAX_BYTES so a hop can't be re-pointed at, or flood
+    from, a blocked address."""
     try:
         import httpx  # type: ignore
-        r = httpx.get(url, timeout=_FETCH_TIMEOUT_SEC, follow_redirects=True,
-                      headers=headers)
-        return r.text[: _MAX_BYTES * 2], str(r.url)
+        with httpx.stream("GET", url, timeout=_FETCH_TIMEOUT_SEC,
+                          follow_redirects=False, headers=headers) as r:
+            if r.is_redirect and r.headers.get("location"):
+                return str(httpx.URL(url).join(r.headers["location"]))
+            chunks, total = [], 0
+            for chunk in r.iter_bytes():
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > _MAX_BYTES:
+                    break
+            return (b"".join(chunks).decode("utf-8", errors="replace"),
+                    str(r.url))
     except ImportError:
         pass
-    from urllib.request import Request, urlopen
-    with urlopen(Request(url, headers=headers),
-                 timeout=_FETCH_TIMEOUT_SEC) as resp:
-        raw = resp.read(_MAX_BYTES)
-        return raw.decode("utf-8", errors="replace"), (resp.geturl() or url)
+    import urllib.error
+    from urllib.parse import urljoin
+    from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+    class _NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+    opener = build_opener(_NoRedirect)
+    try:
+        with opener.open(Request(url, headers=headers),
+                         timeout=_FETCH_TIMEOUT_SEC) as resp:
+            raw = resp.read(_MAX_BYTES)
+            return raw.decode("utf-8", errors="replace"), (resp.geturl() or url)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (301, 302, 303, 307, 308):
+            loc = exc.headers.get("Location")
+            if loc:
+                return urljoin(url, loc)
+        raise
+
+
+def _fetch_url(url: str):
+    """Return (html, final_url). SSRF-guarded: every hop (including each
+    redirect target) must pass _check_url_safe; blocked hosts, non-http
+    schemes, oversized bodies, and redirect loops all raise ValueError so
+    the caller stores no row."""
+    headers = {"User-Agent": "Hornelore-TravelDoc/1.0"}
+    cur = url
+    for _ in range(_MAX_REDIRECTS + 1):
+        ok, reason = _check_url_safe(cur)
+        if not ok:
+            raise ValueError(reason)
+        nxt = _fetch_once(cur, headers)
+        if isinstance(nxt, tuple):
+            return nxt
+        cur = nxt   # redirect target — re-checked at the top of the loop
+    raise ValueError("too many redirects")
 
 
 def _parse_html(html: str):

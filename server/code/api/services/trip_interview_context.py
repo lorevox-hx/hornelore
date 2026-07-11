@@ -35,6 +35,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from . import trip_repository
+from .evidence_text import sanitize_for_prompt
 
 _MAX_NOTES = 8
 _MAX_CAPTIONS = 10
@@ -174,7 +175,7 @@ def build_trip_interview_context(
                 if (not pcr.get("approved_for_lori") or pcr.get("rejected")
                         or len(photo_context) >= _MAX_CAPTIONS):
                     continue
-                summ = (pcr.get("result_summary") or "").strip()
+                summ = sanitize_for_prompt(pcr.get("result_summary"))
                 if not summ:
                     continue
                 if pcr.get("context_type") == "ocr_text":
