@@ -94,6 +94,7 @@ server/data/memory/
 # The generic *.bak rule below doesn't catch these because the timestamp
 # is a suffix after .bak, so add an explicit pattern here.
 .env.bak*
+.env.backup*
 
 # ── OS / tool junk ──
 *.orig
