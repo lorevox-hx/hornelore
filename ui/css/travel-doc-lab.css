@@ -309,3 +309,20 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
+
+/* WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 — photo evidence panel + approval ladder */
+.tdl-evidence { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--tdl-border, #33405a); }
+.tdl-evidence h4 { margin: 0 0 .5rem; font-size: .95rem; }
+.tdl-evidence h5 { margin: .8rem 0 .4rem; font-size: .82rem; opacity: .8; }
+.tdl-ev-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
+.tdl-ev-note { font-size: .8rem; opacity: .85; margin: .3rem 0; }
+.tdl-ev-row { border: 1px solid var(--tdl-border, #33405a); border-radius: 6px; padding: .5rem .6rem; margin-bottom: .5rem; }
+.tdl-ev-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.tdl-ev-type { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; opacity: .7; }
+.tdl-ev-summary { margin: .35rem 0; font-size: .88rem; }
+.tdl-ev-src { font-size: .72rem; opacity: .6; word-break: break-all; }
+.tdl-ev-badges { display: inline-flex; gap: .3rem; }
+.tdl-ev-badge { font-size: .68rem; padding: .05rem .4rem; border-radius: 10px; }
+.tdl-ev-on { background: #1f6f43; color: #fff; }
+.tdl-ev-off { background: #3a4560; color: #c8d0e0; opacity: .8; }
+.tdl-ev-ctrls { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }

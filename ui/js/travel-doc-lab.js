@@ -1749,6 +1749,138 @@
     });
   }
 
+  // ── WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 1/2: photo evidence panel ──
+  // Operator-only: OCR / public-lookup draft context + the approval ladder
+  // (Draft -> Approve for Lori -> Include in memoir). All text is rendered
+  // via el() (textContent) so OCR/lookup output can never inject markup.
+  var photoEvidence = { linkId: null, loading: false, pc: [], pub: [], note: "" };
+
+  function reloadPhotoEvidence() { photoEvidence.linkId = null; renderAll(); }
+
+  function loadPhotoEvidence(linkId) {
+    photoEvidence = { linkId: linkId, loading: true, pc: [], pub: [],
+                      note: photoEvidence.note };
+    var t = encodeURIComponent(st.trip.id);
+    var lid = encodeURIComponent(linkId);
+    Promise.all([
+      api("/api/trips/photo-links/" + lid + "/photo-context")
+        .catch(function () { return { photo_context: [] }; }),
+      api("/api/trips/" + t + "/public-context?photo_link_id=" + lid)
+        .catch(function () { return { public_context: [] }; }),
+    ]).then(function (res) {
+      if (photoEvidence.linkId !== linkId) return;   // superseded
+      photoEvidence.pc = (res[0] && res[0].photo_context) || [];
+      photoEvidence.pub = (res[1] && res[1].public_context) || [];
+      photoEvidence.loading = false;
+      renderAll();
+    });
+  }
+
+  function evidenceAction(path, label, body) {
+    photoEvidence.note = label + "…";
+    renderAll();
+    api(path, { method: "POST", body: body || {} }).then(function (out) {
+      photoEvidence.note = label + ": " + (out.status || "done")
+        + (out.message ? " — " + out.message : "");
+      reloadPhotoEvidence();
+    }).catch(function (e) {
+      photoEvidence.note = label + " failed: " + e.message; renderAll();
+    });
+  }
+
+  function evBadge(text, on) {
+    return el("span", "tdl-ev-badge " + (on ? "tdl-ev-on" : "tdl-ev-off"), text);
+  }
+
+  function patchPhotoContext(id, body) {
+    api("/api/trips/photo-context/" + encodeURIComponent(id),
+        { method: "PATCH", body: body })
+      .then(reloadPhotoEvidence)
+      .catch(function (e) { photoEvidence.note = e.message; renderAll(); });
+  }
+  function patchPublicContext(id, body) {
+    api("/api/trips/public-context/" + encodeURIComponent(id),
+        { method: "PATCH", body: body })
+      .then(reloadPhotoEvidence)
+      .catch(function (e) { photoEvidence.note = e.message; renderAll(); });
+  }
+
+  function renderEvidenceRow(r, isPublic) {
+    var row = el("div", "tdl-ev-row");
+    var head = el("div", "tdl-ev-head");
+    head.appendChild(el("span", "tdl-ev-type",
+      isPublic ? ("public · " + (r.source_type || "context"))
+               : (r.context_type + (r.engine ? (" · " + r.engine) : ""))));
+    var badges = el("span", "tdl-ev-badges");
+    badges.appendChild(evBadge("Draft", !r.approved_for_lori && !r.rejected));
+    badges.appendChild(evBadge("Approved", !!r.approved_for_lori));
+    badges.appendChild(evBadge("In memoir", !!r.include_in_memoir));
+    if (r.rejected) badges.appendChild(evBadge("Rejected", true));
+    head.appendChild(badges);
+    row.appendChild(head);
+    row.appendChild(el("div", "tdl-ev-summary", r.result_summary || ""));
+    if (r.source_url) row.appendChild(el("div", "tdl-ev-src", r.source_url));
+    var ctrls = el("div", "tdl-ev-ctrls");
+    var patch = isPublic ? patchPublicContext : patchPhotoContext;
+    ctrls.appendChild(btn("tdl-btn tdl-btn-small",
+      r.approved_for_lori ? "Unapprove" : "Approve for Lori",
+      function () { patch(r.id, { approved_for_lori: !r.approved_for_lori }); }));
+    if (r.approved_for_lori) {
+      ctrls.appendChild(btn("tdl-btn tdl-btn-small",
+        r.include_in_memoir ? "Remove from memoir" : "Include in memoir",
+        function () { patch(r.id, { include_in_memoir: !r.include_in_memoir }); }));
+    }
+    if (!isPublic) {
+      ctrls.appendChild(btn("tdl-btn tdl-btn-small",
+        r.rejected ? "Unreject" : "Reject / Hide",
+        function () { patch(r.id, { rejected: !r.rejected }); }));
+    }
+    row.appendChild(ctrls);
+    return row;
+  }
+
+  function renderPhotoEvidence(sel) {
+    var box = el("div", "tdl-evidence");
+    box.appendChild(el("h4", "", "Photo evidence — draft until you approve"));
+    var acts = el("div", "tdl-ev-actions");
+    acts.appendChild(btn("tdl-btn", "🔎 Run OCR", function () {
+      evidenceAction("/api/trips/photo-links/"
+        + encodeURIComponent(sel.id) + "/ocr", "OCR");
+    }));
+    acts.appendChild(btn("tdl-btn", "🌐 Lookup public context", function () {
+      evidenceAction("/api/trips/photo-links/"
+        + encodeURIComponent(sel.id) + "/lookup-context", "Lookup",
+        { source_type: "place_context" });
+    }));
+    box.appendChild(acts);
+    if (photoEvidence.note) {
+      box.appendChild(el("p", "tdl-ev-note", photoEvidence.note));
+    }
+    if (photoEvidence.linkId !== sel.id) {
+      loadPhotoEvidence(sel.id);
+      box.appendChild(el("p", "tdl-muted", "Loading evidence…"));
+      return box;
+    }
+    if (photoEvidence.loading) {
+      box.appendChild(el("p", "tdl-muted", "Loading evidence…"));
+      return box;
+    }
+    if (!photoEvidence.pc.length) {
+      box.appendChild(el("p", "tdl-muted",
+        "No OCR / image-context draft yet — Run OCR to extract sign/label text."));
+    }
+    photoEvidence.pc.forEach(function (r) {
+      box.appendChild(renderEvidenceRow(r, false));
+    });
+    if (photoEvidence.pub.length) {
+      box.appendChild(el("h5", "", "Public context (this photo)"));
+      photoEvidence.pub.forEach(function (r) {
+        box.appendChild(renderEvidenceRow(r, true));
+      });
+    }
+    return box;
+  }
+
   function renderPhotos() {
     var wrap = el("div");
     wrap.appendChild(el("h1", "", "Photo Story"));
@@ -1841,6 +1973,7 @@
           // tab navigation away from the photo the operator is on.
           openLoriOverlayForPhoto(sel.id);
         }));
+      detail.appendChild(renderPhotoEvidence(sel));
     }
     ws.appendChild(detail);
     wrap.appendChild(ws);
