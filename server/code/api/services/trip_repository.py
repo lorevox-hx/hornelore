@@ -35,6 +35,14 @@ STOP_TYPES = (
 )
 
 
+# WO-TRIP-LANE-AUDIT-FIXPACK-02 (M1): raised when a region delete is
+# refused because the region still has stops (whose FK cascade would
+# destroy operator-authored titles/notes/dates). Callers move or delete
+# the stops first, or pass force=True to accept the cascade explicitly.
+class RegionNotEmptyError(Exception):
+    pass
+
+
 def _connect() -> sqlite3.Connection:
     from .. import db as _db  # late import so tests can patch DB_PATH
     con = sqlite3.connect(str(_db.DB_PATH))
@@ -464,10 +472,24 @@ def region_update(
         con.close()
 
 
-def region_delete(region_id: str) -> bool:
-    """Delete a region and its stops (FK cascade)."""
+def region_delete(region_id: str, force: bool = False) -> bool:
+    """Delete a region. WO-TRIP-LANE-AUDIT-FIXPACK-02 (M1): by default
+    REFUSES to delete a region that still has stops, because the FK
+    cascade would destroy operator-authored stop content (titles,
+    location names, notes, date work, structure). Move or delete the
+    stops first, or pass force=True to accept the cascade explicitly.
+    Raises RegionNotEmptyError when blocked."""
     con = _connect()
     try:
+        if not force:
+            n = con.execute(
+                "SELECT COUNT(*) FROM trip_stops WHERE trip_region_id = ?",
+                (region_id,),
+            ).fetchone()[0]
+            if n:
+                raise RegionNotEmptyError(
+                    "region has %d stop(s); move or delete them first, "
+                    "or delete with force=true" % n)
         cur = con.execute(
             "DELETE FROM trip_regions WHERE id = ?", (region_id,),
         )
@@ -1262,22 +1284,32 @@ def photo_links_list(
 ) -> List[Dict[str, Any]]:
     con = _connect()
     try:
-        base = ("SELECT l.*, " + _PHOTO_REVIEW_COLS +
-                " FROM trip_photo_links l "
-                "LEFT JOIN photos p ON p.id = l.photo_id "
-                "WHERE l.trip_id = ? ")
-        if max_confidence is not None:
-            rows = con.execute(
-                base +
-                "AND (l.cluster_confidence IS NULL OR l.cluster_confidence <= ?) "
-                "ORDER BY l.taken_at, l.ord",
-                (trip_id, max_confidence),
-            ).fetchall()
-        else:
-            rows = con.execute(
+        def _run(cols):
+            base = ("SELECT l.*" + cols +
+                    " FROM trip_photo_links l "
+                    "LEFT JOIN photos p ON p.id = l.photo_id "
+                    "WHERE l.trip_id = ? ")
+            if max_confidence is not None:
+                return con.execute(
+                    base +
+                    "AND (l.cluster_confidence IS NULL "
+                    "OR l.cluster_confidence <= ?) "
+                    "ORDER BY l.taken_at, l.ord",
+                    (trip_id, max_confidence),
+                ).fetchall()
+            return con.execute(
                 base + "ORDER BY l.taken_at, l.ord",
                 (trip_id,),
             ).fetchall()
+        try:
+            rows = _run(", " + _PHOTO_REVIEW_COLS)
+        except sqlite3.OperationalError:
+            # WO-TRIP-LANE-AUDIT-FIXPACK-02 (M4): DB behind on the 0016/
+            # 0023 review columns (date_precision, metadata_trust, the
+            # *_approved_for_lori flags). Degrade to the base link row
+            # instead of 500ing — the operator loses the review
+            # annotations for this read, not the whole list.
+            rows = _run("")
         return [_row_to_dict(r) for r in rows]
     finally:
         con.close()

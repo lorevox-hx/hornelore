@@ -41,6 +41,7 @@ class ScoreTest(unittest.TestCase):
         photo = {
             "id": "p1", "taken_at": "2026-05-27 14:02:11",
             "latitude": 44.87, "longitude": 13.85,
+            "metadata_trust": "full",
         }
         conf, method = score_photo_against_stop(photo, PULA)
         self.assertGreaterEqual(conf, 0.9)
@@ -50,6 +51,7 @@ class ScoreTest(unittest.TestCase):
         photo = {
             "id": "p2", "taken_at": "2026:05:27 09:00:00",
             "latitude": 44.87, "longitude": 13.85,
+            "metadata_trust": "full",
         }
         conf, _ = score_photo_against_stop(photo, PULA)
         self.assertGreaterEqual(conf, 0.9)
@@ -58,12 +60,14 @@ class ScoreTest(unittest.TestCase):
         photo = {
             "id": "p3", "taken_at": "2026-06-20 10:00:00",
             "latitude": 35.6, "longitude": 139.7,  # Tokyo
+            "metadata_trust": "full",
         }
         conf, _ = score_photo_against_stop(photo, PULA)
         self.assertLess(conf, 0.3)
 
     def test_time_only_capped(self):
-        photo = {"id": "p4", "taken_at": "2026-05-27 12:00:00"}
+        photo = {"id": "p4", "taken_at": "2026-05-27 12:00:00",
+                 "metadata_trust": "time_only"}
         conf, method = score_photo_against_stop(photo, PULA)
         self.assertEqual(method, "exif_time")
         self.assertLessEqual(conf, 0.8)
@@ -80,11 +84,14 @@ class ClusterTest(unittest.TestCase):
     def test_photos_route_to_correct_stops(self):
         photos = [
             {"id": "prague-day", "taken_at": "2026-05-23 11:00:00",
-             "latitude": 50.08, "longitude": 14.43},
+             "latitude": 50.08, "longitude": 14.43,
+             "metadata_trust": "full"},
             {"id": "pula-day", "taken_at": "2026-05-28 16:30:00",
-             "latitude": 44.87, "longitude": 13.84},
+             "latitude": 44.87, "longitude": 13.84,
+             "metadata_trust": "full"},
             {"id": "mirano-day", "taken_at": "2026-06-02 09:15:00",
-             "latitude": 45.49, "longitude": 12.11},
+             "latitude": 45.49, "longitude": 12.11,
+             "metadata_trust": "full"},
         ]
         out = cluster_photos_to_stops(photos, STOPS)
         assigned = {a["photo_id"]: a["trip_stop_id"] for a in out}
@@ -97,7 +104,8 @@ class ClusterTest(unittest.TestCase):
     def test_date_value_fallback_key(self):
         # photos-table rows carry date_value, not taken_at
         photos = [{"id": "dv", "date_value": "2026-05-23",
-                   "latitude": 50.08, "longitude": 14.43}]
+                   "latitude": 50.08, "longitude": 14.43,
+                   "metadata_trust": "full"}]
         out = cluster_photos_to_stops(photos, STOPS)
         self.assertEqual(out[0]["trip_stop_id"], "s-prague")
 
@@ -110,7 +118,8 @@ class ClusterTest(unittest.TestCase):
 
     def test_ambiguous_photo_needs_review(self):
         # Weeks after the trip, no GPS — weak time decay only.
-        photos = [{"id": "late", "taken_at": "2026-07-20 12:00:00"}]
+        photos = [{"id": "late", "taken_at": "2026-07-20 12:00:00",
+                   "metadata_trust": "time_only"}]
         out = cluster_photos_to_stops(photos, STOPS)
         self.assertTrue(out[0]["needs_review"])
         self.assertLess(out[0]["confidence"], REVIEW_THRESHOLD)
@@ -118,7 +127,8 @@ class ClusterTest(unittest.TestCase):
     def test_empty_inputs(self):
         self.assertEqual(cluster_photos_to_stops([], STOPS), [])
         out = cluster_photos_to_stops(
-            [{"id": "x", "taken_at": "2026-05-23"}], [],
+            [{"id": "x", "taken_at": "2026-05-23",
+              "metadata_trust": "time_only"}], [],
         )
         self.assertIsNone(out[0]["trip_stop_id"])
         self.assertTrue(out[0]["needs_review"])

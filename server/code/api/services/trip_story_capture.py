@@ -387,10 +387,18 @@ def capture_trip_story_answer(
     # 6. Duplicate guard — ONLY on a strong per-answer identity (turn id or
     #    photo link). conv:<id> is shared by every turn in a conversation, so
     #    deduping on it would collapse all later answers into the first one.
+    #    WO-TRIP-LANE-AUDIT-FIXPACK-02 (M2): a turnless modal ref
+    #    (modal_turn:<conv>:-) is conv-level too, so it must NOT dedupe —
+    #    otherwise every turnless modal capture collapses into the first.
+    def _modal_has_real_turn(ref):
+        head = ref.split("|", 1)[0]  # modal_turn:<conv>:<turn>
+        parts = head.split(":")
+        return len(parts) >= 3 and parts[2] not in ("", "-")
     dedupe_ref = source_ref if (source_ref and (
         source_ref.startswith("turn:") or
         source_ref.startswith("photo_link:") or
-        source_ref.startswith("modal_turn:"))) else None
+        (source_ref.startswith("modal_turn:") and
+         _modal_has_real_turn(source_ref)))) else None
     existing = _dedupe_existing(active_trip_id, dedupe_ref)
     if existing:
         return _result(

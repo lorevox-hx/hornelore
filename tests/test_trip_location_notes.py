@@ -229,7 +229,8 @@ class _LocationNotesCase(unittest.TestCase):
         out = trips.create_location_note(self.trip_id, _note_create_req(
             note_text="region note", trip_region_id=self.region_id))
         nid = out["note_id"]
-        trip_repository.region_delete(self.region_id)
+        # M1: this region has a stop; deleting it is an explicit cascade.
+        trip_repository.region_delete(self.region_id, force=True)
         note = trip_repository.location_note_get(nid)
         self.assertIsNotNone(note)
         self.assertIsNone(note["trip_region_id"])

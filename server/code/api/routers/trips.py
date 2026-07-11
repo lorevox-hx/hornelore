@@ -1074,10 +1074,17 @@ def patch_region(region_id: str, req: RegionPatch) -> Dict[str, Any]:
 
 
 @router.delete("/regions/{region_id}")
-def delete_region(region_id: str) -> Dict[str, Any]:
+def delete_region(region_id: str, force: bool = False) -> Dict[str, Any]:
     _require_trips_enabled()
     _tid = trip_repository.region_trip_id(region_id)
-    if not trip_repository.region_delete(region_id):
+    # WO-TRIP-LANE-AUDIT-FIXPACK-02 (M1): refuse (409) when the region
+    # still has stops unless the operator passes ?force=true, so a
+    # region delete never silently destroys stop content.
+    try:
+        deleted = trip_repository.region_delete(region_id, force=force)
+    except trip_repository.RegionNotEmptyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if not deleted:
         raise HTTPException(status_code=404, detail="region not found")
     if _tid:
         trip_timeline_bridge.sync_trip_to_life_record(_tid)

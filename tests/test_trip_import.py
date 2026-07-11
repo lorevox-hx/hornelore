@@ -387,7 +387,8 @@ class BuilderFlowTest(_TempDbCase):
         self.assertTrue(trip_repository.stop_delete(bergen_id))
         theme_id = tree["themes"][0]["id"]
         self.assertTrue(trip_repository.theme_delete(theme_id))
-        self.assertTrue(trip_repository.region_delete(r2))
+        # M1: r2 still has stops here; explicit cascade delete.
+        self.assertTrue(trip_repository.region_delete(r2, force=True))
         tree = trip_repository.trip_tree(trip_id)
         self.assertEqual(len(tree["regions"]), 1)
         self.assertEqual(len(tree["themes"]), 0)

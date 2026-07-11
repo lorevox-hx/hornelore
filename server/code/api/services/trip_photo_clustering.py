@@ -101,14 +101,21 @@ def _gps_score(
 
 
 _UNTRUSTED_DATE_LEVELS = frozenset({"suspect_scan", "none"})
+# WO-TRIP-LANE-AUDIT-FIXPACK-02 (M3): only these two trust levels carry a
+# capture datetime we can trust for time scoring. Everything else —
+# suspect_scan/none (untrusted), gps_only (no datetime), 'unknown'
+# (legacy / intake-off row, provenance unknown), or an ABSENT
+# metadata_trust key (a caller that failed to project the column) — must
+# fail CLOSED so a scan/unknown date can never confidently mis-cluster a
+# decades-old print onto yesterday's stop.
+_TRUSTED_DATE_LEVELS = frozenset({"full", "time_only"})
 
 
 def _photo_taken_dt(photo: Dict[str, Any]) -> Optional[str]:
-    """Photo datetime usable for time scoring — Phase C1: a scan date
-    (or a no-metadata row) must NOT contribute a time score; a scan
-    date would confidently mis-cluster decades-old prints onto
-    yesterday's stop."""
-    if str(photo.get("metadata_trust") or "") in _UNTRUSTED_DATE_LEVELS:
+    """Photo datetime usable for time scoring — Phase C1 quarantine,
+    hardened by FIXPACK-02 (M3) to fail closed on missing/unknown trust
+    rather than only blocking the explicit suspect_scan/none denylist."""
+    if str(photo.get("metadata_trust") or "") not in _TRUSTED_DATE_LEVELS:
         return None
     return photo.get("taken_at") or photo.get("date_value")
 
