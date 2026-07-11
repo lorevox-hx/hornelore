@@ -3597,8 +3597,26 @@
        never touches Lori / runtime71 / Travels shelf state. -->
   <section id="lvTravelDocTab" class="lv-shell-panel"
            role="tabpanel" aria-labelledby="lvShellTabTravelDoc">
+    <!-- WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01: launcher into the standalone
+         experimental Travel Doc UI Lab, scoped to the SELECTED narrator
+         (state.person_id) dynamically. Falls back to the lab's own
+         narrator picker when no narrator is selected. Opens in a new tab
+         (matches the Photo Intake / Photo Timeline launch style). Does
+         NOT replace or alter the production Travel Documenter mounted
+         below, and touches no backend/lab code. -->
+    <div class="lv-td-lab-launch"
+         style="display:flex; align-items:center; gap:.6rem; padding:.5rem .75rem;">
+      <button id="lvTravelDocLabBtn" type="button"
+              title="Open the experimental Travel Doc UI Lab for the selected narrator"
+              onclick="(function(){var pid=(window.state&&window.state.person_id)||'';var u='travel-doc-lab.html'+(pid?('?person_id='+encodeURIComponent(pid)):'');window.open(u,'_blank','noopener');})()">
+        🧪 Open Travel Doc UI Lab
+      </button>
+      <span class="lv-td-lab-hint" style="font-size:.8rem; opacity:.7;">
+        Experimental trip/day/photo workspace
+      </span>
+    </div>
     <div id="lvTravelDocHost"
-         style="height:calc(100vh - 96px); overflow:auto;"></div>
+         style="height:calc(100vh - 140px); overflow:auto;"></div>
   </section>
 
   <section id="lvMediaTab" class="lv-shell-panel"
