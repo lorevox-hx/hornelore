@@ -164,6 +164,30 @@ def build_trip_interview_context(
                 and len(photo_context) < _MAX_CAPTIONS):
             photo_context.append({"where": where, "context": _clip(note)})
 
+        # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Part E: approved OCR/vision only.
+        # Draft and rejected photo-context rows NEVER reach narrator-facing
+        # Lori; approved rows surface as "the approved Travel Doc notes"
+        # (rendered under the locked never-"I can see" phrasing rule).
+        try:
+            for pcr in trip_repository.photo_context_list_for_link(
+                    l.get("id")):
+                if (not pcr.get("approved_for_lori") or pcr.get("rejected")
+                        or len(photo_context) >= _MAX_CAPTIONS):
+                    continue
+                summ = (pcr.get("result_summary") or "").strip()
+                if not summ:
+                    continue
+                if pcr.get("context_type") == "ocr_text":
+                    photo_context.append(
+                        {"where": where,
+                         "context": "the text on one photo reads: "
+                                    + _clip(summ)})
+                elif pcr.get("context_type") == "vision_description":
+                    photo_context.append(
+                        {"where": where, "context": _clip(summ)})
+        except Exception:
+            pass
+
     ctx: Dict[str, Any] = {
         "trip_id": active_trip_id,
         "title": trip.get("title"),

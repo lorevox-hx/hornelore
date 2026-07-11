@@ -1606,6 +1606,26 @@ class PublicContextPatch(BaseModel):
     include_in_memoir: Optional[bool] = None
 
 
+# WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 1/2 request models.
+class PhotoContextPatch(BaseModel):
+    result_summary: Optional[str] = None
+    raw_text: Optional[str] = None
+    approved_for_lori: Optional[bool] = None
+    include_in_memoir: Optional[bool] = None
+    rejected: Optional[bool] = None
+
+
+class PublicLookupRequest(BaseModel):
+    query: Optional[str] = None
+    url: Optional[str] = None
+    source_type: str = "place_context"
+    trip_region_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
+    trip_day_id: Optional[str] = None
+    photo_link_id: Optional[str] = None
+    reason: Optional[str] = None
+
+
 def _validate_photo_link_scope(trip_id: str, photo_link_id) -> None:
     """A photo-scoped public-context row must point at a link in THIS
     trip (same posture as the cross-trip stop checks)."""
@@ -1778,6 +1798,220 @@ def reverse_geocode_photo_link(link_id: str) -> Dict[str, Any]:
     )
     logger.info("[trips][reverse-geocode] stored ctx=%s link=%s", cid, link_id)
     return {"status": "stored", "context_id": cid, "result_summary": label}
+
+
+# ── Photo evidence: OCR / vision / photo-context ────────────────────────
+#     WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 1. Operator-triggered draft
+#     extraction. Master gates (HORNELORE_PHOTO_OCR / HORNELORE_PHOTO_
+#     VISION) default OFF; a disabled feature returns a clear status, never
+#     a fake row. approved_for_lori / include_in_memoir default OFF — the
+#     approval ladder is the only way evidence becomes usable/memoir.
+
+@router.post("/photo-links/{link_id}/ocr")
+def run_photo_ocr(link_id: str) -> Dict[str, Any]:
+    """Run the configured local OCR provider on a linked photo and store
+    the result as DRAFT trip_photo_context (context_type='ocr_text')."""
+    _require_trips_enabled()
+    from ..services import travel_doc_photo_ocr
+    if not travel_doc_photo_ocr.ocr_enabled():
+        return {"status": "disabled",
+                "message": "OCR is off (set HORNELORE_PHOTO_OCR=1 and "
+                           "HORNELORE_OCR_PROVIDER)"}
+    info = trip_repository.photo_file_for_link(link_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="photo link not found")
+    res = travel_doc_photo_ocr.run_ocr(info.get("image_path") or "")
+    if not res.get("ok"):
+        return {"status": "unavailable", "engine": res.get("engine"),
+                "message": res.get("error")}
+    cid = trip_repository.photo_context_create(
+        trip_id=info["trip_id"], photo_link_id=link_id,
+        context_type="ocr_text", result_summary=res["summary"],
+        photo_id=info.get("photo_id"), raw_text=res.get("raw_text"),
+        confidence="draft", engine=res.get("engine"),
+        source_ref="ocr:photo_link:%s" % link_id)
+    logger.info("[trips][photo-ocr] stored ctx=%s link=%s engine=%s",
+                cid, link_id, res.get("engine"))
+    return {"status": "stored", "context_id": cid,
+            "context": trip_repository.photo_context_get(cid)}
+
+
+@router.post("/photo-links/{link_id}/vision-context")
+def run_photo_vision(link_id: str) -> Dict[str, Any]:
+    """Run the configured local vision provider (command-only in this
+    phase) and store the result as DRAFT trip_photo_context."""
+    _require_trips_enabled()
+    from ..services import travel_doc_photo_vision
+    if not travel_doc_photo_vision.vision_enabled():
+        return {"status": "disabled",
+                "message": "image-context (vision) is off (set "
+                           "HORNELORE_PHOTO_VISION=1 and a local "
+                           "HORNELORE_VISION_CMD)"}
+    info = trip_repository.photo_file_for_link(link_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="photo link not found")
+    res = travel_doc_photo_vision.run_vision(info.get("image_path") or "")
+    if not res.get("ok"):
+        return {"status": "unavailable", "engine": res.get("engine"),
+                "message": res.get("error")}
+    cid = trip_repository.photo_context_create(
+        trip_id=info["trip_id"], photo_link_id=link_id,
+        context_type="vision_description", result_summary=res["summary"],
+        photo_id=info.get("photo_id"), raw_text=res.get("raw_text"),
+        confidence="draft", engine=res.get("engine"),
+        model_name=res.get("model"),
+        source_ref="vision:photo_link:%s" % link_id)
+    return {"status": "stored", "context_id": cid,
+            "context": trip_repository.photo_context_get(cid)}
+
+
+@router.get("/photo-links/{link_id}/photo-context")
+def list_photo_context(link_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.photo_link_get(link_id):
+        raise HTTPException(status_code=404, detail="photo link not found")
+    rows = trip_repository.photo_context_list_for_link(link_id)
+    return {"link_id": link_id, "count": len(rows), "photo_context": rows}
+
+
+@router.patch("/photo-context/{context_id}")
+def patch_photo_context(context_id: str,
+                        req: PhotoContextPatch) -> Dict[str, Any]:
+    """Approve / edit / include / reject a photo-context row. Editing
+    result_summary or raw_text revokes approval unless re-approved in the
+    same request; include_in_memoir requires the row to be approved."""
+    _require_trips_enabled()
+    existing = trip_repository.photo_context_get(context_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="photo context not found")
+    if req.include_in_memoir:
+        if req.approved_for_lori is not None:
+            effective_approved = req.approved_for_lori
+        elif req.result_summary is not None or req.raw_text is not None:
+            effective_approved = False   # edit revokes approval
+        else:
+            effective_approved = bool(existing.get("approved_for_lori"))
+        if not effective_approved:
+            raise HTTPException(
+                status_code=400,
+                detail="include_in_memoir requires approved_for_lori")
+    ok = trip_repository.photo_context_update(
+        context_id,
+        result_summary=req.result_summary, raw_text=req.raw_text,
+        approved_for_lori=req.approved_for_lori,
+        include_in_memoir=req.include_in_memoir, rejected=req.rejected)
+    if not ok:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    return {"ok": True,
+            "context": trip_repository.photo_context_get(context_id)}
+
+
+@router.delete("/photo-context/{context_id}")
+def delete_photo_context(context_id: str) -> Dict[str, Any]:
+    _require_trips_enabled()
+    if not trip_repository.photo_context_delete(context_id):
+        raise HTTPException(status_code=404, detail="photo context not found")
+    return {"ok": True, "context_id": context_id}
+
+
+# ── Public lookup → draft public_context ────────────────────────────────
+#     WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 2. Sends ONLY a public query
+#     or URL (never GPS / person_id / memoir / unapproved private notes).
+
+def _build_photo_lookup_query(link_id: str, trip_id: str) -> Optional[str]:
+    """Assemble a SAFE public query from a photo's public cues ONLY: OCR
+    text, the reviewable place label, and the year. NEVER raw GPS,
+    person_id, memoir/private notes, or unapproved operator captions."""
+    cues: List[str] = []
+    for r in trip_repository.photo_context_list_for_link(link_id):
+        if (not r.get("rejected") and r.get("context_type") == "ocr_text"
+                and (r.get("result_summary") or "").strip()):
+            cues.append(r["result_summary"].strip())
+            break
+    for l in trip_repository.photo_links_list(trip_id):
+        if l.get("id") == link_id:
+            place = (l.get("photo_location_label") or "").strip()
+            if place:
+                cues.append(place)
+            dv = str(l.get("photo_date_value") or "")
+            if len(dv) >= 4 and dv[:4].isdigit():
+                cues.append(dv[:4])
+            break
+    q = " ".join(c for c in cues if c).strip()
+    return q or None
+
+
+@router.post("/{trip_id}/public-context/lookup")
+def public_context_lookup(trip_id: str,
+                          req: PublicLookupRequest) -> Dict[str, Any]:
+    _require_trips_enabled()
+    from ..services import travel_doc_public_lookup
+    if not trip_repository.trip_get(trip_id):
+        raise HTTPException(status_code=404, detail="trip not found")
+    if not travel_doc_public_lookup.lookup_enabled():
+        return {"status": "disabled",
+                "message": "public lookup is off (set "
+                           "HORNELORE_PUBLIC_LOOKUP=1 and a provider)"}
+    if not ((req.query or "").strip() or (req.url or "").strip()):
+        raise HTTPException(status_code=422, detail="need a query or url")
+    if req.source_type not in _PUBLIC_CONTEXT_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail="invalid source_type")
+    _validate_source_scope(trip_id, req.trip_region_id, req.trip_stop_id)
+    _validate_photo_link_scope(trip_id, req.photo_link_id)
+    res = travel_doc_public_lookup.run_lookup(query=req.query, url=req.url)
+    if not res.get("ok"):
+        return {"status": "unavailable", "provider": res.get("provider"),
+                "message": res.get("error")}
+    cid = trip_repository.public_context_create(
+        trip_id=trip_id, result_summary=res["summary"],
+        source_type=req.source_type, trip_region_id=req.trip_region_id,
+        trip_stop_id=req.trip_stop_id, photo_link_id=req.photo_link_id,
+        query=(req.query or ("url:" + (req.url or ""))),
+        source_url=res.get("source_url") or req.url, confidence="draft",
+        notes="provider=%s" % res.get("provider"))
+    logger.info("[trips][public-lookup] stored ctx=%s trip=%s provider=%s",
+                cid, trip_id, res.get("provider"))
+    return {"status": "stored", "context_id": cid,
+            "context": trip_repository.public_context_get(cid)}
+
+
+@router.post("/photo-links/{link_id}/lookup-context")
+def photo_lookup_context(link_id: str,
+                         req: PublicLookupRequest) -> Dict[str, Any]:
+    """Convenience lookup for a photo card: build a SAFE public query from
+    the photo's public cues (or use the operator's typed query/url) and
+    store the result as draft public_context scoped to this photo."""
+    _require_trips_enabled()
+    from ..services import travel_doc_public_lookup
+    if not travel_doc_public_lookup.lookup_enabled():
+        return {"status": "disabled",
+                "message": "public lookup is off (set "
+                           "HORNELORE_PUBLIC_LOOKUP=1 and a provider)"}
+    info = trip_repository.photo_file_for_link(link_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="photo link not found")
+    # An operator-typed query is intentional and sent as-is; otherwise
+    # build a query from PUBLIC photo cues only (never GPS/person/memoir).
+    query = ((req.query or "").strip()
+             or _build_photo_lookup_query(link_id, info["trip_id"]))
+    if not (query or (req.url or "").strip()):
+        return {"status": "no_cues",
+                "message": "no public OCR/place/date cues to look up yet — "
+                           "run OCR first or type a query"}
+    res = travel_doc_public_lookup.run_lookup(query=query, url=req.url)
+    if not res.get("ok"):
+        return {"status": "unavailable", "provider": res.get("provider"),
+                "message": res.get("error")}
+    stype = (req.source_type if req.source_type in _PUBLIC_CONTEXT_SOURCE_TYPES
+             else "place_context")
+    cid = trip_repository.public_context_create(
+        trip_id=info["trip_id"], result_summary=res["summary"],
+        source_type=stype, photo_link_id=link_id,
+        query=(query or ("url:" + (req.url or ""))),
+        source_url=res.get("source_url") or req.url, confidence="draft",
+        notes="provider=%s;photo_lookup" % res.get("provider"))
+    return {"status": "stored", "context_id": cid, "query_used": query,
+            "context": trip_repository.public_context_get(cid)}
 
 
 # ── Trip days (WO-TRAVEL-DOC-UI-LAB-01 — Trip Calendar layer) ──────────────

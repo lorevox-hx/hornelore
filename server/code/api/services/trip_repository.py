@@ -1865,6 +1865,189 @@ def public_context_trip_id(context_id: str) -> Optional[str]:
         con.close()
 
 
+# ── Photo context (OCR / vision draft evidence) ──────────────────────────
+# WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 1. Draft evidence extracted FROM a
+# photo. Approval ladder enforced here: create defaults everything OFF;
+# editing result_summary/raw_text REVOKES approved_for_lori unless the
+# same request re-approves; include_in_memoir requires approved_for_lori
+# (checked at the router). Rejected rows are never surfaced to Lori.
+_PHOTO_CONTEXT_TYPES = (
+    "ocr_text", "vision_description", "filename_context",
+    "operator_photo_context",
+)
+
+
+def photo_context_create(
+    trip_id: str,
+    photo_link_id: str,
+    context_type: str,
+    result_summary: str,
+    photo_id: Optional[str] = None,
+    raw_text: Optional[str] = None,
+    confidence: str = "draft",
+    engine: Optional[str] = None,
+    model_name: Optional[str] = None,
+    source_ref: Optional[str] = None,
+    context_id: Optional[str] = None,
+) -> str:
+    if context_type not in _PHOTO_CONTEXT_TYPES:
+        raise ValueError(
+            "invalid context_type %r; expected one of %s"
+            % (context_type, ", ".join(_PHOTO_CONTEXT_TYPES)))
+    cid = context_id or _new_id()
+    con = _connect()
+    try:
+        con.execute(
+            """INSERT INTO trip_photo_context
+               (id, trip_id, photo_link_id, photo_id, context_type,
+                result_summary, raw_text, confidence, engine, model_name,
+                source_ref, approved_for_lori, include_in_memoir, rejected,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)""",
+            (
+                cid, trip_id, photo_link_id, photo_id, context_type,
+                result_summary, raw_text, confidence or "draft", engine,
+                model_name, source_ref, _now(), _now(),
+            ),
+        )
+        con.commit()
+        return cid
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def photo_context_list_for_link(link_id: str) -> List[Dict[str, Any]]:
+    """All photo-context rows for a link (operator view — includes drafts
+    and rejected). Tolerant of a pre-0030 DB (table missing) -> []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_photo_context WHERE photo_link_id = ? "
+            "ORDER BY created_at, id",
+            (link_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def photo_context_get(context_id: str) -> Optional[Dict[str, Any]]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_photo_context WHERE id = ?", (context_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
+def photo_context_update(
+    context_id: str,
+    result_summary: Optional[str] = None,
+    raw_text: Optional[str] = None,
+    approved_for_lori: Optional[bool] = None,
+    include_in_memoir: Optional[bool] = None,
+    rejected: Optional[bool] = None,
+) -> bool:
+    """Partial update. Revoke-on-edit: editing result_summary OR raw_text
+    REVOKES approved_for_lori unless the same request re-approves — the
+    approval always refers to the text the operator actually reviewed."""
+    sets: List[str] = []
+    args: List[Any] = []
+    edited_text = False
+    if result_summary is not None:
+        sets.append("result_summary = ?"); args.append(result_summary)
+        edited_text = True
+    if raw_text is not None:
+        sets.append("raw_text = ?"); args.append(raw_text)
+        edited_text = True
+    if edited_text and approved_for_lori is None:
+        sets.append("approved_for_lori = 0")
+    if approved_for_lori is not None:
+        sets.append("approved_for_lori = ?")
+        args.append(1 if approved_for_lori else 0)
+    if include_in_memoir is not None:
+        sets.append("include_in_memoir = ?")
+        args.append(1 if include_in_memoir else 0)
+    if rejected is not None:
+        sets.append("rejected = ?")
+        args.append(1 if rejected else 0)
+    if not sets:
+        return False
+    sets.append("updated_at = ?"); args.append(_now())
+    args.append(context_id)
+    con = _connect()
+    try:
+        cur = con.execute(
+            f"UPDATE trip_photo_context SET {', '.join(sets)} WHERE id = ?",
+            args,
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def photo_context_delete(context_id: str) -> bool:
+    con = _connect()
+    try:
+        cur = con.execute(
+            "DELETE FROM trip_photo_context WHERE id = ?", (context_id,),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def photo_context_trip_id(context_id: str) -> Optional[str]:
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT trip_id FROM trip_photo_context WHERE id = ?",
+            (context_id,),
+        ).fetchone()
+        return row["trip_id"] if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
+def photo_file_for_link(link_id: str) -> Optional[Dict[str, Any]]:
+    """Resolve a photo link to its local file for OCR/vision providers:
+    {link_id, trip_id, photo_id, image_path}. image_path is a LOCAL path
+    consumed only by a LOCAL provider — it is never serialized to Lori or
+    any response. Returns None when the link is unknown."""
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT l.id AS link_id, l.trip_id AS trip_id, "
+            "l.photo_id AS photo_id, p.image_path AS image_path "
+            "FROM trip_photo_links l "
+            "LEFT JOIN photos p ON p.id = l.photo_id "
+            "WHERE l.id = ?",
+            (link_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
 def photo_raw_gps(photo_id: str):
     """SERVER-SIDE ONLY raw GPS read for the reverse-geocode lane.
     The returned coordinates are consumed by the local resolver and are

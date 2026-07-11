@@ -210,6 +210,37 @@ def build_modal_scope(
     }
 
 
+def _photo_context_rows_for_scope(
+    scope: Dict[str, Any],
+) -> Dict[str, List[str]]:
+    """OCR / vision evidence for the anchored photo, split approved vs
+    draft. Rejected rows are skipped. WO-TRAVEL-DOC-EVIDENCE-TOOLS-01."""
+    out: Dict[str, List[str]] = {
+        "approved_ocr": [], "draft_ocr": [],
+        "approved_vision": [], "draft_vision": [],
+    }
+    link_id = (scope or {}).get("active_photo_link_id")
+    if not link_id:
+        return out
+    try:
+        rows = trip_repository.photo_context_list_for_link(link_id)
+    except Exception:
+        return out
+    for r in rows:
+        if r.get("rejected"):
+            continue
+        summ = (r.get("result_summary") or "").strip()
+        if not summ:
+            continue
+        approved = bool(r.get("approved_for_lori"))
+        ct = r.get("context_type")
+        if ct == "ocr_text":
+            out["approved_ocr" if approved else "draft_ocr"].append(summ)
+        elif ct == "vision_description":
+            out["approved_vision" if approved else "draft_vision"].append(summ)
+    return out
+
+
 def answer_modal_direct_question(
     person_id: str,
     scope: Optional[Dict[str, Any]],
@@ -241,14 +272,28 @@ def answer_modal_direct_question(
         # Public/web context for this scope — approved rows speak as
         # fact, draft rows stay suggestive (evidence-rich doctrine).
         pub_tail = _public_context_tail(sc)
-        bits: List[str] = []
+        pc = _photo_context_rows_for_scope(sc)
+        # ── Approved tier: caption/context, then OCR, then vision ──
+        approved_sentences: List[str] = []
+        cap_ctx: List[str] = []
         if pkt.get("approved_caption"):
-            bits.append(pkt["approved_caption"])
+            cap_ctx.append(pkt["approved_caption"])
         if pkt.get("approved_context"):
-            bits.append(pkt["approved_context"])
-        if bits:
-            return ("The approved photo context says: "
-                    + " — ".join(bits) + pub_tail
+            cap_ctx.append(pkt["approved_context"])
+        if cap_ctx:
+            approved_sentences.append(
+                "The approved photo context says: " + " — ".join(cap_ctx))
+        for t in pc["approved_ocr"]:
+            approved_sentences.append(
+                "The approved OCR text says: " + t.rstrip("."))
+        for t in pc["approved_vision"]:
+            approved_sentences.append(
+                "The approved image-context note says: " + t.rstrip("."))
+        if approved_sentences:
+            body = " ".join(
+                s if s.endswith((".", "!", "?")) else s + "."
+                for s in approved_sentences)
+            return (body + pub_tail
                     + " What do you remember about that moment?")
         if pkt.get("narrator_caption"):
             return ("Your own caption on this photo says: "
@@ -261,6 +306,12 @@ def answer_modal_direct_question(
         # privacy) is the constraint: suggestive wording before
         # confirmation, approved wording after.
         draft_bits: List[str] = []
+        for t in pc["draft_ocr"]:
+            draft_bits.append("the OCR draft appears to read '"
+                              + t.rstrip(".") + "'")
+        for t in pc["draft_vision"]:
+            draft_bits.append("the draft image context suggests "
+                              + t.rstrip("."))
         if pkt.get("draft_context"):
             draft_bits.append("the draft photo context suggests "
                               + pkt["draft_context"].rstrip("."))
@@ -275,7 +326,9 @@ def answer_modal_direct_question(
                                            or pkt.get("approved_place")):
             missing.append("GPS coordinates are recorded, but place "
                            "extraction hasn't run yet")
-        if not pkt.get("draft_context"):
+        if not (pkt.get("draft_context") or pc["draft_ocr"]
+                or pc["approved_ocr"] or pc["draft_vision"]
+                or pc["approved_vision"]):
             missing.append("no image or OCR draft has been added yet")
         if draft_bits:
             joined = draft_bits[0]
