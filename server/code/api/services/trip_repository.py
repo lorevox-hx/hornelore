@@ -317,6 +317,20 @@ def stop_get(stop_id: str) -> Optional[Dict[str, Any]]:
         con.close()
 
 
+def region_get(region_id: str) -> Optional[Dict[str, Any]]:
+    """Single region row. Added 2026-07-11 for the preflight lookup-
+    query builder (needs region title to add safe structural context to
+    a public query). Mirrors stop_get."""
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_regions WHERE id = ?", (region_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
 def region_trip_id(region_id: str) -> Optional[str]:
     con = _connect()
     try:
@@ -1773,6 +1787,30 @@ def public_context_list(trip_id: str) -> List[Dict[str, Any]]:
         con.close()
 
 
+def public_context_list_for_link(
+    photo_link_id: str,
+) -> List[Dict[str, Any]]:
+    """Public-context rows attached to a specific photo link. Used by
+    the modal to surface place_from_context and other photo-scoped
+    public context alongside the OCR/vision/observation lanes.
+
+    WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11). Tolerant
+    of a pre-0026 DB (table missing) — returns []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_public_context "
+            "WHERE photo_link_id = ? "
+            "ORDER BY created_at, id",
+            (photo_link_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
 def public_context_get(context_id: str) -> Optional[Dict[str, Any]]:
     con = _connect()
     try:
@@ -1874,6 +1912,12 @@ def public_context_trip_id(context_id: str) -> Optional[str]:
 _PHOTO_CONTEXT_TYPES = (
     "ocr_text", "vision_description", "filename_context",
     "operator_photo_context",
+    # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11) — local-LLM
+    # drafted image observation. Approval ladder identical to OCR /
+    # vision (confidence='draft' default; approved_for_lori=0;
+    # include_in_memoir=0; rejected=0). Migration 0031 rebuilds the
+    # CHECK constraint on trip_photo_context to accept this value.
+    "draft_observation",
 )
 
 

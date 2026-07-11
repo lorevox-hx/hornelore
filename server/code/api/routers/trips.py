@@ -1615,6 +1615,27 @@ class PhotoContextPatch(BaseModel):
     rejected: Optional[bool] = None
 
 
+# WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11).
+# Operator-entry payload for the two manual draft lanes: local-LLM /
+# operator-typed draft observation, and place-from-context inference
+# rooted in already-reviewable evidence (never raw GPS).
+class DraftObservationCreate(BaseModel):
+    result_summary: str
+    raw_text: Optional[str] = None
+    engine: Optional[str] = None   # e.g. "operator_local" | "local_llm"
+    model_name: Optional[str] = None
+
+
+class PlaceFromContextCreate(BaseModel):
+    result_summary: str
+    notes: Optional[str] = None
+    # Where the operator sourced the inference (any subset of:
+    # ocr, public_context, operator_place_label, trip_labels,
+    # broad_place_notes). Recorded in notes for provenance; never
+    # accepts raw GPS or narrator/memoir text.
+    evidence_sources: Optional[List[str]] = None
+
+
 class PublicLookupRequest(BaseModel):
     query: Optional[str] = None
     url: Optional[str] = None
@@ -1865,6 +1886,101 @@ def run_photo_vision(link_id: str) -> Dict[str, Any]:
             "context": trip_repository.photo_context_get(cid)}
 
 
+# ── WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11) ──────────────
+#     Two manual operator-entry lanes on top of the OCR/vision engines:
+#
+#     * draft observation      — local-LLM / operator draft of what the
+#                                photo shows. Stored as
+#                                trip_photo_context(context_type=
+#                                'draft_observation'), approved_for_lori=0,
+#                                include_in_memoir=0, rejected=0. Rejects
+#                                empty summary. NOT a provider call —
+#                                operator or LLM has already produced the
+#                                text. Approval ladder identical to OCR.
+#     * place from context     — operator's place inference rooted in
+#                                already-reviewable evidence (OCR /
+#                                public context / operator labels / trip
+#                                structure / broad place notes). Stored
+#                                as trip_public_context(source_type=
+#                                'place_context'), approved_for_lori=0.
+#                                NEVER accepts raw GPS or memoir text.
+
+@router.post("/photo-links/{link_id}/draft-observation")
+def create_draft_observation(link_id: str,
+                             req: DraftObservationCreate) -> Dict[str, Any]:
+    """Store an operator-supplied (or local-LLM-drafted) photo observation
+    as a DRAFT trip_photo_context row. Nothing moves up by silence:
+    approved_for_lori=0, include_in_memoir=0, rejected=0."""
+    _require_trips_enabled()
+    summary = (req.result_summary or "").strip()
+    if not summary:
+        raise HTTPException(status_code=422,
+                            detail="result_summary is required")
+    info = trip_repository.photo_file_for_link(link_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="photo link not found")
+    engine = (req.engine or "operator_local").strip() or "operator_local"
+    cid = trip_repository.photo_context_create(
+        trip_id=info["trip_id"], photo_link_id=link_id,
+        context_type="draft_observation", result_summary=summary,
+        photo_id=info.get("photo_id"), raw_text=req.raw_text,
+        confidence="draft", engine=engine,
+        model_name=req.model_name,
+        source_ref="observation:photo_link:%s" % link_id)
+    logger.info(
+        "[trips][draft-observation] stored ctx=%s link=%s engine=%s",
+        cid, link_id, engine)
+    return {"status": "stored", "context_id": cid,
+            "context": trip_repository.photo_context_get(cid)}
+
+
+@router.post("/photo-links/{link_id}/place-from-context")
+def create_place_from_context(link_id: str,
+                              req: PlaceFromContextCreate) -> Dict[str, Any]:
+    """Store an operator-supplied place inference (rooted in the photo's
+    already-reviewable evidence — OCR, public context, operator place
+    labels, trip/day/stop/region labels, or broad place notes) as a
+    DRAFT trip_public_context row (source_type='place_context').
+    NEVER accepts raw GPS or memoir text. Approval ladder identical to
+    other public-context rows: approved_for_lori=0 until the operator
+    approves it."""
+    _require_trips_enabled()
+    summary = (req.result_summary or "").strip()
+    if not summary:
+        raise HTTPException(status_code=422,
+                            detail="result_summary is required")
+    info = trip_repository.photo_file_for_link(link_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="photo link not found")
+    # Provenance: record which evidence sources the operator says they
+    # used. Whitelist keeps arbitrary strings from leaking through.
+    _ALLOWED_SRC = {
+        "ocr", "public_context", "operator_place_label",
+        "trip_labels", "broad_place_notes", "local_llm_draft",
+    }
+    sources = sorted({s for s in (req.evidence_sources or [])
+                      if isinstance(s, str) and s in _ALLOWED_SRC})
+    note_bits: List[str] = ["source=place_from_context"]
+    if sources:
+        note_bits.append("evidence=" + ",".join(sources))
+    if req.notes:
+        # Notes are operator-authored context, safe to include, but pass
+        # them through the same sanitizer that OCR/public results ride.
+        # Length-cap defensively so a runaway note can't bloat the row.
+        note_bits.append("note=" + (req.notes or "").strip()[:800])
+    cid = trip_repository.public_context_create(
+        trip_id=info["trip_id"], result_summary=summary,
+        source_type="place_context",
+        photo_link_id=link_id,
+        query=None, source_url=None, confidence="draft",
+        notes=";".join(note_bits))
+    logger.info(
+        "[trips][place-from-context] stored ctx=%s link=%s sources=%s",
+        cid, link_id, ",".join(sources) or "-")
+    return {"status": "stored", "context_id": cid,
+            "context": trip_repository.public_context_get(cid)}
+
+
 @router.get("/photo-links/{link_id}/photo-context")
 def list_photo_context(link_id: str) -> Dict[str, Any]:
     _require_trips_enabled()
@@ -1919,25 +2035,117 @@ def delete_photo_context(context_id: str) -> Dict[str, Any]:
 #     or URL (never GPS / person_id / memoir / unapproved private notes).
 
 def _build_photo_lookup_query(link_id: str, trip_id: str) -> Optional[str]:
-    """Assemble a SAFE public query from a photo's public cues ONLY: OCR
-    text, the reviewable place label, and the year. NEVER raw GPS,
-    person_id, memoir/private notes, or unapproved operator captions."""
+    """Assemble a SAFE public query from a photo's public cues ONLY:
+    approved OCR text, the reviewable place label, the year, plus the
+    stop/region/day label if the photo is anchored to trip structure.
+
+    NEVER include: raw GPS, person_id, memoir text, private notes,
+    unapproved photo captions, unapproved public context, narrator-only
+    material, or anything else that could leak private life-story
+    content to a public lookup provider.
+
+    WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11) tightening:
+      * OCR: only approved rows are eligible (was: first non-rejected
+        row of any approval state — draft OCR could reach the lookup)
+      * Stop / region / day labels added — safe structural context
+        already reviewable in the operator surface
+      * Explicit approved-caption inclusion (photo_link caption_approved
+        _for_lori=1) — narrator/operator captions never bleed through
+        unless promoted
+    Returns None when only unsafe evidence is available (nothing to
+    query on)."""
     cues: List[str] = []
+
+    # OCR: approved rows only. Captions in trip_photo_context ride the
+    # same approval_for_lori ladder; the lookup should never fire on
+    # draft OCR (that's the whole point of the draft/approved split).
     for r in trip_repository.photo_context_list_for_link(link_id):
-        if (not r.get("rejected") and r.get("context_type") == "ocr_text"
-                and (r.get("result_summary") or "").strip()):
-            cues.append(r["result_summary"].strip())
+        if (r.get("rejected")
+                or r.get("context_type") != "ocr_text"
+                or not bool(r.get("approved_for_lori"))):
+            continue
+        summ = (r.get("result_summary") or "").strip()
+        if summ:
+            cues.append(summ)
             break
+
+    # Photo link fields (place label, year, approved caption + note)
+    link_row: Optional[Dict[str, Any]] = None
     for l in trip_repository.photo_links_list(trip_id):
         if l.get("id") == link_id:
-            place = (l.get("photo_location_label") or "").strip()
-            if place:
-                cues.append(place)
-            dv = str(l.get("photo_date_value") or "")
-            if len(dv) >= 4 and dv[:4].isdigit():
-                cues.append(dv[:4])
+            link_row = l
             break
-    q = " ".join(c for c in cues if c).strip()
+    if link_row:
+        place = (link_row.get("photo_location_label") or "").strip()
+        if place:
+            cues.append(place)
+        dv = str(link_row.get("photo_date_value") or "")
+        if len(dv) >= 4 and dv[:4].isdigit():
+            cues.append(dv[:4])
+        # Approved caption (narrator or operator caption promoted for
+        # Lori) — safe to include in the query. Unapproved captions
+        # NEVER reach here.
+        cap = (link_row.get("caption") or "").strip()
+        if cap and bool(link_row.get("caption_approved_for_lori")):
+            cues.append(cap)
+        note = (link_row.get("operator_context_note") or "").strip()
+        if note and bool(link_row.get("operator_context_approved_for_lori")):
+            cues.append(note)
+        # Stop label (photo is anchored to a stop → include the stop
+        # name for context)
+        stop_id = link_row.get("trip_stop_id")
+        if stop_id:
+            try:
+                stop = trip_repository.stop_get(stop_id)
+                # trip_stops uses `location_name` for the display name.
+                stop_name = ""
+                if stop:
+                    stop_name = ((stop.get("location_name")
+                                  or stop.get("name") or "").strip())
+                if stop_name:
+                    cues.append(stop_name)
+                # Region title walks up from the stop. trip_regions uses
+                # `title` (not `name`) for the display label.
+                rid = stop.get("trip_region_id") if stop else None
+                if rid and hasattr(trip_repository, "region_get"):
+                    reg = trip_repository.region_get(rid)
+                    reg_title = ""
+                    if reg:
+                        reg_title = ((reg.get("title")
+                                      or reg.get("name") or "").strip())
+                    if reg_title:
+                        cues.append(reg_title)
+            except Exception:
+                pass
+        # Day label (photo is anchored to a trip day → include the day
+        # label or date if available)
+        day_id = link_row.get("trip_day_id")
+        if day_id:
+            try:
+                day = trip_repository.day_get(day_id) \
+                    if hasattr(trip_repository, "day_get") else None
+                if day:
+                    lbl = (day.get("label") or "").strip()
+                    if lbl:
+                        cues.append(lbl)
+                    d = (day.get("date") or "").strip()
+                    if len(d) >= 4 and d[:4].isdigit():
+                        cues.append(d[:4])
+            except Exception:
+                pass
+
+    # Deduplicate while preserving order (a place label + region name
+    # may collide; the year may already be in the caption).
+    seen: set = set()
+    deduped: List[str] = []
+    for c in cues:
+        k = c.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        deduped.append(c)
+
+    q = " ".join(deduped).strip()
     return q or None
 
 

@@ -1805,20 +1805,88 @@
       .catch(function (e) { photoEvidence.note = e.message; renderAll(); });
   }
 
+  // WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11): friendlier
+  // row-type labels + Lori-wording preview so the operator sees exactly
+  // what Lori will treat as "draft" vs "fact" per evidence type.
+  function evLabel(r, isPublic) {
+    var approved = !!r.approved_for_lori;
+    var ct = isPublic ? (r.source_type || "context")
+                      : (r.context_type || "context");
+    var map = {
+      ocr_text: "OCR draft",
+      vision_description: "Image context (vision)",
+      draft_observation: "Photo observation",
+      filename_context: "Filename hint",
+      operator_photo_context: "Operator note",
+      place_context: "Place from context",
+      public_web_context: "Public web context",
+      reverse_geocode: "Reverse geocode",
+      calendar_context: "Calendar context",
+      food_context: "Food context",
+    };
+    var base = map[ct] || ct;
+    return base + (approved ? "" : " (draft)");
+  }
+
+  // Operator-visible "Lori will say…" preview. Uses the exact wording
+  // shape encoded in travel_doc_lori_modal.answer_modal_direct_question
+  // so what the operator sees here matches what the modal produces.
+  function evLoriWording(r, isPublic) {
+    var approved = !!r.approved_for_lori;
+    var s = (r.result_summary || "").trim();
+    if (!s) return "";
+    var stripDot = s.replace(/\.+$/, "");
+    var ct = isPublic ? (r.source_type || "") : (r.context_type || "");
+    if (r.rejected) return "Rejected — Lori will not see this row.";
+    if (isPublic && ct === "place_context") {
+      return approved
+        ? ("Lori will say: The approved place context says: " + stripDot + ".")
+        : ("Lori will say: the place context suggests " + stripDot + ".");
+    }
+    if (ct === "ocr_text") {
+      return approved
+        ? ("Lori will say: The approved OCR text says: " + stripDot + ".")
+        : ("Lori will say: the OCR draft appears to read '" + stripDot + "'.");
+    }
+    if (ct === "vision_description") {
+      return approved
+        ? ("Lori will say: The approved image-context note says: "
+           + stripDot + ".")
+        : ("Lori will say: the draft image context suggests "
+           + stripDot + ".");
+    }
+    if (ct === "draft_observation") {
+      return approved
+        ? ("Lori will say: The approved photo observation says: "
+           + stripDot + ".")
+        : ("Lori will say: the draft photo observation suggests "
+           + stripDot + ".");
+    }
+    // Fallback for less-common types — still safe to preview.
+    return approved
+      ? ("Lori will speak this as approved context: " + stripDot + ".")
+      : ("Lori will treat this as draft (never fact): " + stripDot + ".");
+  }
+
   function renderEvidenceRow(r, isPublic) {
     var row = el("div", "tdl-ev-row");
     var head = el("div", "tdl-ev-head");
     head.appendChild(el("span", "tdl-ev-type",
-      isPublic ? ("public · " + (r.source_type || "context"))
-               : (r.context_type + (r.engine ? (" · " + r.engine) : ""))));
+      evLabel(r, isPublic)
+        + (!isPublic && r.engine ? (" · " + r.engine) : "")));
     var badges = el("span", "tdl-ev-badges");
     badges.appendChild(evBadge("Draft", !r.approved_for_lori && !r.rejected));
-    badges.appendChild(evBadge("Approved", !!r.approved_for_lori));
+    badges.appendChild(evBadge("Approved for Lori", !!r.approved_for_lori));
     badges.appendChild(evBadge("In memoir", !!r.include_in_memoir));
     if (r.rejected) badges.appendChild(evBadge("Rejected", true));
     head.appendChild(badges);
     row.appendChild(head);
     row.appendChild(el("div", "tdl-ev-summary", r.result_summary || ""));
+    // Wording preview — mirrors the modal contract.
+    var wording = evLoriWording(r, isPublic);
+    if (wording) {
+      row.appendChild(el("div", "tdl-ev-wording tdl-muted", wording));
+    }
     if (r.source_url) row.appendChild(el("div", "tdl-ev-src", r.source_url));
     var ctrls = el("div", "tdl-ev-ctrls");
     var patch = isPublic ? patchPublicContext : patchPhotoContext;
@@ -1847,6 +1915,37 @@
       evidenceAction("/api/trips/photo-links/"
         + encodeURIComponent(sel.id) + "/ocr", "OCR");
     }));
+    // WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11): operator-
+    // entry lane for local-LLM / operator drafted photo observation.
+    // Prompt (native window.prompt) keeps the UI unchanged in shape —
+    // just adds a button; no redesign.
+    acts.appendChild(btn("tdl-btn", "✍ Add draft observation", function () {
+      var t = window.prompt(
+        "Draft photo observation — what does the photo show? "
+        + "(Stays as DRAFT; won't reach narrator Lori until you approve.)");
+      var s = (t || "").trim();
+      if (!s) return;
+      evidenceAction("/api/trips/photo-links/"
+        + encodeURIComponent(sel.id) + "/draft-observation",
+        "Draft observation",
+        { result_summary: s, engine: "operator_local" });
+    }));
+    // Operator's place inference rooted in already-reviewable evidence
+    // (OCR / public context / operator labels / trip structure). Never
+    // consumes raw GPS. Stored as DRAFT trip_public_context row.
+    acts.appendChild(btn("tdl-btn", "📍 Infer place from context",
+      function () {
+        var t = window.prompt(
+          "Place inference — based on OCR, public context, trip labels, "
+          + "or operator place notes. (Stays as DRAFT; never uses raw GPS.)");
+        var s = (t || "").trim();
+        if (!s) return;
+        evidenceAction("/api/trips/photo-links/"
+          + encodeURIComponent(sel.id) + "/place-from-context",
+          "Place from context",
+          { result_summary: s,
+            evidence_sources: ["ocr", "public_context", "trip_labels"] });
+      }));
     acts.appendChild(btn("tdl-btn", "🌐 Lookup public context", function () {
       evidenceAction("/api/trips/photo-links/"
         + encodeURIComponent(sel.id) + "/lookup-context", "Lookup",

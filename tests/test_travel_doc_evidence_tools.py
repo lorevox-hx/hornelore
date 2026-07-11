@@ -369,10 +369,13 @@ class PublicLookupEndpointTest(_DbCase):
 
 class LookupQueryPrivacyTest(_DbCase):
     def test_photo_query_uses_ocr_place_year_not_gps_or_person(self):
-        # OCR row + a reviewable place/date on the link
-        trip_repository.photo_context_create(
+        # OCR row + a reviewable place/date on the link.
+        # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
+        # only APPROVED OCR reaches the public-query builder now.
+        cid_ocr = trip_repository.photo_context_create(
             trip_id=self.trip_id, photo_link_id=self.link_id,
             context_type="ocr_text", result_summary="Museum sign text")
+        trip_repository.photo_context_update(cid_ocr, approved_for_lori=True)
         con = sqlite3.connect(str(self.db_path))
         con.execute("UPDATE photos SET date_value='2026-05-14', "
                     "location_label='Munich', latitude=48.137, "
