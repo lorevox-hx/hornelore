@@ -296,6 +296,9 @@
   ];
 
   function setTab(tab) {
+    // WO-TRIP-LANE-AUDIT-FIXPACK-02 (M5b): a tab switch re-renders and
+    // would silently discard unsaved day-inspector edits.
+    if (dayFormDirtyBlocks()) return;
     st.tab = tab;
     st.loriOverlay = false;
     if (tab === "travelogue" && !st.travelogue && st.trip) {
@@ -421,6 +424,8 @@
             var isSel = st.routeSel && st.routeSel.kind === "stop" && st.routeSel.id === s.id;
             det.appendChild(btn("tdl-route-item" + (isSel ? " tdl-active" : ""),
               s.location_name || s.title || "Stop", function () {
+                // FIXPACK-02 (M5b): route-rail selection re-renders too.
+                if (dayFormDirtyBlocks()) return;
                 st.routeSel = { kind: "stop", id: s.id, regionId: r.id };
                 renderAll();
               }));

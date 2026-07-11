@@ -78,6 +78,17 @@ class M5DirtyGuardTest(unittest.TestCase):
             "if (idx < st.days.length - 1) { if (dayFormDirtyBlocks()) "
             "return;", self.src)
 
+    def test_tab_switch_is_guarded(self):
+        i = self.src.index("function setTab(tab) {")
+        window = self.src[i:i + 160]
+        self.assertIn("if (dayFormDirtyBlocks()) return;", window)
+
+    def test_route_rail_selection_is_guarded(self):
+        # The stop route-rail click must guard before mutating routeSel.
+        j = self.src.index("st.routeSel = { kind:")
+        window = self.src[max(0, j - 120):j]
+        self.assertIn("if (dayFormDirtyBlocks()) return;", window)
+
     def test_cancel_stays_unguarded(self):
         # cancelDayEdits is the deliberate revert — it must NOT prompt.
         m = re.search(r"function cancelDayEdits\(\)\s*\{(.*?)\}",
