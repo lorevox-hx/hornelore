@@ -106,6 +106,28 @@ class ProviderDefaultsOffTest(unittest.TestCase):
             os.environ.pop("HORNELORE_PUBLIC_LOOKUP_PROVIDER", None)
 
 
+class ProviderPlumbingTest(unittest.TestCase):
+    def test_ocr_langs_default_and_override(self):
+        os.environ.pop("HORNELORE_OCR_LANGS", None)
+        self.assertEqual(ocr.ocr_langs(), "eng")
+        os.environ["HORNELORE_OCR_LANGS"] = "eng+deu+ita"
+        try:
+            self.assertEqual(ocr.ocr_langs(), "eng+deu+ita")
+        finally:
+            os.environ.pop("HORNELORE_OCR_LANGS", None)
+
+    def test_parse_html_fallback_extracts_title_and_text(self):
+        # Works even without bs4/readability installed (regex fallback).
+        html = ("<html><head><title>German Hunting and Fishing "
+                "Museum</title></head><body><script>x=1</script>"
+                "<p>A large catfish sculpture stands outside.</p>"
+                "</body></html>")
+        title, text = lookup._parse_html(html)
+        self.assertIn("German Hunting and Fishing Museum", title)
+        self.assertIn("catfish sculpture", text)
+        self.assertNotIn("x=1", text)
+
+
 class _DbCase(unittest.TestCase):
     def setUp(self):
         self._tmpdb = tempfile.NamedTemporaryFile(

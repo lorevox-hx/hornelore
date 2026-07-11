@@ -49,6 +49,10 @@ def _result(ok: bool, engine: str, raw_text: str = "", summary: str = "",
             "summary": summary, "error": error or None}
 
 
+def ocr_langs() -> str:
+    return (os.getenv("HORNELORE_OCR_LANGS", "eng") or "eng").strip() or "eng"
+
+
 def _run_tesseract(image_path: str) -> Dict[str, Any]:
     try:
         import pytesseract  # type: ignore
@@ -57,7 +61,8 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
         return _result(False, "tesseract",
                        error="tesseract/pillow not installed: %s" % exc)
     try:
-        text = pytesseract.image_to_string(Image.open(image_path))
+        text = pytesseract.image_to_string(
+            Image.open(image_path), lang=ocr_langs())
     except Exception as exc:
         return _result(False, "tesseract", error="ocr failed: %s" % exc)
     text = (text or "").strip()
@@ -110,4 +115,4 @@ def run_ocr(image_path: str) -> Dict[str, Any]:
     return _result(False, prov or "off", error="no OCR provider configured")
 
 
-__all__ = ["run_ocr", "ocr_enabled", "ocr_provider"]
+__all__ = ["run_ocr", "ocr_enabled", "ocr_provider", "ocr_langs"]

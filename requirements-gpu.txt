@@ -134,3 +134,27 @@ charset_normalizer==3.4.5
 idna==3.11
 urllib3==2.6.3
 click==8.3.1
+
+# ── Travel Doc evidence tools (WO-TRAVEL-DOC-EVIDENCE-TOOLS-01, Ph1+2) ──────
+# ALL OFF BY DEFAULT (HORNELORE_PHOTO_OCR / HORNELORE_PUBLIC_LOOKUP =0). These
+# deps only do work when the operator turns a provider on; the services
+# fail-soft (return ok=False, no fake rows) when a dep or engine is missing.
+#
+# OCR (first provider = tesseract). Needs the system binary too:
+#   sudo apt install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-deu \
+#                       tesseract-ocr-ita
+# pytesseract is a thin wrapper; Pillow (above) opens the image. PaddleOCR is
+# deliberately NOT a mandatory dep — the OCR provider interface lets it be
+# added later (HORNELORE_OCR_PROVIDER=paddleocr) without touching the schema.
+pytesseract==0.3.13
+#
+# Public url_only lookup: httpx is the fetch client; beautifulsoup4 (+ the
+# already-pinned lxml parser) extracts the page title/visible text.
+# readability-lxml is optional — cleaner main-article text extraction; the
+# provider falls back to the bs4/regex path if it is absent.
+httpx==0.27.2
+beautifulsoup4==4.12.3
+readability-lxml==0.8.1
+# SearXNG / Brave are provider HOOKS (Phase 3), NOT dependencies — SearXNG is
+# reached over HTTP via httpx (HORNELORE_SEARXNG_URL), Brave via its Web
+# Search API (BRAVE_SEARCH_API_KEY). No extra pip packages required for them.

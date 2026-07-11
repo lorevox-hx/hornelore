@@ -59,26 +59,65 @@ def _visible_text(html: str) -> str:
     return " ".join(text.split())
 
 
+def _fetch_url(url: str):
+    """Return (html, final_url). Prefers httpx, falls back to stdlib
+    urllib so lookup works before httpx is installed. Raises on error."""
+    headers = {"User-Agent": "Hornelore-TravelDoc/1.0"}
+    try:
+        import httpx  # type: ignore
+        r = httpx.get(url, timeout=_FETCH_TIMEOUT_SEC, follow_redirects=True,
+                      headers=headers)
+        return r.text[: _MAX_BYTES * 2], str(r.url)
+    except ImportError:
+        pass
+    from urllib.request import Request, urlopen
+    with urlopen(Request(url, headers=headers),
+                 timeout=_FETCH_TIMEOUT_SEC) as resp:
+        raw = resp.read(_MAX_BYTES)
+        return raw.decode("utf-8", errors="replace"), (resp.geturl() or url)
+
+
+def _parse_html(html: str):
+    """Return (title, main_text). Prefers readability-lxml + BeautifulSoup
+    for clean main-article text; falls back to the title-regex /
+    visible-text path when those libs are absent."""
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+        try:
+            soup = BeautifulSoup(html, "lxml")
+        except Exception:
+            soup = BeautifulSoup(html, "html.parser")
+        title = ""
+        if soup.title and soup.title.string:
+            title = " ".join(soup.title.string.split())
+        text = ""
+        try:
+            from readability import Document  # type: ignore
+            text = _visible_text(Document(html).summary())
+        except Exception:
+            text = ""
+        if not text:
+            for t in soup(["script", "style"]):
+                t.decompose()
+            text = " ".join(soup.get_text(" ").split())
+        return title, text
+    except ImportError:
+        m = _TITLE_RX.search(html)
+        title = " ".join(m.group(1).split()) if m else ""
+        return title, _visible_text(html)
+
+
 def _run_url_only(url: str) -> Dict[str, Any]:
     if not url:
         return _result(False, "url_only", error="no url provided")
     if not re.match(r"^https?://", url, re.I):
         return _result(False, "url_only", error="url must be http(s)")
     try:
-        from urllib.request import Request, urlopen
-        req = Request(url, headers={"User-Agent": "Hornelore-TravelDoc/1.0"})
-        with urlopen(req, timeout=_FETCH_TIMEOUT_SEC) as resp:
-            raw = resp.read(_MAX_BYTES)
-            final_url = resp.geturl() or url
+        html, final_url = _fetch_url(url)
     except Exception as exc:
         return _result(False, "url_only", error="fetch failed: %s" % exc)
-    try:
-        html = raw.decode("utf-8", errors="replace")
-    except Exception:
-        html = str(raw)
-    m = _TITLE_RX.search(html)
-    title = " ".join(m.group(1).split()) if m else ""
-    snippet = _visible_text(html)[:_SUMMARY_CHARS].rstrip()
+    title, text = _parse_html(html)
+    snippet = (text or "")[:_SUMMARY_CHARS].rstrip()
     if not title and not snippet:
         return _result(False, "url_only", error="no readable content")
     summary = (title + " — " + snippet).strip(" —") if title else snippet
