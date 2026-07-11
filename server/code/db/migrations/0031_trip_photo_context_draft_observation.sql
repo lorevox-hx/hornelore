@@ -15,15 +15,23 @@
 --
 -- SQLite doesn't support ALTER TABLE ... DROP/ADD CHECK, so we rebuild
 -- the table using the standard copy-drop-rename pattern, preserving
--- every row + all four indexes from 0030.
+-- every row + all THREE indexes from 0030 (idx_trip_photo_context_trip,
+-- _link, _approved).
 --
 -- Migration is idempotent under schema_migrations tracking; safe to
 -- re-run because the rebuild body is wrapped in a transaction and the
 -- new table shape is compared implicitly (schema_migrations skips
 -- already-applied filenames).
+--
+-- Preflight review-follow-up (2026-07-11): defensive DROP TABLE IF
+-- EXISTS trip_photo_context__new BEFORE the CREATE — protects against
+-- a stale rebuild table left behind by a partially-failed earlier run
+-- (matches the migration-hardening pattern used elsewhere in the tree).
 ------------------------------------------------------------
 
 BEGIN;
+
+DROP TABLE IF EXISTS trip_photo_context__new;
 
 CREATE TABLE IF NOT EXISTS trip_photo_context__new (
     id TEXT PRIMARY KEY,

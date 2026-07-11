@@ -89,18 +89,23 @@ def _packet_from_link(l: Dict[str, Any]) -> Dict[str, Any]:
 
 def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
     """Approved/draft context for the anchored photo. NEVER includes raw
-    GPS or upload/save/modified timestamps."""
+    GPS or upload/save/modified timestamps.
+
+    Preflight review-follow-up (2026-07-11): when a photo_link_id
+    is passed but does not resolve to a link in THIS trip, the
+    packet's ``photo_link_id`` is NULL — the earlier fallback
+    preserved a cross-trip / unknown id which then flowed straight
+    through _photo_context_rows_for_scope() as a raw
+    trip_photo_context lookup key. Cross-trip leak surface closed."""
     if not photo_link_id:
         return _packet_from_link({})
     for l in trip_repository.photo_links_list(trip_id):
         if l.get("id") == photo_link_id:
             return _packet_from_link(l)
-    # Link id not found in this trip — keep the requested id in the
-    # packet (legacy behavior) so callers don't misreport 'no photo
-    # anchored' for a merely-unresolvable link.
-    out = _packet_from_link({})
-    out["photo_link_id"] = photo_link_id
-    return out
+    # Link id not resolvable in this trip — fall back to the empty
+    # packet AND drop the requested id so downstream evidence lookups
+    # don't run against a foreign / unknown link.
+    return _packet_from_link({})
 
 
 def _public_context_for_scope(
@@ -109,7 +114,16 @@ def _public_context_for_scope(
     """(approved, draft) public-context summaries that apply to the
     modal's current scope: photo-scoped rows for the anchored photo,
     stop-scoped rows for the active stop, region-scoped rows for the
-    active region, and trip-wide rows (no narrower scope) always."""
+    active region, and trip-wide rows (no narrower scope) always.
+
+    Preflight review-follow-up (2026-07-11):
+      * Rejected rows are always skipped (parity with photo_context).
+      * Photo-scoped rows with source_type='place_context' are handled
+        by the dedicated place_from_context lane in
+        _photo_context_rows_for_scope() — exclude them here so a
+        place-context row can never appear TWICE in one modal answer
+        (once as "The approved place context says…" and again as
+        "The approved Travel Doc context says…")."""
     trip_id = scope.get("active_trip_id")
     if not trip_id:
         return [], []
@@ -123,9 +137,17 @@ def _public_context_for_scope(
     approved: List[str] = []
     draft: List[str] = []
     for r in rows:
+        # Skip rejected rows (preflight: trip_public_context.rejected).
+        if r.get("rejected"):
+            continue
         r_link = r.get("photo_link_id")
         r_stop = r.get("trip_stop_id")
         r_region = r.get("trip_region_id")
+        # Photo-scoped place_context is owned by the dedicated
+        # place_from_context lane; do not duplicate it here.
+        if (r_link and r_link == link_id
+                and r.get("source_type") == "place_context"):
+            continue
         if r_link:
             match = bool(link_id) and r_link == link_id
         elif r_stop:
@@ -196,6 +218,19 @@ def build_modal_scope(
             _day = None
         if _day and _day.get("trip_id") == active_trip_id:
             day_id = active_trip_day_id
+    # Preflight review-follow-up (2026-07-11): validate the photo link
+    # belongs to THIS trip. A cross-trip / unknown id must be dropped
+    # so downstream evidence lookups don't run against a foreign link
+    # (which would leak another trip's OCR / observation / place
+    # context into the modal answer).
+    link_id: Optional[str] = None
+    if active_photo_link_id:
+        try:
+            _link = trip_repository.photo_link_get(active_photo_link_id)
+        except Exception:
+            _link = None
+        if _link and _link.get("trip_id") == active_trip_id:
+            link_id = active_photo_link_id
     return {
         "source_surface": SOURCE_SURFACE,
         "person_id": person_id,
@@ -203,11 +238,11 @@ def build_modal_scope(
         "active_trip_id": active_trip_id,
         "active_trip_region_id": active_trip_region_id,
         "active_trip_stop_id": active_trip_stop_id,
-        "active_photo_link_id": active_photo_link_id,
+        "active_photo_link_id": link_id,
         "active_trip_day_id": day_id,
         "selected_kind": selected_kind,
         "selected_label": label,
-        "photo_context": _photo_packet(active_trip_id, active_photo_link_id),
+        "photo_context": _photo_packet(active_trip_id, link_id),
     }
 
 
@@ -267,7 +302,12 @@ def _photo_context_rows_for_scope(
     except Exception:
         place_rows = []
     for pr in place_rows or []:
-        if (pr or {}).get("source_type") != "place_context":
+        pr = pr or {}
+        if pr.get("source_type") != "place_context":
+            continue
+        # Preflight review-follow-up (2026-07-11): skip rejected rows
+        # (trip_public_context.rejected added by migration 0032).
+        if pr.get("rejected"):
             continue
         summ = sanitize_for_prompt(pr.get("result_summary"))
         if not summ:

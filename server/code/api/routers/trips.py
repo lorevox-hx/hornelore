@@ -1604,6 +1604,10 @@ class PublicContextPatch(BaseModel):
     query: Optional[str] = None
     approved_for_lori: Optional[bool] = None
     include_in_memoir: Optional[bool] = None
+    # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
+    # public rows can now be hidden without deletion, matching the
+    # trip_photo_context.rejected ladder.
+    rejected: Optional[bool] = None
 
 
 # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 1/2 request models.
@@ -1716,12 +1720,33 @@ def list_public_context(
 
 @router.patch("/public-context/{context_id}")
 def patch_public_context(context_id: str, req: PublicContextPatch) -> Dict[str, Any]:
-    """Approve / edit / include a public-context row. Editing the
-    result_summary revokes approval unless the same request re-approves
-    (approval refers to the text the operator reviewed)."""
+    """Approve / edit / include / reject a public-context row.
+
+    Preflight review-follow-up (2026-07-11) — parity with the
+    photo_context ladder:
+      * include_in_memoir requires the row to be (or become) approved
+        in this same request. Trying to set include_in_memoir=True on
+        an unapproved row → 400.
+      * Editing result_summary REVOKES approved_for_lori.
+      * Editing result_summary also CLEARS include_in_memoir unless
+        the same request re-approves AND explicitly re-includes.
+      * `rejected` flag accepted (hide-not-delete)."""
     _require_trips_enabled()
-    if not trip_repository.public_context_get(context_id):
+    existing = trip_repository.public_context_get(context_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="public context not found")
+    if req.include_in_memoir:
+        # Compute effective_approved after this patch lands.
+        if req.approved_for_lori is not None:
+            effective_approved = req.approved_for_lori
+        elif req.result_summary is not None:
+            effective_approved = False   # edit revokes approval
+        else:
+            effective_approved = bool(existing.get("approved_for_lori"))
+        if not effective_approved:
+            raise HTTPException(
+                status_code=400,
+                detail="include_in_memoir requires approved_for_lori")
     ok = trip_repository.public_context_update(
         context_id,
         result_summary=req.result_summary,
@@ -1730,6 +1755,7 @@ def patch_public_context(context_id: str, req: PublicContextPatch) -> Dict[str, 
         query=req.query,
         approved_for_lori=req.approved_for_lori,
         include_in_memoir=req.include_in_memoir,
+        rejected=req.rejected,
     )
     if not ok:
         raise HTTPException(status_code=400, detail="nothing to update")
@@ -1964,9 +1990,10 @@ def create_place_from_context(link_id: str,
     if sources:
         note_bits.append("evidence=" + ",".join(sources))
     if req.notes:
-        # Notes are operator-authored context, safe to include, but pass
-        # them through the same sanitizer that OCR/public results ride.
-        # Length-cap defensively so a runaway note can't bloat the row.
+        # Notes are operator-authored provenance context stored on the
+        # row for operator reference. They never reach Lori directly
+        # (only result_summary does). Trim + length-cap defensively so
+        # a runaway note can't bloat the row.
         note_bits.append("note=" + (req.notes or "").strip()[:800])
     cid = trip_repository.public_context_create(
         trip_id=info["trip_id"], result_summary=summary,
@@ -2118,17 +2145,23 @@ def _build_photo_lookup_query(link_id: str, trip_id: str) -> Optional[str]:
             except Exception:
                 pass
         # Day label (photo is anchored to a trip day → include the day
-        # label or date if available)
+        # label or date if available). Preflight review-follow-up
+        # (2026-07-11): repo function is trip_day_get, not day_get —
+        # the earlier `hasattr(trip_repository, "day_get")` guard was
+        # always False so day labels never reached the query.
         day_id = link_row.get("trip_day_id")
-        if day_id:
+        if day_id and hasattr(trip_repository, "trip_day_get"):
             try:
-                day = trip_repository.day_get(day_id) \
-                    if hasattr(trip_repository, "day_get") else None
+                day = trip_repository.trip_day_get(day_id)
                 if day:
-                    lbl = (day.get("label") or "").strip()
+                    # trip_days uses `title` for the display label,
+                    # `date` for the ISO date. Accept either shape.
+                    lbl = ((day.get("title") or day.get("label")
+                            or "").strip())
                     if lbl:
                         cues.append(lbl)
-                    d = (day.get("date") or "").strip()
+                    d = ((day.get("date") or day.get("day_date")
+                          or "").strip())
                     if len(d) >= 4 and d[:4].isdigit():
                         cues.append(d[:4])
             except Exception:

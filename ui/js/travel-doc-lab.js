@@ -1898,11 +1898,12 @@
         r.include_in_memoir ? "Remove from memoir" : "Include in memoir",
         function () { patch(r.id, { include_in_memoir: !r.include_in_memoir }); }));
     }
-    if (!isPublic) {
-      ctrls.appendChild(btn("tdl-btn tdl-btn-small",
-        r.rejected ? "Unreject" : "Reject / Hide",
-        function () { patch(r.id, { rejected: !r.rejected }); }));
-    }
+    // Preflight review-follow-up (2026-07-11): public-context rows
+    // also get Reject / Hide (migration 0032 added trip_public_context
+    // .rejected). Hide-don't-delete parity across both lanes.
+    ctrls.appendChild(btn("tdl-btn tdl-btn-small",
+      r.rejected ? "Unreject" : "Reject / Hide",
+      function () { patch(r.id, { rejected: !r.rejected }); }));
     row.appendChild(ctrls);
     return row;
   }

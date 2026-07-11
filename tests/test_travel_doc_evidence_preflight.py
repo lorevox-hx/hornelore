@@ -95,9 +95,11 @@ class _Req:
                     rejected=None,
                     # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight
                     # (2026-07-11) — DraftObservationCreate +
-                    # PlaceFromContextCreate payload defaults:
+                    # PlaceFromContextCreate + PublicContextPatch
+                    # payload defaults:
                     engine=None, model_name=None,
-                    notes=None, evidence_sources=None)
+                    notes=None, evidence_sources=None,
+                    source_url=None)
         base.update(kw)
         self.__dict__.update(base)
 
@@ -635,6 +637,340 @@ class UiWordingPreviewContractTest(unittest.TestCase):
         # Endpoint paths must match the router.
         self.assertIn("/draft-observation", self.js)
         self.assertIn("/place-from-context", self.js)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Preflight review-follow-up (2026-07-11) — six focused fixes
+# ══════════════════════════════════════════════════════════════════════
+
+# ── (F1) Modal photo-link scope validation ──────────────────────────
+class ModalPhotoLinkScopeValidationTest(_DbCase):
+    def _make_second_trip_with_own_link(self):
+        # A completely separate trip on the SAME narrator with its own
+        # photo, link, and OCR/observation/place-context evidence rows.
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "narrator_ready) VALUES ('ph2', ?, '/tmp/ph2.jpg', 'h2', 1)",
+            (self.person_id,))
+        con.commit()
+        con.close()
+        other_trip = trip_repository.trip_create(
+            self.person_id, "Italy 2026")
+        other_region = trip_repository.region_create(
+            other_trip, "Tuscany")
+        other_stop = trip_repository.stop_create(
+            other_trip, other_region, "Florence")
+        other_link = trip_repository.photo_link_upsert(
+            other_trip, "ph2", trip_region_id=other_region,
+            trip_stop_id=other_stop, assignment_method="operator")
+        # OCR + observation + place_context on the OTHER trip's link.
+        trip_repository.photo_context_create(
+            trip_id=other_trip, photo_link_id=other_link,
+            context_type="ocr_text",
+            result_summary="OTHER_TRIP_OCR_SECRET")
+        trip_repository.photo_context_create(
+            trip_id=other_trip, photo_link_id=other_link,
+            context_type="draft_observation",
+            result_summary="OTHER_TRIP_OBS_SECRET")
+        trip_repository.public_context_create(
+            trip_id=other_trip,
+            result_summary="OTHER_TRIP_PLACE_SECRET",
+            source_type="place_context",
+            trip_stop_id=other_stop, photo_link_id=other_link)
+        return other_trip, other_link
+
+    def test_cross_trip_photo_link_id_is_dropped_from_scope(self):
+        other_trip, other_link = self._make_second_trip_with_own_link()
+        # Ask for the OTHER trip's link while active_trip_id points at
+        # the CURRENT trip. Validation must drop it to None.
+        scope = modal.build_modal_scope(
+            self.person_id, self.trip_id,
+            active_trip_region_id=self.region_id,
+            active_trip_stop_id=self.stop_id,
+            active_photo_link_id=other_link,
+            selected_kind="photo")
+        self.assertIsNotNone(scope)
+        self.assertIsNone(scope.get("active_photo_link_id"))
+        self.assertIsNone(scope["photo_context"].get("photo_link_id"))
+
+    def test_cross_trip_link_leaks_zero_evidence_into_modal(self):
+        other_trip, other_link = self._make_second_trip_with_own_link()
+        scope = modal.build_modal_scope(
+            self.person_id, self.trip_id,
+            active_trip_region_id=self.region_id,
+            active_trip_stop_id=self.stop_id,
+            active_photo_link_id=other_link,
+            selected_kind="photo")
+        ans = modal.answer_modal_direct_question(
+            self.person_id, scope, "tell me about this photo")
+        # answer may be None or an evidence-less string, but MUST NOT
+        # contain the other trip's evidence.
+        text = ans or ""
+        self.assertNotIn("OTHER_TRIP_OCR_SECRET", text)
+        self.assertNotIn("OTHER_TRIP_OBS_SECRET", text)
+        self.assertNotIn("OTHER_TRIP_PLACE_SECRET", text)
+
+    def test_unknown_photo_link_id_is_dropped(self):
+        scope = modal.build_modal_scope(
+            self.person_id, self.trip_id,
+            active_photo_link_id="00000000-0000-0000-0000-000000000000",
+            selected_kind="photo")
+        self.assertIsNotNone(scope)
+        self.assertIsNone(scope.get("active_photo_link_id"))
+        self.assertIsNone(scope["photo_context"].get("photo_link_id"))
+
+
+# ── (F2) Photo-scoped place_context appears exactly ONCE ────────────
+class PlaceContextSingleRenderTest(_DbCase):
+    def test_photo_scoped_place_context_renders_once(self):
+        # Single place_context row scoped to the anchored photo.
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id,
+            result_summary="Munich Altstadt",
+            source_type="place_context",
+            trip_stop_id=self.stop_id, photo_link_id=self.link_id)
+        trip_repository.public_context_update(cid, approved_for_lori=True)
+        scope = modal.build_modal_scope(
+            self.person_id, self.trip_id,
+            active_trip_region_id=self.region_id,
+            active_trip_stop_id=self.stop_id,
+            active_photo_link_id=self.link_id, selected_kind="photo")
+        ans = modal.answer_modal_direct_question(
+            self.person_id, scope, "tell me about this photo")
+        self.assertIsNotNone(ans)
+        # "Munich Altstadt" should appear via the dedicated place lane
+        # ONLY, not also via the generic Travel Doc public tail.
+        self.assertEqual(ans.count("Munich Altstadt"), 1)
+        self.assertIn("The approved place context says:", ans)
+        self.assertNotIn("The approved Travel Doc context says: "
+                         "Munich Altstadt", ans)
+
+
+# ── (F3) Public-context approval ladder ─────────────────────────────
+class PublicContextApprovalLadderTest(_DbCase):
+    def _pub_row(self, summary="Bavarian old town", approved=False,
+                 include=False):
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id, result_summary=summary,
+            source_type="place_context",
+            trip_stop_id=self.stop_id, photo_link_id=self.link_id)
+        if approved:
+            trip_repository.public_context_update(
+                cid, approved_for_lori=True)
+        if include:
+            trip_repository.public_context_update(
+                cid, include_in_memoir=True)
+        return cid
+
+    def test_include_in_memoir_requires_approved(self):
+        cid = self._pub_row(approved=False)
+        with self.assertRaises(HTTPException) as cm:
+            trips.patch_public_context(cid, _Req(include_in_memoir=True))
+        self.assertEqual(cm.exception.status_code, 400)
+
+    def test_include_in_memoir_ok_when_approved_same_request(self):
+        cid = self._pub_row(approved=False)
+        out = trips.patch_public_context(
+            cid, _Req(approved_for_lori=True, include_in_memoir=True))
+        self.assertTrue(out["ok"])
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+
+    def test_edit_revokes_approval(self):
+        cid = self._pub_row(approved=True, include=True)
+        trips.patch_public_context(
+            cid, _Req(result_summary="edited text"))
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)
+
+    def test_edit_also_clears_include_in_memoir(self):
+        cid = self._pub_row(approved=True, include=True)
+        trips.patch_public_context(
+            cid, _Req(result_summary="edited text"))
+        row = trip_repository.public_context_get(cid)
+        # Approval revoked AND memoir inclusion cleared — the row must
+        # not remain in the memoir until re-reviewed + re-included.
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_with_reapprove_and_reinclude_stays_in_memoir(self):
+        cid = self._pub_row(approved=True, include=True)
+        out = trips.patch_public_context(
+            cid, _Req(result_summary="edited text",
+                      approved_for_lori=True,
+                      include_in_memoir=True))
+        self.assertTrue(out["ok"])
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+
+
+# ── (F4) Public-context rejected flag ───────────────────────────────
+class PublicContextRejectHideTest(_DbCase):
+    def _scope(self):
+        return modal.build_modal_scope(
+            self.person_id, self.trip_id,
+            active_trip_region_id=self.region_id,
+            active_trip_stop_id=self.stop_id,
+            active_photo_link_id=self.link_id, selected_kind="photo")
+
+    def test_rejected_column_exists_default_zero(self):
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id, result_summary="X",
+            source_type="place_context",
+            photo_link_id=self.link_id)
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["rejected"], 0)
+
+    def test_reject_hides_from_modal_place_context_lane(self):
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id,
+            result_summary="HIDE_ME_PLACE_STRING",
+            source_type="place_context",
+            trip_stop_id=self.stop_id, photo_link_id=self.link_id)
+        trip_repository.public_context_update(
+            cid, approved_for_lori=True)
+        trips.patch_public_context(cid, _Req(rejected=True))
+        ans = modal.answer_modal_direct_question(
+            self.person_id, self._scope(), "tell me about this photo")
+        text = ans or ""
+        self.assertNotIn("HIDE_ME_PLACE_STRING", text)
+
+    def test_reject_hides_from_generic_public_context_tail(self):
+        # A stop-scoped public row (falls into the generic tail path).
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id,
+            result_summary="HIDE_ME_STOP_STRING",
+            source_type="public_web_context",
+            trip_stop_id=self.stop_id)
+        trip_repository.public_context_update(
+            cid, approved_for_lori=True)
+        trips.patch_public_context(cid, _Req(rejected=True))
+        ans = modal.answer_modal_direct_question(
+            self.person_id, self._scope(), "tell me about this photo")
+        text = ans or ""
+        self.assertNotIn("HIDE_ME_STOP_STRING", text)
+
+    def test_reject_hides_from_travelogue_outline(self):
+        from api.services import travelogue_builder
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id,
+            result_summary="HIDE_ME_TRAVELOGUE_STRING",
+            source_type="public_web_context",
+            trip_stop_id=self.stop_id)
+        trip_repository.public_context_update(
+            cid, approved_for_lori=True, include_in_memoir=True)
+        # Now reject it — travelogue must skip it.
+        trips.patch_public_context(cid, _Req(rejected=True))
+        outline = travelogue_builder.build_travelogue_outline(self.trip_id)
+        # Serialize to string and search — outline shape varies but the
+        # string must be absent from the entire structure.
+        import json
+        self.assertNotIn(
+            "HIDE_ME_TRAVELOGUE_STRING", json.dumps(outline))
+
+    def test_ui_public_row_has_reject_control(self):
+        # Byte-level: the JS panel must offer Reject / Hide for BOTH
+        # photo-context and public-context rows (the earlier gate that
+        # only wired it for non-public rows is gone).
+        js = (_REPO_ROOT / "ui" / "js" / "travel-doc-lab.js").read_text(
+            encoding="utf-8")
+        self.assertIn("Reject / Hide", js)
+        self.assertNotIn("if (!isPublic) {", js)
+
+
+# ── (F5) Migration 0031 safety ──────────────────────────────────────
+class Migration0031SafetyTest(unittest.TestCase):
+    def setUp(self):
+        self.sql = (
+            _REPO_ROOT / "server" / "code" / "db" / "migrations"
+            / "0031_trip_photo_context_draft_observation.sql"
+        ).read_text(encoding="utf-8")
+
+    def test_drop_before_create(self):
+        drop_pos = self.sql.find(
+            "DROP TABLE IF EXISTS trip_photo_context__new")
+        create_pos = self.sql.find(
+            "CREATE TABLE IF NOT EXISTS trip_photo_context__new")
+        self.assertGreater(drop_pos, -1,
+                           "defensive DROP TABLE IF EXISTS missing")
+        self.assertGreater(create_pos, drop_pos,
+                           "DROP must come before CREATE")
+
+    def test_index_count_comment_matches_reality(self):
+        # 0030 defines 3 indexes; 0031 comment must not claim four.
+        self.assertNotIn("four indexes", self.sql.lower())
+        self.assertIn("three indexes", self.sql.lower())
+
+    def test_stale_rebuild_table_is_cleaned_before_apply(self):
+        # Simulate a partially-failed earlier run that left
+        # trip_photo_context__new behind — the migration must
+        # succeed and produce a clean table.
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".sqlite3", delete=False)
+        tmp.close()
+        db_path = Path(tmp.name)
+        try:
+            from api import db as _db
+            orig = _db.DB_PATH
+            _db.DB_PATH = db_path
+            _db.init_db()   # applies 0030 + 0031 clean
+            # Manually create a stale __new table to simulate the
+            # partial-failure state, then re-apply 0031 by executing
+            # the SQL script directly.
+            con = sqlite3.connect(str(db_path))
+            con.executescript(
+                "CREATE TABLE trip_photo_context__new "
+                "(id TEXT, junk TEXT);")
+            con.executescript(self.sql)
+            row = con.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='trip_photo_context'").fetchone()
+            self.assertIsNotNone(row)
+            self.assertIn("draft_observation", row["sql"] if hasattr(
+                row, "keys") else row[0])
+            # __new should be gone after the rename.
+            leftover = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='trip_photo_context__new'").fetchall()
+            self.assertEqual(leftover, [])
+            con.close()
+            _db.DB_PATH = orig
+        finally:
+            try:
+                db_path.unlink()
+            except OSError:
+                pass
+
+
+# ── (F6) Lookup query day label ─────────────────────────────────────
+class LookupQueryDayLabelTest(_DbCase):
+    def test_day_label_and_year_reach_query_when_present(self):
+        # Approved OCR gives the query a seed, then anchor the photo
+        # to a day; trip_day_get should be resolved (not day_get).
+        cid = trip_repository.photo_context_create(
+            trip_id=self.trip_id, photo_link_id=self.link_id,
+            context_type="ocr_text",
+            result_summary="Museum sign")
+        trip_repository.photo_context_update(cid, approved_for_lori=True)
+        # Insert a trip_day row + attach photo link to it.
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO trip_days (id, trip_id, day_index, date, "
+            "title, created_at, updated_at) VALUES "
+            "('day1', ?, 1, '2026-05-14', 'Munich museums walk', "
+            "'2026-07-11', '2026-07-11')", (self.trip_id,))
+        con.execute(
+            "UPDATE trip_photo_links SET trip_day_id='day1' WHERE id=?",
+            (self.link_id,))
+        con.commit()
+        con.close()
+        q = trips._build_photo_lookup_query(self.link_id, self.trip_id)
+        self.assertIsNotNone(q)
+        self.assertIn("Museum sign", q)
+        self.assertIn("Munich museums walk", q)   # day title
+        self.assertIn("2026", q)                   # date year
 
 
 if __name__ == "__main__":

@@ -1832,17 +1832,29 @@ def public_context_update(
     query: Optional[str] = None,
     approved_for_lori: Optional[bool] = None,
     include_in_memoir: Optional[bool] = None,
+    rejected: Optional[bool] = None,
 ) -> bool:
     """Partial update. Revoke-on-edit (mirrors photo_link_update caption
     semantics): editing result_summary REVOKES approved_for_lori unless
     the same request re-approves — approval always refers to the text
-    the operator actually reviewed."""
+    the operator actually reviewed.
+
+    Preflight review-follow-up (2026-07-11):
+      * Editing result_summary AND not re-approving also CLEARS
+        include_in_memoir (an edit-revoked row must not remain in the
+        memoir until re-reviewed + re-included).
+      * `rejected` (0/1) — public rows can now be hidden without
+        deletion (mirrors trip_photo_context.rejected)."""
     sets: List[str] = []
     args: List[Any] = []
     if result_summary is not None:
         sets.append("result_summary = ?"); args.append(result_summary)
         if approved_for_lori is None:
+            # Edit revokes approval AND drops include_in_memoir unless
+            # the same request explicitly re-approves + re-includes.
             sets.append("approved_for_lori = 0")
+            if include_in_memoir is None:
+                sets.append("include_in_memoir = 0")
     if notes is not None:
         sets.append("notes = ?"); args.append(notes)
     if source_url is not None:
@@ -1855,6 +1867,9 @@ def public_context_update(
     if include_in_memoir is not None:
         sets.append("include_in_memoir = ?")
         args.append(1 if include_in_memoir else 0)
+    if rejected is not None:
+        sets.append("rejected = ?")
+        args.append(1 if rejected else 0)
     if not sets:
         return False
     sets.append("updated_at = ?"); args.append(_now())

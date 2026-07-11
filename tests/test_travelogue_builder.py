@@ -89,6 +89,9 @@ class _Req:
         self.notes = None
         self.approved_for_lori = None
         self.include_in_memoir = None
+        # Preflight review-follow-up (2026-07-11) — PublicContextPatch
+        # gained a rejected flag (migration 0032).
+        self.rejected = None
         self.__dict__.update(kw)
 
 
