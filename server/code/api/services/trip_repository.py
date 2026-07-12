@@ -1869,39 +1869,69 @@ def public_context_update(
     include_in_memoir: Optional[bool] = None,
     rejected: Optional[bool] = None,
 ) -> bool:
-    """Partial update. Revoke-on-edit (mirrors photo_link_update caption
-    semantics): editing result_summary REVOKES approved_for_lori unless
-    the same request re-approves — approval always refers to the text
-    the operator actually reviewed.
+    """Partial update. Strict edit-and-approval contract, mirrored in
+    photo_context_update:
 
-    Preflight review-follow-up (2026-07-11):
-      * Editing result_summary AND not re-approving also CLEARS
-        include_in_memoir (an edit-revoked row must not remain in the
-        memoir until re-reviewed + re-included).
-      * `rejected` (0/1) — public rows can now be hidden without
-        deletion (mirrors trip_photo_context.rejected)."""
+    * Editing result_summary REVOKES approved_for_lori unless the same
+      request explicitly sets approved_for_lori.
+    * On any text edit, include_in_memoir MUST reset to 0 UNLESS the
+      same request explicitly re-approves AND explicitly re-includes.
+      A caller passing include_in_memoir=True with approved_for_lori=
+      False (or approved_for_lori omitted) does NOT keep the row in
+      the memoir. A caller passing approved_for_lori=True but omitting
+      include_in_memoir does NOT keep the row in the memoir either.
+    * `notes`, `source_url`, `query` are operator provenance fields;
+      they are NOT the reviewed text, so touching them does not
+      trigger the edit-and-approval contract.
+    * `rejected` (0/1) — hide-not-delete flag (added 2026-07-11).
+
+    2026-07-11 review-follow-up ROUND 3: tightened per Chris's edge-
+    case audit. Previously only the `approved_for_lori is None + edit`
+    branch cleared include; the shapes
+    `{result_summary: X, approved_for_lori: False}` and
+    `{result_summary: X, approved_for_lori: True}` (no include) still
+    left include_in_memoir=1. Locked here."""
     sets: List[str] = []
     args: List[Any] = []
+    edited_text = (result_summary is not None)
+
+    # ── approval semantics (see photo_context_update for the same shape)
+    if approved_for_lori is True:
+        effective_approved = True
+    elif approved_for_lori is False:
+        effective_approved = False
+    elif edited_text:
+        effective_approved = False   # implicit revoke on edit
+    else:
+        effective_approved = None    # unchanged
+
+    # ── memoir inclusion semantics ──────────────────────────────
+    # Strict rule: on any text edit, include stays 0 unless the SAME
+    # request explicitly re-approves AND explicitly re-includes.
+    if edited_text:
+        if approved_for_lori is True and include_in_memoir is True:
+            effective_include = True
+        else:
+            effective_include = False
+    elif include_in_memoir is not None:
+        effective_include = bool(include_in_memoir)
+    else:
+        effective_include = None     # unchanged
+
     if result_summary is not None:
         sets.append("result_summary = ?"); args.append(result_summary)
-        if approved_for_lori is None:
-            # Edit revokes approval AND drops include_in_memoir unless
-            # the same request explicitly re-approves + re-includes.
-            sets.append("approved_for_lori = 0")
-            if include_in_memoir is None:
-                sets.append("include_in_memoir = 0")
     if notes is not None:
         sets.append("notes = ?"); args.append(notes)
     if source_url is not None:
         sets.append("source_url = ?"); args.append(source_url)
     if query is not None:
         sets.append("query = ?"); args.append(query)
-    if approved_for_lori is not None:
+    if effective_approved is not None:
         sets.append("approved_for_lori = ?")
-        args.append(1 if approved_for_lori else 0)
-    if include_in_memoir is not None:
+        args.append(1 if effective_approved else 0)
+    if effective_include is not None:
         sets.append("include_in_memoir = ?")
-        args.append(1 if include_in_memoir else 0)
+        args.append(1 if effective_include else 0)
     if rejected is not None:
         sets.append("rejected = ?")
         args.append(1 if rejected else 0)
@@ -2051,35 +2081,67 @@ def photo_context_update(
     include_in_memoir: Optional[bool] = None,
     rejected: Optional[bool] = None,
 ) -> bool:
-    """Partial update. Revoke-on-edit: editing result_summary OR raw_text
-    REVOKES approved_for_lori unless the same request re-approves — the
-    approval always refers to the text the operator actually reviewed.
+    """Partial update. Strict edit-and-approval contract, mirrored in
+    public_context_update:
 
-    2026-07-11 repo-review HIGH fix — parity with public_context_update:
-    editing text ALSO clears include_in_memoir unless the same request
-    explicitly re-approves AND re-includes. An edit-revoked photo-
-    context row must not remain in the memoir until re-reviewed."""
+    * Editing result_summary OR raw_text REVOKES approved_for_lori
+      unless the same request explicitly sets approved_for_lori.
+    * On any text edit, include_in_memoir MUST reset to 0 UNLESS the
+      same request explicitly re-approves AND explicitly re-includes.
+      A caller passing include_in_memoir=True with approved_for_lori=
+      False (or approved_for_lori omitted) does NOT keep the row in
+      the memoir. A caller passing approved_for_lori=True but omitting
+      include_in_memoir does NOT keep the row in the memoir either.
+
+    2026-07-11 review-follow-up ROUND 3: tightened per Chris's edge-
+    case audit. The previous round only cleared include when
+    approved_for_lori was omitted; the odd shapes
+    `{result_summary: X, approved_for_lori: False}` and
+    `{result_summary: X, approved_for_lori: True}` (no include) both
+    still left include_in_memoir=1. Locked here."""
     sets: List[str] = []
     args: List[Any] = []
-    edited_text = False
+    edited_text = (result_summary is not None) or (raw_text is not None)
+
+    # ── approval semantics ──────────────────────────────────────
+    #   True   → explicit re-approval
+    #   False  → explicit revocation
+    #   None + edited_text  → implicit revocation on edit
+    #   None + no edit      → unchanged
+    if approved_for_lori is True:
+        effective_approved = True
+    elif approved_for_lori is False:
+        effective_approved = False
+    elif edited_text:
+        effective_approved = False   # implicit revoke on edit
+    else:
+        effective_approved = None    # unchanged
+
+    # ── memoir inclusion semantics ──────────────────────────────
+    # Strict rule: on any text edit, include stays 0 unless the SAME
+    # request explicitly re-approves AND explicitly re-includes.
+    # Off-edit paths honor the caller's explicit value or leave it
+    # unchanged.
+    if edited_text:
+        if approved_for_lori is True and include_in_memoir is True:
+            effective_include = True
+        else:
+            effective_include = False
+    elif include_in_memoir is not None:
+        effective_include = bool(include_in_memoir)
+    else:
+        effective_include = None     # unchanged
+
     if result_summary is not None:
         sets.append("result_summary = ?"); args.append(result_summary)
-        edited_text = True
     if raw_text is not None:
         sets.append("raw_text = ?"); args.append(raw_text)
-        edited_text = True
-    if edited_text and approved_for_lori is None:
-        # Edit revokes approval AND drops include_in_memoir unless the
-        # same request explicitly re-approves + re-includes.
-        sets.append("approved_for_lori = 0")
-        if include_in_memoir is None:
-            sets.append("include_in_memoir = 0")
-    if approved_for_lori is not None:
+    if effective_approved is not None:
         sets.append("approved_for_lori = ?")
-        args.append(1 if approved_for_lori else 0)
-    if include_in_memoir is not None:
+        args.append(1 if effective_approved else 0)
+    if effective_include is not None:
         sets.append("include_in_memoir = ?")
-        args.append(1 if include_in_memoir else 0)
+        args.append(1 if effective_include else 0)
     if rejected is not None:
         sets.append("rejected = ?")
         args.append(1 if rejected else 0)

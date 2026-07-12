@@ -1265,5 +1265,163 @@ class LvxSwitchNarratorSafeStateResetTest(unittest.TestCase):
         self.assertIn("stopEmotionEngine()", self.body)
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  Preflight review-follow-up ROUND 3 (2026-07-11) — edit + memoir
+#  strict-contract edge cases. Locks the round-2 tightening + closes
+#  the two additional shapes Chris flagged:
+#    a. {result_summary:X, approved_for_lori:False} — approval was
+#       explicitly revoked; include must clear.
+#    b. {result_summary:X, approved_for_lori:True}  — re-approved but
+#       NOT explicitly re-included; include must clear.
+#  Rule: on any text edit, include stays 0 unless the SAME request
+#  explicitly re-approves AND explicitly re-includes.
+# ══════════════════════════════════════════════════════════════════════
+
+class PhotoContextEditStrictContractTest(_DbCase):
+    def _make_row(self, approved=True, include=True):
+        cid = trip_repository.photo_context_create(
+            trip_id=self.trip_id, photo_link_id=self.link_id,
+            context_type="ocr_text",
+            result_summary="museum sign initial")
+        if approved:
+            trip_repository.photo_context_update(cid, approved_for_lori=True)
+        if include:
+            trip_repository.photo_context_update(cid, include_in_memoir=True)
+        return cid
+
+    def test_edit_plus_explicit_approve_false_clears_include(self):
+        # Round-3 edge case (a).
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(
+            cid,
+            result_summary="edited text",
+            approved_for_lori=False)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_plus_explicit_approve_true_without_reinclude_clears(self):
+        # Round-3 edge case (b) — the strict rule requires BOTH.
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(
+            cid,
+            result_summary="edited text",
+            approved_for_lori=True)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_plus_reinclude_without_reapprove_clears(self):
+        # Symmetry: include=True without approved=True on an edit must
+        # also clear (caller can't sneak the row into memoir).
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(
+            cid,
+            result_summary="edited text",
+            include_in_memoir=True)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)   # implicit revoke
+        self.assertEqual(row["include_in_memoir"], 0)   # overridden
+
+    def test_edit_plus_reapprove_plus_reinclude_stays_included(self):
+        # The only shape that keeps the row in the memoir on edit.
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(
+            cid,
+            result_summary="edited text",
+            approved_for_lori=True,
+            include_in_memoir=True)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+
+    def test_non_edit_include_toggle_still_works(self):
+        # An operator toggling include OFF without editing must work.
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(cid, include_in_memoir=False)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_non_edit_approve_toggle_leaves_include_unchanged(self):
+        # Toggling approve OFF alone should not touch include (existing
+        # value stays). Router-side gate handles the "include requires
+        # approved" contract on new incl_in_memoir=True; the repo layer
+        # only mutates what the caller passes for non-edit paths.
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(cid, approved_for_lori=False)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)
+        # No edit → include stays at its prior value.
+        self.assertEqual(row["include_in_memoir"], 1)
+
+
+class PublicContextEditStrictContractTest(_DbCase):
+    def _make_row(self, approved=True, include=True):
+        cid = trip_repository.public_context_create(
+            trip_id=self.trip_id, result_summary="Bavarian old town",
+            source_type="place_context",
+            trip_stop_id=self.stop_id, photo_link_id=self.link_id)
+        if approved:
+            trip_repository.public_context_update(
+                cid, approved_for_lori=True)
+        if include:
+            trip_repository.public_context_update(
+                cid, include_in_memoir=True)
+        return cid
+
+    def test_edit_plus_explicit_approve_false_clears_include(self):
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.public_context_update(
+            cid,
+            result_summary="edited town",
+            approved_for_lori=False)
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_plus_explicit_approve_true_without_reinclude_clears(self):
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.public_context_update(
+            cid,
+            result_summary="edited town",
+            approved_for_lori=True)
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_plus_reinclude_without_reapprove_clears(self):
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.public_context_update(
+            cid,
+            result_summary="edited town",
+            include_in_memoir=True)
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)   # implicit revoke
+        self.assertEqual(row["include_in_memoir"], 0)   # overridden
+
+    def test_edit_plus_reapprove_plus_reinclude_stays_included(self):
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.public_context_update(
+            cid,
+            result_summary="edited town",
+            approved_for_lori=True,
+            include_in_memoir=True)
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+
+    def test_notes_edit_does_not_trigger_edit_contract(self):
+        # Notes are operator provenance, not the reviewed text. Editing
+        # notes must NOT revoke approval or clear include (mirrors the
+        # photo_context contract where only result_summary + raw_text
+        # count as "the reviewed text").
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.public_context_update(cid, notes="operator note")
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
