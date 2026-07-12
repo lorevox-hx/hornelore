@@ -89,18 +89,23 @@ def _packet_from_link(l: Dict[str, Any]) -> Dict[str, Any]:
 
 def _photo_packet(trip_id: str, photo_link_id: Optional[str]) -> Dict[str, Any]:
     """Approved/draft context for the anchored photo. NEVER includes raw
-    GPS or upload/save/modified timestamps."""
+    GPS or upload/save/modified timestamps.
+
+    Preflight review-follow-up (2026-07-11): when a photo_link_id
+    is passed but does not resolve to a link in THIS trip, the
+    packet's ``photo_link_id`` is NULL — the earlier fallback
+    preserved a cross-trip / unknown id which then flowed straight
+    through _photo_context_rows_for_scope() as a raw
+    trip_photo_context lookup key. Cross-trip leak surface closed."""
     if not photo_link_id:
         return _packet_from_link({})
     for l in trip_repository.photo_links_list(trip_id):
         if l.get("id") == photo_link_id:
             return _packet_from_link(l)
-    # Link id not found in this trip — keep the requested id in the
-    # packet (legacy behavior) so callers don't misreport 'no photo
-    # anchored' for a merely-unresolvable link.
-    out = _packet_from_link({})
-    out["photo_link_id"] = photo_link_id
-    return out
+    # Link id not resolvable in this trip — fall back to the empty
+    # packet AND drop the requested id so downstream evidence lookups
+    # don't run against a foreign / unknown link.
+    return _packet_from_link({})
 
 
 def _public_context_for_scope(
@@ -109,7 +114,16 @@ def _public_context_for_scope(
     """(approved, draft) public-context summaries that apply to the
     modal's current scope: photo-scoped rows for the anchored photo,
     stop-scoped rows for the active stop, region-scoped rows for the
-    active region, and trip-wide rows (no narrower scope) always."""
+    active region, and trip-wide rows (no narrower scope) always.
+
+    Preflight review-follow-up (2026-07-11):
+      * Rejected rows are always skipped (parity with photo_context).
+      * Photo-scoped rows with source_type='place_context' are handled
+        by the dedicated place_from_context lane in
+        _photo_context_rows_for_scope() — exclude them here so a
+        place-context row can never appear TWICE in one modal answer
+        (once as "The approved place context says…" and again as
+        "The approved Travel Doc context says…")."""
     trip_id = scope.get("active_trip_id")
     if not trip_id:
         return [], []
@@ -123,9 +137,17 @@ def _public_context_for_scope(
     approved: List[str] = []
     draft: List[str] = []
     for r in rows:
+        # Skip rejected rows (preflight: trip_public_context.rejected).
+        if r.get("rejected"):
+            continue
         r_link = r.get("photo_link_id")
         r_stop = r.get("trip_stop_id")
         r_region = r.get("trip_region_id")
+        # Photo-scoped place_context is owned by the dedicated
+        # place_from_context lane; do not duplicate it here.
+        if (r_link and r_link == link_id
+                and r.get("source_type") == "place_context"):
+            continue
         if r_link:
             match = bool(link_id) and r_link == link_id
         elif r_stop:
@@ -196,6 +218,19 @@ def build_modal_scope(
             _day = None
         if _day and _day.get("trip_id") == active_trip_id:
             day_id = active_trip_day_id
+    # Preflight review-follow-up (2026-07-11): validate the photo link
+    # belongs to THIS trip. A cross-trip / unknown id must be dropped
+    # so downstream evidence lookups don't run against a foreign link
+    # (which would leak another trip's OCR / observation / place
+    # context into the modal answer).
+    link_id: Optional[str] = None
+    if active_photo_link_id:
+        try:
+            _link = trip_repository.photo_link_get(active_photo_link_id)
+        except Exception:
+            _link = None
+        if _link and _link.get("trip_id") == active_trip_id:
+            link_id = active_photo_link_id
     return {
         "source_surface": SOURCE_SURFACE,
         "person_id": person_id,
@@ -203,22 +238,35 @@ def build_modal_scope(
         "active_trip_id": active_trip_id,
         "active_trip_region_id": active_trip_region_id,
         "active_trip_stop_id": active_trip_stop_id,
-        "active_photo_link_id": active_photo_link_id,
+        "active_photo_link_id": link_id,
         "active_trip_day_id": day_id,
         "selected_kind": selected_kind,
         "selected_label": label,
-        "photo_context": _photo_packet(active_trip_id, active_photo_link_id),
+        "photo_context": _photo_packet(active_trip_id, link_id),
     }
 
 
 def _photo_context_rows_for_scope(
     scope: Dict[str, Any],
 ) -> Dict[str, List[str]]:
-    """OCR / vision evidence for the anchored photo, split approved vs
-    draft. Rejected rows are skipped. WO-TRAVEL-DOC-EVIDENCE-TOOLS-01."""
+    """OCR / vision / draft-observation evidence for the anchored photo,
+    split approved vs draft. Rejected rows are skipped. Place evidence
+    from trip_public_context.source_type='place_context' is folded in
+    under approved_place / draft_place buckets. Preflight 2026-07-11:
+    added draft_observation + place_from_context lanes."""
     out: Dict[str, List[str]] = {
         "approved_ocr": [], "draft_ocr": [],
         "approved_vision": [], "draft_vision": [],
+        # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
+        # local-LLM draft observation lane, separate from vision so the
+        # modal can use the locked "photo observation" wording (Chris
+        # spec) rather than the older "image context" wording.
+        "approved_observation": [], "draft_observation": [],
+        # place_from_context evidence — sourced from
+        # trip_public_context.source_type='place_context' (which was
+        # already an allowed value in migration 0026). Split like the
+        # rest: approved rows speak as fact, drafts as suggestion.
+        "approved_place_context": [], "draft_place_context": [],
     }
     link_id = (scope or {}).get("active_photo_link_id")
     if not link_id:
@@ -239,6 +287,35 @@ def _photo_context_rows_for_scope(
             out["approved_ocr" if approved else "draft_ocr"].append(summ)
         elif ct == "vision_description":
             out["approved_vision" if approved else "draft_vision"].append(summ)
+        elif ct == "draft_observation":
+            key = "approved_observation" if approved else "draft_observation"
+            out[key].append(summ)
+
+    # place_from_context evidence lives in trip_public_context. Pull the
+    # subset filtered to this photo link (repository already ships a
+    # photo-scoped list; we filter to source_type='place_context'). If
+    # the accessor is missing (older repo pin), fail soft.
+    try:
+        place_rows = trip_repository.public_context_list_for_link(link_id) \
+            if hasattr(trip_repository, "public_context_list_for_link") \
+            else []
+    except Exception:
+        place_rows = []
+    for pr in place_rows or []:
+        pr = pr or {}
+        if pr.get("source_type") != "place_context":
+            continue
+        # Preflight review-follow-up (2026-07-11): skip rejected rows
+        # (trip_public_context.rejected added by migration 0032).
+        if pr.get("rejected"):
+            continue
+        summ = sanitize_for_prompt(pr.get("result_summary"))
+        if not summ:
+            continue
+        approved = bool(pr.get("approved_for_lori"))
+        key = ("approved_place_context" if approved
+               else "draft_place_context")
+        out[key].append(summ)
     return out
 
 
@@ -290,6 +367,18 @@ def answer_modal_direct_question(
         for t in pc["approved_vision"]:
             approved_sentences.append(
                 "The approved image-context note says: " + t.rstrip("."))
+        # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
+        # locked wording — "The approved photo observation says…" for
+        # local-LLM-drafted observations that the operator has
+        # promoted; "The approved place context says…" for
+        # place_from_context evidence promoted from
+        # trip_public_context. Approved rows always speak as fact.
+        for t in pc["approved_observation"]:
+            approved_sentences.append(
+                "The approved photo observation says: " + t.rstrip("."))
+        for t in pc["approved_place_context"]:
+            approved_sentences.append(
+                "The approved place context says: " + t.rstrip("."))
         if approved_sentences:
             body = " ".join(
                 s if s.endswith((".", "!", "?")) else s + "."
@@ -313,6 +402,17 @@ def answer_modal_direct_question(
         for t in pc["draft_vision"]:
             draft_bits.append("the draft image context suggests "
                               + t.rstrip("."))
+        # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
+        # locked wording — "The draft photo observation suggests…" for
+        # local-LLM-drafted observations that haven't been approved
+        # yet; "The place context suggests…" for place_from_context
+        # drafts. Draft rows always stay suggestive (never fact).
+        for t in pc["draft_observation"]:
+            draft_bits.append("the draft photo observation suggests "
+                              + t.rstrip("."))
+        for t in pc["draft_place_context"]:
+            draft_bits.append("the place context suggests "
+                              + t.rstrip("."))
         if pkt.get("draft_context"):
             draft_bits.append("the draft photo context suggests "
                               + pkt["draft_context"].rstrip("."))
@@ -323,10 +423,20 @@ def answer_modal_direct_question(
             draft_bits.append("the location note appears to point to "
                               + pkt["draft_place"].rstrip("."))
         missing: List[str] = []
-        if pkt.get("gps_present") and not (pkt.get("draft_place")
-                                           or pkt.get("approved_place")):
-            missing.append("GPS coordinates are recorded, but place "
-                           "extraction hasn't run yet")
+        # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
+        # never expose raw GPS OR the word "coordinates" / "GPS" to
+        # the modal answer. Keep an observability hint that a place
+        # inference lane hasn't run — but phrased against the
+        # place_from_context lane, not against the raw location fix.
+        # Suppress once ANY place lane has produced evidence (photo
+        # link's draft_place / approved_place from location_label OR
+        # a place_from_context row on either approval side).
+        has_any_place = bool(
+            pkt.get("draft_place") or pkt.get("approved_place")
+            or pc["draft_place_context"] or pc["approved_place_context"])
+        if pkt.get("gps_present") and not has_any_place:
+            missing.append("a place inference from context hasn't run "
+                           "for this photo yet")
         if not (pkt.get("draft_context") or pc["draft_ocr"]
                 or pc["approved_ocr"] or pc["draft_vision"]
                 or pc["approved_vision"]):

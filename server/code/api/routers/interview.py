@@ -284,16 +284,23 @@ def answer_interview(req: AnswerInterviewRequest) -> AnswerInterviewResponse:
             safety_confidence = safety_result.confidence
             safety_resources = get_resources_for_category(safety_result.category)
 
-            # Persist segment flag (private + excluded from memoir by default)
-            flags = build_segment_flags(safety_result)
+            # Persist segment flag (private + excluded from memoir by default).
+            # 2026-07-11 repo-review HIGH fix — this local was named `flags`,
+            # which shadowed the module-level `flags` import (see line 10:
+            # `from .. import db, flags`). Python marks the name local for
+            # the WHOLE function body, so line 339's
+            # `flags.phase_aware_questions_enabled()` UnboundLocalError'd
+            # when this branch was skipped, and AttributeError'd when it
+            # fired. Renamed to `seg_flags`.
+            seg_flags = build_segment_flags(safety_result)
             db.save_segment_flag(
                 session_id=req.session_id,
                 question_id=req.question_id,
                 section_id=current_q.get("section_id") if current_q else None,
-                sensitive=flags.sensitive,
-                sensitive_category=flags.sensitive_category or "",
-                excluded_from_memoir=flags.excluded_from_memoir,
-                private=flags.private,
+                sensitive=seg_flags.sensitive,
+                sensitive_category=seg_flags.sensitive_category or "",
+                excluded_from_memoir=seg_flags.excluded_from_memoir,
+                private=seg_flags.private,
             )
 
             # Set softened interview mode

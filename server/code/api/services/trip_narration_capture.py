@@ -412,19 +412,50 @@ def apply_trip_narration(
         return summary
 
 
+def _merge_meta_json(prior_raw: Any, patch: Dict[str, Any]) -> str:
+    """Read-modify-write helper for trip_stops.meta_json / trip_regions.
+    meta_json. Preserves all pre-existing keys and merges narration
+    provenance on top. Tolerates NULL, empty string, or non-dict prior
+    values (falls back to a fresh dict)."""
+    import json as _json
+    prior: Dict[str, Any] = {}
+    if isinstance(prior_raw, str) and prior_raw.strip():
+        try:
+            parsed = _json.loads(prior_raw)
+            if isinstance(parsed, dict):
+                prior = parsed
+        except Exception:
+            prior = {}
+    elif isinstance(prior_raw, dict):
+        prior = dict(prior_raw)
+    prior.update(patch or {})
+    return _json.dumps(prior)
+
+
 def _stamp_stop_meta(stop_id: str) -> None:
-    """Write narration provenance into trip_stops.meta_json (direct,
-    minimal UPDATE — repository has no stop-meta helper yet)."""
+    """Write narration provenance into trip_stops.meta_json.
+
+    2026-07-11 repo-review HIGH fix — was a wholesale
+    `UPDATE trip_stops SET meta_json = ?` that obliterated any
+    pre-existing meta_json keys. Now read-modify-write inside
+    BEGIN IMMEDIATE so a concurrent writer's keys (or a future
+    co-writer's keys — same class as the 2026-07-05 trip_meta_merge
+    fix) can't be silently wiped."""
     try:
-        import json
         import sqlite3
         from .. import db as _db
         con = sqlite3.connect(str(_db.DB_PATH))
         try:
             con.execute("PRAGMA busy_timeout = 5000;")
+            con.execute("BEGIN IMMEDIATE;")
+            row = con.execute(
+                "SELECT meta_json FROM trip_stops WHERE id = ?",
+                (stop_id,)).fetchone()
+            prior_raw = row[0] if row else None
+            merged = _merge_meta_json(prior_raw, _NARRATION_META)
             con.execute(
                 "UPDATE trip_stops SET meta_json = ? WHERE id = ?",
-                (json.dumps(_NARRATION_META), stop_id))
+                (merged, stop_id))
             con.commit()
         finally:
             con.close()
@@ -433,16 +464,22 @@ def _stamp_stop_meta(stop_id: str) -> None:
 
 
 def _stamp_region_meta(region_id: str) -> None:
+    """Same read-modify-write pattern for trip_regions.meta_json."""
     try:
-        import json
         import sqlite3
         from .. import db as _db
         con = sqlite3.connect(str(_db.DB_PATH))
         try:
             con.execute("PRAGMA busy_timeout = 5000;")
+            con.execute("BEGIN IMMEDIATE;")
+            row = con.execute(
+                "SELECT meta_json FROM trip_regions WHERE id = ?",
+                (region_id,)).fetchone()
+            prior_raw = row[0] if row else None
+            merged = _merge_meta_json(prior_raw, _NARRATION_META)
             con.execute(
                 "UPDATE trip_regions SET meta_json = ? WHERE id = ?",
-                (json.dumps(_NARRATION_META), region_id))
+                (merged, region_id))
             con.commit()
         finally:
             con.close()

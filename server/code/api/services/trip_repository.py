@@ -317,6 +317,20 @@ def stop_get(stop_id: str) -> Optional[Dict[str, Any]]:
         con.close()
 
 
+def region_get(region_id: str) -> Optional[Dict[str, Any]]:
+    """Single region row. Added 2026-07-11 for the preflight lookup-
+    query builder (needs region title to add safe structural context to
+    a public query). Mirrors stop_get."""
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_regions WHERE id = ?", (region_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        con.close()
+
+
 def region_trip_id(region_id: str) -> Optional[str]:
     con = _connect()
     try:
@@ -1277,6 +1291,27 @@ _PHOTO_REVIEW_COLS = (
     "(p.latitude IS NOT NULL) AS photo_gps_present"
 )
 
+# 2026-07-11 repo-review HIGH fix — trip_photo_links columns EXCLUDING
+# raw latitude / longitude. Prior to this, photo_links_list used
+# `SELECT l.*` which projected raw GPS coordinates all the way to
+# GET /api/trips/{trip_id}/photo-links. CLAUDE.md doctrine
+# ("raw lat/lon deliberately not projected; link_gps_present BOOLEAN
+# only" — Ph1 metadata_trust decision, 2026-07-05) said this must
+# never happen. Explicit column list closes the leak. A boolean
+# `link_gps_present` is added so operators can still see "this photo
+# link has GPS" without the actual values leaving the DB.
+_PHOTO_LINK_SAFE_COLS = (
+    "l.id, l.trip_id, l.trip_region_id, l.trip_stop_id, l.photo_id, "
+    "l.ord, l.taken_at, "
+    "l.assignment_method, l.cluster_confidence, "
+    "l.caption, l.narrator_caption, l.include_in_memoir, "
+    "l.thematic_tags_json, l.created_at, l.updated_at, "
+    "l.caption_approved_for_lori, l.operator_context_note, "
+    "l.operator_context_approved_for_lori, l.trip_day_id, "
+    "(l.latitude IS NOT NULL AND l.longitude IS NOT NULL) "
+    "AS link_gps_present"
+)
+
 
 def photo_links_list(
     trip_id: str,
@@ -1284,8 +1319,8 @@ def photo_links_list(
 ) -> List[Dict[str, Any]]:
     con = _connect()
     try:
-        def _run(cols):
-            base = ("SELECT l.*" + cols +
+        def _run(cols, safe_link_cols=_PHOTO_LINK_SAFE_COLS):
+            base = ("SELECT " + safe_link_cols + cols +
                     " FROM trip_photo_links l "
                     "LEFT JOIN photos p ON p.id = l.photo_id "
                     "WHERE l.trip_id = ? ")
@@ -1306,10 +1341,24 @@ def photo_links_list(
         except sqlite3.OperationalError:
             # WO-TRIP-LANE-AUDIT-FIXPACK-02 (M4): DB behind on the 0016/
             # 0023 review columns (date_precision, metadata_trust, the
-            # *_approved_for_lori flags). Degrade to the base link row
+            # *_approved_for_lori flags). Degrade to the safe link cols
             # instead of 500ing — the operator loses the review
-            # annotations for this read, not the whole list.
-            rows = _run("")
+            # annotations for this read, not the whole list. A second
+            # fallback drops the newest link-side columns (0022/0028)
+            # for very old DBs.
+            try:
+                rows = _run("")
+            except sqlite3.OperationalError:
+                _LEGACY_LINK_COLS = (
+                    "l.id, l.trip_id, l.trip_region_id, l.trip_stop_id, "
+                    "l.photo_id, l.ord, l.taken_at, l.assignment_method, "
+                    "l.cluster_confidence, l.caption, l.narrator_caption, "
+                    "l.include_in_memoir, l.thematic_tags_json, "
+                    "l.created_at, l.updated_at, "
+                    "(l.latitude IS NOT NULL AND l.longitude IS NOT NULL) "
+                    "AS link_gps_present"
+                )
+                rows = _run("", safe_link_cols=_LEGACY_LINK_COLS)
         return [_row_to_dict(r) for r in rows]
     finally:
         con.close()
@@ -1773,6 +1822,30 @@ def public_context_list(trip_id: str) -> List[Dict[str, Any]]:
         con.close()
 
 
+def public_context_list_for_link(
+    photo_link_id: str,
+) -> List[Dict[str, Any]]:
+    """Public-context rows attached to a specific photo link. Used by
+    the modal to surface place_from_context and other photo-scoped
+    public context alongside the OCR/vision/observation lanes.
+
+    WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11). Tolerant
+    of a pre-0026 DB (table missing) — returns []."""
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM trip_public_context "
+            "WHERE photo_link_id = ? "
+            "ORDER BY created_at, id",
+            (photo_link_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
 def public_context_get(context_id: str) -> Optional[Dict[str, Any]]:
     con = _connect()
     try:
@@ -1794,17 +1867,29 @@ def public_context_update(
     query: Optional[str] = None,
     approved_for_lori: Optional[bool] = None,
     include_in_memoir: Optional[bool] = None,
+    rejected: Optional[bool] = None,
 ) -> bool:
     """Partial update. Revoke-on-edit (mirrors photo_link_update caption
     semantics): editing result_summary REVOKES approved_for_lori unless
     the same request re-approves — approval always refers to the text
-    the operator actually reviewed."""
+    the operator actually reviewed.
+
+    Preflight review-follow-up (2026-07-11):
+      * Editing result_summary AND not re-approving also CLEARS
+        include_in_memoir (an edit-revoked row must not remain in the
+        memoir until re-reviewed + re-included).
+      * `rejected` (0/1) — public rows can now be hidden without
+        deletion (mirrors trip_photo_context.rejected)."""
     sets: List[str] = []
     args: List[Any] = []
     if result_summary is not None:
         sets.append("result_summary = ?"); args.append(result_summary)
         if approved_for_lori is None:
+            # Edit revokes approval AND drops include_in_memoir unless
+            # the same request explicitly re-approves + re-includes.
             sets.append("approved_for_lori = 0")
+            if include_in_memoir is None:
+                sets.append("include_in_memoir = 0")
     if notes is not None:
         sets.append("notes = ?"); args.append(notes)
     if source_url is not None:
@@ -1817,6 +1902,9 @@ def public_context_update(
     if include_in_memoir is not None:
         sets.append("include_in_memoir = ?")
         args.append(1 if include_in_memoir else 0)
+    if rejected is not None:
+        sets.append("rejected = ?")
+        args.append(1 if rejected else 0)
     if not sets:
         return False
     sets.append("updated_at = ?"); args.append(_now())
@@ -1874,6 +1962,12 @@ def public_context_trip_id(context_id: str) -> Optional[str]:
 _PHOTO_CONTEXT_TYPES = (
     "ocr_text", "vision_description", "filename_context",
     "operator_photo_context",
+    # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11) — local-LLM
+    # drafted image observation. Approval ladder identical to OCR /
+    # vision (confidence='draft' default; approved_for_lori=0;
+    # include_in_memoir=0; rejected=0). Migration 0031 rebuilds the
+    # CHECK constraint on trip_photo_context to accept this value.
+    "draft_observation",
 )
 
 
@@ -1959,7 +2053,12 @@ def photo_context_update(
 ) -> bool:
     """Partial update. Revoke-on-edit: editing result_summary OR raw_text
     REVOKES approved_for_lori unless the same request re-approves — the
-    approval always refers to the text the operator actually reviewed."""
+    approval always refers to the text the operator actually reviewed.
+
+    2026-07-11 repo-review HIGH fix — parity with public_context_update:
+    editing text ALSO clears include_in_memoir unless the same request
+    explicitly re-approves AND re-includes. An edit-revoked photo-
+    context row must not remain in the memoir until re-reviewed."""
     sets: List[str] = []
     args: List[Any] = []
     edited_text = False
@@ -1970,7 +2069,11 @@ def photo_context_update(
         sets.append("raw_text = ?"); args.append(raw_text)
         edited_text = True
     if edited_text and approved_for_lori is None:
+        # Edit revokes approval AND drops include_in_memoir unless the
+        # same request explicitly re-approves + re-includes.
         sets.append("approved_for_lori = 0")
+        if include_in_memoir is None:
+            sets.append("include_in_memoir = 0")
     if approved_for_lori is not None:
         sets.append("approved_for_lori = ?")
         args.append(1 if approved_for_lori else 0)

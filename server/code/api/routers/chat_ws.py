@@ -154,6 +154,12 @@ from ..safety import (
     build_segment_flags,
     get_resources_for_category,
     set_softened,
+    SafetyResult,  # 2026-07-11 repo-review HIGH fix — synthesized at
+                   # L1784 when the LLM classifier catches indirect
+                   # ideation the pattern layer missed. Missing this
+                   # import silently no-oped SAFETY-INTEGRATION-01
+                   # Phase 2 on every trigger via the wrapping
+                   # `except Exception` at L1968.
 )
 
 router = APIRouter(prefix="/api/chat", tags=["chat-ws"])
@@ -3695,7 +3701,13 @@ async def ws_chat(ws: WebSocket):
             _final_tokens = set((final_text or "").lower().split())
             _prior_assistant = None
             try:
-                _all_turns = db.export_turns(conv_id) or []
+                # 2026-07-11 repo-review HIGH fix — `db.export_turns` was
+                # a NameError (only `export_turns` was imported at L129;
+                # the `db` module name was never bound). The wrapping
+                # try/except swallowed it, so `_prior_turns` was always
+                # [] and the bit-identical duplicate-reply substitution
+                # never actually fired.
+                _all_turns = export_turns(conv_id) or []
                 _prior_turns = _all_turns[-6:]
             except Exception:
                 _prior_turns = []

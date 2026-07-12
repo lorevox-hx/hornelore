@@ -265,6 +265,11 @@ def build_travelogue_outline(trip_id: str) -> Optional[Dict[str, Any]]:
     pub_by_region: Dict[str, List[Dict[str, Any]]] = {}
     pub_trip: List[Dict[str, Any]] = []
     for r in pub_rows:
+        # Preflight review-follow-up (2026-07-11): rejected public rows
+        # never enter the travelogue (hide-not-delete parity with
+        # trip_photo_context).
+        if r.get("rejected"):
+            continue
         if r.get("photo_link_id"):
             pub_by_photo_link.setdefault(
                 r["photo_link_id"], []).append(r)
