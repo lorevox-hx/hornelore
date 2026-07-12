@@ -41,43 +41,36 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 ---
 
-## Status as of 2026-07-01
+## Status as of 2026-07-11
 
-**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md).** It carries the environment posture, git workflow, principles, and full changelog. Read it first before any code work.
+**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md).** It carries the environment posture, git workflow, principles, and the full changelog (currently ~247 KB — every day's landings are appended). Read it first before any code work.
 
-**Current-work snapshot lives in [`HANDOFF_2026-07-01.md`](HANDOFF_2026-07-01.md).** It carries the state at handoff between Claude sessions — recent commits, latest harness results, active queue, immediate next task, known operational gotchas.
+**Current-work snapshot lives in [`HANDOFF_2026-07-01.md`](HANDOFF_2026-07-01.md).** Older but still useful for the recent conversation-layer lane. The travel lane has moved well beyond it.
 
-**Headline: the conversation-layer runtime is behaving.** Harness A (factual-chain regression) at 55/55 GREEN. Harness B (Spring 2026 trip canary) at 54/55 GREEN. Harness 2019 France/Italy (second trip canary) at RED 62/72 but the hard clamp is a **false positive** — `_looks_spanish()` overfires on the `é` in French place names (Trocadéro, Sacré-Cœur, etc.). See [`HANDOFF_2026-07-01.md`](HANDOFF_2026-07-01.md) §"Immediate first task" for the proposed two-tier detector fix.
+**Headline: the trip lane went from operator-console-only to a full narrator surface** in a two-week burst (2026-07-05 → 2026-07-11). The Travel Doc Lori Modal is live, EXIF/OCR/vision/place-context evidence tools land under an approval ladder, and the modal + narrator surfaces are held apart by explicit person_id / trip_id / photo_link_id scope checks. The **preflight review-follow-up on 2026-07-11 closed six focused correctness holes** before live restart: cross-trip photo-link leak in the modal, duplicate place-context wording, public-context approval-ladder gap, missing rejected-flag on public rows, migration 0031 rebuild hardening, and a wrong-function bug on the safe lookup-query day label. 334/334 trip-lane tests green.
 
-**Landed since 2026-05-01 (compressed summary):**
+**Landed since 2026-07-01 (compressed summary):**
 
-- Factual-chain capture WO landed end-to-end: classifier + composer directive + meta-feedback guard + Phase 4 `chain_meta_json` persistence via new `chain_detection` trigger path (typed/Web-Speech narrator turns now produce `story_candidates` rows too).
-- English-first narration architecture: replaced automatic LANGUAGE MIRRORING RULE with LANGUAGE MODE RULE (defers to `session_language_mode` pin; asks once on sustained foreign-language turn; foreign place names / food / signs stay story content). VOICE PRESERVATION RULE added (Lori echoes narrator's foreign words verbatim + optional parenthetical + optional offer-to-explain). ENGLISH_FIRST_RULE prompt directive with 4 fewshot exemplars (placeholder-based to prevent verbatim leak).
-- Post-LLM safety net: `apply_response_guards` chain-aware English fallback replaces the destructive "Sorry — let's continue" boilerplate. Drift guard active on every surface.
-- Response stub-collapse repair: `enforce_lori_communication_control` Step 6 now detects AND substitutes anchor-aware English continuation. Class "Aligre." / "Roman." / "Eiffel Tower." / "AI." no longer reaches narrator.
-- Two trip-shaped canaries: Spring 2026 Central Europe and 2019 France/Italy. Both drive full narrator sessions against live chat WS + score against F1-F6 + G1-G4 + M1-M2 rows with hard clamps for G2 drift dominance / G3 English-first / G4 stub-collapse / F4 sensory pivot on meta turns.
-- Trip Tab feature stays PARKED. Two prerequisite WOs still UNWRITTEN: `WO-TRIP-IMPORT-AND-CLUSTER-01` and `WO-TRIP-TAB-DB-01`. UI mockup banked at `docs/mockups/trip_tab_ui_mockup.html`.
+- **WO-TRIP-IMPORT-AND-CLUSTER-01 Phases 1–4** — migrations 0015 (8 trip tables), `trip_repository.py` (~2600 lines), `trip_import.py` fixture JSON + CSV, `trip_photo_clustering.py` (spacetime 0.6/0.4 weighted with confidence caps + review queue), `trip_memoir_docx.py` deterministic Part I/II/III + photo appendix, `routers/trips.py` under `HORNELORE_TRIPS=1`, operator Trip Tab UI.
+- **WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01** — tile board with move up/down / insert / edit / delete; tile order IS the route authority; region-editor + parent-stop dropdown; life-record parity on region-patch.
+- **WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01** — mountable `window.lvTravelDocumenterMount(host, {person_id, ...})` shell tab; renders own template; native mode auto-loads narrator trips; standalone page kept as thin wrapper.
+- **WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01 Phases 1–5** — amber Travels shelf on Life Map (never in `LV_ERAS`); deterministic `trip_narration_capture.py` parser under `HORNELORE_TRIP_NARRATION=0/log/1`; scope claims + close-clears; EXIF date confirmation (recognition-over-recall); guided_trip_walk operator style.
+- **WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph1 + Ph5** — migration 0022 (`caption_approved_for_lori` / `operator_context_note` / `operator_context_approved_for_lori`); migration 0023 photo metadata trust (`date_source` enum + filename-guess + date/location approval flags); revoke-on-edit enforced repository-side; narrator-caption line + Caption/Note/Date/Place → Lori toggles.
+- **WO-TRAVEL-DOC-LORI-MODAL-01 / 02** — separate `travel_doc_modal` surface, scope header + photo anchor chip + Capture Intake Sandbox drawer; own WebSocket to `/api/chat/ws`; deterministic direct-question answers (approved date / approved context / draft-suggests / honest unknown); Mark Twain acceptance gate 6/6 GREEN.
+- **WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 + preflight (this week)** — migration 0030 `trip_photo_context` + 0031 `draft_observation` type + 0032 `trip_public_context.rejected`. Local-first OCR (Tesseract eng+deu), local vision (command adapter), public lookup with SSRF-blocked URL fetcher + sanitizer, operator-approval ladder (draft → approved_for_lori → include_in_memoir), Travel Doc Lab evidence panel with wording preview.
+- **Kokoro TTS engine swap (2026-05-08)** — Coqui RETIRED; pluggable `server/code/api/tts/{base,coqui,kokoro,dispatcher}.py`; `LORI_TTS_ENGINE=kokoro` default; `af_heart` (en) + `ef_dora` (es) voices locked; HF cache pinning required.
+- **Multilingual Phase 5 + rich_short_narrative story trigger** — two-tier `_looks_spanish` (ñ/¿/¡ definitive + accent needs ≥1 strong word); Spanish deterministic composer branches for `compose_memory_echo`; parser overcapture fix (`no, nací en Lima, no en Cuzco` no longer captures the retraction into the value); `rich_short_narrative` triggers on `PLACE + (PERSON or TIME) AND words ≥ 15 AND duration ≥ 10s` (catches compact narrator turns the full-threshold missed).
+- **Interim narrator surface hardening** — real Melanie Zollner session (2026-05-07) surfaced 11 bugs across identity persistence, STT phantom nouns, response mid-sentence cut, double-send drop, camera/mic consent per-narrator; all 11 fixed end-to-end.
 
-**Active queue (top of stack):**
+**Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG remains default-OFF; BINDING-01 lands in-tree behind PATCH 1-4 default-off.
 
-1. `_looks_spanish` French-accent false positive — 2019 harness G3 clamp fires on Trocadéro's `é`. Proposed two-tier detector (unambiguously-Spanish chars vs neutral Latin accents + Spanish function words). Immediate next task per handoff doc.
-2. F4 "atmosphere" sensory-pivot regression on 2019 T3+T6 — Lori pivots to "evening atmosphere on Champ de Mars" on factual museum chain. Composer directive strengthening.
-3. `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01` — add `thematic_trip_chain` cue to `factual_chain_capture.py` (spec written). Spring 2026 T6 + 2019 T8 misclassified; Lori's response is correct.
-4. `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` — composer directive for chain turns to force ≥2 anchor echoes (spec written).
-5. `WO-TRIP-IMPORT-AND-CLUSTER-01` — spec unwritten. CSV import + EXIF photo clustering + operator review queue.
-6. `WO-TRIP-TAB-DB-01` — spec unwritten. Trip Tab UI build.
+**Immediate open items:**
 
-**Closed since 2026-05-01 (evidence in commit history):**
+1. **Three HIGH server bugs surfaced by the 2026-07-11 code review** — see the "Known bugs" section below for exact file:line.
+2. **Live Travel Doc Lab test after stack restart** — migrations 0031 + 0032 auto-apply; verify cross-trip leak canary, place-context single-render, approval ladder, reject/hide, day-label reach.
+3. **`.env.example` drift** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (including 16 `DASH_*` alert thresholds). Codify a grep gate.
 
-- `WO-LORI-FACTUAL-CHAIN-CAPTURE-01` (Phases 1-5 all landed; live-proven on 3 canaries)
-- `WO-STORY-CANDIDATE-TEXT-CHAIN-PERSISTENCE-01` (live `db_rows`/`chain_rows` non-zero on every harness run)
-- `WO-LORI-ENGLISH-FIRST-SESSION-MODE-01` Phase 1 (Phase 2 narrator-initiated write flow deferred)
-- `BUG-LORI-RESPONSE-STUB-COLLAPSE-01` iteration 2 (substitution live, verified across 3 harnesses)
-- `BUG-LORI-DEEP-EUROPEAN-ROUTE-LANGUAGE-DRIFT-01` (fewshot exemplars + placeholder revision)
-- `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01` Path A (verbatim leak on Spring 2026 T2 fixed)
-- `BUG-LORI-RESPONSE-GUARDS-STALE-TRIP-SURFACE-DOCSTRING-01`
-
-The 2026-05-01 stanza below is historical. Refer to `CLAUDE.md` and `HANDOFF_2026-07-01.md` for the current state.
+The 2026-05-01 stanza below is historical. Refer to `CLAUDE.md` for the day-by-day changelog.
 
 ---
 
@@ -736,23 +729,72 @@ python3 scripts/preload_trainer.py --all
 
 ---
 
-## File Inventory
+## File Inventory (refreshed 2026-07-11)
 
-| Category | Count | Key Files |
+| Category | Count | Key files |
 |---|---|---|
-| JavaScript (UI) | 43 | app.js, api.js, state.js, wo13-review.js, narrator-preload.js, chronology-accordion.js, shadow-review.js, conflict-console.js, test-narrator-lab.js |
-| CSS | 12 | base.css, layout.css, lori80.css, test-narrator-lab.css, … |
-| HTML shell | 1 | `hornelore1.0.html` |
-| Narrator templates | 8 | 3 family + 2 trainers + 1 base + 2 synthetic test (`data/narrator_templates/test_*.json`) |
-| Server routers | 28 | family_truth.py, profiles.py, extract.py, narrator_state.py, chronology_accordion.py, test_lab.py |
+| JavaScript (UI) | 81 | app.js (~6k lines), state.js, session-loop.js, interview.js, api.js, facial-consent.js, camera-preview.js, emotion.js, attention-cue-*.js, presence-cue.js, lori-clock.js, transcript-guard.js, travel-doc-lab.js, travel-documenter.js, trip-tab.js, travels-shelf.js, bug-panel-*.js (many), projection-sync.js, lv-eras.js, life-map.js, wo13-review.js, shadow-review.js |
+| CSS | 30 | base.css, layout.css, lori80.css, bug-panel-eval.css, bug-panel-story-review.css, tdl-*.css |
+| HTML | 8 | hornelore1.0.html (~5k lines shell), travel-doc-lab.html, travel-documenter.html, trip-tab.html, media-archive.html, photo-elicit.html, photo-intake.html, photo-timeline.html |
+| Narrator templates | 6 | ui/templates/ — christopher-todd-horne, kent-james-horne, janice-josephine-horne, dolly-parton, william-shatner, narrator-template (+ 17 additional diverse voices upstream in Lorevox source) |
+| Server routers | 41 | routers/chat_ws.py (~4400 lines, WebSocket entry), extract.py (~7000 lines), interview.py, family_truth.py, profiles.py, narrator_state.py, chronology_accordion.py, test_lab.py, trips.py (~2400 lines), operator_story_review.py, operator_eval_harness.py, bio_facts.py, operator_bio_editor.py, operator_bio_gap_map.py, timeline_context_events.py, safety_events.py |
+| Server services | 52 | prompt_composer.py, safety.py, safety_classifier.py, lori_communication_control.py, lori_reflection.py, lori_response_guards.py, lori_meta_question.py, lori_spanish_guard.py, story_trigger.py, story_preservation.py, utterance_frame.py, factual_chain_capture.py, narrative_cue_detector.py, question_atomicity.py, question_hierarchy.py, reflection_grounding.py, story_momentum.py, thread_bank.py, trip_repository.py (~2600 lines), trip_interview_context.py, travel_doc_lori_modal.py, travelogue_builder.py, trip_narration_capture.py, trip_photo_clustering.py, trip_memoir_docx.py, travel_doc_photo_ocr.py, travel_doc_photo_vision.py, travel_doc_public_lookup.py, evidence_text.py, bio_fact_router.py, bio_anchored_asker.py, photo_intake/{ingest,filename_date,metadata_trust}.py, tts/{base,coqui,kokoro,dispatcher}.py |
+| Migrations | 31 | 0001–0032 (gap at 0012 deliberate). Trip lane: 0015–0032 (18 migrations). Story: 0004. Interview threads: 0006. Bio facts: 0014. Kokoro engine swap: no schema. Latest: 0032 (`trip_public_context.rejected`) landed 2026-07-11 preflight review. |
 | Historical seed | 1 | `server/data/historical/historical_events_1900_2026.json` (152 world events, 1900–2026) |
-| Quality harness fixture | 1 | `data/test_lab/narrator_statements.json` (Channel A ceilings) |
-| Scripts | 26 | preload_trainer.py, import_kent_james_horne.py, start/stop/restart, run_test_lab.sh, seed_test_narrators.py, test_lab_runner.py, test_lab_doctor.sh, test_lab_watch.sh, run_question_bank_extraction_eval.py |
-| Eval cases | 2 | `data/qa/question_bank_extraction_cases.json` (104 master), `data/qa/question_bank_generational_cases.json` (14 generational) |
-| Question bank | 1 | `data/prompts/question_bank.json` (36 sub-topics, generational overlays, present_life_realities) |
-| Tests | 6+ | test_extract_subject_filters, test_extract_claims_validators, test_life_spine_validator, test_phase_aware_composer, test_interview_opener, test_extract_api_subject_filters |
-| Config | 4 | .env, package.json, playwright.config.ts, tsconfig |
-| WO docs | n | `docs/WO-*.md` (per-WO reports), `docs/wo-qa/WO-QA-*.md` (Quality Harness specs) |
+| Voice library | 1 | `docs/voice_models/VOICE_LIBRARY_v1.md` (7 diverse-narrator voices; reference for evals + operator education, NOT a runtime classifier) |
+| Narrative cue library | 4 | `data/lori/narrative_cue_library.json` v2 (12 cue types) + schema + evals (base + cultural humility pack) |
+| Eval cases | 5 | `data/qa/question_bank_extraction_cases.json` (114 cases), question_bank_generational_cases.json (14), sentence_diagram_story_cases.json (43 extractor + 22 cultural-humility), lori_narrative_cue_eval.json (40), lori_code_switching_eval.json (12) |
+| Question bank | 1 | `data/prompts/question_bank.json` |
+| Tests | 144 | Unit tests. All LAW-3 isolation gates green (59). Full-suite discover run has test-order pollution (some earlier test doesn't restore `_db.DB_PATH`); per-suite runs green — trip lane 334/334, safety pack green. See "Known bugs" for detail. |
+| Scripts | 95 | scripts/ — start_all.sh, stop_all.sh, test_stack_health.sh, backup_lorevox_data.sh, restore_lorevox_data.sh, cleanup_test_narrators.py, install_kokoro.sh, smoke_kokoro.py, run_question_bank_extraction_eval.py, run_utterance_frame_survey.py, plus ~40 UI harness scripts (Playwright) and 30+ archive/ QA scripts |
+| Launchers | 3 | launchers/ — hornelore_run_gpu_8000.sh, hornelore_run_tts_8001.sh, hornelore_run_all_dev.sh |
+| WO / BUG specs (root) | 28 | At repo root: 22 BUG-*_Spec.md, 6 WO-*_Spec.md. Additional WO specs in `docs/wo/` (22 files) |
+| Docs | many | `docs/architecture/` (4 ADRs — universal pivot strategy, Lori runtime, memory exercise, cowork handoff), `docs/reports/` (eval + WO landing reports), `docs/golfball/` (lineage), `docs/wo/` (22 active WO specs), `docs/archive/workorders-pre-pivot/` (114 archived pre-pivot specs) |
+| Config | 4 | .env, .env.example (~1400 lines documenting ~132 flags), package.json, playwright.config.ts |
+| Requirements | 2 | requirements-gpu.txt (51 pkgs; fastapi==0.135.1, transformers==4.55.4, pydantic==2.12.5, torch nightly cu128 for Blackwell sm_100), requirements-tts.txt |
+
+---
+
+## Known bugs (2026-07-11 repo review)
+
+A whole-repo code review on 2026-07-11 surfaced the following. HIGH items are fixable in <30 minutes each; they didn't ship earlier because they sit in code paths that only fire under specific flag configurations.
+
+**HIGH — fix before next live run:**
+
+- **`server/code/api/routers/chat_ws.py:1784`** — `SafetyResult(...)` is instantiated when the LLM safety layer catches an indirect-ideation phrase the regex layer missed, but `SafetyResult` is NEVER imported at module scope (imports at line 152-157 pull only `scan_answer / build_segment_flags / get_resources_for_category / set_softened`). The wrapping `except Exception` at line 1968 swallows the NameError silently. Net effect: **WO-LORI-SAFETY-INTEGRATION-01 Phase 2 no-ops on every trigger** — no segment_flag, no softened write, no operator notify, no ACUTE-prompt forcing. Fix: add `SafetyResult` to the `from ..safety import (...)` block.
+- **`server/code/api/routers/interview.py:288`** — `flags = build_segment_flags(safety_result)` inside the safety-triggered branch of `answer_interview()` shadows the module-level `flags` (imported at line 10 as `from .. import db, flags`). Python marks the name local for the whole function body, so line 339's `flags.phase_aware_questions_enabled()` UnboundLocalErrors when the safety branch is skipped, and AttributeErrors when it fires. **Every call to `POST /api/interview/answer` currently crashes.** Fix: rename the local to `seg_flags`.
+- **`server/code/api/routers/chat_ws.py:3698`** — `db.export_turns(conv_id)` in the duplicate-response guard, but `db` was never imported as a module (only `export_turns` was named at line 129). NameError is swallowed by the surrounding try/except → `_prior_turns` silently becomes `[]` → the bit-identical duplicate-reply substitution NEVER runs. Fix: use `export_turns(conv_id)` directly (already named).
+
+**HIGH — cross-narrator state pollution on sidebar-driven narrator switch:**
+
+- **`ui/js/app.js:3135-3140` + `3325-3484`** — the sidebar people-list `onClick` calls `lvxSwitchNarratorSafe(pid)` directly, bypassing `lv80SwitchPerson` (hornelore1.0.html:5808) which is the ONLY path that fires `stopEmotionEngine()` + `FacialConsent.reset()`. Sidebar-driven switch leaves prior narrator's camera stream + MediaPipe running under the new narrator with no fresh consent pass (same class as bug #176). AND `lvxSwitchNarratorSafe` doesn't reset ~13 narrator-scoped state fields (`sensitiveSegments`, `softenedMode/softenedUntilTurn`, `sessionAffectLog`, `turnCount`, `memoirStrategy.askedPaths/Kinds/Eras`, `loop.savedKeys/askedKeys`, `correctionState`, `memoryEcho`, `chronologyAccordion.focus`, `kawa.segmentList`, `narratorTurn.*`) — so A's disclosure softens B's interview, A's asked-fields suppress B's questions, A's affect events show on B's timeline. Fix: consolidate camera-reset + state-reset block into `lvxSwitchNarratorSafe`.
+- **`ui/js/safety-ui.js:157-165`** — `_loadSegments()` does not zero `sensitiveSegments` before reading LS_SEGS(pid). If the new narrator has no stored segments, the previous narrator's array survives. Fix: `sensitiveSegments = []` before the try/catch.
+
+**HIGH — trip lane data integrity:**
+
+- **`server/code/api/services/trip_repository.py:1302`** — `photo_links_list()` uses `SELECT l.*` which projects raw `trip_photo_links.latitude / .longitude` to `/api/trips/{trip_id}/photo-links`. CLAUDE.md Ph1 doctrine explicitly said "raw lat/lon deliberately not projected; `photo_gps_present` BOOLEAN only" — but this operator endpoint leaks raw GPS anyway. Fix: enumerate columns, expose `(l.latitude IS NOT NULL) AS gps_present` only.
+- **`server/code/api/services/trip_repository.py:2011-2058`** — `photo_context_update()` lacks the include_in_memoir clear-on-edit that `public_context_update()` has (line 1856). Editing text revokes `approved_for_lori` but leaves `include_in_memoir=1`. Mirror the public_context_update rule.
+- **`server/code/api/services/trip_narration_capture.py:415, 435`** — `_stamp_stop_meta` / `_stamp_region_meta` do `UPDATE trip_stops SET meta_json = ?` wholesale, obliterating any prior keys. If any future writer stores other keys on stop/region meta_json (same class as the trip_meta_merge fix from 2026-07-05), narration silently wipes them. Fix: read-modify-write inside BEGIN IMMEDIATE.
+
+**MEDIUM — real functional bugs but limited blast radius:**
+
+- **`server/code/api/routers/trips.py:2020-2057`** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` blindly, no cross-trip ownership check. Single-tenant so not a security issue; still a stale-FE-state hazard. Consider gating under `/{trip_id}/…`.
+- **`server/code/api/services/lori_response_guards.py:173-188`** — `_looks_spanish` accent-tier requires "≥1 strong word + accent" but `_SPANISH_ONLY_WORDS_RX` still contains loose tokens (`hola`, single `iba`) that may appear in quoted travelogue text. Consider requiring ≥2 strong tokens in the accent tier, or exempting quoted spans.
+- **`server/code/api/routers/chat_ws.py:262-263`** — `_TRIP_PREV_LORI` and `_TRIP_LAST_CAPTURE` are unbounded module-level dicts keyed by conv_id, populated per trip turn with no eviction. Memory leaks linearly with conversations. Already flagged in CLAUDE.md 2026-07-09 as pending; still open. Fix: LRU-cap or purge on WebSocketDisconnect.
+- **`ui/js/travel-documenter.js:2152-2299`** — `modalLori._send` has no double-send guard (equivalent to `_loriIsBusy` in main chat). Two fast Sends in the modal, or a Send while main chat is still generating, can collide. Same class as the 2026-05-07 fix.
+- **`ui/js/app.js` — multiple `sysBubble()` calls** at lines 7183, 7192, 7197-7204, 3162, 3702, 4058, 4238, 5520 write emoji-prefixed operator-tone strings (💾/⚠/💡/🎤) into `#chatMessages` (the narrator conversation surface). Only line 3702 is gated by `LV_INLINE_OPERATOR_BUBBLES`; the rest violate CLAUDE.md design principle 3 (no system-tone in narrator flow).
+- **Test-order pollution in full `discover` run** — 191 spurious `sqlite3.OperationalError: no such table: trips` errors when running the whole suite together. Same tests pass in isolation (trip lane 422/422). Likely `test_memoir_story_wire.py:167` or `test_softened_mode_persistence.py:246` monkeypatch `_db.DB_PATH` and never restore it in tearDown. Doesn't affect correctness of the code under test; masks real regressions in CI. Fix: `unittest.load_tests` protocol to snapshot + restore `_db.DB_PATH` per module.
+- **Thread-bank surfacing** — genuine failures in `test_thread_bank.py`: `BankNewThreadsTest.test_persists_candidates`, `SurfacingTargetTest.test_emerging_mode_with_closing_marker_allows_surfacing`, `test_normal_mode_picks_oldest_eligible`. Not deps, not ordering; surfacing returns `None` where it should return a candidate.
+- **`server/code/api/prompt_composer.py:3227`** — `context.setdefault("last_user_text", user_text[:800])` then rendered via `_safe_json` into the system prompt. `json.dumps` quotes the string but doesn't neutralize embedded `[SYSTEM:` / `PROFILE_JSON:` sentinels a hostile browser extension could inject. Single-tenant so risk is small; still a real prompt-injection surface.
+
+**LOW — cleanup / hygiene:**
+
+- `.env.example` drift: ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (16 `DASH_*` alert thresholds, `HORNELORE_ATTRIB_BOUNDARY`, `HORNELORE_FACTUAL_CHAIN`, `HORNELORE_INTERVIEW_DISCIPLINE`, others). Codify a `grep -o 'os.getenv("[A-Z_]\+"' | sort -u` audit gate.
+- 9 `ADD COLUMN` migrations lack `IF NOT EXISTS` guards (0008, 0010, 0014, 0016, 0017, 0022, 0023, 0024, 0025). Rely on `schema_migrations` tracking. Consider `PRAGMA table_info` guard as belt-and-suspenders.
+- Launcher scripts hardcode `/mnt/c/Users/chris/hornelore` in `launchers/hornelore_run_gpu_8000.sh`, `hornelore_run_tts_8001.sh`, and 6 `scripts/setup/*.sh`. Blocks laptop migration. Port the `REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"` pattern from `hornelore_run_all_dev.sh` into each.
+- `narrative_cue_detector` eval pack scores 33/40 (82.5%) — 7 named misses (ncue_011/014/016/021/023/030/036). Real gaps in the classifier, not test infra.
+- `_UNTRUSTED_DATE_LEVELS` in `trip_photo_clustering.py:103` is defined but unused. Dead constant; remove.
+- 3 unbounded module-level dicts flagged above (`_TRIP_PREV_LORI`, `_TRIP_LAST_CAPTURE`, `_narratorTurnsSinceOpen`) leak memory in long-running processes.
 
 ---
 
