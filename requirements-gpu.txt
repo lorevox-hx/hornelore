@@ -158,3 +158,4 @@ readability-lxml==0.8.1
 # SearXNG / Brave are provider HOOKS (Phase 3), NOT dependencies — SearXNG is
 # reached over HTTP via httpx (HORNELORE_SEARXNG_URL), Brave via its Web
 # Search API (BRAVE_SEARCH_API_KEY). No extra pip packages required for them.
+lxml_html_clean
