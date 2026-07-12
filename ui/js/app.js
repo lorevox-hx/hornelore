@@ -3372,6 +3372,117 @@ async function lvxSwitchNarratorSafe(pid){
     console.log("[WO-11] narrator switch with trainer active — preserving trainer posture");
   }
 
+  // ── 4b. 2026-07-11 repo-review HIGH fix — narrator-scoped state reset ──
+  //
+  // Prior to this block, `lvxSwitchNarratorSafe` reset the conv_id +
+  // interview session ids + a handful of session posture fields, but
+  // it left a long tail of narrator-scoped state alive across the
+  // switch. Concrete leaks that motivated this block:
+  //
+  //   * sensitiveSegments — narrator A's disclosure segments stayed
+  //     in memory even after switch, so A's flag reasons appeared in
+  //     B's UI + softened Lori's interview for B (safety-ui.js
+  //     _loadSegments() also patched separately to zero-before-read)
+  //   * softenedMode / softenedUntilTurn / turnCount — module-level
+  //     locals in state.js; A's active softened mode softened B's
+  //     first N turns after switch
+  //   * memoirStrategy.askedPaths/Kinds/Eras — A's asked-fields
+  //     suppressed B's questions in the same fields
+  //   * loop.savedKeys / loop.askedKeys — same suppression on the
+  //     session loop dispatcher
+  //   * correctionState.applied — A's applied corrections resolved B's
+  //     field lookups
+  //   * memoryEcho — A's cached echo text rendered under B's name
+  //   * chronologyAccordion.focus — A's era focus shown for B
+  //   * kawa.segmentList / activeSegmentId — A's meaning segments
+  //     surfaced when B opened the Kawa view (Kawa is retired in
+  //     product but the state slot still exists in state.js; clear
+  //     to prevent future drift)
+  //   * narratorTurn state — A's turn machine state (recording /
+  //     awaiting_tts_end / etc.) applied to B's first mic action
+  //   * sessionAffectLog — A's affect events showed on B's timeline
+  //   * kawaPromptCooldown / kawaMode — carried across
+  //
+  // These are ALL narrator-scoped, not trainer-scoped — reset even
+  // when trainer is live (trainer preserves its overlay + posture,
+  // but the underlying narrator being edited still changes).
+  try {
+    if (typeof sensitiveSegments !== "undefined") sensitiveSegments = [];
+    if (typeof softenedMode !== "undefined")      softenedMode = false;
+    if (typeof softenedUntilTurn !== "undefined") softenedUntilTurn = 0;
+    if (typeof turnCount !== "undefined")         turnCount = 0;
+    if (typeof sessionAffectLog !== "undefined")  sessionAffectLog = [];
+  } catch (_) {}
+  try {
+    state.session.memoirStrategy = state.session.memoirStrategy || {};
+    state.session.memoirStrategy.askedPaths = [];
+    state.session.memoirStrategy.askedKinds = [];
+    state.session.memoirStrategy.askedEras  = [];
+    state.session.memoirStrategy.lastQuestionTs = null;
+    state.session.memoirStrategy.consecutiveSameEra = 0;
+  } catch (_) {}
+  try {
+    state.session.loop = state.session.loop || {};
+    state.session.loop.currentSection = null;
+    state.session.loop.currentField   = null;
+    state.session.loop.askedKeys      = [];
+    state.session.loop.savedKeys      = [];
+    state.session.loop.lastTrigger    = null;
+    state.session.loop.lastAction     = null;
+    state.session.loop.tellingStoryOnce = false;
+  } catch (_) {}
+  try {
+    state.correctionState = { applied: [], conflicts: [], uncertain: [] };
+  } catch (_) {}
+  try {
+    state.memoryEcho = { builtAt: null, entity: null, lastRenderedText: null };
+  } catch (_) {}
+  try {
+    state.chronologyAccordion = state.chronologyAccordion || {};
+    state.chronologyAccordion.focus = null;
+    // Do NOT reset visible/collapsed — those are operator preferences
+    // that survive narrator switch.
+  } catch (_) {}
+  try {
+    state.kawa = state.kawa || {};
+    state.kawa.segmentList     = [];
+    state.kawa.activeSegmentId = null;
+    state.kawa.activeSegment   = null;
+    state.kawa.isDirty         = false;
+    state.session.kawaMode = state.session.kawaMode || "chronological";
+    state.session.kawaPromptCooldown = 0;
+  } catch (_) {}
+  try {
+    state.narratorTurn = {
+      state:             "idle",
+      claimTimestamp:    null,
+      timeoutDeadline:   null,
+      interruptionBlock: null,
+      ttsFinishedAt:     null,
+      checkInFired:      false,
+    };
+  } catch (_) {}
+
+  // 4c. Camera / MediaPipe teardown — mirror the lv80SwitchPerson path.
+  // Prior to this block, the sidebar people-list onClick called
+  // lvxSwitchNarratorSafe directly and BYPASSED the emotion-engine
+  // teardown that lv80SwitchPerson performs. Prior narrator's camera
+  // stream + MediaPipe FaceMesh ran under the new narrator with no
+  // fresh consent pass. Guard defensively — this fires only when the
+  // camera is currently active AND stopEmotionEngine is defined
+  // (it's declared in hornelore1.0.html inline script; not always
+  // reachable if the emotion module failed to load).
+  try {
+    var _camActive = (typeof cameraActive !== "undefined" && !!cameraActive)
+      || !!(state && state.inputState && state.inputState.cameraActive);
+    if (_camActive && typeof stopEmotionEngine === "function") {
+      stopEmotionEngine();
+    }
+    if (state && state.inputState) state.inputState.cameraActive = false;
+  } catch (e) {
+    console.warn("[narrator-switch] camera teardown threw:", e);
+  }
+
   // 5. Clear in-memory text state
   lastAssistantText = "";
   currentAssistantBubble = null;

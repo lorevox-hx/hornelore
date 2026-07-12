@@ -973,5 +973,297 @@ class LookupQueryDayLabelTest(_DbCase):
         self.assertIn("2026", q)                   # date year
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  Preflight review-follow-up ROUND 2 (2026-07-11) — five HIGH fixes
+#  landed after Chris's second review pass. Focused regression tests
+#  only; no new endpoints, no new UI redesign.
+# ══════════════════════════════════════════════════════════════════════
+
+# ── (R2-A) photo_links_list — raw GPS scrub ────────────────────────
+class PhotoLinksListNoRawGpsTest(_DbCase):
+    def test_response_shape_has_no_latitude_longitude(self):
+        # Stamp raw GPS onto the photo AND the link row. photo GPS lives
+        # in `photos` (which the JOIN doesn't project raw); link GPS
+        # lives in `trip_photo_links` (which the OLD `SELECT l.*` did
+        # project). The safe-cols list must strip BOTH sides.
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "UPDATE photos SET latitude=48.137, longitude=11.576 "
+            "WHERE id='ph1'")
+        try:
+            con.execute(
+                "UPDATE trip_photo_links SET latitude=48.137, "
+                "longitude=11.576 WHERE id=?", (self.link_id,))
+        except sqlite3.OperationalError:
+            pass  # older DBs may not carry the columns
+        con.commit()
+        con.close()
+        rows = trip_repository.photo_links_list(self.trip_id)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        # NEITHER key may appear in the projected shape.
+        self.assertNotIn("latitude", row)
+        self.assertNotIn("longitude", row)
+        # `link_gps_present` boolean IS allowed and MUST reflect reality.
+        self.assertIn("link_gps_present", row)
+        self.assertTrue(bool(row["link_gps_present"]))
+
+    def test_link_gps_present_false_when_no_link_gps(self):
+        rows = trip_repository.photo_links_list(self.trip_id)
+        self.assertEqual(len(rows), 1)
+        # Baseline fixture stamps no GPS on the link — must be falsy.
+        self.assertFalse(bool(rows[0].get("link_gps_present")))
+        self.assertNotIn("latitude", rows[0])
+        self.assertNotIn("longitude", rows[0])
+
+    def test_expected_columns_still_present(self):
+        # Nothing the operator surface depends on should have gone
+        # missing in the scrub.
+        rows = trip_repository.photo_links_list(self.trip_id)
+        row = rows[0]
+        for k in ("id", "trip_id", "trip_region_id", "trip_stop_id",
+                  "photo_id", "ord", "taken_at",
+                  "assignment_method", "cluster_confidence",
+                  "caption", "include_in_memoir",
+                  "caption_approved_for_lori",
+                  "operator_context_approved_for_lori",
+                  "trip_day_id",
+                  "photo_gps_present"):
+            self.assertIn(k, row, "missing key: " + k)
+
+
+# ── (R2-B) photo_context_update — edit clears include_in_memoir ────
+class PhotoContextEditClearsIncludeInMemoirTest(_DbCase):
+    def _make_row(self, approved=True, include=True):
+        cid = trip_repository.photo_context_create(
+            trip_id=self.trip_id, photo_link_id=self.link_id,
+            context_type="ocr_text",
+            result_summary="museum sign initial")
+        if approved:
+            trip_repository.photo_context_update(cid, approved_for_lori=True)
+        if include:
+            trip_repository.photo_context_update(cid, include_in_memoir=True)
+        return cid
+
+    def test_edit_result_summary_clears_include_in_memoir(self):
+        cid = self._make_row(approved=True, include=True)
+        # Baseline: approved + included.
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+        # Edit the text — no re-approval, no re-include in the same call.
+        trip_repository.photo_context_update(
+            cid, result_summary="museum sign EDITED")
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_raw_text_clears_include_in_memoir(self):
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(
+            cid, raw_text="RAW TEXT EDITED")
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 0)
+        self.assertEqual(row["include_in_memoir"], 0)
+
+    def test_edit_with_reapprove_and_reinclude_stays_included(self):
+        cid = self._make_row(approved=True, include=True)
+        trip_repository.photo_context_update(
+            cid,
+            result_summary="museum sign EDITED",
+            approved_for_lori=True,
+            include_in_memoir=True)
+        row = trip_repository.photo_context_get(cid)
+        self.assertEqual(row["approved_for_lori"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)
+
+
+# ── (R2-C) trip_narration_capture — meta_json read-merge-write ─────
+class TripNarrationMetaMergeTest(_DbCase):
+    def _prior_meta(self, table, id_, meta_dict):
+        import json as _json
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "UPDATE {0} SET meta_json = ? WHERE id = ?".format(table),
+            (_json.dumps(meta_dict), id_))
+        con.commit()
+        con.close()
+
+    def _read_meta(self, table, id_):
+        import json as _json
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            row = con.execute(
+                "SELECT meta_json FROM {0} WHERE id = ?".format(table),
+                (id_,)).fetchone()
+        finally:
+            con.close()
+        if row is None or not row[0]:
+            return {}
+        try:
+            return _json.loads(row[0])
+        except Exception:
+            return {}
+
+    def test_stop_meta_merge_preserves_prior_keys(self):
+        from api.services import trip_narration_capture as tnc
+        self._prior_meta("trip_stops", self.stop_id,
+                         {"operator_note": "keep me", "priority": 3})
+        tnc._stamp_stop_meta(self.stop_id)
+        merged = self._read_meta("trip_stops", self.stop_id)
+        # Prior keys survive.
+        self.assertEqual(merged.get("operator_note"), "keep me")
+        self.assertEqual(merged.get("priority"), 3)
+        # Narration keys got added on top.
+        self.assertIn("source", merged)  # _NARRATION_META has 'source'
+
+    def test_region_meta_merge_preserves_prior_keys(self):
+        from api.services import trip_narration_capture as tnc
+        self._prior_meta("trip_regions", self.region_id,
+                         {"pinned": True, "color": "amber"})
+        tnc._stamp_region_meta(self.region_id)
+        merged = self._read_meta("trip_regions", self.region_id)
+        self.assertTrue(merged.get("pinned"))
+        self.assertEqual(merged.get("color"), "amber")
+        self.assertIn("source", merged)
+
+    def test_null_prior_meta_yields_narration_only(self):
+        from api.services import trip_narration_capture as tnc
+        # Fresh row — no operator meta yet.
+        tnc._stamp_stop_meta(self.stop_id)
+        merged = self._read_meta("trip_stops", self.stop_id)
+        self.assertIn("source", merged)
+        # Downstream narration flags land too:
+        for k in ("source",):
+            self.assertIn(k, merged)
+
+    def test_narration_key_overrides_prior_narration_key(self):
+        # Prior narration source stamp gets updated, not duplicated.
+        from api.services import trip_narration_capture as tnc
+        self._prior_meta("trip_stops", self.stop_id,
+                         {"source": "stale_value", "keep": "yes"})
+        tnc._stamp_stop_meta(self.stop_id)
+        merged = self._read_meta("trip_stops", self.stop_id)
+        self.assertEqual(merged.get("keep"), "yes")
+        # Narration overwrites its own key (correct behavior — narration
+        # is authoritative for its own provenance key), does not delete
+        # the operator's key.
+        self.assertNotEqual(merged.get("source"), "stale_value")
+
+
+# ── (R2-D) safety-ui.js _loadSegments — JS shape contract ──────────
+class SafetyUiLoadSegmentsResetTest(unittest.TestCase):
+    """Byte-level contract on safety-ui.js so a regression at edit
+    time is caught before a live narrator hits it. Full JS execution
+    would need a headless-browser harness; this tests the guard shape."""
+
+    def setUp(self):
+        self.js = (_REPO_ROOT / "ui" / "js" / "safety-ui.js").read_text(
+            encoding="utf-8")
+
+    def test_load_segments_zeroes_before_read(self):
+        # The function body must reset sensitiveSegments = [] BEFORE the
+        # localStorage read, so a narrator with no stored segments does
+        # NOT inherit the previous narrator's array.
+        import re
+        m = re.search(
+            r"function\s+_loadSegments\s*\(\s*\)\s*\{([\s\S]*?)\n\}",
+            self.js)
+        self.assertIsNotNone(m, "_loadSegments not found")
+        body = m.group(1)
+        # First non-comment executable statement must clear the array.
+        # Accept either the initial reset OR the guarded-return-first
+        # pattern, but the reset MUST appear before the localStorage
+        # read.
+        reset_idx = body.find("sensitiveSegments = []")
+        ls_idx = body.find("localStorage.getItem")
+        self.assertGreater(reset_idx, -1,
+                           "no `sensitiveSegments = []` reset present")
+        self.assertGreater(ls_idx, -1, "no localStorage.getItem call")
+        self.assertLess(reset_idx, ls_idx,
+                        "reset must appear before localStorage read")
+
+    def test_array_validation_on_parse(self):
+        # Defensive: JSON.parse of a truthy blob that isn't an array
+        # must NOT overwrite sensitiveSegments with a non-array value.
+        self.assertIn("Array.isArray(parsed)", self.js)
+
+
+# ── (R2-E) lvxSwitchNarratorSafe — narrator-scoped state reset ─────
+class LvxSwitchNarratorSafeStateResetTest(unittest.TestCase):
+    """Byte-level contract on the extended narrator-switch reset block
+    in app.js. Locks the reset list against future drift."""
+
+    def setUp(self):
+        self.js = (_REPO_ROOT / "ui" / "js" / "app.js").read_text(
+            encoding="utf-8")
+        # Slice just the lvxSwitchNarratorSafe body for scoped checks.
+        import re
+        m = re.search(
+            r"async\s+function\s+lvxSwitchNarratorSafe\s*\([^)]*\)\s*\{",
+            self.js)
+        self.assertIsNotNone(m, "lvxSwitchNarratorSafe not found")
+        start = m.end()
+        depth = 1
+        i = start
+        while i < len(self.js) and depth > 0:
+            ch = self.js[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            i += 1
+        self.body = self.js[start:i]
+
+    def test_sensitive_segments_reset_in_switch(self):
+        self.assertIn("sensitiveSegments = []", self.body)
+
+    def test_softened_mode_reset_in_switch(self):
+        self.assertIn("softenedMode = false", self.body)
+        self.assertIn("softenedUntilTurn = 0", self.body)
+
+    def test_turn_count_and_affect_log_reset(self):
+        self.assertIn("turnCount = 0", self.body)
+        self.assertIn("sessionAffectLog = []", self.body)
+
+    def test_memoir_strategy_reset(self):
+        self.assertIn("memoirStrategy.askedPaths = []", self.body)
+        self.assertIn("memoirStrategy.askedKinds = []", self.body)
+        self.assertIn("memoirStrategy.askedEras", self.body)
+
+    def test_loop_state_reset(self):
+        # tolerate whitespace-aligned assignment ("askedKeys      = [];")
+        import re
+        self.assertTrue(
+            re.search(r"loop\.askedKeys\s*=\s*\[\]", self.body),
+            "loop.askedKeys reset missing")
+        self.assertTrue(
+            re.search(r"loop\.savedKeys\s*=\s*\[\]", self.body),
+            "loop.savedKeys reset missing")
+
+    def test_correction_state_reset(self):
+        self.assertIn("correctionState = {", self.body)
+
+    def test_memory_echo_reset(self):
+        self.assertIn("memoryEcho = { builtAt: null", self.body)
+
+    def test_chronology_focus_reset(self):
+        self.assertIn("chronologyAccordion.focus = null", self.body)
+
+    def test_kawa_state_reset(self):
+        self.assertIn("kawa.segmentList", self.body)
+        self.assertIn("kawa.activeSegmentId = null", self.body)
+
+    def test_narrator_turn_reset(self):
+        self.assertIn('narratorTurn = {', self.body)
+        self.assertIn('state:             "idle"', self.body)
+
+    def test_camera_teardown_called_when_active(self):
+        # cameraActive check must appear AND stopEmotionEngine must be
+        # invoked when it's live.
+        self.assertIn("cameraActive", self.body)
+        self.assertIn("stopEmotionEngine()", self.body)
+
+
 if __name__ == "__main__":
     unittest.main()

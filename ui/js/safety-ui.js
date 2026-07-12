@@ -154,13 +154,25 @@ function _persistSegments(){
 
 // Loads persisted segment decisions for the active person.
 // Call this when a new person is selected or a session starts.
+//
+// 2026-07-11 repo-review HIGH fix — zero sensitiveSegments BEFORE
+// reading localStorage. The prior narrator's in-memory array
+// survived a narrator switch if the new narrator had no stored
+// segments (localStorage returned null → `if(raw)` branch skipped
+// → variable never reassigned → prior array leaked into the new
+// narrator's UI and reflection/interview surfaces).
 function _loadSegments(){
+  sensitiveSegments = [];
   if(!state.person_id) return;
   try{
     const raw=localStorage.getItem(LS_SEGS(state.person_id));
-    if(raw) sensitiveSegments=JSON.parse(raw);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(Array.isArray(parsed)) sensitiveSegments = parsed;
+    }
   }catch(e){
     console.warn("LoreVox: could not load persisted segments", e);
+    sensitiveSegments = [];
   }
 }
 
