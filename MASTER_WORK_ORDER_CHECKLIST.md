@@ -1,7 +1,19 @@
 # MASTER_WORK_ORDER_CHECKLIST
 
-**Active as of:** 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; statuses below corrected. Also: trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed)
-**Previously:** 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
+**Active as of:** 2026-07-11 (doc-consistency pass — split "code landed" vs "flag live" vs "formal verification" statuses per Chris's audit; 2026-07-11 HIGH repo-review batch closed via commits ebe64af / cf62c49 / round-2 / round-3)
+**Previously:** 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed), 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
+
+---
+
+## Status legend (locked 2026-07-11)
+
+Three distinct dimensions — do NOT conflate them:
+
+- **CODE-LANDED** — the implementation exists in-tree, has unit-test coverage, and AST-parses clean. Verifiable by reading the code.
+- **FLAG-LIVE** — the corresponding `HORNELORE_*` env flag is set to `1` in the running `.env`, so the code path actually fires in real sessions. Verifiable by reading `.env` + api.log startup line.
+- **FORMAL-VERIFIED** — a written verification report exists in `docs/reports/` demonstrating the feature works under a target scenario (red-team pack, canary session, harness eval, live-narrator transcript). Verifiable by opening the report.
+
+Something can be code-landed but not flag-live (behind a default-off flag). Something can be code-landed AND flag-live but not formal-verified (running in the wild but no written proof yet). "LANDED" without qualifier historically meant code-landed; from 2026-07-11 forward the word alone is deprecated — use one of the three explicit terms.
 **Supersedes:** Pre-pivot checklist (archived at `docs/archive/handoffs-pre-pivot/MASTER_WORK_ORDER_CHECKLIST.md`)
 **Read first:** [`docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md`](docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md), [`docs/architecture/LORI-RUNTIME-ARCHITECTURE.md`](docs/architecture/LORI-RUNTIME-ARCHITECTURE.md)
 
@@ -23,7 +35,7 @@ Each WO gets its own Cowork session with the WO spec as the brief. Do NOT start 
 |---|---|---|---|
 | 1 | SAFETY-LLM-CLASSIFIER | [`docs/wo/WO-LORI-SAFETY-LLM-CLASSIFIER-01_Spec.md`](docs/wo/WO-LORI-SAFETY-LLM-CLASSIFIER-01_Spec.md) | Closes Gate 5 (soft-trigger safety) — **LANDED (verified in-tree 2026-07-02):** `safety_classifier.py` 3-dim taxonomy + LLM layer + confidence floor + 44 tests; gated `HORNELORE_SAFETY_LLM_LAYER=0` |
 | 2 | SOFTENED-MODE-PERSISTENCE | [`docs/wo/WO-LORI-SOFTENED-MODE-PERSISTENCE-01_Spec.md`](docs/wo/WO-LORI-SOFTENED-MODE-PERSISTENCE-01_Spec.md) | Closes Gate 6 (post-safety recovery) — **LANDED (verified in-tree 2026-07-02):** `lori_softened_response.py` 3-state machine + per-trigger caps (30/35/50) + 32 tests; gated `HORNELORE_SOFTENED_RESPONSE=0` |
-| — | **Flip flag** | `HORNELORE_SAFETY_LLM_LAYER=1` | **NOW THE LIVE BLOCKER for Gates 5+6** — code for #1+#2 is in-tree; remaining work is live-harness GREEN verification then the flip. Only after #1 + #2 both GREEN (acute-without-softened reproduces Turn 07 drift) |
+| — | **Flag already flipped** | `HORNELORE_SAFETY_LLM_LAYER=1` + `HORNELORE_SOFTENED_RESPONSE=1` | ✅ **FLAG-LIVE 2026-07-05** (both `.env` values set). Remaining item is FORMAL-VERIFIED — red-team pack + softened-persistence harness against the live flag state. NOT a code-work blocker. |
 | 3 | PHASE-9-DISCLOSURE-UPDATE | [`docs/wo/WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01_Spec.md`](docs/wo/WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01_Spec.md) | Consent disclosure edits — **LANDED (verified in-tree 2026-07-02):** three-tier disclosure + style descriptions in `docs/runbooks/SAFETY_OPERATOR_RUNBOOK.md` (docs-only WO) |
 | 4 | STORY-FIRST-PHASE-1 | [`docs/wo/WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md`](docs/wo/WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md) | Oral-history behavior engine — **LANDED (verified in-tree 2026-07-02):** `reflection_grounding.py` + `story_momentum.py` + `thread_bank.py` + `question_hierarchy.py` + chat_ws wiring + 66 tests; REPORT-ONLY behind `HORNELORE_STORY_FIRST_PHASE_1=0` |
 | 5 | ORAL-HISTORY-DEFAULT | [`docs/wo/WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md`](docs/wo/WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md) | Introduces `oral_history` style + makes it default — **LANDED AND ACTIVE (verified in-tree 2026-07-02):** style @ 90-word cap, system default in comm-control signatures, picker + 29 tests |
@@ -48,15 +60,46 @@ The two docs below land for design-history traceability. Do NOT build from them.
 
 Inherited from pre-pivot work. Pre-pivot evidence in `docs/archive/`; post-pivot evidence as it lands.
 
-| Gate | State | Lane |
-|------|-------|------|
-| 1. DB lock fix | 🟢 GREEN | landed pre-pivot |
-| 2. Atomicity discipline | 🟢 GREEN | landed pre-pivot |
-| 3. Story preservation | 🟢 GREEN | landed pre-pivot |
-| 4. Safety acute path | 🟢 GREEN | landed pre-pivot |
-| 5. Safety soft-trigger | 🟢 LIVE (verified 2026-07-05: `HORNELORE_SAFETY_LLM_LAYER=1` in .env) | Remaining: FORMAL verification record — red-team pack on live flags. See docs/reports/WORK-AUDIT-2026-07-05.md |
-| 6. Post-safety recovery | 🟢 LIVE (verified 2026-07-05: `HORNELORE_SOFTENED_RESPONSE=1` in .env) | Remaining: softened-persistence harness evidence on live flags (lockstep with Gate 5) |
-| 7. Truth-pipeline observability | 🔴 RED | scoped separately; not in the 6-WO sequence |
+| Gate | Code | Flag | Formal | Lane / note |
+|------|------|------|--------|-------------|
+| 1. DB lock fix | ✅ landed | ✅ live | ✅ verified | pre-pivot |
+| 2. Atomicity discipline | ✅ landed | ✅ live | ✅ verified | pre-pivot |
+| 3. Story preservation | ✅ landed | ✅ live | ✅ verified | pre-pivot |
+| 4. Safety acute path | ✅ landed | ✅ live | ✅ verified | pre-pivot |
+| 5. Safety soft-trigger | ✅ landed 2026-07-02 (`safety_classifier.py`, 44 tests) | ✅ live 2026-07-05 (`HORNELORE_SAFETY_LLM_LAYER=1` in `.env`) | 🟡 pending | Remaining: red-team pack on live flags; report → `docs/reports/`. Also `SafetyResult` NameError in `chat_ws.py` closed 2026-07-11 via `ebe64af` — no more silent no-op on trigger. |
+| 6. Post-safety recovery | ✅ landed 2026-07-02 (`lori_softened_response.py`, 32 tests) | ✅ live 2026-07-05 (`HORNELORE_SOFTENED_RESPONSE=1` in `.env`) | 🟡 pending | Remaining: softened-persistence harness evidence on live flags (lockstep with Gate 5). |
+| 7. Truth-pipeline observability | 🔴 not started | — | — | Scoped separately; not in the 6-WO sequence. Highest-priority unstarted lane. |
+
+---
+
+## Open work (locked 2026-07-11)
+
+Priority order for what to build next. **Do not start feature work until items 1 + 2 are done.**
+
+1. **Live Travel Doc Lab verification** — stack cycle applies migrations 0031 + 0032 + 0033; walk the 10-step verification queue (cross-trip leak canary, single place-context render, approval ladder, reject/hide, day-label reach, `photo_links_list` GPS scrub, `photo_context_update` edit-clears-include strict contract with all four (edit × approve × include) combinations, `trip_narration_capture` stop + region meta merge). If clean, close `WO-TRAVEL-DOC-EVIDENCE-TOOLS-01`.
+2. **Documentation sanity pass** — landed 2026-07-11 alongside this reconcile. Cross-check README + this file after the live test wraps.
+3. **`.env.example` drift audit (NEW WO)** — codify a grep gate: `grep -oh 'os.getenv("[A-Z_]\+"' server/code/ | sort -u`. Compare against `.env.example`. Reconcile ~24 stale documented flags + ~30 code-referenced undocumented flags. Flag drift is becoming a real ops risk.
+4. **TRUTH-PIPELINE-01 Phase 1 (Gate 7)** — observability stub across the five truth-write stages (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`) per harness turn. Highest-priority unstarted lane. Blocks the remaining 🟡 formal-verified marks on Gates 5 + 6 becoming ✅ (the harness needs turn-level truth-write visibility to distinguish a real bug from a harness coverage gap).
+5. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
+6. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
+
+**MEDIUM open items (not blocking, but named so they don't drift):**
+
+- Context patch/delete route trip-scoping (`routers/trips.py` — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` alone). See README "MEDIUM — remaining" for detail.
+- `chat_ws._TRIP_PREV_LORI` + `_TRIP_LAST_CAPTURE` unbounded module-level dicts (memory-leak on long-running processes).
+- `travel-documenter.js` modal double-send guard (parity with the 2026-05-07 chat-path fix).
+- 7 named misses in `narrative_cue_detector` eval pack (33/40 = 82.5%).
+- Travel Doc Lab evidence panel — replace native `window.prompt()` for draft observation + place-from-context with an in-panel editor / drawer (post-live-verify UX polish).
+
+**Older README-open items to triage (decide active / parked / superseded / closed):**
+
+- `WO-AUDIO-NARRATOR-ONLY-01`
+- `WO-STT-HANDSFREE-01A`
+- `WO-MEDIA-WATCHFOLDER-01`
+- `WO-MEDIA-OCR-01`
+- `WO-MEDIA-ARCHIVE-CANDIDATES-01`
+
+These sit in the historical README status text and should not stay there forever.
 
 ---
 

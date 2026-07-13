@@ -66,9 +66,12 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 **Immediate open items:**
 
-1. **Three HIGH server bugs surfaced by the 2026-07-11 code review** — see the "Known bugs" section below for exact file:line.
-2. **Live Travel Doc Lab test after stack restart** — migrations 0031 + 0032 auto-apply; verify cross-trip leak canary, place-context single-render, approval ladder, reject/hide, day-label reach.
-3. **`.env.example` drift** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (including 16 `DASH_*` alert thresholds). Codify a grep gate.
+1. **Live Travel Doc Lab test after stack restart** — migrations 0031 + 0032 + 0033 auto-apply; verify cross-trip leak canary, place-context single-render, approval ladder, reject/hide, day-label reach, `photo_links_list` GPS scrub, `photo_context_update` edit-clears-include contract, `trip_narration_capture` stop + region meta merge.
+2. **`.env.example` drift** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (including 16 `DASH_*` alert thresholds). Small env-flag audit WO needed; flag drift is becoming a real ops risk.
+3. **MEDIUM: context patch/delete route trip-scoping** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` operate on `context_id` alone. Single-tenant so not a security issue, but a stale FE cache could patch the wrong trip's context. Add trip-scoped route variants or a body-side scope check.
+4. **DECIDED**: approved `draft_observation` + approved photo-scoped `place_context` rows are **modal-only**. `trip_interview_context.py` remains the narrator-facing gate and only reads approved `ocr_text` + `vision_description`. Operators who want narrator-facing place info use the existing `photo_location_label` + `photo_location_approved_for_lori` field.
+
+The three HIGH server bugs from the 2026-07-11 repo review (safety `SafetyResult` NameError, `interview.py` `flags` shadow, `chat_ws.py` `db.export_turns` NameError) are **closed in commit ebe64af** and effective on next API restart. See the "Closed repo-review bugs" section below for detail.
 
 The 2026-05-01 stanza below is historical. Refer to `CLAUDE.md` for the day-by-day changelog.
 
@@ -528,8 +531,8 @@ Every model used inside Hornelore (and by extension, Lorevox) runs on the narrat
 - **LLM extraction runs locally** — Llama 3.1 8B Instruct (4-bit) today on the GPU specified in `.env`; future swaps (Hermes 3, Qwen, etc.) stay local.
 - **Facial signal runs locally** — MediaPipe FaceMesh in the browser. The system never ships video, raw landmarks, or raw emotion vectors anywhere; only derived `affect_state` + confidence + duration leave the camera-preview boundary.
 - **Acoustic features run locally** — pitch, pause, speaking-rate analysis is planned via librosa / webrtcvad in-process (see `WO-AFFECT-ANCHOR-01_Spec.md`). No audio is sent to a hosted analysis service.
-- **TTS runs locally** — Coqui VITS on port 8001.
-- **No external API calls for any modality** — including facial recognition, speech-to-text, and emotion inference. Reverse-geocoding for photo EXIF uses Nominatim (a public OSM endpoint, not an authenticated cloud API), and that single network exit is the only one in the system; everything narrator-touching stays on the device.
+- **TTS runs locally** — Kokoro-82M (Apache 2.0) on port 8001 as of 2026-05-08. `af_heart` for English, `ef_dora` for Spanish; pluggable adapter (`server/code/api/tts/{base,kokoro,coqui,dispatcher}.py`) selects engine via `LORI_TTS_ENGINE=kokoro` (default) or `coqui` (retired but still installable for A/B comparison).
+- **Two allowed external network exits, both operator-side only** — (a) reverse-geocoding for photo EXIF via Nominatim (public OSM endpoint, no auth); (b) public-context lookup in the Travel Doc Lab evidence panel (`HORNELORE_PUBLIC_LOOKUP` gated URL fetcher with SSRF-blocked URL safety, sanitizer neutralization, and manual operator trigger only — never fires from narrator-facing paths). Both exits are strictly operator-side, never receive narrator memoir text or private life-story content, and never carry raw GPS. Everything narrator-touching stays on the device.
 
 The reason is the user. Hornelore is built for older-adult narrators in life-review settings — including narrators with possible cognitive decline. The product crosses into territory (medical, legal, emotional, family) where families need to be able to say truthfully that the recording, the face, the voice, the inferred emotion, and the extracted truth all stayed on their machine. Hosted-API economics can't be allowed to erode that contract over time.
 
@@ -544,7 +547,7 @@ The architecture is deliberately modular so that as **better local models** appe
 | Facial affect | MediaPipe FaceMesh + rule-based labels | Learned visual emotion models when open-weight options mature |
 | Acoustic | librosa / webrtcvad (planned) | More specialized open-source prosody models |
 | Joint speech-text | Not used | Open-weight latent speech-text models when they exist (see `docs/research/papers/22526_Latent_Speech_Text_Trans.pdf`) |
-| TTS | Coqui VITS | Newer open-source voice synthesis, voice-cloning for narrator playback |
+| TTS | Kokoro-82M (2026-05-08; Coqui VITS retired) | Newer open-source voice synthesis, voice-cloning for narrator playback |
 
 The fusion layer's contract is what stays stable. Only the upstream extractors get swapped. `WO-AFFECT-ANCHOR-01_Spec.md` is the canonical reference for how this is structured.
 
@@ -581,13 +584,12 @@ The architecture posture is **always-run-both, never-translate-to-correct**. The
 - **Place-as-birthplace guard** — `extract.py` `_drop_place_as_birthplace()` blocks the extractor from routing places mentioned only in narrative-connection context ("hablaba de Perú" / "extrañaba Perú" / "talked about Peru" / "missed Peru") to `*.birthPlace`. Birth-evidence patterns (`nació en X`, `era de X`, `was born in X`) preserve the candidate. Sibling lane to BUG-EX-PLACE-LASTNAME-01.
 - **Story trigger, Spanish anchors** — `services/story_trigger.py` Phase 5A added Spanish place / time / person anchor patterns parallel to the English set (`extrañaba`, `cuando era niña`, `mi abuela`, accentless variants for Whisper-degraded transcripts, `al`/`del` contractions for proper nouns).
 - **Memoir export, bilingual** — `routers/memoir_export.py` Phase 4B accepts `target_language=es`; the `services/translation.py` Llama-driven translator (voice-preserving system prompt, no summarization, names verbatim, filesystem cache keyed by source_text + target_lang) renders memoirs in Spanish from English source content. Live-verified on the Mary canonical sample.
-- **TTS — pluggable bilingual engine** — `WO-ML-TTS-EN-ES-01` spec authored. Kokoro-82M (Apache 2.0) is the locked primary engine; the `LORI_TTS_ENGINE` env flag selects between `coqui` (English-only, current default), `kokoro`, `melotts`, `piper`, `parler`. Engine-swap is byte-stable for English narrators when the flag stays on `coqui`. **Runtime patches deferred** until live verification of the perspective + fragment fixes lands.
+- **TTS — pluggable bilingual engine (Kokoro is live)** — `LORI_TTS_ENGINE=kokoro` is the default as of 2026-05-08 (Coqui RETIRED but adapter kept for A/B comparison). Kokoro-82M (Apache 2.0) with `LORI_TTS_KOKORO_VOICE_EN=af_heart` for English and `LORI_TTS_KOKORO_VOICE_ES=ef_dora` for Spanish. FE sniffs response language and sends `{text, language}` to `/api/tts/speak_stream` (see `ui/js/app.js:_lvSniffTtsLang`). Pluggable adapter pattern: `server/code/api/tts/{base,coqui,kokoro,dispatcher}.py`. HF cache pin required — see `LAPTOP_HANDOFF_KOKORO_INSTALL.md` for the `.env` end-state.
 
 **What's not yet wired:**
 
 - Spanish-monolingual evaluation suite (parallel to the 114-case master eval) — needs a Spanish-corpus expansion lane.
 - Code-switching evaluation pack landed (`data/evals/lori_code_switching_eval.json`, 12 cases) but live runtime grading happens after stack restart.
-- Kokoro TTS engine is specced but not yet wired — runtime patches gated on perspective-fix live verification.
 
 **The standing rule for any Spanish lane addition:** Spanish coverage is built parallel to English (always-run-both posture), never as a translation layer that lets the English path get sloppy. Every Spanish addition must produce the same `(repaired_text, list_of_changes_applied)` shape, the same idempotency contract, and the same English-passthrough behavior its English sibling has. That's why the implementation phases are paired: 5A anchors / 5B parser / 5C name extraction / 5D phantom-noun / 5E correction-ack / 5F code-switching fixtures.
 
@@ -755,30 +757,34 @@ python3 scripts/preload_trainer.py --all
 
 ---
 
-## Known bugs (2026-07-11 repo review)
+## 2026-07-11 repo review — status
 
-A whole-repo code review on 2026-07-11 surfaced the following. HIGH items are fixable in <30 minutes each; they didn't ship earlier because they sit in code paths that only fire under specific flag configurations.
+A whole-repo code review on 2026-07-11 surfaced HIGH / MEDIUM / LOW items. All eight HIGH items are **CLOSED** across three follow-up commits landed the same day. MEDIUM + LOW items remain open, tracked below.
 
-**HIGH — fix before next live run:**
+### Closed repo-review bugs (all HIGH)
 
-- **`server/code/api/routers/chat_ws.py:1784`** — `SafetyResult(...)` is instantiated when the LLM safety layer catches an indirect-ideation phrase the regex layer missed, but `SafetyResult` is NEVER imported at module scope (imports at line 152-157 pull only `scan_answer / build_segment_flags / get_resources_for_category / set_softened`). The wrapping `except Exception` at line 1968 swallows the NameError silently. Net effect: **WO-LORI-SAFETY-INTEGRATION-01 Phase 2 no-ops on every trigger** — no segment_flag, no softened write, no operator notify, no ACUTE-prompt forcing. Fix: add `SafetyResult` to the `from ..safety import (...)` block.
-- **`server/code/api/routers/interview.py:288`** — `flags = build_segment_flags(safety_result)` inside the safety-triggered branch of `answer_interview()` shadows the module-level `flags` (imported at line 10 as `from .. import db, flags`). Python marks the name local for the whole function body, so line 339's `flags.phase_aware_questions_enabled()` UnboundLocalErrors when the safety branch is skipped, and AttributeErrors when it fires. **Every call to `POST /api/interview/answer` currently crashes.** Fix: rename the local to `seg_flags`.
-- **`server/code/api/routers/chat_ws.py:3698`** — `db.export_turns(conv_id)` in the duplicate-response guard, but `db` was never imported as a module (only `export_turns` was named at line 129). NameError is swallowed by the surrounding try/except → `_prior_turns` silently becomes `[]` → the bit-identical duplicate-reply substitution NEVER runs. Fix: use `export_turns(conv_id)` directly (already named).
+**Server — conversation-layer safety** *(commit ebe64af)*:
 
-**HIGH — cross-narrator state pollution on sidebar-driven narrator switch:**
+- **`server/code/api/routers/chat_ws.py:157`** ✅ — `SafetyResult` added to `from ..safety import (...)` block. The LLM safety layer (`WO-LORI-SAFETY-INTEGRATION-01` Phase 2) was silently no-op'ing on every indirect-ideation catch via the wrapping `except Exception`; safety events now actually route.
+- **`server/code/api/routers/interview.py:295`** ✅ — local `flags = build_segment_flags(...)` renamed to `seg_flags`. `POST /api/interview/answer` was crashing on every call (UnboundLocalError when safety branch skipped, AttributeError when it fired).
+- **`server/code/api/routers/chat_ws.py:3710`** ✅ — dropped the `db.` prefix on `export_turns(conv_id)`. Duplicate-response guard silently returned `[]` prior; bit-identical duplicate-reply substitution now actually runs.
 
-- **`ui/js/app.js:3135-3140` + `3325-3484`** — the sidebar people-list `onClick` calls `lvxSwitchNarratorSafe(pid)` directly, bypassing `lv80SwitchPerson` (hornelore1.0.html:5808) which is the ONLY path that fires `stopEmotionEngine()` + `FacialConsent.reset()`. Sidebar-driven switch leaves prior narrator's camera stream + MediaPipe running under the new narrator with no fresh consent pass (same class as bug #176). AND `lvxSwitchNarratorSafe` doesn't reset ~13 narrator-scoped state fields (`sensitiveSegments`, `softenedMode/softenedUntilTurn`, `sessionAffectLog`, `turnCount`, `memoirStrategy.askedPaths/Kinds/Eras`, `loop.savedKeys/askedKeys`, `correctionState`, `memoryEcho`, `chronologyAccordion.focus`, `kawa.segmentList`, `narratorTurn.*`) — so A's disclosure softens B's interview, A's asked-fields suppress B's questions, A's affect events show on B's timeline. Fix: consolidate camera-reset + state-reset block into `lvxSwitchNarratorSafe`.
-- **`ui/js/safety-ui.js:157-165`** — `_loadSegments()` does not zero `sensitiveSegments` before reading LS_SEGS(pid). If the new narrator has no stored segments, the previous narrator's array survives. Fix: `sensitiveSegments = []` before the try/catch.
+**Frontend — cross-narrator state pollution** *(commit after review round 2)*:
 
-**HIGH — trip lane data integrity:**
+- **`ui/js/safety-ui.js:_loadSegments()`** ✅ — now resets `sensitiveSegments = []` before reading localStorage; adds `Array.isArray()` guard on parse. Prior narrator's segments no longer bleed into new narrator's UI.
+- **`ui/js/app.js:lvxSwitchNarratorSafe()`** ✅ — extended with a full narrator-scoped state-reset block covering `sensitiveSegments`, `softenedMode`, `softenedUntilTurn`, `turnCount`, `sessionAffectLog`, `memoirStrategy.asked{Paths,Kinds,Eras}`, `loop.{askedKeys,savedKeys,...}`, `correctionState`, `memoryEcho`, `chronologyAccordion.focus`, `kawa.*`, `narratorTurn.*`, plus a camera / MediaPipe teardown block calling `stopEmotionEngine()` when `cameraActive`. Sidebar-driven narrator switch is now clean.
 
-- **`server/code/api/services/trip_repository.py:1302`** — `photo_links_list()` uses `SELECT l.*` which projects raw `trip_photo_links.latitude / .longitude` to `/api/trips/{trip_id}/photo-links`. CLAUDE.md Ph1 doctrine explicitly said "raw lat/lon deliberately not projected; `photo_gps_present` BOOLEAN only" — but this operator endpoint leaks raw GPS anyway. Fix: enumerate columns, expose `(l.latitude IS NOT NULL) AS gps_present` only.
-- **`server/code/api/services/trip_repository.py:2011-2058`** — `photo_context_update()` lacks the include_in_memoir clear-on-edit that `public_context_update()` has (line 1856). Editing text revokes `approved_for_lori` but leaves `include_in_memoir=1`. Mirror the public_context_update rule.
-- **`server/code/api/services/trip_narration_capture.py:415, 435`** — `_stamp_stop_meta` / `_stamp_region_meta` do `UPDATE trip_stops SET meta_json = ?` wholesale, obliterating any prior keys. If any future writer stores other keys on stop/region meta_json (same class as the trip_meta_merge fix from 2026-07-05), narration silently wipes them. Fix: read-modify-write inside BEGIN IMMEDIATE.
+**Trip lane — data integrity** *(commits after review rounds 2 + 3)*:
 
-**MEDIUM — real functional bugs but limited blast radius:**
+- **`trip_repository.photo_links_list()`** ✅ — `SELECT l.*` replaced with an explicit `_PHOTO_LINK_SAFE_COLS` list excluding raw `latitude / longitude`; boolean `link_gps_present` provided in their place. `/api/trips/{trip_id}/photo-links` no longer leaks raw GPS.
+- **`trip_repository.photo_context_update()`** ✅ — mirrors `public_context_update` edit-clears-include rule PLUS the strict three-shape contract (round 3): on any text edit, `include_in_memoir` stays 0 unless the SAME request has BOTH explicit `approved_for_lori=True` AND explicit `include_in_memoir=True`. All four (edit × approve × include) combinations tested.
+- **`trip_narration_capture._stamp_stop_meta / _stamp_region_meta`** ✅ — new `_merge_meta_json()` helper; both stampers now read-modify-write inside `BEGIN IMMEDIATE`. Prior narration or operator meta_json keys survive. Migration 0033 adds the missing `trip_regions.meta_json` column so the region path actually persists now (silent no-op before).
 
-- **`server/code/api/routers/trips.py:2020-2057`** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` blindly, no cross-trip ownership check. Single-tenant so not a security issue; still a stale-FE-state hazard. Consider gating under `/{trip_id}/…`.
+**Verified live-safe:** 502/502 trip-lane tests green across 20 suites; 86/86 preflight tests green; syntax clean on all touched files.
+
+### MEDIUM — remaining, limited blast radius:
+
+- **`server/code/api/routers/trips.py` context patch/delete routes** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` blindly, no cross-trip ownership check. Single-tenant so not a security issue; still a stale-FE-state hazard where a cached row ID could patch the wrong trip's context. Consider trip-scoped route variants (`/{trip_id}/photo-context/{id}`) or a body-side trip-scope check.
 - **`server/code/api/services/lori_response_guards.py:173-188`** — `_looks_spanish` accent-tier requires "≥1 strong word + accent" but `_SPANISH_ONLY_WORDS_RX` still contains loose tokens (`hola`, single `iba`) that may appear in quoted travelogue text. Consider requiring ≥2 strong tokens in the accent tier, or exempting quoted spans.
 - **`server/code/api/routers/chat_ws.py:262-263`** — `_TRIP_PREV_LORI` and `_TRIP_LAST_CAPTURE` are unbounded module-level dicts keyed by conv_id, populated per trip turn with no eviction. Memory leaks linearly with conversations. Already flagged in CLAUDE.md 2026-07-09 as pending; still open. Fix: LRU-cap or purge on WebSocketDisconnect.
 - **`ui/js/travel-documenter.js:2152-2299`** — `modalLori._send` has no double-send guard (equivalent to `_loriIsBusy` in main chat). Two fast Sends in the modal, or a Send while main chat is still generating, can collide. Same class as the 2026-05-07 fix.
@@ -786,8 +792,9 @@ A whole-repo code review on 2026-07-11 surfaced the following. HIGH items are fi
 - **Test-order pollution in full `discover` run** — 191 spurious `sqlite3.OperationalError: no such table: trips` errors when running the whole suite together. Same tests pass in isolation (trip lane 422/422). Likely `test_memoir_story_wire.py:167` or `test_softened_mode_persistence.py:246` monkeypatch `_db.DB_PATH` and never restore it in tearDown. Doesn't affect correctness of the code under test; masks real regressions in CI. Fix: `unittest.load_tests` protocol to snapshot + restore `_db.DB_PATH` per module.
 - **Thread-bank surfacing** — genuine failures in `test_thread_bank.py`: `BankNewThreadsTest.test_persists_candidates`, `SurfacingTargetTest.test_emerging_mode_with_closing_marker_allows_surfacing`, `test_normal_mode_picks_oldest_eligible`. Not deps, not ordering; surfacing returns `None` where it should return a candidate.
 - **`server/code/api/prompt_composer.py:3227`** — `context.setdefault("last_user_text", user_text[:800])` then rendered via `_safe_json` into the system prompt. `json.dumps` quotes the string but doesn't neutralize embedded `[SYSTEM:` / `PROFILE_JSON:` sentinels a hostile browser extension could inject. Single-tenant so risk is small; still a real prompt-injection surface.
+- **Travel Doc Lab evidence panel — native `window.prompt()` for draft observation + place-from-context entry** *(ui/js/travel-doc-lab.js)*. Functional for preflight; not ideal for real operator use. Replace with a small in-panel editor or drawer after live verification.
 
-**LOW — cleanup / hygiene:**
+### LOW — cleanup / hygiene:
 
 - `.env.example` drift: ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (16 `DASH_*` alert thresholds, `HORNELORE_ATTRIB_BOUNDARY`, `HORNELORE_FACTUAL_CHAIN`, `HORNELORE_INTERVIEW_DISCIPLINE`, others). Codify a `grep -o 'os.getenv("[A-Z_]\+"' | sort -u` audit gate.
 - 9 `ADD COLUMN` migrations lack `IF NOT EXISTS` guards (0008, 0010, 0014, 0016, 0017, 0022, 0023, 0024, 0025). Rely on `schema_migrations` tracking. Consider `PRAGMA table_info` guard as belt-and-suspenders.
