@@ -1753,13 +1753,15 @@
   // Operator-only: OCR / public-lookup draft context + the approval ladder
   // (Draft -> Approve for Lori -> Include in memoir). All text is rendered
   // via el() (textContent) so OCR/lookup output can never inject markup.
-  var photoEvidence = { linkId: null, loading: false, pc: [], pub: [], note: "" };
+  var photoEvidence = { linkId: null, loading: false, pc: [], pub: [], note: "",
+                        lookupUrl: "" };
 
   function reloadPhotoEvidence() { photoEvidence.linkId = null; renderAll(); }
 
   function loadPhotoEvidence(linkId) {
     photoEvidence = { linkId: linkId, loading: true, pc: [], pub: [],
-                      note: photoEvidence.note };
+                      note: photoEvidence.note,
+                      lookupUrl: photoEvidence.lookupUrl || "" };
     var t = encodeURIComponent(st.trip.id);
     var lid = encodeURIComponent(linkId);
     Promise.all([
@@ -1947,10 +1949,30 @@
           { result_summary: s,
             evidence_sources: ["ocr", "public_context", "trip_labels"] });
       }));
+    // LIVE-TEST FIX (2026-07-13): this button used to post NO url. With the
+    // url_only provider (which fetches the exact page the operator supplies)
+    // that ALWAYS failed with "url_only provider requires a url" — the button
+    // could never work. Give it a real URL field.
+    var urlIn = el("input");
+    urlIn.type = "url";
+    urlIn.className = "tdl-ev-url";
+    urlIn.placeholder = "Paste a public URL (Wikipedia, museum site)…";
+    urlIn.value = photoEvidence.lookupUrl || "";
+    urlIn.addEventListener("input", function () {
+      photoEvidence.lookupUrl = urlIn.value;   // survive the re-render
+    });
+    acts.appendChild(urlIn);
     acts.appendChild(btn("tdl-btn", "🌐 Lookup public context", function () {
+      var u = (photoEvidence.lookupUrl || "").trim();
+      if (!u) {
+        photoEvidence.note = "Paste a public URL first — the url_only provider "
+          + "fetches the exact page you give it (there is no web search yet).";
+        renderAll();
+        return;
+      }
       evidenceAction("/api/trips/photo-links/"
         + encodeURIComponent(sel.id) + "/lookup-context", "Lookup",
-        { source_type: "place_context" });
+        { source_type: "place_context", url: u });
     }));
     box.appendChild(acts);
     if (photoEvidence.note) {

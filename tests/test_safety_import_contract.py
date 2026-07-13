@@ -43,13 +43,30 @@ _SAFETY = _REPO_ROOT / "server" / "code" / "api" / "safety.py"
 
 # The runtime half needs the REAL pydantic (safety.py builds SafetyResult on
 # it). We deliberately do NOT stub it: a stubbed constructor contract proves
-# nothing about the real constructor. Where pydantic is installed (Chris's
-# .venv-gpu / CI) these tests RUN; elsewhere they skip loudly.
+# nothing about the real constructor.
+#
+# TEST-ORDER HAZARD (found live 2026-07-13): ~20 test modules install a FAKE
+# pydantic into sys.modules at import time and never remove it. In a shared
+# process / discover run, whichever module lands first wins — so importing
+# api.safety here can silently pick up the stub and the "runtime" contract
+# becomes worthless (or errors). So we run the runtime checks in a CLEAN
+# SUBPROCESS, which is immune to sys.modules pollution regardless of order.
+import subprocess
+
 try:  # pragma: no cover - env dependent
     import pydantic  # noqa: F401
     _HAVE_PYDANTIC = True
 except Exception:  # pragma: no cover
     _HAVE_PYDANTIC = False
+
+
+def _run_in_clean_interpreter(body: str):
+    """Run a snippet in a fresh interpreter with server/code importable, so no
+    stubbed module from another test file can leak in."""
+    code = ("import sys\n"
+            "sys.path.insert(0, %r)\n" % str(_SERVER_CODE)) + body
+    return subprocess.run([sys.executable, "-c", code],
+                          capture_output=True, text=True, timeout=60)
 
 
 def _tree(p: Path) -> ast.Module:
@@ -141,13 +158,16 @@ class SafetyResultConstructorContractTest(unittest.TestCase):
     """
 
     def test_safety_result_constructs_with_the_kwargs_chat_ws_uses(self):
-        from api.safety import SafetyResult
-        r = SafetyResult(triggered=True,
-                         category="suicidal_ideation_indirect",
-                         confidence=0.81)
-        self.assertTrue(r.triggered)
-        self.assertEqual(r.category, "suicidal_ideation_indirect")
-        self.assertAlmostEqual(r.confidence, 0.81, places=3)
+        p = _run_in_clean_interpreter(
+            "from api.safety import SafetyResult\n"
+            "r = SafetyResult(triggered=True,"
+            " category='suicidal_ideation_indirect', confidence=0.81)\n"
+            "assert r.triggered and r.category == 'suicidal_ideation_indirect'\n"
+            "assert abs(r.confidence - 0.81) < 1e-6\n"
+            "print('OK')\n")
+        self.assertIn("OK", p.stdout,
+                      "chat_ws's SafetyResult(...) call no longer constructs: "
+                      + (p.stderr or "")[-400:])
 
     def test_llm_category_map_targets_are_real_categories(self):
         # chat_ws maps LLM categories -> pattern-side categories. A typo here
@@ -163,20 +183,26 @@ class SafetyResultConstructorContractTest(unittest.TestCase):
 
     def test_scan_answer_is_callable_and_returns_a_safety_result(self):
         # Cheapest possible proof the deterministic layer is actually alive.
-        from api.safety import scan_answer, SafetyResult
-        out = scan_answer("I want to kill myself")
-        self.assertIsInstance(out, SafetyResult)
-        self.assertTrue(out.triggered,
-                        "the deterministic pattern layer no longer fires on "
-                        "an explicit acute phrase")
-        self.assertEqual(out.category, "suicidal_ideation")
+        p = _run_in_clean_interpreter(
+            "from api.safety import scan_answer, SafetyResult\n"
+            "out = scan_answer('I want to kill myself')\n"
+            "assert isinstance(out, SafetyResult), 'not a SafetyResult'\n"
+            "assert out.triggered, 'pattern layer did not fire on acute phrase'\n"
+            "assert out.category == 'suicidal_ideation', out.category\n"
+            "print('OK')\n")
+        self.assertIn("OK", p.stdout,
+                      "the deterministic safety layer no longer fires on an "
+                      "explicit acute phrase: " + (p.stderr or "")[-400:])
 
     def test_benign_turn_does_not_trigger(self):
         # Contract: scan_answer returns the highest-confidence TRIGGERED
         # result, or None. chat_ws relies on the falsy-None path
         # (`if _safety_result:`) to mean "no safety on this turn".
-        from api.safety import scan_answer
-        self.assertIsNone(scan_answer("We had lunch in Munich."))
+        p = _run_in_clean_interpreter(
+            "from api.safety import scan_answer\n"
+            "assert scan_answer('We had lunch in Munich.') is None\n"
+            "print('OK')\n")
+        self.assertIn("OK", p.stdout, (p.stderr or "")[-400:])
 
 
 class SafetyDefaultSafeFallbackTest(unittest.TestCase):

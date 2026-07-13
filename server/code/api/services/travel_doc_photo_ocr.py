@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 from typing import Any, Dict
@@ -53,6 +54,63 @@ def ocr_langs() -> str:
     return (os.getenv("HORNELORE_OCR_LANGS", "eng") or "eng").strip() or "eng"
 
 
+# LIVE-TEST FIX (2026-07-13): Tesseract's DEFAULT page-segmentation mode is
+# tuned for scanned DOCUMENTS, and it fails badly on SCENE text (a museum sign
+# on a building, a beer coaster on a table). Live evidence: the Augustiner
+# coaster, which plainly reads "Augustiner Brau Munchen 1328", came back as
+# "VAMI i all, N STIVA RTAS INIT fart 1404 MI", and the Munich fish photo's
+# museum sign returned no_text_found — on FULL-RES 3072x4080 originals, so it
+# was never a resolution problem.
+#
+# So: light preprocessing (honour EXIF rotation, grayscale, autocontrast) and
+# try several page-segmentation modes, keeping the best result. PSM 11 =
+# "sparse text: find as much text as possible in no particular order", which is
+# the right mode for signs/labels. This is the cheap win; PaddleOCR remains the
+# stronger scene-text path the provider interface was built to accept.
+_DEFAULT_PSMS = ("11", "6", "3")   # sparse scene text -> single block -> auto
+
+_WORDLIKE_RX = re.compile(r"\S+")
+
+
+def ocr_psms():
+    raw = (os.getenv("HORNELORE_OCR_PSM", "") or "").strip()
+    if raw:
+        return tuple(p.strip() for p in raw.split(",") if p.strip())
+    return _DEFAULT_PSMS
+
+
+def _preprocess(img):
+    """Honour camera rotation, drop to grayscale, stretch contrast."""
+    from PIL import ImageOps  # type: ignore
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    try:
+        img = img.convert("L")
+        img = ImageOps.autocontrast(img)
+    except Exception:
+        pass
+    return img
+
+
+def _wordlike_score(text: str) -> int:
+    """Rank OCR candidates by how much REAL-looking text they contain.
+    Tesseract noise ('N STIVA RTAS') scores far lower than a true reading."""
+    # Length-WEIGHTED: real words are long ("Augustiner", "Fischereimuseum"),
+    # tesseract noise is short ("VAMI", "RTAS"). A flat char count scores the
+    # garbage coaster reading exactly the same as the true one (both 25), so
+    # square the token length to let genuine words dominate.
+    score = 0
+    for tok in _WORDLIKE_RX.findall(text or ""):
+        if len(tok) < 3:
+            continue
+        alpha = sum(1 for c in tok if c.isalpha())
+        if alpha >= 0.7 * len(tok):
+            score += len(tok) * len(tok)
+    return score
+
+
 def _run_tesseract(image_path: str) -> Dict[str, Any]:
     try:
         import pytesseract  # type: ignore
@@ -61,14 +119,29 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
         return _result(False, "tesseract",
                        error="tesseract/pillow not installed: %s" % exc)
     try:
-        text = pytesseract.image_to_string(
-            Image.open(image_path), lang=ocr_langs())
+        img = _preprocess(Image.open(image_path))
     except Exception as exc:
-        return _result(False, "tesseract", error="ocr failed: %s" % exc)
-    text = (text or "").strip()
-    if not text:
-        return _result(False, "tesseract", error="no_text_found")
-    return _result(True, "tesseract", raw_text=text, summary=_summarize(text))
+        return _result(False, "tesseract", error="cannot open image: %s" % exc)
+
+    best_text, best_score = "", -1
+    last_error = ""
+    for psm in ocr_psms():
+        try:
+            cand = pytesseract.image_to_string(
+                img, lang=ocr_langs(), config="--psm %s" % psm)
+        except Exception as exc:      # a bad PSM must not kill the whole run
+            last_error = str(exc)
+            continue
+        cand = (cand or "").strip()
+        score = _wordlike_score(cand)
+        if score > best_score:
+            best_text, best_score = cand, score
+
+    if not best_text or best_score <= 0:
+        return _result(False, "tesseract",
+                       error=last_error or "no_text_found")
+    return _result(True, "tesseract", raw_text=best_text,
+                   summary=_summarize(best_text))
 
 
 def _run_command(image_path: str) -> Dict[str, Any]:
@@ -115,4 +188,5 @@ def run_ocr(image_path: str) -> Dict[str, Any]:
     return _result(False, prov or "off", error="no OCR provider configured")
 
 
-__all__ = ["run_ocr", "ocr_enabled", "ocr_provider", "ocr_langs"]
+__all__ = ["run_ocr", "ocr_enabled", "ocr_provider", "ocr_langs",
+           "ocr_psms"]

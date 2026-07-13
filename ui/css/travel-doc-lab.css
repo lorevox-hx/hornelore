@@ -326,3 +326,14 @@
 .tdl-ev-on { background: #1f6f43; color: #fff; }
 .tdl-ev-off { background: #3a4560; color: #c8d0e0; opacity: .8; }
 .tdl-ev-ctrls { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+
+/* LIVE-TEST FIX (2026-07-13): url_only lookup needs an actual URL field —
+   the button previously posted no url and could never succeed. */
+.tdl-ev-url {
+  flex: 1 1 260px;
+  min-width: 200px;
+  padding: .3rem .5rem;
+  border: 1px solid var(--tdl-border, #33405a);
+  border-radius: 6px;
+  font-size: .82rem;
+}
