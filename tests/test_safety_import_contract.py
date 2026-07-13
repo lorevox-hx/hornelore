@@ -26,9 +26,25 @@ import ast
 import unittest
 from pathlib import Path
 
+import sys
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_SERVER_CODE = _REPO_ROOT / "server" / "code"
+if str(_SERVER_CODE) not in sys.path:
+    sys.path.insert(0, str(_SERVER_CODE))
 _CHAT_WS = _REPO_ROOT / "server" / "code" / "api" / "routers" / "chat_ws.py"
 _SAFETY = _REPO_ROOT / "server" / "code" / "api" / "safety.py"
+
+
+# The runtime half needs the REAL pydantic (safety.py builds SafetyResult on
+# it). We deliberately do NOT stub it: a stubbed constructor contract proves
+# nothing about the real constructor. Where pydantic is installed (Chris's
+# .venv-gpu / CI) these tests RUN; elsewhere they skip loudly.
+try:  # pragma: no cover - env dependent
+    import pydantic  # noqa: F401
+    _HAVE_PYDANTIC = True
+except Exception:  # pragma: no cover
+    _HAVE_PYDANTIC = False
 
 
 def _tree(p: Path) -> ast.Module:
@@ -100,6 +116,62 @@ class SafetyImportContractTest(unittest.TestCase):
             "SafetyResult is not imported in chat_ws — this is the exact "
             "2026-07-11 HIGH bug: SAFETY-INTEGRATION-01 Phase 2 silently "
             "no-op'd on every indirect-ideation catch.")
+
+
+@unittest.skipUnless(
+    _HAVE_PYDANTIC,
+    "pydantic not installed — the runtime safety contract is SKIPPED here. "
+    "It MUST pass in the real venv (.venv-gpu); a stub would prove nothing.")
+class SafetyResultConstructorContractTest(unittest.TestCase):
+    """RUNTIME half of the guard (ChatGPT review 2026-07-13).
+
+    The import contract above proves `SafetyResult` is imported. It does NOT
+    prove chat_ws can actually CONSTRUCT it. The synthesis site calls
+    `SafetyResult(triggered=..., category=..., confidence=...)`; if safety.py
+    ever renames a field, the import check still passes and the call blows up
+    at runtime — straight back into the swallowing `except Exception`.
+
+    So: really build one, with the exact kwargs the synthesis site uses, and
+    assert the LLM->pattern category map targets are real categories.
+    """
+
+    def test_safety_result_constructs_with_the_kwargs_chat_ws_uses(self):
+        from api.safety import SafetyResult
+        r = SafetyResult(triggered=True,
+                         category="suicidal_ideation_indirect",
+                         confidence=0.81)
+        self.assertTrue(r.triggered)
+        self.assertEqual(r.category, "suicidal_ideation_indirect")
+        self.assertAlmostEqual(r.confidence, 0.81, places=3)
+
+    def test_llm_category_map_targets_are_real_categories(self):
+        # chat_ws maps LLM categories -> pattern-side categories. A typo here
+        # routes a real ideation catch into a category nothing downstream
+        # handles, which looks identical to "safety never fired".
+        src = _CHAT_WS.read_text(encoding="utf-8")
+        for mapped in ("suicidal_ideation", "suicidal_ideation_indirect",
+                       "cognitive_distress"):
+            self.assertIn('"%s"' % mapped, src,
+                          "chat_ws no longer maps the LLM classifier onto "
+                          "%s — an indirect-ideation catch would route "
+                          "nowhere" % mapped)
+
+    def test_scan_answer_is_callable_and_returns_a_safety_result(self):
+        # Cheapest possible proof the deterministic layer is actually alive.
+        from api.safety import scan_answer, SafetyResult
+        out = scan_answer("I want to kill myself")
+        self.assertIsInstance(out, SafetyResult)
+        self.assertTrue(out.triggered,
+                        "the deterministic pattern layer no longer fires on "
+                        "an explicit acute phrase")
+        self.assertEqual(out.category, "suicidal_ideation")
+
+    def test_benign_turn_does_not_trigger(self):
+        # Contract: scan_answer returns the highest-confidence TRIGGERED
+        # result, or None. chat_ws relies on the falsy-None path
+        # (`if _safety_result:`) to mean "no safety on this turn".
+        from api.safety import scan_answer
+        self.assertIsNone(scan_answer("We had lunch in Munich."))
 
 
 class SafetyDefaultSafeFallbackTest(unittest.TestCase):
