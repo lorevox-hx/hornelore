@@ -18,7 +18,12 @@ failure test-visible:
      the turn is forced onto the LLM/interview path rather than silently
      skipping safety.
 
-Static/AST only — no server, no DB, no network.
+SCOPE (honest): static/AST contract PLUS a lightweight runtime contract —
+it really constructs SafetyResult with the synthesis site's kwargs and really
+calls scan_answer(). No DB, no network, no WebSocket. The runtime half is
+gated on REAL pydantic and is never stubbed (a stubbed constructor test would
+prove nothing). This does NOT prove end-to-end safety routing through the WS —
+that is Track C1b.
 """
 from __future__ import annotations
 
