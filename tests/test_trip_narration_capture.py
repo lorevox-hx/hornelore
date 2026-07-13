@@ -423,7 +423,15 @@ class ScopeLifetimeRegressionTest(_WriteCase):
             pstub.Field = lambda default=None, **k: default
             sys.modules["pydantic"] = pstub
         import os as _os
+        # TRACK-A1: restore the flag on exit — a leaked global env var is the
+        # same pollution class as a leaked DB_PATH (it changes how LATER test
+        # modules behave in a shared-process/discover run).
+        _prev_trips = _os.environ.get("HORNELORE_TRIPS")
         _os.environ["HORNELORE_TRIPS"] = "1"
+        self.addCleanup(
+            lambda: (_os.environ.__setitem__("HORNELORE_TRIPS", _prev_trips)
+                     if _prev_trips is not None
+                     else _os.environ.pop("HORNELORE_TRIPS", None)))
         from api.routers.trips import patch_stop
         from fastapi import HTTPException
 
@@ -546,7 +554,15 @@ class NarratorPhotoSafetyTest(_WriteCase):
             pstub.Field = lambda default=None, **k: default
             sys.modules["pydantic"] = pstub
         import os as _os
+        # TRACK-A1: restore the flag on exit — a leaked global env var is the
+        # same pollution class as a leaked DB_PATH (it changes how LATER test
+        # modules behave in a shared-process/discover run).
+        _prev_trips = _os.environ.get("HORNELORE_TRIPS")
         _os.environ["HORNELORE_TRIPS"] = "1"
+        self.addCleanup(
+            lambda: (_os.environ.__setitem__("HORNELORE_TRIPS", _prev_trips)
+                     if _prev_trips is not None
+                     else _os.environ.pop("HORNELORE_TRIPS", None)))
         from api.routers.trips import patch_photo_link
         from fastapi import HTTPException
 
