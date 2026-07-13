@@ -1759,9 +1759,13 @@
   function reloadPhotoEvidence() { photoEvidence.linkId = null; renderAll(); }
 
   function loadPhotoEvidence(linkId) {
+    // The typed URL survives a RE-RENDER of the same photo, but must NOT
+    // bleed onto a DIFFERENT photo — otherwise the operator can silently
+    // attach the previous photo's public URL to the new selection.
+    var sameLink = (photoEvidence.linkId === linkId);
     photoEvidence = { linkId: linkId, loading: true, pc: [], pub: [],
                       note: photoEvidence.note,
-                      lookupUrl: photoEvidence.lookupUrl || "" };
+                      lookupUrl: sameLink ? (photoEvidence.lookupUrl || "") : "" };
     var t = encodeURIComponent(st.trip.id);
     var lid = encodeURIComponent(linkId);
     Promise.all([

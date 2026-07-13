@@ -61,6 +61,11 @@ class LookupUrlInputTest(unittest.TestCase):
     def test_typed_url_survives_rerender(self):
         self.assertIn("lookupUrl", self.src)
 
+    def test_typed_url_does_not_bleed_onto_another_photo(self):
+        # A URL typed for photo A must not silently attach to photo B.
+        self.assertIn("sameLink", self.src)
+        self.assertIn('lookupUrl: sameLink ?', self.src)
+
     def test_css_for_the_url_field(self):
         self.assertIn(".tdl-ev-url", _CSS.read_text(encoding="utf-8"))
 
@@ -74,11 +79,15 @@ class TesseractSceneTextTest(unittest.TestCase):
         self.assertEqual(ocr.ocr_psms()[0], "11")
 
     def test_psms_are_env_overridable(self):
+        # Restore the PREVIOUS value, don't just pop — popping an env var that
+        # was already set is the same leak class as the HORNELORE_TRIPS one.
+        prev = os.environ.get("HORNELORE_OCR_PSM")
         os.environ["HORNELORE_OCR_PSM"] = "6,4"
-        try:
-            self.assertEqual(ocr.ocr_psms(), ("6", "4"))
-        finally:
-            os.environ.pop("HORNELORE_OCR_PSM", None)
+        self.addCleanup(
+            lambda: (os.environ.__setitem__("HORNELORE_OCR_PSM", prev)
+                     if prev is not None
+                     else os.environ.pop("HORNELORE_OCR_PSM", None)))
+        self.assertEqual(ocr.ocr_psms(), ("6", "4"))
 
     def test_real_text_outscores_the_live_garbage_reading(self):
         # THE live failure: both readings have the same raw char count, so a
@@ -99,7 +108,11 @@ class TesseractSceneTextTest(unittest.TestCase):
         self.assertEqual(ocr._wordlike_score("1404 . , 12 !!"), 0)
 
     def test_ocr_still_off_by_default(self):
+        prev = os.environ.get("HORNELORE_PHOTO_OCR")
         os.environ.pop("HORNELORE_PHOTO_OCR", None)
+        self.addCleanup(
+            lambda: os.environ.__setitem__("HORNELORE_PHOTO_OCR", prev)
+            if prev is not None else None)
         self.assertFalse(ocr.ocr_enabled())
         self.assertFalse(ocr.run_ocr("/nonexistent.jpg")["ok"])
 
