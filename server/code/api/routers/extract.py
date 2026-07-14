@@ -5871,8 +5871,12 @@ def _apply_claims_relation_allowlist(items: List[dict]) -> List[dict]:
     """WO-EX-CLAIMS-02 validator 2: reject extracted .relation values that
     aren't in the known relation vocabulary.
 
-    This catches LLM artifacts like relation='then', relation='and',
-    relation='kids' that leak from compound sentence parsing.
+    This catches LLM artifacts like relation='then', relation='and' that
+    leak from compound sentence parsing.
+
+    NOTE: relation='kids' is NOT an artifact — the normalizer below maps it
+    to 'child'. A narrator saying "my kids" is real information; dropping it
+    would lose a fact the narrator actually gave us.
 
     Includes a normalizer that converts plural/informal relation words to
     their canonical singular form before checking the allowlist.

@@ -129,9 +129,24 @@ class TestRelationAllowlist(unittest.TestCase):
         items = [_item("family.children.relation", "and")]
         self.assertEqual(_apply_claims_relation_allowlist(items), [])
 
-    def test_rejects_relation_kids(self):
+    def test_normalizes_relation_kids_to_child(self):
+        # extract.py gained a _RELATION_NORMALIZER that maps plural/informal
+        # relation words to their canonical singular ("kids" -> "child"). A
+        # narrator saying "my kids" is REAL information, not an LLM artifact,
+        # so it is normalized and kept — not dropped. (The old test asserted
+        # rejection and the docstring still called 'kids' an artifact; the
+        # code changed and they did not.)
         items = [_item("family.children.relation", "kids")]
-        self.assertEqual(_apply_claims_relation_allowlist(items), [])
+        out = _apply_claims_relation_allowlist(items)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["value"], "Child")
+
+    def test_still_rejects_true_artifacts(self):
+        # The validator must STILL drop the junk it exists to catch.
+        for junk in ("then", "and", "the"):
+            self.assertEqual(
+                _apply_claims_relation_allowlist(
+                    [_item("family.children.relation", junk)]), [], junk)
 
     def test_accepts_relation_daughter(self):
         items = [_item("family.children.relation", "daughter")]
