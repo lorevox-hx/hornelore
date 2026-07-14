@@ -7433,8 +7433,34 @@ function _lv80InstallSafetyHook() {
         try {
           const parsed = JSON.parse(data);
           if (parsed.type === "start_turn" && parsed.message) {
-            parsed.message += _wsContextBlock;
-            console.log(`[Lori 9.0] WS context injected — posture: ${_wsPosture}`);
+            // BUG-SAFETY-DIRECTIVE-CONCATENATED-INTO-NARRATOR-TURN-01
+            // (live, 2026-07-14). This used to do:
+            //     parsed.message += _wsContextBlock;
+            // which put the DIRECTIVE INSIDE THE NARRATOR'S OWN WORDS.
+            // The turn stored in the archive for a narrator in crisis was:
+            //
+            //   "I don't want to be here anymore. There's no point to any
+            //    of it. [SAFETY MODE: ACTIVE — ... Do NOT say 'I cannot
+            //    continue' ... Do NOT reset to interview mode.]"
+            //
+            // Consequences, all observed live:
+            //   * the narrator's most vulnerable sentence is permanently
+            //     contaminated with machine instructions in their memoir
+            //     source;
+            //   * the extractor and the story-trigger read it as speech;
+            //   * the follow-up bank mined "Do NOT" as an ANCHOR and Lori
+            //     recited it back — "From what you just shared, I heard
+            //     about Do NOT.";
+            //   * safety mode is sticky, so the NEXT turn was polluted too.
+            //
+            // A directive is not something the narrator said. It travels
+            // beside the message, never inside it. The server routes this
+            // to the SYSTEM prompt (chat_ws -> compose_system_prompt
+            // ui_system=), which is where it always belonged.
+            parsed.params = parsed.params || {};
+            parsed.params.ui_context_block = _wsContextBlock.trim();
+            parsed.params.ui_posture = _wsPosture;
+            console.log(`[Lori 9.0] WS context sent as system directive — posture: ${_wsPosture}`);
           }
           _origWsSend(JSON.stringify(parsed));
         } catch (e) {

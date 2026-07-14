@@ -3024,7 +3024,27 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _fc_rt_exc,
                 )
 
-        system_prompt = compose_system_prompt(conv_id, ui_system=None, user_text=user_text, runtime71=runtime71)
+        # BUG-SAFETY-DIRECTIVE-CONCATENATED-INTO-NARRATOR-TURN-01 (2026-07-14):
+        # the UI used to APPEND its posture directive ([SAFETY MODE: ACTIVE ...],
+        # [COMPANION MODE ...], etc.) onto the narrator's own message, so the
+        # directive was archived, extracted, and mined for anchors as if the
+        # narrator had SAID it. It now travels beside the message, in params,
+        # and lands where it always belonged: the SYSTEM prompt.
+        #
+        # Sanitized like any other untrusted UI string, and hard-capped — this
+        # is a directive channel, not an arbitrary prompt-injection surface.
+        _ui_context_block = params.get("ui_context_block")
+        _ui_system_for_prompt = None
+        if isinstance(_ui_context_block, str) and _ui_context_block.strip():
+            _ui_system_for_prompt = _ui_context_block.strip()[:1200]
+            logger.info(
+                "[chat_ws][ui-posture] directive routed to system prompt "
+                "(posture=%s, %d chars) — NOT into the narrator turn",
+                params.get("ui_posture") or "?", len(_ui_system_for_prompt))
+
+        system_prompt = compose_system_prompt(
+            conv_id, ui_system=_ui_system_for_prompt, user_text=user_text,
+            runtime71=runtime71)
 
         # WO-TRIP-INTERVIEW-CONTEXT-01 Step 2 — when a trip is actively open
         # on the Travels shelf, append a compact, narrator-safe trip context
