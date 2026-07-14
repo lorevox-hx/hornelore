@@ -143,6 +143,44 @@ class TesseractSceneTextTest(unittest.TestCase):
         self.assertIn("output_type=Output.DICT", src)
         self.assertIn("conf < min_conf", src)
 
+    def test_rejection_reports_the_confidence_it_actually_saw(self):
+        # A rejection that says only "no_text_found" is a dead end: you cannot
+        # tell a photo with NO text from a photo whose text missed the floor by
+        # two points. Live proof (2026-07-14): the ZUBR beer mug — big, clear,
+        # embossed lettering — was rejected, and there was no way to see how
+        # close it came. Curved glass depresses per-word confidence.
+        r = ocr._result(False, "tesseract", error="no_text_found",
+                        confidence=48.0,
+                        observed="best pass: confidence 48, 3 words, floor 55")
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["confidence"], 48.0)
+        self.assertIn("floor 55", r["observed"])
+
+    def test_success_reports_confidence_too(self):
+        r = ocr._result(True, "tesseract", raw_text="AUGUSTINER",
+                        confidence=87.4)
+        self.assertEqual(r["confidence"], 87.4)
+
+    def test_min_conf_override_is_clamped_and_plumbed(self):
+        # The Lab can lower the floor for a hard photo without a stack restart
+        # per attempt. Out-of-range values must not disable the gate entirely.
+        import inspect
+        self.assertIn("min_conf",
+                      inspect.signature(ocr.run_ocr).parameters)
+        self.assertIn("min_conf",
+                      inspect.signature(ocr._run_tesseract).parameters)
+        src = inspect.getsource(ocr._run_tesseract)
+        self.assertIn("max(0.0, min(100.0, float(min_conf)))", src)
+
+    def test_override_does_not_change_the_stored_confidence_tier(self):
+        # Lowering the floor admits MORE drafts. It must never promote one:
+        # the row is still confidence='draft' and still needs approval.
+        src = (_REPO_ROOT / "server" / "code" / "api" / "routers"
+               / "trips.py").read_text(encoding="utf-8")
+        ocr_ep = src[src.index('@router.post("/photo-links/{link_id}/ocr")'):]
+        ocr_ep = ocr_ep[:ocr_ep.index("@router.post", 10)]
+        self.assertIn('confidence="draft"', ocr_ep)
+
     def test_confidence_thresholds_are_env_tunable(self):
         prev = os.environ.get("HORNELORE_OCR_MIN_CONF")
         os.environ["HORNELORE_OCR_MIN_CONF"] = "72"

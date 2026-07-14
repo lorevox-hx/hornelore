@@ -21,7 +21,7 @@ import os
 import re
 import shlex
 import subprocess
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 _TRUTHY = {"1", "true", "yes", "on"}
 _OCR_TIMEOUT_SEC = 60
@@ -45,9 +45,16 @@ def _summarize(text: str) -> str:
 
 
 def _result(ok: bool, engine: str, raw_text: str = "", summary: str = "",
-            error: str = "") -> Dict[str, Any]:
+            error: str = "", confidence: float = 0.0,
+            observed: str = "") -> Dict[str, Any]:
+    # `confidence` and `observed` are DIAGNOSTIC ONLY. They exist so a
+    # rejection can be tuned instead of guessed at: a rejected photo now
+    # reports the best confidence tesseract actually reached, so we can see
+    # whether the floor is one point too high or fifty.
     return {"ok": ok, "engine": engine, "raw_text": raw_text,
-            "summary": summary, "error": error or None}
+            "summary": summary, "error": error or None,
+            "confidence": round(float(confidence), 1),
+            "observed": observed or None}
 
 
 def ocr_langs() -> str:
@@ -234,7 +241,8 @@ def _tesseract_pass(pytesseract, img, psm):
     return " ".join(words), sum(confs) / len(confs), len(words)
 
 
-def _run_tesseract(image_path: str) -> Dict[str, Any]:
+def _run_tesseract(image_path: str,
+                   min_conf: Optional[float] = None) -> Dict[str, Any]:
     try:
         import pytesseract  # type: ignore
         from PIL import Image  # type: ignore
@@ -248,9 +256,19 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
 
     best_text, best_score, best_conf = "", -1, 0.0
     last_error = ""
-    min_conf = ocr_min_confidence()
+    if min_conf is None:
+        min_conf = ocr_min_confidence()
+    min_conf = max(0.0, min(100.0, float(min_conf)))
     min_words = ocr_min_words()
     min_ratio = ocr_min_ratio()
+
+    # What tesseract actually SAW, kept even when we reject it. Without this a
+    # rejection is a dead end: you cannot tell a photo with no text from a
+    # photo whose text missed the floor by two points. Live proof (2026-07-14):
+    # the ZUBR beer mug — big, clear, embossed lettering — was rejected, and we
+    # had no way to see how close it came. Curved glass depresses confidence.
+    seen_conf, seen_words, seen_text = 0.0, 0, ""
+
     for psm in ocr_psms():
         try:
             cand, conf, n_words = _tesseract_pass(pytesseract, img, psm)
@@ -260,6 +278,8 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
         cand = (cand or "").strip()
         if not cand:
             continue
+        if conf > seen_conf:
+            seen_conf, seen_words, seen_text = conf, n_words, cand
         # PRIMARY gate — tesseract's own confidence. A textless photo makes it
         # guess, and it says so.
         if conf < min_conf or n_words < min_words:
@@ -277,10 +297,15 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
     if not best_text or best_score <= 0:
         # Honest: NO row is written. A photo with no text (a plate of food)
         # must never produce evidence Lori would then read back.
+        observed = ""
+        if seen_text:
+            observed = ("best pass: confidence %.0f, %d words, "
+                        "floor %.0f" % (seen_conf, seen_words, min_conf))
         return _result(False, "tesseract",
-                       error=last_error or "no_text_found")
+                       error=last_error or "no_text_found",
+                       confidence=seen_conf, observed=observed)
     return _result(True, "tesseract", raw_text=best_text,
-                   summary=_summarize(best_text))
+                   summary=_summarize(best_text), confidence=best_conf)
 
 
 def _run_command(image_path: str) -> Dict[str, Any]:
@@ -309,7 +334,8 @@ def _run_command(image_path: str) -> Dict[str, Any]:
     return _result(True, "command", raw_text=text, summary=summary)
 
 
-def run_ocr(image_path: str) -> Dict[str, Any]:
+def run_ocr(image_path: str,
+            min_conf: Optional[float] = None) -> Dict[str, Any]:
     """Run the configured OCR provider on a LOCAL image path.
 
     Returns {ok, engine, raw_text, summary, error}. ok=False whenever the
@@ -321,7 +347,7 @@ def run_ocr(image_path: str) -> Dict[str, Any]:
         return _result(False, ocr_provider(), error="image file not found")
     prov = ocr_provider()
     if prov == "tesseract":
-        return _run_tesseract(image_path)
+        return _run_tesseract(image_path, min_conf=min_conf)
     if prov == "command":
         return _run_command(image_path)
     return _result(False, prov or "off", error="no OCR provider configured")

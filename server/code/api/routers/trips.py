@@ -63,7 +63,8 @@ import sqlite3
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import (APIRouter, File, Form, HTTPException, Query,
+                     UploadFile)
 from pydantic import BaseModel
 
 from ..services import (
@@ -1855,9 +1856,21 @@ def reverse_geocode_photo_link(link_id: str) -> Dict[str, Any]:
 #     approval ladder is the only way evidence becomes usable/memoir.
 
 @router.post("/photo-links/{link_id}/ocr")
-def run_photo_ocr(link_id: str) -> Dict[str, Any]:
+def run_photo_ocr(
+    link_id: str,
+    min_confidence: Optional[float] = Query(
+        None, ge=0, le=100,
+        description="Operator-side override of the OCR confidence floor. "
+                    "Omitted = the HORNELORE_OCR_MIN_CONF default. Lets the "
+                    "Lab find the right floor for a hard photo without a "
+                    "stack restart per attempt. Does NOT change the stored "
+                    "confidence tier: the row is still a DRAFT."),
+) -> Dict[str, Any]:
     """Run the configured local OCR provider on a linked photo and store
-    the result as DRAFT trip_photo_context (context_type='ocr_text')."""
+    the result as DRAFT trip_photo_context (context_type='ocr_text').
+
+    A rejection is reported with the confidence tesseract actually reached,
+    so a miss can be diagnosed rather than guessed at."""
     _require_trips_enabled()
     from ..services import travel_doc_photo_ocr
     if not travel_doc_photo_ocr.ocr_enabled():
@@ -1867,19 +1880,26 @@ def run_photo_ocr(link_id: str) -> Dict[str, Any]:
     info = trip_repository.photo_file_for_link(link_id)
     if not info:
         raise HTTPException(status_code=404, detail="photo link not found")
-    res = travel_doc_photo_ocr.run_ocr(info.get("image_path") or "")
+    res = travel_doc_photo_ocr.run_ocr(info.get("image_path") or "",
+                                       min_conf=min_confidence)
     if not res.get("ok"):
+        logger.info("[trips][photo-ocr] rejected link=%s conf=%.0f (%s)",
+                    link_id, res.get("confidence") or 0.0,
+                    res.get("observed") or res.get("error"))
         return {"status": "unavailable", "engine": res.get("engine"),
-                "message": res.get("error")}
+                "message": res.get("error"),
+                "confidence": res.get("confidence"),
+                "observed": res.get("observed")}
     cid = trip_repository.photo_context_create(
         trip_id=info["trip_id"], photo_link_id=link_id,
         context_type="ocr_text", result_summary=res["summary"],
         photo_id=info.get("photo_id"), raw_text=res.get("raw_text"),
         confidence="draft", engine=res.get("engine"),
         source_ref="ocr:photo_link:%s" % link_id)
-    logger.info("[trips][photo-ocr] stored ctx=%s link=%s engine=%s",
-                cid, link_id, res.get("engine"))
+    logger.info("[trips][photo-ocr] stored ctx=%s link=%s engine=%s conf=%.0f",
+                cid, link_id, res.get("engine"), res.get("confidence") or 0.0)
     return {"status": "stored", "context_id": cid,
+            "confidence": res.get("confidence"),
             "context": trip_repository.photo_context_get(cid)}
 
 

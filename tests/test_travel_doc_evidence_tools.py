@@ -207,10 +207,11 @@ class OcrEndpointTest(_DbCase):
     def test_ocr_stores_draft_row_defaults_off(self):
         os.environ["HORNELORE_PHOTO_OCR"] = "1"
         orig = ocr.run_ocr
-        ocr.run_ocr = lambda p: {
+        ocr.run_ocr = lambda p, min_conf=None: {
             "ok": True, "engine": "tesseract",
             "raw_text": "Deutsches Jagd- und Fischereimuseum",
-            "summary": "Deutsches Jagd- und Fischereimuseum", "error": None}
+            "summary": "Deutsches Jagd- und Fischereimuseum", "error": None,
+            "confidence": 84.0, "observed": None}
         try:
             out = trips.run_photo_ocr(self.link_id)
         finally:
@@ -226,13 +227,19 @@ class OcrEndpointTest(_DbCase):
     def test_ocr_provider_failure_writes_no_row(self):
         os.environ["HORNELORE_PHOTO_OCR"] = "1"
         orig = ocr.run_ocr
-        ocr.run_ocr = lambda p: {"ok": False, "engine": "tesseract",
-                                 "error": "no_text_found"}
+        ocr.run_ocr = lambda p, min_conf=None: {
+            "ok": False, "engine": "tesseract", "error": "no_text_found",
+            "confidence": 31.0,
+            "observed": "best pass: confidence 31, 4 words, floor 55"}
         try:
             out = trips.run_photo_ocr(self.link_id)
         finally:
             ocr.run_ocr = orig
         self.assertEqual(out["status"], "unavailable")
+        # The rejection must carry the confidence it actually saw, or the
+        # floor cannot be tuned — only guessed at.
+        self.assertEqual(out["confidence"], 31.0)
+        self.assertIn("floor 55", out["observed"])
         self.assertEqual(
             trip_repository.photo_context_list_for_link(self.link_id), [])
 
