@@ -1025,7 +1025,31 @@ async def ws_chat(ws: WebSocket):
                 )
 
         # Memory Archive — ensure session exists and log user message
-        if person_id:
+        #
+        # BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01 (live, 2026-07-14): this
+        # write was gated on person_id ONLY, never on surface, so every Travel
+        # Doc Lori MODAL turn was archived into the narrator's LIFE-STORY
+        # conversation as something the narrator said. Observed in the Narrator
+        # Room: an operator's workspace question ("can you tell me about this
+        # photo?") rendered as Christopher's own turn, over and over.
+        #
+        # That is not cosmetic. peek_at_memoir / compose_memory_echo read these
+        # archive sessions to build "what you've shared so far" — so operator
+        # workspace chatter becomes narrator memory, and Lori reads it back to
+        # them as their own words. It breaks the locked two-surface rule
+        # (Narrator Room = life story; Travel Doc modal = trip building) and
+        # the "no operator leakage" principle in one move.
+        #
+        # The modal already has its OWN capture path (trip_story_capture
+        # .capture_modal_turn -> trip_location_notes, source_surface=
+        # travel_doc_modal). Life-story archiving is pure leakage. Skip it.
+        _archive_surface = (params.get("surface") or "narrator").strip().lower()
+        _skip_life_story_archive = (_archive_surface == "travel_doc_modal")
+        if _skip_life_story_archive:
+            logger.info(
+                "[chat_ws][archive] skipping life-story archive for modal turn "
+                "(conv=%s) — trip capture owns this surface", conv_id)
+        if person_id and not _skip_life_story_archive:
             archive_ensure_session(
                 person_id=person_id,
                 session_id=conv_id,
@@ -4197,8 +4221,18 @@ async def ws_chat(ws: WebSocket):
             logger.error("[chat-ws] Phase G: persist_turn_transaction failed — %s", persist_err)
             await _ws_send(ws, {"type": "error", "message": "Turn persist failed — no state written"})
 
-        # Memory Archive — log assistant reply + rebuild transcript
-        if person_id:
+        # Memory Archive — log assistant reply + rebuild transcript.
+        # Same surface gate as the user-turn write above
+        # (BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01): a modal reply must not
+        # land in the narrator's life story either, or the transcript rebuild
+        # stitches Travel Doc workspace talk into the memoir source.
+        # Recomputed, NOT inherited: the user-turn gate is ~3k lines up and an
+        # early return path could leave it unbound. A NameError here would kill
+        # the archive write for EVERY narrator, so derive it locally.
+        _skip_modal_archive = (
+            (params.get("surface") or "narrator").strip().lower()
+            == "travel_doc_modal")
+        if person_id and not _skip_modal_archive:
             try:
                 archive_append_event(
                     person_id=person_id,
