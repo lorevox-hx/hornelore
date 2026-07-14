@@ -5740,10 +5740,12 @@ async function lv80LoadPeople() {
     return;
   }
 
+  const _labels = _horneloreDisambiguateLabels(people);
   people.forEach(p => {
     const opt = document.createElement("option");
-    opt.value = p.person_id || p.id || "";
-    opt.textContent = _horneloreNormalizeVisibleName(p);
+    const _pid = p.person_id || p.id || "";
+    opt.value = _pid;
+    opt.textContent = _labels.get(_pid) || _horneloreNormalizeVisibleName(p);
     sel.appendChild(opt);
   });
 
@@ -6374,7 +6376,8 @@ function lv80RenderNarratorCards(){
 
   function _renderCard(person, badgeLabel, badgeClass, subtitle) {
     const pid = person.person_id || person.id || person.uuid;
-    const name = _horneloreNormalizeVisibleName(person);
+    const name = (_horneloreDisambiguateLabels(people).get(pid)
+                  || _horneloreNormalizeVisibleName(person));
     const card = document.createElement("div");
     card.className = "lv80-narrator-card" + (pid === state.person_id ? " active" : "");
     const sub = subtitle
@@ -6737,6 +6740,48 @@ function _horneloreAllowedNarratorNames() {
     "janice horne",
     "janice"
   ]);
+}
+
+// BUG-NARRATOR-LABEL-COLLISION-01 (live, 2026-07-14): the canonicalizer below
+// maps ANY narrator called "christopher" to "Christopher Todd Horne". The DB
+// held TWO distinct people — "Christopher" (e7fdb578) and "Christopher Todd
+// Horne" (a4b2f07a) — and the picker rendered BOTH with the identical label.
+// Two narrators that look the same in the picker is how a memory gets written
+// to the wrong person's life. The same trap is armed for "kent" and "janice".
+//
+// So: keep the warm family name, but if two people collapse onto ONE label,
+// disambiguate them. Identity beats tidiness — an operator must always be able
+// to tell whose story they are recording.
+function _horneloreDisambiguateLabels(people) {
+  const out = new Map();               // person_id -> final label
+  const byLabel = new Map();           // canonical label -> [person, ...]
+  (Array.isArray(people) ? people : []).forEach(p => {
+    const label = _horneloreNormalizeVisibleName(p);
+    if (!byLabel.has(label)) byLabel.set(label, []);
+    byLabel.get(label).push(p);
+  });
+  byLabel.forEach((group, label) => {
+    if (group.length === 1) {
+      const p = group[0];
+      out.set(p.person_id || p.id || p.uuid || "", label);
+      return;
+    }
+    // Collision. Try a HUMAN distinguisher first (birth year), but only if it
+    // actually distinguishes — the live DB had two Christophers who SHARE a
+    // date of birth (1962), so the year suffix collided too. A disambiguator
+    // that does not disambiguate is worse than none: it LOOKS resolved.
+    // Verify, then fall back to the person_id, which is unique by definition.
+    const years = group.map(
+      p => (String(p.date_of_birth || "").match(/\d{4}/) || [])[0] || "");
+    const yearsUsable = years.every(Boolean)
+                        && new Set(years).size === group.length;
+    group.forEach((p, i) => {
+      const pid = String(p.person_id || p.id || p.uuid || "");
+      const suffix = yearsUsable ? ("b. " + years[i]) : ("#" + pid.slice(0, 8));
+      out.set(pid, label + " \u00b7 " + suffix);
+    });
+  });
+  return out;
 }
 
 function _horneloreNormalizeVisibleName(person) {
