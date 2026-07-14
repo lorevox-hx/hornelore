@@ -39,9 +39,30 @@
     return _currentPersonId ? (LS_KEY_PREFIX + _currentPersonId) : LS_KEY_LEGACY;
   }
 
+  // BUG-FACIAL-CONSENT-DECLINE-NOT-PERSISTED-01 (live, 2026-07-14).
+  // Consent was stored ONLY on grant. A DECLINE set an in-memory flag and
+  // wrote nothing — so a narrator who said "no, I don't want the camera" was
+  // asked again on the very next page load, and the next, and the next.
+  //
+  // For an older narrator, being repeatedly asked to switch on a camera they
+  // already refused is exactly the pressure this consent flow exists to
+  // prevent. No means no, and it has to survive a reload.
+  //
+  // Tri-state, so "declined" and "never asked" stop being the same thing:
+  //   'true'  -> granted   (auto-grant, do not re-ask)
+  //   'false' -> DECLINED  (do not re-ask; only revokeStored() re-opens it)
+  //   absent  -> never asked (ask once)
+  function _readRaw() {
+    try { return localStorage.getItem(_activeKey()); }
+    catch (_) { return null; }
+  }
+
   function _readStored() {
-    try { return localStorage.getItem(_activeKey()) === 'true'; }
-    catch (_) { return false; }
+    return _readRaw() === 'true';
+  }
+
+  function _readDeclined() {
+    return _readRaw() === 'false';
   }
 
   // WO-02: Check localStorage for prior consent (family-friendly persistence).
@@ -49,7 +70,7 @@
   // session — but they DO need to be asked the first time per narrator.
   let _storedConsent   = _readStored();
   let _consentGranted  = _storedConsent;  // auto-grant if previously consented for this narrator
-  let _consentDeclined = false;           // true if user explicitly declined
+  let _consentDeclined = _readDeclined(); // a prior DECLINE must survive reload
   let _pendingResolve  = null;            // Promise resolver waiting on consent answer
 
   /* ── Public API ─────────────────────────────────────────────── */
@@ -113,13 +134,19 @@
       const next = (personId || "").trim() || null;
       if (next === _currentPersonId) return;
       _currentPersonId = next;
-      _consentDeclined = false;  // each narrator starts fresh on decline
       _storedConsent   = _readStored();
-      // Migration path: if the new per-narrator key has no record but the
-      // legacy global key does, accept the legacy grant for THIS narrator
-      // ONCE so they aren't re-prompted right after the upgrade. Then
-      // write the per-narrator key so future narrators don't inherit.
-      if (!_storedConsent && next) {
+      _consentDeclined = _readDeclined();  // a narrator's stored NO follows them
+      // Migration path: if the new per-narrator key has NO RECORD AT ALL but
+      // the legacy global key does, accept the legacy grant for THIS narrator
+      // ONCE so they aren't re-prompted right after the upgrade. Then write
+      // the per-narrator key so future narrators don't inherit.
+      //
+      // The `_readRaw() === null` test is load-bearing. The old condition was
+      // `!_storedConsent`, which is ALSO true for a narrator who has stored a
+      // DECLINE — so migrating on it would silently overwrite their "no" with
+      // a legacy "yes" inherited from somebody else. A narrator who refused
+      // the camera must never be opted back in by a migration.
+      if (_readRaw() === null && next) {
         try {
           if (localStorage.getItem(LS_KEY_LEGACY) === 'true') {
             _storedConsent = true;
@@ -139,8 +166,12 @@
     _decline() {
       _consentGranted  = false;
       _consentDeclined = true;
+      _storedConsent   = false;
+      // Persist the NO. Without this the narrator is re-asked every reload.
+      try { localStorage.setItem(_activeKey(), 'false'); } catch(_){}
       _hideOverlay();
-      console.log('[Lorevox] Facial expression consent: DECLINED');
+      console.log('[Lorevox] Facial expression consent: DECLINED (persisted, key=' +
+        (_currentPersonId ? 'per-narrator' : 'legacy-global') + ')');
       if (_pendingResolve) { _pendingResolve(false); _pendingResolve = null; }
     },
 
@@ -151,7 +182,7 @@
     reset() {
       _storedConsent   = _readStored();   // re-read from active narrator key
       _consentGranted  = _storedConsent;  // WO-02: preserve stored consent on narrator switch
-      _consentDeclined = false;
+      _consentDeclined = _readDeclined(); // ...and preserve a stored DECLINE too
       _pendingResolve  = null;
     },
 
