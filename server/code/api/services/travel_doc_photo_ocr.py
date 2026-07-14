@@ -173,6 +173,67 @@ def _wordlike_ratio(text: str) -> float:
     return good / float(total)
 
 
+def ocr_min_confidence() -> float:
+    """Tesseract's OWN mean per-word confidence, and the only signal that
+    reliably separates a real reading from hallucinated noise.
+
+    LIVE PROOF (2026-07-13): a photo of FOOD — no text in it at all — made
+    tesseract emit word-shaped hallucinations: 'SEHEN', 'initial', 'VITA',
+    'Capra', 'SIONI', 'Natit'. Those are indistinguishable from real words by
+    any text-SHAPE heuristic: our word-like ratio scored that noise 0.443,
+    ABOVE the 0.40 gate, so it sailed through and got stored as evidence Lori
+    would read back. Word length does not help either — the junk had plenty of
+    5+ character tokens.
+
+    What DOES separate them is confidence: tesseract knows it is guessing.
+    Real signs/menus come back in the 70-90 range; hallucinated texture is far
+    lower. This needs NO new OCR package — pytesseract already exposes it via
+    image_to_data.
+    """
+    try:
+        return float(os.getenv("HORNELORE_OCR_MIN_CONF", "55"))
+    except ValueError:
+        return 55.0
+
+
+def ocr_min_words() -> int:
+    """A single confident word off a napkin is not evidence."""
+    try:
+        return int(os.getenv("HORNELORE_OCR_MIN_WORDS", "2"))
+    except ValueError:
+        return 2
+
+
+def _tesseract_pass(pytesseract, img, psm):
+    """One PSM pass. Returns (text, mean_conf, n_words) using tesseract's own
+    per-word confidence rather than guessing from the output's shape."""
+    try:
+        from pytesseract import Output  # type: ignore
+    except Exception:
+        # Very old pytesseract: fall back to plain text, no confidence.
+        txt = (pytesseract.image_to_string(
+            img, lang=ocr_langs(), config="--psm %s" % psm) or "").strip()
+        return txt, (100.0 if txt else 0.0), len(txt.split())
+
+    data = pytesseract.image_to_data(
+        img, lang=ocr_langs(), config="--psm %s" % psm,
+        output_type=Output.DICT)
+    words, confs = [], []
+    for txt, conf in zip(data.get("text", []), data.get("conf", [])):
+        t = (txt or "").strip()
+        try:
+            c = float(conf)
+        except (TypeError, ValueError):
+            continue
+        if not t or c < 0:          # -1 = tesseract reporting "no word here"
+            continue
+        words.append(t)
+        confs.append(c)
+    if not words:
+        return "", 0.0, 0
+    return " ".join(words), sum(confs) / len(confs), len(words)
+
+
 def _run_tesseract(image_path: str) -> Dict[str, Any]:
     try:
         import pytesseract  # type: ignore
@@ -185,28 +246,37 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
     except Exception as exc:
         return _result(False, "tesseract", error="cannot open image: %s" % exc)
 
-    best_text, best_score = "", -1
+    best_text, best_score, best_conf = "", -1, 0.0
     last_error = ""
+    min_conf = ocr_min_confidence()
+    min_words = ocr_min_words()
     min_ratio = ocr_min_ratio()
     for psm in ocr_psms():
         try:
-            cand = pytesseract.image_to_string(
-                img, lang=ocr_langs(), config="--psm %s" % psm)
+            cand, conf, n_words = _tesseract_pass(pytesseract, img, psm)
         except Exception as exc:      # a bad PSM must not kill the whole run
             last_error = str(exc)
             continue
         cand = (cand or "").strip()
+        if not cand:
+            continue
+        # PRIMARY gate — tesseract's own confidence. A textless photo makes it
+        # guess, and it says so.
+        if conf < min_conf or n_words < min_words:
+            continue
+        # SECONDARY gate — shape. Cheap, and catches symbol soup that somehow
+        # came back confident.
         if _wordlike_ratio(cand) < min_ratio:
-            continue                  # tesseract noise, not a reading
+            continue
         score = _wordlike_score(cand)
         if score > best_score:
-            best_text, best_score = cand, score
+            best_text, best_score, best_conf = cand, score, conf
         if best_score >= ocr_early_exit_score():
             break      # clearly a real reading — don't pay for more passes
 
     if not best_text or best_score <= 0:
-        # Honest: no row is written. A photo with no text (a plate of food)
-        # must NOT produce evidence Lori would then read back.
+        # Honest: NO row is written. A photo with no text (a plate of food)
+        # must never produce evidence Lori would then read back.
         return _result(False, "tesseract",
                        error=last_error or "no_text_found")
     return _result(True, "tesseract", raw_text=best_text,
@@ -259,4 +329,4 @@ def run_ocr(image_path: str) -> Dict[str, Any]:
 
 __all__ = ["run_ocr", "ocr_enabled", "ocr_provider", "ocr_langs",
            "ocr_psms", "ocr_max_dim", "ocr_early_exit_score",
-           "ocr_min_ratio"]
+           "ocr_min_ratio", "ocr_min_confidence", "ocr_min_words"]

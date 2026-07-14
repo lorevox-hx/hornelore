@@ -108,15 +108,49 @@ class TesseractSceneTextTest(unittest.TestCase):
         self.assertEqual(ocr._wordlike_score("1404 . , 12 !!"), 0)
 
     # ── LIVE ROUND 2 (2026-07-13, after restart) ──────────────────────
-    def test_noise_from_a_textless_photo_is_rejected(self):
-        # THE BUG: a photo of FOOD (no text at all) produced confident
-        # tesseract noise, which was STORED as a draft row, so the panel
-        # offered "Lori will say: the OCR draft appears to read '# : 9 #4...'".
+    def test_symbol_soup_is_rejected_by_the_shape_gate(self):
+        # The shape gate still earns its keep on pure symbol soup.
         noise = ("# : 9 #4 - s 4 | | di i s k EJ s? v k Y a 1 1 LI hy > | 6 "
                  "en 4 KS ) K x - .. i e A i >= x ne = s ia > ae ej } ve + ict")
-        self.assertLess(ocr._wordlike_ratio(noise), ocr.ocr_min_ratio(),
-                        "textless-photo noise would still be stored as OCR "
-                        "evidence and read back by Lori")
+        self.assertLess(ocr._wordlike_ratio(noise), ocr.ocr_min_ratio())
+
+    def test_shape_alone_CANNOT_catch_hallucinated_words(self):
+        # THE HARD LESSON (live, 2026-07-13): on a photo of FOOD — no text in
+        # it at all — tesseract hallucinated WORD-SHAPED tokens: SEHEN,
+        # initial, VITA, Capra, SIONI, Natit. That 762-char noise scored a
+        # word-like ratio of 0.443 — ABOVE the 0.40 gate — so it sailed
+        # through and was stored as evidence Lori would read back. Word length
+        # does not save us either; the junk had plenty of 5+ char tokens.
+        #
+        # This test exists to stop anyone "fixing" hallucinations with another
+        # text-shape heuristic. It cannot work. Confidence is the answer.
+        hallucinated = ("GELA SEHEN initial VITA, SIONI Capra Natit ho Nan "
+                        "po su MRI id ge sa ZAS")
+        self.assertGreaterEqual(
+            ocr._wordlike_ratio(hallucinated), ocr.ocr_min_ratio(),
+            "if this ever fails, the ratio changed — but do NOT rely on it to "
+            "reject hallucinations; that is what the CONFIDENCE gate is for")
+
+    def test_confidence_gate_exists_and_is_the_primary_filter(self):
+        # Tesseract knows when it is guessing. Real signs/menus come back
+        # 70-90; hallucinated texture is far lower. No new OCR package needed —
+        # pytesseract already exposes per-word confidence via image_to_data.
+        self.assertGreater(ocr.ocr_min_confidence(), 0)
+        self.assertGreaterEqual(ocr.ocr_min_words(), 1)
+        src = (_REPO_ROOT / "server" / "code" / "api" / "services"
+               / "travel_doc_photo_ocr.py").read_text(encoding="utf-8")
+        self.assertIn("image_to_data", src)
+        self.assertIn("output_type=Output.DICT", src)
+        self.assertIn("conf < min_conf", src)
+
+    def test_confidence_thresholds_are_env_tunable(self):
+        prev = os.environ.get("HORNELORE_OCR_MIN_CONF")
+        os.environ["HORNELORE_OCR_MIN_CONF"] = "72"
+        self.addCleanup(
+            lambda: (os.environ.__setitem__("HORNELORE_OCR_MIN_CONF", prev)
+                     if prev is not None
+                     else os.environ.pop("HORNELORE_OCR_MIN_CONF", None)))
+        self.assertAlmostEqual(ocr.ocr_min_confidence(), 72.0)
 
     def test_a_short_real_sign_still_passes(self):
         # A raw SCORE cannot do this job: the noise scores 86 and this real
@@ -196,6 +230,46 @@ class PhotoLightboxTest(unittest.TestCase):
 
     def test_thumbnails_are_big_enough_to_tell_apart(self):
         self.assertIn("minmax(150px", self.css)
+
+
+class LaptopUsabilityTest(unittest.TestCase):
+    """LIVE REVIEW (2026-07-13) at laptop width. Three measured problems:
+      1. the narrator name overflowed the topbar (scrollWidth 379 vs client
+         282) and collided with the tab strip, pushing Current/Trip Plan/
+         Photos off the bar;
+      2. the photo filter rail held a fixed 150px COLUMN for four buttons,
+         stealing width from the gallery on exactly the screens with none
+         to spare;
+      3. the 295px left rail reset to EXPANDED on every reload, so it had to
+         be re-collapsed every single time.
+    """
+
+    def setUp(self):
+        self.src = _strip(_LAB.read_text(encoding="utf-8"))
+        self.css = _CSS.read_text(encoding="utf-8")
+
+    def test_rail_collapse_is_remembered(self):
+        self.assertIn("tdlRailCollapsed", self.src)
+        self.assertIn("localStorage.setItem(\"tdlRailCollapsed\"", self.src)
+
+    def test_narrator_name_cannot_push_the_tabs_off(self):
+        self.assertIn("tdl-brand-person", self.src)
+        self.assertIn(".tdl-brand-person", self.css)
+        self.assertRegex(self.css, r"\.tdl-brand-person\s*\{[^}]*text-overflow:\s*ellipsis")
+        self.assertRegex(self.css, r"\.tdl-tabs\s*\{[^}]*flex-wrap:\s*nowrap")
+
+    def test_filter_rail_becomes_chips_on_a_laptop(self):
+        # Below 1500px the 150px filter COLUMN must give its width back to the
+        # gallery. (There is more than one 1500px block, so check them all.)
+        blocks = re.findall(r"@media \(max-width: 1500px\)\s*\{([\s\S]*?)\n\}",
+                            self.css)
+        self.assertTrue(blocks, "no 1500px breakpoint at all")
+        joined = "\n".join(blocks)
+        self.assertIn(".tdl-filter-rail", joined,
+                      "the filter rail still holds a fixed column on a laptop")
+        self.assertIn(".tdl-photo-workspace { grid-template-columns: minmax(0, 1fr); }",
+                      joined,
+                      "the photo workspace does not reclaim the filter column")
 
 
 if __name__ == "__main__":
