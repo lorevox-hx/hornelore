@@ -68,7 +68,13 @@
 
   // Module vars (survive re-renders; deliberately NOT in st so a trip
   // switch doesn't reset the operator's layout preference).
-  var railCollapsed = false;           // left rail ⟨ toggle
+  // LAPTOP FIX (2026-07-13): the 295px rail permanently eats ~20% of a 1440
+  // screen, and this reset to false on every reload — so it had to be
+  // re-collapsed every single time. Remember the operator's choice.
+  var railCollapsed = (function () {
+    try { return localStorage.getItem("tdlRailCollapsed") === "1"; }
+    catch (e) { return false; }
+  })();
   var insOpen = { overview: true };    // inspector collapsible sections
 
   var root = document.getElementById("tdlRoot");
@@ -328,7 +334,9 @@
     brand.appendChild(el("span", "tdl-divider"));
     brand.appendChild(el("span", "", "Travel Doc"));
     brand.appendChild(el("span", "tdl-lab-badge", "UI Lab · experimental"));
-    if (st.personLabel) brand.appendChild(el("span", "tdl-muted", st.personLabel));
+    if (st.personLabel) {
+      brand.appendChild(el("span", "tdl-muted tdl-brand-person", st.personLabel));
+    }
     top.appendChild(brand);
     var tabs = el("nav", "tdl-tabs");
     TABS.forEach(function (t) {
@@ -373,6 +381,9 @@
 
   function toggleRail() {
     railCollapsed = !railCollapsed;
+    try {
+      localStorage.setItem("tdlRailCollapsed", railCollapsed ? "1" : "0");
+    } catch (e) { /* private mode — collapse still works for this session */ }
     renderAll();
   }
 

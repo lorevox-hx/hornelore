@@ -403,3 +403,39 @@
 .tdl-gallery { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .tdl-ph img { height: 140px; }
 .tdl-ph { min-height: 140px; cursor: zoom-in; }
+
+/* ── Laptop usability (2026-07-13 live review at ~1366-1440px) ────────────
+   Three measured problems on a laptop:
+   1. the narrator name overflowed the topbar (scrollWidth 379 vs client 282)
+      and collided with the tab strip, pushing Current/Trip Plan/Photos out;
+   2. the photo filter rail held a fixed 150px COLUMN just to show four
+      buttons, stealing width from the gallery on exactly the screens that
+      have none to spare;
+   3. (fixed in JS) the 295px left rail reset to expanded on every reload. */
+
+/* 1. never let the narrator name push the tabs off the bar */
+.tdl-topbar { flex-wrap: nowrap; }
+.tdl-brand { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.tdl-brand-person {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 22ch;
+}
+.tdl-tabs { flex: 0 0 auto; flex-wrap: nowrap; }
+
+@media (max-width: 1500px) {
+  /* 2. filter rail becomes chips ABOVE the gallery — reclaims the 150px
+        column so the photos get the full width of the workspace. */
+  .tdl-photo-workspace { grid-template-columns: minmax(0, 1fr); }
+  .tdl-photo-workspace .tdl-photo-detail { grid-column: auto; }
+  .tdl-filter-rail {
+    display: flex; flex-wrap: wrap; gap: .4rem;
+    grid-auto-flow: column; grid-auto-columns: max-content;
+  }
+  .tdl-filter-rail button { padding: .35rem .7rem; border-radius: 999px; }
+  /* the brand loses the badge first, then the name, before the tabs suffer */
+  .tdl-brand-person { max-width: 14ch; }
+}
+@media (max-width: 1200px) {
+  .tdl-lab-badge { display: none; }
+  .tdl-brand-person { max-width: 10ch; }
+}
