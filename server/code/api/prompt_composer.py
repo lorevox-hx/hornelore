@@ -3145,6 +3145,28 @@ def _witness_receipt_block(runtime71: Dict[str, Any]) -> Optional[str]:
     return _WITNESS_RECEIPT_DIRECTIVE
 
 
+def _era_spoken_phrase(current_era: str, era_label: str) -> str:
+    """The era as Lori should SAY it, not as the Life Map prints it.
+
+    era_id_to_warm_label() returns the heading form ("Coming of Age") — correct
+    on a button, wrong in a sentence to an 86-year-old. lv_eras already carries
+    the speakable form ("the years when you were coming of age"); this just
+    reaches for it, and degrades to a neutral phrase rather than ever falling
+    back to the raw label — falling back to the label is the bug.
+    """
+    if not current_era or current_era == "not yet set":
+        return "that time in your life"
+    try:
+        from .lv_eras import era_id_to_continuation_phrase
+        spoken = (era_id_to_continuation_phrase(current_era) or "").strip()
+    except Exception:
+        spoken = ""
+    if spoken:
+        return spoken
+    # No phrase for this era. Say something human — NOT the system label.
+    return "that time in your life"
+
+
 def compose_system_prompt(
     conv_id: str,
     ui_system: Optional[str] = None,
@@ -4049,6 +4071,21 @@ def compose_system_prompt(
                 era_label = era_id_to_warm_label(current_era) if current_era != "not yet set" else "this period"
                 if not era_label:
                     era_label = "this period"
+                # BUG-LORI-ERA-LABEL-IN-NARRATOR-PROSE-01 (live, 2026-07-14):
+                # era_id_to_warm_label returns the TITLE-CASED HEADING form
+                # ("Coming of Age") — right for a Life Map button, wrong in
+                # Lori's mouth. The example sentence below handed her that
+                # label inside narrator-facing prose, and she dutifully said
+                # it back: "What was your daily life like during those Coming
+                # of Age years in Stanley?" That is a system label spoken to
+                # an 86-year-old as if it were English.
+                #
+                # The speakable form already exists. Use it. Per the locked
+                # principle (prompt-heavy rules make Lori WORSE — 2026-05-02
+                # Patch B), this is a DATA fix: hand her the right words
+                # instead of adding a rule telling her not to say the wrong
+                # ones.
+                era_spoken = _era_spoken_phrase(current_era, era_label)
                 # Add lori_focus context — the canonical per-era prompt
                 # anchor (birth/first home for Earliest Years; current
                 # life/routines/people for Today; etc.) so Lori frames
@@ -4093,19 +4130,22 @@ def compose_system_prompt(
 
                     directive_lines.append(
                         f"DIRECTIVE: You are in Pass 2A — Chronological Timeline Walk.\n"
-                        f"Current era: {era_label}.\n"
+                        f"Current era: {era_label} (internal label — when you "
+                        f"SPEAK of it to the narrator, say \"{era_spoken}\", "
+                        f"never the label itself).\n"
                         f"Ask ONE open, place-anchored question about this period.{_focus_line}"
                         "Invite the narrator to remember where they lived, who was around them, or what daily life felt like.\n"
                         "DO NOT ask about a specific moment or single scene — keep it broad.\n"
                         "DO NOT use 'do you remember a time when' — ask about place and daily life.\n"
                         "DO NOT ask more than one question.\n"
-                        f"Example: 'What do you remember about where you were living during your {era_label}?'"
+                        f"Example: 'What do you remember about where you were living during {era_spoken}?'"
                         f"{_grounded_hint}"
                     )
             elif current_pass == "pass2b":
                 era_label = era_id_to_warm_label(current_era) if current_era != "not yet set" else "this period"
                 if not era_label:
                     era_label = "this period"
+                era_spoken = _era_spoken_phrase(current_era, era_label)
                 era_focus = era_id_to_lori_focus(current_era) if current_era != "not yet set" else ""
                 _focus_line = f" The era's anchor is: {era_focus}.\n" if era_focus else "\n"
                 if current_era == "today":
@@ -4133,7 +4173,9 @@ def compose_system_prompt(
                 else:
                     directive_lines.append(
                         f"DIRECTIVE: You are in Pass 2B — Narrative Depth.\n"
-                        f"Current era: {era_label}.\n"
+                        f"Current era: {era_label} (internal label — when you "
+                        f"SPEAK of it to the narrator, say \"{era_spoken}\", "
+                        f"never the label itself).\n"
                         f"Ask ONE question that invites a specific scene or memory — a room, a sound, a face, a smell, a feeling.{_focus_line}"
                         "Help the narrator move from general summary into a specific moment.\n"
                         "DO NOT ask a broad timeline question.\n"
