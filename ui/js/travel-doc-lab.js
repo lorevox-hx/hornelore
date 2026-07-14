@@ -1754,7 +1754,7 @@
   // (Draft -> Approve for Lori -> Include in memoir). All text is rendered
   // via el() (textContent) so OCR/lookup output can never inject markup.
   var photoEvidence = { linkId: null, loading: false, pc: [], pub: [], note: "",
-                        lookupUrl: "" };
+                        lookupUrl: "", busy: null };
 
   function reloadPhotoEvidence() { photoEvidence.linkId = null; renderAll(); }
 
@@ -1764,7 +1764,7 @@
     // attach the previous photo's public URL to the new selection.
     var sameLink = (photoEvidence.linkId === linkId);
     photoEvidence = { linkId: linkId, loading: true, pc: [], pub: [],
-                      note: photoEvidence.note,
+                      note: photoEvidence.note, busy: photoEvidence.busy,
                       lookupUrl: sameLink ? (photoEvidence.lookupUrl || "") : "" };
     var t = encodeURIComponent(st.trip.id);
     var lid = encodeURIComponent(linkId);
@@ -1783,13 +1783,20 @@
   }
 
   function evidenceAction(path, label, body) {
-    photoEvidence.note = label + "…";
+    // LIVE (2026-07-13): OCR took 7-19s on a full-res photo with NO feedback —
+    // the button looked dead and invited double-clicks. Show a busy state and
+    // lock the actions until it returns.
+    photoEvidence.busy = label;
+    photoEvidence.note = label + " running… (a full-size photo can take a few "
+      + "seconds)";
     renderAll();
     api(path, { method: "POST", body: body || {} }).then(function (out) {
+      photoEvidence.busy = null;
       photoEvidence.note = label + ": " + (out.status || "done")
         + (out.message ? " — " + out.message : "");
       reloadPhotoEvidence();
     }).catch(function (e) {
+      photoEvidence.busy = null;
       photoEvidence.note = label + " failed: " + e.message; renderAll();
     });
   }
@@ -1916,6 +1923,7 @@
 
   function renderPhotoEvidence(sel) {
     var box = el("div", "tdl-evidence");
+    if (photoEvidence.busy) box.classList.add("tdl-ev-busy");
     box.appendChild(el("h4", "", "Photo evidence — draft until you approve"));
     var acts = el("div", "tdl-ev-actions");
     acts.appendChild(btn("tdl-btn", "🔎 Run OCR", function () {
@@ -2007,6 +2015,98 @@
     return box;
   }
 
+  // ── Photo lightbox (LIVE-TEST UX FIX 2026-07-13) ──────────────────────
+  // On any laptop (<1500px) .tdl-photo-workspace collapses and the photo
+  // detail becomes a FULL-WIDTH ROW BELOW the gallery — so choosing a photo
+  // meant scrolling past a giant image to reach the evidence panel, which is
+  // the actual work. The detail also rendered the THUMBNAIL, so you could not
+  // read a menu you were about to OCR. The lightbox puts a full-resolution
+  // image and the evidence panel side by side at ANY width, with prev/next,
+  // arrow keys and Esc.
+  var lightbox = { open: false };
+
+  function fullImageUrl(photoId) {
+    return st.apiBase + "/api/photos/" + encodeURIComponent(photoId) + "/image";
+  }
+
+  function openLightbox(linkId) {
+    lightbox.open = true;
+    st.selectedPhotoLinkId = linkId;
+    renderAll();
+  }
+  function closeLightbox() { lightbox.open = false; renderAll(); }
+
+  function lightboxStep(delta) {
+    var links = filteredLinks();
+    var i = -1;
+    links.forEach(function (l, n) { if (l.id === st.selectedPhotoLinkId) i = n; });
+    if (i < 0 || !links.length) return;
+    st.selectedPhotoLinkId = links[(i + delta + links.length) % links.length].id;
+    renderAll();
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (!lightbox.open) return;
+    if (e.key === "Escape") { e.preventDefault(); closeLightbox(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); lightboxStep(-1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); lightboxStep(1); }
+  });
+
+  function renderLightbox() {
+    var links = filteredLinks();
+    var sel = links.filter(function (l) {
+      return l.id === st.selectedPhotoLinkId;
+    })[0];
+    if (!sel) return null;
+    var idx = 0;
+    links.forEach(function (l, n) { if (l.id === sel.id) idx = n; });
+
+    var ov = el("div", "tdl-lightbox");
+    ov.addEventListener("click", function (e) {
+      if (e.target === ov) closeLightbox();
+    });
+    var panel = el("div", "tdl-lb-panel");
+
+    var head = el("div", "tdl-lb-head");
+    head.appendChild(el("span", "tdl-lb-count",
+      (idx + 1) + " of " + links.length));
+    var stop = sel.trip_stop_id && findStop(sel.trip_stop_id);
+    var region = sel.trip_region_id && findRegion(sel.trip_region_id);
+    head.appendChild(el("span", "tdl-lb-title",
+      (stop && stop.location_name) || (region && region.title) || "Unplaced"));
+    head.appendChild(el("span", "tdl-lb-date",
+      "Taken " + (linkTakenDate(sel) || "unknown")));
+    head.appendChild(btn("tdl-btn tdl-btn-small tdl-lb-close", "✕ Close",
+      closeLightbox));
+    panel.appendChild(head);
+
+    var body = el("div", "tdl-lb-body");
+
+    var imgWrap = el("div", "tdl-lb-img");
+    imgWrap.appendChild(btn("tdl-lb-nav tdl-lb-prev", "‹",
+      function () { lightboxStep(-1); }));
+    var im = document.createElement("img");
+    im.src = fullImageUrl(sel.photo_id);   // FULL image, not the thumbnail
+    im.alt = "trip photo";
+    imgWrap.appendChild(im);
+    imgWrap.appendChild(btn("tdl-lb-nav tdl-lb-next", "›",
+      function () { lightboxStep(1); }));
+    body.appendChild(imgWrap);
+
+    var side = el("div", "tdl-lb-side");
+    side.appendChild(btn("tdl-btn tdl-btn-gold",
+      "💬 Talk with Lori about this photo", function () {
+        closeLightbox();
+        openLoriOverlayForPhoto(sel.id);
+      }));
+    side.appendChild(renderPhotoEvidence(sel));   // same panel, no duplicate logic
+    body.appendChild(side);
+
+    panel.appendChild(body);
+    ov.appendChild(panel);
+    return ov;
+  }
+
   function renderPhotos() {
     var wrap = el("div");
     wrap.appendChild(el("h1", "", "Photo Story"));
@@ -2030,7 +2130,7 @@
     if (!links.length) gallery.appendChild(el("div", "tdl-empty", "No photos in this filter."));
     links.forEach(function (l) {
       var cell = btn("tdl-ph" + (st.selectedPhotoLinkId === l.id ? " tdl-selected" : ""), "",
-        function () { st.selectedPhotoLinkId = l.id; renderAll(); });
+        function () { openLightbox(l.id); });
       var im = document.createElement("img");
       im.src = thumbUrl(l.photo_id);
       im.alt = l.caption || "trip photo";
@@ -2099,10 +2199,14 @@
           // tab navigation away from the photo the operator is on.
           openLoriOverlayForPhoto(sel.id);
         }));
-      detail.appendChild(renderPhotoEvidence(sel));
+      if (!lightbox.open) detail.appendChild(renderPhotoEvidence(sel));
     }
     ws.appendChild(detail);
     wrap.appendChild(ws);
+    if (lightbox.open) {
+      var lb = renderLightbox();
+      if (lb) wrap.appendChild(lb);
+    }
     return wrap;
   }
 

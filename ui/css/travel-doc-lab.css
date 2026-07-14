@@ -337,3 +337,69 @@
   border-radius: 6px;
   font-size: .82rem;
 }
+
+/* ── Photo lightbox (LIVE-TEST UX FIX 2026-07-13) ─────────────────────────
+   The 3-column photo workspace collapses below 1500px (every laptop), pushing
+   the detail into a full-width row UNDER the gallery — so the evidence panel,
+   which is the actual work, sat far below the fold. The lightbox shows a
+   FULL-RES image and the evidence panel side by side at any width. */
+.tdl-lightbox {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(20, 18, 14, .82);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.2rem;
+}
+.tdl-lb-panel {
+  background: var(--tdl-bg, #f7f2e8);
+  border-radius: 16px;
+  width: min(1500px, 96vw); height: min(900px, 94vh);
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
+}
+.tdl-lb-head {
+  display: flex; align-items: center; gap: .8rem;
+  padding: .6rem .9rem; border-bottom: 1px solid var(--tdl-line, #e2d9c6);
+}
+.tdl-lb-count { font-weight: 800; font-size: .8rem; opacity: .7; }
+.tdl-lb-title { font-weight: 800; }
+.tdl-lb-date { font-size: .8rem; opacity: .7; }
+.tdl-lb-close { margin-left: auto; }
+
+/* image LEFT, evidence RIGHT — the whole point */
+.tdl-lb-body {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+}
+.tdl-lb-img {
+  position: relative; min-width: 0; min-height: 0;
+  background: #17150f; display: flex; align-items: center; justify-content: center;
+}
+.tdl-lb-img img {
+  max-width: 100%; max-height: 100%;
+  width: auto; height: auto; object-fit: contain; display: block;
+}
+.tdl-lb-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 64px; border: 0; border-radius: 8px;
+  background: rgba(0, 0, 0, .45); color: #fff;
+  font-size: 1.9rem; line-height: 1; cursor: pointer;
+}
+.tdl-lb-nav:hover { background: rgba(0, 0, 0, .7); }
+.tdl-lb-prev { left: 8px; }
+.tdl-lb-next { right: 8px; }
+.tdl-lb-side { overflow-y: auto; padding: .9rem; border-left: 1px solid var(--tdl-line, #e2d9c6); }
+
+/* narrow screens: stack, image on top, evidence scrolls beneath */
+@media (max-width: 900px) {
+  .tdl-lb-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 45% 55%; }
+  .tdl-lb-side { border-left: 0; border-top: 1px solid var(--tdl-line, #e2d9c6); }
+}
+
+/* busy: OCR can take seconds — lock the actions, show it is working */
+.tdl-ev-busy .tdl-ev-actions { opacity: .45; pointer-events: none; }
+.tdl-ev-busy .tdl-ev-note { font-weight: 700; }
+
+/* bigger thumbs — 110px tall could not distinguish one menu from another */
+.tdl-gallery { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.tdl-ph img { height: 140px; }
+.tdl-ph { min-height: 140px; cursor: zoom-in; }

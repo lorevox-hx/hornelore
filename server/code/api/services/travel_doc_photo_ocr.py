@@ -79,11 +79,40 @@ def ocr_psms():
     return _DEFAULT_PSMS
 
 
+def ocr_max_dim() -> int:
+    """Cap the long edge before OCR. LIVE (2026-07-13): three PSM passes over a
+    full-res 3072x4080 phone photo took 7s (coaster) to 19s (dense menu) — far
+    too slow for an operator clicking a button. Downscaling the long edge keeps
+    sign/menu text well above tesseract's ~20px-per-character floor while
+    cutting the pixel count several-fold. 0 disables the cap."""
+    try:
+        return int(os.getenv("HORNELORE_OCR_MAX_DIM", "2400"))
+    except ValueError:
+        return 2400
+
+
+# A candidate this strong is certainly a real reading — stop trying more PSMs.
+def ocr_early_exit_score() -> int:
+    try:
+        return int(os.getenv("HORNELORE_OCR_EARLY_EXIT", "1200"))
+    except ValueError:
+        return 1200
+
+
 def _preprocess(img):
-    """Honour camera rotation, drop to grayscale, stretch contrast."""
-    from PIL import ImageOps  # type: ignore
+    """Honour camera rotation, cap size, grayscale, stretch contrast."""
+    from PIL import Image, ImageOps  # type: ignore
     try:
         img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    cap = ocr_max_dim()
+    try:
+        if cap and max(img.size) > cap:
+            ratio = cap / float(max(img.size))
+            img = img.resize(
+                (max(1, int(img.width * ratio)), max(1, int(img.height * ratio))),
+                Image.LANCZOS)
     except Exception:
         pass
     try:
@@ -111,6 +140,39 @@ def _wordlike_score(text: str) -> int:
     return score
 
 
+def ocr_min_ratio() -> float:
+    """LIVE (2026-07-13): a photo of FOOD (no text at all) produced confident
+    tesseract noise — '# : 9 #4 - s 4 \\ | | di i s k EJ s? ...' — which was
+    stored as a draft row, so the panel offered "Lori will say: the OCR draft
+    appears to read '# : 9 #4...'". Junk like that must never become evidence.
+
+    A raw score cannot separate it: the noise scored 86 and a REAL short sign
+    ("GRAND CAFE ORIENT MENU") scores 93. What DOES separate them is the
+    proportion of word-like characters — noise is mostly symbols, digits and
+    single letters (ratio 0.17) while every genuine reading measured 0.89-1.00.
+    """
+    try:
+        return float(os.getenv("HORNELORE_OCR_MIN_RATIO", "0.40"))
+    except ValueError:
+        return 0.40
+
+
+def _wordlike_ratio(text: str) -> float:
+    """Share of characters living in real-looking words. See ocr_min_ratio()."""
+    toks = _WORDLIKE_RX.findall(text or "")
+    total = sum(len(t) for t in toks)
+    if not total:
+        return 0.0
+    good = 0
+    for tok in toks:
+        if len(tok) < 3:
+            continue
+        alpha = sum(1 for c in tok if c.isalpha())
+        if alpha >= 0.7 * len(tok):
+            good += len(tok)
+    return good / float(total)
+
+
 def _run_tesseract(image_path: str) -> Dict[str, Any]:
     try:
         import pytesseract  # type: ignore
@@ -125,6 +187,7 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
 
     best_text, best_score = "", -1
     last_error = ""
+    min_ratio = ocr_min_ratio()
     for psm in ocr_psms():
         try:
             cand = pytesseract.image_to_string(
@@ -133,11 +196,17 @@ def _run_tesseract(image_path: str) -> Dict[str, Any]:
             last_error = str(exc)
             continue
         cand = (cand or "").strip()
+        if _wordlike_ratio(cand) < min_ratio:
+            continue                  # tesseract noise, not a reading
         score = _wordlike_score(cand)
         if score > best_score:
             best_text, best_score = cand, score
+        if best_score >= ocr_early_exit_score():
+            break      # clearly a real reading — don't pay for more passes
 
     if not best_text or best_score <= 0:
+        # Honest: no row is written. A photo with no text (a plate of food)
+        # must NOT produce evidence Lori would then read back.
         return _result(False, "tesseract",
                        error=last_error or "no_text_found")
     return _result(True, "tesseract", raw_text=best_text,
@@ -189,4 +258,5 @@ def run_ocr(image_path: str) -> Dict[str, Any]:
 
 
 __all__ = ["run_ocr", "ocr_enabled", "ocr_provider", "ocr_langs",
-           "ocr_psms"]
+           "ocr_psms", "ocr_max_dim", "ocr_early_exit_score",
+           "ocr_min_ratio"]
