@@ -1,7 +1,7 @@
 """BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 — build gate.
 
-An inline regex flag that is not at position 0 — e.g. a SECOND "(?i)" before an
-alternation — is a DeprecationWarning on Python 3.10 and a HARD re.error on
+An inline regex flag group that is not at position 0 — a SECOND "(?i)" before an
+alternation, say — is a DeprecationWarning on Python 3.10 and a HARD re.error on
 3.11+:
 
     re.error: global flags not at the start of the expression at position 99
@@ -20,14 +20,25 @@ memory.") while the echo guard sat there working perfectly and never being calle
 
 And the unit tests all PASSED, because the dev sandbox is 3.10.
 
-This gate emulates 3.11+ strictness regardless of the interpreter running the
-suite, so the bug cannot come back on a machine that merely warns.
+DESIGN OF THIS GATE (two hard-won constraints):
+
+  * The strict-import sweep runs in a CLEAN SUBPROCESS. An earlier version did
+    it in-process: purge sys.modules, monkey-patch re.compile, re-import every
+    api module, and leave them there. That is the same shared-process global
+    mutation that made 27 test modules stub `pydantic` into sys.modules and
+    poison whatever ran after them. A gate against silent breakage must not
+    itself be a source of silent breakage.
+
+  * The detector must catch flag GROUPS, not just single letters — (?im), (?is),
+    (?msx) are the same bug. Scoped groups like (?i:...) are legal anywhere and
+    must NOT be flagged.
 """
 from __future__ import annotations
 
 import importlib
 import pathlib
 import re
+import subprocess
 import sys
 import unittest
 
@@ -36,78 +47,110 @@ _SERVER_CODE = _REPO_ROOT / "server" / "code"
 if str(_SERVER_CODE) not in sys.path:
     sys.path.insert(0, str(_SERVER_CODE))
 
-_INLINE_FLAGS = ("(?i)", "(?s)", "(?m)", "(?x)", "(?a)", "(?u)", "(?L)")
+# A GLOBAL inline flag group: "(?" + one or more flag letters + ")".
+# NOT "(?i:...)" (scoped — legal at any position) and not "(?:...)".
+_GLOBAL_FLAG_RX = re.compile(r"\(\?[aiLmsux]+\)")
 
 
 def _offending_flag(pattern: str):
-    """Return (flag, pos) for an inline flag that py3.11+ would reject.
+    """(text, pos) of a global inline flag group past index 0, else None.
 
-    Search PAST index 0. The real bug had "(?i)" at position 0 AND AGAIN at 99;
-    a naive find() returns the first (0), concludes "at the start", and waves
-    the broken pattern through. My first version of this gate did exactly that
-    and went green on the very bug it was written to catch.
+    Search PAST the start. The real bug had "(?i)" at position 0 AND AGAIN at
+    99; a naive find() returns the first (0), concludes "at the start", and
+    waves the broken pattern through. The first version of this gate did
+    exactly that and went green on the very bug it was written to catch.
     """
-    for fl in _INLINE_FLAGS:
-        pos = pattern.find(fl, 1)      # <- past the start, not at it
-        if pos > 0:
-            return fl, pos
+    for m in _GLOBAL_FLAG_RX.finditer(pattern):
+        if m.start() > 0:
+            return m.group(0), m.start()
     return None
+
+
+# Runs in its OWN interpreter. Nothing it imports can leak into the suite.
+_SWEEP = r'''
+import importlib, pathlib, re, sys
+
+SERVER_CODE = sys.argv[1]
+sys.path.insert(0, SERVER_CODE)
+
+GLOBAL_FLAG_RX = re.compile(r"\(\?[aiLmsux]+\)")
+real_compile = re.compile
+
+def strict_compile(pattern, flags=0):
+    if isinstance(pattern, str):
+        for m in GLOBAL_FLAG_RX.finditer(pattern):
+            if m.start() > 0:
+                raise re.error(
+                    "global flags not at the start of the expression at "
+                    "position %d (%s)" % (m.start(), m.group(0)))
+    return real_compile(pattern, flags)
+
+re.compile = strict_compile
+
+broken = []
+for f in sorted(pathlib.Path(SERVER_CODE, "api").rglob("*.py")):
+    mod = str(f.with_suffix("")).replace(SERVER_CODE + "/", "").replace("/", ".")
+    if mod.endswith(".__init__"):
+        mod = mod[:-9]
+    try:
+        importlib.import_module(mod)
+    except re.error as exc:
+        broken.append("%s -> %s" % (mod, exc))
+    except Exception:
+        pass          # torch/fastapi/etc. absent in some envs — not our concern
+
+for b in broken:
+    print("BROKEN " + b)
+sys.exit(1 if broken else 0)
+'''
 
 
 class InlineFlagBuildGate(unittest.TestCase):
     def test_no_module_dies_under_py311_regex_rules(self):
-        """Import every api module with a 3.11-strict re.compile installed."""
-        real_compile = re.compile
+        out = subprocess.run(
+            [sys.executable, "-c", _SWEEP, str(_SERVER_CODE)],
+            capture_output=True, text=True, timeout=180)
+        broken = [l for l in out.stdout.splitlines() if l.startswith("BROKEN")]
+        self.assertEqual(
+            out.returncode, 0,
+            "these modules would die at import on Python 3.11+, silently "
+            "disabling whatever they protect:\n  " + "\n  ".join(broken))
 
-        def strict_compile(pattern, flags=0):
-            if isinstance(pattern, str):
-                bad = _offending_flag(pattern)
-                if bad:
-                    raise re.error(
-                        "global flags not at the start of the expression "
-                        "at position %d (%s)" % (bad[1], bad[0]))
-            return real_compile(pattern, flags)
+    def test_sweep_leaves_no_api_modules_behind(self):
+        """The gate must not be the thing that poisons the suite.
 
-        # Modules already in sys.modules are NOT re-executed, so the patched
-        # re.compile would never see their patterns and the gate would pass on a
-        # file that is definitely broken. (It did. This test was worthless until
-        # the purge below — verified by re-injecting the original bug and
-        # watching it go green.)
-        for name in [n for n in list(sys.modules)
-                     if n == "api" or n.startswith("api.")]:
-            del sys.modules[name]
+        Other tests in this file legitimately import api.services, so the
+        assertion is not "no api modules exist" — it is "the SWEEP added
+        none". Snapshot, run, compare.
+        """
+        before = {n for n in sys.modules if n.startswith("api")}
+        self.test_no_module_dies_under_py311_regex_rules()
+        after = {n for n in sys.modules if n.startswith("api")}
+        self.assertEqual(
+            after - before, set(),
+            "the strict-import sweep leaked reloaded api modules into the "
+            "parent test process — that is the sys.modules-mutation class "
+            "this suite already got burned by")
 
-        re.compile = strict_compile
-        try:
-            broken = []
-            for f in sorted((_SERVER_CODE / "api").rglob("*.py")):
-                mod = (str(f.with_suffix(""))
-                       .replace(str(_SERVER_CODE) + "/", "")
-                       .replace("/", "."))
-                if mod.endswith(".__init__"):
-                    mod = mod[:-9]
-                sys.modules.pop(mod, None)
-                try:
-                    importlib.import_module(mod)
-                except re.error as exc:
-                    broken.append("%s -> %s" % (mod, exc))
-                except Exception:
-                    # torch/fastapi/etc. not installed in every env — not ours.
-                    pass
-            self.assertEqual(
-                broken, [],
-                "these modules would die at import on Python 3.11+, silently "
-                "disabling whatever they protect:\n  " + "\n  ".join(broken))
-        finally:
-            re.compile = real_compile
 
-    def test_the_guards_module_specifically_loads(self):
-        # The one that was actually broken. If this cannot import, every
-        # narrator protection is off.
-        mod = importlib.import_module("api.services.lori_response_guards")
-        for fn in ("apply_response_guards", "detect_narrator_echo",
-                   "repair_narrator_echo", "detect_meta_response_leak"):
-            self.assertTrue(hasattr(mod, fn), fn)
+class DetectorCatchesFlagGroupsTest(unittest.TestCase):
+    def test_catches_the_original_bug(self):
+        self.assertIsNotNone(_offending_flag(r"(?i)foo|(?i)bar"))
+
+    def test_catches_combined_flag_groups(self):
+        for pat in (r"(?i)foo|(?im)bar", r"(?i)a|(?is)b", r"^x|(?msx)y"):
+            self.assertIsNotNone(_offending_flag(pat), pat)
+
+    def test_allows_a_single_flag_at_the_start(self):
+        self.assertIsNone(_offending_flag(r"(?i)foo|bar"))
+
+    def test_allows_SCOPED_inline_groups_anywhere(self):
+        # (?i:...) is legal at any position — must not be flagged.
+        for pat in (r"foo|(?i:bar)", r"(?i:a)|(?s:b)", r"x(?im:y)z"):
+            self.assertIsNone(_offending_flag(pat), pat)
+
+    def test_allows_non_capturing_groups(self):
+        self.assertIsNone(_offending_flag(r"foo(?:bar|baz)"))
 
 
 class GuardsMustFailTheBootNotTheNarratorTest(unittest.TestCase):
@@ -120,14 +163,16 @@ class GuardsMustFailTheBootNotTheNarratorTest(unittest.TestCase):
         """
         src = (_SERVER_CODE / "api" / "routers" / "chat_ws.py").read_text(
             encoding="utf-8")
-        self.assertIn(
-            "from ..services.lori_response_guards import (", src,
-            "guards must be imported at module scope so a broken guards "
-            "module refuses to boot instead of silently disabling protection")
-        # and the lazy in-try import must be gone
+        self.assertIn("from ..services.lori_response_guards import (", src)
         self.assertNotIn(
             "            from ..services.lori_response_guards import "
             "apply_response_guards as _apply_guards", src)
+
+    def test_the_guards_module_loads(self):
+        mod = importlib.import_module("api.services.lori_response_guards")
+        for fn in ("apply_response_guards", "detect_narrator_echo",
+                   "repair_narrator_echo", "detect_meta_response_leak"):
+            self.assertTrue(hasattr(mod, fn), fn)
 
 
 class TheLiveEchoIsActuallyCaughtTest(unittest.TestCase):
