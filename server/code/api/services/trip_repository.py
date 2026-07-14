@@ -2043,6 +2043,48 @@ def photo_context_create(
         con.close()
 
 
+def photo_context_supersede_drafts(link_id: str, context_type: str,
+                                   keep_id: Optional[str] = None) -> int:
+    """Retire UNAPPROVED draft rows of one context_type on a photo link.
+
+    Re-running an extractor must not pile up drafts, and — the load-bearing
+    case — a re-run that now finds NO text must not leave the previous run's
+    wrong answer standing.
+
+    LIVE PROOF (2026-07-14): the confidence gate correctly refused to write a
+    new row for a photo of FOOD, but the hallucinated row from BEFORE the gate
+    was still in the table, and Lori read it to the narrator verbatim:
+    "The OCR draft appears to read '# : 9 #4 - s 4 | | di i s k EJ...'".
+    Stopping new garbage is not the same as removing old garbage.
+
+    Rules:
+      * APPROVED rows are never touched. The operator's judgment outranks the
+        engine's; if a human approved it, only a human unapproves it.
+      * Rows are marked rejected=1, never DELETEd — the Lab has a locked
+        no-delete posture and the provenance trail must survive.
+      * keep_id lets a fresh successful row survive its own sweep.
+    """
+    con = _connect()
+    try:
+        params: List[Any] = [_now(), link_id, context_type]
+        sql = ("UPDATE trip_photo_context SET rejected = 1, updated_at = ? "
+               "WHERE photo_link_id = ? AND context_type = ? "
+               "AND approved_for_lori = 0 AND rejected = 0")
+        if keep_id:
+            sql += " AND id != ?"
+            params.append(keep_id)
+        cur = con.execute(sql, params)
+        con.commit()
+        return int(cur.rowcount or 0)
+    except sqlite3.OperationalError:
+        return 0                      # pre-0030 DB — nothing to supersede
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def photo_context_list_for_link(link_id: str) -> List[Dict[str, Any]]:
     """All photo-context rows for a link (operator view — includes drafts
     and rejected). Tolerant of a pre-0030 DB (table missing) -> []."""

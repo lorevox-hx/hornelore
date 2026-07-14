@@ -1883,23 +1883,42 @@ def run_photo_ocr(
     res = travel_doc_photo_ocr.run_ocr(info.get("image_path") or "",
                                        min_conf=min_confidence)
     if not res.get("ok"):
-        logger.info("[trips][photo-ocr] rejected link=%s conf=%.0f (%s)",
-                    link_id, res.get("confidence") or 0.0,
-                    res.get("observed") or res.get("error"))
+        # A rejection is a FINDING, not a no-op: the engine now says there is
+        # no readable text in this photo. Any earlier draft claiming otherwise
+        # is wrong and must not keep talking. Retiring it is the whole point —
+        # the confidence gate stopped NEW garbage, but the pre-gate row for a
+        # photo of food was still being read aloud to the narrator verbatim
+        # ("The OCR draft appears to read '# : 9 #4 - s 4 | | di i s k EJ...'").
+        # Approved rows are left alone: a human's judgment outranks the engine.
+        retired = trip_repository.photo_context_supersede_drafts(
+            link_id, "ocr_text")
+        logger.info(
+            "[trips][photo-ocr] rejected link=%s conf=%.0f retired=%d (%s)",
+            link_id, res.get("confidence") or 0.0, retired,
+            res.get("observed") or res.get("error"))
         return {"status": "unavailable", "engine": res.get("engine"),
                 "message": res.get("error"),
                 "confidence": res.get("confidence"),
-                "observed": res.get("observed")}
+                "observed": res.get("observed"),
+                "retired_drafts": retired}
     cid = trip_repository.photo_context_create(
         trip_id=info["trip_id"], photo_link_id=link_id,
         context_type="ocr_text", result_summary=res["summary"],
         photo_id=info.get("photo_id"), raw_text=res.get("raw_text"),
         confidence="draft", engine=res.get("engine"),
         source_ref="ocr:photo_link:%s" % link_id)
-    logger.info("[trips][photo-ocr] stored ctx=%s link=%s engine=%s conf=%.0f",
-                cid, link_id, res.get("engine"), res.get("confidence") or 0.0)
+    # Supersede the PREVIOUS unapproved drafts, not the one just written.
+    # Without this, every re-run appends another draft and Lori reads all of
+    # them (7 rows observed on one photo, 2026-07-14).
+    retired = trip_repository.photo_context_supersede_drafts(
+        link_id, "ocr_text", keep_id=cid)
+    logger.info(
+        "[trips][photo-ocr] stored ctx=%s link=%s engine=%s conf=%.0f "
+        "retired=%d", cid, link_id, res.get("engine"),
+        res.get("confidence") or 0.0, retired)
     return {"status": "stored", "context_id": cid,
             "confidence": res.get("confidence"),
+            "retired_drafts": retired,
             "context": trip_repository.photo_context_get(cid)}
 
 

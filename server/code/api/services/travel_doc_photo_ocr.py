@@ -181,21 +181,33 @@ def _wordlike_ratio(text: str) -> float:
 
 
 def ocr_min_confidence() -> float:
-    """Tesseract's OWN mean per-word confidence, and the only signal that
-    reliably separates a real reading from hallucinated noise.
+    """Tesseract's OWN mean per-word confidence.
 
-    LIVE PROOF (2026-07-13): a photo of FOOD — no text in it at all — made
-    tesseract emit word-shaped hallucinations: 'SEHEN', 'initial', 'VITA',
-    'Capra', 'SIONI', 'Natit'. Those are indistinguishable from real words by
-    any text-SHAPE heuristic: our word-like ratio scored that noise 0.443,
-    ABOVE the 0.40 gate, so it sailed through and got stored as evidence Lori
-    would read back. Word length does not help either — the junk had plenty of
-    5+ character tokens.
+    MEASURED, on all 13 photos of the Spring 2026 trip (2026-07-14):
 
-    What DOES separate them is confidence: tesseract knows it is guessing.
-    Real signs/menus come back in the 70-90 range; hallucinated texture is far
-    lower. This needs NO new OCR package — pytesseract already exposes it via
-    image_to_data.
+        real text  : 50.1  57.8  66.8  79.6  86.1  92.1  93.3
+        no text    : 45.6  50.0  50.8  60.4  63.4
+        ZUBR mug   : 45.5   <- has text, reads LOW (curved, embossed glass)
+
+    Read that carefully, because it kills two tempting ideas:
+
+    1. THE DISTRIBUTIONS OVERLAP. The worst hallucination (63.4) outscores the
+       best real sign (50.1). There is NO confidence floor that cleanly
+       separates text from noise. Confidence alone is not sufficient — it is
+       necessary. The correct 12-of-13 split comes from confidence AND the
+       word-shape ratio together, each catching what the other misses. Do not
+       delete either gate on the theory that the other one covers it.
+
+    2. ZUBR IS NOT RECOVERABLE BY TUNING. At 45.5 it sits below four of the
+       five textless photos. Any floor low enough to admit it admits plates of
+       food. Lowering this number to "fix" that photo is wasted motion — its
+       recovery path is the vision lane, a public lookup, or an operator simply
+       typing what the mug says. Not OCR.
+
+    Which leaves 55: above the noise floor we can reject, below every real sign
+    we actually read. It costs us ZUBR. That trade is deliberate — a missed
+    reading costs one line of evidence the operator can supply by hand, while a
+    false reading gets spoken to a narrator as their own history.
     """
     try:
         return float(os.getenv("HORNELORE_OCR_MIN_CONF", "55"))

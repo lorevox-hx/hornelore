@@ -244,6 +244,94 @@ class OcrEndpointTest(_DbCase):
             trip_repository.photo_context_list_for_link(self.link_id), [])
 
 
+class StaleDraftSupersedeTest(_DbCase):
+    """The confidence gate stopped NEW garbage. It did not remove OLD garbage.
+
+    LIVE (2026-07-14): a photo of FOOD had a hallucinated OCR row written
+    before the gate existed. The gate correctly refused to write a new one —
+    and Lori still read the old one to the narrator verbatim:
+    "The OCR draft appears to read '# : 9 #4 - s 4 | | di i s k EJ...'".
+    """
+
+    def _mk_draft(self, text="OLD HALLUCINATED NOISE"):
+        return trip_repository.photo_context_create(
+            trip_id=self.trip_id, photo_link_id=self.link_id,
+            context_type="ocr_text", result_summary=text, raw_text=text)
+
+    def _alive(self):
+        return [r for r in
+                trip_repository.photo_context_list_for_link(self.link_id)
+                if not r["rejected"]]
+
+    def test_rejection_retires_the_stale_draft(self):
+        old = self._mk_draft()
+        os.environ["HORNELORE_PHOTO_OCR"] = "1"
+        orig = ocr.run_ocr
+        ocr.run_ocr = lambda p, min_conf=None: {
+            "ok": False, "engine": "tesseract", "error": "no_text_found",
+            "confidence": 22.0, "observed": ""}
+        try:
+            out = trips.run_photo_ocr(self.link_id)
+        finally:
+            ocr.run_ocr = orig
+        self.assertEqual(out["status"], "unavailable")
+        self.assertEqual(out["retired_drafts"], 1)
+        # The lie must stop talking.
+        self.assertEqual(self._alive(), [])
+        # ...but it is retired, NOT deleted (locked no-delete posture).
+        rows = trip_repository.photo_context_list_for_link(self.link_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], old)
+        self.assertEqual(rows[0]["rejected"], 1)
+
+    def test_rerun_does_not_pile_up_drafts(self):
+        # 7 rows on one photo were observed live from 7 re-runs.
+        os.environ["HORNELORE_PHOTO_OCR"] = "1"
+        orig = ocr.run_ocr
+        ocr.run_ocr = lambda p, min_conf=None: {
+            "ok": True, "engine": "tesseract", "raw_text": "AUGUSTINER",
+            "summary": "AUGUSTINER", "error": None, "confidence": 88.0}
+        try:
+            for _ in range(3):
+                out = trips.run_photo_ocr(self.link_id)
+        finally:
+            ocr.run_ocr = orig
+        alive = self._alive()
+        self.assertEqual(len(alive), 1)
+        self.assertEqual(alive[0]["id"], out["context_id"])
+
+    def test_a_successful_run_does_not_retire_itself(self):
+        os.environ["HORNELORE_PHOTO_OCR"] = "1"
+        orig = ocr.run_ocr
+        ocr.run_ocr = lambda p, min_conf=None: {
+            "ok": True, "engine": "tesseract", "raw_text": "ZUBR",
+            "summary": "ZUBR", "error": None, "confidence": 71.0}
+        try:
+            out = trips.run_photo_ocr(self.link_id)
+        finally:
+            ocr.run_ocr = orig
+        row = trip_repository.photo_context_get(out["context_id"])
+        self.assertEqual(row["rejected"], 0)
+
+    def test_an_APPROVED_row_is_never_retired(self):
+        # The operator's judgment outranks the engine. If a human approved it,
+        # only a human unapproves it — a re-run must not overrule them.
+        approved = self._mk_draft("The German Hunting and Fishing Museum")
+        trip_repository.photo_context_update(approved, approved_for_lori=True)
+        os.environ["HORNELORE_PHOTO_OCR"] = "1"
+        orig = ocr.run_ocr
+        ocr.run_ocr = lambda p, min_conf=None: {
+            "ok": False, "engine": "tesseract", "error": "no_text_found",
+            "confidence": 10.0, "observed": ""}
+        try:
+            trips.run_photo_ocr(self.link_id)
+        finally:
+            ocr.run_ocr = orig
+        row = trip_repository.photo_context_get(approved)
+        self.assertEqual(row["rejected"], 0)
+        self.assertEqual(row["approved_for_lori"], 1)
+
+
 class ApprovalLadderTest(_DbCase):
     def _ocr_row(self, summary="museum sign", approved=False):
         cid = trip_repository.photo_context_create(
