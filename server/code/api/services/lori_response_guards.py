@@ -530,10 +530,28 @@ _LEADING_SYSTEM_RX = re.compile(r'^\s*["\'\u201c]?(?:SYSTEM|System)\s*[.:]\s*')
 # ("I'll respond with a neutral message", "since there's no prior
 # conversation"). Whole reply is scaffolding; repair falls through to the
 # deterministic continuation.
+# BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 (live, 2026-07-14).
+# This pattern carried a SECOND inline "(?i)" before the alternation. Python
+# 3.10 only warns; Python 3.11+ RAISES re.error ("global flags not at the start
+# of the expression at position 99"). The server runs 3.12, so this
+# module-level re.compile blew up AT IMPORT — and chat_ws imports the guards
+# inside a defensive try/except whose whole purpose is "never break a turn on
+# guard failure". It caught the ImportError, logged a WARNING, and passed the
+# reply through UNGUARDED.
+#
+# Net effect: EVERY narrator-facing response guard was dead in production —
+# narrator_echo, meta_response_leak, dangling_determiner, language_drift, the
+# "I can see" block — all of them, on every turn, silently. Live proof: Lori
+# parroting the narrator's own sentence back in the first person ("My father
+# built the back porch himself. That's a specific memory.") while the echo
+# guard sat there working perfectly and never being called.
+#
+# The flag now lives in the compile() call, where a version bump cannot move it.
 _META_REASONING_RX = re.compile(
-    r"(?i)i(?:'ll| will) (?:respond|reply|answer) with a "
+    r"i(?:'ll| will) (?:respond|reply|answer) with a "
     r"(?:neutral|generic|simple) (?:message|response)"
-    r"|(?i)since there(?:'s| is) no prior conversation")
+    r"|since there(?:'s| is) no prior conversation",
+    re.IGNORECASE)
 
 
 def detect_meta_response_leak(assistant_text: str) -> bool:

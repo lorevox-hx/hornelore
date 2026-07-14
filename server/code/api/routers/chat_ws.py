@@ -139,6 +139,28 @@ from ..db import (
 import torch
 from ..api import _load_model, _apply_chat_template, StopOnEvent, _normalize_role, MAX_CONTEXT_WINDOW
 from ..prompt_composer import compose_system_prompt
+
+# BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 (2026-07-14) — FAIL LOUD, AT BOOT.
+#
+# The response guards used to be imported INSIDE the per-turn try/except whose
+# stated job is "never break a turn on guard failure". That is right for a
+# transient runtime error. It is catastrophically wrong for an ImportError: a
+# guards module that cannot even load means the narrator has NO protection at
+# all, and the except turned that into a WARNING line nobody read.
+#
+# It happened. A stray inline (?i) mid-pattern is a DeprecationWarning on py3.10
+# and a hard re.error on py3.11+. The server runs 3.12, so the module blew up at
+# import and EVERY guard — narrator_echo, meta_response_leak,
+# dangling_determiner, language_drift, the "I can see" block — was silently off
+# in production, on every turn, while its unit tests passed on 3.10.
+#
+# Importing at module scope makes that failure mode impossible to hide: if the
+# guards cannot load, the server does not start. A stack that refuses to boot is
+# strictly better than a stack that quietly talks to an 86-year-old with every
+# protection disabled.
+from ..services.lori_response_guards import (
+    apply_response_guards as _APPLY_RESPONSE_GUARDS,
+)
 from ..archive import (
     ensure_session as archive_ensure_session,
     append_event as archive_append_event,
@@ -4067,7 +4089,9 @@ async def ws_chat(ws: WebSocket):
         # Both guards are pure-stdlib + idempotent + safe-by-default. When
         # the response looks fine, original text passes through unchanged.
         try:
-            from ..services.lori_response_guards import apply_response_guards as _apply_guards
+            _apply_guards = _APPLY_RESPONSE_GUARDS   # imported at module scope
+            #   (see BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 above) so a broken
+            #   guards module fails the BOOT, not silently every narrator turn.
             # Pull the last few narrator turns from the conv history to
             # build the recent-context check. db.get_turns() returns
             # ordered turns; we pull the last 6 (3 narrator + 3 lori
