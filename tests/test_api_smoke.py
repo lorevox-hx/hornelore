@@ -27,6 +27,33 @@ BASE = os.getenv("LOREVOX_API_URL", "http://127.0.0.1:8000")
 TTS_BASE = os.getenv("LOREVOX_TTS_URL", "http://127.0.0.1:8001")
 
 
+def _api_alive(base: str = BASE, timeout: float = 1.0) -> bool:
+    """Cheap probe for whether the API is up. Cached so full-suite
+    discover only pays the socket cost once.
+
+    2026-07-15 (test-only hygiene): the smoke-tests hit real HTTP; when
+    the stack is not running (sandbox, CI without API) every test
+    ERROR'd with a connection refused. Not a real regression, just
+    noise in the discover signal. Every class in this file + test_db
+    _smoke gates on `skipUnless(_api_alive())` now."""
+    global _API_ALIVE_CACHE
+    try:
+        return _API_ALIVE_CACHE
+    except NameError:
+        pass
+    try:
+        requests.get(f"{base}/api/ping", timeout=timeout)
+        _API_ALIVE_CACHE = True
+    except Exception:
+        _API_ALIVE_CACHE = False
+    return _API_ALIVE_CACHE
+
+
+_API_ALIVE = _api_alive()
+_SKIP_REASON = f"API not reachable at {BASE} — start the stack to run smoke tests"
+
+
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class HealthTests(unittest.TestCase):
     """Group 1: Basic health and connectivity."""
 
@@ -45,6 +72,7 @@ class HealthTests(unittest.TestCase):
         self.assertIsInstance(body, (dict, list))
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class PeopleTests(unittest.TestCase):
     """Group 2: Person CRUD lifecycle."""
 
@@ -129,6 +157,7 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class ProfileTests(unittest.TestCase):
     """Group 3: Profile get/put lifecycle."""
 
@@ -180,6 +209,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class SessionTests(unittest.TestCase):
     """Group 4: Session/turn lifecycle."""
 
@@ -239,6 +269,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class FactsTests(unittest.TestCase):
     """Group 5: Facts CRUD and isolation."""
 
@@ -297,6 +328,7 @@ class FactsTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class TimelineTests(unittest.TestCase):
     """Group 6: Timeline event lifecycle."""
 
@@ -344,6 +376,7 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class NarratorIsolationTests(unittest.TestCase):
     """Group 7: Cross-narrator data isolation."""
 
@@ -424,6 +457,7 @@ class NarratorIsolationTests(unittest.TestCase):
         self.assertEqual(name_b, "Person B")
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class ChatConnectivityTests(unittest.TestCase):
     """Group 8: Chat endpoint connectivity."""
 

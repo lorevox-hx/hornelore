@@ -17,6 +17,7 @@ import json
 import time
 import unittest
 import uuid
+from tests.test_api_smoke import _API_ALIVE as _API_ALIVE, _SKIP_REASON as _SKIP_REASON  # noqa: E402
 
 try:
     import requests
@@ -27,6 +28,7 @@ except ImportError:
 BASE = os.getenv("LOREVOX_API_URL", "http://127.0.0.1:8000")
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class DBPersistenceTests(unittest.TestCase):
     """Group 1: Data survives create → read round-trip."""
 
@@ -115,6 +117,7 @@ class DBPersistenceTests(unittest.TestCase):
                         params={"conv_id": conv_id}, timeout=5)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class DBIsolationTests(unittest.TestCase):
     """Group 2: Cross-narrator data isolation in the DB."""
 
@@ -180,6 +183,7 @@ class DBIsolationTests(unittest.TestCase):
         self.assertNotEqual(b_name, unique_name, "Profile leaked from A to B")
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class DBDeleteCascadeTests(unittest.TestCase):
     """Group 3: Hard delete cleans up all dependent data."""
 
@@ -233,6 +237,7 @@ class DBDeleteCascadeTests(unittest.TestCase):
         self.assertEqual(len(items), 0, "Timeline should be deleted after hard delete")
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class DBSoftDeleteTests(unittest.TestCase):
     """Group 4: Soft delete and restore behavior."""
 
@@ -284,6 +289,7 @@ class DBSoftDeleteTests(unittest.TestCase):
                         params={"mode": "hard", "reason": "test cleanup"}, timeout=5)
 
 
+@unittest.skipUnless(_API_ALIVE, _SKIP_REASON)
 class DBFactStatusWorkflowTests(unittest.TestCase):
     """Group 5: Fact status transitions (extracted → reviewed → rejected)."""
 
