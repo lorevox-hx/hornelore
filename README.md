@@ -521,6 +521,26 @@ Web-derived context must be labeled as public context or draft evidence
 until confirmed by the operator/narrator, and public context is never
 presented as personal memory.
 
+## Closed incidents
+
+- **INC-2026-07-09 — response guards disabled in production** (CLOSED 2026-07-14).
+  Every narrator-facing response guard (`narrator_echo`, `meta_response_leak`,
+  `dangling_determiner`, `language_drift`, the "I can see" block) was silently
+  dead from **2026-07-09 22:16 until the 2026-07-14 restart** — about five days.
+  Root cause: a second inline global regex flag in `_META_REASONING_RX`, which is
+  a warning on Python 3.10 and a hard `re.error` on 3.11+; the server runs 3.12,
+  so `lori_response_guards` failed at import, and `chat_ws` caught that
+  ImportError in the per-turn "never break a turn" handler and served every reply
+  unguarded. Fixed by moving the flag into `re.compile(..., re.IGNORECASE)`,
+  importing the guards at module scope so a broken guards module fails the boot,
+  and adding a build gate that enforces 3.11+ regex rules regardless of the
+  interpreter running the tests. Full write-up:
+  [`docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md`](docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md).
+
+  Standing lesson: **a defensive `except` around an import is a silencer, not a
+  safety net.** Runtime failure should degrade; structural failure should fail
+  loud. They must not share a handler.
+
 ## Local-first AI commitment
 
 Every model used inside Hornelore (and by extension, Lorevox) runs on the narrator's machine. This is a standing architectural commitment, not a default we plan to revisit later under cost pressure.
