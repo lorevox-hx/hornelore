@@ -903,10 +903,139 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
     return {"ok": True, "stop_id": stop_id}
 
 
+# ── Auto-day-generation helpers (2026-07-15 Track C fix) ────────────
+#
+# Prior behavior: create_trip / patch_trip wrote start_date + end_date to
+# the trip row and stopped. The Travel Doc Lab said "Start and end dates
+# generate one editable card per day" but the day cards were NOT created
+# until the operator found the separate "☑ Generate / reconcile day
+# cards" button (POST /days/generate-from-dates).
+#
+# Live-test symptom (2026-07-15 Bismarck trip): dates saved, no day
+# cards appeared, "No day cards yet" empty-state rendered. Chris asked
+# whether he'd forgotten a step. He hadn't — the workflow was broken.
+#
+# Fix: both routes now attempt day generation / reconcile automatically
+# after the trip write succeeds. Failures do NOT roll back the trip
+# write (the operator's save must land regardless); they return a
+# structured `days_warning` string the UI can surface. Existing operator
+# day-card edits are never touched — trip_days_generate skips dates
+# that already exist, and trip_days_reconcile(add_missing=True) only
+# ADDs missing in-range days, never marks out-of-range or deletes.
+
+def _auto_generate_days_for_new_trip(
+    trip_id: str, start_date, end_date
+) -> Optional[str]:
+    """Attempt day-generation on trip create. Returns None on success or
+    when no dates were given (nothing to do); returns a human-readable
+    warning string when generation failed (bad dates, huge window, etc.)."""
+    if not start_date or not end_date:
+        return None
+    try:
+        result = trip_repository.trip_days_generate(trip_id)
+        logger.info(
+            "[trips][builder][auto-days] trip=%s created=%s total=%s",
+            trip_id, result.get("created"), result.get("total"))
+        return None
+    except ValueError as exc:
+        # Bad ISO date, end < start, or window > 400 days.
+        msg = str(exc)
+        logger.warning(
+            "[trips][builder][auto-days] trip=%s skipped: %s",
+            trip_id, msg)
+        return ("Trip saved, but day cards could not be generated: "
+                + msg + ". Fix the dates and use the Generate / reconcile "
+                "button, or open the Trip Calendar tab.")
+    except Exception as exc:
+        # Migration missing, DB lock, anything unexpected.
+        logger.exception(
+            "[trips][builder][auto-days] trip=%s unexpected failure",
+            trip_id)
+        return ("Trip saved, but day cards could not be generated ("
+                + type(exc).__name__ + "). Try Generate / reconcile day "
+                "cards manually.")
+
+
+def _auto_reconcile_days_on_patch(
+    trip_id: str, dates_touched: bool
+) -> Optional[str]:
+    """Attempt add-missing reconcile on trip patch when the operator
+    changed dates. Never marks out-of-range and never deletes — the
+    operator still owns those decisions via the reconcile drawer.
+
+    Returns None on success or when no dates were touched; returns a
+    warning string on failure. Uses trip_days_reconcile(add_missing=True)
+    which delegates to trip_days_generate — same skip-on-existing
+    semantics.
+
+    Bad-date detection: trip_days_reconcile silently returns added=0
+    when the window is unusable (bad ISO, end<start, one date missing,
+    window > 400 days), because reconcile_preview treats those as "no
+    honest window, no missing dates." That silent skip is correct
+    behavior for a half-typed correction (start set, end still blank),
+    but WRONG for the operator who set both dates in the wrong order —
+    Chris wanted a visible warning either way. So we look at the final
+    trip row and only warn when BOTH dates are present AND the window
+    is malformed, which is the shape that means "the operator meant
+    to give me a real window, and the dates don't work.\""""
+    if not dates_touched:
+        return None
+    try:
+        result = trip_repository.trip_days_reconcile(
+            trip_id, add_missing=True, mark_out_of_range=False)
+        logger.info(
+            "[trips][builder][auto-days] trip=%s reconcile added=%s",
+            trip_id, result.get("added"))
+    except ValueError as exc:
+        # trip_days_generate raised — likely bad ISO or window > 400.
+        msg = str(exc)
+        logger.warning(
+            "[trips][builder][auto-days] trip=%s reconcile skipped: %s",
+            trip_id, msg)
+        return ("Trip dates saved, but the day-card reconcile skipped "
+                "add-missing: " + msg + ".")
+    except Exception as exc:
+        logger.exception(
+            "[trips][builder][auto-days] trip=%s reconcile unexpected "
+            "failure", trip_id)
+        return ("Trip dates saved, but the day-card reconcile hit an "
+                "unexpected error (" + type(exc).__name__ + "). Try "
+                "Generate / reconcile day cards manually.")
+
+    # Reconcile returned cleanly. Check for the "both dates set +
+    # invalid window" shape which reconcile silently no-ops on.
+    trip = trip_repository.trip_get(trip_id) or {}
+    start_raw = (trip.get("start_date") or "")[:10]
+    end_raw = (trip.get("end_date") or "")[:10]
+    if not start_raw or not end_raw:
+        return None
+    try:
+        from datetime import date as _date
+        start = _date.fromisoformat(start_raw)
+        end = _date.fromisoformat(end_raw)
+    except ValueError:
+        return ("Trip dates saved, but the day-card reconcile could "
+                "not generate cards: one of the dates is not a valid "
+                "ISO date (YYYY-MM-DD).")
+    if end < start:
+        return ("Trip dates saved, but end_date is before start_date, "
+                "so day cards were not generated. Fix the dates and "
+                "use ☑ Generate / reconcile day cards.")
+    if (end - start).days > 400:
+        return ("Trip dates saved, but the window spans more than 400 "
+                "days — too large to auto-generate day cards.")
+    return None
+
+
 @router.post("")
 def create_trip(req: TripCreate) -> Dict[str, Any]:
     """Phase A builder: create an empty trip from a form (no more
-    import-only creation)."""
+    import-only creation).
+
+    2026-07-15 Track C: when both start_date and end_date are supplied,
+    auto-generate day cards after the trip write. Generation failures
+    surface as ``days_warning`` in the response — the trip itself is
+    always saved."""
     _require_trips_enabled()
     if not (req.title or "").strip():
         raise HTTPException(status_code=422, detail="trip needs a title")
@@ -921,16 +1050,35 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     logger.info("[trips][builder] trip created trip=%s person=%s",
                 trip_id, req.person_id)
     trip_timeline_bridge.sync_trip_to_life_record(trip_id)
-    return {"trip_id": trip_id, "tree": trip_repository.trip_tree(trip_id)}
+    days_warning = _auto_generate_days_for_new_trip(
+        trip_id, req.start_date, req.end_date)
+    resp: Dict[str, Any] = {
+        "trip_id": trip_id,
+        "tree": trip_repository.trip_tree(trip_id),
+    }
+    if days_warning:
+        resp["days_warning"] = days_warning
+    return resp
 
 
 @router.patch("/{trip_id}")
 def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
     """Operator edit of trip-level fields (title/dates/summary). Regions,
-    stops, and photos are edited through their own endpoints."""
+    stops, and photos are edited through their own endpoints.
+
+    2026-07-15 Track C: when the request touches start_date / end_date
+    (either setting or clearing), auto-run reconcile(add_missing=True)
+    after the trip write. Reconcile failures surface as ``days_warning``
+    — the trip update always lands."""
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
+    dates_touched = (
+        req.start_date is not None
+        or req.end_date is not None
+        or bool(req.clear_start_date)
+        or bool(req.clear_end_date)
+    )
     ok = trip_repository.trip_update(
         trip_id,
         title=req.title,
@@ -945,8 +1093,15 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
         raise HTTPException(
             status_code=400, detail="nothing to update")
     trip_timeline_bridge.sync_trip_to_life_record(trip_id)
-    return {"ok": True, "trip_id": trip_id,
-            "tree": trip_repository.trip_tree(trip_id)}
+    days_warning = _auto_reconcile_days_on_patch(trip_id, dates_touched)
+    resp: Dict[str, Any] = {
+        "ok": True,
+        "trip_id": trip_id,
+        "tree": trip_repository.trip_tree(trip_id),
+    }
+    if days_warning:
+        resp["days_warning"] = days_warning
+    return resp
 
 
 @router.post("/{trip_id}/regions")

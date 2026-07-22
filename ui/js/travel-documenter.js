@@ -1466,7 +1466,13 @@
           }),
         }).then(function (out) {
           log("Trip updated", out);
-          setStatus("good", "Trip saved");
+          // 2026-07-15 Track C: surface auto-reconcile warning if the
+          // backend saved the dates but couldn't add missing day cards.
+          if (out && out.days_warning) {
+            setStatus("warn", out.days_warning);
+          } else {
+            setStatus("good", "Trip saved");
+          }
           return refreshCurrentTrip();
         });
       }, function () {
@@ -1761,6 +1767,16 @@
       return api("/api/trips", { method: "POST", body: JSON.stringify(body) })
         .then(function (out) {
           log("Trip created", out);
+          // 2026-07-15 Track C: surface auto-day-generation warning if
+          // the backend saved the trip but couldn't create day cards.
+          if (out && out.days_warning) {
+            setStatus("warn", out.days_warning);
+          } else {
+            setStatus("good", "Trip created" +
+              (body.start_date && body.end_date
+                 ? " — day cards generated"
+                 : ""));
+          }
           clearFields(["tripTitle", "tripStart", "tripEnd", "tripSummary"]);
           return loadTrips().then(function () {
             var created = st.trips.filter(function (t) {

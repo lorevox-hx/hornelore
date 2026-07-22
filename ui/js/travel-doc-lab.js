@@ -203,15 +203,37 @@
 
   function loadTripBundle(tripId) {
     var t = encodeURIComponent(tripId);
+    // 2026-07-15 Track C fix — stop silently converting /days and
+    // /days/reconcile-preview failures into empty results. A missing
+    // migration or a 500 from the backend used to render as
+    // "No day cards yet — Generate them from the trip dates above",
+    // which was indistinguishable from an operator who legitimately
+    // hadn't clicked Generate. The two errors now go through a
+    // best-effort wrapper that captures the error message onto
+    // st.loadWarnings so the panel can show it.
+    function _captureLoadError(label, fallback) {
+      return function (e) {
+        st.loadWarnings = st.loadWarnings || [];
+        st.loadWarnings.push(label + ": " + e.message);
+        return fallback;
+      };
+    }
+    st.loadWarnings = [];
     return Promise.all([
       api("/api/trips/" + t + "/tree"),
-      api("/api/trips/" + t + "/days").catch(function () { return { days: [] }; }),
+      api("/api/trips/" + t + "/days").catch(
+        _captureLoadError("Day cards failed to load", { days: [] })),
       api("/api/trips/" + t + "/photo-links"),
       api("/api/trips/" + t + "/location-notes"),
-      api("/api/trips/" + t + "/sources").catch(function () { return { sources: [] }; }),
-      api("/api/trips/" + t + "/public-context").catch(function () { return { public_context: [] }; }),
-      api("/api/trips/" + t + "/days/reconcile-preview").catch(function () { return null; }),
-      api("/api/trips/" + t + "/travelogue-preview").catch(function () { return null; }),
+      api("/api/trips/" + t + "/sources").catch(
+        _captureLoadError("Sources failed to load", { sources: [] })),
+      api("/api/trips/" + t + "/public-context").catch(
+        _captureLoadError("Public context failed to load",
+                          { public_context: [] })),
+      api("/api/trips/" + t + "/days/reconcile-preview").catch(
+        _captureLoadError("Reconcile preview failed to load", null)),
+      api("/api/trips/" + t + "/travelogue-preview").catch(
+        _captureLoadError("Travelogue preview failed to load", null)),
     ]).then(function (outs) {
       st.tree = outs[0];
       st.days = outs[1].days || [];
@@ -510,11 +532,37 @@
     var ht = el("div");
     ht.appendChild(el("h1", "", "Trip Calendar"));
     ht.appendChild(el("p", "tdl-muted",
-      "Start and end dates generate one editable card per day. Each day is " +
-      "the memory workflow: talk with Lori, add what happened, attach " +
-      "photos, notes, meals, places, and sources."));
+      "Day cards are created automatically when you save trip dates. " +
+      "Each card is the memory workflow: talk with Lori, add what " +
+      "happened, attach photos, notes, meals, places, and sources. Use " +
+      "☑ Generate / reconcile day cards below if you ever need to " +
+      "re-sync the calendar to the current dates."));
     head.appendChild(ht);
     wrap.appendChild(head);
+
+    // 2026-07-15 Track C: surface any /days or /days/reconcile-preview
+    // load errors instead of silently rendering the empty state — the
+    // operator needs to see a real backend failure (missing migration,
+    // 500) rather than "you must have forgotten to press Generate."
+    if (st.loadWarnings && st.loadWarnings.length) {
+      var warnBox = el("div", "tdl-error tdl-load-warnings");
+      warnBox.appendChild(el("strong", "",
+        "Some trip data could not be loaded:"));
+      var ul = el("ul", "");
+      st.loadWarnings.forEach(function (line) {
+        ul.appendChild(el("li", "", line));
+      });
+      warnBox.appendChild(ul);
+      wrap.appendChild(warnBox);
+    }
+    // Auto-generation / auto-reconcile warning from the last save call
+    // (create_trip or patch_trip attached this to the response body).
+    if (st.daysWarning) {
+      var dwBox = el("div", "tdl-error tdl-days-warning");
+      dwBox.appendChild(el("strong", "", "Day cards warning: "));
+      dwBox.appendChild(document.createTextNode(st.daysWarning));
+      wrap.appendChild(dwBox);
+    }
 
     wrap.appendChild(renderEvalChecklist());
 
