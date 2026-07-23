@@ -186,6 +186,51 @@ class IndirectDistressPhraseTest(unittest.TestCase):
 # ── False-positive resistance ─────────────────────────────────────────────
 
 
+class HedgedAffectPhraseTest(unittest.TestCase):
+    """BUG-EX-AFFECT-NAME-HEDGED-01 (live, 2026-07): Christopher's review
+    queue held personal.fullName = "kind of scared" at conf 0.85. The
+    start-of-value trigger missed it because the affect word sits behind a
+    hedge ("kind of", "sort of", "a little"). A name field never legitimately
+    contains an emotional-state word, so a whole-word match anywhere in the
+    value must drop it.
+    """
+
+    def test_the_live_christopher_failure_drops(self):
+        item = _item("personal.fullName", "kind of scared")
+        self.assertTrue(_drop_affect_phrase_as_name(item, ""))
+
+    def test_sort_of_worried_drops(self):
+        self.assertTrue(
+            _drop_affect_phrase_as_name(_item("personal.fullName",
+                                              "sort of worried"), ""))
+
+    def test_a_little_anxious_drops(self):
+        self.assertTrue(
+            _drop_affect_phrase_as_name(_item("personal.firstName",
+                                              "a little anxious"), ""))
+
+    def test_trailing_affect_word_drops(self):
+        self.assertTrue(
+            _drop_affect_phrase_as_name(_item("personal.fullName",
+                                              "really nervous now"), ""))
+
+    def test_real_names_are_kept(self):
+        for val in ("Christopher", "Christopher Todd Horne", "Horne", "Chris",
+                    "Mary Anne", "Jean-Pierre"):
+            self.assertFalse(
+                _drop_affect_phrase_as_name(_item("personal.fullName", val), ""),
+                val)
+
+    def test_guard_is_name_fields_only(self):
+        # The whole-word-anywhere rule must NOT touch non-name fields, or it
+        # would eat legitimate narrative values.
+        self.assertFalse(
+            _drop_affect_phrase_as_name(_item("residence.place", "scared"), ""))
+        self.assertFalse(
+            _drop_affect_phrase_as_name(
+                _item("laterYears.reflection", "I was anxious then"), ""))
+
+
 class FalsePositiveResistanceTest(unittest.TestCase):
     """Real names + neutral text must not drop. The guard is identity-
     field-only and sees no triggers in normal narrative."""

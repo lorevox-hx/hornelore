@@ -7728,6 +7728,25 @@ def _value_starts_with_affect_token(value: str) -> bool:
     return first in _AFFECT_DISTRESS_TOKENS
 
 
+def _value_contains_affect_token(value: str) -> bool:
+    """Return True if the value contains an affect/distress token as a whole
+    word, anywhere — not just at the start.
+
+    BUG-EX-AFFECT-NAME-HEDGED-01 (live, 2026-07: Christopher's review queue had
+    personal.fullName = "kind of scared" at conf 0.85). The start-of-value
+    check missed it because the affect word sits behind a hedge: "kind of
+    scared", "sort of worried", "a little anxious". A NAME field never
+    legitimately contains any of these emotional-state words, so for the
+    guarded identity suffixes we can safely drop on a whole-word match anywhere
+    in the value. This does NOT loosen anything for non-name fields — the
+    caller only consults it for _AFFECT_GUARDED_FIELD_SUFFIXES.
+    """
+    if not value:
+        return False
+    words = re.findall(r"[a-z\u00e0-\u00ff']+", value.lower())
+    return any(w in _AFFECT_DISTRESS_TOKENS for w in words)
+
+
 def _looks_like_affect_phrase_for_value(text: str, value: str) -> bool:
     """Return True if value appears in source text after a distress
     phrase ("I'm scared of {value}"). Used for the indirect case where
@@ -7783,6 +7802,16 @@ def _drop_affect_phrase_as_name(item: Dict[str, Any], source_text: str) -> bool:
     if _looks_like_affect_phrase_for_value(source_text or "", value):
         logger.info(
             "[extract][affect-name-guard] drop fieldPath=%s value=%r reason=distress_phrase_in_source",
+            field, value,
+        )
+        return True
+    # Trigger 3: a guarded NAME field whose value contains an affect token
+    # anywhere — catches hedged phrasing ("kind of scared", "a little anxious")
+    # that trigger 1 misses because the token is not the first word. Safe for
+    # name fields only: real names never contain these emotional-state words.
+    if _value_contains_affect_token(value):
+        logger.info(
+            "[extract][affect-name-guard] drop fieldPath=%s value=%r reason=affect_token_in_name_value",
             field, value,
         )
         return True
