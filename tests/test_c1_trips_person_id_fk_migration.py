@@ -375,5 +375,357 @@ class PreflightOrphanCleanupTest(unittest.TestCase):
             f"got: {log_output!r}")
 
 
+# ── Regression: orphan trip DELETE cascades to children ─────────
+
+class OrphanDeleteCascadesToChildrenTest(unittest.TestCase):
+    """The load-bearing regression test for the rev 2 fix. The first
+    cut of 0034 did DELETE with foreign_keys OFF, which SKIPS
+    ON DELETE CASCADE. That left trip_regions / trip_stops /
+    trip_photo_links / trip_days / etc. stranded pointing at trip
+    ids the migration had just removed. This test simulates the
+    pre-migration state (fresh legacy schema, orphan trip + fully-
+    populated child rows) and asserts that after 0034 rev 2 lands,
+    the orphan trip's children are ALSO gone."""
+
+    def setUp(self):
+        self._tmpdb = tempfile.NamedTemporaryFile(
+            suffix=".sqlite3", delete=False)
+        self._tmpdb.close()
+        self.db_path = Path(self._tmpdb.name)
+        self._orig_db = _db.DB_PATH
+        _db.DB_PATH = self.db_path
+        # Standard init_db lands 0034 and 0035 clean on a fresh DB.
+        _db.init_db()
+
+    def tearDown(self):
+        _db.DB_PATH = self._orig_db
+        try:
+            self.db_path.unlink()
+        except OSError:
+            pass
+
+    def _make_orphan_trip_with_children(self):
+        """Simulate: someone inserted an orphan trip (bypassing the API
+        gate) and its FULL child ecosystem via direct SQL with FKs OFF,
+        then the migration should DELETE all of them via cascade.
+
+        Populates ONE row of every trip-child table so the cascade
+        regression is covered end-to-end (not just the four tables
+        the earlier version of this test happened to touch).
+        """
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("PRAGMA foreign_keys = OFF;")
+            # Un-apply 0034 AND 0035 so we can test the 0034 cascade
+            # path alone (without 0035 muddying which layer swept
+            # what).
+            con.execute(
+                "DELETE FROM schema_migrations WHERE filename IN ("
+                "'0034_trips_person_id_fk.sql', "
+                "'0035_trips_orphan_children_cleanup.sql');")
+            fake_person = str(uuid.uuid4())
+            trip_id = str(uuid.uuid4())
+            region_id = str(uuid.uuid4())
+            stop_id = str(uuid.uuid4())
+            day_id = str(uuid.uuid4())
+            note_id = str(uuid.uuid4())
+            source_id = str(uuid.uuid4())
+            theme_id = str(uuid.uuid4())
+            photo_link_id = str(uuid.uuid4())
+            bio_sugg_id = str(uuid.uuid4())
+            story_link_id = str(uuid.uuid4())
+            public_ctx_id = str(uuid.uuid4())
+            photo_ctx_id = str(uuid.uuid4())
+
+            con.execute(
+                "INSERT INTO trips (id, person_id, title, "
+                "created_at, updated_at, meta_json) VALUES "
+                "(?, ?, 'Orphan trip', '2026-07-23', "
+                "'2026-07-23', '{}');",
+                (trip_id, fake_person))
+            con.execute(
+                "INSERT INTO trip_regions (id, trip_id, ord, title) "
+                "VALUES (?, ?, 0, 'Orphan region');",
+                (region_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_stops "
+                "(id, trip_id, trip_region_id, ord, "
+                " stop_type, location_name) "
+                "VALUES (?, ?, ?, 0, 'sight', 'Orphan stop');",
+                (stop_id, trip_id, region_id))
+            con.execute(
+                "INSERT INTO trip_days "
+                "(id, trip_id, day_index, date, "
+                " places_visited_json, meals_json, "
+                " created_at, updated_at) VALUES "
+                "(?, ?, 1, '2026-08-03', '[]', '[]', "
+                "'2026-07-23', '2026-07-23');",
+                (day_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_location_notes "
+                "(id, trip_id) VALUES (?, ?);",
+                (note_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_sources (id, trip_id, title, "
+                "created_at, updated_at) VALUES "
+                "(?, ?, 'orphan source', '2026-07-23', '2026-07-23');",
+                (source_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_themes (id, trip_id, ord, title, tag) "
+                "VALUES (?, ?, 0, 'orphan theme', 'orphan');",
+                (theme_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_photo_links (id, trip_id, photo_id) "
+                "VALUES (?, ?, 'fake-photo-id');",
+                (photo_link_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_bio_suggestions "
+                "(id, trip_id, person_id, field_key, "
+                " suggested_value) VALUES "
+                "(?, ?, ?, 'placeOfBirth', 'Orphanville');",
+                (bio_sugg_id, trip_id, fake_person))
+            con.execute(
+                "INSERT INTO trip_story_links "
+                "(id, trip_id, story_candidate_id) VALUES "
+                "(?, ?, 'fake-story-id');",
+                (story_link_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_public_context "
+                "(id, trip_id, source_type, result_summary, "
+                " created_at, updated_at) VALUES "
+                "(?, ?, 'public_web_context', 'orphan summary', "
+                "'2026-07-23', '2026-07-23');",
+                (public_ctx_id, trip_id))
+            con.execute(
+                "INSERT INTO trip_photo_context "
+                "(id, trip_id, photo_link_id, photo_id, "
+                " context_type, result_summary, "
+                " created_at, updated_at) VALUES "
+                "(?, ?, ?, 'fake-photo-id', 'ocr_text', "
+                "'orphan photo context', "
+                "'2026-07-23', '2026-07-23');",
+                (photo_ctx_id, trip_id, photo_link_id))
+            con.commit()
+        finally:
+            con.close()
+        return {
+            "trip_id": trip_id,
+            "region_id": region_id,
+            "stop_id": stop_id,
+            "day_id": day_id,
+            "note_id": note_id,
+            "source_id": source_id,
+            "theme_id": theme_id,
+            "photo_link_id": photo_link_id,
+            "bio_sugg_id": bio_sugg_id,
+            "story_link_id": story_link_id,
+            "public_ctx_id": public_ctx_id,
+            "photo_ctx_id": photo_ctx_id,
+        }
+
+    def test_0034_rev3_cascades_all_children_of_orphan_trip(self):
+        """The critical regression test. Before rev 3, the orphan
+        DELETE ran with FKs OFF so the declared ON DELETE CASCADE on
+        every child table did NOT fire. Every seeded child row here
+        must be gone after the migration."""
+        ids = self._make_orphan_trip_with_children()
+
+        # Re-run init_db → migrations apply
+        _db._BIO_SEED_LOADED = False
+        _db.init_db()
+
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            # Per-id survival check across every seeded child row
+            table_id_pairs = (
+                ("trips", "trip_id"),
+                ("trip_regions", "region_id"),
+                ("trip_stops", "stop_id"),
+                ("trip_days", "day_id"),
+                ("trip_location_notes", "note_id"),
+                ("trip_sources", "source_id"),
+                ("trip_themes", "theme_id"),
+                ("trip_photo_links", "photo_link_id"),
+                ("trip_bio_suggestions", "bio_sugg_id"),
+                ("trip_story_links", "story_link_id"),
+                ("trip_public_context", "public_ctx_id"),
+                ("trip_photo_context", "photo_ctx_id"),
+            )
+            for table, id_key in table_id_pairs:
+                row = con.execute(
+                    f"SELECT 1 FROM {table} WHERE id = ?;",
+                    (ids[id_key],)).fetchone()
+                self.assertIsNone(
+                    row,
+                    f"{table} row for orphan trip should have been "
+                    f"cascade-deleted by 0034 rev 3 (or swept by "
+                    f"0035 as a safety net); still present")
+
+            # Nested chain assertion: no row in any trip-child table
+            # points at a trip_id that isn't in trips.
+            for table in (
+                "trip_regions", "trip_stops", "trip_days",
+                "trip_location_notes", "trip_sources",
+                "trip_photo_links", "trip_themes",
+                "trip_bio_suggestions", "trip_story_links",
+                "trip_public_context", "trip_photo_context",
+            ):
+                orphans = con.execute(
+                    f"SELECT COUNT(*) FROM {table} "
+                    "WHERE trip_id NOT IN (SELECT id FROM trips);"
+                ).fetchone()[0]
+                self.assertEqual(
+                    orphans, 0,
+                    f"{table} still has {orphans} row(s) pointing "
+                    f"at a gone trip after migration")
+
+            # Final gate: PRAGMA foreign_key_check must be zero rows
+            # after the migration lands. ChatGPT's specific ask.
+            con.execute("PRAGMA foreign_keys = ON;")
+            violations = con.execute(
+                "PRAGMA foreign_key_check;").fetchall()
+            self.assertEqual(
+                violations, [],
+                f"PRAGMA foreign_key_check must return zero rows "
+                f"after 0034+0035; got {violations!r}")
+        finally:
+            con.close()
+
+
+class Migration0035SelfHealingTest(unittest.TestCase):
+    """The specific MAG-Chris post-buggy-0034 case. Simulate a DB
+    where 0034 ran with the buggy FKs-OFF DELETE (stranded children
+    left behind), then bump init_db and let 0035 sweep them."""
+
+    def setUp(self):
+        self._tmpdb = tempfile.NamedTemporaryFile(
+            suffix=".sqlite3", delete=False)
+        self._tmpdb.close()
+        self.db_path = Path(self._tmpdb.name)
+        self._orig_db = _db.DB_PATH
+        _db.DB_PATH = self.db_path
+        _db.init_db()
+
+    def tearDown(self):
+        _db.DB_PATH = self._orig_db
+        try:
+            self.db_path.unlink()
+        except OSError:
+            pass
+
+    def test_0035_sweeps_children_of_previously_deleted_orphan_trip(self):
+        """Insert child rows referencing a trip_id that isn't in
+        trips (the MAG-Chris state), un-apply 0035, re-run init_db.
+        The stranded children should be gone."""
+        gone_trip_id = str(uuid.uuid4())
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("PRAGMA foreign_keys = OFF;")
+            # Directly plant stranded children — no parent trip exists
+            con.execute(
+                "INSERT INTO trip_regions (id, trip_id, ord, title) "
+                "VALUES (?, ?, 0, 'Stranded');",
+                (str(uuid.uuid4()), gone_trip_id))
+            con.execute(
+                "INSERT INTO trip_days "
+                "(id, trip_id, day_index, date, "
+                " places_visited_json, meals_json, "
+                " created_at, updated_at) VALUES "
+                "(?, ?, 1, '2026-08-03', '[]', '[]', "
+                "'2026-07-23', '2026-07-23');",
+                (str(uuid.uuid4()), gone_trip_id))
+            con.execute(
+                "INSERT INTO trip_location_notes (id, trip_id) VALUES "
+                "(?, ?);", (str(uuid.uuid4()), gone_trip_id))
+            # Un-apply 0035 so init_db will run it again
+            con.execute(
+                "DELETE FROM schema_migrations WHERE filename = "
+                "'0035_trips_orphan_children_cleanup.sql';")
+            con.commit()
+        finally:
+            con.close()
+
+        # Confirm the stranded rows exist
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            n = con.execute(
+                "SELECT COUNT(*) FROM trip_regions "
+                "WHERE trip_id NOT IN (SELECT id FROM trips);"
+            ).fetchone()[0]
+            self.assertGreater(n, 0,
+                               "test fixture failed to plant stranded rows")
+        finally:
+            con.close()
+
+        # Re-run init_db → 0035 sweeps them
+        _db._BIO_SEED_LOADED = False
+        _db.init_db()
+
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            for table in (
+                "trip_regions", "trip_days", "trip_location_notes",
+            ):
+                orphans = con.execute(
+                    f"SELECT COUNT(*) FROM {table} "
+                    "WHERE trip_id NOT IN (SELECT id FROM trips);"
+                ).fetchone()[0]
+                self.assertEqual(
+                    orphans, 0,
+                    f"{table} still has {orphans} stranded row(s) "
+                    "after 0035 sweep")
+        finally:
+            con.close()
+
+    def test_0035_is_noop_on_clean_db(self):
+        """0035 must not disturb any legitimate row. Insert a real
+        trip with children, un-apply 0035, re-run, assert everything
+        survives."""
+        # Make a real narrator + trip + children
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            person_id = str(uuid.uuid4())
+            con.execute(
+                "INSERT INTO people (id, display_name, date_of_birth, "
+                "created_at, updated_at) VALUES "
+                "(?, 'Chris', '1962-12-24', '2026-07-23', '2026-07-23');",
+                (person_id,))
+            trip_id = str(uuid.uuid4())
+            con.execute(
+                "INSERT INTO trips (id, person_id, title, "
+                "created_at, updated_at, meta_json) VALUES "
+                "(?, ?, 'Real trip', '2026-07-23', '2026-07-23', '{}');",
+                (trip_id, person_id))
+            region_id = str(uuid.uuid4())
+            con.execute(
+                "INSERT INTO trip_regions (id, trip_id, ord, title) "
+                "VALUES (?, ?, 0, 'Real region');",
+                (region_id, trip_id))
+            con.execute(
+                "DELETE FROM schema_migrations WHERE filename = "
+                "'0035_trips_orphan_children_cleanup.sql';")
+            con.commit()
+        finally:
+            con.close()
+
+        _db._BIO_SEED_LOADED = False
+        _db.init_db()
+
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            trip_row = con.execute(
+                "SELECT id FROM trips WHERE id = ?;",
+                (trip_id,)).fetchone()
+            self.assertIsNotNone(
+                trip_row, "real trip must survive 0035 sweep")
+            region_row = con.execute(
+                "SELECT id FROM trip_regions WHERE id = ?;",
+                (region_id,)).fetchone()
+            self.assertIsNotNone(
+                region_row, "real region must survive 0035 sweep")
+        finally:
+            con.close()
+
+
 if __name__ == "__main__":
     unittest.main()

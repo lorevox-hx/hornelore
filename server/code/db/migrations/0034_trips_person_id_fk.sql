@@ -1,6 +1,6 @@
 ------------------------------------------------------------
 -- 0034_trips_person_id_fk.sql
--- Bucket C.1 (2026-07-23)
+-- Bucket C.1 (2026-07-23, rev 3 — cascade-safe two-phase structure)
 --
 -- Adds a real schema-level FOREIGN KEY constraint on
 -- trips.person_id → people(id) with ON DELETE CASCADE.
@@ -22,76 +22,116 @@
 -- depth), but the DB itself now refuses any orphan insertion
 -- and cascade-cleans on person delete.
 --
+-- CRITICAL ORDERING (rev 3, 2026-07-23):
+-- The orphan DELETE must run while foreign_keys enforcement is ON,
+-- otherwise the CASCADE actions on trip_regions / trip_stops /
+-- trip_photo_links / trip_days / trip_location_notes / trip_sources
+-- / trip_themes / trip_bio_suggestions / trip_story_links /
+-- trip_public_context / trip_photo_context DO NOT FIRE, and the
+-- orphan trip's children are left stranded pointing at trip ids
+-- that no longer exist. The rev 1 version of this migration did the
+-- DELETE with FKs OFF (assuming — incorrectly — that CASCADE was
+-- controlled by declaration not enforcement); rev 3 splits into
+-- two BEGIN IMMEDIATE transactions so the DELETE runs with
+-- enforcement on and the rebuild runs with enforcement off, with
+-- the PRAGMA toggle happening outside any transaction (SQLite
+-- documents PRAGMA foreign_keys as a no-op inside BEGIN).
+--
 -- SQLite does not support ALTER TABLE ... ADD FOREIGN KEY, so
 -- this uses the standard table-rebuild pattern per SQLite docs
--- ("Making Other Kinds Of Table Schema Changes"):
---   1. PRAGMA foreign_keys = OFF        (avoid cascade side-effects
---                                        while we rebuild)
---   2. DELETE orphan trips              (any row whose person_id
---                                        has no matching people.id;
---                                        the INSERT INTO trips_new
---                                        SELECT below would otherwise
---                                        happily copy them over)
---   3. CREATE TABLE trips_new           (identical shape PLUS the
---                                        REFERENCES people(id) ON
---                                        DELETE CASCADE clause)
---   4. INSERT INTO trips_new SELECT     (copy the survivors, column-
---                                        by-column, preserves defaults
---                                        + CHECK + NOT NULL)
---   5. DROP TABLE trips
---   6. ALTER TABLE trips_new RENAME     (atomic swap)
---   7. CREATE INDEX idx_trips_person_id (was dropped with the old
---                                        table; recreate under the
---                                        same name)
---   8. PRAGMA foreign_keys = ON         (re-arm the enforcement)
---   9. PRAGMA foreign_key_check         (diagnostic: should return
---                                        zero rows — if it doesn't,
---                                        something else in the DB
---                                        has a pre-existing FK
---                                        violation and the operator
---                                        should investigate before
---                                        the next request lands)
+-- ("Making Other Kinds Of Table Schema Changes"), split into two
+-- phases:
 --
--- Cascade behavior: existing trip_regions / trip_stops /
--- trip_photo_links / trip_themes / trip_location_notes /
--- trip_bio_suggestions / trip_story_links already reference
--- trips(id) ON DELETE CASCADE (see 0015_trip_tables.sql). With
--- this migration, deleting a person cascade-deletes their trips,
--- which in turn cascade-deletes every trip child row. That is
--- the intended behavior for the ND-class incident (an orphan
--- person can't exist; a deleted person's trip artifacts should
--- go with them).
+--   Phase 1 — cascade-safe orphan removal:
+--     0. PRAGMA foreign_keys = ON      (defensive — the runner's
+--                                       connection already sets ON
+--                                       per api/db.py _connect)
+--     1. BEGIN IMMEDIATE               (writer position from open;
+--                                       matches the trip_days_generate
+--                                       pattern; ends the possibility
+--                                       of the deferred-to-writer
+--                                       upgrade race)
+--     2. DELETE FROM trips WHERE       (NOT EXISTS is more defensive
+--        NOT EXISTS(SELECT 1 FROM       than NOT IN — the latter can
+--        people WHERE people.id =       fail to filter correctly if a
+--        trips.person_id)               NULL sneaks into the subquery;
+--                                       people.id is PK/NOT NULL so
+--                                       NOT IN is safe here, but the
+--                                       stricter shape is future-proof)
+--                                       Cascade fires on every child
+--                                       table with ON DELETE CASCADE.
+--     3. COMMIT
+--
+--   Phase 2 — safe table rebuild:
+--     4. PRAGMA foreign_keys = OFF     (SAFE now: no orphans remain,
+--                                       and the DROP+RENAME swap
+--                                       below needs enforcement off
+--                                       to avoid tripping FK checks
+--                                       during the transient state)
+--     5. BEGIN IMMEDIATE
+--     6. CREATE TABLE trips_new        (identical shape PLUS the
+--                                       REFERENCES people(id) ON
+--                                       DELETE CASCADE clause)
+--     7. INSERT INTO trips_new SELECT  (copy the survivors)
+--     8. DROP TABLE trips
+--     9. ALTER TABLE trips_new RENAME  (atomic swap)
+--    10. CREATE INDEX idx_trips_...    (was dropped with the old
+--                                       table; recreate under the
+--                                       same name)
+--    11. COMMIT
+--    12. PRAGMA foreign_keys = ON      (re-arm enforcement for any
+--                                       subsequent statement on this
+--                                       connection)
+--    13. PRAGMA foreign_key_check      (diagnostic: should return
+--                                       zero rows)
 --
 -- Foreign key enforcement is a per-CONNECTION setting. The
 -- application's _connect() already sets PRAGMA foreign_keys=ON
--- for every request connection (see api/db.py). This migration's
--- PRAGMA statements only affect the migration-runner's own
--- connection for the duration of this script.
+-- for every request connection. This migration's PRAGMA statements
+-- only affect the migration-runner's own connection for the
+-- duration of this script.
+--
+-- Note on PRAGMA + transactions: PRAGMA foreign_keys is a no-op
+-- inside a transaction ("foreign key constraint enforcement may
+-- only be enabled or disabled when there is no pending BEGIN or
+-- SAVEPOINT"). Every PRAGMA below is OUTSIDE BEGIN/COMMIT.
 --
 -- Orphan visibility: db.py's init_db logs the orphan count BEFORE
 -- calling run_pending_migrations when 0034 is pending, so the
--- operator sees "[migrations] pre-0034: N orphan trips found"
+-- operator sees "[migrations] pre-0034: N orphan trip(s) found"
 -- in api.log at the boot that applies this migration.
+--
+-- Companion migration 0035_trips_orphan_children_cleanup.sql
+-- handles the case where the rev 1 (buggy) version ran with
+-- FKs OFF and left children stranded — 0035 is idempotent and
+-- a no-op on any DB that got the correct rev 3 first.
 ------------------------------------------------------------
 
+-- Phase 1: delete orphan trips while cascades are active.
+PRAGMA foreign_keys = ON;
+
+BEGIN IMMEDIATE;
+
+DELETE FROM trips
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM people
+    WHERE people.id = trips.person_id
+);
+
+COMMIT;
+
+-- Phase 2: safe to disable enforcement now for the parent-table
+-- rebuild. No orphans remain to trip the new FK constraint on
+-- INSERT INTO trips_new.
 PRAGMA foreign_keys = OFF;
 
-BEGIN;
+BEGIN IMMEDIATE;
 
--- Step 2: remove orphans. Cannot exist under the new schema; if we
--- copied them into trips_new they'd violate the constraint the
--- moment foreign_keys re-armed and any downstream query touched
--- them. DELETE cascades through the trip_regions / trip_stops /
--- etc. ON DELETE CASCADE chain (still enforced because those FKs
--- are declared at CREATE TABLE time — the foreign_keys pragma
--- controls enforcement, not declaration).
-DELETE FROM trips
-WHERE person_id NOT IN (SELECT id FROM people);
-
--- Step 3: new table with the FK constraint.
 CREATE TABLE trips_new (
     id TEXT PRIMARY KEY,
-    person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    person_id TEXT NOT NULL
+        REFERENCES people(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     start_date TEXT,
     end_date TEXT,
@@ -104,7 +144,6 @@ CREATE TABLE trips_new (
     meta_json TEXT NOT NULL DEFAULT '{}'
 );
 
--- Step 4: copy the survivors.
 INSERT INTO trips_new (
     id, person_id, title, start_date, end_date, summary,
     status, source_document, created_at, updated_at, meta_json
@@ -114,23 +153,17 @@ SELECT
     status, source_document, created_at, updated_at, meta_json
 FROM trips;
 
--- Step 5-6: atomic swap.
 DROP TABLE trips;
 ALTER TABLE trips_new RENAME TO trips;
 
--- Step 7: recreate the index that lived on the old trips table.
 CREATE INDEX IF NOT EXISTS idx_trips_person_id ON trips(person_id);
 
 COMMIT;
 
--- Step 8: re-arm enforcement.
+-- Re-arm FK enforcement for any subsequent statement.
 PRAGMA foreign_keys = ON;
 
--- Step 9: diagnostic. Returns zero rows on a healthy DB. If the
--- migration runner's executescript surfaces any rows here, they
--- indicate a pre-existing FK violation elsewhere in the DB that
--- was not related to this migration. The runner tolerates a
--- non-empty result (PRAGMA statements don't raise on data), so
--- this is a soft check; the operator should still eyeball api.log
--- for [migrations] entries around this filename.
+-- Diagnostic. Returns zero rows on a healthy DB. If 0035 runs
+-- immediately after this, it'll also sweep any leftover children
+-- from the rev 1 buggy state.
 PRAGMA foreign_key_check;
