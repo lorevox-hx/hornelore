@@ -2370,6 +2370,16 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
 
     con = _connect()
     try:
+        # 2026-07-23 — BEGIN IMMEDIATE upgrades the transaction to
+        # writer-position at open time. SQLite's default deferred
+        # transaction starts as a reader and only upgrades to writer
+        # on the first write, which can fail with SQLITE_BUSY if
+        # another writer is active in the interim. For the day-
+        # generation + renumber sequence — short, single-writer,
+        # critical — IMMEDIATE guarantees that if the acquire
+        # succeeds, subsequent writes through commit won't hit
+        # SQLITE_BUSY. Per SQLite docs (WAL + short critical writes).
+        con.execute("BEGIN IMMEDIATE;")
         existing = {
             str(r["date"])[:10]
             for r in con.execute(

@@ -903,6 +903,39 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
     return {"ok": True, "stop_id": stop_id}
 
 
+# ── SQLite error classification (2026-07-23 follow-up) ─────────────
+#
+# Python 3.11+ exposes ``sqlite3.Error.sqlite_errorname`` and
+# ``sqlite_errorcode``. We use them to give the operator a more useful
+# prefix in the warning banner than the bare Python class name
+# (``OperationalError``, which covers everything from "database is
+# locked" to "no such column"). Full traceback still goes to
+# api.log via ``logger.exception``.
+
+def _classify_sqlite_error(sqlite_errorname, exc) -> str:
+    """Turn a sqlite3 exception into a short, operator-facing prefix.
+    Falls back to the Python class name when the errorname is not
+    available (older SQLite, non-sqlite exception, etc.)."""
+    name = str(sqlite_errorname or "").upper()
+    if not name:
+        return type(exc).__name__
+    if "BUSY" in name or "LOCKED" in name:
+        return "database temporarily locked"
+    if "CONSTRAINT_FOREIGNKEY" in name:
+        return "foreign key violation"
+    if "CONSTRAINT_UNIQUE" in name:
+        return "unique constraint violation"
+    if "CONSTRAINT" in name:
+        return "database constraint violation"
+    if "NOTADB" in name or "CORRUPT" in name:
+        return "database file corrupt or unreadable"
+    if "READONLY" in name:
+        return "database is read-only"
+    if "ERROR" in name and "SCHEMA" in name:
+        return "schema mismatch (migration may be missing)"
+    return name.lower().replace("_", " ")
+
+
 # ── Auto-day-generation helpers (2026-07-15 Track C fix) ────────────
 #
 # Prior behavior: create_trip / patch_trip wrote start_date + end_date to
@@ -951,11 +984,20 @@ def _auto_generate_days_for_new_trip(
         # 2026-07-23 — include str(exc) so ops can see the actual
         # sqlite/db message ("database is locked", "no such column",
         # etc.) instead of just the class name.
+        # 2026-07-23 (follow-up) — also log the SQLite error CODE and
+        # NAME (Python 3.11+ exposes sqlite_errorcode / sqlite_errorname
+        # on sqlite3.Error). Distinguishes SQLITE_BUSY (transient lock)
+        # from SQLITE_CONSTRAINT_FOREIGNKEY (data bug) at a glance in
+        # api.log, and picks a more useful client-facing prefix.
+        _sqlite_name = getattr(exc, "sqlite_errorname", None)
+        _sqlite_code = getattr(exc, "sqlite_errorcode", None)
         logger.exception(
-            "[trips][builder][auto-days] trip=%s unexpected failure",
-            trip_id)
+            "[trips][builder][auto-days] trip=%s unexpected failure "
+            "sqlite_code=%s sqlite_name=%s",
+            trip_id, _sqlite_code, _sqlite_name)
+        prefix = _classify_sqlite_error(_sqlite_name, exc)
         return ("Trip saved, but day cards could not be generated ("
-                + type(exc).__name__ + ": " + str(exc)[:200]
+                + prefix + ": " + str(exc)[:200]
                 + "). Try Generate / reconcile day cards manually.")
 
 
@@ -998,13 +1040,17 @@ def _auto_reconcile_days_on_patch(
         return ("Trip dates saved, but the day-card reconcile skipped "
                 "add-missing: " + msg + ".")
     except Exception as exc:
-        # 2026-07-23 — include str(exc) so ops can see the actual
-        # sqlite/db message.
+        # 2026-07-23 — include str(exc) + sqlite_errorname so ops
+        # can see the actual sqlite/db message.
+        _sqlite_name = getattr(exc, "sqlite_errorname", None)
+        _sqlite_code = getattr(exc, "sqlite_errorcode", None)
         logger.exception(
             "[trips][builder][auto-days] trip=%s reconcile unexpected "
-            "failure", trip_id)
+            "failure sqlite_code=%s sqlite_name=%s",
+            trip_id, _sqlite_code, _sqlite_name)
+        prefix = _classify_sqlite_error(_sqlite_name, exc)
         return ("Trip dates saved, but the day-card reconcile hit an "
-                "unexpected error (" + type(exc).__name__ + ": "
+                "unexpected error (" + prefix + ": "
                 + str(exc)[:200] + "). Try Generate / reconcile day "
                 "cards manually.")
 
