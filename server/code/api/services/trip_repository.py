@@ -2085,6 +2085,41 @@ def photo_context_supersede_drafts(link_id: str, context_type: str,
         con.close()
 
 
+def public_context_supersede_drafts(photo_link_id: str, source_type: str,
+                                    keep_id: Optional[str] = None) -> int:
+    """Retire UNAPPROVED public_context draft rows of one source_type on a
+    photo link. Sibling of photo_context_supersede_drafts (OCR).
+
+    Live (2026-07-23): the lookup endpoint created a NEW public_context row on
+    every call without retiring the last, so running lookup twice on a photo
+    made the modal read the same place context twice ("...and the place context
+    suggests X, and the place context suggests X..."). Same fix posture as OCR:
+    a fresh lookup retires its own prior unapproved drafts.
+
+    APPROVED rows are never touched; rows are marked rejected=1, never DELETEd;
+    keep_id lets the fresh row survive its own sweep.
+    """
+    con = _connect()
+    try:
+        params: List[Any] = [_now(), photo_link_id, source_type]
+        sql = ("UPDATE trip_public_context SET rejected = 1, updated_at = ? "
+               "WHERE photo_link_id = ? AND source_type = ? "
+               "AND approved_for_lori = 0 AND rejected = 0")
+        if keep_id:
+            sql += " AND id != ?"
+            params.append(keep_id)
+        cur = con.execute(sql, params)
+        con.commit()
+        return int(cur.rowcount or 0)
+    except sqlite3.OperationalError:
+        return 0                      # pre-0032 DB (no rejected col) — no-op
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def photo_context_list_for_link(link_id: str) -> List[Dict[str, Any]]:
     """All photo-context rows for a link (operator view — includes drafts
     and rejected). Tolerant of a pre-0030 DB (table missing) -> []."""

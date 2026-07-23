@@ -332,6 +332,60 @@ class StaleDraftSupersedeTest(_DbCase):
         self.assertEqual(row["approved_for_lori"], 1)
 
 
+class PublicContextSupersedeTest(_DbCase):
+    """Live (2026-07-23): repeated public/place lookups on a photo accumulated
+    context rows, so the modal read the same context several times. A fresh
+    lookup now retires its own prior UNAPPROVED drafts of that source_type
+    (sibling of the OCR supersede). Approved rows are never touched; nothing is
+    deleted."""
+
+    def _mk_lookup(self, text, approved=False):
+        return trip_repository.public_context_create(
+            trip_id=self.trip_id, result_summary=text,
+            source_type="place_context", photo_link_id=self.link_id,
+            approved_for_lori=approved)
+
+    def _alive(self):
+        return [r for r in
+                trip_repository.public_context_list_for_link(self.link_id)
+                if not r["rejected"]]
+
+    def test_new_lookup_retires_prior_unapproved_drafts(self):
+        old1 = self._mk_lookup("Augustiner-Bräu draft 1")
+        old2 = self._mk_lookup("Augustiner-Bräu draft 2")
+        new = self._mk_lookup("Augustiner-Bräu draft 3")
+        retired = trip_repository.public_context_supersede_drafts(
+            self.link_id, "place_context", keep_id=new)
+        self.assertEqual(retired, 2)
+        alive = self._alive()
+        self.assertEqual(len(alive), 1)
+        self.assertEqual(alive[0]["id"], new)
+        # old ones retired, not deleted
+        all_rows = trip_repository.public_context_list_for_link(self.link_id)
+        self.assertEqual(len(all_rows), 3)
+        self.assertEqual(
+            {r["id"] for r in all_rows if r["rejected"]}, {old1, old2})
+
+    def test_approved_rows_are_never_retired(self):
+        approved = self._mk_lookup("operator-approved place", approved=True)
+        new = self._mk_lookup("fresh draft")
+        trip_repository.public_context_supersede_drafts(
+            self.link_id, "place_context", keep_id=new)
+        alive_ids = {r["id"] for r in self._alive()}
+        self.assertIn(approved, alive_ids)  # human judgment outranks the sweep
+        self.assertIn(new, alive_ids)
+
+    def test_different_source_type_untouched(self):
+        other = self._mk_lookup("public web note")
+        # supersede a DIFFERENT source_type — must not touch place_context rows
+        trip_repository.public_context_create(
+            trip_id=self.trip_id, result_summary="reverse geo",
+            source_type="reverse_geocode", photo_link_id=self.link_id)
+        trip_repository.public_context_supersede_drafts(
+            self.link_id, "reverse_geocode")
+        self.assertIn(other, {r["id"] for r in self._alive()})
+
+
 class ApprovalLadderTest(_DbCase):
     def _ocr_row(self, summary="museum sign", approved=False):
         cid = trip_repository.photo_context_create(

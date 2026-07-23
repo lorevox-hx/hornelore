@@ -2733,7 +2733,15 @@ def photo_lookup_context(link_id: str,
         query=(query or ("url:" + (req.url or ""))),
         source_url=res.get("source_url") or req.url, confidence="draft",
         notes="provider=%s;photo_lookup" % res.get("provider"))
+    # Retire prior unapproved lookup drafts of this type on this photo so
+    # repeated lookups don't pile up and make Lori repeat the same context
+    # (parallel to the OCR supersede). Approved rows are never touched.
+    retired = trip_repository.public_context_supersede_drafts(
+        link_id, stype, keep_id=cid)
+    logger.info("[trips][photo-lookup] stored cid=%s link=%s retired=%d",
+                cid, link_id, retired)
     return {"status": "stored", "context_id": cid, "query_used": query,
+            "retired_drafts": retired,
             "context": trip_repository.public_context_get(cid)}
 
 
