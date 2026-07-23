@@ -1028,25 +1028,39 @@ def _classified_sqlite_500(
 
 def _auto_generate_days_for_new_trip(
     trip_id: str, start_date, end_date
-) -> Optional[str]:
-    """Attempt day-generation on trip create. Returns None on success or
-    when no dates were given (nothing to do); returns a human-readable
-    warning string when generation failed (bad dates, huge window, etc.)."""
+) -> "tuple[Optional[int], Optional[str]]":
+    """Attempt day-generation on trip create.
+
+    Returns (days_created, warning):
+      * (None, None)  — no dates given, nothing to do
+      * (N, None)     — success, N day cards were newly created
+      * (None, msg)   — generation failed (bad dates, huge window, DB error)
+
+    EVERY return path is a two-item tuple — the caller unpacks two values, so a
+    single-value return (e.g. the old warning-string) would raise on unpack and
+    turn a safe warning into a 500.
+
+    The count is returned so the create response can tell the operator
+    'created N day cards' — without it the UI shows a trip with no visible
+    days and the operator (reasonably) assumes nothing happened. That gap is
+    exactly how the Bismarck day cards looked missing even though they existed
+    (2026-07)."""
     if not start_date or not end_date:
-        return None
+        return None, None
     try:
         result = trip_repository.trip_days_generate(trip_id)
         logger.info(
             "[trips][builder][auto-days] trip=%s created=%s total=%s",
             trip_id, result.get("created"), result.get("total"))
-        return None
+        # days_created = newly created rows (what the response field means).
+        return int(result.get("created") or 0), None
     except ValueError as exc:
         # Bad ISO date, end < start, or window > 400 days.
         msg = str(exc)
         logger.warning(
             "[trips][builder][auto-days] trip=%s skipped: %s",
             trip_id, msg)
-        return ("Trip saved, but day cards could not be generated: "
+        return (None, "Trip saved, but day cards could not be generated: "
                 + msg + ". Fix the dates and use the Generate / reconcile "
                 "button, or open the Trip Calendar tab.")
     except Exception as exc:
@@ -1066,7 +1080,11 @@ def _auto_generate_days_for_new_trip(
             "sqlite_code=%s sqlite_name=%s",
             trip_id, _sqlite_code, _sqlite_name)
         prefix = _classify_sqlite_error(_sqlite_name, exc)
-        return ("Trip saved, but day cards could not be generated ("
+        # Two-item tuple like every other return path — a bare string here
+        # would blow up the caller's `days_created, days_warning = ...` unpack
+        # and turn a survivable day-gen failure (DB lock, missing migration)
+        # into a 500 on the whole trip create.
+        return (None, "Trip saved, but day cards could not be generated ("
                 + prefix + ": " + str(exc)[:200]
                 + "). Try Generate / reconcile day cards manually.")
 
@@ -1259,7 +1277,7 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     logger.info("[trips][builder] trip created trip=%s person=%s",
                 trip_id, req.person_id)
     # Auto-day generation first (primary workflow).
-    days_warning = _auto_generate_days_for_new_trip(
+    days_created, days_warning = _auto_generate_days_for_new_trip(
         trip_id, req.start_date, req.end_date)
     # Best-effort timeline sync after — never blocks or damages the
     # day-card work above.
@@ -1268,6 +1286,10 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
         "trip_id": trip_id,
         "tree": trip_repository.trip_tree(trip_id),
     }
+    # Report how many day cards now exist so the UI can tell the operator,
+    # instead of showing a trip that silently has days it never mentioned.
+    if days_created is not None:
+        resp["days_created"] = days_created
     if days_warning:
         resp["days_warning"] = days_warning
     if sync_warning:

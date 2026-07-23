@@ -195,6 +195,30 @@ def _parse_html(html: str):
         return title, _visible_text(html)
 
 
+# Known encyclopedic / travel site-name suffixes. A page <title> is usually
+# "Real Title - SiteName" or "Real Title | SiteName"; the SiteName is cruft the
+# narrator should never hear ("...suggests Augustiner-Braeu - Wikipedia...").
+# Targeted list, not a general "drop the last word" heuristic, so we never eat
+# a real place name like "... - Munich".
+_SITE_SUFFIXES = (
+    "wikipedia", "wikivoyage", "wiktionary", "britannica",
+    "tripadvisor", "trip advisor", "atlas obscura", "lonely planet",
+    "google maps", "yelp", "wikimedia commons",
+)
+
+
+def _clean_title(title: str) -> str:
+    """Strip a trailing ' - SiteName' / ' | SiteName' / ' \u2013 SiteName'
+    suffix when SiteName is a known site, else return the title unchanged."""
+    t = (title or "").strip()
+    for sep in (" - ", " | ", " \u2013 ", " \u2014 "):
+        if sep in t:
+            head, _, tail = t.rpartition(sep)
+            if tail.strip().lower() in _SITE_SUFFIXES and head.strip():
+                return head.strip()
+    return t
+
+
 def _run_url_only(url: str) -> Dict[str, Any]:
     if not url:
         return _result(False, "url_only", error="no url provided")
@@ -205,6 +229,7 @@ def _run_url_only(url: str) -> Dict[str, Any]:
     except Exception as exc:
         return _result(False, "url_only", error="fetch failed: %s" % exc)
     title, text = _parse_html(html)
+    title = _clean_title(title)
     snippet = (text or "")[:_SUMMARY_CHARS].rstrip()
     if not title and not snippet:
         return _result(False, "url_only", error="no readable content")

@@ -204,7 +204,21 @@
       }),
     }).then(function (r) {
       $("newTripDlg").close();
-      setStatus("Trip created — add regions, then stops.");
+      // Tell the operator when day cards were auto-generated from the dates.
+      // Without this the trip looks like nothing happened (the Trips tab does
+      // not render day cards — those live in Travel Doc), which is exactly why
+      // the Bismarck days seemed missing even though they existed.
+      var msg = "Trip created";
+      if (typeof r.days_created === "number" && r.days_created > 0) {
+        msg += " with " + r.days_created + " day card" +
+               (r.days_created === 1 ? "" : "s") +
+               " — open Travel Doc to edit each day.";
+      } else if (r.days_warning) {
+        msg += " — " + r.days_warning;
+      } else {
+        msg += " — add regions, then stops. Set trip dates to auto-create day cards.";
+      }
+      setStatus(msg);
       loadTrips().then(function () { selectTrip(r.trip_id); });
     }).catch(function (e) { $("ntErr").textContent = e.message; });
   }

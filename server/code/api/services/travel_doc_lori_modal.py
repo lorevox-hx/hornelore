@@ -168,10 +168,36 @@ def _public_context_for_scope(
     return approved, draft
 
 
+# What Lori SAYS of a public-context row. The stored summary can be ~500 chars
+# of encyclopedia article; read aloud to an older narrator that is a wall of
+# text. The operator still sees the full row in the evidence panel — this trims
+# only the spoken form to a short lead (first sentence, capped), which is all a
+# place hint should be ("The German Hunting and Fishing Museum in Munich.").
+_SPOKEN_CONTEXT_CHARS = 160
+
+
+def _spoken_context_trim(text: str) -> str:
+    t = " ".join(str(text or "").split())
+    if len(t) <= _SPOKEN_CONTEXT_CHARS:
+        return t
+    # Prefer the FIRST sentence — for a place lookup that is the place itself
+    # ("The German Hunting and Fishing Museum in Munich."), and the rest is
+    # encyclopedia history the narrator does not need read aloud. Accept a
+    # first sentence up to a bit over budget; otherwise cap at a word boundary.
+    m = re.search(r"[.!?](?:\s|$)", t)
+    if m and 12 <= m.end() <= _SPOKEN_CONTEXT_CHARS + 60:
+        return t[:m.end()].strip()
+    head = t[:_SPOKEN_CONTEXT_CHARS]
+    sp = head.rfind(" ")
+    return (head[:sp] if sp >= 60 else head).strip() + "\u2026"
+
+
 def _public_context_tail(scope: Dict[str, Any]) -> str:
     """Provenance-worded public-context sentences (leading space) or ''.
     Approved wording is fact-shaped; draft wording stays suggestive."""
     approved, draft = _public_context_for_scope(scope)
+    approved = [_spoken_context_trim(a) for a in approved]
+    draft = [_spoken_context_trim(d) for d in draft]
     bits: List[str] = []
     if approved:
         bits.append("The approved Travel Doc context says: "
