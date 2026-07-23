@@ -7818,6 +7818,71 @@ def _drop_affect_phrase_as_name(item: Dict[str, Any], source_text: str) -> bool:
     return False
 
 
+# ── BUG-EX-VAGUE-TEMPORAL-FRAGMENT-01 ──────────────────────────────────────
+# Live junk-rate audit (2026-07, /extract-fields battery on realistic turns)
+# found the single dominant junk class: vague temporal/frequency HEDGES binding
+# to structured scalar fields —
+#     residence.period = "on and off for a while"
+#     residence.region = "here and there over the years"   (a PLACE field!)
+#     residence.period = "mostly"  /  "over the years"
+# These are not values, they are filler. The discriminator is clean: a real
+# period/place value carries a NUMBER ("four years", "1985-2003", "2026") or a
+# content noun ("Bismarck", "the war"); a junk hedge is built ENTIRELY of
+# temporal-filler tokens. "most of the time" the extractor already declines to
+# bind — this closes the ones it does.
+_VAGUE_TEMPORAL_FILLER = frozenset({
+    "on", "off", "here", "there", "over", "the", "a", "an", "and",
+    "year", "years", "for", "while", "most", "of", "time", "times",
+    "now", "then", "back", "forth", "mostly", "sometimes", "always",
+    "occasionally", "around", "about", "bit", "all", "every", "from",
+    "to", "awhile", "often", "usually", "generally", "mainly",
+})
+
+# Fields that legitimately hold prose — a story/note MAY be mostly filler and
+# must never be dropped by this guard.
+_TEMPORAL_GUARD_NARRATIVE_EXEMPT = (
+    ".memorableStory", ".notableLifeEvents", ".reflection", ".story",
+    ".notes", ".description", ".summary", ".significantEvent",
+    ".dailyRoutine", ".earlyCareer", ".purpose", ".schooling",
+)
+
+
+def _value_is_all_temporal_filler(value: str) -> bool:
+    """True when EVERY word in the value is vague temporal filler and there is
+    no digit anywhere. "on and off for a while" -> True; "four years" -> False
+    (four is not filler); "1985-2003" -> False (has digit)."""
+    if not value:
+        return False
+    if any(ch.isdigit() for ch in value):
+        return False
+    words = re.findall(r"[a-z']+", value.lower())
+    if not words:
+        return False
+    return all(w in _VAGUE_TEMPORAL_FILLER for w in words)
+
+
+def _drop_vague_temporal_fragment(item: Dict[str, Any]) -> bool:
+    """Drop a candidate whose value is nothing but vague temporal filler, on a
+    structured (non-narrative) field. Value-only test — no source_text needed;
+    the value carries its own verdict."""
+    field = item.get("fieldPath") or ""
+    if field.endswith(_TEMPORAL_GUARD_NARRATIVE_EXEMPT):
+        return False
+    raw = item.get("value")
+    if not isinstance(raw, str):
+        return False
+    value = raw.strip()
+    if not value:
+        return False
+    if _value_is_all_temporal_filler(value):
+        logger.info(
+            "[extract][vague-temporal-guard] drop fieldPath=%s value=%r",
+            field, value,
+        )
+        return True
+    return False
+
+
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
 def _apply_transcript_safety_layer(
@@ -8104,6 +8169,13 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
             # appears in source text after a distress phrase. Sibling
             # lane to PLACE-LASTNAME-01 / PLACE-AS-BIRTHPLACE-01.
             if _drop_affect_phrase_as_name(item, answer or ""):
+                continue
+
+            # BUG-EX-VAGUE-TEMPORAL-FRAGMENT-01: drop values that are nothing
+            # but vague temporal filler ("on and off for a while", "over the
+            # years", "mostly") on structured fields. The dominant junk class
+            # in the 2026-07 live junk-rate audit. Value-only verdict.
+            if _drop_vague_temporal_fragment(item):
                 continue
 
             meta = EXTRACTABLE_FIELDS.get(item["fieldPath"], {})
