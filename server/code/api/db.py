@@ -1961,36 +1961,59 @@ def add_timeline_event(
     kind: str = "event",
     meta: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """2026-07-23 fix: wrap in try/finally. Prior code was
+    ``con = _connect(); con.execute(INSERT); con.commit(); con.close()``
+    with no exception handling. When the INSERT hit a FOREIGN KEY
+    violation (bogus person_id from an operator or upstream data-import
+    bug), the exception propagated up and ``con.close()`` never ran.
+    Python's GC eventually released the SQLite connection, but until
+    then it held an implicit transaction with the write lock, causing
+    the NEXT connection (e.g. auto-day-generation immediately after a
+    trip bridge-sync) to fail with ``sqlite3.OperationalError:
+    database is locked``. Root cause of the 2026-07-22 North Dakota
+    live-test flake."""
     init_db()
     eid = _uuid()
     now = _now_iso()
     con = _connect()
-    con.execute(
-        """
-        INSERT INTO timeline_events(id,person_id,date,title,body,kind,created_at,meta_json)
-        VALUES(?,?,?,?,?,?,?,?);
-        """,
-        (eid, person_id, date, title, body or "", kind or "event", now, _json_dump(meta or {})),
-    )
-    con.commit()
-    con.close()
+    try:
+        con.execute(
+            """
+            INSERT INTO timeline_events(id,person_id,date,title,body,kind,created_at,meta_json)
+            VALUES(?,?,?,?,?,?,?,?);
+            """,
+            (eid, person_id, date, title, body or "", kind or "event", now, _json_dump(meta or {})),
+        )
+        con.commit()
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
     return {"id": eid, "person_id": person_id, "date": date, "title": title, "body": body or "", "kind": kind or "event", "created_at": now, "meta": meta or {}}
 
 
 def list_timeline_events(person_id: str, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+    """2026-07-23 fix: try/finally around fetchall so a mid-query
+    OperationalError does not leak the connection."""
     init_db()
     con = _connect()
-    rows = con.execute(
-        """
-        SELECT id,person_id,date,title,body,kind,created_at,meta_json
-        FROM timeline_events
-        WHERE person_id=?
-        ORDER BY date ASC, created_at ASC
-        LIMIT ? OFFSET ?;
-        """,
-        (person_id, int(limit), int(offset)),
-    ).fetchall()
-    con.close()
+    try:
+        rows = con.execute(
+            """
+            SELECT id,person_id,date,title,body,kind,created_at,meta_json
+            FROM timeline_events
+            WHERE person_id=?
+            ORDER BY date ASC, created_at ASC
+            LIMIT ? OFFSET ?;
+            """,
+            (person_id, int(limit), int(offset)),
+        ).fetchall()
+    finally:
+        con.close()
     out: List[Dict[str, Any]] = []
     for r in rows:
         d = dict(r)
@@ -2000,12 +2023,22 @@ def list_timeline_events(person_id: str, limit: int = 200, offset: int = 0) -> L
 
 
 def delete_timeline_event(event_id: str) -> bool:
+    """2026-07-23 fix: try/finally — same reasoning as add_timeline_event."""
     init_db()
     con = _connect()
-    cur = con.execute("DELETE FROM timeline_events WHERE id=?;", (event_id,))
-    con.commit()
-    con.close()
-    return cur.rowcount > 0
+    try:
+        cur = con.execute("DELETE FROM timeline_events WHERE id=?;", (event_id,))
+        con.commit()
+        rc = cur.rowcount
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+    return rc > 0
 
 
 # -----------------------------------------------------------------------------

@@ -118,6 +118,13 @@
       '</div>' +
       '<section class="td-panel td-editor-panel" data-td="editorPanel">' +
       '<div class="td-panel-head"><h2 data-td="editorTitle">Edit selected</h2><span data-td="editorStatus" class="td-ed-status"></span><button data-td="wideToggle" type="button" class="td-small td-secondary" title="Widen the editor over the tile board">Wide editor</button><button data-td="editorClear" type="button" class="td-small td-secondary">Clear</button></div>' +
+      // 2026-07-23 — persistent days-warning banner. Sits ABOVE the
+      // editor content so it remains visible after loadTrips() /
+      // refreshCurrentTrip() call setStatus("good", "Loaded N trips")
+      // — a dedicated element instead of the auto-clearing status
+      // line. Cleared only when the operator hits ✕ or a subsequent
+      // save returns clean (no days_warning / sync_warning).
+      '<div data-td="daysWarningBanner" class="td-days-warning" hidden></div>' +
       '<div data-td="editorTabs" class="td-ed-tabs"></div>' +
       '<div data-td="editorBody" class="td-editor-body"><p class="td-muted">Select a trip, region, or stop tile to edit it.</p></div>' +
       '<div data-td="editorFooter" class="td-editor-footer"></div>' +
@@ -229,6 +236,71 @@
       var line = typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
       out.textContent = line +
         (obj === undefined ? "" : "\n" + JSON.stringify(obj, null, 2));
+    }
+
+    // 2026-07-23 — persistent warning banner for days_warning /
+    // sync_warning. The auto-clearing setStatus("good", ...) that
+    // follows a save (loadTrips → "Loaded N trips") used to wipe the
+    // warning within milliseconds. This banner is a separate DOM
+    // element with its own lifecycle.
+    function setDaysWarning(text) {
+      var b = $("daysWarningBanner");
+      if (!b) return;
+      if (!text) {
+        b.hidden = true;
+        b.textContent = "";
+        return;
+      }
+      b.hidden = false;
+      b.textContent = "";
+      var label = document.createElement("strong");
+      label.textContent = "⚠ Trip save warning: ";
+      b.appendChild(label);
+      b.appendChild(document.createTextNode(text));
+      var dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.className = "td-small td-secondary td-days-warning-x";
+      dismiss.textContent = "✕";
+      dismiss.title = "Dismiss";
+      dismiss.addEventListener("click", function () {
+        setDaysWarning("");
+      });
+      b.appendChild(dismiss);
+    }
+
+    // 2026-07-23 — surface both days_warning and sync_warning from a
+    // trip create/patch response. Clean responses (neither field
+    // present) also clear any leftover warning from the previous save.
+    function applyTripResponseWarnings(out) {
+      if (!out || typeof out !== "object") return;
+      var parts = [];
+      if (out.days_warning) parts.push(String(out.days_warning));
+      if (out.sync_warning) parts.push(String(out.sync_warning));
+      setDaysWarning(parts.length ? parts.join(" — ") : "");
+    }
+
+    // 2026-07-23 — cross-tab BroadcastChannel so the Travel Doc Lab
+    // (mounted in a different browser tab) reloads its trip bundle
+    // when the Documenter saves. Silent no-op in browsers that don't
+    // implement BroadcastChannel (Safari <15.4 etc.); operators can
+    // still refresh the Lab manually.
+    var _tripUpdateChannel = null;
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        _tripUpdateChannel = new BroadcastChannel("hornelore-trip-updates");
+      }
+    } catch (_) { _tripUpdateChannel = null; }
+
+    function notifyTripUpdated(tripId, kind) {
+      if (!_tripUpdateChannel || !tripId) return;
+      try {
+        _tripUpdateChannel.postMessage({
+          trip_id: String(tripId),
+          kind: String(kind || "trip_saved"),
+          from: "travel-documenter",
+          at: Date.now(),
+        });
+      } catch (_) { /* ignore */ }
     }
 
     function setStatus(kind, text) {
@@ -1466,13 +1538,10 @@
           }),
         }).then(function (out) {
           log("Trip updated", out);
-          // 2026-07-15 Track C: surface auto-reconcile warning if the
-          // backend saved the dates but couldn't add missing day cards.
-          if (out && out.days_warning) {
-            setStatus("warn", out.days_warning);
-          } else {
-            setStatus("good", "Trip saved");
-          }
+          // 2026-07-23 — persistent banner survives refreshCurrentTrip().
+          applyTripResponseWarnings(out);
+          setStatus("good", "Trip saved");
+          notifyTripUpdated(trip && trip.id, "trip_saved");
           return refreshCurrentTrip();
         });
       }, function () {
@@ -1767,16 +1836,16 @@
       return api("/api/trips", { method: "POST", body: JSON.stringify(body) })
         .then(function (out) {
           log("Trip created", out);
-          // 2026-07-15 Track C: surface auto-day-generation warning if
-          // the backend saved the trip but couldn't create day cards.
-          if (out && out.days_warning) {
-            setStatus("warn", out.days_warning);
-          } else {
-            setStatus("good", "Trip created" +
-              (body.start_date && body.end_date
-                 ? " — day cards generated"
-                 : ""));
-          }
+          // 2026-07-23 — persistent banner + status line. The banner
+          // survives the loadTrips() setStatus("good", "Loaded N")
+          // that follows; the status line stays for the transient
+          // confirmation.
+          applyTripResponseWarnings(out);
+          setStatus("good", "Trip created" +
+            (body.start_date && body.end_date
+               ? " — day cards generated"
+               : ""));
+          notifyTripUpdated(out && out.trip_id, "trip_created");
           clearFields(["tripTitle", "tripStart", "tripEnd", "tripSummary"]);
           return loadTrips().then(function () {
             var created = st.trips.filter(function (t) {

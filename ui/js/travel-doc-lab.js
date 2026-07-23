@@ -79,6 +79,29 @@
 
   var root = document.getElementById("tdlRoot");
 
+  // 2026-07-23 — cross-tab BroadcastChannel listener. When the
+  // Documenter (in a different tab) saves a trip and posts
+  // {trip_id, kind:"trip_saved"|"trip_created"} on the
+  // "hornelore-trip-updates" channel, if the Lab currently has that
+  // trip open we reload the bundle. Silent no-op in browsers without
+  // BroadcastChannel; operators can still reload the Lab manually.
+  var _tdlUpdateChannel = null;
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      _tdlUpdateChannel = new BroadcastChannel("hornelore-trip-updates");
+      _tdlUpdateChannel.addEventListener("message", function (ev) {
+        var msg = ev && ev.data;
+        if (!msg || !msg.trip_id) return;
+        if (!st.trip || String(st.trip.id) !== String(msg.trip_id)) return;
+        // Reload the bundle for the currently-open trip. Preserves
+        // operator UI state (selected day, filters, drawers) because
+        // loadTripBundle only overwrites the data arrays, not the
+        // selection ids.
+        loadTripBundle(st.trip.id);
+      });
+    }
+  } catch (_) { _tdlUpdateChannel = null; }
+
   // ── helpers ──────────────────────────────────────────────────────────
 
   function api(path, opts) {

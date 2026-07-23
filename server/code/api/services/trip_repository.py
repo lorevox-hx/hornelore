@@ -2398,6 +2398,42 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
                 )
                 created += 1
             cur_date = cur_date + _timedelta(days=1)
+
+        # 2026-07-23 — day_index renumber pass.
+        #
+        # Previously: idx was computed while walking the current window,
+        # so ONLY the newly-inserted rows got the "correct" idx for that
+        # window. Any existing rows kept the day_index they got when
+        # they were originally inserted — which was under a DIFFERENT
+        # window if the operator later moved the start date. Concrete
+        # bug: create 2026-07-14 to 2026-07-19 (Day 1..6), then patch
+        # start_date to 2026-07-12 → new July 12 inserted as "Day 1",
+        # existing July 14 still says "Day 1" too. Duplicate indexes,
+        # scrambled UI order (which sorts by day_index, date).
+        #
+        # Fix: after any INSERTs, walk EVERY valid in-window day row in
+        # chronological date order and set day_index = 1..N. Out-of-
+        # range day cards keep their prior day_index untouched
+        # (they're rendered separately in the reconcile drawer and
+        # never mixed into the calendar order). The UPDATE is a
+        # no-op for windows that were already correctly numbered, so
+        # the cost is one row-scan on every reconcile — acceptable.
+        #
+        # Preserves EVERY other column: title, notes, places, meals,
+        # region link, stop link, timestamps. Only day_index changes.
+        in_range_rows = con.execute(
+            "SELECT id, date FROM trip_days "
+            "WHERE trip_id = ? AND date >= ? AND date <= ? "
+            "ORDER BY date ASC, id ASC",
+            (trip_id, start.isoformat(), end.isoformat()),
+        ).fetchall()
+        for new_idx, row in enumerate(in_range_rows, start=1):
+            con.execute(
+                "UPDATE trip_days SET day_index = ?, updated_at = ? "
+                "WHERE id = ? AND day_index != ?",
+                (new_idx, _now(), row["id"], new_idx),
+            )
+
         con.commit()
     except Exception:
         con.rollback()

@@ -948,12 +948,15 @@ def _auto_generate_days_for_new_trip(
                 "button, or open the Trip Calendar tab.")
     except Exception as exc:
         # Migration missing, DB lock, anything unexpected.
+        # 2026-07-23 — include str(exc) so ops can see the actual
+        # sqlite/db message ("database is locked", "no such column",
+        # etc.) instead of just the class name.
         logger.exception(
             "[trips][builder][auto-days] trip=%s unexpected failure",
             trip_id)
         return ("Trip saved, but day cards could not be generated ("
-                + type(exc).__name__ + "). Try Generate / reconcile day "
-                "cards manually.")
+                + type(exc).__name__ + ": " + str(exc)[:200]
+                + "). Try Generate / reconcile day cards manually.")
 
 
 def _auto_reconcile_days_on_patch(
@@ -995,12 +998,15 @@ def _auto_reconcile_days_on_patch(
         return ("Trip dates saved, but the day-card reconcile skipped "
                 "add-missing: " + msg + ".")
     except Exception as exc:
+        # 2026-07-23 — include str(exc) so ops can see the actual
+        # sqlite/db message.
         logger.exception(
             "[trips][builder][auto-days] trip=%s reconcile unexpected "
             "failure", trip_id)
         return ("Trip dates saved, but the day-card reconcile hit an "
-                "unexpected error (" + type(exc).__name__ + "). Try "
-                "Generate / reconcile day cards manually.")
+                "unexpected error (" + type(exc).__name__ + ": "
+                + str(exc)[:200] + "). Try Generate / reconcile day "
+                "cards manually.")
 
     # Reconcile returned cleanly. Check for the "both dates set +
     # invalid window" shape which reconcile silently no-ops on.
@@ -1027,6 +1033,74 @@ def _auto_reconcile_days_on_patch(
     return None
 
 
+def _safe_sync_life_record(trip_id: str) -> Optional[str]:
+    """Defensive wrapper around trip_timeline_bridge.sync_trip_to_life_record.
+
+    The bridge already catches its own exceptions and returns
+    ``{"error": ...}`` — it never re-raises. This wrapper is a second
+    layer specifically for the router response: even if the bridge is
+    changed later to raise, or a completely unrelated exception bubbles
+    up (e.g. the bridge's own SQLite call hits a wedged transaction),
+    the trip PATCH / POST response should still land cleanly with a
+    ``sync_warning`` field the UI can show. Returns None on success or
+    when the bridge silently reported an error, else a short user-
+    facing warning string.
+
+    2026-07-23 — companion to the add_timeline_event try/finally fix.
+    The FK-fail bridge symptom that broke the North Dakota live test
+    would never again bleed into a 500 or a leaked lock even if the
+    bridge itself regresses."""
+    try:
+        result = trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    except Exception as exc:
+        logger.exception(
+            "[trips][builder][bridge-sync] trip=%s unexpected failure",
+            trip_id)
+        return ("Trip saved, but the life-timeline sync hit an "
+                "unexpected error (" + type(exc).__name__ + ": "
+                + str(exc)[:200] + "). The trip is safe; "
+                "operator-side timeline / bio-suggestion syncs will "
+                "retry on the next save.")
+    err = (result or {}).get("error")
+    if err:
+        return ("Trip saved, but the life-timeline sync reported: "
+                + str(err)[:200] + ". The trip is safe.")
+    return None
+
+
+def _validate_person_id_exists(person_id: str) -> None:
+    """422 if the person_id is missing or does not exist in the people
+    table. Prevents orphan-trip creation.
+
+    2026-07-23 — the North Dakota live test ran with the literal string
+    ``PASTE_UUID_HERE`` and the API happily created a trip whose
+    person_id referenced a nonexistent person. FKs are enforced per-
+    connection via PRAGMA and only some connections enable them, so the
+    INSERT succeeded but every downstream write that DID enable FKs
+    (e.g. the timeline-bridge sync) then failed with FOREIGN KEY
+    constraint failed and cascaded into the database-locked flake.
+    Front-loading the check here means the operator gets a clear 422
+    instead of a saved-but-broken trip."""
+    if not person_id or not str(person_id).strip():
+        raise HTTPException(
+            status_code=422,
+            detail="person_id is required")
+    from .. import db as _db
+    try:
+        exists = bool(_db.get_person(person_id))
+    except Exception:
+        logger.exception(
+            "[trips][builder] person_id lookup failed for %s", person_id)
+        raise HTTPException(
+            status_code=500,
+            detail="could not verify person_id")
+    if not exists:
+        raise HTTPException(
+            status_code=422,
+            detail=("person_id " + str(person_id)
+                    + " does not match any narrator on this instance"))
+
+
 @router.post("")
 def create_trip(req: TripCreate) -> Dict[str, Any]:
     """Phase A builder: create an empty trip from a form (no more
@@ -1035,10 +1109,17 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     2026-07-15 Track C: when both start_date and end_date are supplied,
     auto-generate day cards after the trip write. Generation failures
     surface as ``days_warning`` in the response — the trip itself is
-    always saved."""
+    always saved.
+
+    2026-07-23 hardening: (a) reject a nonexistent person_id up front
+    with 422 instead of creating an orphan trip; (b) wrap the
+    trip-timeline-bridge sync so a bridge failure returns a
+    ``sync_warning`` in the response body instead of leaving a partly-
+    written trip in an ambiguous state."""
     _require_trips_enabled()
     if not (req.title or "").strip():
         raise HTTPException(status_code=422, detail="trip needs a title")
+    _validate_person_id_exists(req.person_id)
     trip_id = trip_repository.trip_create(
         person_id=req.person_id,
         title=req.title.strip(),
@@ -1049,7 +1130,7 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     )
     logger.info("[trips][builder] trip created trip=%s person=%s",
                 trip_id, req.person_id)
-    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    sync_warning = _safe_sync_life_record(trip_id)
     days_warning = _auto_generate_days_for_new_trip(
         trip_id, req.start_date, req.end_date)
     resp: Dict[str, Any] = {
@@ -1058,6 +1139,8 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     }
     if days_warning:
         resp["days_warning"] = days_warning
+    if sync_warning:
+        resp["sync_warning"] = sync_warning
     return resp
 
 
@@ -1069,7 +1152,11 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
     2026-07-15 Track C: when the request touches start_date / end_date
     (either setting or clearing), auto-run reconcile(add_missing=True)
     after the trip write. Reconcile failures surface as ``days_warning``
-    — the trip update always lands."""
+    — the trip update always lands.
+
+    2026-07-23 hardening: the bridge sync is wrapped so a bridge failure
+    surfaces as ``sync_warning`` in the response body instead of
+    500'ing the PATCH."""
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
@@ -1092,7 +1179,7 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
     if not ok:
         raise HTTPException(
             status_code=400, detail="nothing to update")
-    trip_timeline_bridge.sync_trip_to_life_record(trip_id)
+    sync_warning = _safe_sync_life_record(trip_id)
     days_warning = _auto_reconcile_days_on_patch(trip_id, dates_touched)
     resp: Dict[str, Any] = {
         "ok": True,
@@ -1101,6 +1188,8 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
     }
     if days_warning:
         resp["days_warning"] = days_warning
+    if sync_warning:
+        resp["sync_warning"] = sync_warning
     return resp
 
 
