@@ -132,5 +132,6 @@ data/stories-captured/
 docs/reports/factual_chain_live_*.txt
 docs/reports/trip_route_canary_*.txt
 docs/reports/trip_2019_france_italy_*.txt
-.git-commit-msg.txt
-.git-commit-msg-docs.txt
+# Throwaway commit-message helper files (git commit -F). One glob so
+# this never needs another .gitignore edit. See CLAUDE.md git-hygiene note.
+.git-commit-msg*.txt
