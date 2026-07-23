@@ -6109,9 +6109,28 @@ async function lv80SwitchPerson(personId) {
   // With (a)+(b)+(c) in place, dropping the page-session one-shot is
   // safe: no carry-over (engine stopped on switch), no silent activation
   // for new narrators (revoke fired), returning narrators auto-restart.
-  if (state.narratorOpen.openStatus === "ready" && permCamOn && emotionAware && !cameraActive) {
+  //
+  // BUG-CAM-CONSENT-AMBUSH-ON-OPEN-01 (live, 2026-07): permCamOn and
+  // emotionAware both DEFAULT ON ("family defaults"), so for a narrator whose
+  // consent has never been decided, this auto-start called startEmotionEngine
+  // -> FacialConsent.request -> the consent MODAL popped the instant the
+  // narrator was opened, with no user gesture. An 86-year-old opening their
+  // own session should not be ambushed by a camera-consent dialog. Proven
+  // live: opening "Amelia" (no consent record) fired the overlay straight from
+  // lv80SwitchPerson.
+  //
+  // A consent prompt must come from a DELIBERATE action (clicking the Cam
+  // toggle), never from merely opening a narrator. So auto-start now only
+  // proceeds when consent is ALREADY GRANTED — it is a convenience for the
+  // already-consented (preserving the friction-free return in (c)), and is
+  // never the thing that first asks. Undecided -> camera stays off until the
+  // operator clicks Cam. Declined -> stays off (unchanged).
+  var _fcGrantedForAutostart =
+    (typeof FacialConsent !== "undefined") && FacialConsent.isGranted();
+  if (state.narratorOpen.openStatus === "ready" && permCamOn && emotionAware &&
+      !cameraActive && _fcGrantedForAutostart) {
     if (typeof startEmotionEngine === "function") {
-      console.log("[WO-CAM-FIX] Auto-starting camera for ready narrator (permCamOn + emotionAware).");
+      console.log("[WO-CAM-FIX] Auto-restarting camera for ready narrator with STORED consent.");
       startEmotionEngine();
     }
   }
