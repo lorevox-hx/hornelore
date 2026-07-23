@@ -69,8 +69,23 @@ CREATED_TRIPS=""   # space-separated list of trip IDs we made — trap cleans
 # an operator can see cleanup that DIDN'T land — a stale probe
 # trip in the DB is exactly the kind of state this probe was
 # rewritten to prevent.
+#
+# 2026-07-23 (post-A+B review fix): the previous version registered
+# `_cleanup` on all three signals AND called `exit` inside it. On
+# INT/TERM that fired the cleanup TWICE — the signal-triggered
+# _cleanup ran, called exit, which re-triggered the EXIT handler
+# for a second cleanup pass. The second DELETE saw the trip
+# already gone, returned 404, and printed the misleading "MANUAL
+# CLEANUP REQUIRED" — despite cleanup having succeeded. Ctrl-C
+# also produced exit code 0 instead of the SIGINT-conventional
+# 130. Fix: `_cleanup` runs ONCE, and separate INT/TERM handlers
+# just exit with the conventional signal codes (128 + signum) so
+# the EXIT trap owns the actual DELETE work.
 _cleanup() {
   local exit_code=$?
+  # Detach every signal handler before we start so a slow DELETE
+  # or a repeated Ctrl-C can never re-enter _cleanup.
+  trap - EXIT INT TERM
   local id
   for id in $CREATED_TRIPS; do
     printf "     cleanup: DELETE trip %s ... " "$id"
@@ -88,7 +103,11 @@ _cleanup() {
   done
   exit "$exit_code"
 }
-trap _cleanup EXIT INT TERM
+# EXIT owns the cleanup work; INT/TERM just exit with the
+# conventional signal codes and the EXIT handler catches the exit.
+trap _cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 hdr() { printf "\n\033[1;34m── %s ──\033[0m\n" "$*"; }
 ok()  { printf "  \033[1;32m✔\033[0m  %s\n" "$*"; PASS=$((PASS+1)); }
@@ -130,32 +149,48 @@ print(f"sqlite_runtime={sqlite3.sqlite_version}")
   echo "$VER_OUT" | while read L; do info "$L"; done
   RUNTIME=$(echo "$VER_OUT" | awk -F= '/sqlite_runtime/{print $2}')
   # Compare via Python: tuple(int, int, int)
-  # Ranges (from SQLite release notes, WAL-reset race fix):
-  #   affected: 3.44.0..3.44.5, 3.50.0..3.50.6, 3.51.0..3.51.2
-  #   safe:     >= 3.44.6 and >= 3.50.7 and >= 3.51.3, plus 3.45.x-3.49.x
+  #
+  # WAL-reset race window per SQLite release notes / official
+  # documentation: BUG PRESENT from 3.7.0 through 3.51.2 EXCEPT the
+  # specific backported fixes in 3.44.6 and 3.50.7. Main fix landed
+  # in 3.51.3 and every subsequent release.
+  #
+  # Rules (evaluated top-down; first match wins):
+  #   v >= (3,51,3)                       → safe
+  #   v[:2] == (3,50) and v >= (3,50,7)   → safe (backport)
+  #   v[:2] == (3,44) and v >= (3,44,6)   → safe (backport)
+  #   v >= (3,7,0)                        → affected (broad WAL-reset window)
+  #   otherwise                           → unknown (pre-WAL era)
+  #
+  # 2026-07-23 (post-A+B review fix): earlier version only flagged
+  # 3.44.0-5 / 3.50.0-6 / 3.51.0-2 as affected, so 3.45.x-3.49.x
+  # were incorrectly labeled "safe" — they are ALSO in the
+  # affected window per SQLite's own docs.
   if [ -n "$RUNTIME" ]; then
     RISK=$("$PY" -c "
 v = tuple(int(x) for x in '$RUNTIME'.split('.'))
 if len(v) < 3:
     print('unknown')
-elif (3,44,0) <= v <= (3,44,5):
-    print('affected')
-elif (3,50,0) <= v <= (3,50,6):
-    print('affected')
-elif (3,51,0) <= v <= (3,51,2):
+elif v >= (3, 51, 3):
+    print('safe')
+elif v[:2] == (3, 50) and v >= (3, 50, 7):
+    print('safe')
+elif v[:2] == (3, 44) and v >= (3, 44, 6):
+    print('safe')
+elif v >= (3, 7, 0):
     print('affected')
 else:
-    print('safe')
+    print('unknown')
 " 2>/dev/null)
     case "$RISK" in
       affected)
-        warn "SQLite $RUNTIME is in the WAL-reset race range (fixed in 3.44.6 / 3.50.7 / 3.51.3). Watch for spurious SQLITE_BUSY under load."
+        warn "SQLite $RUNTIME is in the WAL-reset race window (present from 3.7.0 through 3.51.2 except the backported fixes in 3.44.6 and 3.50.7; primary fix in 3.51.3+). Watch for spurious SQLITE_BUSY under load."
         ;;
       safe)
-        ok "SQLite runtime $RUNTIME not in the known-affected range"
+        ok "SQLite runtime $RUNTIME is at or past the WAL-reset fix"
         ;;
       *)
-        warn "Could not parse SQLite runtime version '$RUNTIME'"
+        warn "Could not parse or classify SQLite runtime version '$RUNTIME'"
         ;;
     esac
   fi
@@ -355,14 +390,30 @@ print(len(d.get('preserved') or []))
       fi
 
       # 6b. Move start earlier and verify renumber + partition
+      #
+      # 2026-07-23 (post-A+B review fix): the previous version threw
+      # away the PATCH's HTTP status and treated any-count-that-is-
+      # sequential as OK-with-warning. A PATCH that failed with 500
+      # (leaving the original 6 cards intact) still returned
+      # `count=6, sequential`, printed a soft warn, and the probe
+      # exited 0. Now: PATCH must be HTTP 200, and exactly 10 cards
+      # is the ONLY acceptable outcome.
       hdr "6b. Move start to 2026-07-10 and verify day_index renumber"
-      curl -sS -X PATCH "$API/api/trips/$NEW_ID" \
+      PATCH_RC=$(curl -sS -o /tmp/probe_prepend_$$.out \
+        -w "%{http_code}" --max-time 10 \
+        -X PATCH "$API/api/trips/$NEW_ID" \
         -H "Content-Type: application/json" \
-        -d '{"start_date":"2026-07-10"}' -o /dev/null
-
-      D2_FILE=$(mktemp -t probe_days2.XXXXXX.json)
-      curl -fsS --max-time 5 "$API/api/trips/$NEW_ID/days" -o "$D2_FILE"
-      ORDER_OK=$("$PY" -c "
+        -d '{"start_date":"2026-07-10"}')
+      if [ "$PATCH_RC" != "200" ]; then
+        bad "PATCH start_date returned HTTP $PATCH_RC (expected 200) — response: $(cat /tmp/probe_prepend_$$.out 2>/dev/null | head -c 300)"
+      else
+        D2_FILE=$(mktemp -t probe_days2.XXXXXX.json)
+        DAYS_RC=$(curl -sS -o "$D2_FILE" -w "%{http_code}" \
+          --max-time 5 "$API/api/trips/$NEW_ID/days")
+        if [ "$DAYS_RC" != "200" ]; then
+          bad "GET /days after PATCH returned HTTP $DAYS_RC (expected 200)"
+        else
+          ORDER_OK=$("$PY" -c "
 import json, sys
 try:
     d = json.load(open('$D2_FILE'))
@@ -376,12 +427,24 @@ for i, row in enumerate(days_sorted, start=1):
         sys.exit(0)
 print(f'OK count={len(days)}')
 " 2>/dev/null)
-      rm -f "$D2_FILE"
-      case "$ORDER_OK" in
-        OK\ count=10) ok "day_index renumbered 1..10 in date order (July 10–19)";;
-        OK\ count=*) warn "day_index correct order but unexpected count: $ORDER_OK";;
-        *) bad "day_index NOT sequential: $ORDER_OK";;
-      esac
+          case "$ORDER_OK" in
+            OK\ count=10)
+              ok "day_index renumbered 1..10 in date order (July 10–19)"
+              ;;
+            OK\ count=*)
+              # Sequential but not the expected 10 = real failure,
+              # not a warning. The PATCH may have silently no-op'd
+              # or generation may not have added the 4 new days.
+              bad "day_index sequential but count wrong: $ORDER_OK (expected exactly 10 for July 10-19)"
+              ;;
+            *)
+              bad "day_index NOT sequential after prepend: $ORDER_OK"
+              ;;
+          esac
+        fi
+        rm -f "$D2_FILE"
+      fi
+      rm -f /tmp/probe_prepend_$$.out
       # Trap will DELETE this trip on exit
     fi
   fi

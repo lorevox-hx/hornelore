@@ -2422,9 +2422,15 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
         # on the first write, which can fail with SQLITE_BUSY if
         # another writer is active in the interim. For the day-
         # generation + renumber sequence — short, single-writer,
-        # critical — IMMEDIATE guarantees that if the acquire
-        # succeeds, subsequent writes through commit won't hit
-        # SQLITE_BUSY. Per SQLite docs (WAL + short critical writes).
+        # critical — IMMEDIATE removes THAT specific deferred-to-
+        # writer upgrade race: if we acquire the write lock at
+        # transaction open, we hold it until commit. This does NOT
+        # guarantee zero SQLITE_BUSY anywhere else in the pipeline
+        # (SQLite can still surface BUSY on unrelated paths, on a
+        # concurrent VACUUM/checkpoint, or on I/O contention) — it
+        # narrows the specific "read-then-write" race that Chris's
+        # ND live test hit. Per SQLite docs (WAL + short critical
+        # writes best-practice; BEGIN IMMEDIATE contract).
         con.execute("BEGIN IMMEDIATE;")
 
         # 2026-07-23 (follow-up) — re-read the trip window INSIDE this
