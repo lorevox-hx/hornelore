@@ -94,7 +94,29 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 6. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
 7. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
 
-## Travel Doc Lab — state + get-it-working batch (2026-07-23)
+## Travel Doc Lab finish-pass — CLOSED, live-smoked (2026-07-23)
+
+The finish-pass ran as one batch and passed a 16-canary live smoke on the
+restarted stack. **CLOSED:** native `window.prompt()` removal (in-panel drawers);
+"Lori will say…" preview aligned with the backend spoken trim (OCR untrimmed);
+evidence text editing (Edit → PATCH revokes approval + clears memoir); refresh of
+day/public-context counts after evidence actions; context patch/delete
+trip-scoping (wrong trip_id → **409** live); unbounded conv-cache cap;
+`travel-documenter.js` double-send guard; **mortality/988 reply leak** (live:
+mortality → no escalation/no 988, acute → still triggers + 988). **C1b**:
+composed-chain test code-landed AND live WebSocket smoke passed (indirect
+ideation → safety_triggered + 988 + warm reply). Live smoke also: boot clean, 0
+`wrapper raised`, OCR text/textless fail-safe, both drawers, real+blocked lookup,
+approval ladder, no article dump / "I can see" / coordinates.
+
+Minor open: public lookup does not supersede prior lookup drafts (repeated
+lookups accumulate → Lori repeats the context). Parallel to the OCR supersede
+work; low priority.
+
+Remaining queue (unchanged priority): `.env.example` audit → sysBubble dignity
+pass → Gate 7 truth-pipeline observability → Track D measurement-first.
+
+## Travel Doc Lab — original get-it-working batch (2026-07-23, superseded by the CLOSED block above)
 
 Organized by **restart-need**, to kill the stop/start churn: do all FRONTEND
 items first (browser reload only, no stack restart), then ONE backend batch +

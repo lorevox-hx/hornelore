@@ -66,15 +66,44 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 - **Narrator-label collision** — two distinct people both named "Christopher" rendered with the same picker label; now disambiguated (birth year if it distinguishes, else short id).
 - **Modal turns no longer archived as life story** — Travel Doc modal turns were writing into the narrator's life-story archive; both archive writes are now surface-gated.
 
+**Travel Doc Lab finish-pass + safety-composition — landed and LIVE-SMOKED (2026-07-23):**
+
+- **Travel Doc Lab finish-pass — CLOSED, live-smoked.** Native `window.prompt()`
+  replaced with in-panel editor drawers (draft observation + place inference);
+  "Lori will say…" preview now matches the backend spoken trim (JS
+  `spokenContextTrim`, OCR left untrimmed); evidence text editing added (Edit →
+  PATCH `result_summary` revokes approval + clears memoir); evidence actions
+  refresh day/public-context counts; `travel-documenter.js` double-send guard.
+- **Context patch/delete trip-scoping — CLOSED.** All four context endpoints
+  take an optional `trip_id`; a wrong trip_id returns **409** (verified live);
+  the Lab sends it on every patch.
+- **Unbounded conv caches capped — CLOSED.** `_TRIP_PREV_LORI` /
+  `_TRIP_LAST_CAPTURE` evict oldest at 500.
+- **Mortality/988 reply leak — CLOSED, live-verified.** A MORTALITY REFLECTION
+  EXCEPTION in the INDIRECT IDEATION block stops 988 for normal older-adult
+  mortality talk while preserving acute 988. Live: "At my age you outlive a lot
+  of friends…" → no escalation, no 988, warm reply; "I want to kill myself." →
+  still triggers + 988.
+- **C1b — composed-chain test code-landed; live WebSocket smoke PASSED.**
+  Indirect ideation live → `safety_triggered` + 988 + warm reply; acute live →
+  triggers + 988; external fear / mortality / third-party → no escalation.
+- Live Travel Doc smoke (16 canaries): boot clean, 0 `wrapper raised`, OCR
+  text/textless fail-safe, both drawers, real+blocked lookup, approval ladder,
+  scope 409, no article dump / "I can see" / coordinates. All green.
+
+Minor open finding: public lookup does not supersede prior lookup drafts on the
+same photo (repeated lookups accumulate → Lori repeats the context). Parallel to
+the OCR supersede work; low priority.
+
 **Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG default-OFF; BINDING-01 in-tree default-off.
 
 **Immediate open items (P1/P2):**
 
-1. **C1b — true end-to-end WebSocket safety-routing test** (indirect ideation → classifier → SafetyResult → segment flag → softened mode → operator-visible signal → safe reply). Protects Kent & Janice. Not yet proven end-to-end.
-2. **`.env.example` flag audit** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented. Ops risk.
-3. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
-4. **Gate 7 truth-pipeline observability** — the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change.
-5. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
+1. **`.env.example` flag audit** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented. Ops risk. Now the top open item.
+2. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
+3. **Gate 7 truth-pipeline observability** — the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change.
+4. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
+5. **Public-lookup supersede** (minor) — repeated lookups on a photo accumulate draft rows; make lookup retire prior unapproved lookup drafts like OCR does.
 
 The 2026-07-11 stanza below is retained for the two-week trip-lane build detail. Refer to `CLAUDE.md` for the day-by-day changelog.
 
