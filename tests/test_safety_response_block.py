@@ -190,5 +190,58 @@ class FriendshipLineSourceCitationTest(unittest.TestCase):
         self.assertIn("24/7 warmline", self.text)
 
 
+class MortalityReflectionExceptionTest(unittest.TestCase):
+    """BUG-SAFETY-MORTALITY-988-LEAK-01 (live, 2026-07-23): a mortality-
+    reflection turn ("I've outlived a lot of my friends") routed correctly as
+    non-escalation, but the reply still offered 988 — the block had a past-tense
+    exception but no PRESENT-TENSE mortality one, so normal older-adult
+    mortality talk fell through to the distress path. Kent and Janice are
+    exactly this demographic.
+
+    Structural guard: the mortality exception is present, names the signals, and
+    forbids crisis-resource copy for reflection WHILE preserving the acute path.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not _PROMPT_COMPOSER.is_file():
+            raise unittest.SkipTest("prompt_composer.py missing")
+        cls.text = _PROMPT_COMPOSER.read_text(encoding="utf-8")
+
+    def test_mortality_exception_present(self):
+        self.assertIn("MORTALITY REFLECTION EXCEPTION", self.text)
+
+    def test_names_the_mortality_signals(self):
+        for signal in ("outliving friends", "making peace with the end",
+                       "affairs in order", "think about death"):
+            self.assertIn(signal, self.text,
+                          "mortality exception should name %r" % signal)
+
+    def test_forbids_crisis_resource_for_reflection(self):
+        # The load-bearing instruction: no 988 / Friendship Line / crisis
+        # resource for mortality reflection. (Assert the single-source-line
+        # portion — the phrase wraps across string literals in the source.)
+        self.assertIn(
+            "Do NOT surface 988, the Friendship Line, or any crisis resource",
+            self.text)
+        self.assertIn("for mortality reflection", self.text)
+
+    def test_preserves_acute_path_inside_the_exception(self):
+        # The exception must NOT be a blanket 988-suppressor: explicit self-harm
+        # / hopelessness-about-being-alive still routes to the acute + distress
+        # handling. This is the boundary that keeps the fix narrow.
+        i = self.text.index("MORTALITY REFLECTION EXCEPTION")
+        block = self.text[i:i + 1300]
+        self.assertIn("self-harm intent", block)
+        self.assertIn("ACUTE SAFETY RULE", block)
+        self.assertIn("still take over", block)
+
+    def test_acute_rule_still_present_globally(self):
+        # Belt-and-suspenders with test_acute_rule_still_present above: the
+        # mortality exception must not have displaced the acute rule.
+        self.assertIn("ACUTE SAFETY RULE", self.text)
+        self.assertIn("988", self.text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
