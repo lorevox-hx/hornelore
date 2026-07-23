@@ -2329,6 +2329,8 @@
           try { j = JSON.parse(ev.data); } catch (_) { return; }
           if (j.type === "token" && j.delta) self._append(j.delta);
           if (j.type === "done") {
+            self._busy = false;
+            clearTimeout(self._busyTimer);
             self._finish(j.final_text);
             reloadNotes && reloadNotes().catch(function () {});
             self._refreshDrawer();
@@ -2352,10 +2354,19 @@
         this._bubble = null;
       },
       _send: function () {
+        // Double-send guard (parity with the 2026-05-07 chat-path _loriIsBusy
+        // fix): a second click / Enter while Lori is still generating used to
+        // fire the same turn twice. Block until the current turn completes.
+        if (this._busy) return;
         var inp = this.el.querySelector('[data-td="loriInput"]');
         var text = (inp.value || "").trim();
         if (!text) return;
         if (!this.ws || this.ws.readyState !== 1) { this._connect(); }
+        this._busy = true;
+        // Failsafe: never lock the modal forever if 'done' never arrives.
+        var self0 = this;
+        clearTimeout(this._busyTimer);
+        this._busyTimer = setTimeout(function () { self0._busy = false; }, 120000);
         this._line("user", text);
         inp.value = "";
         this.turn += 1;
@@ -2377,6 +2388,8 @@
           } else if (attempt < 20) {
             setTimeout(function () { trySend(attempt + 1); }, 250);
           } else {
+            self._busy = false;
+            clearTimeout(self._busyTimer);
             self._line("system", "Lori connection unavailable.");
           }
         };

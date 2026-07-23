@@ -365,5 +365,86 @@ class Lab03Test(unittest.TestCase):
         self.assertNotIn("Add photos", src)
 
 
+class FinishPassTest(unittest.TestCase):
+    """2026-07-23 Travel Doc Lab finish-pass: no native prompts, preview matches
+    the backend spoken trim, evidence text is editable, and evidence actions
+    refresh the day/public-context counts."""
+
+    def setUp(self):
+        self.src = _stripped_js()   # comments removed — mentions don't count
+
+    # ── Lab doctrine: no native dialogs ──────────────────────────────────
+    def test_no_window_prompt_in_the_lab(self):
+        self.assertNotIn("window.prompt(", self.src)
+        self.assertNotIn("prompt(", self.src.replace("window.prompt(", ""))
+
+    def test_no_native_confirm_or_alert(self):
+        self.assertNotIn("window.confirm(", self.src)
+        self.assertNotIn("window.alert(", self.src)
+
+    def test_in_panel_editor_replaces_the_prompt(self):
+        self.assertIn("openEvidenceEditor(", self.src)
+        self.assertIn("renderEvidenceEditor(", self.src)
+        # the two operator-entry lanes now open the editor
+        self.assertIn('mode: "draft_observation"', self.src)
+        self.assertIn('mode: "place_from_context"', self.src)
+
+    # ── preview matches the backend spoken trim ──────────────────────────
+    def test_spoken_trim_helper_present(self):
+        self.assertIn("function spokenContextTrim(", self.src)
+        # 160-char budget mirrors _SPOKEN_CONTEXT_CHARS on the backend
+        self.assertIn("SPOKEN_CONTEXT_CHARS = 160", self.src)
+
+    def test_preview_trims_place_vision_observation_but_not_ocr(self):
+        i = self.src.index("function evLoriWording(")
+        block = self.src[i:i + 1600]
+        # OCR branch speaks the untrimmed value (stripDot), like the backend
+        self.assertIn("the OCR draft appears to read '\" + stripDot", block)
+        # place / vision / observation branches speak the trimmed value
+        self.assertIn("the place context suggests \" + spoken", block)
+        self.assertIn("the draft image context suggests \"\n           + spoken",
+                      block)
+        self.assertIn("the draft photo observation suggests \"\n           + spoken",
+                      block)
+
+    # ── evidence text editing (edit revokes approval, clears memoir) ──────
+    def test_edit_row_patches_result_summary(self):
+        self.assertIn('"Edit text"', self.src)
+        self.assertIn("result_summary: t", self.src)
+        # the drawer for edit warns it revokes approval
+        self.assertIn("revokes approval", self.src)
+
+    # ── refresh the counts after evidence changes ────────────────────────
+    def test_refresh_after_evidence_reloads_days_and_public_context(self):
+        self.assertIn("function refreshAfterEvidence(", self.src)
+        i = self.src.index("function refreshAfterEvidence(")
+        block = self.src[i:i + 400]
+        self.assertIn("reloadDays()", block)
+        self.assertIn("reloadPublicContext()", block)
+        # and the evidence actions call it
+        self.assertIn(".then(refreshAfterEvidence)", self.src)
+        self.assertIn("refreshAfterEvidence();", self.src)
+
+
+class DocumenterDoubleSendGuardTest(unittest.TestCase):
+    """travel-documenter.js modal double-send guard (parity with the 2026-05-07
+    chat-path _loriIsBusy fix) — a second click while Lori is generating must
+    not fire the turn twice."""
+
+    def setUp(self):
+        p = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
+        self.src = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "",
+                          p.read_text(encoding="utf-8"))
+
+    def test_send_is_guarded_and_cleared(self):
+        i = self.src.index("_send: function ()")
+        block = self.src[i:i + 400]
+        self.assertIn("if (this._busy) return;", block)
+        self.assertIn("this._busy = true;", block)
+        # cleared on done, on connection failure, and by a failsafe timer
+        self.assertIn("self._busy = false;", self.src)
+        self.assertIn("_busyTimer", self.src)
+
+
 if __name__ == "__main__":
     unittest.main()

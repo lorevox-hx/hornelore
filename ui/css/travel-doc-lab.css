@@ -399,6 +399,13 @@
 .tdl-ev-busy .tdl-ev-actions { opacity: .45; pointer-events: none; }
 .tdl-ev-busy .tdl-ev-note { font-weight: 700; }
 
+/* In-panel evidence editor drawer — replaces native window.prompt. */
+.tdl-ev-editor { border: 1px solid var(--tdl-blue); border-radius: 8px; padding: .6rem .7rem; margin: .4rem 0 .7rem; background: var(--tdl-paper, rgba(120,150,220,.06)); }
+.tdl-ev-editor-title { font-weight: 700; margin-bottom: .2rem; }
+.tdl-ev-editor-hint { font-size: .8rem; margin-bottom: .45rem; }
+.tdl-ev-editor-input { width: 100%; box-sizing: border-box; min-height: 4.2rem; resize: vertical; font: inherit; padding: .45rem .55rem; border: 1px solid var(--tdl-border, #33405a); border-radius: 6px; margin-bottom: .5rem; }
+.tdl-ev-editor-actions { display: flex; gap: .5rem; }
+
 /* bigger thumbs — 110px tall could not distinguish one menu from another */
 .tdl-gallery { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .tdl-ph img { height: 140px; }

@@ -323,6 +323,43 @@
       .catch(function () { st.reconcile = null; });
   }
 
+  function reloadPublicContext() {
+    if (!st.trip) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/public-context")
+      .then(function (out) { st.publicContext = out.public_context || []; })
+      .catch(function () {});
+  }
+
+  // Evidence changes (OCR / lookup / draft observation / place inference /
+  // approve / include / reject / edit) can shift the counts the day cards and
+  // metrics show. Refresh the panel AND those counts so nothing stays stale.
+  function refreshAfterEvidence() {
+    reloadPhotoEvidence();  // clears + re-fetches the evidence panel
+    Promise.all([reloadDays(), reloadPhotoLinks(), reloadPublicContext()])
+      .then(renderAll)
+      .catch(function () {});
+  }
+
+  // JS mirror of travel_doc_lori_modal._spoken_context_trim — MUST match so the
+  // "Lori will say…" preview shows what the modal direct-answer actually speaks
+  // (first sentence, 160-char budget, else word-boundary cap). OCR is NOT
+  // trimmed on either side.
+  var SPOKEN_CONTEXT_CHARS = 160;
+  function spokenContextTrim(text) {
+    var t = String(text == null ? "" : text).replace(/\s+/g, " ").trim();
+    if (t.length <= SPOKEN_CONTEXT_CHARS) return t;
+    var m = /[.!?](\s|$)/.exec(t);
+    if (m) {
+      var end = m.index + m[0].length;
+      if (end >= 12 && end <= SPOKEN_CONTEXT_CHARS + 60) {
+        return t.slice(0, end).trim();
+      }
+    }
+    var head = t.slice(0, SPOKEN_CONTEXT_CHARS);
+    var sp = head.lastIndexOf(" ");
+    return (sp >= 60 ? head.slice(0, sp) : head).trim() + "…";
+  }
+
   // ── person picker (no person_id in the URL) ──────────────────────────
 
   function renderPersonPicker() {
@@ -1945,7 +1982,7 @@
       photoEvidence.busy = null;
       photoEvidence.note = label + ": " + (out.status || "done")
         + (out.message ? " — " + out.message : "");
-      reloadPhotoEvidence();
+      refreshAfterEvidence();
     }).catch(function (e) {
       photoEvidence.busy = null;
       photoEvidence.note = label + " failed: " + e.message; renderAll();
@@ -1956,17 +1993,53 @@
     return el("span", "tdl-ev-badge " + (on ? "tdl-ev-on" : "tdl-ev-off"), text);
   }
 
+  // Send the active trip_id as a scope guard so a stale panel row can't patch
+  // another trip's evidence (backend returns 409 on mismatch).
+  function _tripScopeQ() {
+    return st.trip ? ("?trip_id=" + encodeURIComponent(st.trip.id)) : "";
+  }
   function patchPhotoContext(id, body) {
-    api("/api/trips/photo-context/" + encodeURIComponent(id),
+    api("/api/trips/photo-context/" + encodeURIComponent(id) + _tripScopeQ(),
         { method: "PATCH", body: body })
-      .then(reloadPhotoEvidence)
+      .then(refreshAfterEvidence)
       .catch(function (e) { photoEvidence.note = e.message; renderAll(); });
   }
   function patchPublicContext(id, body) {
-    api("/api/trips/public-context/" + encodeURIComponent(id),
+    api("/api/trips/public-context/" + encodeURIComponent(id) + _tripScopeQ(),
         { method: "PATCH", body: body })
-      .then(reloadPhotoEvidence)
+      .then(refreshAfterEvidence)
       .catch(function (e) { photoEvidence.note = e.message; renderAll(); });
+  }
+
+  // In-panel evidence editor (replaces native window.prompt — Lab doctrine:
+  // NO browser-native dialogs). One state, three modes: add draft observation,
+  // infer place from context, edit an existing row's text. Keystrokes persist
+  // into ed.value so an async re-render doesn't wipe what the operator typed.
+  function openEvidenceEditor(ed) { photoEvidence.editor = ed; renderAll(); }
+  function closeEvidenceEditor() { photoEvidence.editor = null; renderAll(); }
+
+  function renderEvidenceEditor() {
+    var ed = photoEvidence.editor;
+    var wrap = el("div", "tdl-ev-editor");
+    wrap.appendChild(el("div", "tdl-ev-editor-title", ed.title));
+    if (ed.hint) wrap.appendChild(el("div", "tdl-muted tdl-ev-editor-hint", ed.hint));
+    var ta = document.createElement("textarea");
+    ta.className = "tdl-ev-editor-input";
+    ta.rows = 3;
+    ta.value = ed.value || "";
+    ta.placeholder = ed.placeholder || "";
+    ta.oninput = function () { ed.value = ta.value; };  // survive re-render
+    wrap.appendChild(ta);
+    var row = el("div", "tdl-ev-editor-actions");
+    row.appendChild(btn("tdl-btn tdl-btn-primary", ed.saveLabel || "Save",
+      function () {
+        var t = (ed.value || ta.value || "").trim();
+        photoEvidence.editor = null;
+        if (t) { ed.save(t); } else { renderAll(); }
+      }));
+    row.appendChild(btn("tdl-btn", "Cancel", closeEvidenceEditor));
+    wrap.appendChild(row);
+    return wrap;
   }
 
   // WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11): friendlier
@@ -2002,10 +2075,15 @@
     var stripDot = s.replace(/\.+$/, "");
     var ct = isPublic ? (r.source_type || "") : (r.context_type || "");
     if (r.rejected) return "Rejected — Lori will not see this row.";
+    // The modal direct-answer path trims spoken vision / observation / place /
+    // public context (travel_doc_lori_modal._spoken_context_trim), so the
+    // preview must trim the same classes or it lies about what Lori says. OCR
+    // is spoken untrimmed on both sides.
+    var spoken = spokenContextTrim(stripDot);
     if (isPublic && ct === "place_context") {
       return approved
-        ? ("Lori will say: The approved place context says: " + stripDot + ".")
-        : ("Lori will say: the place context suggests " + stripDot + ".");
+        ? ("Lori will say: The approved place context says: " + spoken + ".")
+        : ("Lori will say: the place context suggests " + spoken + ".");
     }
     if (ct === "ocr_text") {
       return approved
@@ -2015,21 +2093,21 @@
     if (ct === "vision_description") {
       return approved
         ? ("Lori will say: The approved image-context note says: "
-           + stripDot + ".")
+           + spoken + ".")
         : ("Lori will say: the draft image context suggests "
-           + stripDot + ".");
+           + spoken + ".");
     }
     if (ct === "draft_observation") {
       return approved
         ? ("Lori will say: The approved photo observation says: "
-           + stripDot + ".")
+           + spoken + ".")
         : ("Lori will say: the draft photo observation suggests "
-           + stripDot + ".");
+           + spoken + ".");
     }
-    // Fallback for less-common types — still safe to preview.
+    // Fallback for less-common types — still safe to preview (trimmed).
     return approved
-      ? ("Lori will speak this as approved context: " + stripDot + ".")
-      : ("Lori will treat this as draft (never fact): " + stripDot + ".");
+      ? ("Lori will speak this as approved context: " + spoken + ".")
+      : ("Lori will treat this as draft (never fact): " + spoken + ".");
   }
 
   function renderEvidenceRow(r, isPublic) {
@@ -2054,6 +2132,21 @@
     if (r.source_url) row.appendChild(el("div", "tdl-ev-src", r.source_url));
     var ctrls = el("div", "tdl-ev-ctrls");
     var patch = isPublic ? patchPublicContext : patchPhotoContext;
+    // Edit text — backend PATCH result_summary REVOKES approval + clears memoir
+    // inclusion (edit-revokes-approval doctrine). Live testing already depends
+    // on that; the Lab should make it reachable. OCR text is editable too — an
+    // operator can hand-correct a noisy read.
+    ctrls.appendChild(btn("tdl-btn tdl-btn-small", "Edit text", function () {
+      openEvidenceEditor({
+        mode: "edit",
+        title: "Edit evidence text",
+        hint: "Saving revokes approval and removes it from the memoir until you "
+          + "approve again. Stays draft.",
+        value: r.result_summary || "",
+        saveLabel: "Save (revokes approval)",
+        save: function (t) { patch(r.id, { result_summary: t }); },
+      });
+    }));
     ctrls.appendChild(btn("tdl-btn tdl-btn-small",
       r.approved_for_lori ? "Unapprove" : "Approve for Lori",
       function () { patch(r.id, { approved_for_lori: !r.approved_for_lori }); }));
@@ -2081,37 +2174,47 @@
       evidenceAction("/api/trips/photo-links/"
         + encodeURIComponent(sel.id) + "/ocr", "OCR");
     }));
-    // WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11): operator-
-    // entry lane for local-LLM / operator drafted photo observation.
-    // Prompt (native window.prompt) keeps the UI unchanged in shape —
-    // just adds a button; no redesign.
+    // Operator-entry lane for a drafted photo observation. In-panel editor
+    // (Lab doctrine: NO native window.prompt).
     acts.appendChild(btn("tdl-btn", "✍ Add draft observation", function () {
-      var t = window.prompt(
-        "Draft photo observation — what does the photo show? "
-        + "(Stays as DRAFT; won't reach narrator Lori until you approve.)");
-      var s = (t || "").trim();
-      if (!s) return;
-      evidenceAction("/api/trips/photo-links/"
-        + encodeURIComponent(sel.id) + "/draft-observation",
-        "Draft observation",
-        { result_summary: s, engine: "operator_local" });
+      openEvidenceEditor({
+        mode: "draft_observation",
+        title: "Draft photo observation",
+        hint: "What does the photo show? Stays DRAFT — it won't reach narrator "
+          + "Lori until you approve it.",
+        placeholder: "e.g. A stone church with twin spires; a river in the "
+          + "foreground.",
+        value: "",
+        saveLabel: "Save draft",
+        save: function (t) {
+          evidenceAction("/api/trips/photo-links/"
+            + encodeURIComponent(sel.id) + "/draft-observation",
+            "Draft observation",
+            { result_summary: t, engine: "operator_local" });
+        },
+      });
     }));
-    // Operator's place inference rooted in already-reviewable evidence
-    // (OCR / public context / operator labels / trip structure). Never
-    // consumes raw GPS. Stored as DRAFT trip_public_context row.
-    acts.appendChild(btn("tdl-btn", "📍 Infer place from context",
-      function () {
-        var t = window.prompt(
-          "Place inference — based on OCR, public context, trip labels, "
-          + "or operator place notes. (Stays as DRAFT; never uses raw GPS.)");
-        var s = (t || "").trim();
-        if (!s) return;
-        evidenceAction("/api/trips/photo-links/"
-          + encodeURIComponent(sel.id) + "/place-from-context",
-          "Place from context",
-          { result_summary: s,
-            evidence_sources: ["ocr", "public_context", "trip_labels"] });
-      }));
+    // Operator's place inference rooted in already-reviewable evidence (OCR /
+    // public context / operator labels / trip structure). Never consumes raw
+    // GPS. Stored as DRAFT trip_public_context row. In-panel editor.
+    acts.appendChild(btn("tdl-btn", "📍 Infer place from context", function () {
+      openEvidenceEditor({
+        mode: "place_from_context",
+        title: "Place from context",
+        hint: "Based on OCR, public context, trip labels, or operator place "
+          + "notes. Stays DRAFT and never uses raw GPS.",
+        placeholder: "e.g. Munich, near the old town",
+        value: "",
+        saveLabel: "Save draft",
+        save: function (t) {
+          evidenceAction("/api/trips/photo-links/"
+            + encodeURIComponent(sel.id) + "/place-from-context",
+            "Place from context",
+            { result_summary: t,
+              evidence_sources: ["ocr", "public_context", "trip_labels"] });
+        },
+      });
+    }));
     // LIVE-TEST FIX (2026-07-13): this button used to post NO url. With the
     // url_only provider (which fetches the exact page the operator supplies)
     // that ALWAYS failed with "url_only provider requires a url" — the button
@@ -2138,6 +2241,10 @@
         { source_type: "place_context", url: u });
     }));
     box.appendChild(acts);
+    // In-panel editor drawer (Add draft observation / Infer place / Edit text).
+    if (photoEvidence.editor) {
+      box.appendChild(renderEvidenceEditor());
+    }
     if (photoEvidence.note) {
       box.appendChild(el("p", "tdl-ev-note", photoEvidence.note));
     }
