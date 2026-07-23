@@ -136,6 +136,60 @@ sys.exit(0 if all(ok for _, ok in results) else 1)
 '''
 
 
+class ModalDirectAnswerTrimsContextTest(unittest.TestCase):
+    """The 'tell me about this photo' modal answer is a SEPARATE composition
+    from _public_context_tail — it builds draft_bits / approved_sentences in
+    answer_modal_direct_question. Live test (2026-07-23) caught a 943-char
+    reply dumping a full Wikipedia article there, because that path read the
+    stored context untrimmed. The place-context and observation bits (which can
+    be encyclopedia-length) must run through _spoken_context_trim too; OCR is
+    left untrimmed (short sign text). Source assertion — a full DB-scoped modal
+    test is out of scope here."""
+
+    def setUp(self):
+        self.src = (_SERVER_CODE / "api" / "services"
+                    / "travel_doc_lori_modal.py").read_text(encoding="utf-8")
+
+    def test_place_context_bits_are_trimmed(self):
+        # both draft and approved place context go through the trim
+        self.assertIn(
+            'draft_bits.append("the place context suggests "\n'
+            '                              + _spoken_context_trim(t)',
+            self.src)
+        self.assertIn(
+            '"The approved place context says: "\n'
+            '                + _spoken_context_trim(t)', self.src)
+
+    def test_observation_and_vision_bits_are_trimmed(self):
+        # A marker string also appears in the locked-wording COMMENT above the
+        # code; check EVERY occurrence and require at least one (the code one)
+        # to be followed by the trim within a small window.
+        for marker in ("the draft photo observation suggests",
+                       "the draft image context suggests",
+                       "The approved photo observation says",
+                       "The approved image-context note says"):
+            trimmed = False
+            start = 0
+            while True:
+                i = self.src.find(marker, start)
+                if i < 0:
+                    break
+                if "_spoken_context_trim" in self.src[i:i + 160]:
+                    trimmed = True
+                    break
+                start = i + 1
+            self.assertTrue(
+                trimmed,
+                "%r bit is not trimmed before Lori speaks it" % marker)
+
+    def test_ocr_is_left_untrimmed(self):
+        # OCR is short sign text; trimming to a "first sentence" would mangle
+        # noisy multi-token reads. Confirm the OCR draft line does NOT trim.
+        i = self.src.index("the OCR draft appears to read")
+        window = self.src[i:i + 120]
+        self.assertNotIn("_spoken_context_trim", window)
+
+
 class AutoDaysReturnContractTest(unittest.TestCase):
     """Every return path of _auto_generate_days_for_new_trip must be a two-item
     tuple. create_trip does `days_created, days_warning = helper(...)`, so a

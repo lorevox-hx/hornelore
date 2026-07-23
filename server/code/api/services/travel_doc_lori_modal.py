@@ -392,7 +392,8 @@ def answer_modal_direct_question(
                 "The approved OCR text says: " + t.rstrip("."))
         for t in pc["approved_vision"]:
             approved_sentences.append(
-                "The approved image-context note says: " + t.rstrip("."))
+                "The approved image-context note says: "
+                + _spoken_context_trim(t).rstrip("."))
         # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
         # locked wording — "The approved photo observation says…" for
         # local-LLM-drafted observations that the operator has
@@ -401,10 +402,12 @@ def answer_modal_direct_question(
         # trip_public_context. Approved rows always speak as fact.
         for t in pc["approved_observation"]:
             approved_sentences.append(
-                "The approved photo observation says: " + t.rstrip("."))
+                "The approved photo observation says: "
+                + _spoken_context_trim(t).rstrip("."))
         for t in pc["approved_place_context"]:
             approved_sentences.append(
-                "The approved place context says: " + t.rstrip("."))
+                "The approved place context says: "
+                + _spoken_context_trim(t).rstrip("."))
         if approved_sentences:
             body = " ".join(
                 s if s.endswith((".", "!", "?")) else s + "."
@@ -427,7 +430,7 @@ def answer_modal_direct_question(
                               + t.rstrip(".") + "'")
         for t in pc["draft_vision"]:
             draft_bits.append("the draft image context suggests "
-                              + t.rstrip("."))
+                              + _spoken_context_trim(t).rstrip("."))
         # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 preflight (2026-07-11):
         # locked wording — "The draft photo observation suggests…" for
         # local-LLM-drafted observations that haven't been approved
@@ -435,13 +438,14 @@ def answer_modal_direct_question(
         # drafts. Draft rows always stay suggestive (never fact).
         for t in pc["draft_observation"]:
             draft_bits.append("the draft photo observation suggests "
-                              + t.rstrip("."))
+                              + _spoken_context_trim(t).rstrip("."))
         for t in pc["draft_place_context"]:
             draft_bits.append("the place context suggests "
-                              + t.rstrip("."))
+                              + _spoken_context_trim(t).rstrip("."))
         if pkt.get("draft_context"):
             draft_bits.append("the draft photo context suggests "
-                              + pkt["draft_context"].rstrip("."))
+                              + _spoken_context_trim(
+                                  pkt["draft_context"]).rstrip("."))
         if pkt.get("draft_date"):
             draft_bits.append("the photo data suggests it was taken "
                               + _fmt_date(pkt["draft_date"]))
