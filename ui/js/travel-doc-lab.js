@@ -46,6 +46,7 @@
     tree: null,          // /tree for selected trip
     days: [],            // /days.days rows (in-window, numbered 1..N)
     preservedDays: [],   // /days.preserved rows (outside current window)
+    countsWarning: "",   // /days.counts_warning when evidence counts partial
     photoLinks: [],      // /photo-links rows
     notes: [],           // /location-notes rows
     sources: [],         // /sources rows
@@ -265,6 +266,13 @@
       // preservation but rendered in their own section so their stale
       // day_index numbers don't collide with the current 1..N calendar.
       st.preservedDays = outs[1].preserved || [];
+      // 2026-07-23 (Bucket B) — when the /days endpoint could load
+      // the day rows but the evidence-counts query failed (locked,
+      // corrupt, disk full), the response carries a
+      // ``counts_warning`` string. We surface it as an amber banner
+      // above the calendar so operators don't mistake zero counts
+      // for verified absence of evidence.
+      st.countsWarning = outs[1].counts_warning || "";
       st.photoLinks = outs[2].photo_links || [];
       st.notes = outs[3].notes || [];
       st.sources = outs[4].sources || [];
@@ -285,6 +293,7 @@
       .then(function (out) {
         st.days = out.days || [];
         st.preservedDays = out.preserved || [];
+        st.countsWarning = out.counts_warning || "";
       });
   }
 
@@ -593,6 +602,19 @@
       dwBox.appendChild(el("strong", "", "Day cards warning: "));
       dwBox.appendChild(document.createTextNode(st.daysWarning));
       wrap.appendChild(dwBox);
+    }
+    // 2026-07-23 (Bucket B) — counts_warning banner. When the /days
+    // endpoint could load the day rows but the evidence-counts query
+    // failed, every card renders zero counts. Without this banner,
+    // a locked or damaged counts query looks IDENTICAL to legitimate
+    // absence of evidence. Amber styling matches the other partial-
+    // failure banners in the shell.
+    if (st.countsWarning) {
+      var cwBox = el("div", "tdl-warn-banner tdl-counts-warning");
+      cwBox.appendChild(el("strong", "",
+        "Evidence counts could not be verified: "));
+      cwBox.appendChild(document.createTextNode(st.countsWarning));
+      wrap.appendChild(cwBox);
     }
 
     wrap.appendChild(renderEvalChecklist());

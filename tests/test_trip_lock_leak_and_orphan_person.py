@@ -77,10 +77,17 @@ if "pydantic" not in sys.modules:
     pstub.ConfigDict = dict
     sys.modules["pydantic"] = pstub
 
-from fastapi import HTTPException  # noqa: E402  (stub)
 from api import db as _db  # noqa: E402
 from api.services import trip_repository  # noqa: E402
 from api.routers import trips  # noqa: E402
+
+# 2026-07-23 — use whichever HTTPException class trips.py actually
+# bound at import time. Guards against test-isolation drift when
+# another file (test_trip_days_http_sequence) drops the fastapi
+# stub to load real fastapi mid-run; without this, the two classes
+# diverge and every assertRaises(HTTPException) here fails against
+# an assertion-side stub mismatch.
+HTTPException = trips.HTTPException
 
 
 class _Req:

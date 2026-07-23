@@ -28,27 +28,42 @@ _SERVER_CODE = _REPO_ROOT / "server" / "code"
 if str(_SERVER_CODE) not in sys.path:
     sys.path.insert(0, str(_SERVER_CODE))
 
-try:  # noqa: SIM105
-    # The sibling test file stubs fastapi/pydantic; make sure THIS
-    # process gets the real modules by dropping any stub that another
-    # import may have left in sys.modules.
-    for _name in ("fastapi", "pydantic", "fastapi.testclient",
-                  "starlette", "starlette.testclient"):
-        _mod = sys.modules.get(_name)
-        if _mod is not None and getattr(_mod, "__file__", None) is None:
-            # This is a stub (no __file__ / synthetic module) — drop it
-            # so real import goes to disk.
-            del sys.modules[_name]
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    _HAVE_FASTAPI = True
-except Exception:  # pragma: no cover — CI without fastapi installed
-    _HAVE_FASTAPI = False
+_HAVE_FASTAPI = False
+_STUBBED = False
+
+# 2026-07-23 (Bucket A+B follow-up) — DO NOT drop fastapi stubs from
+# sys.modules to hot-swap real fastapi mid-run. The earlier version
+# did that, and after this test ran, downstream sibling test files
+# (test_trip_days, test_trip_editable_fixes, etc.) that do a bare
+# `from fastapi import HTTPException` picked up whichever class was
+# left in sys.modules — DIFFERENT from what api.routers.trips had
+# already bound. Every subsequent assertRaises(HTTPException) failed
+# with a mismatched-class error.
+#
+# Correct posture: only run when real fastapi loads NATURALLY on
+# import (i.e., a sibling file hasn't already stubbed). On Chris's
+# laptop with real fastapi installed, no stub check ever fires and
+# this test runs. In the sandbox with no fastapi installed AND a
+# sibling stub registered, we skip cleanly. That trades running the
+# HTTP test in the sandbox for the much bigger win of never
+# poisoning downstream tests.
+_fastapi_mod = sys.modules.get("fastapi")
+if _fastapi_mod is not None and getattr(_fastapi_mod, "__file__", None) is None:
+    _STUBBED = True
+else:
+    try:
+        from fastapi import FastAPI  # noqa: E402
+        from fastapi.testclient import TestClient  # noqa: E402
+        _HAVE_FASTAPI = True
+    except Exception:  # pragma: no cover — CI without fastapi installed
+        _HAVE_FASTAPI = False
 
 
 @unittest.skipUnless(
     _HAVE_FASTAPI,
-    "fastapi + fastapi.testclient are required for the HTTP sequence test",
+    "fastapi + fastapi.testclient are required for the HTTP sequence test "
+    "(skipped when sibling test file has already stubbed fastapi in "
+    "sys.modules, or when fastapi isn't installed)",
 )
 class NorthDakotaHttpSequenceTest(unittest.TestCase):
     """Full ND flow driven through real HTTP against a minimal app
@@ -90,10 +105,14 @@ class NorthDakotaHttpSequenceTest(unittest.TestCase):
         con.close()
 
         # Build the minimal app now that DB + gate are ready.
+        # NOTE: trips.router self-declares prefix="/api/trips", so we
+        # mount it WITHOUT a prefix here. Adding one would double-nest
+        # the routes to /api/trips/api/trips/... and every real path
+        # would 404. (Learned the hard way — Chris caught it live.)
         from api.routers import trips as _trips
         importlib.reload(_trips)  # pick up any repo mutations from other tests
         self.app = FastAPI()
-        self.app.include_router(_trips.router, prefix="/api/trips")
+        self.app.include_router(_trips.router)
         self.client = TestClient(self.app)
 
     def tearDown(self):

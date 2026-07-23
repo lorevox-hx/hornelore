@@ -434,6 +434,26 @@
 .tdl-day-card-preserved { opacity: 0.72; background: var(--tdl-paper2); border-style: dashed; }
 .tdl-day-card-preserved:hover { opacity: 0.92; }
 
+/* ── counts_warning banner (2026-07-23 Bucket B) ──────────────────
+   Amber banner surfaced when /days returns counts_warning — that
+   is, day rows loaded but the evidence-counts query hit a lock /
+   corrupt / disk-full / etc. Distinct from tdl-error (red for
+   fatal load failures) — this one says "cards are here, but the
+   numbers on them may not be accurate." */
+.tdl-warn-banner {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--tdl-gold);
+  border-left: 4px solid var(--tdl-gold);
+  border-radius: 10px;
+  background: #fff7e6;
+  color: #6c4a10;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.tdl-warn-banner strong { color: #6c4a10; font-weight: 800; }
+.tdl-counts-warning { }  /* hook for future overrides */
+
 @media (max-width: 1500px) {
   /* 2. filter rail becomes chips ABOVE the gallery — reclaims the 150px
         column so the photos get the full width of the workspace. */

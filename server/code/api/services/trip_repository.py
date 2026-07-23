@@ -2692,6 +2692,23 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
 
     # Photo counts: day-attached links first (0028), then date-prefix
     # fallback for unattached links only.
+    #
+    # 2026-07-23 (follow-up, Bucket B) — the previous version wrapped
+    # BOTH the outer 0028 query AND the inner date-fallback query in
+    # bare ``except sqlite3.OperationalError: ... = {}``. That silently
+    # converted EVERY operational failure — locks, I/O errors, missing
+    # tables, unrelated malformed queries — into "zero photos" for
+    # every day card. The whole point of ChatGPT's review §4 was:
+    # a locked or damaged photo-counts query then LOOKS EXACTLY LIKE
+    # a legitimate day with no evidence.
+    #
+    # Fix: swallow ONLY the specific pre-0028 signal ("no such column"
+    # for the trip_day_id column that migration 0028 added). Every
+    # other operational error re-raises to the caller so the router
+    # can surface a counts_warning on the /days response. The inner
+    # date-only query does NOT reference trip_day_id, so a failure
+    # there is a real error (never a legacy signal) and re-raises
+    # too.
     by_date: Dict[str, int] = {}
     by_day: Dict[str, int] = {}
     con = _connect()
@@ -2721,10 +2738,20 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                 (trip_id,),
             ).fetchall()
             by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
-        except sqlite3.OperationalError:
-            # Pre-0028 DB: no trip_day_id column — date match only.
-            by_day = {}
-            try:
+        except sqlite3.OperationalError as exc:
+            # Pre-0028 DB fallback: swallow ONLY the exact "no such
+            # column" for the trip_day_id column. Anything else — a
+            # lock, an I/O failure, a missing trip_photo_links
+            # TABLE (pre-0015), any unrelated SQL error — must
+            # re-raise so the caller can surface it honestly.
+            msg = str(exc).lower()
+            if ("no such column" in msg
+                    and "trip_day_id" in msg):
+                # Confirmed pre-0028 signal: fall back to date-only.
+                # The inner query does not reference trip_day_id;
+                # any failure there is a REAL error, not a legacy
+                # signal, so it re-raises unchecked.
+                by_day = {}
                 rows = con.execute(
                     """SELECT substr(COALESCE(l.taken_at, p.date_value), 1, 10)
                               AS d, COUNT(*) AS n
@@ -2737,8 +2764,10 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                     (trip_id,),
                 ).fetchall()
                 by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
-            except sqlite3.OperationalError:
-                by_date = {}
+            else:
+                # Not the legacy signal — real failure, re-raise so
+                # the router can classify + surface counts_warning.
+                raise
     finally:
         con.close()
 

@@ -975,6 +975,37 @@ def _classify_sqlite_error(sqlite_errorname, exc) -> str:
     return name.lower().replace("_", " ")
 
 
+def _classified_sqlite_500(
+    exc: "sqlite3.Error", log_context: str, trip_id: str = ""
+) -> HTTPException:
+    """Build the HTTPException(500) we return whenever a trip route's
+    SQLite call raises. Centralized so every day/photo/reconcile route
+    produces the same operator-facing shape:
+
+        HTTP 500 { "detail": "<classified prefix>: <exc[:200]>" }
+
+    log_context is the log-marker tag (e.g. "[trips][days]" or
+    "[trips][day-patch]") so ops can grep api.log for the failure
+    class. Always logs via ``logger.exception`` — the full traceback
+    lives in api.log; only the classified prefix + truncated exc
+    message reaches the operator UI. Handles any ``sqlite3.Error``
+    subclass (OperationalError, IntegrityError, DatabaseError,
+    ProgrammingError, InterfaceError, NotSupportedError) — not just
+    OperationalError. ChatGPT's review §7 flagged this: the classifier
+    covers CORRUPT / NOTADB / etc. which arrive as broader Error
+    subclasses.
+    """
+    _sqlite_name = getattr(exc, "sqlite_errorname", None)
+    _sqlite_code = getattr(exc, "sqlite_errorcode", None)
+    logger.exception(
+        "%s SQLite failure trip=%s sqlite_code=%s sqlite_name=%s",
+        log_context, trip_id or "-", _sqlite_code, _sqlite_name)
+    prefix = _classify_sqlite_error(_sqlite_name, exc)
+    return HTTPException(
+        status_code=500,
+        detail=(prefix + ": " + str(exc)[:200]))
+
+
 # ── Auto-day-generation helpers (2026-07-15 Track C fix) ────────────
 #
 # Prior behavior: create_trip / patch_trip wrote start_date + end_date to
@@ -2698,30 +2729,54 @@ def list_trip_days(trip_id: str) -> Dict[str, Any]:
     generated cards yet."
     """
     _require_trips_enabled()
-    if not trip_repository.trip_get(trip_id):
+
+    # 2026-07-23 (Bucket B follow-up) — wrap the INITIAL trip_get in
+    # the same protection as trip_days_list. Previously a SQLite
+    # failure on the existence check would bypass classification and
+    # bubble up as an unclassified 500. Also broaden the catch from
+    # OperationalError to sqlite3.Error so subclasses like
+    # DatabaseError (CORRUPT/NOTADB) and IntegrityError get the
+    # classified operator-facing message.
+    try:
+        trip = trip_repository.trip_get(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][exists-check]", trip_id) from exc
+    if not trip:
         raise HTTPException(status_code=404, detail="trip not found")
 
     try:
         raw_days = trip_repository.trip_days_list(trip_id)
-    except sqlite3.OperationalError as exc:
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][list]", trip_id) from exc
+
+    # 2026-07-23 (Bucket B) — counts are best-effort; a failure here
+    # should NOT hide the day rows we already loaded, but ALSO must
+    # not silently look like "zero evidence" (ChatGPT §4). We now:
+    #   1. call trip_day_counts; if it raises, log + classify + set
+    #      counts_warning on the response, zero out per-day counts,
+    #      but STILL return the day cards so the operator can work.
+    #   2. surface the classified message via a top-level
+    #      ``counts_warning`` string so the Lab can render an amber
+    #      banner ("counts could not be verified: <prefix>: <exc>").
+    # Legit zero-evidence days return no warning — trip_day_counts
+    # returns {} for those (harmless dict lookup miss below).
+    counts_warning: Optional[str] = None
+    try:
+        counts = trip_repository.trip_day_counts(trip_id)
+    except sqlite3.Error as exc:
         _sqlite_name = getattr(exc, "sqlite_errorname", None)
         _sqlite_code = getattr(exc, "sqlite_errorcode", None)
         logger.exception(
-            "[trips][days] list failed trip=%s sqlite_code=%s "
-            "sqlite_name=%s", trip_id, _sqlite_code, _sqlite_name)
+            "[trips][days][counts] failed trip=%s sqlite_code=%s "
+            "sqlite_name=%s (day cards will still load with zeros + "
+            "counts_warning)", trip_id, _sqlite_code, _sqlite_name)
         prefix = _classify_sqlite_error(_sqlite_name, exc)
-        raise HTTPException(
-            status_code=500,
-            detail=(prefix + ": " + str(exc)[:200])) from exc
-
-    try:
-        counts = trip_repository.trip_day_counts(trip_id)
-    except sqlite3.OperationalError as exc:
-        # Counts are best-effort; a failure here should NOT hide the
-        # day rows we already loaded. Log and continue with empty.
-        logger.exception(
-            "[trips][days] day-counts failed trip=%s (returning zeros)",
-            trip_id)
+        counts_warning = (
+            prefix + ": " + str(exc)[:200]
+            + " — evidence counts could not be verified. "
+              "Zero counts shown may not reflect actual evidence.")
         counts = {}
 
     for d in raw_days:
@@ -2729,9 +2784,8 @@ def list_trip_days(trip_id: str) -> Dict[str, Any]:
             "photos": 0, "notes": 0, "sources": 0, "public_context": 0,
         })
 
-    trip = trip_repository.trip_get(trip_id) or {}
     days, preserved = _partition_days_by_trip_window(raw_days, trip)
-    return {
+    resp: Dict[str, Any] = {
         "trip_id": trip_id,
         "count": len(days),                    # in-window count
         "preserved_count": len(preserved),     # explicit — no double-render
@@ -2743,6 +2797,9 @@ def list_trip_days(trip_id: str) -> Dict[str, Any]:
         "days": days,
         "preserved": preserved,
     }
+    if counts_warning:
+        resp["counts_warning"] = counts_warning
+    return resp
 
 
 def _partition_days_by_trip_window(
@@ -2802,19 +2859,37 @@ def _partition_days_by_trip_window(
 def generate_trip_days(trip_id: str) -> Dict[str, Any]:
     """Generate one day row per date in the trip window (inclusive),
     skipping dates that already exist — idempotent, never overwrites
-    operator edits. 422 when the trip has no usable start/end dates."""
+    operator edits. 422 when the trip has no usable start/end dates.
+
+    2026-07-23 (Bucket B) — SQLite failures now go through
+    _classified_sqlite_500 so ops see the actual failure (locked,
+    corrupt, disk full, etc.) instead of a generic 500 body.
+    """
     _require_trips_enabled()
-    if not trip_repository.trip_get(trip_id):
+    try:
+        exists = trip_repository.trip_get(trip_id) is not None
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][generate][exists-check]", trip_id) from exc
+    if not exists:
         raise HTTPException(status_code=404, detail="trip not found")
     try:
         result = trip_repository.trip_days_generate(trip_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][generate]", trip_id) from exc
     logger.info("[trips][days] generated trip=%s created=%d total=%d",
                 trip_id, result["created"], result["total"])
+    try:
+        days_after = trip_repository.trip_days_list(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][generate][post-list]", trip_id) from exc
     return {"trip_id": trip_id, "created": result["created"],
             "total": result["total"],
-            "days": trip_repository.trip_days_list(trip_id)}
+            "days": days_after}
 
 
 class TripDaysReconcileReq(BaseModel):
@@ -2829,9 +2904,18 @@ def reconcile_preview_trip_days(trip_id: str) -> Dict[str, Any]:
     out-of-range day cards (kept, never deleted), duplicate/invalid
     dates. No writes."""
     _require_trips_enabled()
-    if not trip_repository.trip_get(trip_id):
+    try:
+        exists = trip_repository.trip_get(trip_id) is not None
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][preview][exists-check]", trip_id) from exc
+    if not exists:
         raise HTTPException(status_code=404, detail="trip not found")
-    return trip_repository.trip_days_reconcile_preview(trip_id)
+    try:
+        return trip_repository.trip_days_reconcile_preview(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][preview]", trip_id) from exc
 
 
 @router.post("/{trip_id}/days/reconcile")
@@ -2843,7 +2927,12 @@ def reconcile_trip_days(trip_id: str,
     'out_of_range_acknowledged' on out-of-range day cards. NOTHING is
     deleted — out-of-range cards are kept to protect operator notes."""
     _require_trips_enabled()
-    if not trip_repository.trip_get(trip_id):
+    try:
+        exists = trip_repository.trip_get(trip_id) is not None
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][reconcile][exists-check]", trip_id) from exc
+    if not exists:
         raise HTTPException(status_code=404, detail="trip not found")
     try:
         out = trip_repository.trip_days_reconcile(
@@ -2854,19 +2943,34 @@ def reconcile_trip_days(trip_id: str,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][reconcile]", trip_id) from exc
     logger.info("[trips][days] reconcile trip=%s added=%d marked=%d "
                 "reactivated=%d", trip_id, out["added"],
                 out["marked_out_of_range"], out["reactivated"])
-    out["days"] = trip_repository.trip_days_list(trip_id)
+    try:
+        out["days"] = trip_repository.trip_days_list(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][days][reconcile][post-list]", trip_id) from exc
     return out
 
 
 @router.patch("/days/{day_id}")
 def patch_trip_day(day_id: str, req: TripDayPatch) -> Dict[str, Any]:
     """Edit one day card. Region/stop links are validated against the
-    day's own trip (same cross-trip posture as _validate_source_scope)."""
+    day's own trip (same cross-trip posture as _validate_source_scope).
+
+    2026-07-23 (Bucket B) — SQLite failures classified via
+    _classified_sqlite_500 so lock / corrupt / disk-full errors
+    reach the operator instead of a generic 500."""
     _require_trips_enabled()
-    day = trip_repository.trip_day_get(day_id)
+    try:
+        day = trip_repository.trip_day_get(day_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-patch][exists-check]", day_id) from exc
     if not day:
         raise HTTPException(status_code=404, detail="day not found")
     _validate_source_scope(day["trip_id"], req.trip_region_id,
@@ -2875,33 +2979,46 @@ def patch_trip_day(day_id: str, req: TripDayPatch) -> Dict[str, Any]:
     # own region (mirrors the photo-link region/stop desync rule).
     region_id = req.trip_region_id
     if req.trip_stop_id:
-        _stop = trip_repository.stop_get(req.trip_stop_id)
+        try:
+            _stop = trip_repository.stop_get(req.trip_stop_id)
+        except sqlite3.Error as exc:
+            raise _classified_sqlite_500(
+                exc, "[trips][day-patch][stop-get]", day_id) from exc
         if _stop and not region_id:
             region_id = _stop.get("trip_region_id")
-    ok = trip_repository.trip_day_update(
-        day_id,
-        title=req.title,
-        main_location=req.main_location,
-        lodging_base=req.lodging_base,
-        trip_region_id=region_id,
-        trip_stop_id=req.trip_stop_id,
-        morning_notes=req.morning_notes,
-        afternoon_notes=req.afternoon_notes,
-        evening_notes=req.evening_notes,
-        places_visited=req.places_visited,
-        meals=req.meals,
-        clear_title=req.clear_title,
-        clear_main_location=req.clear_main_location,
-        clear_lodging_base=req.clear_lodging_base,
-        clear_morning_notes=req.clear_morning_notes,
-        clear_afternoon_notes=req.clear_afternoon_notes,
-        clear_evening_notes=req.clear_evening_notes,
-        clear_region=req.clear_region,
-        clear_stop=req.clear_stop,
-    )
+    try:
+        ok = trip_repository.trip_day_update(
+            day_id,
+            title=req.title,
+            main_location=req.main_location,
+            lodging_base=req.lodging_base,
+            trip_region_id=region_id,
+            trip_stop_id=req.trip_stop_id,
+            morning_notes=req.morning_notes,
+            afternoon_notes=req.afternoon_notes,
+            evening_notes=req.evening_notes,
+            places_visited=req.places_visited,
+            meals=req.meals,
+            clear_title=req.clear_title,
+            clear_main_location=req.clear_main_location,
+            clear_lodging_base=req.clear_lodging_base,
+            clear_morning_notes=req.clear_morning_notes,
+            clear_afternoon_notes=req.clear_afternoon_notes,
+            clear_evening_notes=req.clear_evening_notes,
+            clear_region=req.clear_region,
+            clear_stop=req.clear_stop,
+        )
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-patch][update]", day_id) from exc
     if not ok:
         raise HTTPException(status_code=400, detail="nothing to update")
-    return {"ok": True, "day": trip_repository.trip_day_get(day_id)}
+    try:
+        return {"ok": True,
+                "day": trip_repository.trip_day_get(day_id)}
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-patch][post-fetch]", day_id) from exc
 
 
 class TripDayPhotoLinksReq(BaseModel):
@@ -2909,9 +3026,21 @@ class TripDayPhotoLinksReq(BaseModel):
 
 
 def _require_day_in_trip(trip_id: str, day_id: str) -> Dict[str, Any]:
-    if not trip_repository.trip_get(trip_id):
+    """2026-07-23 (Bucket B) — SQLite failures on either existence
+    check now go through _classified_sqlite_500 so ops don't see a
+    generic 500 masquerading as a 404."""
+    try:
+        exists = trip_repository.trip_get(trip_id) is not None
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-in-trip][trip-check]", trip_id) from exc
+    if not exists:
         raise HTTPException(status_code=404, detail="trip not found")
-    day = trip_repository.trip_day_get(day_id)
+    try:
+        day = trip_repository.trip_day_get(day_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-in-trip][day-check]", trip_id) from exc
     if not day or day.get("trip_id") != trip_id:
         raise HTTPException(status_code=404, detail="day not in this trip")
     return day
@@ -2922,7 +3051,9 @@ def link_day_photos(trip_id: str, day_id: str,
                     req: TripDayPhotoLinksReq) -> Dict[str, Any]:
     """Attach existing trip photo links to a day card (0028). Links must
     belong to this trip; the day must belong to this trip. Attached
-    photos count on their day first (see trip_day_counts)."""
+    photos count on their day first (see trip_day_counts).
+
+    2026-07-23 (Bucket B) — classified SQLite errors."""
     _require_trips_enabled()
     _require_day_in_trip(trip_id, day_id)
     ids = list(req.photo_link_ids or [])
@@ -2932,6 +3063,9 @@ def link_day_photos(trip_id: str, day_id: str,
         updated = trip_repository.photo_links_set_day(ids, day_id, trip_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-photo-link]", trip_id) from exc
     logger.info("[trips][days] photo-link trip=%s day=%s n=%d",
                 trip_id, day_id, updated)
     return {"ok": True, "updated": updated, "trip_day_id": day_id}
@@ -2941,7 +3075,9 @@ def link_day_photos(trip_id: str, day_id: str,
 def unlink_day_photos(trip_id: str, day_id: str,
                       req: TripDayPhotoLinksReq) -> Dict[str, Any]:
     """Detach photo links from a day card (trip_day_id -> NULL). The
-    photos keep their trip link; counts fall back to date match."""
+    photos keep their trip link; counts fall back to date match.
+
+    2026-07-23 (Bucket B) — classified SQLite errors."""
     _require_trips_enabled()
     _require_day_in_trip(trip_id, day_id)
     ids = list(req.photo_link_ids or [])
@@ -2951,6 +3087,9 @@ def unlink_day_photos(trip_id: str, day_id: str,
         updated = trip_repository.photo_links_set_day(ids, None, trip_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-photo-unlink]", trip_id) from exc
     logger.info("[trips][days] photo-unlink trip=%s day=%s n=%d",
                 trip_id, day_id, updated)
     return {"ok": True, "updated": updated, "trip_day_id": None}
