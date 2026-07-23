@@ -5,7 +5,7 @@ import json
 import time
 import pathlib
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -95,7 +95,7 @@ def _save_chat_memory_fs(conv_id: str, messages: List[Dict[str, Any]]) -> Dict[s
     target_dir = MEMO_DIR / subfolder
     target_dir.mkdir(parents=True, exist_ok=True)
     base = _slug(conv_id)
-    ts = datetime.utcnow().isoformat()
+    ts = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     json_path = target_dir / f"{base}.json"
     txt_path  = target_dir / f"{base}.txt"
     jsonl_path = target_dir / f"{base}.jsonl"
@@ -297,8 +297,8 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
                 upsert_session(req.conv_id, title, payload)
             except Exception as e:
                 print(f"[Phase G] Profile persist failed (non-fatal): {e}")
-        add_turn(req.conv_id, "user", msgs[-1]["content"], datetime.utcnow().isoformat(), req.anchor_id or "", {"section": req.section or ""})
-        add_turn(req.conv_id, "assistant", text, datetime.utcnow().isoformat(), req.anchor_id or "", {"section": req.section or ""})
+        add_turn(req.conv_id, "user", msgs[-1]["content"], datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), req.anchor_id or "", {"section": req.section or ""})
+        add_turn(req.conv_id, "assistant", text, datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), req.anchor_id or "", {"section": req.section or ""})
     return {"ok": True, "text": text, "latency": round(time.time() - start, 2)}
 
 # ---------------- Lightweight warmup ----------------
@@ -459,7 +459,7 @@ def chat_stream(req: _ChatReq):
                         upsert_session(conv_id, stitle, spayload)
                     except Exception as e:
                         print(f"[Phase G] Streaming profile persist failed (non-fatal): {e}")
-                add_turn(conv_id, "assistant", full, datetime.utcnow().isoformat(), anchor_id, {"section": section})
+                add_turn(conv_id, "assistant", full, datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), anchor_id, {"section": section})
                 try:
                     _save_chat_memory_fs(conv_id, msgs + [{"role":"assistant","content":full}])
                 except Exception: pass

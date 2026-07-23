@@ -1148,9 +1148,9 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     )
     if dob and len(dob) >= 4 and dob[:4].isdigit():
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
             birth_year = int(dob[:4])
-            current_year = datetime.utcnow().year
+            current_year = datetime.now(timezone.utc).replace(tzinfo=None).year
             age = current_year - birth_year
             # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): also surface the
             # exact integer age. Live evidence v8: both narrators dodged
@@ -1164,7 +1164,7 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
             # error around birthdays).
             if len(dob) >= 10 and dob[4] == "-" and dob[7] == "-":
                 try:
-                    today = datetime.utcnow().date()
+                    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
                     bd = datetime.strptime(dob[:10], "%Y-%m-%d").date()
                     age = today.year - bd.year - (
                         1 if (today.month, today.day) < (bd.month, bd.day) else 0

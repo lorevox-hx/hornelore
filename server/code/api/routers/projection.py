@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
@@ -53,7 +53,7 @@ def get_projection_route(
             projection=ProjectionEnvelope(),
             source="empty",
             version=1,
-            updated_at=datetime.utcnow().isoformat(),
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
 
     return ProjectionGetResponse(
@@ -61,7 +61,7 @@ def get_projection_route(
         projection=ProjectionEnvelope(**row.get("projection", {})),
         source=row.get("source", "unknown"),
         version=int(row.get("version", 1)),
-        updated_at=row.get("updated_at") or datetime.utcnow().isoformat(),
+        updated_at=row.get("updated_at") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     )
 
 

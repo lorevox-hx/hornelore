@@ -318,8 +318,8 @@ def _safe_iso_for_path(ts_iso: str) -> str:
 
 
 def _now_iso() -> str:
-    from datetime import datetime
-    return datetime.utcnow().isoformat()
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def _resolve_audio_source(

@@ -50,7 +50,7 @@ _retracted (control sentinel, not a field path):
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ def apply_correction(
     fields = proj.get("fields") if isinstance(proj.get("fields"), dict) else {}
     pending = proj.get("pendingSuggestions") if isinstance(proj.get("pendingSuggestions"), list) else []
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     # ── Field corrections ────────────────────────────────────────────
     for parser_key, value in parsed.items():

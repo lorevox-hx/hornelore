@@ -8,7 +8,7 @@ import shutil
 import sqlite3
 import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def _uuid() -> str:
@@ -4557,7 +4557,7 @@ def soft_delete_person(
 
     now = _now_iso()
     from datetime import timedelta
-    undo_expires = (datetime.utcnow() + timedelta(minutes=undo_minutes)).isoformat()
+    undo_expires = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=undo_minutes)).isoformat()
 
     # Get inventory counts before marking deleted
     inv = person_delete_inventory(person_id)
@@ -4614,7 +4614,7 @@ def restore_person(person_id: str, requested_by: Optional[str] = None) -> Option
     if undo_exp:
         try:
             exp_dt = datetime.fromisoformat(undo_exp)
-            if datetime.utcnow() > exp_dt:
+            if datetime.now(timezone.utc).replace(tzinfo=None) > exp_dt:
                 con.close()
                 return {"error": "undo_expired", "person_id": person_id, "undo_expires_at": undo_exp}
         except ValueError:
@@ -4880,7 +4880,7 @@ def upsert_questionnaire(
     version: int = 1,
 ) -> Dict[str, Any]:
     """Save canonical questionnaire state to backend DB."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     q_json = json.dumps(questionnaire, ensure_ascii=False)
     con = _connect()
     try:
@@ -4946,7 +4946,7 @@ def upsert_projection(
     version: int = 1,
 ) -> Dict[str, Any]:
     """Save canonical projection state to backend DB."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     p_json = json.dumps(projection, ensure_ascii=False)
     con = _connect()
     try:
@@ -5032,7 +5032,7 @@ def get_narrator_state_snapshot(person_id: str) -> Dict[str, Any]:
     except Exception:
         user_turn_count = 0
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     return {
         "person_id": person_id,
         "person": person,
@@ -5059,7 +5059,7 @@ def log_identity_change_proposal(
 ) -> Dict[str, Any]:
     """Log a proposed change to a protected identity field."""
     proposal_id = "chg_" + uuid.uuid4().hex[:12]
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     meta_json = json.dumps(meta or {}, ensure_ascii=False)
     con = _connect()
     try:
@@ -5094,7 +5094,7 @@ def approve_identity_change_proposal(
     Accept a proposed identity change, apply it to the person/profile record,
     and mark the log entry as accepted.
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     con = _connect()
     try:
         row = con.execute(

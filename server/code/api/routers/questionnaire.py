@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -83,7 +83,7 @@ def get_questionnaire_route(
             meta=None,
             source="empty",
             version=1,
-            updated_at=datetime.utcnow().isoformat(),
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
 
     return QuestionnaireGetResponse(
@@ -92,7 +92,7 @@ def get_questionnaire_route(
         meta=row.get("_meta"),
         source=row.get("source", "unknown"),
         version=int(row.get("version", 1)),
-        updated_at=row.get("updated_at") or datetime.utcnow().isoformat(),
+        updated_at=row.get("updated_at") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     )
 
 
@@ -185,7 +185,7 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
             "questionnaire": payload.questionnaire or {},
             "source":        payload.source,
             "version":       payload.version,
-            "updated_at":    datetime.utcnow().isoformat(),
+            "updated_at":    datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         }
 
     return QuestionnairePutResponse(

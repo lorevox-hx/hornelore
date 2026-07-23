@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
@@ -44,5 +44,5 @@ def get_state_snapshot_route(
         projection=data.get("projection", {}),
         protected_identity=data.get("protected_identity", {}),
         user_turn_count=int(data.get("user_turn_count") or 0),
-        updated_at=data.get("updated_at") or datetime.utcnow().isoformat(),
+        updated_at=data.get("updated_at") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     )

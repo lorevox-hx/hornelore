@@ -1,84 +1,49 @@
-# BUG-DEPRECATION-DATETIME-UTCNOW-01
+# BUG-DEPRECATION-DATETIME-UTCNOW-01 — CLOSED (landed 2026-07-23)
 
-**Status:** PARKED — spec-only, do NOT bundle into the Bucket A+B fold  
-**Priority:** LOW (cosmetic deprecation warning on Python 3.12+, no behavioral impact today)  
-**Filed:** 2026-07-23 as a companion to the Bucket A+B commit per Chris's direction  
+**Status:** CLOSED — mechanical sweep landed the same session it was filed  
+**Priority:** LOW (was)  
+**Filed + closed:** 2026-07-23  
 
-## Symptom
+## Outcome
 
-Running any unit-test suite (or the API itself) on Python 3.12+ prints:
+All 23 executable `datetime.utcnow()` call sites across 9 files were replaced with `datetime.now(timezone.utc).replace(tzinfo=None)` in the same commit. Wire format is byte-identical to the pre-sweep naive-UTC ISO strings, so no downstream consumer (memoir export, extractor, projection sync, Lori composer, timeline render) had to change. The `age_arithmetic.py:168` reference is a historical comment only and doesn't call the deprecated API.
 
-```
-/mnt/c/Users/chris/hornelore/server/code/api/db.py:87: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-  return datetime.utcnow().isoformat()
-```
+## Why NOT `+00:00`
 
-Observed twice per test run (once at import time, once per fresh test that hits `_now()`). Also fires from `archive.py:40`, `api.py:98`, `api.py:300-301`, `api.py:462`, `prompt_composer.py:1153`, `prompt_composer.py:1167`, `narrator_state.py:47`, `projection.py:56`, `projection.py:64`, `questionnaire.py:86`, `questionnaire.py:95`, plus 8 additional call sites in `db.py` (lines 4560, 4617, 4883, 4949, 5035, 5062, 5097).
+The filed spec initially recommended letting the `+00:00` suffix land as the wire format (Python's default `.isoformat()` output on an aware datetime). Discovery on implementation flipped that recommendation:
 
-Total occurrences: **24 call sites across 8 files** (verified via grep 2026-07-23).
+- `server/code/api/routers/operator_stack_dashboard.py:215` uses `datetime.strptime(row_ts_str.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")` — a strict naive format that rejects a `+00:00` suffix.
+- `server/code/api/services/stack_monitor.py:544` uses the same strict naive format.
 
-## Why it is deferred
+Both parsers strip only `"Z"` before `strptime`. Landing the `+00:00` shape would have broken both silently. The `.replace(tzinfo=None)` step produces exactly the same string `datetime.utcnow().isoformat()` was producing, so both parsers continue to work unchanged.
 
-Chris's Bucket A+B directive explicitly said: *"Also create a separate low-priority issue for replacing `datetime.utcnow()` in `server/code/api/db.py` with timezone-aware UTC timestamps. Do not mix that cleanup into this patch."* This spec captures the ask without polluting a focused correctness commit.
+## Files touched (23 executable sites)
 
-## Why it does not need urgent attention
+- `server/code/api/api.py` — 4
+- `server/code/api/archive.py` — 1
+- `server/code/api/db.py` — 8 (includes the `4560/4616/4617` comparison chain — write is naive, parse is naive, compare is naive-to-naive, no tz mismatch)
+- `server/code/api/prompt_composer.py` — 2 (local imports inside two functions; `timezone` added to each)
+- `server/code/api/routers/narrator_state.py` — 1
+- `server/code/api/routers/projection.py` — 2
+- `server/code/api/routers/questionnaire.py` — 3 (spec-filing count of 2 was low by one)
+- `server/code/api/services/projection_writer.py` — 1
+- `server/code/api/services/story_preservation.py` — 1
 
-- Python 3.10/3.11 do NOT emit the warning; the API and eval harness run cleanly on both.
-- Python 3.12/3.13 emit the DeprecationWarning but the runtime behavior is unchanged (`datetime.utcnow()` still returns a naive UTC datetime).
-- All 24 call sites are internal timestamp generators feeding SQLite TEXT columns (ISO-8601 string form). SQLite has no timezone type — the stored string is byte-identical either way.
-- No consumer (memoir export, extractor, projection sync, Lori composer, timeline render) parses the timestamp back into a timezone-aware datetime object, so mixing naive-UTC and aware-UTC-with-Z-suffix strings would not break anything.
+## Regression gate
 
-## Why it will eventually need to land
+New file `tests/test_datetime_utcnow_no_deprecation_warning.py` (2 tests):
 
-- The scheduled-for-removal warning becomes an `AttributeError` in whichever Python release ultimately removes `utcnow()` (no concrete date announced as of this filing).
-- Timezone-aware ISO strings (with `+00:00` or `Z` suffix) are the correct interop shape once the codebase grows a consumer outside the Python + SQLite loop (e.g., a JSON API surfaced to a JavaScript FE that instantiates `new Date(str)` — naive UTC strings parse as LOCAL time in JS).
-- CI on Python 3.13 will start rejecting the warnings once strictness lands.
+- **Static gate** — scans all 9 swept files, fails the build if `datetime.utcnow(` appears in non-comment / non-string source. Comments and docstrings that describe the OLD bug shape are exempted via a `tokenize`-pass strip.
+- **Runtime gate** — calls `db._now_iso()`, `archive._now_iso()`, `story_preservation._now_iso()` under `warnings.simplefilter('error', DeprecationWarning)`. Also asserts the returned strings do NOT carry `+00:00` or `Z` suffixes (byte-stability check protects the downstream strict-format parsers).
 
-## Scope
+Under Python 3.10/3.11 the runtime warning wouldn't have fired even pre-sweep (no deprecation strictness); the static gate catches regressions there. Under 3.12+ the runtime gate catches them at the same time.
 
-Single mechanical sweep across the 8 files. Replace every `datetime.utcnow()` with `datetime.now(timezone.utc)`, keeping the `.isoformat()` chain intact. Import `timezone` alongside `datetime` where missing.
+## Not changed
 
-### Files + line numbers (verified 2026-07-23)
+- No stored-data migration. Every existing ISO timestamp in the DB continues to parse via `fromisoformat` or `strptime` identically.
+- No consumer contract changes. Every downstream parser reads the same byte-stable naive-UTC ISO string it was reading before.
+- No shape change for the two comparison sites (`db.py:4617` and the pair around it).
 
-- `server/code/api/db.py` — 8 occurrences (lines 87, 4560, 4617, 4883, 4949, 5035, 5062, 5097)
-- `server/code/api/api.py` — 4 (98, 300, 301, 462)
-- `server/code/api/archive.py` — 1 (40)
-- `server/code/api/prompt_composer.py` — 2 (1153, 1167)
-- `server/code/api/routers/narrator_state.py` — 1 (47)
-- `server/code/api/routers/projection.py` — 2 (56, 64)
-- `server/code/api/routers/questionnaire.py` — 2 (86, 95)
-- Plus any additional files a fresh `grep -rn 'datetime\.utcnow'` finds at implementation time.
+## Doc posture
 
-### One acceptance decision to make first
-
-Should the resulting ISO string carry a `+00:00` suffix (Python default) or a `Z` suffix (RFC 3339 / JS-friendly)?
-
-- **Option A — `+00:00`:** zero-cost, matches Python's default `.isoformat()` output. All existing stored timestamps (naive-UTC, no suffix) continue to work; new ones get `+00:00`. Downstream substring compares (`row['updated_at'] > cutoff`) keep working because ISO-8601 sort order is preserved between the two shapes.
-- **Option B — `Z`:** requires a small helper (`_now() -> str`) that strips `+00:00` and appends `Z`. Cleaner interop with any future JS consumer that uses `new Date(str)`. Costs an extra `.replace('+00:00', 'Z')` per call.
-
-Recommend Option A. The interop win from B is speculative; the codebase is Python+SQLite end-to-end today. Revisit if a JS consumer materializes.
-
-## Test posture
-
-- No behavior change. Every existing test continues to pass.
-- Add one narrow test that runs under `warnings.simplefilter('error', DeprecationWarning)` and imports `api.db` + calls `_now()` once, asserting no warning fires. Locks the invariant so a future regression is caught immediately.
-
-## Not in scope
-
-- No changes to stored data. Old rows keep their naive-UTC ISO strings.
-- No changes to consumers. Every parser continues to accept both shapes.
-- No mass-refactor of unrelated deprecation warnings.
-
-## Estimated size
-
-- Code change: ~30 minutes of mechanical sweep.
-- Test coverage: ~15 minutes for the assert-no-warning test.
-- Total: **one hour, one commit**, no eval impact, no restart delay.
-
-## Suggested commit posture
-
-Standalone commit titled roughly:
-
-> `chore: sweep datetime.utcnow() → datetime.now(timezone.utc) across 24 sites`
-
-Bundle nothing else with it — keeps the sweep reviewable and revert-safe.
+Kept in-tree as a landed-report note for the changelog trail. Safe to delete later once CLAUDE.md's changelog absorbs it. Alternatively, `git rm BUG-DEPRECATION-DATETIME-UTCNOW-01_Spec.md` in a future cleanup commit.
