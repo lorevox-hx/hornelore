@@ -187,9 +187,16 @@ class OrphanPersonIdValidationTest(_LiveStyleBase):
                 start_date="2026-08-03",
                 end_date="2026-08-07"))
         self.assertEqual(cm.exception.status_code, 422)
-        # And no trip was persisted (the whole point).
-        listed = trip_repository.trip_list(self.person_id)
-        self.assertEqual(listed, [])
+        # 2026-07-23 (follow-up) — asserting trip_list(self.person_id)
+        # only proves the VALID narrator got no trip; it does not prove
+        # an orphan wasn't inserted under "PASTE_UUID_HERE". Fix per
+        # ChatGPT review §6: assert the WHOLE trips table is empty AND
+        # explicitly verify no row exists under the bogus owner.
+        self.assertEqual(trip_repository.trip_list(), [],
+                         "no trip should be persisted anywhere")
+        self.assertEqual(
+            trip_repository.trip_list("PASTE_UUID_HERE"), [],
+            "no orphan should have landed under the bogus person_id")
 
     def test_empty_person_id_returns_422(self):
         with self.assertRaises(HTTPException) as cm:
@@ -199,6 +206,8 @@ class OrphanPersonIdValidationTest(_LiveStyleBase):
                 start_date="2026-08-03",
                 end_date="2026-08-07"))
         self.assertEqual(cm.exception.status_code, 422)
+        # And no rows anywhere (see test_bogus_person_id_returns_422).
+        self.assertEqual(trip_repository.trip_list(), [])
 
     def test_uuid_shaped_but_nonexistent_person_id_returns_422(self):
         fake = str(uuid.uuid4())
@@ -210,6 +219,9 @@ class OrphanPersonIdValidationTest(_LiveStyleBase):
                 end_date="2026-08-07"))
         self.assertEqual(cm.exception.status_code, 422)
         self.assertIn(fake, cm.exception.detail)
+        # No orphan under the shaped-but-nonexistent UUID either.
+        self.assertEqual(trip_repository.trip_list(fake), [])
+        self.assertEqual(trip_repository.trip_list(), [])
 
     def test_valid_person_id_still_creates_the_trip(self):
         out = trips.create_trip(_Req(
@@ -277,6 +289,116 @@ class DayIndexRenumberOnPrependTest(_LiveStyleBase):
         self.assertEqual(aug5_after["main_location"], "Stanley, North Dakota")
         self.assertIn("mineral deeds",
                       aug5_after.get("morning_notes") or "")
+
+    def test_shrinking_dates_partitions_preserved_cards(self):
+        """ChatGPT review §2: create Aug 1–9, edit content on Aug 2 and
+        Aug 8, shrink to Aug 3–7. Verify:
+          * list_trip_days returns days=[Aug 3..7] renumbered Day 1..5
+          * preserved=[Aug 1, 2, 8, 9] kept, NOT renumbered
+          * Aug 2 + Aug 8 operator content preserved in `preserved`
+          * No duplicate day_index values in the current-window list
+          * Correct total = 9 = len(days) + len(preserved)
+        """
+        # Step 1: create Aug 1–9 → 9 day cards
+        out = trips.create_trip(_Req(
+            person_id=self.person_id,
+            title="Wide window then shrink",
+            start_date="2026-08-01",
+            end_date="2026-08-09"))
+        trip_id = out["trip_id"]
+        all_days = trip_repository.trip_days_list(trip_id)
+        self.assertEqual(len(all_days), 9)
+
+        # Step 2: edit Aug 2 and Aug 8 with operator content
+        aug2_row = next(d for d in all_days
+                        if str(d["date"])[:10] == "2026-08-02")
+        aug8_row = next(d for d in all_days
+                        if str(d["date"])[:10] == "2026-08-08")
+        trip_repository.trip_day_update(
+            aug2_row["id"], title="Notes I want kept",
+            morning_notes="Aug 2 content")
+        trip_repository.trip_day_update(
+            aug8_row["id"], title="More notes I want kept",
+            morning_notes="Aug 8 content")
+
+        # Step 3: shrink to Aug 3–7. Both dates change → PATCH triggers
+        # the auto-reconcile path but should NOT delete Aug 1/2/8/9.
+        patch_out = trips.patch_trip(trip_id, _Req(
+            start_date="2026-08-03", end_date="2026-08-07"))
+        self.assertNotIn("days_warning", patch_out)
+
+        # Step 4: verify partitioned response via the router endpoint
+        # (list_trip_days is the caller the FE consumes).
+        endpoint_out = trips.list_trip_days(trip_id)
+        days = endpoint_out["days"]
+        preserved = endpoint_out["preserved"]
+
+        # Current window: exactly Aug 3..7, day_index 1..5
+        self.assertEqual(len(days), 5)
+        dates_in_window = [str(d["date"])[:10] for d in days]
+        self.assertEqual(dates_in_window, [
+            "2026-08-03", "2026-08-04", "2026-08-05",
+            "2026-08-06", "2026-08-07"])
+        indexes_in_window = [d["day_index"] for d in days]
+        self.assertEqual(indexes_in_window, [1, 2, 3, 4, 5])
+        # No duplicates (this is the whole point of the partition).
+        self.assertEqual(len(set(indexes_in_window)), len(days))
+
+        # Preserved: Aug 1, 2, 8, 9 kept (no deletion)
+        preserved_dates = sorted(str(d["date"])[:10] for d in preserved)
+        self.assertEqual(preserved_dates, [
+            "2026-08-01", "2026-08-02", "2026-08-08", "2026-08-09"])
+
+        # Operator content on Aug 2 and Aug 8 must be intact
+        aug2_after = next(d for d in preserved
+                          if str(d["date"])[:10] == "2026-08-02")
+        aug8_after = next(d for d in preserved
+                          if str(d["date"])[:10] == "2026-08-08")
+        self.assertEqual(aug2_after["title"], "Notes I want kept")
+        self.assertIn("Aug 2 content",
+                      aug2_after.get("morning_notes") or "")
+        self.assertEqual(aug8_after["title"], "More notes I want kept")
+        self.assertIn("Aug 8 content",
+                      aug8_after.get("morning_notes") or "")
+
+        # Endpoint arithmetic sanity
+        self.assertEqual(endpoint_out["count"], 5)
+        self.assertEqual(endpoint_out["preserved_count"], 4)
+        self.assertEqual(endpoint_out["total"], 9)
+        self.assertEqual(endpoint_out["trip_window"], {
+            "start_date": "2026-08-03",
+            "end_date": "2026-08-07",
+        })
+
+    def test_renumber_preserves_updated_at_on_index_only_change(self):
+        """ChatGPT review §8: structural calendar reshuffles must NOT
+        mutate updated_at. Create Aug 3–7, snapshot Aug 5's updated_at,
+        move start to Aug 1 (which renumbers Aug 5 from Day 3 to Day 5
+        without touching any operator content). updated_at must be
+        unchanged."""
+        import time as _time
+        out = trips.create_trip(_Req(
+            person_id=self.person_id,
+            title="Renumber updated_at",
+            start_date="2026-08-03",
+            end_date="2026-08-07"))
+        trip_id = out["trip_id"]
+        days = trip_repository.trip_days_list(trip_id)
+        aug5 = next(d for d in days if str(d["date"])[:10] == "2026-08-05")
+        original_updated_at = aug5["updated_at"]
+        original_id = aug5["id"]
+        # Sleep past 1s so _now() would produce a demonstrably different
+        # timestamp if the bug regressed.
+        _time.sleep(1.05)
+        trips.patch_trip(trip_id, _Req(start_date="2026-08-01"))
+        aug5_after = next(
+            d for d in trip_repository.trip_days_list(trip_id)
+            if d["id"] == original_id)
+        # Same row, renumbered
+        self.assertEqual(aug5_after["day_index"], 5)
+        # updated_at UNCHANGED (structural renumber is not an edit)
+        self.assertEqual(aug5_after["updated_at"], original_updated_at,
+                         "renumber-only pass must not mutate updated_at")
 
     def test_earlier_start_then_extend_end_preserves_content(self):
         """After the prepend, extend the end date. All indexes stay

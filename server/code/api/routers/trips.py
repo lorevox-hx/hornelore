@@ -915,10 +915,27 @@ def patch_stop(stop_id: str, req: StopPatch) -> Dict[str, Any]:
 def _classify_sqlite_error(sqlite_errorname, exc) -> str:
     """Turn a sqlite3 exception into a short, operator-facing prefix.
     Falls back to the Python class name when the errorname is not
-    available (older SQLite, non-sqlite exception, etc.)."""
+    available (older SQLite, non-sqlite exception, etc.).
+
+    2026-07-23 (follow-up) — ChatGPT's post-1e388b5 review flagged the
+    schema-classifier branch as dead code: it required both "ERROR"
+    and "SCHEMA" in the SQLite error NAME, but real SQLite names are
+    ``SQLITE_SCHEMA`` (alone, when a prepared statement's schema
+    changed under it) OR ``SQLITE_ERROR`` (alone, with the
+    "no such table" / "no such column" / "has no column named" phrase
+    only in the MESSAGE). Neither name string contains both words.
+
+    Fix: match on the error NAME exactly for ``SQLITE_SCHEMA``, and
+    match on ``SQLITE_ERROR`` + a schema-related substring of the
+    exception MESSAGE for the common migration-missing case. Also
+    added CANTOPEN / IOERR / FULL mappings that the operator can act
+    on directly (bad DB path, disk failure, disk full).
+    """
     name = str(sqlite_errorname or "").upper()
     if not name:
         return type(exc).__name__
+    message = str(exc).lower()
+
     if "BUSY" in name or "LOCKED" in name:
         return "database temporarily locked"
     if "CONSTRAINT_FOREIGNKEY" in name:
@@ -931,8 +948,30 @@ def _classify_sqlite_error(sqlite_errorname, exc) -> str:
         return "database file corrupt or unreadable"
     if "READONLY" in name:
         return "database is read-only"
-    if "ERROR" in name and "SCHEMA" in name:
+
+    # Schema classification — see docstring. Both SQLITE_SCHEMA (name
+    # alone) and SQLITE_ERROR + schema-error message shapes end up in
+    # the same "migration may be missing" bucket for the operator.
+    if name == "SQLITE_SCHEMA":
         return "schema mismatch (migration may be missing)"
+    if name == "SQLITE_ERROR" and any(
+        phrase in message
+        for phrase in (
+            "no such table",
+            "no such column",
+            "has no column named",
+        )
+    ):
+        return "schema mismatch (migration may be missing)"
+
+    # Operator-actionable I/O and storage failures.
+    if "CANTOPEN" in name:
+        return "database file could not be opened (check DB_PATH)"
+    if "IOERR" in name:
+        return "database I/O error (check disk health)"
+    if "FULL" in name:
+        return "database or disk is full"
+
     return name.lower().replace("_", " ")
 
 
@@ -2625,17 +2664,138 @@ class TripDayPatch(BaseModel):
 def list_trip_days(trip_id: str) -> Dict[str, Any]:
     """Day rows for a trip with honest per-day evidence counts merged in
     (photos by taken-date match; notes/sources/public-context only via
-    the day's linked stop/region scope — see trip_day_counts)."""
+    the day's linked stop/region scope — see trip_day_counts).
+
+    2026-07-23 (follow-up) — the response is partitioned into two
+    lists so the operator UI never renders duplicate day-index cards:
+
+      * ``days``      — cards whose date falls inside the trip's
+                        current start/end window, sorted by date
+                        ASC. day_index on these rows is 1..N in the
+                        window, guaranteed unique and chronological.
+      * ``preserved`` — cards whose date is OUTSIDE the current
+                        window OR whose date is not parseable. These
+                        are kept (never deleted, per the operator-
+                        content-preservation rule) but shown in a
+                        separate section so their stale day_index
+                        values don't collide with the current window.
+
+    Concrete bug this closes: create Aug 1–9 (Day 1..9), edit content
+    on Aug 2 and Aug 8, shrink dates to Aug 3–7. The window is
+    renumbered Day 1..5 (Aug 3–7), and Aug 1/2/8/9 keep their old
+    day_index but land in ``preserved`` — the main calendar shows
+    Day 1..5 once, not "1 2 1 2 3 4 5" with duplicates.
+
+    Backward compat: consumers that only read ``days`` see the
+    current-window subset (previously they'd have seen everything).
+    Callers that need the full set can concat ``days + preserved`` or
+    call ``trip_repository.trip_days_list`` directly.
+
+    Failure mode: when the operational read raises (locked DB,
+    missing table, I/O), we log + classify + return HTTP 500 with a
+    descriptive detail rather than the pre-1e388b5 silent "empty
+    days" that used to look identical to "operator hasn't
+    generated cards yet."
+    """
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
-    days = trip_repository.trip_days_list(trip_id)
-    counts = trip_repository.trip_day_counts(trip_id)
-    for d in days:
+
+    try:
+        raw_days = trip_repository.trip_days_list(trip_id)
+    except sqlite3.OperationalError as exc:
+        _sqlite_name = getattr(exc, "sqlite_errorname", None)
+        _sqlite_code = getattr(exc, "sqlite_errorcode", None)
+        logger.exception(
+            "[trips][days] list failed trip=%s sqlite_code=%s "
+            "sqlite_name=%s", trip_id, _sqlite_code, _sqlite_name)
+        prefix = _classify_sqlite_error(_sqlite_name, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=(prefix + ": " + str(exc)[:200])) from exc
+
+    try:
+        counts = trip_repository.trip_day_counts(trip_id)
+    except sqlite3.OperationalError as exc:
+        # Counts are best-effort; a failure here should NOT hide the
+        # day rows we already loaded. Log and continue with empty.
+        logger.exception(
+            "[trips][days] day-counts failed trip=%s (returning zeros)",
+            trip_id)
+        counts = {}
+
+    for d in raw_days:
         d["counts"] = counts.get(str(d["id"]), {
             "photos": 0, "notes": 0, "sources": 0, "public_context": 0,
         })
-    return {"trip_id": trip_id, "count": len(days), "days": days}
+
+    trip = trip_repository.trip_get(trip_id) or {}
+    days, preserved = _partition_days_by_trip_window(raw_days, trip)
+    return {
+        "trip_id": trip_id,
+        "count": len(days),                    # in-window count
+        "preserved_count": len(preserved),     # explicit — no double-render
+        "total": len(days) + len(preserved),   # sanity number
+        "trip_window": {
+            "start_date": (trip.get("start_date") or "")[:10] or None,
+            "end_date": (trip.get("end_date") or "")[:10] or None,
+        },
+        "days": days,
+        "preserved": preserved,
+    }
+
+
+def _partition_days_by_trip_window(
+    day_rows, trip
+):
+    """Split day rows into (in_window, preserved) based on the trip's
+    current start/end. Rows without a parseable date land in
+    ``preserved`` so they never collide with the numbered calendar.
+
+    ``in_window`` is sorted by date ASC and has day_index 1..N
+    reassigned from the sort order (defensive — the DB write in
+    trip_days_generate already renumbers on write, but this guards
+    against a stale row appearing between generate and list).
+
+    ``preserved`` retains the row's stored day_index so operators can
+    still see the number the card had when they last worked on it.
+    """
+    from datetime import date as _date
+    start_raw = (trip.get("start_date") or "")[:10]
+    end_raw = (trip.get("end_date") or "")[:10]
+    start = end = None
+    try:
+        if start_raw and end_raw:
+            _s = _date.fromisoformat(start_raw)
+            _e = _date.fromisoformat(end_raw)
+            if _e >= _s:
+                start, end = _s, _e
+    except ValueError:
+        start = end = None
+
+    in_window = []
+    preserved = []
+    for row in day_rows:
+        raw = str(row.get("date") or "")[:10]
+        parsed = None
+        if raw:
+            try:
+                parsed = _date.fromisoformat(raw)
+            except ValueError:
+                parsed = None
+        if parsed is None or start is None or not (start <= parsed <= end):
+            preserved.append(row)
+        else:
+            in_window.append(row)
+
+    in_window.sort(key=lambda r: (str(r.get("date") or "")[:10],
+                                  str(r.get("id") or "")))
+    for idx, row in enumerate(in_window, start=1):
+        row["day_index"] = idx
+
+    preserved.sort(key=lambda r: (str(r.get("date") or "")[:10],
+                                  str(r.get("id") or "")))
+    return in_window, preserved
 
 
 @router.post("/{trip_id}/days/generate-from-dates")

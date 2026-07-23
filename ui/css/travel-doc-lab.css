@@ -422,6 +422,18 @@
 }
 .tdl-tabs { flex: 0 0 auto; flex-wrap: nowrap; }
 
+/* ── Preserved days section (2026-07-23 follow-up) ────────────────
+   Cards outside the current trip start/end window are kept so their
+   notes don't disappear when the operator moves dates. They render
+   under a labeled section, dimmed to signal "kept, but not part of
+   the current calendar." Their stored day_index is preserved (no
+   renumber) so operators can still reason about them. */
+.tdl-preserved-days { margin-top: 1.25rem; padding-top: 0.9rem; border-top: 1px dashed var(--tdl-line); display: grid; gap: 0.6rem; }
+.tdl-preserved-days-head { color: var(--tdl-muted); font-size: 0.88rem; }
+.tdl-preserved-days-head strong { color: var(--tdl-ink); font-weight: 800; margin-right: 0.15rem; }
+.tdl-day-card-preserved { opacity: 0.72; background: var(--tdl-paper2); border-style: dashed; }
+.tdl-day-card-preserved:hover { opacity: 0.92; }
+
 @media (max-width: 1500px) {
   /* 2. filter rail becomes chips ABOVE the gallery — reclaims the 150px
         column so the photos get the full width of the workspace. */

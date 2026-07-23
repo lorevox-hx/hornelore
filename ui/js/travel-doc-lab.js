@@ -44,7 +44,8 @@
     trips: [],
     trip: null,          // selected trip row
     tree: null,          // /tree for selected trip
-    days: [],            // /days rows (with counts)
+    days: [],            // /days.days rows (in-window, numbered 1..N)
+    preservedDays: [],   // /days.preserved rows (outside current window)
     photoLinks: [],      // /photo-links rows
     notes: [],           // /location-notes rows
     sources: [],         // /sources rows
@@ -260,6 +261,10 @@
     ]).then(function (outs) {
       st.tree = outs[0];
       st.days = outs[1].days || [];
+      // 2026-07-23 partition: outside-window cards are kept for
+      // preservation but rendered in their own section so their stale
+      // day_index numbers don't collide with the current 1..N calendar.
+      st.preservedDays = outs[1].preserved || [];
       st.photoLinks = outs[2].photo_links || [];
       st.notes = outs[3].notes || [];
       st.sources = outs[4].sources || [];
@@ -277,7 +282,10 @@
   function reloadDays() {
     if (!st.trip) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days")
-      .then(function (out) { st.days = out.days || []; });
+      .then(function (out) {
+        st.days = out.days || [];
+        st.preservedDays = out.preserved || [];
+      });
   }
 
   function reloadNotes() {
@@ -634,16 +642,55 @@
       wrap.appendChild(ob);
     }
 
-    if (!st.days.length) {
+    if (!st.days.length && !(st.preservedDays || []).length) {
       wrap.appendChild(el("div", "tdl-empty",
         "No day cards yet. Generate them from the trip dates above " +
         "(needs trip start and end dates)."));
       return wrap;
     }
 
-    var list = el("div", "tdl-day-list");
-    st.days.forEach(function (day) { list.appendChild(renderDayCard(day)); });
-    wrap.appendChild(list);
+    if (st.days.length) {
+      var list = el("div", "tdl-day-list");
+      st.days.forEach(function (day) {
+        list.appendChild(renderDayCard(day));
+      });
+      wrap.appendChild(list);
+    } else {
+      // Empty current-window with preserved cards below is a real
+      // shape (operator shrank dates to the trip's edges then removed
+      // all of them). Say so, don't imply nothing exists.
+      wrap.appendChild(el("div", "tdl-empty",
+        "No day cards inside the current trip dates. Preserved " +
+        "cards from earlier date ranges are shown below."));
+    }
+
+    // 2026-07-23 partition: preserved day cards from outside the
+    // current start/end window. They keep their prior day_index
+    // (never renumbered), are dimmed to signal "not part of the
+    // current calendar," and appear in their own section so an
+    // operator who moves trip dates doesn't lose sight of prior
+    // work — the notes on those cards are still there.
+    if ((st.preservedDays || []).length) {
+      var pwrap = el("div", "tdl-preserved-days");
+      var phead = el("div", "tdl-preserved-days-head");
+      phead.appendChild(el("strong", "",
+        "Preserved cards outside current trip dates"));
+      phead.appendChild(el("span", "tdl-muted",
+        " · " + st.preservedDays.length + " kept " +
+        "so their notes are not lost. Widen the trip dates to " +
+        "bring them back into the calendar."));
+      pwrap.appendChild(phead);
+      var plist = el("div", "tdl-day-list tdl-day-list-preserved");
+      st.preservedDays.forEach(function (day) {
+        var card = renderDayCard(day);
+        if (card && card.classList) {
+          card.classList.add("tdl-day-card-preserved");
+        }
+        plist.appendChild(card);
+      });
+      pwrap.appendChild(plist);
+      wrap.appendChild(pwrap);
+    }
     return wrap;
   }
 

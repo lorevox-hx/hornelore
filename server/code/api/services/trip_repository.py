@@ -2296,8 +2296,32 @@ def _day_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
 
 
 def trip_days_list(trip_id: str) -> List[Dict[str, Any]]:
-    """All day rows for a trip ordered by day_index. Tolerant of a
-    pre-0027 DB — returns []."""
+    """All day rows for a trip ordered by day_index, then date.
+
+    2026-07-23 (follow-up) — this function used to swallow
+    ``sqlite3.OperationalError`` and return ``[]`` on any operational
+    failure. ChatGPT's post-1e388b5 review flagged that as HIGH
+    severity: the ``/api/trips/{trip_id}/days`` endpoint returns a
+    successful HTTP 200 with an empty list even when the underlying
+    cause is ``database is locked``, ``no such table trip_days``,
+    ``no such column``, an I/O failure, or malformed schema — all of
+    which look IDENTICAL to the operator ("No day cards yet") and
+    defeat the Track C load-warning path the FE added to surface real
+    backend errors.
+
+    The one legitimate reason to swallow was a fresh clone against a
+    pre-0027 DB where the migration hadn't landed yet. In practice
+    every deployment has been past 0027 for months and there is no
+    "pre-0027 DB" left in the wild. Callers that legitimately want
+    the "no cards yet" empty state get a normal empty result set from
+    a successful SELECT — that path is untouched.
+
+    Any OperationalError now bubbles up to the router, which converts
+    it into an HTTPException(500) with a classified message. The FE's
+    ``_captureLoadError`` catch already handles non-200s by writing
+    to ``st.loadWarnings`` — so the operator sees the actual failure
+    ("Day cards failed to load: database temporarily locked") instead
+    of "No day cards yet." """
     con = _connect()
     try:
         rows = con.execute(
@@ -2306,21 +2330,26 @@ def trip_days_list(trip_id: str) -> List[Dict[str, Any]]:
             (trip_id,),
         ).fetchall()
         return [_day_row_to_dict(r) for r in rows]
-    except sqlite3.OperationalError:
-        return []
     finally:
         con.close()
 
 
 def trip_day_get(day_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch one day row by id, or None if it doesn't exist.
+
+    2026-07-23 (follow-up) — no longer swallows OperationalError.
+    An operational failure (locked DB, missing table, I/O error) used
+    to become ``None``, which the caller then converted to
+    HTTP 404 ("day not found") — an incorrect and confusing signal for
+    the operator. Now the exception bubbles up so the router can
+    classify it. A row that legitimately does not exist still returns
+    ``None`` via the successful SELECT path."""
     con = _connect()
     try:
         row = con.execute(
             "SELECT * FROM trip_days WHERE id = ?", (day_id,),
         ).fetchone()
         return _day_row_to_dict(row) if row else None
-    except sqlite3.OperationalError:
-        return None
     finally:
         con.close()
 
@@ -2347,6 +2376,23 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
     start/end dates or end < start."""
     from datetime import date as _date, timedelta as _timedelta
 
+    # 2026-07-23 (follow-up) — cheap pre-flight validation.
+    #
+    # We used to compute start / end here from ``trip_get(trip_id)``
+    # OUTSIDE the write transaction and rely on that snapshot for the
+    # rest of the function. ChatGPT's post-1e388b5 review flagged the
+    # race: two browser tabs saving a trip in quick succession can
+    # interleave read → read → write → write, and the second writer
+    # generates cards against the FIRST writer's stale dates.
+    #
+    # The fix (below) is to re-read the trip's start/end INSIDE the
+    # BEGIN IMMEDIATE transaction and use that snapshot as the
+    # generation window. We still do a pre-flight trip_get here so
+    # that malformed dates fail fast with a ValueError BEFORE we
+    # bother acquiring the write lock — an unusable window shouldn't
+    # block another writer waiting on the same table. If the trip is
+    # subsequently mutated between this pre-flight and BEGIN IMMEDIATE,
+    # the transactional re-read wins.
     trip = trip_get(trip_id)
     if not trip:
         raise ValueError("trip not found")
@@ -2380,6 +2426,48 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
         # succeeds, subsequent writes through commit won't hit
         # SQLITE_BUSY. Per SQLite docs (WAL + short critical writes).
         con.execute("BEGIN IMMEDIATE;")
+
+        # 2026-07-23 (follow-up) — re-read the trip window INSIDE this
+        # transaction so a concurrent PATCH cannot leave us generating
+        # from a stale snapshot. If the concurrent writer moved the
+        # window since our pre-flight, we honor the CURRENT dates.
+        # A concurrent writer that made the window unusable (bad
+        # dates, end < start) after our pre-flight is treated the
+        # same way as if we'd been called with those dates — rollback
+        # and raise ValueError. The pre-flight already ruled out the
+        # common cases, so this is genuinely a race-only rollback path.
+        snap = con.execute(
+            "SELECT start_date, end_date FROM trips WHERE id = ?",
+            (trip_id,),
+        ).fetchone()
+        if not snap:
+            # Trip was deleted between pre-flight and BEGIN IMMEDIATE.
+            raise ValueError("trip not found")
+        snap_start_raw = (snap["start_date"] or "")[:10]
+        snap_end_raw = (snap["end_date"] or "")[:10]
+        if snap_start_raw != start_raw or snap_end_raw != end_raw:
+            # Concurrent writer moved the window. Honor the new one,
+            # re-validate under the same rules.
+            if not snap_start_raw or not snap_end_raw:
+                raise ValueError(
+                    "trip window was cleared by a concurrent edit; "
+                    "day cards not generated")
+            try:
+                start = _date.fromisoformat(snap_start_raw)
+                end = _date.fromisoformat(snap_end_raw)
+            except ValueError:
+                raise ValueError(
+                    "trip dates are not valid ISO dates "
+                    "(changed under a concurrent edit)")
+            if end < start:
+                raise ValueError(
+                    "trip end_date is before start_date "
+                    "(changed under a concurrent edit)")
+            if (end - start).days > 400:
+                raise ValueError(
+                    "trip window too large after a concurrent edit; "
+                    "day cards not generated")
+
         existing = {
             str(r["date"])[:10]
             for r in con.execute(
@@ -2430,7 +2518,18 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
         # the cost is one row-scan on every reconcile — acceptable.
         #
         # Preserves EVERY other column: title, notes, places, meals,
-        # region link, stop link, timestamps. Only day_index changes.
+        # region link, stop link, timestamps.
+        #
+        # 2026-07-23 (follow-up) — the previous version wrote
+        # ``updated_at = _now()`` alongside the day_index change. That
+        # made a structural calendar reshuffle (operator moves the
+        # start date earlier → prior Day 3 is now Day 5) look like an
+        # operator content edit on those rows. Any downstream consumer
+        # that filters by updated_at (memoir "recently touched",
+        # dashboards, sync jobs) got a stampede of false positives.
+        # Now we UPDATE only ``day_index`` and leave updated_at alone.
+        # The renumber is a pure calendar concern — it has no bearing
+        # on when the row's content last changed.
         in_range_rows = con.execute(
             "SELECT id, date FROM trip_days "
             "WHERE trip_id = ? AND date >= ? AND date <= ? "
@@ -2439,9 +2538,9 @@ def trip_days_generate(trip_id: str) -> Dict[str, Any]:
         ).fetchall()
         for new_idx, row in enumerate(in_range_rows, start=1):
             con.execute(
-                "UPDATE trip_days SET day_index = ?, updated_at = ? "
+                "UPDATE trip_days SET day_index = ? "
                 "WHERE id = ? AND day_index != ?",
-                (new_idx, _now(), row["id"], new_idx),
+                (new_idx, row["id"], new_idx),
             )
 
         con.commit()
