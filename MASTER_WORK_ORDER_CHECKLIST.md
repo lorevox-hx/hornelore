@@ -94,13 +94,61 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 6. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
 7. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
 
+## Travel Doc Lab — state + get-it-working batch (2026-07-23)
+
+Organized by **restart-need**, to kill the stop/start churn: do all FRONTEND
+items first (browser reload only, no stack restart), then ONE backend batch +
+ONE restart that also picks up the three already-committed-but-not-yet-live
+backend fixes (mortality-988 exception, modal spoken-trim, trip days_created).
+
+**✅ Working, live-verified (2026-07-23):** trip lifecycle (create/patch/delete +
+auto-days), OCR (tesseract eng+deu+ita+hrv+slv, confidence-gated, fails safe),
+public lookup (url_only, SSRF-blocked, title-clean at storage), approval ladder
+(draft → approved → memoir, edit revokes), Lori modal wording (provenance, no "I
+can see"/coords), capture (modal turns → trip notes, scope-tagged), day-card
+generate/reconcile.
+
+**⚙️ Off by config (not bugs — deliberate):** vision (`HORNELORE_PHOTO_VISION=0`;
+operators use manual "Add draft observation" instead), trip narration
+(`HORNELORE_TRIP_NARRATION=log`, dry-run — flip to `1` when ready to bank), all
+command adapters empty (`OCR_CMD` / `VISION_CMD` / `LOOKUP_CMD`).
+
+**FRONTEND-ONLY (reload, NO restart) — do freely:**
+
+1. **Replace `window.prompt()` in the Lab evidence panel** (`travel-doc-lab.js`
+   L2089 + L2104 — "Add draft observation" + "Infer place from context") with an
+   in-panel text input. Violates the Lab's own locked no-native-dialog doctrine.
+2. Laptop-width UX: rail-collapse persists (done); re-verify the photo gallery /
+   inspector at ≤1440px after any layout change.
+
+**BACKEND (batch → ONE restart):**
+
+1. **Context patch/delete route trip-scoping** — `patch_photo_context` (L2464) /
+   `delete_photo_context` (L2496) / `patch_public_context` (L2127) /
+   `delete_public_context` (L2172) accept `context_id` alone. Single-tenant so
+   not a security hole, but a stale FE cache could patch the wrong trip's row.
+   Add a body/query trip_id scope check.
+2. **`chat_ws._TRIP_PREV_LORI` + `_TRIP_LAST_CAPTURE` unbounded dicts** — cap or
+   LRU-evict; memory-leak on a long-running process.
+3. **`travel-documenter.js` modal double-send guard** — parity with the
+   2026-05-07 chat-path `_loriIsBusy` fix.
+4. Restart picks up these + the 3 already-committed backend fixes above.
+
+**DEFERRED (not this pass — spec-only or gated):** vision provider wiring;
+PaddleOCR / Brave / SearXNG; `WO-TRAVEL-DOC-ACCORDION-TIMELINE-01` (spec only);
+`WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01` (spec only, deferred 2026-07-08);
+`WO-TRIP-PHOTO-LIFEMAP-PROJECTION-01` (TODO: timeline-bridge photo meta, cover-
+photo control); `story_candidates` Path 2 (Track D).
+
+---
+
 **MEDIUM open items (not blocking, but named so they don't drift):**
 
-- Context patch/delete route trip-scoping (`routers/trips.py` — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` alone). See README "MEDIUM — remaining" for detail.
+- Context patch/delete route trip-scoping — see the Travel Doc Lab batch above.
 - `chat_ws._TRIP_PREV_LORI` + `_TRIP_LAST_CAPTURE` unbounded module-level dicts (memory-leak on long-running processes).
 - `travel-documenter.js` modal double-send guard (parity with the 2026-05-07 chat-path fix).
 - 7 named misses in `narrative_cue_detector` eval pack (33/40 = 82.5%).
-- Travel Doc Lab evidence panel — replace native `window.prompt()` for draft observation + place-from-context with an in-panel editor / drawer (post-live-verify UX polish).
+- Travel Doc Lab evidence panel — replace native `window.prompt()` for draft observation + place-from-context with an in-panel editor / drawer — see the Travel Doc Lab batch above (frontend-only).
 
 **Older README-open items to triage (decide active / parked / superseded / closed):**
 
