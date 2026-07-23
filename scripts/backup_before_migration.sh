@@ -33,14 +33,29 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-# Extract DB_PATH from .env (strip leading/trailing whitespace)
+# Resolve the DB path the SAME way api/db.py does:
+#   DATA_DIR = os.getenv("DATA_DIR", "data")
+#   DB_DIR   = DATA_DIR / "db"
+#   DB_NAME  = os.getenv("DB_NAME", "lorevox.sqlite3")
+#   DB_PATH  = DB_DIR / DB_NAME
+#
+# .env may have DB_PATH explicitly (override), DATA_DIR + DB_NAME, or
+# just DATA_DIR (with the compiled DB_NAME default). Walk the same
+# precedence so we always land on the actual live DB.
 DB_PATH=$(grep '^DB_PATH=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
 if [ -z "$DB_PATH" ]; then
-  echo "ERROR: DB_PATH= not found in .env" >&2
-  exit 1
+  DATA_DIR=$(grep '^DATA_DIR=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
+  if [ -z "$DATA_DIR" ]; then
+    echo "ERROR: neither DB_PATH= nor DATA_DIR= found in .env" >&2
+    exit 1
+  fi
+  DB_NAME=$(grep '^DB_NAME=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
+  DB_NAME=${DB_NAME:-lorevox.sqlite3}
+  DB_PATH="$DATA_DIR/db/$DB_NAME"
 fi
 if [ ! -f "$DB_PATH" ]; then
-  echo "ERROR: DB_PATH $DB_PATH does not point to an existing file" >&2
+  echo "ERROR: resolved DB_PATH $DB_PATH does not point to an existing file" >&2
+  echo "       (constructed from .env DATA_DIR + DB_NAME per api/db.py)" >&2
   exit 1
 fi
 
