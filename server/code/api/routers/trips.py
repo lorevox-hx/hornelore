@@ -2123,8 +2123,29 @@ def list_public_context(
     return {"trip_id": trip_id, "count": len(rows), "public_context": rows}
 
 
+def _assert_context_trip_scope(actual_trip_id, claimed_trip_id, kind):
+    """Defense-in-depth trip scoping for context patch/delete.
+
+    The context patch/delete endpoints key on context_id alone. Single-tenant,
+    so not a security hole — but a stale FE cache (operator switched trips, an
+    old panel row still on screen) could mutate ANOTHER trip's evidence row. So
+    when the caller asserts a trip_id, it MUST match the row's real trip; a
+    mismatch is a 409 (the row moved out from under you), not a silent write.
+    When trip_id is omitted (legacy callers), no check — backward compatible.
+    """
+    if claimed_trip_id and actual_trip_id and str(claimed_trip_id) != str(actual_trip_id):
+        raise HTTPException(
+            status_code=409,
+            detail="%s belongs to a different trip (stale scope)" % kind)
+
+
 @router.patch("/public-context/{context_id}")
-def patch_public_context(context_id: str, req: PublicContextPatch) -> Dict[str, Any]:
+def patch_public_context(
+    context_id: str, req: PublicContextPatch,
+    trip_id: Optional[str] = Query(
+        None, description="Optional active-trip scope guard. When supplied, the "
+                          "row must belong to this trip or the call is a 409."),
+) -> Dict[str, Any]:
     """Approve / edit / include / reject a public-context row.
 
     Preflight review-follow-up (2026-07-11) — parity with the
@@ -2140,6 +2161,8 @@ def patch_public_context(context_id: str, req: PublicContextPatch) -> Dict[str, 
     existing = trip_repository.public_context_get(context_id)
     if not existing:
         raise HTTPException(status_code=404, detail="public context not found")
+    _assert_context_trip_scope(existing.get("trip_id"), trip_id,
+                               "public context")
     if req.include_in_memoir:
         # Compute effective_approved after this patch lands.
         if req.approved_for_lori is not None:
@@ -2169,8 +2192,14 @@ def patch_public_context(context_id: str, req: PublicContextPatch) -> Dict[str, 
 
 
 @router.delete("/public-context/{context_id}")
-def delete_public_context(context_id: str) -> Dict[str, Any]:
+def delete_public_context(
+    context_id: str,
+    trip_id: Optional[str] = Query(None, description="Optional trip scope guard"),
+) -> Dict[str, Any]:
     _require_trips_enabled()
+    _assert_context_trip_scope(
+        trip_repository.public_context_trip_id(context_id), trip_id,
+        "public context")
     if not trip_repository.public_context_delete(context_id):
         raise HTTPException(status_code=404, detail="public context not found")
     return {"ok": True, "context_id": context_id}
@@ -2461,8 +2490,10 @@ def list_photo_context(link_id: str) -> Dict[str, Any]:
 
 
 @router.patch("/photo-context/{context_id}")
-def patch_photo_context(context_id: str,
-                        req: PhotoContextPatch) -> Dict[str, Any]:
+def patch_photo_context(
+    context_id: str, req: PhotoContextPatch,
+    trip_id: Optional[str] = Query(None, description="Optional trip scope guard"),
+) -> Dict[str, Any]:
     """Approve / edit / include / reject a photo-context row. Editing
     result_summary or raw_text revokes approval unless re-approved in the
     same request; include_in_memoir requires the row to be approved."""
@@ -2470,6 +2501,8 @@ def patch_photo_context(context_id: str,
     existing = trip_repository.photo_context_get(context_id)
     if not existing:
         raise HTTPException(status_code=404, detail="photo context not found")
+    _assert_context_trip_scope(existing.get("trip_id"), trip_id,
+                               "photo context")
     if req.include_in_memoir:
         if req.approved_for_lori is not None:
             effective_approved = req.approved_for_lori
@@ -2493,8 +2526,14 @@ def patch_photo_context(context_id: str,
 
 
 @router.delete("/photo-context/{context_id}")
-def delete_photo_context(context_id: str) -> Dict[str, Any]:
+def delete_photo_context(
+    context_id: str,
+    trip_id: Optional[str] = Query(None, description="Optional trip scope guard"),
+) -> Dict[str, Any]:
     _require_trips_enabled()
+    _assert_context_trip_scope(
+        trip_repository.photo_context_trip_id(context_id), trip_id,
+        "photo context")
     if not trip_repository.photo_context_delete(context_id):
         raise HTTPException(status_code=404, detail="photo context not found")
     return {"ok": True, "context_id": context_id}

@@ -290,6 +290,21 @@ async def _safety_notify_operator(
 _TRIP_PREV_LORI: Dict[str, Dict[str, Any]] = {}
 _TRIP_LAST_CAPTURE: Dict[str, Dict[str, Any]] = {}
 
+# These two caches are keyed by conv_id and, before this, were never evicted —
+# one entry per conversation, forever, so a long-running server leaked memory
+# across a day of narrator sessions. Cap them with oldest-first eviction (dicts
+# are insertion-ordered on py3.7+). 500 conversations of headroom is plenty for
+# the active-capture window; anything older has already been persisted.
+_TRIP_CONV_CACHE_CAP = 500
+
+
+def _cap_conv_cache(d: Dict[str, Any], cap: int = _TRIP_CONV_CACHE_CAP) -> None:
+    while len(d) > cap:
+        try:
+            d.pop(next(iter(d)))
+        except StopIteration:
+            break
+
 
 @router.websocket("/ws")
 async def ws_chat(ws: WebSocket):
@@ -969,6 +984,7 @@ async def ws_chat(ws: WebSocket):
                             turn_id=(params.get("turn_id") or _audio_id_for_archive),
                         )
                     _TRIP_LAST_CAPTURE[conv_id] = _tsc_res
+                    _cap_conv_cache(_TRIP_LAST_CAPTURE)
                     logger.info(
                         "[chat_ws][trip-story-capture] conv=%s captured=%s "
                         "reason=%s scope=%s note=%s",
@@ -3090,6 +3106,7 @@ async def ws_chat(ws: WebSocket):
                 "prompt_kind": "trip" if _tic_block else None,
                 "lori_text": None,   # filled with THIS turn's reply below
             }
+            _cap_conv_cache(_TRIP_PREV_LORI)
         except Exception as _tic_exc:
             logger.warning("[chat_ws][trip-context] skipped conv=%s: %s",
                            conv_id, _tic_exc)
