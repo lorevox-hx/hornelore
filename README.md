@@ -41,6 +41,45 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 ---
 
+## Status as of 2026-07-23
+
+**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first. The 2026-07-14 changelog entry there carries the full detail behind this summary.
+
+**Headline: a live-verification pass on the running stack confirmed the trip/migration lane and the narrator-safety guards are healthy, and closed one critical latent outage.**
+
+**Verified live on the running stack (2026-07-23):**
+
+- **Migrations 0034/0035 clean** — `trips.person_id` FK (0034) + orphan-children cleanup (0035) applied; boot log shows `pre-0034: 0 orphan trips`, no traceback, no `foreign_key_check` errors.
+- **Trip API baseline (the ND-incident class)** — bogus `person_id` → **422** (no orphan, no 500); create-with-dates auto-generates day cards; patch+regenerate renumbers; delete cleans up trip **and** its timeline-bridge events; real trips untouched; **zero DB locks, zero FK failures, zero 500s**.
+- **Travel Doc smoke (9 canaries)** — OCR reads a text photo (conf 57.8); a textless photo **fails safe** with a diagnostic (`no_text_found`, confidence 48 < floor 55) and writes no row; real URL lookup stores as **draft/unapproved**; `http://127.0.0.1` lookup **SSRF-blocked**; approval ladder correct (approve → include → **edit revokes approval + clears memoir** → reject); Lori wording is provenance-labeled with **no "I can see", no coordinates**; capture probe lands scope-tagged.
+- **Response guards** — zero `wrapper raised` in the current boot; echo-bait produced no first-person parrot.
+
+**Critical fix this session — INC-2026-07-09 (response guards dead in production for ~5 days):** a second inline `(?i)` in `_META_REASONING_RX` is a hard `re.error` on Python 3.11+; the server runs 3.12, so `lori_response_guards` failed at import and `chat_ws` caught the ImportError inside its per-turn "never break a turn" handler — serving **every** reply unguarded from 2026-07-09 22:16 to the 2026-07-14 restart. Fix: flag into `re.compile(re.IGNORECASE)`; guards imported at **module scope** so a broken guards module fails the boot; a Python-3.11+ strict-regex **build gate** (subprocess sweep, catches combined flag groups). Full write-up: [`docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md`](docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md).
+
+**Other fixes this session (all tested; take effect on next restart / reload):**
+
+- **OCR evidence hardening** — confidence gate (`HORNELORE_OCR_MIN_CONF=55`) with a self-diagnosing rejection ("best pass: confidence 48, floor 55") + operator `?min_confidence=` override that only ever creates *draft* rows. Measured across 13 trip photos: real-text and textless confidence distributions **overlap** (worst hallucination 63.4 > best real sign 50.1), so the split needs confidence AND shape together; recorded in `ocr_min_confidence()`. Stale pre-gate hallucination rows now retired on re-run (success OR rejection); approved rows never touched.
+- **Camera-consent ambush fixed** — camera auto-start on narrator open no longer fires the consent modal for a never-asked narrator (it required only `permCamOn && emotionAware`, both default-on). Auto-start now also requires `FacialConsent.isGranted()`; a decline persists across reload (tri-state storage). A consent prompt now comes only from a deliberate Cam click.
+- **Extractor guards** — hedged affect phrases on name fields (`personal.fullName = "kind of scared"`) and vague temporal hedges on structured fields (`residence.period = "on and off for a while"`) now drop. Found via a read-only `/extract-fields` junk-rate harness; the extractor is otherwise **strong on realistic narration** (17/18 clean in the audit).
+- **Trip create surfaces `days_created`** — the response now reports the auto-generated day count so the Trips tab can tell the operator "created N day cards" instead of looking like nothing happened (why the Bismarck days seemed missing).
+- **Public-lookup wording cleanup** — page-title site suffixes ("- Wikipedia") stripped at the source; Lori speaks only a short lead of the context, not a 500-char article.
+- **Narrator-label collision** — two distinct people both named "Christopher" rendered with the same picker label; now disambiguated (birth year if it distinguishes, else short id).
+- **Modal turns no longer archived as life story** — Travel Doc modal turns were writing into the narrator's life-story archive; both archive writes are now surface-gated.
+
+**Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG default-OFF; BINDING-01 in-tree default-off.
+
+**Immediate open items (P1/P2):**
+
+1. **C1b — true end-to-end WebSocket safety-routing test** (indirect ideation → classifier → SafetyResult → segment flag → softened mode → operator-visible signal → safe reply). Protects Kent & Janice. Not yet proven end-to-end.
+2. **`.env.example` flag audit** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented. Ops risk.
+3. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
+4. **Gate 7 truth-pipeline observability** — the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change.
+5. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
+
+The 2026-07-11 stanza below is retained for the two-week trip-lane build detail. Refer to `CLAUDE.md` for the day-by-day changelog.
+
+---
+
 ## Status as of 2026-07-11
 
 **Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md).** It carries the environment posture, git workflow, principles, and the full changelog (currently ~247 KB — every day's landings are appended). Read it first before any code work.

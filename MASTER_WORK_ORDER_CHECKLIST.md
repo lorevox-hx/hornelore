@@ -1,7 +1,7 @@
 # MASTER_WORK_ORDER_CHECKLIST
 
-**Active as of:** 2026-07-11 (doc-consistency pass — split "code landed" vs "flag live" vs "formal verification" statuses per Chris's audit; 2026-07-11 HIGH repo-review batch closed via commits ebe64af / cf62c49 / round-2 / round-3)
-**Previously:** 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed), 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
+**Active as of:** 2026-07-23 (live-verification pass on the running stack — migrations 0034/0035, trip API baseline, Travel Doc smoke, and response-guard health all GREEN; INC-2026-07-09 response-guard outage closed; camera-consent ambush + extractor guards + trip-create day-count + public-lookup wording fixed. See README "Status as of 2026-07-23" and the CLAUDE.md 2026-07-14 changelog entry.)
+**Previously:** 2026-07-11 (doc-consistency pass — split "code landed" vs "flag live" vs "formal verification" statuses per Chris's audit; 2026-07-11 HIGH repo-review batch closed via commits ebe64af / cf62c49 / round-2 / round-3), 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed), 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
 
 ---
 
@@ -72,16 +72,27 @@ Inherited from pre-pivot work. Pre-pivot evidence in `docs/archive/`; post-pivot
 
 ---
 
-## Open work (locked 2026-07-11)
+## Open work (locked 2026-07-23)
 
-Priority order for what to build next. **Do not start feature work until items 1 + 2 are done.**
+Priority order for what to build next. Items 1 + 2 (migration/trip verification, Travel Doc smoke) are **DONE** as of the 2026-07-23 live pass — the queue below is the remainder.
 
-1. **Live Travel Doc Lab verification** — stack cycle applies migrations 0031 + 0032 + 0033; walk the 10-step verification queue (cross-trip leak canary, single place-context render, approval ladder, reject/hide, day-label reach, `photo_links_list` GPS scrub, `photo_context_update` edit-clears-include strict contract with all four (edit × approve × include) combinations, `trip_narration_capture` stop + region meta merge). If clean, close `WO-TRAVEL-DOC-EVIDENCE-TOOLS-01`.
-2. **Documentation sanity pass** — landed 2026-07-11 alongside this reconcile. Cross-check README + this file after the live test wraps.
-3. **`.env.example` drift audit (NEW WO)** — codify a grep gate: `grep -oh 'os.getenv("[A-Z_]\+"' server/code/ | sort -u`. Compare against `.env.example`. Reconcile ~24 stale documented flags + ~30 code-referenced undocumented flags. Flag drift is becoming a real ops risk.
-4. **TRUTH-PIPELINE-01 Phase 1 (Gate 7)** — observability stub across the five truth-write stages (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`) per harness turn. Highest-priority unstarted lane. Blocks the remaining 🟡 formal-verified marks on Gates 5 + 6 becoming ✅ (the harness needs turn-level truth-write visibility to distinguish a real bug from a harness coverage gap).
-5. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
-6. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
+**✅ Closed 2026-07-23 (live-verified on the running stack):**
+
+- **Migration 0034/0035 verification** — FK + orphan cleanup applied clean; 0 orphan trips; no FK-check errors.
+- **Trip API live baseline** — bogus person_id → 422; create → auto-days; patch → renumber; delete → cleanup; real trips preserved; zero DB locks / FK failures / 500s. ND-incident class contained.
+- **Travel Doc smoke (9 canaries)** — OCR text/textless, real+blocked lookup, approval ladder, Lori wording (no "I can see"/coords), capture scope. All green.
+- **Response-guard health** — 0 `wrapper raised` in current boot; no first-person parrot. INC-2026-07-09 closed.
+- **P1/P2 fixes** — trip-create surfaces `days_created` (+ Trips-tab message); public-lookup title suffix strip + spoken-context trim; camera-consent ambush; extractor affect-hedge + vague-temporal guards; narrator-label collision; modal-turns-as-life-story archive gate.
+
+**Remaining open work (priority order):**
+
+1. **C1b — end-to-end WebSocket safety-routing test** — indirect ideation → classifier → `SafetyResult` → segment flag → softened mode → operator-visible signal → safe reply. Not yet proven end-to-end; protects Kent & Janice. Highest-value open safety item.
+2. **`.env.example` drift audit (NEW WO)** — codify a grep gate: `grep -oh 'os.getenv("[A-Z_]\+"' server/code/ | sort -u`. Compare against `.env.example`. Reconcile ~24 stale documented flags + ~30 code-referenced undocumented flags. Flag drift is becoming a real ops risk.
+3. **TRUTH-PIPELINE-01 Phase 1 (Gate 7)** — observability stub across the five truth-write stages (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`) per harness turn. Highest-priority unstarted lane. Blocks the remaining 🟡 formal-verified marks on Gates 5 + 6 becoming ✅ (the harness needs turn-level truth-write visibility to distinguish a real bug from a harness coverage gap).
+4. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; the full 28-call sweep is still open. Operator/status/debug strings must not write into narrator chat.
+5. **Extraction Track D (measurement first)** — D1 Travel Doc binding-eval corpus (report-only, UI scope as expected binding), D2 `story_candidates` Path 2 (preserved story text → draft candidates, operator review, no auto-promotion), D3 `utterance_frame` first consumer (hints vs Travel Doc scope, report-only). No truth writes.
+6. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
+7. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
 
 **MEDIUM open items (not blocking, but named so they don't drift):**
 
