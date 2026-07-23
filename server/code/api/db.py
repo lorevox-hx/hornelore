@@ -1208,6 +1208,80 @@ def init_db() -> None:
                 _mod = _ilu.module_from_spec(_spec)
                 _spec.loader.exec_module(_mod)
                 run_pending_migrations = _mod.run_pending_migrations
+        # 2026-07-23 (Bucket C.1) — pre-migration orphan visibility
+        # for 0034_trips_person_id_fk. The migration itself DELETEs
+        # orphan trips (rows whose person_id has no matching
+        # people.id) as part of its table rebuild — the FK constraint
+        # it adds would otherwise reject them. Logging the count
+        # BEFORE we apply the migration is the only way to give an
+        # operator an honest record of which orphans got cleaned up
+        # (the post-migration DB has no trace of them). Skipped
+        # silently if 0034 has already been applied, if the trips
+        # table doesn't exist yet (fresh DB — schema_migrations
+        # tracking table catches this), or if any query in this
+        # block raises (defensive — this is diagnostic-only, must
+        # not block boot).
+        try:
+            # Guard against pre-migration-tracking-table state:
+            # schema_migrations is created by the runner's
+            # _ensure_tracking_table pass, which hasn't run yet on
+            # our first-ever init_db against a truly fresh DB. Only
+            # proceed to check 0034 when the tracking table already
+            # exists.
+            _cur_tracking = con.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='schema_migrations';"
+            )
+            _has_tracking = _cur_tracking.fetchone() is not None
+            if not _has_tracking:
+                _already_applied = True  # no runs yet, nothing to preflight
+            else:
+                _cur_check = con.execute(
+                    "SELECT 1 FROM schema_migrations "
+                    "WHERE filename = '0034_trips_person_id_fk.sql';"
+                )
+                _already_applied = _cur_check.fetchone() is not None
+            if not _already_applied:
+                _cur_tables = con.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name IN ('trips','people');"
+                )
+                _table_names = {row[0] for row in _cur_tables.fetchall()}
+                if 'trips' in _table_names and 'people' in _table_names:
+                    _cur_orphans = con.execute(
+                        "SELECT COUNT(*) FROM trips t "
+                        "LEFT JOIN people p ON t.person_id = p.id "
+                        "WHERE p.id IS NULL;"
+                    )
+                    _orphan_count = _cur_orphans.fetchone()[0]
+                    if _orphan_count > 0:
+                        # Also surface the offending person_ids so the
+                        # operator can grep api.log later if they
+                        # want to know which fake ids leaked. Bounded
+                        # at 10 to keep the log line readable.
+                        _cur_ids = con.execute(
+                            "SELECT DISTINCT t.person_id FROM trips t "
+                            "LEFT JOIN people p ON t.person_id = p.id "
+                            "WHERE p.id IS NULL "
+                            "LIMIT 10;"
+                        )
+                        _sample_ids = [row[0] for row in _cur_ids.fetchall()]
+                        logger.warning(
+                            "[migrations] pre-0034: %d orphan trip(s) "
+                            "will be DELETEd by 0034_trips_person_id_fk. "
+                            "Sample owner ids (up to 10): %r",
+                            _orphan_count, _sample_ids,
+                        )
+                    else:
+                        logger.info(
+                            "[migrations] pre-0034: 0 orphan trips; "
+                            "FK migration will land clean.")
+        except Exception:
+            # Never block boot on the diagnostic log itself.
+            logger.exception(
+                "[migrations] pre-0034 orphan check failed "
+                "(non-fatal — proceeding with migration)")
+
         run_pending_migrations(con)
     except Exception:
         logger.exception("Post-legacy migrations failed")

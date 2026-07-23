@@ -1231,7 +1231,19 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     with 422 instead of creating an orphan trip; (b) wrap the
     trip-timeline-bridge sync so a bridge failure returns a
     ``sync_warning`` in the response body instead of leaving a partly-
-    written trip in an ambiguous state."""
+    written trip in an ambiguous state.
+
+    2026-07-23 (Bucket C.2) — auto-day generation now runs BEFORE the
+    best-effort timeline-bridge sync. Previous order was trip write →
+    bridge sync → auto-days. The ND live incident was the bridge's
+    FK-fail leaking a write lock into the auto-days path; even with
+    that lock leak fixed at the repo layer, the ordering was
+    architecturally backwards. Auto-day generation IS the primary
+    workflow (operators expect day cards to exist right after saving
+    trip dates); bridge sync is optional projection work. Ordering
+    now: (1) trip write, (2) auto-days (primary), (3) bridge sync
+    (best-effort projection). A bridge failure can now never delay
+    or damage the day-card work."""
     _require_trips_enabled()
     if not (req.title or "").strip():
         raise HTTPException(status_code=422, detail="trip needs a title")
@@ -1246,9 +1258,12 @@ def create_trip(req: TripCreate) -> Dict[str, Any]:
     )
     logger.info("[trips][builder] trip created trip=%s person=%s",
                 trip_id, req.person_id)
-    sync_warning = _safe_sync_life_record(trip_id)
+    # Auto-day generation first (primary workflow).
     days_warning = _auto_generate_days_for_new_trip(
         trip_id, req.start_date, req.end_date)
+    # Best-effort timeline sync after — never blocks or damages the
+    # day-card work above.
+    sync_warning = _safe_sync_life_record(trip_id)
     resp: Dict[str, Any] = {
         "trip_id": trip_id,
         "tree": trip_repository.trip_tree(trip_id),
@@ -1272,7 +1287,11 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
 
     2026-07-23 hardening: the bridge sync is wrapped so a bridge failure
     surfaces as ``sync_warning`` in the response body instead of
-    500'ing the PATCH."""
+    500'ing the PATCH.
+
+    2026-07-23 (Bucket C.2) — auto-day reconcile runs BEFORE the
+    best-effort bridge sync, matching the create-trip ordering. See
+    the create_trip docstring for the full rationale."""
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
@@ -1295,8 +1314,11 @@ def patch_trip(trip_id: str, req: TripPatch) -> Dict[str, Any]:
     if not ok:
         raise HTTPException(
             status_code=400, detail="nothing to update")
-    sync_warning = _safe_sync_life_record(trip_id)
+    # Auto-day reconcile first (primary workflow).
     days_warning = _auto_reconcile_days_on_patch(trip_id, dates_touched)
+    # Best-effort timeline sync after — never blocks or damages the
+    # day-card reconcile above.
+    sync_warning = _safe_sync_life_record(trip_id)
     resp: Dict[str, Any] = {
         "ok": True,
         "trip_id": trip_id,
