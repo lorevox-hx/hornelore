@@ -92,6 +92,16 @@ _SIMPLE_TRIGGERS: list[tuple[str, str, float]] = [
     (r"\bnot worth living\b",             "suicidal_ideation", 0.82),
     (r"\brather be dead\b",               "suicidal_ideation", 0.85),
     (r"\bthought about (ending|killing)\b","suicidal_ideation", 0.78),
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (2026-07-24):
+    # present-tense ideation phrasing. "Sometimes I think about killing
+    # myself." returned None because the entry above only covers the
+    # past-tense "thought about" shape. Tight by construction: requires
+    # the full reflexive object ("killing myself" / "ending|taking my
+    # (own) life") so idioms like "think about killing time" can never
+    # fire. Verified against the full test_safety_* suite set +
+    # test_scan_answer_stress for zero new false positives.
+    (r"\bthink(?:ing)? (?:about|of) (?:killing myself|ending my (?:own )?life|taking my (?:own )?life)\b",
+                                          "suicidal_ideation", 0.90),
     (r"\bsuicidal\b",                     "suicidal_ideation", 0.88),
     (r"\bending it (all)?\b",             "suicidal_ideation", 0.72),
 

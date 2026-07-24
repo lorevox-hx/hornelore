@@ -501,6 +501,135 @@ async def ws_chat(ws: WebSocket):
         _ut_lstrip = (user_text or "").lstrip()
         _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
 
+        # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (2026-07-24) ──
+        # DETERMINISTIC SAFETY PREFLIGHT — runs ONCE, before EVERY narrator
+        # short-circuit: claimed-floor buffering, identity/meta-question
+        # detection, travel-doc modal direct answers, trip direct answers,
+        # memory-echo routing, witness routing, follow-up-bank flushing.
+        #
+        # The 2026-07-24 code review found three bypass classes:
+        #   1. The meta/modal/trip intercepts set _is_meta_question BEFORE
+        #      scan_answer ran, and the safety block was gated on
+        #      `not _is_meta_question` — so "What is your name? I want to
+        #      kill myself." skipped even the deterministic pattern layer.
+        #   2. Claimed-floor buffering (turn_final=False) early-returned
+        #      "I'm listening." ~1200 lines before the safety block; a
+        #      distress chunk was persisted and never scanned.
+        #   3. Memory-echo / witness META_FEEDBACK / bank-flush could
+        #      override the forced interview route AFTER a trigger.
+        #
+        # The preflight result is CONSUMED by the safety block below —
+        # scan_answer is never called a second time for the same turn.
+        #
+        # Locked precedence (WO §2.2):
+        #   positive deterministic trigger > claimed-floor buffering >
+        #   meta/trip/modal deterministic answers > memory echo / witness /
+        #   bank flush > normal LLM interview.
+        #
+        # WO-LORI-SAFETY-INTEGRATION-01 Phase 7 (2026-05-03): LV_ENABLE_SAFETY
+        # kill-switch. Default-ON ("1"). Setting LV_ENABLE_SAFETY=0 disables
+        # the ENTIRE chat-path safety pipeline: pattern scan, LLM
+        # second-layer, segment_flag persistence, softened-mode set,
+        # operator notification, and the Phase 5a discipline exemption (it
+        # checks _safety_result which won't be set).
+        #
+        # This is a DEVELOPER-ONLY toggle. Use cases:
+        #   - Running automated chat-path tests where deterministic safety
+        #     routing would mask normal-turn behavior under inspection
+        #   - Red-team eval that wants to test ONLY the LLM-side path
+        #     (Phase 2) by suppressing pattern-side noise — but for that
+        #     case, set HORNELORE_SAFETY_LLM_LAYER=1 separately and still
+        #     leave LV_ENABLE_SAFETY=1; the LLM-layer fires inside the
+        #     pattern block's else branch
+        #   - Eyeballing a clean composer / extractor surface without
+        #     safety interjections
+        #
+        # NEVER set LV_ENABLE_SAFETY=0 in a real narrator session. The
+        # ACUTE SAFETY RULE in the prompt still fires (the rule is in
+        # the system prompt unconditionally), but the deterministic
+        # segment_flag → softened-mode → operator-notify → LLM-routing
+        # cascade is GONE. That means:
+        #   - No operator visibility (Bug Panel banner won't show)
+        #   - No segment_flag in the DB (review queue won't see it)
+        #   - No softened-mode for subsequent turns
+        #   - turn_mode won't be forced to interview, so memory_echo
+        #     could echo distress content back at the narrator
+        # The default-OFF onboarding consent (Phase 9) and the kill-switch
+        # itself are sufficient operator controls. The kill-switch is for
+        # the operator workstation, not for a deployed kiosk.
+        _safety_result = None  # type: ignore[assignment]
+        _safety_scan_failed = False
+        _safety_pattern_triggered = False
+        _safety_enabled = os.getenv("LV_ENABLE_SAFETY", "1") in ("1", "true", "True")
+        if not _safety_enabled:
+            # Emit a per-turn WARNING — chosen over a session-only one-shot
+            # because operators looking at api.log mid-incident need to see
+            # this on every turn. Quiet noise on a normal session is the
+            # cost of loud warning when something is actually wrong.
+            logger.warning(
+                "[chat_ws][safety][KILL-SWITCH] LV_ENABLE_SAFETY=0 — "
+                "deterministic safety pipeline DISABLED for this turn. "
+                "DEVELOPER MODE ONLY. conv=%s",
+                conv_id,
+            )
+        # System directives ([SYSTEM...] in-band UI messages) are NOT
+        # narrator disclosures — they retain their existing handling
+        # (floor-hold ack etc., pinned by
+        # tests/test_safety_directive_not_in_narrator_turn.py) and are
+        # never scanned as narrator text.
+        if _safety_enabled and user_text and user_text.strip() and not _is_system_directive:
+            try:
+                _safety_result = scan_answer(user_text)
+                _safety_pattern_triggered = bool(
+                    _safety_result and _safety_result.triggered
+                )
+            except Exception as _safety_exc:
+                logger.warning("[chat_ws][safety] scan failed: %s", _safety_exc)
+                _safety_result = None
+                _safety_scan_failed = True
+
+            # Default-safe fallback: when scan_answer raises, the deterministic
+            # cascade below is skipped (no segment flag / no softened mode /
+            # no UI overlay / no operator notify). The LLM-side ACUTE SAFETY
+            # RULE in prompt_composer.py:108-193 still fires regardless, but
+            # only the interview/LLM turn_mode actually consults the system
+            # prompt. So on scan failure we force turn_mode='interview' to
+            # guarantee the LLM path runs (memory_echo / correction composers
+            # would skip the LLM entirely and echo distress content back).
+            # Operators see [chat_ws][safety][default-safe] so they know the
+            # deterministic layer had to fall back. Closes the silent-skip
+            # gap surfaced by 2026-04-29 code review.
+            if _safety_scan_failed:
+                logger.warning(
+                    "[chat_ws][safety][default-safe] forcing turn_mode=interview after scan_answer failure conv=%s",
+                    conv_id,
+                )
+                params["turn_mode"] = "interview"
+
+        # WO §2.5 — THE one authoritative route boolean. When True, the
+        # turn is on the forced safety/interview route and NO deterministic
+        # short-circuit may take it over: floor buffering may not early-
+        # return, meta/modal/trip intercepts may not answer, memory-echo
+        # may not flip turn_mode, witness META_FEEDBACK may not flip
+        # turn_mode, bank-flush may not execute. Every gate below checks
+        # THIS name — do not spread per-site safety conditions.
+        # Refreshed once after the safety block below, because the LLM
+        # second-layer classifier can synthesize a triggered
+        # _safety_result the deterministic preflight missed.
+        _safety_forced_interview = bool(
+            _safety_scan_failed
+            or (_safety_result and _safety_result.triggered)
+        )
+        if _safety_pattern_triggered:
+            logger.warning(
+                "[chat_ws][safety][preflight] deterministic trigger conv=%s "
+                "category=%s confidence=%.2f — safety route takes precedence "
+                "over floor-buffer/meta/trip/witness/bank short-circuits",
+                conv_id,
+                _safety_result.category if _safety_result else "?",
+                _safety_result.confidence if _safety_result else 0.0,
+            )
+
         # ── BUG-LORI-FLOOR-HOLD-DETERMINISTIC-01 (2026-05-10) ───────────
         # SYSTEM_FLOOR_HOLD short-circuit. When the narrator has pressed
         # and held the floor (UI emits [SYSTEM: pressed and held the
@@ -553,10 +682,27 @@ async def ws_chat(ws: WebSocket):
         # Kent finishes the chapter.
         _turn_final = params.get("turn_final")
         _floor_state = params.get("floor_state", "")
-        if _turn_final is False or (
+        _floor_buffer_requested = _turn_final is False or (
             isinstance(_floor_state, str)
             and _floor_state.lower() in ("claimed", "holding", "buffering")
-        ):
+        )
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §2.4: a
+        # safety-triggered chunk (or a failed scan — default-safe) must
+        # NOT take the buffering early return. It falls through into the
+        # complete safety cascade below so the chunk itself is flagged
+        # (segment flag on THIS chunk — no reliance on a chapter-
+        # completion rescan) and Lori answers under the ACUTE SAFETY
+        # RULE instead of "I'm listening.". Benign chunks keep the
+        # existing persistence + quiet-ack behavior byte-for-byte.
+        if _floor_buffer_requested and _safety_forced_interview:
+            logger.warning(
+                "[chat_ws][floor-buffer][safety-override] conv=%s — "
+                "buffered chunk carries a safety trigger (or scan "
+                "failure); skipping the buffer ack and entering the "
+                "full safety cascade",
+                conv_id,
+            )
+        if _floor_buffer_requested and not _safety_forced_interview:
             logger.info(
                 "[chat_ws][floor-buffer] turn_final=False / floor_state=%s "
                 "conv=%s — buffering, no LLM call",
@@ -1125,13 +1271,10 @@ async def ws_chat(ws: WebSocket):
         # before increment_session_turn here, so we ensure-up-front.
         # Idempotent INSERT OR IGNORE — safe to call every turn.
         #
-        # Defensive init for _safety_result here too — without it, a turn
-        # with empty user_text would skip the scan_answer block entirely
-        # and leave _safety_result unbound, raising NameError when the
-        # wrapper later calls `bool(_safety_result and ...)`. Pre-existing
-        # latent bug surfaced during this WO's code review; init here
-        # fixes it for both the new softened path and the legacy path.
-        _safety_result = None  # type: ignore[assignment]
+        # _safety_result / _safety_scan_failed / _safety_pattern_triggered
+        # are initialized unconditionally by the WO-POST-REVIEW-SAFETY-
+        # DRAFT-EXPORT-HARDENING-01 preflight near the top of this
+        # function — no defensive re-init needed here.
 
         # ── BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 ───────
         # 2026-05-09 (Mary's session) — three stacked failures from one
@@ -1144,8 +1287,17 @@ async def ws_chat(ws: WebSocket):
         #
         # The detection module is pure-stdlib (LAW 3 isolated, no LLM,
         # no DB). When it matches, we:
-        #   (1) Skip the safety scan entirely — Mary's "are you safe"
-        #       must NOT route to 988
+        #   (1) Skip the LLM safety classifier — Mary's "are you safe"
+        #       must NOT route to 988. WO-POST-REVIEW-SAFETY-DRAFT-
+        #       EXPORT-HARDENING-01 (2026-07-24): the DETERMINISTIC
+        #       pattern scan is no longer skippable — it already ran in
+        #       the preflight above, BEFORE this intercept. A benign
+        #       meta question ("Are you safe to talk to?") produces no
+        #       trigger, so this intercept still wins the route and the
+        #       LLM classifier stays skipped for it (the "Mary fix",
+        #       2026-05-09, is preserved). A meta-shaped question that
+        #       ALSO carries a distress pattern is now caught by the
+        #       preflight and this intercept is skipped entirely.
         #   (2) Override turn_mode to "meta_question" so the dispatcher
         #       below emits the deterministic text
         #   (3) Carry the composed answer in _meta_question_answer for
@@ -1156,7 +1308,8 @@ async def ws_chat(ws: WebSocket):
         # the turn falls through to normal safety + LLM behavior.
         _meta_question_answer = None  # type: ignore[assignment]
         _is_meta_question = False
-        if user_text and user_text.strip() and not _is_system_directive:
+        if (user_text and user_text.strip() and not _is_system_directive
+                and not _safety_forced_interview):
             try:
                 from ..services.lori_meta_question import detect_and_compose as _meta_dac
                 # Detect narrator language for locale routing. Mirrors
@@ -1203,9 +1356,13 @@ async def ws_chat(ws: WebSocket):
         # showed 'what can you tell me about that photo' reaching the raw
         # LLM ('I'll respond with a neutral message' meta leak) because
         # only the Mark Twain gate called the service, not chat_ws.
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: gated on the
+        # authoritative safety route boolean — a distress turn must never
+        # be answered with modal trip context.
         if ((params.get("surface") or "") == "travel_doc_modal"
                 and not _is_meta_question and user_text
-                and user_text.strip() and not _is_system_directive):
+                and user_text.strip() and not _is_system_directive
+                and not _safety_forced_interview):
             try:
                 from ..services import travel_doc_lori_modal as _tdm
                 _msc = params.get("modal_scope") or {}
@@ -1258,8 +1415,11 @@ async def ws_chat(ws: WebSocket):
                     "[chat_ws][modal-direct-answer] failed conv=%s: %s "
                     "— turn continues", conv_id, _tdm_exc)
 
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: same gate — a
+        # distress turn must never get a deterministic trip answer.
         if (not _is_meta_question and user_text and user_text.strip()
-                and not _is_system_directive):
+                and not _is_system_directive
+                and not _safety_forced_interview):
             try:
                 from ..services import trip_interview_context as _tdic
                 _trip_direct_text = _tdic.direct_answer_for_turn(
@@ -1370,10 +1530,15 @@ async def ws_chat(ws: WebSocket):
 
         _witness_answer = None  # type: ignore[assignment]
         _is_witness_mode = False
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: witness routing
+        # (META_FEEDBACK ack AND structured-narrative receipt mode) may not
+        # take over a safety-forced turn — "You are being vague. I want to
+        # kill myself." must reach the safety cascade, not a witness ack.
         if (
             user_text and user_text.strip()
             and not _is_system_directive
             and not _is_meta_question
+            and not _safety_forced_interview
         ):
             try:
                 from ..services.lori_witness_mode import detect_and_compose as _wm_dac
@@ -1694,91 +1859,34 @@ async def ws_chat(ws: WebSocket):
         # the response — Lori still produces a turn, but under safety-side
         # prompt guidance.
         #
-        # WO-LORI-SAFETY-INTEGRATION-01 Phase 7 (2026-05-03): LV_ENABLE_SAFETY
-        # kill-switch. Default-ON ("1"). Setting LV_ENABLE_SAFETY=0 disables
-        # the ENTIRE chat-path safety pipeline: pattern scan, LLM
-        # second-layer, segment_flag persistence, softened-mode set,
-        # operator notification, and the Phase 5a discipline exemption (it
-        # checks _safety_result which won't be set).
+        # WO-LORI-SAFETY-INTEGRATION-01 Phase 7 LV_ENABLE_SAFETY
+        # kill-switch: the flag read, the DEVELOPER-ONLY framing, and the
+        # per-turn [chat_ws][safety][KILL-SWITCH] warning now live with
+        # the WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 preflight
+        # near the top of this function, because the deterministic scan
+        # itself moved there. `_safety_enabled` is that same flag.
         #
-        # This is a DEVELOPER-ONLY toggle. Use cases:
-        #   - Running automated chat-path tests where deterministic safety
-        #     routing would mask normal-turn behavior under inspection
-        #   - Red-team eval that wants to test ONLY the LLM-side path
-        #     (Phase 2) by suppressing pattern-side noise — but for that
-        #     case, set HORNELORE_SAFETY_LLM_LAYER=1 separately and still
-        #     leave LV_ENABLE_SAFETY=1; the LLM-layer fires inside the
-        #     pattern block's else branch
-        #   - Eyeballing a clean composer / extractor surface without
-        #     safety interjections
-        #
-        # NEVER set LV_ENABLE_SAFETY=0 in a real narrator session. The
-        # ACUTE SAFETY RULE in the prompt still fires (the rule is in
-        # the system prompt unconditionally), but the deterministic
-        # segment_flag → softened-mode → operator-notify → LLM-routing
-        # cascade is GONE. That means:
-        #   - No operator visibility (Bug Panel banner won't show)
-        #   - No segment_flag in the DB (review queue won't see it)
-        #   - No softened-mode for subsequent turns
-        #   - turn_mode won't be forced to interview, so memory_echo
-        #     could echo distress content back at the narrator
-        # The default-OFF onboarding consent (Phase 9) and the kill-switch
-        # itself are sufficient operator controls. The kill-switch is for
-        # the operator workstation, not for a deployed kiosk.
-        _safety_enabled = os.getenv("LV_ENABLE_SAFETY", "1") in ("1", "true", "True")
-        if not _safety_enabled:
-            # Emit a per-turn WARNING — chosen over a session-only one-shot
-            # because operators looking at api.log mid-incident need to see
-            # this on every turn. Quiet noise on a normal session is the
-            # cost of loud warning when something is actually wrong.
-            logger.warning(
-                "[chat_ws][safety][KILL-SWITCH] LV_ENABLE_SAFETY=0 — "
-                "deterministic safety pipeline DISABLED for this turn. "
-                "DEVELOPER MODE ONLY. conv=%s",
-                conv_id,
-            )
-        # BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 — when
-        # the upstream meta-question detector matched, skip safety scan
-        # entirely. Mary's literal "are you safe to talk to?" must NOT
-        # route to the LLM safety classifier (which 988'd her on
-        # 2026-05-09); the deterministic warm answer composed above
-        # handles it. The dispatcher branch below short-circuits before
-        # the LLM is invoked.
-        if _safety_enabled and not _is_meta_question and user_text and user_text.strip():
-            _safety_scan_failed = False
-            try:
-                _safety_result = scan_answer(user_text)
-            except Exception as _safety_exc:
-                logger.warning("[chat_ws][safety] scan failed: %s", _safety_exc)
-                _safety_result = None
-                _safety_scan_failed = True
-
-            # Default-safe fallback: when scan_answer raises, the deterministic
-            # cascade below is skipped (no segment flag / no softened mode /
-            # no UI overlay / no operator notify). The LLM-side ACUTE SAFETY
-            # RULE in prompt_composer.py:108-193 still fires regardless, but
-            # only the interview/LLM turn_mode actually consults the system
-            # prompt. So on scan failure we force turn_mode='interview' to
-            # guarantee the LLM path runs (memory_echo / correction composers
-            # would skip the LLM entirely and echo distress content back).
-            # Operators see [chat_ws][safety][default-safe] so they know the
-            # deterministic layer had to fall back. Closes the silent-skip
-            # gap surfaced by 2026-04-29 code review.
-            if _safety_scan_failed:
-                logger.warning(
-                    "[chat_ws][safety][default-safe] forcing turn_mode=interview after scan_answer failure conv=%s",
-                    conv_id,
-                )
-                params["turn_mode"] = "interview"
-
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (2026-07-24):
+        # this block CONSUMES the preflight scan result — scan_answer is
+        # NEVER called a second time for the same turn. The old gate here
+        # carried `not _is_meta_question`, which let the meta/modal/trip
+        # intercepts bypass even the deterministic pattern layer; the
+        # preflight closed that. The meta exclusion is preserved ONLY for
+        # the LLM second-layer classifier below (the locked "Mary fix":
+        # a benign "are you safe to talk to?" must not be 988'd by the
+        # LLM classifier — but it IS pattern-scanned now).
+        if _safety_enabled and user_text and user_text.strip():
             # ── WO-LORI-SAFETY-INTEGRATION-01 Phase 2: LLM second-layer ──
-            # Run the LLM-side classifier in parallel with the pattern
-            # detector. Composition rule (locked, see WO spec):
-            #   - Pattern detector wins on positive detection (always)
-            #   - LLM classifier fills gaps — only used when pattern
-            #     returned None (no trigger)
+            # Run the LLM-side classifier after the pattern detector.
+            # Composition rule (locked, see WO spec):
+            #   - Pattern detector wins on positive detection (always) —
+            #     a deterministic positive always beats an LLM negative
+            #   - LLM classifier fills gaps — only used when the
+            #     deterministic scan SUCCEEDED and did not trigger
             #   - On LLM parse failure or LLM error, fall back to pattern
             #     result (fail-OPEN)
+            #   - Never runs for system directives or deterministic
+            #     meta-question turns (locked benign-route policy)
             #
             # Default-OFF behind HORNELORE_SAFETY_LLM_LAYER=0. Adds ~1-2s
             # latency per turn when enabled; needs Phase 6 red-team
@@ -1792,7 +1900,8 @@ async def ws_chat(ws: WebSocket):
             # [chat_ws][safety][llm_layer] so operators can distinguish.
             if (
                 not _safety_scan_failed
-                and not (_safety_result and _safety_result.triggered)
+                and not _safety_pattern_triggered
+                and not _is_meta_question
                 and user_text and user_text.strip()
                 and not _is_system_directive
             ):
@@ -2148,6 +2257,17 @@ async def ws_chat(ws: WebSocket):
                 # memory_echo or correction by the UI would skip the LLM
                 # entirely and just echo the distress content back.
                 params["turn_mode"] = "interview"
+
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §2.5 — refresh
+        # the ONE authoritative route boolean now that the LLM second-
+        # layer has had its chance to synthesize a triggered
+        # _safety_result the deterministic preflight missed (indirect
+        # ideation). Every downstream route decision (turn_mode
+        # resolution, witness dispatch, bank flush) checks THIS name.
+        _safety_forced_interview = bool(
+            _safety_scan_failed
+            or (_safety_result and _safety_result.triggered)
+        )
         # ── End safety scan ──────────────────────────────────────────────────
 
         # WO-ARCH-07A — explicit mode routing BEFORE model load.
@@ -2169,9 +2289,24 @@ async def ws_chat(ws: WebSocket):
         # below that emits the deterministic warm answer with no LLM
         # call, mirroring the memory_echo / age_recall / correction
         # composer pattern.
-        # Floor-hold short-circuit overrides everything. The narrator
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §2.5: the
+        # safety-forced route is AUTHORITATIVE — it wins over floor hold,
+        # meta question, and the server-side memory-echo trigger below.
+        # (In practice _is_floor_hold only fires on [SYSTEM...] directives,
+        # which are never safety-scanned, so the first two branches cannot
+        # actually collide — the ordering makes the precedence structural
+        # rather than incidental.)
+        # Floor-hold short-circuit overrides everything else. The narrator
         # is still talking and Lori must hold silent space.
-        if _is_floor_hold:
+        if _safety_forced_interview:
+            turn_mode = "interview"
+            logger.info(
+                "[chat_ws][safety][route-lock] conv=%s turn_mode pinned to "
+                "interview (deterministic/LLM trigger or scan failure) — "
+                "memory-echo/witness/bank overrides disabled this turn",
+                conv_id,
+            )
+        elif _is_floor_hold:
             turn_mode = "floor_hold"
         elif _is_meta_question and _meta_question_answer is not None:
             turn_mode = "meta_question"
@@ -2262,7 +2397,13 @@ async def ws_chat(ws: WebSocket):
         _immediate_door_story_weight: int = 0
         _doors_to_bank: List[Any] = []  # List[Door] from lori_followup_bank
         _current_turn_doors: List[Any] = []
-        if _is_witness_mode and _witness_answer is not None:
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §2.5: witness
+        # META_FEEDBACK may not set turn_mode on a safety-forced turn.
+        # Detection upstream is already gated on the same boolean; this
+        # site re-checks it because the LLM second-layer can flip the
+        # route AFTER detection ran.
+        if (_is_witness_mode and _witness_answer is not None
+                and not _safety_forced_interview):
             if _witness_answer.detection_type == "META_FEEDBACK":
                 turn_mode = "witness"
             elif _witness_answer.detection_type == "STRUCTURED_NARRATIVE":
@@ -2410,10 +2551,15 @@ async def ws_chat(ws: WebSocket):
         #   - Meta-question / witness short-circuit will fire downstream
         _bank_flush_used = False
         _bank_flushed_id: Optional[str] = None
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §2.5: bank-flush
+        # may not execute on a safety-forced turn — "What else? I want to
+        # kill myself." must never be answered with a banked question, and
+        # the banked row must not be burned (marked asked) on that turn.
         if (
             conv_id and user_text and user_text.strip()
             and not _is_floor_hold
             and not (_is_meta_question and _meta_question_answer is not None)
+            and not _safety_forced_interview
         ):
             try:
                 from ..services.lori_followup_bank import (
