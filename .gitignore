@@ -135,3 +135,7 @@ docs/reports/trip_2019_france_italy_*.txt
 # Throwaway commit-message helper files (git commit -F). One glob so
 # this never needs another .gitignore edit. See CLAUDE.md git-hygiene note.
 .git-commit-msg*.txt
+
+# Code-review transfer artifacts (2026-07-24) — never commit archives
+_to_delete/
+*.tar.gz
