@@ -478,3 +478,18 @@
   .tdl-lab-badge { display: none; }
   .tdl-brand-person { max-width: 10ch; }
 }
+
+/* ── Draft assistant (WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01) ─────── */
+.tdl-draft { max-width: 780px; }
+.tdl-draft-row { margin: .9rem 0; display: flex; flex-direction: column; gap: .35rem; }
+.tdl-draft-label { font-weight: 800; font-size: .82rem; letter-spacing: .04em; text-transform: uppercase; color: var(--tdl-muted); }
+.tdl-draft-select { padding: .55rem .7rem; border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper); color: var(--tdl-ink); font-family: var(--tdl-font); font-weight: 700; max-width: 460px; }
+.tdl-draft-preview { border: 1px solid var(--tdl-line); border-radius: var(--tdl-radius); background: var(--tdl-paper2); padding: .9rem 1rem; margin: .6rem 0 1rem; }
+.tdl-draft-preview-head { font-weight: 800; font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; color: var(--tdl-blue); margin-bottom: .5rem; }
+.tdl-draft-excluded { margin-top: .6rem; font-size: .86rem; color: var(--tdl-gold); font-weight: 700; }
+.tdl-draft-instruction { min-height: 3.4rem; padding: .6rem .7rem; border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper); color: var(--tdl-ink); font-family: var(--tdl-font); resize: vertical; }
+.tdl-draft-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: .5rem 0; }
+.tdl-draft-status { margin: .5rem 0; padding: .5rem .7rem; border-radius: 10px; background: var(--tdl-paper2); border: 1px solid var(--tdl-line); color: var(--tdl-ink); font-size: .9rem; }
+.tdl-draft-result { border: 1px solid var(--tdl-gold2); border-radius: var(--tdl-radius); background: var(--tdl-paper); padding: .9rem 1rem; margin: .6rem 0; }
+.tdl-draft-resulttext { width: 100%; box-sizing: border-box; min-height: 9rem; padding: .7rem .8rem; border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper2); color: var(--tdl-ink); font-family: var(--tdl-serif); font-size: 1rem; line-height: 1.5; resize: vertical; }
+.tdl-anchor-draft { color: var(--tdl-gold); }

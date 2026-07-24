@@ -446,5 +446,45 @@ class DocumenterDoubleSendGuardTest(unittest.TestCase):
         self.assertIn("_busyTimer", self.src)
 
 
+class DraftAssistantTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01 — the Draft tab wiring."""
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def test_draft_tab_registered(self):
+        self.assertIn('["draft", "Draft"]', self.src)
+        self.assertIn('case "draft": return renderDraft();', self.src)
+
+    def test_render_and_helpers_present(self):
+        for fn in ("function renderDraft(", "function _draftLoadPreview(",
+                   "function _draftRun(", "function _draftKeep(",
+                   "function _draftScopeOptions("):
+            self.assertIn(fn, self.src, fn)
+
+    def test_calls_draft_section_endpoint(self):
+        self.assertIn("/draft-section", self.src)
+        # preview uses preview_only; the run does not force it
+        self.assertIn("preview_only = true", self.src)
+
+    def test_keep_persists_as_draft_note_not_memoir(self):
+        # Keeping a draft writes a source_type='draft' note with promotion OFF.
+        self.assertIn('source_type: "draft"', self.src)
+        self.assertIn("include_in_memoir: false", self.src)
+        self.assertIn("include_in_interview_context: false", self.src)
+        self.assertIn("/location-notes", self.src)
+
+    def test_no_native_dialogs_in_draft_path(self):
+        # Lab doctrine: no window.prompt/confirm/alert anywhere.
+        for banned in ("window.prompt", "window.confirm", "window.alert",
+                       "prompt(", "confirm(", "alert("):
+            self.assertNotIn(banned, self.src, banned)
+
+    def test_draft_css_present(self):
+        self.assertIn(".tdl-draft-result", self.css)
+        self.assertIn(".tdl-draft-select", self.css)
+
+
 if __name__ == "__main__":
     unittest.main()

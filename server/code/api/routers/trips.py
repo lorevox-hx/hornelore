@@ -125,6 +125,16 @@ class ClusterPhotosRequest(BaseModel):
     narrator_id: Optional[str] = None  # defaults to the trip's person_id
 
 
+class DraftSectionRequest(BaseModel):
+    # WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01 — operator drafting aid.
+    trip_region_id: Optional[str] = None
+    trip_stop_id: Optional[str] = None
+    instruction: Optional[str] = None
+    include_note_ids: Optional[List[str]] = None
+    include_source_ids: Optional[List[str]] = None
+    preview_only: bool = False
+
+
 class TripCreate(BaseModel):
     person_id: str
     title: str
@@ -2216,6 +2226,33 @@ def travelogue_preview(trip_id: str) -> Dict[str, Any]:
     if not outline:
         raise HTTPException(status_code=404, detail="trip not found")
     return outline
+
+
+@router.post("/{trip_id}/draft-section")
+def draft_section(trip_id: str, req: DraftSectionRequest) -> Dict[str, Any]:
+    """Operator drafting assistant (WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01).
+
+    Assembles operator-approved context for a scope (region/stop/whole trip) —
+    scope summary, approved photo evidence anchors, location notes, selected
+    sources — and drafts a travelogue paragraph from it. Returns text only;
+    NOTHING is persisted here. The operator keeps a draft via the normal
+    location-note create with source_type='draft' (both promote flags OFF).
+    Set preview_only=true to get just the assembled context (no LLM call)."""
+    _require_trips_enabled()
+    from ..services import trip_draft
+    out = trip_draft.draft_section(
+        trip_id,
+        region_id=req.trip_region_id,
+        stop_id=req.trip_stop_id,
+        instruction=req.instruction or "",
+        include_note_ids=req.include_note_ids,
+        include_source_ids=req.include_source_ids,
+        preview_only=req.preview_only,
+    )
+    if out is None:
+        raise HTTPException(
+            status_code=404, detail="trip or scope not found for this trip")
+    return out
 
 
 def _resolve_reverse_geocode(lat: float, lng: float) -> Optional[str]:

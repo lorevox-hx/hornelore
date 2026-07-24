@@ -164,6 +164,47 @@ def propose_followup_questions(
     return uniq[:n]
 
 
+def draft_travel_section(
+    *,
+    scope_title: str,
+    instruction: str,
+    evidence_text: str,
+    max_new: Optional[int] = None,
+) -> Optional[str]:
+    """Draft a travelogue section paragraph from assembled operator evidence.
+
+    Operator-side writing aid for Travel Doc (WO-TRAVEL-DOC-OPERATOR-DRAFT-
+    ASSISTANT-01). Unlike draft_section_summary this is NOT a Q&A transcript
+    and NOT first-person-speaker — it turns labeled travel evidence (approved
+    photo context, operator notes, sources) into readable travelogue prose.
+    Returns None if the LLM stack is unavailable or there is no evidence.
+    """
+    if max_new is None:
+        max_new = _WO10M_SUMMARY_CAP
+    evidence_text = (evidence_text or "").strip()
+    if not evidence_text:
+        return None
+
+    system = (
+        "You are a careful travel-memoir drafting assistant helping an operator "
+        "build a travelogue. You turn assembled evidence into a warm, readable "
+        "first-draft. Hard rules: use ONLY the evidence provided; never invent "
+        "place names, dates, people, prices, or events; if the evidence is thin, "
+        "write something short and general rather than guessing. Evidence marked "
+        "'Approved' may be stated plainly. Evidence marked 'Draft' is unconfirmed "
+        "— write it suggestively ('appears to', 'seems to', 'may have') and never "
+        "assert it as fact. Output draft prose ONLY — no preamble, no 'Here is', "
+        "no markdown headings, no bullet lists unless the instruction asks."
+    )
+    user = (
+        f"Scope: {scope_title}\n"
+        f"Operator instruction: {instruction}\n\n"
+        f"Evidence (use only this):\n{evidence_text}\n\n"
+        "Write the draft now. Stay strictly within the evidence above."
+    )
+    return _try_call_llm(system, user, max_new=max_new, temp=0.5, top_p=0.9)
+
+
 def draft_final_memoir(
     *,
     transcript: str,

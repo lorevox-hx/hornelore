@@ -52,6 +52,7 @@
     sources: [],         // /sources rows
     publicContext: [],   // /public-context rows
     travelogue: null,    // /travelogue-preview (lazy)
+    draft: null,         // Draft tab: {scopeKey, preview, result, instruction, status, busy}
     selectedDayId: null,
     selectedPhotoLinkId: null,
     routeSel: null,      // {kind:"region"|"stop", id, regionId}
@@ -214,6 +215,7 @@
     st.selectedPhotoLinkId = null;
     st.routeSel = null;
     st.travelogue = null;
+    st.draft = null;
     st.loriOverlay = false;
     st.loriReturnTab = "plan";
     st.photoPickerDayId = null;
@@ -397,6 +399,7 @@
     ["notes", "Story Notes"],
     ["sources", "Sources"],
     ["travelogue", "Travelogue"],
+    ["draft", "Draft"],
     ["lori", "Lori"],
   ];
 
@@ -559,6 +562,7 @@
       case "notes": return renderNotes();
       case "sources": return renderSources();
       case "travelogue": return renderTravelogue();
+      case "draft": return renderDraft();
       case "lori": return renderLoriTab();
       default: return el("div");
     }
@@ -2654,6 +2658,249 @@
     });
     doc.appendChild(irSec);
     wrap.appendChild(doc);
+    return wrap;
+  }
+
+  // ── Draft assistant (WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01) ───────
+  //
+  // Operator writing aid: assembles approved evidence + notes + sources
+  // for a scope and drafts a travelogue paragraph. Draft text only — the
+  // operator edits then explicitly keeps it as a source_type='draft' note
+  // (both promote flags OFF). No narrator state, no auto truth write.
+
+  function _draftScopeOptions() {
+    var opts = [{ key: "trip", label: "Whole trip", region_id: null,
+      stop_id: null }];
+    var regions = (st.tree && st.tree.regions) || [];
+    regions.forEach(function (r) {
+      opts.push({ key: "region:" + r.id, label: "▸ " + (r.title || "Region"),
+        region_id: r.id, stop_id: null });
+      (function walk(stops, depth) {
+        (stops || []).forEach(function (s) {
+          opts.push({ key: "stop:" + s.id,
+            label: "  ".repeat(depth) + "· " + (s.location_name || "Stop"),
+            region_id: null, stop_id: s.id });
+          walk(s.children, depth + 1);
+        });
+      })(r.stops, 1);
+    });
+    return opts;
+  }
+
+  function _draftDefaultKey() {
+    if (st.routeSel && st.routeSel.kind === "stop") return "stop:" + st.routeSel.id;
+    if (st.routeSel && st.routeSel.kind === "region") return "region:" + st.routeSel.id;
+    return "trip";
+  }
+
+  function _draftEnsure() {
+    if (!st.draft) {
+      st.draft = { scopeKey: _draftDefaultKey(), preview: null, result: null,
+        instruction: "", status: "", busy: false, previewTried: false };
+    }
+    return st.draft;
+  }
+
+  function _draftScopeBody(d) {
+    var opt = _draftScopeOptions().filter(function (o) {
+      return o.key === d.scopeKey; })[0] || { region_id: null, stop_id: null };
+    return { trip_region_id: opt.region_id, trip_stop_id: opt.stop_id };
+  }
+
+  function _draftLoadPreview() {
+    var d = _draftEnsure();
+    if (!st.trip) return;
+    var body = _draftScopeBody(d);
+    body.preview_only = true;
+    d.previewTried = true; d.busy = true; d.status = ""; renderAll();
+    api("/api/trips/" + encodeURIComponent(st.trip.id) + "/draft-section",
+      { method: "POST", body: body })
+      .then(function (out) {
+        d.preview = out.context_preview; d.busy = false; renderAll();
+      })
+      .catch(function (e) {
+        d.busy = false; d.status = "Preview failed: " + e.message; renderAll();
+      });
+  }
+
+  function _draftRun() {
+    var d = _draftEnsure();
+    if (!st.trip || d.busy) return;
+    var body = _draftScopeBody(d);
+    body.instruction = d.instruction || "";
+    d.busy = true; d.status = "Drafting…"; d.result = null; renderAll();
+    api("/api/trips/" + encodeURIComponent(st.trip.id) + "/draft-section",
+      { method: "POST", body: body })
+      .then(function (out) {
+        d.busy = false;
+        d.preview = out.context_preview || d.preview;
+        if (out.status === "no_material") {
+          d.status = "Nothing approved to draft from yet — approve some photo "
+            + "evidence, or add notes/sources for this scope.";
+        } else if (out.status === "llm_unavailable") {
+          d.status = "The local model isn't available right now.";
+        } else if (out.draft) {
+          d.result = out.draft; d.status = "";
+        } else {
+          d.status = "No draft returned.";
+        }
+        renderAll();
+      })
+      .catch(function (e) {
+        d.busy = false; d.status = "Draft failed: " + e.message; renderAll();
+      });
+  }
+
+  function _draftKeep() {
+    var d = _draftEnsure();
+    if (!st.trip || !d.result || d.busy) return;
+    var scope = _draftScopeBody(d);
+    var opt = _draftScopeOptions().filter(function (o) {
+      return o.key === d.scopeKey; })[0] || { label: "trip" };
+    d.busy = true; d.status = "Saving draft note…"; renderAll();
+    api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes", {
+      method: "POST",
+      body: {
+        note_title: "Draft — " + opt.label.replace(/^[▸·\s]+/, ""),
+        note_text: d.result,
+        source_type: "draft",
+        include_in_memoir: false,
+        include_in_interview_context: false,
+        trip_region_id: scope.trip_region_id,
+        trip_stop_id: scope.trip_stop_id,
+      },
+    }).then(function () {
+      d.busy = false; d.result = null;
+      d.status = "Saved as a draft note (in Story Notes). It is NOT in the "
+        + "memoir until you promote it there.";
+      return reloadNotes ? reloadNotes() : null;
+    }).then(function () { renderAll(); })
+      .catch(function (e) {
+        d.busy = false; d.status = "Save failed: " + e.message; renderAll();
+      });
+  }
+
+  function _draftPreviewCard(pv) {
+    var card = el("div", "tdl-draft-preview");
+    card.appendChild(el("div", "tdl-draft-preview-head",
+      "What will be sent (operator-approved only)"));
+    if (pv.summary) {
+      var sm = el("div", "tdl-anchor-row");
+      sm.appendChild(el("span", "tdl-anchor-label", "summary"));
+      sm.appendChild(el("span", "", pv.summary));
+      card.appendChild(sm);
+    }
+    (pv.anchors || []).forEach(function (a) {
+      var row = el("div", "tdl-anchor-row");
+      row.appendChild(el("span",
+        "tdl-anchor-label" + (a.draft ? " tdl-anchor-draft" : ""),
+        a.label));
+      row.appendChild(el("span", "", a.value));
+      card.appendChild(row);
+    });
+    (pv.notes || []).forEach(function (n) {
+      var row = el("div", "tdl-anchor-row");
+      row.appendChild(el("span", "tdl-anchor-label",
+        n.source_type + (n.promoted ? " ✓" : "")));
+      row.appendChild(el("span", "", n.text));
+      card.appendChild(row);
+    });
+    (pv.sources || []).forEach(function (s) {
+      var row = el("div", "tdl-anchor-row");
+      row.appendChild(el("span", "tdl-anchor-label", "source"));
+      row.appendChild(el("span", "", (s.title ? s.title + ": " : "") + s.text));
+      card.appendChild(row);
+    });
+    if (!pv.has_material) {
+      card.appendChild(el("div", "tdl-muted",
+        "No approved material for this scope yet."));
+    }
+    if (pv.draft_anchor_count) {
+      card.appendChild(el("div", "tdl-draft-excluded",
+        pv.draft_anchor_count + " item(s) are still draft evidence — they are "
+        + "included but written cautiously until you approve them in Photos."));
+    }
+    return card;
+  }
+
+  function renderDraft() {
+    var wrap = el("div", "tdl-draft");
+    if (!st.trip) {
+      wrap.appendChild(el("div", "tdl-empty", "Select a trip first."));
+      return wrap;
+    }
+    var d = _draftEnsure();
+    if (!d.previewTried && !d.busy) _draftLoadPreview();
+
+    wrap.appendChild(el("p", "tdl-doc-kicker",
+      "Draft assistant · operator writing aid — no memoir write"));
+    wrap.appendChild(el("h1", "", "Draft a section"));
+    wrap.appendChild(el("p", "tdl-muted",
+      "Pick a scope. I assemble the approved evidence, notes, and sources you "
+      + "already gathered, and draft a paragraph you can edit and keep. Keeping "
+      + "a draft never promotes it to the memoir."));
+
+    // scope selector
+    var scopeRow = el("div", "tdl-draft-row");
+    scopeRow.appendChild(el("label", "tdl-draft-label", "Scope"));
+    var sel = el("select", "tdl-draft-select");
+    _draftScopeOptions().forEach(function (o) {
+      var op = el("option", null, o.label);
+      op.value = o.key;
+      if (o.key === d.scopeKey) op.selected = true;
+      sel.appendChild(op);
+    });
+    sel.addEventListener("change", function () {
+      d.scopeKey = sel.value; d.preview = null; d.result = null; d.status = "";
+      d.previewTried = false;
+      _draftLoadPreview();
+    });
+    scopeRow.appendChild(sel);
+    wrap.appendChild(scopeRow);
+
+    // context preview
+    if (d.busy && d.preview === null) {
+      wrap.appendChild(el("div", "tdl-muted", "Loading evidence…"));
+    } else if (d.preview) {
+      wrap.appendChild(_draftPreviewCard(d.preview));
+    }
+
+    // instruction
+    var instrWrap = el("div", "tdl-draft-row");
+    instrWrap.appendChild(el("label", "tdl-draft-label", "Instruction"));
+    var instr = el("textarea", "tdl-draft-instruction");
+    instr.placeholder = "e.g. Draft a warm memoir paragraph in Chris's voice.";
+    instr.value = d.instruction || "";
+    instr.addEventListener("input", function () { d.instruction = instr.value; });
+    instrWrap.appendChild(instr);
+    wrap.appendChild(instrWrap);
+
+    var actions = el("div", "tdl-draft-actions");
+    var draftBtn = btn("tdl-btn tdl-btn-gold",
+      d.busy ? "Working…" : "✍ Draft this section", _draftRun);
+    if (d.busy) draftBtn.disabled = true;
+    actions.appendChild(draftBtn);
+    wrap.appendChild(actions);
+
+    if (d.status) wrap.appendChild(el("div", "tdl-draft-status", d.status));
+
+    // editable result
+    if (d.result) {
+      var resCard = el("div", "tdl-draft-result");
+      resCard.appendChild(el("div", "tdl-draft-preview-head",
+        "Draft (editable — not saved yet)"));
+      var ta = el("textarea", "tdl-draft-resulttext");
+      ta.value = d.result;
+      ta.addEventListener("input", function () { d.result = ta.value; });
+      resCard.appendChild(ta);
+      var rowActions = el("div", "tdl-draft-actions");
+      rowActions.appendChild(btn("tdl-btn tdl-btn-gold",
+        "Keep as draft note", _draftKeep));
+      rowActions.appendChild(btn("tdl-btn",
+        "Discard", function () { d.result = null; d.status = ""; renderAll(); }));
+      resCard.appendChild(rowActions);
+      wrap.appendChild(resCard);
+    }
     return wrap;
   }
 
