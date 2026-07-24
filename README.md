@@ -90,10 +90,14 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 - Live Travel Doc smoke (16 canaries): boot clean, 0 `wrapper raised`, OCR
   text/textless fail-safe, both drawers, real+blocked lookup, approval ladder,
   scope 409, no article dump / "I can see" / coordinates. All green.
-
-Minor open finding: public lookup does not supersede prior lookup drafts on the
-same photo (repeated lookups accumulate → Lori repeats the context). Parallel to
-the OCR supersede work; low priority.
+- Public-lookup supersede CLOSED + live-smoked (2026-07-23): a fresh lookup
+  retires prior UNAPPROVED drafts of the same source_type (sibling of OCR
+  supersede); approved rows untouched, rows marked rejected not deleted. Live:
+  2nd same-URL lookup returned `retired_drafts=1`, only newest draft alive,
+  approved row survived a later lookup, blocked-URL stored no row, scope 409
+  held. Behavior is "one active unapproved draft per source_type per photo"
+  (a different-URL unapproved lookup also retires the prior unapproved draft) —
+  intended MVP.
 
 **Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG default-OFF; BINDING-01 in-tree default-off.
 
@@ -103,7 +107,8 @@ the OCR supersede work; low priority.
 2. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
 3. **Gate 7 truth-pipeline observability** — the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change.
 4. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
-5. **Public-lookup supersede** (minor) — repeated lookups on a photo accumulate draft rows; make lookup retire prior unapproved lookup drafts like OCR does.
+
+(Public-lookup supersede — CLOSED + live-smoked 2026-07-23, see above.)
 
 The 2026-07-11 stanza below is retained for the two-week trip-lane build detail. Refer to `CLAUDE.md` for the day-by-day changelog.
 

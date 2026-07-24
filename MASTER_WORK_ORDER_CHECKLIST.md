@@ -109,9 +109,12 @@ ideation → safety_triggered + 988 + warm reply). Live smoke also: boot clean, 
 `wrapper raised`, OCR text/textless fail-safe, both drawers, real+blocked lookup,
 approval ladder, no article dump / "I can see" / coordinates.
 
-Minor open: public lookup does not supersede prior lookup drafts (repeated
-lookups accumulate → Lori repeats the context). Parallel to the OCR supersede
-work; low priority.
+Public-lookup supersede: CLOSED + live-smoked 2026-07-23. Fresh lookup retires
+prior UNAPPROVED drafts of the same source_type (sibling of OCR supersede);
+approved rows untouched, rejected-not-deleted. Live: 2nd same-URL lookup
+`retired_drafts=1`, only newest draft alive, approved row survived, blocked-URL
+no row, scope 409 held. "One active unapproved draft per source_type per photo"
+confirmed intended.
 
 Remaining queue (unchanged priority): `.env.example` audit → sysBubble dignity
 pass → Gate 7 truth-pipeline observability → Track D measurement-first.
