@@ -10,8 +10,15 @@ side: the lab must not import or script-load the production module.
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+try:
+    from tests import source_scan_helpers as _ssh
+except ImportError:  # direct execution: python tests/test_travel_doc_lab.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import source_scan_helpers as _ssh
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _JS = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
@@ -20,8 +27,14 @@ _HTML = _REPO_ROOT / "ui" / "travel-doc-lab.html"
 
 
 def _stripped_js() -> str:
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 Phase 6.4: the old
+    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*") stripper treated the "//" inside
+    # string literals like "http://localhost:8000" (travel-doc-lab.js:40)
+    # as a line comment, blinding every banned-token scan below from
+    # there to end-of-line. The shared string-aware scanner removes real
+    # comments only; string/template/regex contents stay visible.
     js = _JS.read_text(encoding="utf-8")
-    return re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", js)
+    return _ssh.strip_js_comments(js)
 
 
 def _stripped_css() -> str:
@@ -433,8 +446,8 @@ class DocumenterDoubleSendGuardTest(unittest.TestCase):
 
     def setUp(self):
         p = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
-        self.src = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "",
-                          p.read_text(encoding="utf-8"))
+        # Phase 6.4: string-aware stripper (see _stripped_js above).
+        self.src = _ssh.strip_js_comments(p.read_text(encoding="utf-8"))
 
     def test_send_is_guarded_and_cleared(self):
         i = self.src.index("_send: function ()")

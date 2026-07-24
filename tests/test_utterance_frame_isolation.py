@@ -35,13 +35,26 @@ Negative-test verification (run during Phase 0-2 development):
     4. Run this test → must PASS.
 
 Both states are required. A test that passes in both is broken.
+
+WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 Phase 6: the copy-pasted
+walker + import collector now live in tests/source_scan_helpers.py
+(unit-tested in tests/test_source_scan_helpers.py). Semantics unchanged:
+ALL imports (module- and function-level) followed, depth-bounded at 4,
+same forbidden prefixes and overrides, same failure messages.
 """
 from __future__ import annotations
 
 import ast
+import sys
 import unittest
 from pathlib import Path
-from typing import Iterable, List, Set, Tuple
+from typing import List, Tuple
+
+try:
+    from tests import source_scan_helpers as ssh
+except ImportError:  # direct execution: python tests/test_utterance_frame_isolation.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import source_scan_helpers as ssh
 
 
 # ── Configuration ─────────────────────────────────────────────────────────
@@ -106,117 +119,34 @@ _ALLOWED_OVERRIDES: Tuple[str, ...] = (
 )
 
 
-# ── AST analysis ──────────────────────────────────────────────────────────
+# ── AST analysis — shared machinery (tests/source_scan_helpers.py) ────────
+# Thin wrappers over the shared, unit-tested helpers; this gate keeps its
+# historical semantics (ALL imports followed, depth-bounded at 4).
 
 def _module_path_to_dotted(path: Path, server_code: Path = _SERVER_CODE) -> str:
-    try:
-        rel = path.resolve().relative_to(server_code.resolve())
-    except ValueError:
-        return str(path)
-    parts = list(rel.with_suffix("").parts)
-    if parts and parts[-1] == "__init__":
-        parts = parts[:-1]
-    return ".".join(parts)
+    return ssh.module_path_to_dotted(path, server_code)
 
 
 def _collect_imports_from_ast(tree: ast.AST, current_module_dotted: str) -> List[str]:
-    """Extract every import target from a parsed module, resolving
-    relative imports against the current module's dotted name. Records
-    BOTH `X` and `X.Y` for `from X import Y` (see story_preservation
-    isolation test for bug history)."""
-    imports: List[str] = []
-    parent_parts = current_module_dotted.split(".")[:-1]
-
-    def _emit_module_and_children(base: str, names: Iterable[str]) -> None:
-        if base:
-            imports.append(base)
-        for name in names:
-            if name and name != "*":
-                imports.append(f"{base}.{name}" if base else name)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level and node.level > 0:
-                if node.level > len(parent_parts):
-                    base_parts: List[str] = []
-                else:
-                    base_parts = parent_parts[: len(parent_parts) - node.level + 1]
-                if node.module:
-                    base_parts = base_parts + node.module.split(".")
-                base = ".".join(base_parts)
-                _emit_module_and_children(base, [a.name for a in node.names])
-            else:
-                if node.module:
-                    _emit_module_and_children(
-                        node.module, [a.name for a in node.names]
-                    )
-    return imports
-
-
-def _resolve_dotted_to_path(dotted: str, server_code: Path = _SERVER_CODE) -> Path | None:
-    candidate_module = server_code / Path(*dotted.split("."))
-    py_file = candidate_module.with_suffix(".py")
-    init_file = candidate_module / "__init__.py"
-    if py_file.is_file():
-        return py_file
-    if init_file.is_file():
-        return init_file
-    return None
-
-
-def _is_allowed_override(dotted: str) -> bool:
-    for allow in _ALLOWED_OVERRIDES:
-        if dotted == allow or dotted.startswith(allow + "."):
-            return True
-    return False
+    """Records BOTH `X` and `X.Y` for `from X import Y` (see the helper
+    module's docstring for the bug history)."""
+    return ssh.collect_import_names(tree, current_module_dotted)
 
 
 def _violates_forbidden(dotted: str) -> str | None:
-    if _is_allowed_override(dotted):
-        return None
-    for prefix in _FORBIDDEN_PREFIXES:
-        if dotted == prefix or dotted.startswith(prefix + "."):
-            return prefix
-    return None
+    return ssh.violates_forbidden(
+        dotted, _FORBIDDEN_PREFIXES, allowed_overrides=_ALLOWED_OVERRIDES)
 
 
 def _walk_import_graph(
     start_path: Path,
     server_code: Path = _SERVER_CODE,
     max_depth: int = 4,
-) -> Tuple[Set[str], List[Tuple[str, str]]]:
-    visited: Set[str] = set()
-    edges: List[Tuple[str, str]] = []
-    queue: List[Tuple[Path, int]] = [(start_path, 0)]
-
-    while queue:
-        path, depth = queue.pop(0)
-        if depth > max_depth:
-            continue
-        dotted = _module_path_to_dotted(path, server_code)
-        if dotted in visited:
-            continue
-        visited.add(dotted)
-
-        try:
-            source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(path))
-        except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
-            # Skip unreadable / non-Python / binary files. The walk is
-            # depth-bounded and best-effort — if a file can't be parsed,
-            # it can't introduce a forbidden edge into our graph.
-            continue
-
-        for imp in _collect_imports_from_ast(tree, dotted):
-            edges.append((dotted, imp))
-            child_path = _resolve_dotted_to_path(imp, server_code)
-            if child_path is not None and depth + 1 <= max_depth:
-                queue.append((child_path, depth + 1))
-
-    return visited, edges
+):
+    result = ssh.walk_import_graph(
+        start_path, server_code=server_code, max_depth=max_depth,
+        follow="all")
+    return result.visited, result.edges
 
 
 # ── The actual test ───────────────────────────────────────────────────────

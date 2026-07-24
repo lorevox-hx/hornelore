@@ -40,6 +40,14 @@ Negative-test verification (run during Phase 1A Commit 1 development):
     4. Run this test → must PASS.
 
 Both states are required. A test that passes in both is broken.
+
+WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 Phase 6: the walker and
+import collector this gate pioneered (including the from-import
+both-forms fix — bug history preserved in the helper's docstring) now
+live in tests/source_scan_helpers.py, unit-tested there, and are shared
+by the sibling isolation gates. Semantics unchanged: ALL imports
+(module- and function-level) are followed, depth-bounded at 4, same
+forbidden-prefix list, same failure messages.
 """
 from __future__ import annotations
 
@@ -47,7 +55,13 @@ import ast
 import sys
 import unittest
 from pathlib import Path
-from typing import Iterable, List, Set, Tuple
+from typing import List, Tuple
+
+try:
+    from tests import source_scan_helpers as ssh
+except ImportError:  # direct execution: python tests/test_story_preservation_isolation.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import source_scan_helpers as ssh
 
 
 # ── Configuration ─────────────────────────────────────────────────────────
@@ -90,132 +104,36 @@ _FORBIDDEN_PREFIXES: Tuple[str, ...] = (
 )
 
 
-# ── AST analysis ──────────────────────────────────────────────────────────
+# ── AST analysis — shared machinery (tests/source_scan_helpers.py) ────────
+# The walker + collector this gate pioneered are now the shared,
+# unit-tested helpers. Thin local wrappers keep this gate's historical
+# semantics: ALL imports followed (module- AND function-level — lazy
+# coupling is forbidden here too), depth-bounded at 4.
 
 def _module_path_to_dotted(path: Path, server_code: Path = _SERVER_CODE) -> str:
-    """Convert a file path under server/code/ to a dotted module name.
-
-    Example:
-        server/code/api/services/story_preservation.py
-        → api.services.story_preservation
-    """
-    try:
-        rel = path.resolve().relative_to(server_code.resolve())
-    except ValueError:
-        # Outside server/code/ — return path as-is, won't match prefixes.
-        return str(path)
-    parts = list(rel.with_suffix("").parts)
-    if parts and parts[-1] == "__init__":
-        parts = parts[:-1]
-    return ".".join(parts)
+    return ssh.module_path_to_dotted(path, server_code)
 
 
 def _collect_imports_from_ast(tree: ast.AST, current_module_dotted: str) -> List[str]:
-    """Extract every import target from a parsed module, resolving
-    relative imports against the current module's dotted name.
-
-    For `from X import Y`, we record BOTH `X` and `X.Y`. Reason: Python's
-    AST cannot distinguish whether Y is a submodule (in which case the
-    import resolves to `X.Y`) or a name defined in X (resolves to just
-    `X`). Recording both makes the forbidden-prefix check robust against
-    both forms; the matcher catches whichever spelling is on the
-    forbidden list.
-
-    Bug history: the original collector only emitted `X` for
-    `from X import Y`. That caused the negative-test verification in
-    Phase 1A Commit 1 development to silently pass when a deliberate
-    `from ..routers import extract` was injected, because the forbidden
-    prefix `api.routers.extract` did not match the recorded `api.routers`.
-    Discovered by running the negative test BEFORE banking the gate.
-    """
-    imports: List[str] = []
-    parent_parts = current_module_dotted.split(".")[:-1]  # package this module lives in
-
-    def _emit_module_and_children(base: str, names: Iterable[str]) -> None:
-        if base:
-            imports.append(base)
-        for name in names:
-            if name and name != "*":
-                imports.append(f"{base}.{name}" if base else name)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            # `import X` and `import X.Y` — alias.name is the full dotted path
-            for alias in node.names:
-                imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level and node.level > 0:
-                # Relative import: resolve against the module's package.
-                if node.level > len(parent_parts):
-                    base_parts: List[str] = []
-                else:
-                    base_parts = parent_parts[: len(parent_parts) - node.level + 1]
-                if node.module:
-                    base_parts = base_parts + node.module.split(".")
-                base = ".".join(base_parts)
-                _emit_module_and_children(base, [a.name for a in node.names])
-            else:
-                if node.module:
-                    _emit_module_and_children(
-                        node.module, [a.name for a in node.names]
-                    )
-    return imports
-
-
-def _resolve_dotted_to_path(dotted: str, server_code: Path = _SERVER_CODE) -> Path | None:
-    """Best-effort: resolve a dotted module name to a file under server/code/.
-    Tries `.py`, then `__init__.py`. Returns None if not project-internal."""
-    candidate_module = server_code / Path(*dotted.split("."))
-    py_file = candidate_module.with_suffix(".py")
-    init_file = candidate_module / "__init__.py"
-    if py_file.is_file():
-        return py_file
-    if init_file.is_file():
-        return init_file
-    return None
+    return ssh.collect_import_names(tree, current_module_dotted)
 
 
 def _violates_forbidden(dotted: str) -> str | None:
     """Return the first forbidden prefix that `dotted` matches, or None."""
-    for prefix in _FORBIDDEN_PREFIXES:
-        if dotted == prefix or dotted.startswith(prefix + "."):
-            return prefix
-    return None
+    return ssh.violates_forbidden(dotted, _FORBIDDEN_PREFIXES)
 
 
 def _walk_import_graph(
     start_path: Path,
     server_code: Path = _SERVER_CODE,
     max_depth: int = 4,
-) -> Tuple[Set[str], List[Tuple[str, str]]]:
-    """Walk imports transitively from `start_path`. Returns
+):
+    """Walk ALL imports transitively from `start_path`. Returns
     (set of every dotted module visited, list of (parent, child) edges)."""
-    visited: Set[str] = set()
-    edges: List[Tuple[str, str]] = []
-    queue: List[Tuple[Path, int]] = [(start_path, 0)]
-
-    while queue:
-        path, depth = queue.pop(0)
-        if depth > max_depth:
-            continue
-        dotted = _module_path_to_dotted(path, server_code)
-        if dotted in visited:
-            continue
-        visited.add(dotted)
-
-        try:
-            source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(path))
-        except (OSError, SyntaxError):
-            continue
-
-        for imp in _collect_imports_from_ast(tree, dotted):
-            edges.append((dotted, imp))
-            child_path = _resolve_dotted_to_path(imp, server_code)
-            if child_path is not None and depth + 1 <= max_depth:
-                queue.append((child_path, depth + 1))
-
-    return visited, edges
+    result = ssh.walk_import_graph(
+        start_path, server_code=server_code, max_depth=max_depth,
+        follow="all")
+    return result.visited, result.edges
 
 
 # ── The actual test ───────────────────────────────────────────────────────

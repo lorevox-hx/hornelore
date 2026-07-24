@@ -8,8 +8,15 @@ regresses to requiring pasted person_ids.
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+try:
+    from tests import source_scan_helpers as _ssh
+except ImportError:  # direct execution: python tests/test_travel_documenter_panel.py
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import source_scan_helpers as _ssh
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _JS = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
@@ -19,8 +26,15 @@ _STANDALONE = _REPO_ROOT / "ui" / "travel-documenter.html"
 
 
 def _stripped_js() -> str:
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 Phase 6.4: the old
+    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*") stripper treated the "//" inside
+    # string literals like "http://localhost:8000" (travel-documenter.js
+    # ~line 68) as a line comment, blinding every banned-token scan from
+    # there to end-of-line. The shared string-aware scanner (unit-tested
+    # in tests/test_source_scan_helpers.py) removes real comments only;
+    # string/template/regex contents stay visible to the scans below.
     js = _JS.read_text(encoding="utf-8")
-    return re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", js)
+    return _ssh.strip_js_comments(js)
 
 
 class BoundaryTest(unittest.TestCase):
@@ -95,7 +109,10 @@ class BoundaryTest(unittest.TestCase):
 
     def test_uses_existing_endpoints_only(self):
         src = _stripped_js()
-        used = set(re.findall(r'"(/api/[a-z_/?=+-]*?)"', src))
+        # Phase 6 review fix: the old r'"(/api/[a-z_/?=+-]*?)"' pattern
+        # missed endpoints containing digits or uppercase — adopt the
+        # lab gate's catch-all form so no endpoint spelling can hide.
+        used = set(re.findall(r'"(/api/[^"]*)"', src))
         # Everything the module calls must be in the sanctioned list.
         # WO-TRAVEL-DOC-LORI-MODAL-02: the modal owns its own chat WS —
         # a deliberate, sanctioned addition (surface=travel_doc_modal).
