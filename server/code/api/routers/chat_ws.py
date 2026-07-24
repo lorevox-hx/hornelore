@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import threading
+import uuid  # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.3 — per-socket conv ids
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,11 @@ from ..prompt_composer import compose_system_prompt
 # protection disabled.
 from ..services.lori_response_guards import (
     apply_response_guards as _APPLY_RESPONSE_GUARDS,
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 — the guard-
+    # wrapper FAIL-CLOSED fallback. Imported at module scope, like the
+    # guards themselves, so the fallback path can never hit a lazy-import
+    # failure inside the exception handler it serves.
+    compose_guard_failure_fallback as _COMPOSE_GUARD_FAILURE_FALLBACK,
 )
 from ..archive import (
     ensure_session as archive_ensure_session,
@@ -311,12 +317,28 @@ async def ws_chat(ws: WebSocket):
     await ws.accept()
     await _ws_send(ws, {"type": "status", "state": "connected"})
 
-    ev = threading.Event()
+    # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.2 (2026-07-24) ──
+    # PER-TURN cancellation event. The old socket-wide pattern was
+    # `ev.set(); current_task.cancel(); ev.clear()` — a race: the clear
+    # could land while the PREVIOUS generation thread was still between
+    # its StopOnEvent checks, un-cancelling it. An old generation could
+    # observe a newly cleared event and keep streaming a dead turn's
+    # tokens into a new turn. Now every start_turn mints a FRESH
+    # threading.Event owned by exactly that generation; a superseded
+    # turn's event is set once and NEVER cleared, so an old generation
+    # can never observe a newly cleared event.
+    current_cancel_event: Optional[threading.Event] = None
     current_task: Optional[asyncio.Task] = None
+    # ── §3.3 — no shared "default" session. Two ID-less sockets used to
+    # share history, softened state, segment flags, and follow-up-bank
+    # rows under the literal conv_id "default" — one narrator's crisis
+    # state could bleed into another narrator's session. Each socket
+    # mints its own fallback conversation id at connect.
+    socket_conv_id = f"ws_{uuid.uuid4()}"
     # WO-2: track active person_id for identity-session handshake
     active_person_id: Optional[str] = None
 
-    async def generate_and_stream(conv_id: str, user_text: str, params: Dict[str, Any]) -> None:
+    async def generate_and_stream(conv_id: str, user_text: str, params: Dict[str, Any], ev: threading.Event) -> None:
       # WO-10M: Flag-outside-except OOM recovery pattern.
       # The exception object holds references to the stack frame where the
       # allocator failed, which in turn holds references to the tensors that
@@ -3385,7 +3407,12 @@ async def ws_chat(ws: WebSocket):
             inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
         streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
 
-        ev.clear()
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.2: NO
+        # ev.clear() here. `ev` is this turn's OWN freshly minted event
+        # (created in the start_turn handler); clearing at this point was
+        # the race that could un-cancel a previous, still-running
+        # generation sharing the socket-wide event. StopOnEvent receives
+        # the event owned by exactly this generation.
         stop = StoppingCriteriaList([StopOnEvent(ev)])
 
         temperature = float(params.get("temperature", params.get("temp", 0.8)))
@@ -4251,6 +4278,13 @@ async def ws_chat(ws: WebSocket):
         #
         # Both guards are pure-stdlib + idempotent + safe-by-default. When
         # the response looks fine, original text passes through unchanged.
+        #
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1: resolve
+        # the repair-target language pin BEFORE the guarded try, so the
+        # fail-closed fallback in the except handler below honors
+        # _session_lang_mode even when the wrapper crashes before the
+        # per-turn looks_spanish heuristics ran.
+        _guard_target_lang = "es" if _session_lang_mode == "spanish" else "en"
         try:
             _apply_guards = _APPLY_RESPONSE_GUARDS   # imported at module scope
             #   (see BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 above) so a broken
@@ -4281,7 +4315,8 @@ async def ws_chat(ws: WebSocket):
             # turn, with the recent-turns context as a smoothing signal
             # for the case where a Spanish session sends a short EN
             # token like "yes".
-            _guard_target_lang = "en"
+            # (_guard_target_lang initialized pin-aware ABOVE the try —
+            # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1.)
             # BUG-LORI-SPANISH-DRIFT-WALT-ERA-7 instrumentation
             # (2026-06-24): explain exactly which signal flipped the
             # guard target to "es" so the Era 7 Walt drift becomes
@@ -4410,11 +4445,43 @@ async def ws_chat(ws: WebSocket):
                 )
                 final_text = _guarded_text
         except Exception as _guard_exc:
-            # Defense-in-depth: never break a turn on guard failure.
-            logger.warning(
-                "[chat_ws][response-guards] wrapper raised, passing through: %s",
-                _guard_exc,
+            # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 —
+            # FAIL CLOSED. The old handler logged a WARNING and "passed
+            # through" — which meant a crash in the guard LAYER shipped
+            # the raw, UNGUARDED LLM text (echo, meta-leak, Spanglish,
+            # seeded-fact intake, sensory pivot — all unchecked) straight
+            # to the narrator. That inverts the whole point of the layer.
+            # BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 proved this exact
+            # class fires in production. Never send unguarded LLM text:
+            # substitute the deterministic fallback (safety wording +
+            # locked resource cards on a safety-triggered turn; the
+            # locked neutral continuation otherwise), honoring the
+            # session language pin resolved above the try.
+            logger.error(
+                "[chat_ws][response-guards] wrapper raised — FAIL CLOSED, "
+                "unguarded LLM text suppressed conv=%s: %s",
+                conv_id, _guard_exc, exc_info=True,
             )
+            _guard_fail_resources = None
+            if _is_safety_turn and _safety_result is not None:
+                try:
+                    _guard_fail_resources = get_resources_for_category(
+                        _safety_result.category)
+                except Exception as _res_exc:
+                    logger.error(
+                        "[chat_ws][response-guards] resource lookup also "
+                        "raised conv=%s: %s — safety fallback proceeds "
+                        "without resource lines", conv_id, _res_exc,
+                    )
+                    _guard_fail_resources = None
+            final_text = _COMPOSE_GUARD_FAILURE_FALLBACK(
+                target_language=_guard_target_lang,
+                safety_triggered=_is_safety_turn,
+                resources=_guard_fail_resources,
+            )
+            # Ensure the deterministic fallback actually reaches the
+            # client bubble via the deferred single-delta emit.
+            _deferred_emit_pending = True
 
         try:
             persist_turn_transaction(
@@ -4555,10 +4622,31 @@ async def ws_chat(ws: WebSocket):
                     active_person_id = incoming_pid
                 else:
                     active_person_id = incoming_pid or active_person_id
-                await _ws_send(ws, {"type": "session_verified", "person_id": active_person_id})
+                await _ws_send(ws, {
+                    "type": "session_verified",
+                    "person_id": active_person_id,
+                    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01
+                    # §3.3 — surface the per-socket fallback conv id so
+                    # an ID-less client can adopt and re-supply it.
+                    "socket_conv_id": socket_conv_id,
+                })
 
             elif msg_type == "start_turn":
-                conv_id = msg.get("session_id") or msg.get("conv_id") or "default"
+                # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.3 —
+                # NEVER the literal "default" for a WS narrator turn.
+                # Clients that supply session_id/conv_id keep it verbatim;
+                # an ID-less client gets this socket's own minted id, so
+                # two ID-less sockets can never share history, softened
+                # state, segment flags, or follow-up-bank rows.
+                conv_id = msg.get("session_id") or msg.get("conv_id") or ""
+                if not conv_id:
+                    conv_id = socket_conv_id
+                    logger.warning(
+                        "[chat_ws][session-identity] start_turn arrived "
+                        "without session_id/conv_id — assigned per-socket "
+                        "conv_id=%s (shared-'default' sessions are "
+                        "retired)", conv_id,
+                    )
                 user_text = msg.get("message") or ""
                 params = msg.get("params") or {}
                 # WO-ARCH-07A — explicit turn mode from client router
@@ -4572,16 +4660,28 @@ async def ws_chat(ws: WebSocket):
                                 active_person_id, turn_pid, cleared)
                     active_person_id = turn_pid
 
-                # cancel any in-flight turn on this socket
-                ev.set()
+                # §3.2 — cancel any in-flight turn on this socket:
+                # permanently set the PREVIOUS turn's event (never
+                # cleared again — an old generation must never observe a
+                # newly cleared event), cancel its task, then mint a
+                # FRESH event owned by exactly this new generation.
+                if current_cancel_event is not None:
+                    current_cancel_event.set()
                 if current_task and not current_task.done():
                     current_task.cancel()
 
-                ev.clear()
-                current_task = asyncio.create_task(generate_and_stream(conv_id, user_text, params))
+                current_cancel_event = threading.Event()
+                current_task = asyncio.create_task(
+                    generate_and_stream(
+                        conv_id, user_text, params, current_cancel_event))
 
             elif msg_type == "cancel_turn":
-                ev.set()
+                # §3.2 — set the ACTIVE turn's own event; the generation
+                # loop observes it, stops streaming, and emits the
+                # cancelled done (fail-closed persistence skip). Never
+                # cleared afterward.
+                if current_cancel_event is not None:
+                    current_cancel_event.set()
                 await _ws_send(ws, {"type": "status", "state": "cancelled"})
 
             elif msg_type == "ping":
@@ -4592,7 +4692,9 @@ async def ws_chat(ws: WebSocket):
 
     except WebSocketDisconnect:
         # Phase G: fail-closed — cancel in-flight generation, do not replay stale state
-        ev.set()
+        # §3.2 — target the ACTIVE turn's own event (set, never cleared).
+        if current_cancel_event is not None:
+            current_cancel_event.set()
         if current_task and not current_task.done():
             current_task.cancel()
         logger.info("[chat-ws] Phase G: WebSocket disconnected — cancelled in-flight, no stale replay")

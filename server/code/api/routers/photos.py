@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3  # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.4 — classified fail-closed errors
 import tempfile
 import uuid
 from pathlib import Path
@@ -928,9 +929,10 @@ def show_next(photo_session_id: str) -> Dict[str, Any]:
     allowed_ids = None
     stop_name_by_photo: Dict[str, str] = {}
     if session.get("trip_id"):
+        _scope_trip_id = str(session["trip_id"])
         try:
             from ..services import trip_repository as _trip_repo
-            links = _trip_repo.photo_links_list(str(session["trip_id"]))
+            links = _trip_repo.photo_links_list(_scope_trip_id)
             scope_stop = session.get("trip_stop_id")
             allowed_ids = []
             stop_names: Dict[str, str] = {}
@@ -946,8 +948,44 @@ def show_next(photo_session_id: str) -> Dict[str, Any]:
                     if stop_names[sid]:
                         stop_name_by_photo[str(link["photo_id"])] = stop_names[sid]
         except Exception as exc:
-            log.warning("[photos][session] trip scope read failed: %s", exc)
-            allowed_ids = None
+            # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.4 —
+            # FAIL CLOSED. The old handler logged a WARNING and reset
+            # `allowed_ids = None`, which select_next_photo interprets
+            # as "no allowlist" — i.e. a transient trip-scope read
+            # failure silently WIDENED a trip-scoped elicitation session
+            # to the narrator's WHOLE photo pool. For a dementia-safety
+            # surface that's a scope violation, not a degradation: the
+            # narrator could be shown photos the operator deliberately
+            # kept out of this session. The trip-scoped selection either
+            # honors its scope or refuses the request with a classified
+            # error the operator can act on. Narrator-wide selection is
+            # preserved ONLY when no trip scope was requested (the
+            # `session.get("trip_id")` gate above).
+            #
+            # Error shape mirrors trips.py `_classified_sqlite_500`:
+            # classified prefix + truncated exc reaches the caller; the
+            # full traceback lives in api.log via log.exception.
+            _failure_class = type(exc).__name__
+            if isinstance(exc, sqlite3.Error):
+                _sqlite_name = getattr(exc, "sqlite_errorname", None)
+                _failure_class = (
+                    f"SQLITE_{_sqlite_name}" if _sqlite_name
+                    else f"sqlite3.{type(exc).__name__}"
+                )
+            log.exception(
+                "[photos][session][trip-scope] FAIL CLOSED — allowed-photo "
+                "lookup failed trip=%s session=%s failure_class=%s "
+                "(refusing whole-pool fallback)",
+                _scope_trip_id, photo_session_id, _failure_class,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "trip photo scope unavailable (fail closed — no "
+                    "whole-pool fallback) [" + _failure_class + "]: "
+                    + str(exc)[:200]
+                ),
+            ) from exc
 
     picked = select_next_photo(
         narrator_id=session["narrator_id"],

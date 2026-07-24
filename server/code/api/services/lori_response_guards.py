@@ -92,6 +92,20 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Sequence, Tuple
 
+# WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 (2026-07-24) —
+# INC-2026-07-09 doctrine: structural breakage fails at BOOT, not lazily
+# in a per-call try/except that quietly returns False. This regex was
+# previously imported INSIDE detect_sensory_pivot_on_chain with
+# `except Exception: return False` — meaning a broken/renamed
+# factual_chain_capture would have silently disabled the chain-turn
+# sensory ban on every narrator turn while its unit tests stayed green.
+# factual_chain_capture is pure stdlib (re + typing only), so this
+# module-scope import keeps the guards module LAW-3 clean: no LLM, no
+# DB, no IO, no third-party framework.
+from .factual_chain_capture import (
+    _SENSORY_PROBE_RX as _CHAIN_SENSORY_PROBE_RX,
+)
+
 
 # Per 2026-06-24 product call (English-first iteration 2): the drift
 # guard stays ACTIVE on EVERY surface. The earlier surface=="trip"
@@ -937,11 +951,10 @@ def detect_sensory_pivot_on_chain(
         return False
     if not assistant_text or not assistant_text.strip():
         return False
-    try:
-        from .factual_chain_capture import _SENSORY_PROBE_RX
-    except Exception:
-        return False
-    return bool(_SENSORY_PROBE_RX.search(assistant_text))
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1: the regex is
+    # imported at module scope (see top of file) so a structural break in
+    # factual_chain_capture fails the BOOT, not silently per-call.
+    return bool(_CHAIN_SENSORY_PROBE_RX.search(assistant_text))
 
 
 _SENSORY_PIVOT_REPAIR_EN_NEUTRAL = (
@@ -1047,6 +1060,85 @@ def repair_narrator_echo(
     if str(target_language or "en").lower().startswith("es"):
         return "Lo tengo. ¿Qué recuerdas de lo que había a tu alrededor?"
     return "I\u2019ve got that. What do you remember seeing around you?"
+
+
+# ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 (2026-07-24) ────
+# Guard-wrapper FAIL-CLOSED fallback. The chat_ws call site used to wrap
+# the whole apply_response_guards block in `except Exception:
+# logger.warning(...passing through...)` — i.e. a crash in the guard
+# LAYER shipped the raw, UNGUARDED LLM text straight to an 86-year-old
+# narrator. The fix: on wrapper exception the caller never sends the raw
+# text; it sends this deterministic fallback instead.
+#
+# Everything here is composed from module-level constants so imports and
+# regexes resolve at BOOT, never lazily inside the exception path
+# (INC-2026-07-09 doctrine — a helper that itself blows up inside the
+# except handler would recreate the exact failure class it exists to
+# close).
+#
+# Neutral wording is the EXISTING locked deterministic continuation used
+# by the other guards (repair_meta_response_leak / repair_broken_code_mix
+# last-resort branch): no new fact, no sensory probe, no diagnosis, no
+# compound question, no claim about narrator content beyond generic
+# acknowledgment.
+_GUARD_FAILURE_NEUTRAL_EN = "Tell me more about that."
+_GUARD_FAILURE_NEUTRAL_ES = "Cuéntame más sobre eso."
+# Safety-turn wording: warm presence + the locked resource-card text the
+# caller passes in (chat_ws already holds
+# safety.get_resources_for_category(category) for the triggered turn —
+# this module stays LAW-3 pure by taking the cards as data, not by
+# importing the safety module).
+_GUARD_FAILURE_SAFETY_EN = "I hear you, and I'm staying right here with you."
+_GUARD_FAILURE_SAFETY_ES = "Te escucho, y estoy aquí contigo."
+
+
+def compose_guard_failure_fallback(
+    target_language: str = "en",
+    safety_triggered: bool = False,
+    resources: Optional[Sequence[dict]] = None,
+) -> str:
+    """Deterministic reply for a turn whose response-guard wrapper raised.
+
+    `resources` is the locked resource-card list (name/contact/
+    description dicts from api.safety.get_resources_for_category) for the
+    triggered category; only consumed when safety_triggered is True. An
+    empty/None list on a safety turn (e.g. past_tense_ideation_
+    acknowledged, which deliberately dispatches no narrator-side
+    resources) yields the warm-presence line alone.
+
+    Honors the session language pin via `target_language` ('es' → the
+    locked Spanish siblings). Never raises: any malformed resource entry
+    is skipped, not fatal — this function runs inside an exception
+    handler and must be bulletproof.
+    """
+    spanish = bool(target_language
+                   and str(target_language).lower().startswith("es"))
+    if not safety_triggered:
+        return _GUARD_FAILURE_NEUTRAL_ES if spanish else _GUARD_FAILURE_NEUTRAL_EN
+
+    parts: List[str] = [
+        _GUARD_FAILURE_SAFETY_ES if spanish else _GUARD_FAILURE_SAFETY_EN,
+    ]
+    _resource_lines = 0
+    for card in list(resources or []):
+        if _resource_lines >= 2:  # cap VALID lines, not raw entries
+            break
+        try:
+            name = str(card.get("name") or "").strip()
+            desc = str(card.get("description") or "").strip()
+            contact = str(card.get("contact") or "").strip()
+        except Exception:
+            continue
+        if not (name and (desc or contact)):
+            continue
+        # Resource-card wording verbatim — e.g.
+        # "Crisis & Suicide Prevention: Call or text 988 (US)."
+        line = f"{name}: {desc}" if desc else f"{name}: {contact}"
+        if not line.endswith("."):
+            line += "."
+        parts.append(line)
+        _resource_lines += 1
+    return " ".join(parts)
 
 
 def apply_response_guards(
@@ -1174,5 +1266,6 @@ __all__ = [
     "repair_dangling_determiner",
     "detect_sensory_pivot_on_chain",
     "repair_sensory_pivot",
+    "compose_guard_failure_fallback",
     "apply_response_guards",
 ]
