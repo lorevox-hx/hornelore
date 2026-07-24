@@ -1,6 +1,6 @@
 # WO-TRAVEL-DOC-UNIFY-01
 
-**Status:** ACTIVE — Phase 1 LANDED 2026-07-24. Phases 2–6 open.
+**Status:** ACTIVE — Phase 1 LANDED 2026-07-24; Phase 1.1 (mount liveness) LANDED 2026-07-24. Phases 2–6 open.
 **Lane:** Trips / operator tooling
 **Parent:** `WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01` (the production panel), `WO-TRAVEL-DOC-UI-LAB-02` / `-03` (the lab being promoted), `WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` (the delete gate that must survive the port).
 **Origin:** Chris, 2026-07-24 — *"I dont want a cosmetic fix, I want one merged best of what we have on the two and do away with the lab and have it just be the travel docs."*
@@ -53,6 +53,12 @@ Convert `travel-doc-lab.js` from a page-level IIFE into `window.lvTravelDocMount
 Behaviour-neutral by construction — no markup, no CSS, no API surface, no backend change.
 
 **Acceptance:** module exposes the mount ✓ · host comes from the caller ✓ · opts beat the querystring ✓ · no page-scope `boot()` ✓ · mounting twice and destroying one leaves the other fully functional with exactly one channel subscription ✓ (see verification below).
+
+### Phase 1.1 — mount liveness ✅ LANDED 2026-07-24
+
+Hardening gate between Phase 1 and Phase 2, opened by Chris's review of Phase 1: `destroy()` tore the mount down but nothing stopped an **in-flight** async callback from resolving afterwards and repainting a host the caller had already cleared. Phase 1 could not surface this because the standalone harness never unmounts; Phase 2 mounts and unmounts on tab switches, which is exactly when it bites.
+
+Six guards, no behaviour change while a mount is alive. **Phase 2 was blocked until this landed.**
 
 ### Phase 2 — coexist in the tab behind a toggle
 
@@ -165,6 +171,65 @@ That is Phase 1's acceptance criterion met literally.
 
 **Not exercised:** the shell mount path (`#lvTravelDocHost`) — that is Phase 2 by design. `hornelore1.0.html` is untouched in this phase.
 
+## Phase 1.1 — what landed (2026-07-24)
+
+Chris's review of Phase 1: *"destroy() closes the BroadcastChannel, resets Lori, and clears the host — good. But I do not see a destroyed/mounted-alive guard that prevents pending async callbacks from rendering after destroy()."* The Lab has many async flows — `loadTrips`, trip bundle loads, evidence reloads, Lori drawer refreshes, draft preview — and any of them in flight at teardown resolves into a dead mount.
+
+**Why six guards and not fifty-four.** There are 54 `.then(` call sites in this file. Guarding each one is unreviewable and rots on the next feature. Instead the file was surveyed for choke points, and it turns out to have exactly **one of each thing worth guarding**:
+
+| choke point | count | guard |
+|---|---|---|
+| `fetch(` | 1, inside `api()` | `if (destroyed) return abandoned();` on all three arms (pre-flight, response, error-body) plus a two-arg `.then` rejection handler |
+| repaint entry | 1, `renderAll()` — all 24 `render*` functions route through it | early return |
+| BroadcastChannel handler | 1 | early return |
+| WebSocket `onmessage` | 1 | early return, **plus socket-identity pinning** |
+| timer | 1, the Lori send-retry ladder | early return |
+| `document`-level listener | 1, `keydown` | early return **and unbound in `destroy()`** |
+
+The tests pin every one of those counts. If a seventh async path ever appears, the strategy self-invalidates loudly instead of silently leaking.
+
+**`abandoned()`** — `new Promise(function () {})`, a promise that never settles. `api()` returns it when the mount is dead so that neither `.then()` nor `.catch()` runs at any of the 54 call sites. Rejecting would fire every `.catch(e => { st.error = e.message; renderAll(); })` in the file, which is itself a write to dead state; resolving would fire every success path. Never settling is the only option that is silent.
+
+**Socket-identity pinning** covers a case `destroyed` alone does not. `connect()` captures `var sock = this.ws` and `onmessage` bails on `destroyed || self.ws !== sock`. `loriPane.reset()` runs on every **trip switch**, not just teardown — it nulls `this.ws` while the old socket may still deliver a queued frame. Without the pin, a token from Trip A's stream appends into Trip B's transcript. That is a live-mount bug the liveness work happened to expose.
+
+**The leak the review did not name.** `document.addEventListener("keydown", ...)` is the only listener bound outside the host, so clearing the host does not remove it. Two mounts meant two live listeners on `document`, and after `destroy()` an arrow key still drove `lightboxStep()` -> `renderAll()`. The handler is now named `onDocKeydown` and `destroy()` unbinds it.
+
+`destroy()` sets `destroyed = true` **first**, before any teardown step, because each step can run script that re-enters the module. Closing the door and then flipping the sign leaves a window open. It remains idempotent and every step remains individually guarded.
+
+### Phase 1.1 verification
+
+`node --check` clean - **154 tests green** across the same five suites (was 142; `test_travel_doc_lab` gained 12).
+
+Static pins (`MountLivenessTest`) check the *shape* of the guards. They cannot watch a stale callback land on a dead host, so that is proved in a real browser by `scripts/ui/run_travel_doc_mount_liveness.js` — no backend, no manual server, no arguments, exits 0/1.
+
+Its method matters: `window.fetch` is replaced with one that **parks** every request and never settles until the test releases it. With fetch parked, `boot()` paints nothing at all, because `renderAll()` lives inside the `.then()`. So "host is empty" is the identical starting state for every row, and the only difference between them is whether the mount was destroyed before the release.
+
+| scenario | destroyed first | released as | host mutations | children |
+|---|---|---|---|---|
+| `control_live` | no | 200 OK | **3** | **1** |
+| `destroyed_then` | yes | 200 OK | 0 | 0 |
+| `destroyed_notok` | yes | 500 + error body | 0 | 0 |
+| `destroyed_reject` | yes | network rejection | 0 | 0 |
+
+`control_live` is the load-bearing row. Without it, three "nothing happened" results prove nothing — a harness that never delivers a callback also produces three empty hosts.
+
+| census | two mounts | after first destroy | after second |
+|---|---|---|---|
+| `hornelore-trip-updates` subscriptions | 2 | 1 | 0 |
+| `document` keydown registrations | 2 | 1 | 0 |
+
+Both censuses count bind/unbind rather than observing effects, deliberately: the keydown handler early-returns unless a lightbox is open, so an "assert no repaint on keypress" test would pass with the listener still bound — vacuously. Counting cannot go vacuous. Zero unhandled rejections, zero page errors, `destroy()` still idempotent.
+
+**Negative controls run by hand, both confirmed red:**
+
+1. `destroy()` changed to set `destroyed = false` -> all three destroyed rows flipped to 3 mutations / 1 child. The reviewer's reported bug, reproduced exactly.
+2. `destroy()`'s `removeEventListener` line deleted -> keydown census went 2 -> 2 -> 2 instead of 2 -> 1 -> 0.
+
+A green suite that cannot go red is decoration. Re-run both by hand if the guards change.
+
+**Not exercised:** the shell mount path, still. No backend change, no shell change, `hornelore1.0.html` untouched.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
+- 2026-07-24 — Phase 1.1 added and landed after Chris's Phase 1 review found no stale-async guard. Phase 2 was held until it was in.
