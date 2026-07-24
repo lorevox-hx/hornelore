@@ -212,10 +212,22 @@ class _LocationNotesCase(unittest.TestCase):
             trips.patch_location_note("nope", _note_patch_req(note_text="x"))
         self.assertEqual(ctx.exception.status_code, 404)
 
-    def test_delete(self):
+    def test_delete_is_soft_hide(self):
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: DELETE now soft-hides —
+        # the row is preserved and restorable; only an explicit purge
+        # with the exact-id confirmation removes it physically.
         out = trips.create_location_note(self.trip_id, _note_create_req(note_text="m"))
         nid = out["note_id"]
-        trips.delete_location_note(nid)
+        res = trips.delete_location_note(nid)
+        self.assertTrue(res["hidden"])
+        self.assertFalse(res["purged"])
+        self.assertTrue(res["restorable"])
+        row = trip_repository.location_note_get(nid)
+        self.assertIsNotNone(row)          # row preserved
+        self.assertEqual(row["hidden"], 1)
+        # Purge with the exact id removes it for real.
+        res2 = trips.delete_location_note(nid, purge=True, confirm_id=nid)
+        self.assertTrue(res2["purged"])
         self.assertIsNone(trip_repository.location_note_get(nid))
 
     def test_delete_unknown_404(self):

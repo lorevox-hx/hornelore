@@ -184,6 +184,11 @@ def _scope_notes(
     want = set(include_note_ids or [])
     out: List[Dict[str, str]] = []
     for n in rows:
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the list read already
+        # excludes hidden rows; this is belt-and-braces so a future
+        # include_hidden caller can never leak one into evidence.
+        if n.get("hidden"):
+            continue
         if not _in_scope(n, scope, region_stop_ids):
             continue
         promoted = bool(n.get("include_in_memoir"))
@@ -211,6 +216,10 @@ def _scope_sources(
     want = set(include_source_ids or [])
     out: List[Dict[str, str]] = []
     for s in rows:
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: belt-and-braces (see
+        # _scope_notes).
+        if s.get("hidden"):
+            continue
         if not _in_scope(s, scope, region_stop_ids):
             continue
         promoted = bool(s.get("include_in_memoir"))
@@ -229,6 +238,43 @@ def _scope_sources(
     return out
 
 
+def _skipped_hidden_ids(
+    trip_id: str,
+    include_note_ids: Optional[List[str]],
+    include_source_ids: Optional[List[str]],
+) -> List[str]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: explicitly selected ids that
+    were dropped because the row is HIDDEN. The repository list reads
+    exclude hidden rows by default, so a hidden note/source can never
+    enter the evidence bundle even when named in include_*_ids — this
+    helper just makes that exclusion VISIBLE in the context preview so
+    the operator isn't left wondering why a selected row went missing.
+
+    getattr-guarded: test harnesses stub trip_repository with minimal
+    fakes that may not define the by-id getters; missing getters simply
+    report nothing (the exclusion itself is enforced upstream)."""
+    skipped: List[str] = []
+    visible_note_ids = {n.get("id")
+                       for n in trip_repository.location_notes_list(trip_id)}
+    note_get = getattr(trip_repository, "location_note_get", None)
+    for nid in (include_note_ids or []):
+        if nid in visible_note_ids or not callable(note_get):
+            continue
+        row = note_get(nid)
+        if row and row.get("trip_id") == trip_id and row.get("hidden"):
+            skipped.append(nid)
+    visible_source_ids = {s.get("id")
+                         for s in trip_repository.sources_list(trip_id)}
+    source_get = getattr(trip_repository, "source_get", None)
+    for sid in (include_source_ids or []):
+        if sid in visible_source_ids or not callable(source_get):
+            continue
+        row = source_get(sid)
+        if row and row.get("trip_id") == trip_id and row.get("hidden"):
+            skipped.append(sid)
+    return skipped
+
+
 def assemble_context(
     trip_id: str,
     *,
@@ -238,7 +284,13 @@ def assemble_context(
     include_source_ids: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Read-only preview of exactly what would be sent to the model. Returns
-    None if the scope doesn't belong to the trip."""
+    None if the scope doesn't belong to the trip.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden notes/sources/photo
+    links never reach this bundle — the repository list reads exclude
+    them by default (and the builder outline we reuse is built from the
+    same reads). An explicit include_*_ids selection of a hidden row is
+    excluded and reported in ``skipped_hidden_ids``."""
     scope = _resolve_scope(trip_id, region_id, stop_id)
     if scope is None:
         return None
@@ -257,6 +309,8 @@ def assemble_context(
         "draft_anchor_count": draft_anchor_count,
         "notes": notes,
         "sources": sources,
+        "skipped_hidden_ids": _skipped_hidden_ids(
+            trip_id, include_note_ids, include_source_ids),
         "has_material": has_material,
     }
 

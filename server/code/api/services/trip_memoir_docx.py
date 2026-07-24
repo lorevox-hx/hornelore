@@ -8,6 +8,13 @@ photo appendix (include_in_memoir=1 links joined to photos.image_path).
 python-docx is imported lazily and guarded — callers get a clear
 RuntimeError when it isn't installed (the memoir_export router uses
 the same posture with a 503).
+
+WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden evidence (notes / sources
+/ photo links stamped hidden=1) is excluded UPSTREAM — the preview
+dict (trip_repository.trip_memoir_preview) and the photo rows
+(photo_links_with_photo_paths) this builder renders are assembled from
+hide-aware repository reads, so a hidden row never reaches this
+module regardless of its include_in_memoir flag.
 """
 from __future__ import annotations
 

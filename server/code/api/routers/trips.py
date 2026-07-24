@@ -49,6 +49,20 @@ mirroring the operator_eval_harness posture):
     GET   /api/trips/{trip_id}/days/reconcile-preview   (read-only date diff)
     POST  /api/trips/{trip_id}/days/reconcile  {add_missing, mark_out_of_range}
 
+WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 (2026-07-24) — evidence lifecycle
+safety + destructive-trip controls:
+  * DELETE location-notes/{id} and sources/{id} SOFT-HIDE by default
+    (row preserved, restorable via PATCH hidden:false); physical purge
+    only with ?purge=true&confirm_id=<exact row id>.
+  * PATCH location-notes / sources / photo-links accept hidden:bool.
+  * List endpoints exclude hidden by default; ?include_hidden=1 shows.
+  * DELETE public-context/{id} and photo-context/{id} REJECT
+    (rejected=1) instead of deleting; approved rows → 409.
+  * DELETE /api/trips/{trip_id} takes an optional {force,
+    confirm_trip_id, reason} body: evidence-bearing trips 409 without
+    force, force needs the exact trip id echoed, and a force delete is
+    audited (narrator_delete_audit) atomically with the cascade.
+
 Operator-side surface. Nothing here reaches the narrator directly —
 the interview lane consumes trips later via location notes (LOCKED
 boundary: include_in_memoir=0 by default; operator context never
@@ -229,6 +243,10 @@ class PhotoLinkPatch(BaseModel):
     operator_context_note: Optional[str] = None
     clear_operator_context_note: bool = False
     operator_context_approved_for_lori: Optional[bool] = None
+    # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: reversible hide/restore for
+    # a photo link (no DELETE endpoint exists for links; this is the
+    # only way to retire one, and it is fully restorable).
+    hidden: Optional[bool] = None
 
 
 class RegionsReorder(BaseModel):
@@ -270,6 +288,10 @@ class LocationNotePatch(BaseModel):
     include_in_interview_context: Optional[bool] = None
     ord: Optional[int] = None
     clear_title: bool = False
+    # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden=true hides the note
+    # from every consumer (hidden_at stamped); hidden=false restores it
+    # (hidden_at cleared). Never touches the promotion flags.
+    hidden: Optional[bool] = None
 
 
 class SourceCreate(BaseModel):
@@ -301,6 +323,8 @@ class SourcePatch(BaseModel):
     # detaches (NULLs trip_day_id ONLY — never deletes the source).
     trip_day_id: Optional[str] = None
     clear_day: bool = False
+    # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: reversible hide/restore.
+    hidden: Optional[bool] = None
 
 
 # ── Photo source read (photos table from the Photo Intake lane) ──────────
@@ -719,9 +743,14 @@ def cluster_photos(trip_id: str, req: ClusterPhotosRequest) -> Dict[str, Any]:
 def list_photo_links(
     trip_id: str,
     max_confidence: Optional[float] = None,
+    include_hidden: bool = False,
 ) -> Dict[str, Any]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden links are excluded
+    by default; ?include_hidden=1 surfaces them for operator review
+    (rows carry hidden/hidden_at either way)."""
     _require_trips_enabled()
-    links = trip_repository.photo_links_list(trip_id, max_confidence)
+    links = trip_repository.photo_links_list(
+        trip_id, max_confidence, include_hidden=bool(include_hidden))
     return {"trip_id": trip_id, "count": len(links), "photo_links": links}
 
 
@@ -771,6 +800,9 @@ def patch_photo_link(link_id: str, req: PhotoLinkPatch) -> Dict[str, Any]:
         operator_context_note=req.operator_context_note,
         clear_operator_context_note=req.clear_operator_context_note,
         operator_context_approved_for_lori=req.operator_context_approved_for_lori,
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 (getattr keeps old
+        # request objects without the field working unchanged).
+        hidden=getattr(req, "hidden", None),
     )
     if not ok:
         raise HTTPException(
@@ -811,13 +843,19 @@ def trip_date_confirmations(trip_id: str) -> Dict[str, Any]:
                      AND p.metadata_trust IN ('full', 'time_only')
                      AND p.narrator_ready = 1
                      AND p.deleted_at IS NULL
+                     AND l.hidden = 0
                      AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
                    GROUP BY s.id
                    ORDER BY date""",
                 (trip_id,),
             ).fetchall()
         except sqlite3.OperationalError:
-            rows = []  # pre-0016 DB — no trust column, offer nothing
+            # Pre-0016 (no trust column) or pre-0036 (no hidden column)
+            # DB — offer nothing. Data-preserving direction: a hidden
+            # link must never generate a narrator recognition offer
+            # (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01), so we degrade to
+            # silence rather than risk surfacing retired evidence.
+            rows = []
     finally:
         con.close()
     return {
@@ -1676,23 +1714,74 @@ def delete_theme(theme_id: str) -> Dict[str, Any]:
     return {"ok": True, "theme_id": theme_id}
 
 
+class TripDeleteBody(BaseModel):
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 Phase 2 — OPTIONAL JSON body
+    for DELETE /api/trips/{trip_id}. Absent body = legacy call shape
+    (force=false). ``confirm_trip_id`` must echo the path trip id
+    exactly for a force delete — a stale UI selection can't confirm the
+    wrong trip. ``reason`` is recorded in the audit row."""
+    force: bool = False
+    confirm_trip_id: Optional[str] = None
+    reason: Optional[str] = None
+
+
 @router.delete("/{trip_id}")
-def delete_trip(trip_id: str) -> Dict[str, Any]:
-    """Delete a trip and all rows under it (regions/stops/themes/photo
-    links cascade). Photos themselves are never touched — the links
-    are joins, not ownership."""
+def delete_trip(trip_id: str,
+                req: Optional[TripDeleteBody] = None) -> Dict[str, Any]:
+    """Delete a trip. WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 Phase 2 —
+    destructive-trip controls:
+
+      * EMPTY trip (every dependent count zero) → deletes normally,
+        exactly the pre-existing contract (no body needed).
+      * Trip with ANY dependent rows and no force → 409 with the full
+        per-table counts; NOTHING is modified. The operator reviews the
+        impact and re-sends with force.
+      * force=true requires confirm_trip_id == the path trip id exactly
+        → otherwise 422, nothing modified.
+      * force + exact confirm → ONE transaction: append-only audit row
+        (narrator_delete_audit, action='trip_force_delete', with the
+        counts + reason + requested_by) THEN the FK cascade delete,
+        committed atomically — a partial failure rolls back both.
+
+    Photos themselves are never touched — trip_photo_links are joins,
+    not ownership. The 409 body ships inside FastAPI's standard
+    ``detail`` envelope: {"detail": {"detail": "Trip contains
+    evidence", "trip_id": ..., "requires_force": true, "counts":
+    {...}}}."""
     _require_trips_enabled()
     trip = trip_repository.trip_get(trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="trip not found")
-    # Phase B: remove the trip's timeline event BEFORE the row goes —
-    # the life record must not keep a ghost of a deleted trip.
-    trip_timeline_bridge.remove_trip_from_life_record(trip)
-    ok = trip_repository.trip_delete(trip_id)
-    if not ok:
+    force = bool(getattr(req, "force", False)) if req is not None else False
+    reason = (getattr(req, "reason", None) if req is not None else None)
+    if force:
+        confirm = str(getattr(req, "confirm_trip_id", "") or "").strip()
+        if confirm != str(trip_id):
+            raise HTTPException(
+                status_code=422,
+                detail="force delete requires confirm_trip_id exactly "
+                       "matching the trip id; nothing was deleted")
+    out = trip_repository.trip_delete_impact(
+        trip_id, force=force, reason=reason, requested_by="operator")
+    if out["status"] == "not_found":
         raise HTTPException(status_code=404, detail="trip not found")
-    logger.info("[trips][delete] trip=%s", trip_id)
-    return {"ok": True, "trip_id": trip_id}
+    if out["status"] == "blocked":
+        raise HTTPException(
+            status_code=409,
+            detail={"detail": "Trip contains evidence",
+                    "trip_id": trip_id,
+                    "requires_force": True,
+                    "counts": out["counts"]})
+    # Timeline-event ghost removal now runs AFTER the delete commits
+    # (it used to run before): a refused delete (409/422 above) must
+    # leave the life record untouched. remove_trip_from_life_record
+    # only reads the pre-fetched trip dict + the timeline table, never
+    # the trips row, so post-delete ordering is safe; it never raises.
+    trip_timeline_bridge.remove_trip_from_life_record(trip)
+    logger.info("[trips][delete] trip=%s forced=%s counts=%s",
+                trip_id, out.get("forced"), out.get("counts"))
+    return {"ok": True, "deleted": True, "trip_id": trip_id,
+            "counts": out["counts"]}
 
 
 _LOCATION_NOTE_SOURCE_TYPES = ("operator", "lori", "external", "draft")
@@ -1700,14 +1789,20 @@ _LOCATION_NOTE_SOURCE_TYPES = ("operator", "lori", "external", "draft")
 
 @router.get("/{trip_id}/location-notes")
 def list_location_notes(trip_id: str, region_id: Optional[str] = None,
-                        stop_id: Optional[str] = None) -> Dict[str, Any]:
+                        stop_id: Optional[str] = None,
+                        include_hidden: bool = False) -> Dict[str, Any]:
     """Story-layer notes for a trip, optionally scoped. stop_id -> that
     stop's notes; region_id (no stop) -> that region's own notes (stop is
-    null); neither -> trip-level notes (both scopes null)."""
+    null); neither -> trip-level notes (both scopes null).
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden notes are excluded by
+    default; ?include_hidden=1 surfaces them for operator review (rows
+    carry hidden/hidden_at either way)."""
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
-    notes = trip_repository.location_notes_list(trip_id)
+    notes = trip_repository.location_notes_list(
+        trip_id, include_hidden=bool(include_hidden))
     if stop_id:
         notes = [n for n in notes if n.get("trip_stop_id") == stop_id]
     elif region_id:
@@ -1765,6 +1860,9 @@ def patch_location_note(note_id: str, req: LocationNotePatch) -> Dict[str, Any]:
         include_in_interview_context=req.include_in_interview_context,
         ord_=req.ord,
         clear_title=req.clear_title,
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hide/restore. getattr
+        # keeps older request objects without the field working.
+        hidden=getattr(req, "hidden", None),
     )
     if not ok:
         raise HTTPException(status_code=400, detail="nothing to update")
@@ -1772,11 +1870,35 @@ def patch_location_note(note_id: str, req: LocationNotePatch) -> Dict[str, Any]:
 
 
 @router.delete("/location-notes/{note_id}")
-def delete_location_note(note_id: str) -> Dict[str, Any]:
+def delete_location_note(note_id: str, purge: bool = False,
+                         confirm_id: Optional[str] = None) -> Dict[str, Any]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: DELETE is now a SOFT HIDE
+    by default — the row is preserved (hidden=1, hidden_at stamped) and
+    fully restorable via PATCH {hidden:false}. This is a deliberate,
+    data-preserving behavior change for old clients: their DELETE now
+    hides instead of destroying.
+
+    Physical purge requires BOTH ?purge=true AND ?confirm_id=<the exact
+    note id> — a missing or mismatched confirm_id is a 422 and nothing
+    is modified (the exact-id echo defeats stale UI selection)."""
     _require_trips_enabled()
-    if not trip_repository.location_note_delete(note_id):
+    if not trip_repository.location_note_get(note_id):
         raise HTTPException(status_code=404, detail="note not found")
-    return {"ok": True, "note_id": note_id}
+    if purge:
+        if (confirm_id or "").strip() != str(note_id):
+            raise HTTPException(
+                status_code=422,
+                detail="purge requires confirm_id exactly matching the "
+                       "note id; nothing was deleted")
+        if not trip_repository.location_note_delete(note_id):
+            raise HTTPException(status_code=404, detail="note not found")
+        logger.info("[trips][note-purge] note=%s physically removed",
+                    note_id)
+        return {"ok": True, "note_id": note_id, "purged": True}
+    if not trip_repository.location_note_update(note_id, hidden=True):
+        raise HTTPException(status_code=404, detail="note not found")
+    return {"ok": True, "note_id": note_id, "hidden": True,
+            "purged": False, "restorable": True}
 
 
 _TRIP_SOURCE_TYPES = ("itinerary", "receipt", "hotel", "ticket",
@@ -1811,11 +1933,15 @@ def _validate_source_day(trip_id: str, day_id) -> None:
 @router.get("/{trip_id}/sources")
 def list_sources(trip_id: str, region_id: Optional[str] = None,
                  stop_id: Optional[str] = None,
-                 day_id: Optional[str] = None) -> Dict[str, Any]:
+                 day_id: Optional[str] = None,
+                 include_hidden: bool = False) -> Dict[str, Any]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden sources are excluded
+    by default; ?include_hidden=1 surfaces them for operator review."""
     _require_trips_enabled()
     if not trip_repository.trip_get(trip_id):
         raise HTTPException(status_code=404, detail="trip not found")
-    rows = trip_repository.sources_list(trip_id, day_id=day_id)
+    rows = trip_repository.sources_list(
+        trip_id, day_id=day_id, include_hidden=bool(include_hidden))
     if stop_id:
         rows = [s for s in rows if s.get("trip_stop_id") == stop_id]
     elif region_id:
@@ -1920,6 +2046,8 @@ def patch_source(source_id: str, req: SourcePatch) -> Dict[str, Any]:
         ord_=req.ord,
         trip_day_id=req_day,
         clear_day=bool(getattr(req, "clear_day", False)),
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hide/restore.
+        hidden=getattr(req, "hidden", None),
     )
     if not ok:
         raise HTTPException(status_code=400, detail="nothing to update")
@@ -1927,22 +2055,44 @@ def patch_source(source_id: str, req: SourcePatch) -> Dict[str, Any]:
 
 
 @router.delete("/sources/{source_id}")
-def delete_source(source_id: str) -> Dict[str, Any]:
+def delete_source(source_id: str, purge: bool = False,
+                  confirm_id: Optional[str] = None) -> Dict[str, Any]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: DELETE is now a SOFT HIDE
+    by default — row AND stored file are preserved; restore via PATCH
+    {hidden:false}. (Data-preserving change for old clients: their
+    DELETE now hides.)
+
+    Physical purge (row + stored file) requires BOTH ?purge=true AND
+    ?confirm_id=<the exact source id>; missing/mismatched confirm_id →
+    422, nothing modified."""
     _require_trips_enabled()
     src_row = trip_repository.source_get(source_id)
     if not src_row:
         raise HTTPException(status_code=404, detail="source not found")
-    if not trip_repository.source_delete(source_id):
+    if purge:
+        if (confirm_id or "").strip() != str(source_id):
+            raise HTTPException(
+                status_code=422,
+                detail="purge requires confirm_id exactly matching the "
+                       "source id; nothing was deleted")
+        if not trip_repository.source_delete(source_id):
+            raise HTTPException(status_code=404, detail="source not found")
+        # Best-effort: remove the stored file (row is the authority; a
+        # leftover blob is harmless but we clean up). ONLY on purge —
+        # a hide must keep the file so restore is lossless.
+        sp = src_row.get("storage_path")
+        if sp:
+            try:
+                os.remove(sp)
+            except OSError:
+                pass
+        logger.info("[trips][source-purge] source=%s physically removed",
+                    source_id)
+        return {"ok": True, "source_id": source_id, "purged": True}
+    if not trip_repository.source_update(source_id, hidden=True):
         raise HTTPException(status_code=404, detail="source not found")
-    # Best-effort: remove the stored file (row is the authority; a leftover
-    # blob is harmless but we clean up).
-    sp = src_row.get("storage_path")
-    if sp:
-        try:
-            os.remove(sp)
-        except OSError:
-            pass
-    return {"ok": True, "source_id": source_id}
+    return {"ok": True, "source_id": source_id, "hidden": True,
+            "purged": False, "restorable": True}
 
 
 @router.get("/{trip_id}/export-docx")
@@ -2206,13 +2356,29 @@ def delete_public_context(
     context_id: str,
     trip_id: Optional[str] = Query(None, description="Optional trip scope guard"),
 ) -> Dict[str, Any]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: repurposed to REJECT
+    (rejected=1, the existing 0032 hide-not-delete flag) — this
+    endpoint can no longer physically DELETE a public-context row.
+    Closes the code-review finding that an APPROVED evidence row could
+    be hard-deleted here: an approved row (approved_for_lori=1 or
+    include_in_memoir=1) is a 409 and must be explicitly un-approved
+    (PATCH) first — nothing is modified on that path. Restore a
+    rejected row via PATCH {rejected:false}."""
     _require_trips_enabled()
-    _assert_context_trip_scope(
-        trip_repository.public_context_trip_id(context_id), trip_id,
-        "public context")
-    if not trip_repository.public_context_delete(context_id):
+    existing = trip_repository.public_context_get(context_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="public context not found")
-    return {"ok": True, "context_id": context_id}
+    _assert_context_trip_scope(existing.get("trip_id"), trip_id,
+                               "public context")
+    if existing.get("approved_for_lori") or existing.get("include_in_memoir"):
+        raise HTTPException(
+            status_code=409,
+            detail="public context is approved; un-approve it (PATCH "
+                   "approved_for_lori/include_in_memoir false) before "
+                   "rejecting — nothing was modified")
+    trip_repository.public_context_update(context_id, rejected=True)
+    return {"ok": True, "context_id": context_id, "rejected": True,
+            "purged": False}
 
 
 @router.get("/{trip_id}/travelogue-preview")
@@ -2567,13 +2733,27 @@ def delete_photo_context(
     context_id: str,
     trip_id: Optional[str] = Query(None, description="Optional trip scope guard"),
 ) -> Dict[str, Any]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: repurposed to REJECT
+    (rejected=1, the existing 0030 flag) — never a physical DELETE
+    through this endpoint. An approved row (approved_for_lori=1 or
+    include_in_memoir=1) is a 409 requiring explicit un-approval first;
+    nothing is modified on that path. Restore via PATCH
+    {rejected:false}."""
     _require_trips_enabled()
-    _assert_context_trip_scope(
-        trip_repository.photo_context_trip_id(context_id), trip_id,
-        "photo context")
-    if not trip_repository.photo_context_delete(context_id):
+    existing = trip_repository.photo_context_get(context_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="photo context not found")
-    return {"ok": True, "context_id": context_id}
+    _assert_context_trip_scope(existing.get("trip_id"), trip_id,
+                               "photo context")
+    if existing.get("approved_for_lori") or existing.get("include_in_memoir"):
+        raise HTTPException(
+            status_code=409,
+            detail="photo context is approved; un-approve it (PATCH "
+                   "approved_for_lori/include_in_memoir false) before "
+                   "rejecting — nothing was modified")
+    trip_repository.photo_context_update(context_id, rejected=True)
+    return {"ok": True, "context_id": context_id, "rejected": True,
+            "purged": False}
 
 
 # ── Public lookup → draft public_context ────────────────────────────────

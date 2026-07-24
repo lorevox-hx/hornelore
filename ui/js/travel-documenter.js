@@ -202,8 +202,32 @@
       '<div class="td-button-row"><button data-td="createStop" type="button">Add stop</button><button data-td="cancelAddStop" type="button" class="td-secondary">Cancel</button></div>' +
       '</div></div>';
 
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: in-panel destructive-trip
+    // impact review. Replaces the old window.confirm trip delete: shows
+    // the trip summary + the evidence counts from the 409 response, and
+    // stays disarmed until the operator types the EXACT trip title (or
+    // the trip id).
+    var modalDeleteTrip =
+      '<div class="td-modal-overlay" data-td="modalDeleteTrip" hidden>' +
+      '<div class="td-modal td-delete-trip-modal"><div class="td-modal-head">' +
+      '<h2>Delete trip — review impact</h2>' +
+      '<button data-td="closeDeleteTrip" type="button" class="td-modal-x" title="Close">✕</button></div>' +
+      '<div data-td="deleteTripSummary" class="td-delete-trip-summary"></div>' +
+      '<div data-td="deleteTripCounts" class="td-delete-trip-counts"></div>' +
+      '<p class="td-delete-trip-warning">This permanently deletes the trip and every evidence row counted above. This cannot be undone.</p>' +
+      '<label>Type the exact trip title (or the trip id) to arm the delete' +
+      '<input data-td="deleteTripConfirmInput" type="text" autocomplete="off" spellcheck="false" placeholder="exact trip title or trip id" /></label>' +
+      '<label>Reason (optional)' +
+      '<input data-td="deleteTripReason" type="text" placeholder="operator cleanup" /></label>' +
+      '<div data-td="deleteTripError" class="td-delete-trip-error" hidden></div>' +
+      '<div class="td-button-row">' +
+      '<button data-td="confirmDeleteTrip" type="button" class="td-danger" disabled>Force delete trip</button>' +
+      '<button data-td="cancelDeleteTrip" type="button" class="td-secondary">Cancel</button></div>' +
+      '</div></div>';
+
     return '<div class="td-layout">' + leftCol + mainCol + rightCol + bottom +
-      modalCreateTrip + modalAddRegion + modalAddStop + '</div>';
+      modalCreateTrip + modalAddRegion + modalAddStop + modalDeleteTrip +
+      '</div>';
   }
 
   window.lvTravelDocumenterMount = function (hostEl, opts) {
@@ -378,7 +402,14 @@
           try { body = text ? JSON.parse(text) : null; } catch (_) { body = text; }
           if (!res.ok) {
             var detail = body && body.detail ? body.detail : (text || res.statusText);
-            throw new Error(res.status + " " + detail);
+            // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: carry the HTTP
+            // status and parsed body on the error so callers can branch
+            // on structured failures — the trip-delete flow reads the
+            // 409 impact payload (requires_force + counts) from here.
+            var err = new Error(res.status + " " + detail);
+            err.status = res.status;
+            err.body = body;
+            throw err;
           }
           return body;
         });
@@ -898,6 +929,46 @@
       return wrap;
     }
 
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 — shared "Hidden — Restore"
+    // stub. A just-hidden note/source card is replaced in place: the
+    // row itself becomes the undo affordance. No native confirm — the
+    // hide is reversible via PATCH {hidden:false}.
+    function showHiddenStub(card, labelText, restoreFn) {
+      card.innerHTML = "";
+      card.classList.add("td-note-hidden");
+      var stub = el("div", "td-hidden-stub");
+      if (labelText) {
+        stub.appendChild(el("span", "td-hidden-stub-title", labelText));
+      }
+      stub.appendChild(el("span", "td-hidden-stub-label", "Hidden — "));
+      var restore = el("button", "td-tile-btn", "Restore");
+      restore.type = "button";
+      restore.addEventListener("click", function () {
+        Promise.resolve().then(restoreFn).catch(function (e) {
+          logError("Error", { message: e.message });
+        });
+      });
+      stub.appendChild(restore);
+      card.appendChild(stub);
+    }
+
+    // Refresh the cached note/source lists (the default fetch excludes
+    // hidden rows) so tile badges stay honest WITHOUT calling
+    // renderTree — a re-render would destroy the in-place
+    // Hidden — Restore stub.
+    function refreshNotesCache() {
+      if (!st.trip) return Promise.resolve();
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes")
+        .then(function (out) { st.locationNotes = (out && out.notes) || []; })
+        .catch(function () {});
+    }
+    function refreshSourcesCache() {
+      if (!st.trip) return Promise.resolve();
+      return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources")
+        .then(function (out) { st.sources = (out && out.sources) || []; })
+        .catch(function () {});
+    }
+
     function renderNoteCard(n) {
       var card = el("div", "td-note-card");
       var head = el("div", "td-note-head");
@@ -916,17 +987,30 @@
       var flags = el("div", "td-note-flags");
       flags.appendChild(noteToggle(n, "include_in_memoir", "In memoir"));
       flags.appendChild(noteToggle(n, "include_in_interview_context", "Lori context candidate"));
-      var del = el("button", "td-tile-btn danger", "Delete");
-      del.type = "button";
-      del.addEventListener("click", function () {
-        if (!window.confirm("Delete this story note?")) return;
+      // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: Delete → immediate
+      // reversible Hide (PATCH {hidden:true}, no confirm needed). The
+      // card becomes an inline "Hidden — Restore" stub in place.
+      var hide = el("button", "td-tile-btn", "Hide");
+      hide.type = "button";
+      hide.addEventListener("click", function () {
         Promise.resolve().then(function () {
           return api("/api/trips/location-notes/" + encodeURIComponent(n.id),
-            { method: "DELETE" })
-            .then(function () { setStatus("good", "Note deleted"); return reloadNotes(); });
+            { method: "PATCH", body: JSON.stringify({ hidden: true }) })
+            .then(function () {
+              setStatus("good", "Note hidden");
+              showHiddenStub(card, n.note_title || "Story note", function () {
+                return api("/api/trips/location-notes/" + encodeURIComponent(n.id),
+                  { method: "PATCH", body: JSON.stringify({ hidden: false }) })
+                  .then(function () {
+                    setStatus("good", "Note restored");
+                    return reloadNotes();
+                  });
+              });
+              return refreshNotesCache();
+            });
         }).catch(function (e) { logError("Error", { message: e.message }); });
       });
-      flags.appendChild(del);
+      flags.appendChild(hide);
       card.appendChild(flags);
       return card;
     }
@@ -1346,17 +1430,31 @@
       if (s.summary) card.appendChild(el("p", "td-note-text", s.summary));
       var flags = el("div", "td-note-flags");
       flags.appendChild(sourceMemoirToggle(s));
-      var del = el("button", "td-tile-btn danger", "Delete");
-      del.type = "button";
-      del.addEventListener("click", function () {
-        if (!window.confirm("Delete this source?")) return;
+      // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: Delete → immediate
+      // reversible Hide (PATCH {hidden:true}, no confirm needed). The
+      // card becomes an inline "Hidden — Restore" stub in place.
+      var hide = el("button", "td-tile-btn", "Hide");
+      hide.type = "button";
+      hide.addEventListener("click", function () {
         Promise.resolve().then(function () {
           return api("/api/trips/sources/" + encodeURIComponent(s.id),
-            { method: "DELETE" })
-            .then(function () { setStatus("good", "Source deleted"); return reloadSources(); });
+            { method: "PATCH", body: JSON.stringify({ hidden: true }) })
+            .then(function () {
+              setStatus("good", "Source hidden");
+              showHiddenStub(card, s.title || s.filename || "Source",
+                function () {
+                  return api("/api/trips/sources/" + encodeURIComponent(s.id),
+                    { method: "PATCH", body: JSON.stringify({ hidden: false }) })
+                    .then(function () {
+                      setStatus("good", "Source restored");
+                      return reloadSources();
+                    });
+                });
+              return refreshSourcesCache();
+            });
         }).catch(function (e) { logError("Error", { message: e.message }); });
       });
-      flags.appendChild(del);
+      flags.appendChild(hide);
       card.appendChild(flags);
       return card;
     }
@@ -1918,17 +2016,115 @@
         .then(function () { return refreshCurrentTrip(); });
     }
 
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 — destructive-trip controls.
+    // No window.confirm. Flow: Delete trip → non-forced DELETE →
+    //   200: the trip was empty — it's simply gone, refresh the list;
+    //   409 {requires_force, counts}: open the in-panel impact review
+    //     (modalDeleteTrip). The operator must type the EXACT trip
+    //     title (trim-compare) or the trip id to arm the button; on
+    //     confirm we DELETE with {force, confirm_trip_id, reason}. A
+    //     422 (wrong confirm) renders inline — never a native dialog.
     function deleteTrip(trip) {
-      if (!window.confirm("Delete this trip? This removes the trip outline, " +
-        "its regions, stops, themes, and travel memoir draft. Photos " +
-        "themselves are not deleted.")) return Promise.resolve();
       return api("/api/trips/" + encodeURIComponent(trip.id), { method: "DELETE" })
         .then(function (out) {
           log("Trip deleted", out);
           setStatus("good", "Trip deleted");
           st.trip = null; st.tree = null; st.selected = null;
           return loadTrips().then(function () { renderTree(); });
+        })
+        .catch(function (e) {
+          // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the 409 impact payload
+          // ships inside FastAPI's standard `detail` envelope, so the
+          // structured body is at e.body.detail — {detail, trip_id,
+          // requires_force, counts}. Read that (fall back to e.body for
+          // robustness if a future backend flattens it).
+          var impact = (e && e.body &&
+            e.body.detail && typeof e.body.detail === "object")
+            ? e.body.detail : (e && e.body);
+          if (e && e.status === 409 && impact && impact.requires_force) {
+            openDeleteTripReview(trip, impact);
+            return;
+          }
+          throw e;
         });
+    }
+
+    function openDeleteTripReview(trip, impact) {
+      var sum = $("deleteTripSummary");
+      if (sum) {
+        sum.innerHTML = "";
+        sum.appendChild(el("strong", "", trip.title || "Untitled trip"));
+        var dates = dateSpan(trip.start_date, trip.end_date);
+        if (dates) sum.appendChild(el("div", "td-muted", dates));
+        if (opts.person_label || opts.person_id) {
+          sum.appendChild(el("div", "td-muted",
+            "Narrator: " + (opts.person_label || opts.person_id)));
+        }
+        sum.appendChild(el("div", "td-muted", "Trip id: " + trip.id));
+      }
+      var countsHost = $("deleteTripCounts");
+      if (countsHost) {
+        countsHost.innerHTML = "";
+        var counts = (impact && impact.counts) || {};
+        [["regions", "Regions"], ["stops", "Stops"], ["days", "Day cards"],
+         ["photo_links", "Photo links"], ["notes", "Story notes"],
+         ["sources", "Sources"], ["story_links", "Story links"],
+         ["public_context", "Public context"],
+         ["photo_context", "Photo context"]].forEach(function (c) {
+          var cell = el("div", "td-delete-trip-count");
+          cell.appendChild(el("strong", "", String(counts[c[0]] || 0)));
+          cell.appendChild(el("span", "", c[1]));
+          countsHost.appendChild(cell);
+        });
+      }
+      var input = $("deleteTripConfirmInput");
+      var reason = $("deleteTripReason");
+      var errEl = $("deleteTripError");
+      var confirmBtn = $("confirmDeleteTrip");
+      if (input) input.value = "";
+      if (reason) reason.value = "";
+      if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+      if (confirmBtn) confirmBtn.disabled = true;
+      function refreshArm() {
+        if (!input || !confirmBtn) return;
+        var typed = (input.value || "").trim();
+        // Armed ONLY by an exact match of the trip title (trim-compare)
+        // or the trip id — nothing looser.
+        var armed = typed !== "" &&
+          (typed === String(trip.title || "").trim() ||
+           typed === String(trip.id));
+        confirmBtn.disabled = !armed;
+      }
+      // Property assignment (not addEventListener) so re-opening the
+      // review never stacks stale handlers for a previous trip.
+      if (input) input.oninput = refreshArm;
+      if (confirmBtn) confirmBtn.onclick = function () {
+        var reasonText = ((reason && reason.value) || "").trim();
+        confirmBtn.disabled = true;
+        api("/api/trips/" + encodeURIComponent(trip.id), {
+          method: "DELETE",
+          body: JSON.stringify({
+            force: true,
+            confirm_trip_id: trip.id,
+            reason: reasonText || "operator cleanup",
+          }),
+        }).then(function (out) {
+          closeModal("modalDeleteTrip");
+          log("Trip force-deleted", out);
+          setStatus("good", "Trip deleted");
+          st.trip = null; st.tree = null; st.selected = null;
+          return loadTrips().then(function () { renderTree(); });
+        }).catch(function (e) {
+          // 422 wrong confirm (or any other failure) — inline, in-panel.
+          if (errEl) {
+            errEl.hidden = false;
+            errEl.textContent = "Delete failed: " + e.message;
+          }
+          refreshArm();
+        });
+      };
+      openModal("modalDeleteTrip");
+      if (input) input.focus();
     }
 
     function deleteRegion(region) {
@@ -2459,6 +2655,12 @@
     bind("closeAddStop", function () { cancelInsert(); closeModal("modalAddStop"); });
     bind("cancelAddStop", function () { cancelInsert(); closeModal("modalAddStop"); });
 
+    // Delete-trip impact review (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01).
+    // Cancel / ✕ close the review with nothing deleted; the confirm
+    // button is wired per-open in openDeleteTripReview.
+    bind("closeDeleteTrip", function () { closeModal("modalDeleteTrip"); });
+    bind("cancelDeleteTrip", function () { closeModal("modalDeleteTrip"); });
+
     // Photos + output (collapsibles)
     bind("uploadPhotos", uploadPhotos);
     bind("clusterPhotos", clusterPhotos);
@@ -2482,7 +2684,8 @@
     });
 
     // Backdrop click closes modals.
-    ["modalCreateTrip", "modalAddRegion", "modalAddStop"].forEach(function (mn) {
+    ["modalCreateTrip", "modalAddRegion", "modalAddStop",
+     "modalDeleteTrip"].forEach(function (mn) {
       var ov = $(mn);
       if (!ov) return;
       ov.addEventListener("click", function (e) {
@@ -2497,7 +2700,8 @@
     // context). Listener is removed on destroy to avoid leaks across mounts.
     function onKeydown(e) {
       if (e.key !== "Escape" && e.key !== "Esc") return;
-      ["modalCreateTrip", "modalAddRegion", "modalAddStop"].forEach(function (mn) {
+      ["modalCreateTrip", "modalAddRegion", "modalAddStop",
+       "modalDeleteTrip"].forEach(function (mn) {
         var m = $(mn);
         if (m && !m.hidden) {
           if (mn === "modalAddStop") cancelInsert();

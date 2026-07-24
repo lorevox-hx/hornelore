@@ -493,3 +493,13 @@
 .tdl-draft-result { border: 1px solid var(--tdl-gold2); border-radius: var(--tdl-radius); background: var(--tdl-paper); padding: .9rem 1rem; margin: .6rem 0; }
 .tdl-draft-resulttext { width: 100%; box-sizing: border-box; min-height: 9rem; padding: .7rem .8rem; border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper2); color: var(--tdl-ink); font-family: var(--tdl-serif); font-size: 1rem; line-height: 1.5; resize: vertical; }
 .tdl-anchor-draft { color: var(--tdl-gold); }
+
+/* ── Evidence lifecycle (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01) ─────────
+   Reversible hide for Story Notes / Sources rows. Hiding is a PATCH
+   {hidden:true} (never a DELETE — the lab's never-delete posture
+   holds). With the per-tab Show hidden toggle on, hidden rows render
+   dimmed with a Restore affordance. */
+.tdl-hidden-toggle-row { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: 0 0 .8rem; }
+.tdl-row-hidden { opacity: 0.55; border-style: dashed; background: var(--tdl-paper2); }
+.tdl-row-hidden:hover { opacity: 0.85; }
+.tdl-badge-hidden { background: #6b6459; color: #fff; border-color: #6b6459; }

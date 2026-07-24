@@ -499,5 +499,62 @@ class DraftAssistantTest(unittest.TestCase):
         self.assertIn(".tdl-draft-select", self.css)
 
 
+class EvidenceLifecycleLabTest(unittest.TestCase):
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 — reversible hide in the Lab.
+
+    Story Notes / Sources rows are removed from view via PATCH
+    {hidden:true} (never a DELETE — the lab's never-delete posture
+    holds), restored via PATCH {hidden:false}, and each tab carries a
+    Show hidden toggle that refetches with include_hidden=1 and renders
+    hidden rows muted with a Restore affordance."""
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def test_hide_is_patch_hidden_true_then_reload(self):
+        for fn, reload_call in (("function hideNote(", "reloadNotes()"),
+                                ("function hideSource(", "reloadSources()")):
+            i = self.src.index(fn)
+            block = self.src[i:i + 450]
+            self.assertIn('method: "PATCH"', block, fn)
+            self.assertIn("{ hidden: true }", block, fn)
+            self.assertIn(reload_call, block, fn)
+
+    def test_restore_is_patch_hidden_false(self):
+        for fn in ("function restoreNote(", "function restoreSource("):
+            i = self.src.index(fn)
+            block = self.src[i:i + 450]
+            self.assertIn('method: "PATCH"', block, fn)
+            self.assertIn("{ hidden: false }", block, fn)
+
+    def test_show_hidden_toggle_per_tab_with_include_hidden_fetch(self):
+        # Toggle state lives on st (per-tab), the toggled fetch adds the
+        # sanctioned include_hidden=1 query param, and both labels exist
+        # (off: "Show hidden"; on: "Show hidden (n) ✓").
+        self.assertIn("showHiddenNotes", self.src)
+        self.assertIn("showHiddenSources", self.src)
+        self.assertIn("?include_hidden=1", self.src)
+        self.assertIn('"Show hidden"', self.src)
+        self.assertIn('"Show hidden ("', self.src)
+        self.assertIn("function hiddenToggleRow(", self.src)
+        # Hide + Restore affordances render as plain buttons — no native
+        # dialogs (doctrine re-checked by FinishPassTest).
+        self.assertIn('"Hide"', self.src)
+        self.assertIn('"Restore"', self.src)
+
+    def test_hidden_rows_render_muted_with_new_tdl_classes(self):
+        self.assertIn("tdl-row-hidden", self.src)
+        self.assertIn("tdl-badge-hidden", self.src)
+        self.assertIn(".tdl-row-hidden", self.css)
+        self.assertIn(".tdl-badge-hidden", self.css)
+        self.assertIn(".tdl-hidden-toggle-row", self.css)
+
+    def test_never_delete_posture_still_holds(self):
+        # Hide/restore are PATCH-only — the lab still issues no DELETE.
+        self.assertNotIn('"DELETE"', self.src)
+        self.assertNotIn("'DELETE'", self.src)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,35 @@ def _new_id() -> str:
     return str(uuid.uuid4())
 
 
+# WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: tables whose PRAGMA lookups are
+# legal for _table_has_column. Table names are interpolated into PRAGMA
+# statements, so they are locked to this internal allowlist — never a
+# caller-supplied string (parameterized-SQL doctrine; PRAGMA cannot take
+# a bound parameter for the table name).
+_KNOWN_TABLES = (
+    "trip_location_notes", "trip_sources", "trip_photo_links",
+)
+
+
+def _table_has_column(con: sqlite3.Connection, table: str,
+                      column: str) -> bool:
+    """True when ``table`` exists on this DB and carries ``column``.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the hidden/hidden_at columns
+    land via migration 0036; reads must degrade gracefully on a DB that
+    has not applied it yet (same tolerance posture as the pre-0022 /
+    pre-0028 fallbacks elsewhere in this file), and a PRAGMA probe is
+    more honest than parsing exception messages. ``table`` must be in
+    _KNOWN_TABLES (fail-loud on programmer error)."""
+    if table not in _KNOWN_TABLES:
+        raise ValueError("unknown table for column probe: %r" % table)
+    try:
+        rows = con.execute("PRAGMA table_info(%s)" % table).fetchall()
+    except sqlite3.OperationalError:
+        return False
+    return any(r["name"] == column for r in rows)
+
+
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     d = dict(row)
     for key in ("meta_json", "theme_json", "thematic_tags_json"):
@@ -843,14 +872,28 @@ def location_note_create(
         con.close()
 
 
-def location_notes_list(trip_id: str) -> List[Dict[str, Any]]:
+def location_notes_list(trip_id: str,
+                        include_hidden: bool = False) -> List[Dict[str, Any]]:
     """All notes for a trip, ordered. Scope filtering (trip/region/stop)
     is done by the caller so one read serves the UI and the memoir.
-    Tolerant of a pre-0019 DB (old table shape / missing) — returns []."""
+    Tolerant of a pre-0019 DB (old table shape / missing) — returns [].
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden=1 rows are EXCLUDED by
+    default, which makes every consumer of this read (travelogue
+    builder, Draft Assistant, narrator interview context, memoir
+    preview, story capture, day counts, list endpoints) hide-aware in
+    one place. ``include_hidden=True`` is the operator-review escape
+    hatch (?include_hidden=1 on the list endpoint); rows carry their
+    hidden/hidden_at fields either way (SELECT *)."""
     con = _connect()
     try:
+        hidden_where = ("" if include_hidden
+                        or not _table_has_column(
+                            con, "trip_location_notes", "hidden")
+                        else "AND hidden = 0 ")
         rows = con.execute(
             "SELECT * FROM trip_location_notes WHERE trip_id = ? "
+            + hidden_where +
             "ORDER BY ord, created_at",
             (trip_id,),
         ).fetchall()
@@ -893,11 +936,25 @@ def location_note_update(
     include_in_interview_context: Optional[bool] = None,
     ord_: Optional[int] = None,
     clear_title: bool = False,
+    hidden: Optional[bool] = None,
 ) -> bool:
     """Partial update. Text fields: None = unchanged. Booleans: None =
-    unchanged, else written. clear_title NULLs the title."""
+    unchanged, else written. clear_title NULLs the title.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: ``hidden=True`` stamps
+    hidden=1 + hidden_at=<now>; ``hidden=False`` restores (hidden=0,
+    hidden_at NULL). Hiding NEVER touches the promotion/approval flags
+    — provenance and the operator's promotion work survive a
+    hide/restore round-trip intact."""
     sets: List[str] = []
     args: List[Any] = []
+    if hidden is not None:
+        if hidden:
+            sets.append("hidden = 1")
+            sets.append("hidden_at = ?"); args.append(_now())
+        else:
+            sets.append("hidden = 0")
+            sets.append("hidden_at = NULL")
     if clear_title:
         sets.append("note_title = NULL")
     elif note_title is not None:
@@ -1008,14 +1065,24 @@ def source_create(
 
 
 def sources_list(trip_id: str,
-                 day_id: Optional[str] = None) -> List[Dict[str, Any]]:
+                 day_id: Optional[str] = None,
+                 include_hidden: bool = False) -> List[Dict[str, Any]]:
     """Tolerant of a pre-0020 DB (trip_sources missing) — returns [].
     ``day_id`` narrows to sources attached to that day card
-    (trip_sources.trip_day_id, migration 0029)."""
+    (trip_sources.trip_day_id, migration 0029).
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden=1 rows are excluded by
+    default (hide-aware in one place for every consumer);
+    ``include_hidden=True`` is the operator-review escape hatch. Rows
+    carry hidden/hidden_at either way (SELECT *)."""
     con = _connect()
     try:
+        hidden_where = ("" if include_hidden
+                        or not _table_has_column(con, "trip_sources", "hidden")
+                        else "AND hidden = 0 ")
         rows = con.execute(
-            "SELECT * FROM trip_sources WHERE trip_id = ? ORDER BY ord, created_at",
+            "SELECT * FROM trip_sources WHERE trip_id = ? "
+            + hidden_where + "ORDER BY ord, created_at",
             (trip_id,),
         ).fetchall()
         out = [_row_to_dict(r) for r in rows]
@@ -1063,12 +1130,25 @@ def source_update(
     ord_: Optional[int] = None,
     trip_day_id: Optional[str] = None,
     clear_day: bool = False,
+    hidden: Optional[bool] = None,
 ) -> bool:
     """Partial update. ``trip_day_id`` attaches (or moves) the source to
     a day card; ``clear_day`` detaches it (NULLs trip_day_id ONLY — the
-    source row itself is never deleted by an unlink)."""
+    source row itself is never deleted by an unlink).
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: ``hidden=True`` stamps
+    hidden=1 + hidden_at=<now>; ``hidden=False`` restores. Hiding never
+    touches include_in_memoir or storage_path — a restore returns the
+    source to exactly its prior standing, file intact."""
     sets: List[str] = []
     args: List[Any] = []
+    if hidden is not None:
+        if hidden:
+            sets.append("hidden = 1")
+            sets.append("hidden_at = ?"); args.append(_now())
+        else:
+            sets.append("hidden = 0")
+            sets.append("hidden_at = NULL")
     if clear_day:
         sets.append("trip_day_id = NULL")
     elif trip_day_id is not None:
@@ -1243,15 +1323,24 @@ def narrator_photo_links(trip_id: str) -> List[Dict[str, Any]]:
 
     WO-TRIP-LANE-AUDIT-FIXPACK-01 (C1): returns an explicit narrator-
     safe allowlist (no raw GPS, approval-gated operator caption/context)
-    instead of SELECT l.*."""
+    instead of SELECT l.*.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden=1 links are ALWAYS
+    excluded here — there is no include_hidden escape hatch on the
+    narrator surface. A hidden photo link (and, transitively, its
+    captions and approved photo-context rows) never reaches Lori."""
     con = _connect()
     try:
+        hidden_where = ("   AND l.hidden = 0 "
+                        if _table_has_column(con, "trip_photo_links", "hidden")
+                        else "")
         where = (
             " FROM trip_photo_links l "
             " JOIN photos p ON p.id = l.photo_id "
             " WHERE l.trip_id = ? "
             "   AND p.narrator_ready = 1 "
             "   AND p.deleted_at IS NULL "
+            + hidden_where +
             " ORDER BY l.taken_at, l.ord"
         )
         try:
@@ -1316,14 +1405,25 @@ _PHOTO_LINK_SAFE_COLS = (
 def photo_links_list(
     trip_id: str,
     max_confidence: Optional[float] = None,
+    include_hidden: bool = False,
 ) -> List[Dict[str, Any]]:
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden=1 links are excluded
+    by default so every consumer (travelogue builder, modal, lookup
+    query builder, photos router) is hide-aware in one place;
+    ``include_hidden=True`` is the operator-review escape hatch. Rows
+    project their hidden/hidden_at fields either way (post-0036)."""
     con = _connect()
     try:
+        _has_hidden = _table_has_column(con, "trip_photo_links", "hidden")
+        hidden_cols = ", l.hidden, l.hidden_at" if _has_hidden else ""
+        hidden_where = ("" if include_hidden or not _has_hidden
+                        else "AND l.hidden = 0 ")
+
         def _run(cols, safe_link_cols=_PHOTO_LINK_SAFE_COLS):
-            base = ("SELECT " + safe_link_cols + cols +
+            base = ("SELECT " + safe_link_cols + hidden_cols + cols +
                     " FROM trip_photo_links l "
                     "LEFT JOIN photos p ON p.id = l.photo_id "
-                    "WHERE l.trip_id = ? ")
+                    "WHERE l.trip_id = ? " + hidden_where)
             if max_confidence is not None:
                 return con.execute(
                     base +
@@ -1376,14 +1476,26 @@ def photo_link_update(
     operator_context_note: Optional[str] = None,
     clear_operator_context_note: bool = False,
     operator_context_approved_for_lori: Optional[bool] = None,
+    hidden: Optional[bool] = None,
 ) -> bool:
     """Operator review action. ``confirm=True`` stamps the link as
     operator truth (method='operator', confidence=1.0) so re-clustering
     never overwrites it. BUG-TRIP-PHOTO-LINK-REGION-STOP-DESYNC-01:
     when a photo moves to a stop in another region, callers must pass
-    the stop's region so the pair stays consistent."""
+    the stop's region so the pair stays consistent.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: ``hidden=True`` stamps
+    hidden=1 + hidden_at=<now>; ``hidden=False`` restores. Hiding never
+    touches placement, captions, or the approval flags."""
     sets: List[str] = []
     args: List[Any] = []
+    if hidden is not None:
+        if hidden:
+            sets.append("hidden = 1")
+            sets.append("hidden_at = ?"); args.append(_now())
+        else:
+            sets.append("hidden = 0")
+            sets.append("hidden_at = NULL")
     if trip_stop_id is not None:
         sets.append("trip_stop_id = ?")
         args.append(trip_stop_id)
@@ -1519,12 +1631,151 @@ def trip_delete(trip_id: str) -> bool:
     """Delete a trip and everything under it (FK cascades cover
     regions/stops/themes/photo-links/notes/suggestions/story-links).
     Photos themselves are NOT touched — trip_photo_links are joins,
-    not ownership."""
+    not ownership.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the DELETE /api/trips/{id}
+    endpoint no longer calls this directly — it goes through
+    trip_delete_impact (impact review + force gate + audit). This
+    helper remains for internal/test callers that already own the
+    decision."""
     con = _connect()
     try:
         cur = con.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
         con.commit()
         return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+# ── Destructive-trip controls (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 Ph2) ────
+#
+# A trip delete is only "cheap" when the trip is empty. Once evidence
+# hangs off it (regions/stops/days/photo links/notes/sources/story
+# links/public+photo context/bio suggestions), the FK cascade is a
+# destructive, unrecoverable operation on irreplaceable family material.
+# The endpoint therefore:
+#   * computes dependent counts INSIDE the delete transaction,
+#   * refuses (409) when any count is nonzero and force was not given,
+#   * requires an exact confirm_trip_id echo for force (422 otherwise —
+#     defeats stale UI selection),
+#   * appends an append-only audit row (narrator_delete_audit, action
+#     'trip_force_delete') in the SAME transaction as the cascade, so a
+#     partial failure rolls back BOTH the delete and the audit claim.
+
+# Response-key -> table map for the dependent counts. Table names are a
+# fixed internal allowlist (interpolated into COUNT(*) SQL — never
+# caller-supplied). trip_themes is intentionally NOT counted: the
+# work-order contract keys the gate on evidence lanes; themes are
+# lightweight labels and keep the pre-existing empty-trip semantics.
+_TRIP_DEPENDENT_TABLES = (
+    ("regions", "trip_regions"),
+    ("stops", "trip_stops"),
+    ("days", "trip_days"),
+    ("photo_links", "trip_photo_links"),
+    ("notes", "trip_location_notes"),
+    ("sources", "trip_sources"),
+    ("story_links", "trip_story_links"),
+    ("public_context", "trip_public_context"),
+    ("photo_context", "trip_photo_context"),
+    ("bio_suggestions", "trip_bio_suggestions"),
+)
+
+# Test seam (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01): invoked with
+# (con, trip_id) AFTER the audit append + cascade delete but BEFORE
+# commit. Tests monkeypatch this to raise and prove the whole
+# transaction — audit row included — rolls back atomically. Always None
+# in production.
+_TRIP_FORCE_DELETE_PRECOMMIT_HOOK = None
+
+
+def _trip_dependent_counts(con: sqlite3.Connection,
+                           trip_id: str) -> Dict[str, int]:
+    """Dependent-row counts for one trip, read on the CALLER's
+    connection (so trip_delete_impact counts inside its own
+    transaction). A table missing on an old DB counts as 0 — nothing
+    that doesn't exist needs protecting."""
+    counts: Dict[str, int] = {}
+    for key, table in _TRIP_DEPENDENT_TABLES:
+        try:
+            n = con.execute(
+                "SELECT COUNT(*) FROM %s WHERE trip_id = ?" % table,
+                (trip_id,),
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            n = 0
+        counts[key] = int(n)
+    return counts
+
+
+def trip_delete_impact(
+    trip_id: str,
+    force: bool = False,
+    reason: Optional[str] = None,
+    requested_by: str = "operator",
+) -> Dict[str, Any]:
+    """Impact-gated trip delete. One BEGIN IMMEDIATE transaction:
+
+      1. re-read the trip (id/owner/title) — {'status':'not_found'} if
+         it vanished,
+      2. compute dependent counts,
+      3. any count nonzero and not force → rollback,
+         {'status':'blocked','counts':...} — NOTHING modified,
+      4. force → append the narrator_delete_audit row (action=
+         'trip_force_delete', person_id=trip owner, display_name=trip
+         title, dependency_counts_json=counts + reason + requested_by)
+         via the EXISTING db._log_delete_audit helper, then cascade
+         delete, then commit. Audit and delete are atomic — a failure
+         anywhere before commit rolls back both.
+
+    The router owns the confirm_trip_id exact-match check (422) BEFORE
+    calling this; empty-trip deletes (all counts zero) pass through
+    without force and without an audit row — the pre-existing
+    empty-trip contract is preserved byte-for-byte on that path."""
+    from .. import db as _db  # late import: audit helper + shared conventions
+    con = _connect()
+    try:
+        con.execute("BEGIN IMMEDIATE;")
+        row = con.execute(
+            "SELECT id, person_id, title FROM trips WHERE id = ?",
+            (trip_id,),
+        ).fetchone()
+        if not row:
+            con.rollback()
+            return {"status": "not_found"}
+        counts = _trip_dependent_counts(con, trip_id)
+        if any(counts.values()) and not force:
+            con.rollback()
+            return {"status": "blocked", "counts": counts}
+        if force:
+            # Audit BEFORE the cascade, inside the same transaction —
+            # the audit row describes exactly what is about to go, and
+            # rolls back with it on any failure (never a false claim).
+            audit_counts: Dict[str, Any] = dict(counts)
+            audit_counts["reason"] = (reason or "").strip()
+            audit_counts["requested_by"] = requested_by
+            _db._log_delete_audit(
+                con,
+                action="trip_force_delete",
+                person_id=str(row["person_id"] or ""),
+                display_name=str(row["title"] or ""),
+                counts=audit_counts,
+                requested_by=requested_by,
+            )
+        cur = con.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+        if cur.rowcount != 1:
+            # Unreachable inside the transaction (row was just read),
+            # but fail loud rather than commit a half-truth.
+            raise RuntimeError(
+                "trip delete touched %d rows for %s" % (cur.rowcount,
+                                                        trip_id))
+        if _TRIP_FORCE_DELETE_PRECOMMIT_HOOK is not None:
+            _TRIP_FORCE_DELETE_PRECOMMIT_HOOK(con, trip_id)
+        con.commit()
+        return {"status": "deleted", "counts": counts,
+                "forced": bool(force)}
     except Exception:
         con.rollback()
         raise
@@ -1538,10 +1789,16 @@ def photo_links_with_photo_paths(
 ) -> List[Dict[str, Any]]:
     """Photo links joined to the photos authority table for rendering
     (image_path for DOCX embedding, description for captions). Rows
-    whose photo has been soft-deleted are excluded."""
+    whose photo has been soft-deleted are excluded.
+
+    WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden=1 links are ALWAYS
+    excluded — the memoir/export path never renders hidden evidence,
+    regardless of include_in_memoir."""
     con = _connect()
     try:
         where = "l.trip_id = ? AND p.deleted_at IS NULL"
+        if _table_has_column(con, "trip_photo_links", "hidden"):
+            where += " AND l.hidden = 0"
         if memoir_only:
             where += " AND l.include_in_memoir = 1"
         rows = con.execute(
@@ -1595,9 +1852,16 @@ def trip_tree(trip_id: str) -> Optional[Dict[str, Any]]:
             ).fetchall()
         ]
         photo_counts: Dict[str, int] = {}
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden links never count
+        # — the tree/memoir-preview photo counts must match what the
+        # appendix would actually render.
+        _hidden_where = (" AND hidden = 0"
+                         if _table_has_column(
+                             con, "trip_photo_links", "hidden")
+                         else "")
         for row in con.execute(
             "SELECT trip_stop_id, COUNT(*) AS n FROM trip_photo_links "
-            "WHERE trip_id = ? GROUP BY trip_stop_id",
+            "WHERE trip_id = ?" + _hidden_where + " GROUP BY trip_stop_id",
             (trip_id,),
         ).fetchall():
             photo_counts[row["trip_stop_id"] or ""] = row["n"]
@@ -2754,6 +3018,14 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
     by_day: Dict[str, int] = {}
     con = _connect()
     try:
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden links never count
+        # on a day card (honest-counts rule — a hidden photo must not
+        # look like present evidence). Probed once, applied to every
+        # branch including the pre-0028 fallback.
+        _hidden_where = ("  AND l.hidden = 0\n"
+                         if _table_has_column(
+                             con, "trip_photo_links", "hidden")
+                         else "")
         try:
             rows = con.execute(
                 """SELECT l.trip_day_id AS d, COUNT(*) AS n
@@ -2762,6 +3034,7 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                    WHERE l.trip_id = ?
                      AND l.trip_day_id IS NOT NULL
                      AND (p.id IS NULL OR p.deleted_at IS NULL)
+                """ + _hidden_where + """
                    GROUP BY l.trip_day_id""",
                 (trip_id,),
             ).fetchall()
@@ -2775,6 +3048,7 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                      AND l.trip_day_id IS NULL
                      AND (p.id IS NULL OR p.deleted_at IS NULL)
                      AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
+                """ + _hidden_where + """
                    GROUP BY d""",
                 (trip_id,),
             ).fetchall()
@@ -2801,6 +3075,7 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                        WHERE l.trip_id = ?
                          AND (p.id IS NULL OR p.deleted_at IS NULL)
                          AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
+                    """ + _hidden_where + """
                        GROUP BY d""",
                     (trip_id,),
                 ).fetchall()

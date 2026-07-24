@@ -161,7 +161,18 @@ class _SourcesCase(unittest.TestCase):
                                                      summary="a receipt"))
         self.assertEqual(res["source"]["include_in_memoir"], 1)
         self.assertEqual(res["source"]["summary"], "a receipt")
-        trips.delete_source(sid)
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: DELETE now soft-hides —
+        # row preserved (promotion flag intact), restorable; a physical
+        # purge needs the exact-id confirmation.
+        hide = trips.delete_source(sid)
+        self.assertTrue(hide["hidden"])
+        self.assertFalse(hide["purged"])
+        row = trip_repository.source_get(sid)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["hidden"], 1)
+        self.assertEqual(row["include_in_memoir"], 1)   # hide != un-promote
+        purge = trips.delete_source(sid, purge=True, confirm_id=sid)
+        self.assertTrue(purge["purged"])
         self.assertIsNone(trip_repository.source_get(sid))
 
     def test_delete_unknown_404(self):

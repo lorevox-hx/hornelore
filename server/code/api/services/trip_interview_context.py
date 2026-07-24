@@ -122,8 +122,14 @@ def build_trip_interview_context(
         }
 
     # Notes: ONLY include_in_interview_context=1.
+    # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden notes NEVER surface
+    # here regardless of include_in_interview_context — the repository
+    # list read excludes them by default, and the explicit skip below
+    # is belt-and-braces on this narrator-facing surface.
     notes: List[Dict[str, Any]] = []
     for n in trip_repository.location_notes_list(active_trip_id):
+        if n.get("hidden"):
+            continue
         if not n.get("include_in_interview_context"):
             continue
         sid, rid = n.get("trip_stop_id"), n.get("trip_region_id")

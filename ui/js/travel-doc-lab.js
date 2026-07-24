@@ -50,6 +50,12 @@
     photoLinks: [],      // /photo-links rows
     notes: [],           // /location-notes rows
     sources: [],         // /sources rows
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: per-tab "Show hidden" state.
+    // When on, the list fetch adds include_hidden=1 and hidden rows
+    // render muted with a Restore affordance. Toggle-driven fetches
+    // only (never fetched from render) — no auto-load loop possible.
+    showHiddenNotes: false,
+    showHiddenSources: false,
     publicContext: [],   // /public-context rows
     travelogue: null,    // /travelogue-preview (lazy)
     draft: null,         // Draft tab: {scopeKey, preview, result, instruction, status, busy}
@@ -223,6 +229,10 @@
     st.sourceDrawerDayId = null;
     st.reconcile = null;
     st.reconcileDrawerOpen = false;
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden-row visibility is a
+    // per-trip review choice — reset it on trip switch.
+    st.showHiddenNotes = false;
+    st.showHiddenSources = false;
     loriPane.reset();
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
@@ -251,8 +261,13 @@
       api("/api/trips/" + t + "/days").catch(
         _captureLoadError("Day cards failed to load", { days: [] })),
       api("/api/trips/" + t + "/photo-links"),
-      api("/api/trips/" + t + "/location-notes"),
-      api("/api/trips/" + t + "/sources").catch(
+      // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: honor the Show-hidden
+      // toggles on a bundle reload (e.g. cross-tab BroadcastChannel)
+      // so hidden rows don't silently vanish mid-review.
+      api("/api/trips/" + t + "/location-notes" +
+        (st.showHiddenNotes ? "?include_hidden=1" : "")),
+      api("/api/trips/" + t + "/sources" +
+        (st.showHiddenSources ? "?include_hidden=1" : "")).catch(
         _captureLoadError("Sources failed to load", { sources: [] })),
       api("/api/trips/" + t + "/public-context").catch(
         _captureLoadError("Public context failed to load",
@@ -301,7 +316,10 @@
 
   function reloadNotes() {
     if (!st.trip) return Promise.resolve();
-    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes")
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: include hidden rows only
+    // while the Story Notes "Show hidden" toggle is on.
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes" +
+      (st.showHiddenNotes ? "?include_hidden=1" : ""))
       .then(function (out) { st.notes = out.notes || []; });
   }
 
@@ -313,7 +331,10 @@
 
   function reloadSources() {
     if (!st.trip) return Promise.resolve();
-    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources")
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: include hidden rows only
+    // while the Sources "Show hidden" toggle is on.
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources" +
+      (st.showHiddenSources ? "?include_hidden=1" : ""))
       .then(function (out) { st.sources = out.sources || []; });
   }
 
@@ -2472,6 +2493,70 @@
     return wrap;
   }
 
+  // ── Evidence lifecycle (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01) ─────────
+  // Removing a note/source from view is a reversible HIDE — a PATCH
+  // {hidden:true} — never a DELETE (the lab's never-delete posture
+  // holds). Restore is PATCH {hidden:false}. The server excludes
+  // hidden rows from list responses (unless include_hidden=1) and from
+  // evidence assembly, so the Draft tab needs no change.
+
+  function hideNote(noteId) {
+    api("/api/trips/location-notes/" + encodeURIComponent(noteId),
+      { method: "PATCH", body: { hidden: true } })
+      .then(function () { return reloadNotes(); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function restoreNote(noteId) {
+    api("/api/trips/location-notes/" + encodeURIComponent(noteId),
+      { method: "PATCH", body: { hidden: false } })
+      .then(function () { return reloadNotes(); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function hideSource(sourceId) {
+    api("/api/trips/sources/" + encodeURIComponent(sourceId),
+      { method: "PATCH", body: { hidden: true } })
+      .then(function () { return reloadSources(); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function restoreSource(sourceId) {
+    api("/api/trips/sources/" + encodeURIComponent(sourceId),
+      { method: "PATCH", body: { hidden: false } })
+      .then(function () { return reloadSources(); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  // Per-tab Show-hidden toggle row. The count is only knowable while
+  // hidden rows are actually loaded (toggle on) — the default fetch
+  // excludes them by contract. Click-driven fetch only (no fetch from
+  // render — same auto-load-loop caution as the Draft tab's
+  // previewTried flag, solved here by never fetching during render).
+  function hiddenToggleRow(flagName, hiddenCount, kindLabel) {
+    var row = el("div", "tdl-hidden-toggle-row");
+    var on = !!st[flagName];
+    row.appendChild(btn("tdl-btn tdl-btn-small" + (on ? " tdl-active" : ""),
+      on ? "Show hidden (" + hiddenCount + ") ✓" : "Show hidden",
+      function () {
+        st[flagName] = !st[flagName];
+        var reload = (flagName === "showHiddenNotes") ?
+          reloadNotes : reloadSources;
+        reload()
+          .then(function () { st.error = ""; renderAll(); })
+          .catch(function (e) { st.error = e.message; renderAll(); });
+      }));
+    if (on) {
+      row.appendChild(el("span", "tdl-muted",
+        "Hidden " + kindLabel + " render dimmed — Restore brings one back."));
+    }
+    return row;
+  }
+
   // ── Story Notes ──────────────────────────────────────────────────────
 
   function renderNotes() {
@@ -2479,15 +2564,26 @@
     wrap.appendChild(el("h1", "", "Story Notes"));
     wrap.appendChild(el("p", "tdl-muted",
       "Location notes across the trip. Toggles write through the existing " +
-      "location-notes PATCH — flags stay honest to the DB."));
+      "location-notes PATCH — flags stay honest to the DB. Hide is " +
+      "reversible (PATCH hidden) — nothing is deleted."));
+    var hiddenNoteCount = st.notes.filter(function (n) {
+      return !!n.hidden;
+    }).length;
+    wrap.appendChild(hiddenToggleRow("showHiddenNotes", hiddenNoteCount,
+      "notes"));
     if (!st.notes.length) {
       wrap.appendChild(el("div", "tdl-empty", "No story notes yet."));
       return wrap;
     }
     st.notes.forEach(function (n) {
-      var row = el("div", "tdl-note-row");
+      var row = el("div", "tdl-note-row" +
+        (n.hidden ? " tdl-row-hidden" : ""));
       var badges = el("div", "tdl-note-badges");
       badges.appendChild(el("span", "tdl-badge", n.source_type || "note"));
+      if (n.hidden) {
+        badges.appendChild(el("span", "tdl-badge tdl-badge-hidden",
+          "hidden" + (n.hidden_at ? " · " + datePrefix(n.hidden_at) : "")));
+      }
       if (n.source_surface === "travel_doc_modal") {
         badges.appendChild(el("span", "tdl-badge tdl-badge-lori", "from Lori modal"));
       }
@@ -2504,6 +2600,16 @@
       row.appendChild(badges);
       if (n.note_title) row.appendChild(el("strong", "", n.note_title));
       row.appendChild(el("p", "", n.note_text || ""));
+
+      if (n.hidden) {
+        // Hidden rows are already out of evidence — offer Restore only.
+        var hActs = el("div", "tdl-note-toggles");
+        hActs.appendChild(btn("tdl-btn tdl-btn-small", "Restore",
+          function () { restoreNote(n.id); }));
+        row.appendChild(hActs);
+        wrap.appendChild(row);
+        return;
+      }
 
       var toggles = el("div", "tdl-note-toggles");
       function toggle(labelText, field, checked) {
@@ -2530,6 +2636,10 @@
         n.include_in_memoir));
       toggles.appendChild(toggle("Use with Lori", "include_in_interview_context",
         n.include_in_interview_context));
+      // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: reversible hide (never a
+      // DELETE) — the row reappears under Show hidden with a Restore.
+      toggles.appendChild(btn("tdl-btn tdl-btn-small", "Hide",
+        function () { hideNote(n.id); }));
       row.appendChild(toggles);
       wrap.appendChild(row);
     });
@@ -2567,6 +2677,12 @@
         function () { st.sourceFilter = f[0]; renderAll(); }));
     });
     wrap.appendChild(rail);
+    // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: per-tab Show hidden toggle.
+    var hiddenSourceCount = st.sources.filter(function (s) {
+      return !!s.hidden;
+    }).length;
+    wrap.appendChild(hiddenToggleRow("showHiddenSources", hiddenSourceCount,
+      "sources"));
     var rows = st.sources.filter(function (s) {
       return sourceMatchesFilter(s, st.sourceFilter);
     });
@@ -2576,9 +2692,14 @@
       return wrap;
     }
     rows.forEach(function (s) {
-      var row = el("div", "tdl-note-row");
+      var row = el("div", "tdl-note-row" +
+        (s.hidden ? " tdl-row-hidden" : ""));
       var badges = el("div", "tdl-note-badges");
       badges.appendChild(el("span", "tdl-badge", s.source_type || "other"));
+      if (s.hidden) {
+        badges.appendChild(el("span", "tdl-badge tdl-badge-hidden",
+          "hidden" + (s.hidden_at ? " · " + datePrefix(s.hidden_at) : "")));
+      }
       if (s.include_in_memoir) badges.appendChild(el("span", "tdl-badge", "in memoir"));
       if (s.trip_day_id) {
         var sd = dayById(s.trip_day_id);
@@ -2590,6 +2711,17 @@
       if (s.summary) row.appendChild(el("p", "", s.summary));
       if (s.link_url) row.appendChild(el("p", "tdl-muted", s.link_url));
       if (s.source_date) row.appendChild(el("p", "tdl-muted", "Dated " + s.source_date));
+      // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: reversible hide / restore
+      // (PATCH hidden — never a DELETE).
+      var acts = el("div", "tdl-note-toggles");
+      if (s.hidden) {
+        acts.appendChild(btn("tdl-btn tdl-btn-small", "Restore",
+          function () { restoreSource(s.id); }));
+      } else {
+        acts.appendChild(btn("tdl-btn tdl-btn-small", "Hide",
+          function () { hideSource(s.id); }));
+      }
+      row.appendChild(acts);
       wrap.appendChild(row);
     });
     return wrap;

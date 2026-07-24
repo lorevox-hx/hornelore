@@ -243,8 +243,17 @@ def build_travelogue_outline(trip_id: str) -> Optional[Dict[str, Any]]:
     if not tree:
         return None
 
-    links = trip_repository.photo_links_list(trip_id)
-    notes = trip_repository.location_notes_list(trip_id)
+    # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the repository list reads
+    # exclude hidden=1 rows by default, so hidden evidence never enters
+    # ANY part of this outline — blocks, prose anchors, per-stop
+    # entries (block.stops / block.memory_anchor_stops), the
+    # intake_review bucket, or the overview counts. The comprehensions
+    # are belt-and-braces so a future include_hidden read can never
+    # leak a hidden row in here either.
+    links = [l for l in trip_repository.photo_links_list(trip_id)
+             if not l.get("hidden")]
+    notes = [n for n in trip_repository.location_notes_list(trip_id)
+             if not n.get("hidden")]
     pub_rows = trip_repository.public_context_list(trip_id)
 
     # ── group evidence by scope ─────────────────────────────────────────

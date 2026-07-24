@@ -427,5 +427,130 @@ class PostPushReviewPunchListTest(unittest.TestCase):
         self.assertIn('_srcType === "lori"', body)
 
 
+class EvidenceLifecycleTest(unittest.TestCase):
+    """WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 — evidence lifecycle safety +
+    destructive-trip controls.
+
+    Note delete and source delete become immediate reversible hides
+    (PATCH {hidden:true}) with an inline "Hidden — Restore" stub — no
+    window.confirm, no DELETE. Trip delete becomes the impact-review
+    flow: non-forced DELETE first; on 409 an IN-PANEL confirm block
+    renders the evidence counts and arms only on an exact typed
+    title/id match, then force-deletes with confirm_trip_id + reason.
+    Region/stop deletes keep their native confirms (out of scope this
+    WO) — the total window.confirm count drops from 5 to exactly 2."""
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.raw = _JS.read_text(encoding="utf-8")
+
+    def _fn(self, pattern: str) -> str:
+        m = re.search(pattern, self.src)
+        self.assertIsNotNone(m, f"function not found: {pattern}")
+        return m.group(0)
+
+    def test_note_hide_replaces_confirm_delete(self):
+        body = self._fn(r"function renderNoteCard\(n\) \{[\s\S]*?\n    \}")
+        self.assertNotIn("window.confirm", body)
+        self.assertNotIn('method: "DELETE"', body)
+        self.assertIn('method: "PATCH"', body)
+        self.assertIn("JSON.stringify({ hidden: true })", body)
+        self.assertIn("JSON.stringify({ hidden: false })", body)
+        self.assertIn('"Hide"', body)
+        self.assertIn("showHiddenStub(", body)
+
+    def test_source_hide_replaces_confirm_delete(self):
+        body = self._fn(r"function renderSourceCard\(s\) \{[\s\S]*?\n    \}")
+        self.assertNotIn("window.confirm", body)
+        self.assertNotIn('method: "DELETE"', body)
+        self.assertIn('method: "PATCH"', body)
+        self.assertIn("JSON.stringify({ hidden: true })", body)
+        self.assertIn("JSON.stringify({ hidden: false })", body)
+        self.assertIn('"Hide"', body)
+        self.assertIn("showHiddenStub(", body)
+
+    def test_hidden_restore_stub_is_inline_and_reversible(self):
+        body = self._fn(r"function showHiddenStub\(card, labelText, "
+                        r"restoreFn\) \{[\s\S]*?\n    \}")
+        self.assertIn('"Hidden — "', body)
+        self.assertIn('"Restore"', body)
+        self.assertIn("td-hidden-stub", body)
+        self.assertNotIn("window.confirm", body)
+
+    def test_trip_delete_probes_then_opens_impact_review(self):
+        body = self._fn(r"function deleteTrip\(trip\) \{[\s\S]*?\n    \}")
+        self.assertNotIn("window.confirm", body)
+        # Non-forced DELETE first; 409 + requires_force routes to the
+        # in-panel review, everything else still surfaces as an error.
+        self.assertIn('{ method: "DELETE" }', body)
+        self.assertIn("e.status === 409", body)
+        self.assertIn("requires_force", body)
+        self.assertIn("openDeleteTripReview(", body)
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the 409 impact ships inside
+        # FastAPI's `detail` envelope — the flow MUST read e.body.detail
+        # (reading the flat e.body.requires_force would silently never
+        # open the review). Pin the nested read so it can't regress.
+        self.assertIn("e.body.detail", body)
+        self.assertNotIn("e.body.requires_force", body)
+
+    def test_force_delete_sends_confirm_trip_id_force_and_reason(self):
+        body = self._fn(r"function openDeleteTripReview\(trip, impact\) "
+                        r"\{[\s\S]*?\n    \}")
+        self.assertNotIn("window.confirm", body)
+        self.assertNotIn("window.alert", body)
+        self.assertIn("force: true", body)
+        self.assertIn("confirm_trip_id: trip.id", body)
+        self.assertIn('"operator cleanup"', body)
+        # 422 / wrong-confirm failures render inline in the panel.
+        self.assertIn("deleteTripError", body)
+        # The 409 counts payload is rendered for review.
+        self.assertIn("impact.counts", body)
+        for key in ("regions", "stops", "days", "photo_links", "notes",
+                    "sources", "story_links", "public_context",
+                    "photo_context"):
+            self.assertIn(f'"{key}"', body)
+
+    def test_arm_requires_exact_title_or_id_match(self):
+        body = self._fn(r"function openDeleteTripReview\(trip, impact\) "
+                        r"\{[\s\S]*?\n    \}")
+        # Trim-compare against the exact trip title, or the trip id —
+        # the confirm button stays disabled otherwise.
+        self.assertIn('typed === String(trip.title || "").trim()', body)
+        self.assertIn("typed === String(trip.id)", body)
+        self.assertIn("confirmBtn.disabled = !armed", body)
+
+    def test_confirm_count_dropped_to_region_and_stop_only(self):
+        # 5 → 2: only the (out-of-scope) region and stop deletes keep
+        # window.confirm.
+        self.assertEqual(self.src.count("window.confirm("), 2)
+        self.assertIn("window.confirm",
+                      self._fn(r"function deleteRegion\(region\) "
+                               r"\{[\s\S]*?\n    \}"))
+        self.assertIn("window.confirm",
+                      self._fn(r"function deleteStop\(stop\) "
+                               r"\{[\s\S]*?\n    \}"))
+
+    def test_delete_trip_modal_hooks_and_css_present(self):
+        for hook in ('data-td="modalDeleteTrip"',
+                     'data-td="deleteTripSummary"',
+                     'data-td="deleteTripCounts"',
+                     'data-td="deleteTripConfirmInput"',
+                     'data-td="deleteTripReason"',
+                     'data-td="deleteTripError"',
+                     'data-td="confirmDeleteTrip"',
+                     'data-td="cancelDeleteTrip"',
+                     'data-td="closeDeleteTrip"'):
+            self.assertIn(hook, self.raw, hook)
+        # Escape + backdrop close cover the new modal too (both lists
+        # end with it, right before their .forEach).
+        self.assertEqual(self.src.count('"modalDeleteTrip"].forEach'), 2)
+        css = (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+               ).read_text(encoding="utf-8")
+        for cls in (".td-hidden-stub", ".td-note-hidden",
+                    ".td-delete-trip-counts", ".td-delete-trip-warning",
+                    ".td-delete-trip-error"):
+            self.assertIn(cls, css, cls)
+
+
 if __name__ == "__main__":
     unittest.main()

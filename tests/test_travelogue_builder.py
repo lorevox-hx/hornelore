@@ -482,11 +482,29 @@ class PublicContextTest(_TravelogueFixture):
         self.assertEqual(row["result_summary"], "Edited.")
         self.assertFalse(row["approved_for_lori"])
 
-    def test_delete_public_context(self):
+    def test_delete_public_context_rejects_not_deletes(self):
+        # WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: the DELETE endpoint is
+        # repurposed to REJECT (rejected=1) — the row survives.
         out = self._add_public(result_summary="temp")
-        trips.delete_public_context(out["context_id"])
-        self.assertIsNone(
-            trip_repository.public_context_get(out["context_id"]))
+        res = trips.delete_public_context(out["context_id"])
+        self.assertTrue(res["rejected"])
+        self.assertFalse(res["purged"])
+        row = trip_repository.public_context_get(out["context_id"])
+        self.assertIsNotNone(row)
+        self.assertEqual(row["rejected"], 1)
+
+    def test_delete_public_context_approved_row_409(self):
+        # An approved row can never be rejected through DELETE — 409,
+        # nothing modified; the operator must un-approve first.
+        out = self._add_public(result_summary="keep me")
+        cid = out["context_id"]
+        trips.patch_public_context(cid, _Req(approved_for_lori=True))
+        with self.assertRaises(HTTPException) as ctx:
+            trips.delete_public_context(cid)
+        self.assertEqual(ctx.exception.status_code, 409)
+        row = trip_repository.public_context_get(cid)
+        self.assertEqual(row["rejected"], 0)
+        self.assertTrue(row["approved_for_lori"])
 
 
 class NotesRoutingTest(_TravelogueFixture):
