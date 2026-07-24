@@ -41,6 +41,27 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 ---
 
+## Status as of 2026-07-24
+
+**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first. A newer-agent handoff lives in [`docs/handoffs/HANDOFF_2026-07-24.md`](docs/handoffs/HANDOFF_2026-07-24.md).
+
+**Headline: the Travel Doc Lab now produces a real, reviewable travelogue draft — not just evidence management.** The operator Draft Assistant landed and was live-validated on the running stack.
+
+**Travel Doc Lab — Draft Assistant (WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01): LANDED + LIVE-VALIDATED (2026-07-24).**
+
+- New **Draft** tab in the Lab: pick a scope (whole trip / region / stop) → it assembles the operator-approved evidence you already gathered → drafts a travelogue paragraph you can edit and keep. Keeping never promotes to the memoir.
+- Reuses `build_travelogue_outline()` for evidence assembly (so it inherits the builder's guarantees: rejected public context filtered, raw GPS excluded, machine-guess evidence labeled `(draft)`, unpromoted notes kept out of the block).
+- **Doctrine locked:** approved evidence may be stated plainly; **draft evidence is included but written suggestively**; **unpromoted notes are excluded unless explicitly selected**; `MODSAVE-*` sentinels are dropped from context.
+- Endpoint `POST /api/trips/{trip_id}/draft-section` (`preview_only` skips the LLM and returns the context that *would* be sent). Draft text only — nothing persists on the call. Keep → `trip_location_notes` `source_type='draft'`, both promote flags **0**.
+- Inference goes through a new operator-side `llm_interview.draft_travel_section()` — **not** the narrator path. LAW-3 isolation build-gate (`test_trip_draft_isolation.py`) forbids `chat_ws` / `prompt_composer` / `extract` imports.
+- Live on the Spring 2026 trip, Prague region: preview showed 3 approved operator anchors (no unpromoted notes leaking in); a ~5s draft stayed within evidence (Prague, May 22 2026, Czechia's capital); Keep created a `source_type='draft'` note with both promote flags 0. All 10 acceptance tests pass in unit tests **and** live.
+- One quality note to watch: on thin evidence the model reaches for arrival-by-train / "bustling station" framing that isn't in the evidence — harmless narrative color, not a fabricated fact, but a candidate for a small prompt tightening later.
+- **Data fix:** the `MODSAVE-1783558649763` sentinel that had leaked into the Germany region summary was cleared (`clear_summary`).
+
+**Parked as backlog (not blocking):** `.env.example` flag audit — read-only cross-reference report at [`docs/reports/ENV_EXAMPLE_AUDIT_2026-07-23.md`](docs/reports/ENV_EXAMPLE_AUDIT_2026-07-23.md) (77 code-read flags undocumented; 34 documented-but-unread, sub-categorized so nothing library/localStorage/vestigial gets flagged as stale). Housekeeping — do the smallest safe reconciliation pass later, not now.
+
+---
+
 ## Status as of 2026-07-23
 
 **Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first. The 2026-07-14 changelog entry there carries the full detail behind this summary.
@@ -101,14 +122,15 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 **Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG default-OFF; BINDING-01 in-tree default-off.
 
-**Immediate open items (P1/P2):**
+**Immediate open items (P1/P2)** — current priority is Travel Doc Lab product depth:
 
-1. **`.env.example` flag audit** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented. Ops risk. Now the top open item.
+1. **Travel Doc Lab depth** (the active lane) — richer Draft Assistant (per-block picker, multi-note/source selection UI, arrival-mode prompt tightening); wire the memoir/DOCX export to harvest `story_candidates` (WO-MEMOIR-STORY-CANDIDATES-WIRE-01); day-level story support once day cards carry richer operator content.
 2. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
 3. **Gate 7 truth-pipeline observability** — the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change.
 4. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
+5. **`.env.example` audit reconciliation** (backlog / housekeeping) — smallest safe pass per the parked report; not blocking.
 
-(Public-lookup supersede — CLOSED + live-smoked 2026-07-23, see above.)
+(Public-lookup supersede + Draft Assistant — CLOSED + live-verified, see the 2026-07-24/07-23 blocks above.)
 
 The 2026-07-11 stanza below is retained for the two-week trip-lane build detail. Refer to `CLAUDE.md` for the day-by-day changelog.
 
