@@ -1,7 +1,8 @@
 # MASTER_WORK_ORDER_CHECKLIST
 
-**Active as of:** 2026-07-23 (live-verification pass on the running stack — migrations 0034/0035, trip API baseline, Travel Doc smoke, and response-guard health all GREEN; INC-2026-07-09 response-guard outage closed; camera-consent ambush + extractor guards + trip-create day-count + public-lookup wording fixed. See README "Status as of 2026-07-23" and the CLAUDE.md 2026-07-14 changelog entry.)
-**Previously:** 2026-07-11 (doc-consistency pass — split "code landed" vs "flag live" vs "formal verification" statuses per Chris's audit; 2026-07-11 HIGH repo-review batch closed via commits ebe64af / cf62c49 / round-2 / round-3), 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed), 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
+**Active as of:** 2026-07-24 (WO-TRAVEL-DOC-UNIFY-01 Phase 1 CODE-LANDED — the Travel Doc Lab is now `window.lvTravelDocMount(hostEl, opts) -> {destroy()}`; behaviour-neutral, front-end only, no flag introduced. 142 tests green, mount lifecycle verified in a headless browser. Spec at `docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md`; Phases 2–6 open. See the CLAUDE.md 2026-07-24 changelog entry.)
+**Previously:** 2026-07-23 (live-verification pass on the running stack — migrations 0034/0035, trip API baseline, Travel Doc smoke, and response-guard health all GREEN; INC-2026-07-09 response-guard outage closed; camera-consent ambush + extractor guards + trip-create day-count + public-lookup wording fixed. See README "Status as of 2026-07-23" and the CLAUDE.md 2026-07-14 changelog entry.)
+**Earlier:** 2026-07-11 (doc-consistency pass — split "code landed" vs "flag live" vs "formal verification" statuses per Chris's audit; 2026-07-11 HIGH repo-review batch closed via commits ebe64af / cf62c49 / round-2 / round-3), 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed), 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
 
 ---
 
@@ -93,6 +94,64 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 5. **Extraction Track D (measurement first)** — D1 Travel Doc binding-eval corpus (report-only, UI scope as expected binding), D2 `story_candidates` Path 2 (preserved story text → draft candidates, operator review, no auto-promotion), D3 `utterance_frame` first consumer (hints vs Travel Doc scope, report-only). No truth writes.
 6. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
 7. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
+
+## Travel Doc unification — WO-TRAVEL-DOC-UNIFY-01 (Phase 1 CODE-LANDED 2026-07-24)
+
+Spec: [`docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md`](docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md)
+
+**The problem this closes.** Two divergent Travel Doc implementations means the
+operator's day-to-day surface is whichever one they happened to open — day cards
+in one, route editing in the other. That cost a working session on the Bismarck
+trip: the six `trip_days` rows existed and were correct, but the panel reachable
+from the shell does not render day cards, so the work looked lost.
+
+**Direction (decided, do not relitigate): the Lab absorbs the Documenter.**
+Either direction rewrites the losing file at roughly equal cost; only this one
+keeps the newer render architecture (state object + `renderAll()` loop +
+preserved scroll + dirty-guard) instead of landing on `template()` →
+`innerHTML`. `renderCurrent()` in the Lab is a deliberate placeholder — the
+merge socket, not a feature. **The backend needs no changes at all.**
+
+| Phase | Status |
+|---|---|
+| 1 — make the Lab mountable (`window.lvTravelDocMount(hostEl, opts) -> {destroy()}`) | ✅ **CODE-LANDED 2026-07-24.** Behaviour-neutral. `node --check` clean, 142 tests green across the five suites that read the lab source, mount lifecycle driven in a headless browser with `BroadcastChannel` instrumented (load → 1 channel; 2nd mount → 2; `destroy()` → 1 with the first still fully rendered; repeat `destroy()` a no-op). NOT formal-verified in the shell — see Phase 2. |
+| 2 — coexist in the shell tab behind a toggle | OPEN. Mount into `#lvTravelDocHost` alongside the Documenter. **Resist skipping this** — one cycle on real trips with production one click away is what surfaces the affordances the port inventory misses. Also fix the launcher-CSS defect below. |
+| 3 — port the Documenter's features in | OPEN. The bulk. **Delete gate first** (newest, least-exercised code in either panel), then upload capability, then the route board. Port table + explicit retire list in the spec. |
+| 4 — flip and delete | OPEN. Remove `travel-documenter.js` / `.css`, `travel-doc-lab.html`, the launcher block; rename survivors to `travel-doc.js` / `travel-doc.css`. Keep the `tdl-` prefix. |
+| 5 — test consolidation | OPEN. Fold both test files into `tests/test_travel_doc.py`. A **rewrite, not a merge** — `test_travel_doc_lab.py` asserts the Lab does NOT reference the production module, and that boundary inverts under this WO. |
+| 6 — live smoke | OPEN. Unification-critical list in the spec; the photo-evidence canaries are run-but-not-gating. |
+
+**A phase is a scope wall — Phase 2 is a separate session.**
+
+**Blocking constraints carried into Phase 3 (each already cost real debugging
+once, or would):**
+
+- **`window.confirm()` must not port.** `travel-documenter.js` lines 2131
+  (region delete) and 2153 (stop delete) both call it. They must land as
+  in-panel review matching the trip force-delete gate, or they regress the
+  posture `WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` established. The Lab is
+  currently clean.
+- **The delete gate's error envelope** is pinned at `e.body.detail`, not
+  `e.body`, because FastAPI nests structured payloads under `detail`. Move the
+  pinning assertion in the **same commit** as the port so it never lapses.
+- **Upload is a capability to build, not a control to port.** The Lab contains
+  zero `FormData` and zero file inputs; production has three photo-upload
+  scopes plus source upload. The Lab was never a complete Travel Doc because
+  uploads were always somebody else's job.
+- **One Lori socket, not two.** Both panels open an operator socket on
+  `source_surface=travel_doc_modal`. Merged, there must be exactly one
+  connection and one modal scope, with the full `modal_scope` field list
+  preserved. Check for a double-connect when the Lori tab and the Lori overlay
+  drawer are both reachable in the same module.
+- **The role boundary holds.** Travel Documenter = operator tool. Travels shelf
+  = narrator surface. The merged panel keeps the 12-test boundary gate green.
+
+**Defect found on the way in, fix in Phase 2:** the
+`WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01` block in `hornelore1.0.html` (~3600–3617)
+has **zero CSS anywhere in `ui/`** for `lvTravelDocLabBtn`, `lv-td-lab-launch`,
+or `lv-td-lab-hint` — which is why it renders as plain text and could not be
+found. It is deleted in Phase 4 regardless; if Phase 2 keeps it reachable, it
+needs a rule.
 
 ## Travel Doc Lab finish-pass — CLOSED, live-smoked (2026-07-23)
 
