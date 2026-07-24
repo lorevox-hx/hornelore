@@ -160,30 +160,49 @@ class _FakeModel:
     def generate(self, input_ids=None, streamer=None,
                  stopping_criteria=None, **kw):
         h = self.h
-        h.llm_calls += 1
-        # Record the per-generation cancellation event exactly as the
-        # production StopOnEvent received it — the cancellation tests
-        # assert on THESE objects.
-        ev: Optional[threading.Event] = None
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 follow-up
+        # (serialize generation): track how many generate() calls are in
+        # flight AT ONCE — production must never overlap them on a
+        # socket (dual-generation VRAM pressure, the audit finding).
+        with h.gen_lock:
+            h.llm_calls += 1
+            h.active_generations += 1
+            h.max_concurrent_generations = max(
+                h.max_concurrent_generations, h.active_generations)
         try:
-            ev = stopping_criteria[0].ev
-        except Exception:
-            ev = None
-        h.generation_events.append(ev)
-        # Was this generation's OWN event already set when it started?
-        # (Per-turn cancellation invariant: a fresh turn must receive a
-        # fresh, UNSET event.)
-        h.generation_start_states.append(bool(ev is not None and ev.is_set()))
-        h.generation_started.set()
-        if h.block_generation:
-            # Long-running generation: only the stop event releases it,
-            # exactly like a real generate() honoring StopOnEvent.
-            deadline = time.monotonic() + 30.0
-            while (ev is not None and not ev.is_set()
-                   and time.monotonic() < deadline):
-                time.sleep(0.005)
-        streamer.q.put(h.llm_text)
-        streamer.q.put(None)
+            # Record the per-generation cancellation event exactly as the
+            # production StopOnEvent received it — the cancellation tests
+            # assert on THESE objects.
+            ev: Optional[threading.Event] = None
+            try:
+                ev = stopping_criteria[0].ev
+            except Exception:
+                ev = None
+            h.generation_events.append(ev)
+            # Was this generation's OWN event already set when it started?
+            # (Per-turn cancellation invariant: a fresh turn must receive
+            # a fresh, UNSET event.)
+            h.generation_start_states.append(
+                bool(ev is not None and ev.is_set()))
+            h.generation_started.set()
+            if h.block_generation:
+                # Long-running generation: only the stop event releases
+                # it, exactly like a real generate() honoring StopOnEvent.
+                deadline = time.monotonic() + 30.0
+                while (ev is not None and not ev.is_set()
+                       and time.monotonic() < deadline):
+                    time.sleep(0.005)
+            if h.generation_exit_delay:
+                # Simulates the token-boundary latency between the stop
+                # event being observed and generate() actually RETURNING
+                # — the exact window where an unserialized second
+                # generate would overlap this one.
+                time.sleep(h.generation_exit_delay)
+            streamer.q.put(h.llm_text)
+            streamer.q.put(None)
+        finally:
+            with h.gen_lock:
+                h.active_generations -= 1
 
 
 # ── The harness ────────────────────────────────────────────────────────────
@@ -201,6 +220,11 @@ class ChatWsHarness:
         self.generation_events: List[Optional[threading.Event]] = []
         self.generation_start_states: List[bool] = []
         self.generation_started = threading.Event()
+        # Serialize-generation follow-up instrumentation:
+        self.gen_lock = threading.Lock()
+        self.active_generations = 0
+        self.max_concurrent_generations = 0
+        self.generation_exit_delay = 0.0
         self.scan_calls: List[str] = []
         self.person_id: str = ""
         self._patched: Dict[str, Any] = {}

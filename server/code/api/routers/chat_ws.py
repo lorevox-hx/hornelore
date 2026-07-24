@@ -329,6 +329,17 @@ async def ws_chat(ws: WebSocket):
     # can never observe a newly cleared event.
     current_cancel_event: Optional[threading.Event] = None
     current_task: Optional[asyncio.Task] = None
+    # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 follow-up
+    # (fix(chat-ws): serialize generation, 2026-07-24) — per-socket
+    # generation-thread handle. The per-turn cancel event above removes
+    # the set→clear race, but a superseded turn's DAEMON generation
+    # thread only observes StopOnEvent at a token boundary — so without
+    # this, turn B's model.generate could start while turn A's was still
+    # unwinding (dual-generation VRAM pressure; the audit finding). The
+    # generation path below joins the previous thread (bounded) before
+    # starting the next generate. Scoped per-socket by construction
+    # (closure state) — cross-socket concurrency semantics unchanged.
+    generation_thread_holder: Dict[str, Any] = {"thread": None}
     # ── §3.3 — no shared "default" session. Two ID-less sockets used to
     # share history, softened state, segment flags, and follow-up-bank
     # rows under the literal conv_id "default" — one narrator's crisis
@@ -3456,6 +3467,44 @@ async def ws_chat(ws: WebSocket):
             ),
             daemon=True,
         )
+
+        # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 follow-up
+        # (fix(chat-ws): serialize generation) — NEVER overlap
+        # model.generate calls on this socket. The superseded turn's
+        # cancel event was set by the start_turn handler, but its daemon
+        # thread only notices at the next token boundary (tens of ms).
+        # Bounded join off the event loop; if the previous generate has
+        # not exited within the window, we REFUSE this turn rather than
+        # run dual generation (the audit's VRAM-pressure finding). A
+        # refusal here is loud (ERROR log + error event) and recoverable
+        # (the client can re-send); dual generation is neither.
+        _prev_gen_th = generation_thread_holder.get("thread")
+        if _prev_gen_th is not None and _prev_gen_th.is_alive():
+            logger.info(
+                "[chat_ws][gen-serialize] waiting for previous generation "
+                "thread to exit conv=%s", conv_id,
+            )
+            await asyncio.to_thread(_prev_gen_th.join, 10.0)
+            if _prev_gen_th.is_alive():
+                logger.error(
+                    "[chat_ws][gen-serialize] previous generation thread "
+                    "did NOT exit within 10s conv=%s — refusing to start "
+                    "a second concurrent model.generate (dual-generation "
+                    "VRAM pressure). Turn dropped; client may retry.",
+                    conv_id,
+                )
+                await _ws_send(ws, {
+                    "type": "error",
+                    "code": "GENERATION_BUSY",
+                    "message": "The previous response is still winding "
+                               "down — please try again in a moment.",
+                })
+                await _ws_send(ws, {
+                    "type": "done", "final_text": "",
+                    "blocked": "generation_serialization",
+                })
+                return
+        generation_thread_holder["thread"] = th
         th.start()
 
         reply_parts: List[str] = []
@@ -3522,6 +3571,38 @@ async def ws_chat(ws: WebSocket):
                 await _ws_send(ws, {"type": "token", "delta": chunk})
 
         final_text = "".join(reply_parts).strip()
+
+        # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 follow-up
+        # (fix(chat-ws): never persist cancelled turns) — a cancelled
+        # turn aborts HERE, immediately after the generation loop,
+        # BEFORE: comm-control, discipline trim, era-fragment repair,
+        # Spanish guards, duplicate check, witness validator, response
+        # guards, persist_turn_transaction, archive writes, follow-up-
+        # bank writes, trip-capture memory update, and the deferred
+        # token emit. Previously the partial text flowed through the
+        # whole post-generation pipeline and could be persisted with a
+        # `cancelled` meta flag — a half-generated reply the narrator
+        # explicitly cancelled has no business in history, the archive,
+        # or the bank. The socket gets an empty, explicitly-cancelled
+        # done and nothing else.
+        #
+        # NOTE (spec'd by Chris, flagged in the WO report): aborting
+        # before persist_turn_transaction also drops the NARRATOR's
+        # user text for this turn from the turns table — zero new turn
+        # rows means zero, both halves. The replacing turn carries its
+        # own user text. (The memory-archive user-turn write happens
+        # BEFORE generation and is unaffected, so the narrator's words
+        # are still retained in the archive.)
+        if ev.is_set():
+            logger.warning(
+                "[chat_ws][cancel] turn cancelled mid-generation conv=%s "
+                "— discarding %d chars of partial text; nothing persisted",
+                conv_id, len(final_text),
+            )
+            await _ws_send(ws, {
+                "type": "done", "final_text": "", "cancelled": True,
+            })
+            return
 
         # WO-LORI-COMMUNICATION-CONTROL-01 — the unifying runtime
         # enforcement layer. Replaces the per-WO call sites for
@@ -3825,10 +3906,15 @@ async def ws_chat(ws: WebSocket):
                 if not _witness_use_llm_receipt:
                     _deferred_emit_pending = True
 
-        # Phase G: fail-closed — only persist if generation completed cleanly
+        # Phase G: fail-closed — only persist if generation completed cleanly.
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 follow-up: the
+        # primary cancelled-turn abort now happens immediately after the
+        # generation loop (above); this is the belt for the LATE race — a
+        # cancel that lands while the post-generation pipeline is running.
+        # Same contract: empty final_text, nothing persisted.
         if ev.is_set():
             logger.warning("[chat-ws] Turn cancelled/disconnected — skipping persistence (fail-closed)")
-            await _ws_send(ws, {"type": "done", "final_text": final_text, "cancelled": True})
+            await _ws_send(ws, {"type": "done", "final_text": "", "cancelled": True})
             return
 
         # BUG-LORI-ERA-FRAGMENT-COHERENCE-01 (2026-05-06): post-generation

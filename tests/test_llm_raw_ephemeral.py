@@ -1,14 +1,20 @@
-"""WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 — raw ephemeral chat mode.
+"""WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 — raw ephemeral LLM mode.
 
-api.chat(prompt_mode="raw_ephemeral") must send the supplied system + user
-messages VERBATIM: no compose_system_prompt (so no DEFAULT_CORE persona, no
-PROFILE_JSON context block, no pinned RAG / golden-mock docs), no
-extract_profile_json_from_ui_system, no session/profile/turn persistence,
-and a nonempty conv_id is refused loudly. Composed mode keeps the legacy
-contract (composer called; conv_id persists turns via add_turn).
+Follow-up hardening shape: raw ephemeral generation is an INTERNAL Python
+function (api._generate_raw_ephemeral) called directly by
+llm_interview._try_call_llm for prompt_mode="raw_ephemeral". It sends the
+supplied system + user prompts VERBATIM: no compose_system_prompt (so no
+DEFAULT_CORE persona, no PROFILE_JSON context block, no pinned RAG /
+golden-mock docs), no extract_profile_json_from_ui_system, no session/
+profile/turn persistence, and it has no conv_id parameter at all.
+
+The public HTTP surface is composed-only: prompt_mode is NOT a declared
+_ChatReq field, and a request smuggling prompt_mode='raw_ephemeral'
+through extra="allow" is REJECTED with 400 by chat() and chat_stream() —
+never honored, never silently composed.
 
 Test style mirrors test_trip_draft.py: stub/monkeypatch at module
-boundaries. Generation is stubbed at chat()'s single non-streaming entry
+boundaries. Generation is stubbed at the single non-streaming entry
 (api._generate_text) so no model is ever loaded; the fake tokenizer has no
 apply_chat_template so _apply_chat_template renders the plain
 ROLE:/content fallback — the captured prompt is exactly the messages that
@@ -73,8 +79,9 @@ if "pydantic" not in sys.modules:
 
     class _BaseModel:
         # Enough pydantic for direct construction: class-attr defaults
-        # applied, kwargs override. No validation/coercion (tests pass
-        # ChatTurn instances explicitly so this also matches real pydantic).
+        # applied, kwargs override (extra kwargs kept, mirroring
+        # extra="allow"). No validation/coercion (tests pass ChatTurn
+        # instances explicitly so this also matches real pydantic).
         def __init__(self, **kw):
             for klass in reversed(type(self).__mro__):
                 for k, v in vars(klass).items():
@@ -103,6 +110,9 @@ _MARKER_PROFILE = "PROFILE_JSON"                        # session context block
 _MARKER_RAG = "[ORAL_HISTORY_GUIDELINES]"               # pinned RAG doc header
 _MARKER_GOLDEN = "[GOLDEN_MOCK]"                        # pinned golden mock
 
+_SYS = "TEST DRAFT SYSTEM: use ONLY the evidence."
+_USR = "Evidence:\n- approved place: Prague, Czechia"
+
 
 def _raise(*a, **k):
     raise AssertionError("forbidden call reached a bypassed touchpoint")
@@ -130,17 +140,24 @@ class _StubbedChatCase(unittest.TestCase):
         setattr(obj, name, value)
         self.addCleanup(setattr, obj, name, orig)
 
-    def _chat(self, *, system="TEST DRAFT SYSTEM: use ONLY the evidence.",
-              user="Evidence:\n- approved place: Prague, Czechia",
-              mode="raw_ephemeral", conv_id=None, messages=None):
+    def _raw(self, system=_SYS, user=_USR):
+        """Call the INTERNAL raw ephemeral function directly."""
+        return api_mod._generate_raw_ephemeral(
+            system, user, temp=0.5, top_p=0.9, max_new=64)
+
+    def _mk_req(self, *, system=_SYS, user=_USR, conv_id=None,
+                messages=None, extra=None):
         if messages is None:
             messages = [("system", system), ("user", user)]
-        req = api_mod._ChatReq(
+        return api_mod._ChatReq(
             messages=[api_mod.ChatTurn(role=r, content=c)
                       for r, c in messages],
             temp=0.5, top_p=0.9, max_new=64,
-            conv_id=conv_id, prompt_mode=mode)
-        return api_mod.chat(req)
+            conv_id=conv_id, **(extra or {}))
+
+    def _chat(self, **kw):
+        """Call the PUBLIC chat() endpoint (composed-only surface)."""
+        return api_mod.chat(self._mk_req(**kw))
 
 
 class MarkerSelfCheckTest(unittest.TestCase):
@@ -156,12 +173,12 @@ class MarkerSelfCheckTest(unittest.TestCase):
         self.assertIn(_MARKER_GOLDEN, src)
 
 
-class RawEphemeralModeTest(_StubbedChatCase):
+class RawEphemeralInternalTest(_StubbedChatCase):
+    """Raw-mode behavior of the internal function + _try_call_llm routing."""
+
     def test_raw_succeeds_when_composer_raises(self):
         self._patch(api_mod, "compose_system_prompt", _raise)
-        out = self._chat()
-        self.assertTrue(out["ok"])
-        self.assertEqual(out["text"], "CANNED COMPLETION")
+        self.assertEqual(self._raw(), "CANNED COMPLETION")
 
     def test_raw_succeeds_when_persistence_raises(self):
         # Every session/profile/turn persistence touchpoint armed to blow.
@@ -173,15 +190,14 @@ class RawEphemeralModeTest(_StubbedChatCase):
         self._patch(db_mod, "ensure_session", _raise)
         self._patch(db_mod, "add_turn", _raise)
         self._patch(db_mod, "upsert_session", _raise)
-        out = self._chat()
-        self.assertEqual(out["text"], "CANNED COMPLETION")
+        self.assertEqual(self._raw(), "CANNED COMPLETION")
 
     def test_raw_prompt_is_verbatim_and_uncontaminated(self):
         self._patch(api_mod, "compose_system_prompt", _raise)
         system = ("You are a careful travel-memoir drafting assistant. "
                   "Use ONLY the evidence provided. SENTRY-SYS-9Q.")
         user = "Evidence (use only this):\n- approved caption: EV-ANCHOR-7Z"
-        self._chat(system=system, user=user)
+        self._raw(system=system, user=user)
         self.assertEqual(len(self.prompts), 1)
         prompt = self.prompts[0]
         # exact supplied system text + evidence reach generation
@@ -194,29 +210,77 @@ class RawEphemeralModeTest(_StubbedChatCase):
         self.assertNotIn(_MARKER_RAG, prompt)
         self.assertNotIn(_MARKER_GOLDEN, prompt)
 
-    def test_raw_refuses_conv_id(self):
-        self._patch(api_mod, "add_turn", _raise)
-        with self.assertRaises(api_mod.HTTPException) as cm:
-            self._chat(conv_id="conv-must-not-persist")
-        self.assertEqual(cm.exception.status_code, 400)
+    def test_raw_requires_nonempty_system(self):
+        with self.assertRaises(ValueError):
+            self._raw(system="")
+        with self.assertRaises(ValueError):
+            self._raw(system="   ")
         self.assertEqual(self.prompts, [])   # refused BEFORE generation
 
-    def test_raw_requires_nonempty_system(self):
+    def test_try_call_llm_raw_refuses_conv_id_loudly(self):
+        # A conv_id combined with raw mode is a programming error — it must
+        # raise, never degrade to a persisted composed call or a silent None.
+        self._patch(api_mod, "add_turn", _raise)
+        with self.assertRaises(ValueError):
+            llm_interview._try_call_llm(
+                _SYS, _USR, max_new=64, temp=0.5, top_p=0.9,
+                conv_id="conv-must-not-persist",
+                prompt_mode="raw_ephemeral")
+        self.assertEqual(self.prompts, [])   # refused BEFORE generation
+
+    def test_try_call_llm_raw_does_not_use_public_chat(self):
+        # llm_interview must call the internal function directly, never the
+        # public chat() endpoint.
+        self._patch(api_mod, "chat", _raise)
+        self._patch(api_mod, "compose_system_prompt", _raise)
+        out = llm_interview._try_call_llm(
+            _SYS, _USR, max_new=64, temp=0.5, top_p=0.9,
+            prompt_mode="raw_ephemeral")
+        self.assertEqual(out, "CANNED COMPLETION")
+
+
+class PublicSurfaceClosedTest(_StubbedChatCase):
+    """The HTTP surface accepts ONLY composed mode — raw is unreachable."""
+
+    def setUp(self):
+        super().setUp()
+        self.compose_calls = []
+
+        def _fake_compose(conv_id, ui_system=None, user_text=None,
+                          runtime71=None):
+            self.compose_calls.append(conv_id)
+            return "COMPOSED-WRAP " + (ui_system or "")
+        self._patch(api_mod, "compose_system_prompt", _fake_compose)
+
+    def test_prompt_mode_not_declared_on_public_contract(self):
+        req = self._mk_req()
+        self.assertFalse(hasattr(req, "prompt_mode"),
+                         "prompt_mode must not be part of the public "
+                         "_ChatReq contract")
+
+    def test_chat_rejects_smuggled_raw_mode(self):
+        # extra="allow" would let prompt_mode ride along as an extra field —
+        # it must be REJECTED, never honored, never silently composed.
         with self.assertRaises(api_mod.HTTPException) as cm:
-            self._chat(messages=[("user", "hi")])
+            self._chat(extra={"prompt_mode": "raw_ephemeral"})
         self.assertEqual(cm.exception.status_code, 400)
-        with self.assertRaises(api_mod.HTTPException):
-            self._chat(system="   ")
+        self.assertEqual(self.prompts, [])         # raw path NOT taken
+        self.assertEqual(self.compose_calls, [])   # rejected at the boundary
+
+    def test_chat_stream_rejects_smuggled_raw_mode(self):
+        with self.assertRaises(api_mod.HTTPException) as cm:
+            api_mod.chat_stream(
+                self._mk_req(extra={"prompt_mode": "raw_ephemeral"}))
+        self.assertEqual(cm.exception.status_code, 400)
         self.assertEqual(self.prompts, [])
 
-    def test_raw_rejected_on_stream_endpoint(self):
-        req = api_mod._ChatReq(
-            messages=[api_mod.ChatTurn(role="system", content="s"),
-                      api_mod.ChatTurn(role="user", content="u")],
-            prompt_mode="raw_ephemeral")
-        with self.assertRaises(api_mod.HTTPException) as cm:
-            api_mod.chat_stream(req)
-        self.assertEqual(cm.exception.status_code, 400)
+    def test_chat_ignores_other_smuggled_prompt_mode_values(self):
+        # Non-raw smuggled values behave like any unknown extra field:
+        # plain composed behavior (pre-WO public contract).
+        out = self._chat(extra={"prompt_mode": "composed"})
+        self.assertEqual(out["text"], "CANNED COMPLETION")
+        self.assertEqual(len(self.compose_calls), 1)
+        self.assertIn("COMPOSED-WRAP", self.prompts[0])
 
 
 class ComposedModeStillComposesTest(_StubbedChatCase):
@@ -232,16 +296,11 @@ class ComposedModeStillComposesTest(_StubbedChatCase):
         self._patch(api_mod, "compose_system_prompt", _fake_compose)
 
     def test_composed_mode_calls_composer(self):
-        self._chat(mode="composed")
+        self._chat()
         self.assertEqual(len(self.compose_calls), 1)
         # conv_id=None maps to the legacy 'default' session
         self.assertEqual(self.compose_calls[0]["conv_id"], "default")
         self.assertIn("COMPOSED-WRAP", self.prompts[0])
-
-    def test_composed_default_mode_field(self):
-        req = api_mod._ChatReq(messages=[
-            api_mod.ChatTurn(role="user", content="hi")])
-        self.assertEqual(req.prompt_mode, "composed")
 
     def test_composed_with_conv_id_persists_turns(self):
         added = []
@@ -249,21 +308,21 @@ class ComposedModeStillComposesTest(_StubbedChatCase):
         def _count_add_turn(conv_id, role, content, *a, **k):
             added.append((conv_id, role))
         self._patch(api_mod, "add_turn", _count_add_turn)
-        out = self._chat(mode="composed", conv_id="conv-persist-1")
+        out = self._chat(conv_id="conv-persist-1")
         self.assertEqual(out["text"], "CANNED COMPLETION")
         self.assertEqual(
             added, [("conv-persist-1", "user"), ("conv-persist-1", "assistant")])
 
     def test_composed_without_conv_id_does_not_persist(self):
         self._patch(api_mod, "add_turn", _raise)
-        out = self._chat(mode="composed", conv_id=None)
+        out = self._chat(conv_id=None)
         self.assertEqual(out["text"], "CANNED COMPLETION")
 
 
 class DraftTravelSectionRawPathTest(_StubbedChatCase):
     """End-to-end: llm_interview.draft_travel_section → _try_call_llm →
-    api.chat in raw_ephemeral mode, with all composed/persistence
-    touchpoints armed to raise."""
+    api._generate_raw_ephemeral (INTERNAL — never through public chat()),
+    with all composed/persistence touchpoints armed to raise."""
 
     def _arm(self):
         self._patch(api_mod, "compose_system_prompt", _raise)
@@ -271,6 +330,7 @@ class DraftTravelSectionRawPathTest(_StubbedChatCase):
         self._patch(api_mod, "add_turn", _raise)
         self._patch(api_mod, "upsert_session", _raise)
         self._patch(api_mod, "get_session", _raise)
+        self._patch(api_mod, "chat", _raise)   # public endpoint off-limits
         self._patch(db_mod, "ensure_session", _raise)
 
     def test_draft_travel_section_is_raw_and_uncontaminated(self):

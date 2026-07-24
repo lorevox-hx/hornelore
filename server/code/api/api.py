@@ -6,7 +6,7 @@ import time
 import pathlib
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
@@ -203,12 +203,13 @@ class _ChatReq(BaseModel):
     state: Optional[Dict[str, Any]] = None
     anchor_id: Optional[str] = None
     section: Optional[str] = None
-    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit prompt mode.
-    # "composed" (default) = legacy behavior: profile extraction, unified
-    # compose_system_prompt (DEFAULT_CORE + PROFILE_JSON + pinned RAG), and
-    # turn/profile persistence when conv_id is present. "raw_ephemeral" =
-    # supplied messages verbatim, no composition, no persistence of any kind.
-    prompt_mode: Literal["composed", "raw_ephemeral"] = "composed"
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up hardening):
+    # prompt_mode is deliberately NOT a field of this public contract. Raw
+    # ephemeral generation is INTERNAL-ONLY (_generate_raw_ephemeral below,
+    # called directly by llm_interview._try_call_llm) — /api/chat and
+    # /api/chat/stream REJECT any request that smuggles
+    # prompt_mode='raw_ephemeral' through extra="allow" (see _reject_smuggled
+    # _raw_mode). HTTP callers always get the composed system prompt.
 
 # ---------------- Stop criteria ----------------
 class StopOnEvent(StoppingCriteria):
@@ -238,8 +239,9 @@ def _generate_text(model, tok, prompt: str, req: _ChatReq) -> str:
     """Tokenize → VRAM-guard → generate → decode for the non-streaming path.
 
     WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: single generation entry
-    for chat() (both prompt modes) so tests can stub it and exercise chat()'s
-    routing/persistence contract without loading the model.
+    for chat() (composed) AND _generate_raw_ephemeral (internal raw mode) so
+    tests can stub it and exercise routing/persistence contracts without
+    loading the model.
     """
     inputs = tok(prompt, return_tensors="pt").to(model.device)
     # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
@@ -271,48 +273,67 @@ def _generate_text(model, tok, prompt: str, req: _ChatReq) -> str:
     return tok.decode(out[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
 
 
-def _chat_raw_ephemeral(req: _ChatReq, start: float) -> Dict[str, Any]:
-    """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 — raw ephemeral chat.
+def _generate_raw_ephemeral(system_prompt: str, user_prompt: str, *,
+                            temp: float = 0.5, top_p: float = 0.9,
+                            max_new: int = 512) -> str:
+    """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 — raw ephemeral
+    generation. INTERNAL Python API only, deliberately NOT an HTTP surface:
+    /api/chat and /api/chat/stream reject any request that tries to reach
+    this path (see _reject_smuggled_raw_mode). Sole sanctioned caller:
+    llm_interview._try_call_llm with prompt_mode='raw_ephemeral'.
 
-    The supplied system + user messages are used VERBATIM. Bypassed entirely:
-    extract_profile_json_from_ui_system, compose_system_prompt (so no
-    DEFAULT_CORE persona, no PROFILE_JSON context block, no pinned RAG /
-    golden-mock docs, no session ensure), session profile state, and every
-    persistence touchpoint (no add_turn, no upsert_session, no profile
-    writes). Built for operator-side evidence drafting
-    (llm_interview.draft_travel_section), whose "use ONLY the evidence"
-    prompt must never be wrapped by the narrator persona — the composed wrap
-    was a live invention/contamination vector. Model load (and its init_db)
-    is model-loader lifecycle, NOT request persistence.
+    The supplied system + user prompts reach the model VERBATIM. Bypassed
+    entirely: extract_profile_json_from_ui_system, compose_system_prompt
+    (so no DEFAULT_CORE persona, no PROFILE_JSON context block, no pinned
+    RAG / golden-mock docs, no session ensure), session profile state, and
+    every persistence touchpoint (no add_turn, no upsert_session, no
+    profile writes — there is no conv_id parameter at all). Built for
+    operator-side evidence drafting (llm_interview.draft_travel_section),
+    whose "use ONLY the evidence" prompt must never be wrapped by the
+    narrator persona — the composed wrap was a live invention/contamination
+    vector. Model load (and its init_db) is model-loader lifecycle, NOT
+    request persistence. Raises ValueError on an empty system prompt
+    (there is no composed fallback).
     """
-    if (req.conv_id or "").strip():
-        raise HTTPException(
-            status_code=400,
-            detail="prompt_mode='raw_ephemeral' is stateless — conv_id is "
-                   "forbidden (nothing may be persisted from this request)")
-    system_text = next((m.content for m in (req.messages or [])
-                        if _normalize_role(m.role) == "system"), None)
-    if not (system_text or "").strip():
-        raise HTTPException(
-            status_code=400,
-            detail="prompt_mode='raw_ephemeral' requires a nonempty supplied "
-                   "system message (there is no composed fallback)")
+    if not (system_prompt or "").strip():
+        raise ValueError(
+            "raw_ephemeral requires a nonempty system prompt "
+            "(there is no composed fallback)")
     model, tok = _load_model()
-    msgs = [{"role": _normalize_role(m.role), "content": m.content}
-            for m in (req.messages or [])]
+    msgs = [{"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt or ""}]
     prompt = _apply_chat_template(msgs)
-    text = _generate_text(model, tok, prompt, req)
-    return {"ok": True, "text": text, "latency": round(time.time() - start, 2)}
+    # _ChatReq used only as the parameter carrier for _generate_text;
+    # no conv_id → nothing can persist.
+    req = _ChatReq(
+        messages=[ChatTurn(role="system", content=system_prompt),
+                  ChatTurn(role="user", content=user_prompt or "")],
+        temp=temp, top_p=top_p, max_new=max_new)
+    return _generate_text(model, tok, prompt, req)
+
+
+def _reject_smuggled_raw_mode(req: _ChatReq) -> None:
+    """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up
+    hardening): prompt_mode is not a declared field, but _ChatReq carries
+    extra="allow" — a JSON body smuggling prompt_mode='raw_ephemeral' would
+    otherwise silently ride along as an extra attribute. It is REJECTED
+    loudly here (never honored, never silently composed) at both public
+    route boundaries. Any other smuggled prompt_mode value is ignored like
+    any unknown extra field (composed behavior, pre-WO contract)."""
+    if getattr(req, "prompt_mode", None) == "raw_ephemeral":
+        raise HTTPException(
+            status_code=400,
+            detail="prompt_mode='raw_ephemeral' is not available over HTTP "
+                   "— raw drafting is an internal server-side API only")
 
 
 # ---------------- REST chat ----------------
 @router.post("/chat")
 def chat(req: _ChatReq) -> Dict[str, Any]:
     start = time.time()
-    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit prompt mode —
-    # raw_ephemeral routes past every composition/persistence touchpoint.
-    if req.prompt_mode == "raw_ephemeral":
-        return _chat_raw_ephemeral(req, start)
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up hardening):
+    # the public surface is composed-only; raw mode cannot be reached here.
+    _reject_smuggled_raw_mode(req)
     model, tok = _load_model()
     # Unified system prompt (pinned RAG + stable role rules)
     ui_system = next((m.content for m in (req.messages or []) if _normalize_role(m.role) == 'system'), None)
@@ -419,13 +440,9 @@ def warmup_endpoint():
 @router.post("/chat/stream")
 def chat_stream(req: _ChatReq):
     start = time.time()
-    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: raw_ephemeral is a
-    # chat()-only contract; refuse loudly rather than silently composing.
-    if req.prompt_mode == "raw_ephemeral":
-        raise HTTPException(
-            status_code=400,
-            detail="prompt_mode='raw_ephemeral' is not supported on "
-                   "/chat/stream — use /chat")
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up hardening):
+    # the public surface is composed-only; raw mode cannot be reached here.
+    _reject_smuggled_raw_mode(req)
     model, tok = _load_model()
     conv_id = (req.conv_id or "").strip()
     anchor_id = (req.anchor_id or "").strip()

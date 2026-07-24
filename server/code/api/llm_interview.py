@@ -33,17 +33,26 @@ def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: f
     Extraction callers should pass a unique ephemeral conv_id to prevent
     cross-narrator context contamination.
 
-    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: prompt_mode is passed
-    through to api.chat(). "composed" (default) keeps the legacy composed
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up hardening):
+    "composed" (default) goes through api.chat() with the legacy composed
     system prompt (DEFAULT_CORE + PROFILE_JSON + pinned RAG under the
-    'default' session when conv_id is None). "raw_ephemeral" sends
-    system_prompt/user_prompt VERBATIM with no composition and no
-    persistence of any kind — the mode for operator evidence drafting.
-    Note a conv_id is REJECTED by chat() in raw_ephemeral mode (naively
-    passing an ephemeral conv_id would persist turns via add_turn).
+    'default' session when conv_id is None). "raw_ephemeral" does NOT go
+    through chat() at all — it calls the INTERNAL api._generate_raw_ephemeral
+    directly (the public /api/chat surface is composed-only and rejects raw
+    mode), sending system_prompt/user_prompt VERBATIM with no composition
+    and no persistence of any kind — the mode for operator evidence
+    drafting. A conv_id combined with raw_ephemeral is a programming error
+    and raises ValueError loudly (an ephemeral conv_id would persist turns
+    via add_turn on the composed path).
     """
     import logging
     logger = logging.getLogger("lorevox.llm")
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: loud contract check
+    # BEFORE the failure-tolerant try block — never degrade this to None.
+    if prompt_mode == "raw_ephemeral" and (conv_id or "").strip():
+        raise ValueError(
+            "raw_ephemeral is stateless — conv_id is forbidden "
+            "(nothing may be persisted from a raw drafting call)")
     # P1: Global temperature safety gate — clamp to minimum safe value.
     # This is the single choke point for ALL LLM calls via this wrapper.
     # chat()/chat_stream()/chat_ws all have their own guards too, but this
@@ -52,25 +61,36 @@ def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: f
         logger.warning("[llm] temp=%s clamped to 0.01 (greedy-safe minimum)", temp)
         temp = 0.01
     try:
-        # Local import so the server can still boot in USE_TTS=1 mode.
-        from .api import chat, _ChatReq, ChatTurn  # type: ignore
+        if prompt_mode == "raw_ephemeral":
+            # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up
+            # hardening): raw mode uses the internal function directly —
+            # never the public chat() endpoint. Local import so the server
+            # can still boot in USE_TTS=1 mode.
+            from .api import _generate_raw_ephemeral  # type: ignore
 
-        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit ChatTurn
-        # construction (identical under real pydantic, which coerced the
-        # previous dicts; required for the offline pydantic-stub test lane).
-        req = _ChatReq(
-            messages=[
-                ChatTurn(role="system", content=system_prompt),
-                ChatTurn(role="user", content=user_prompt),
-            ],
-            temp=temp,
-            top_p=top_p,
-            max_new=max_new,
-            conv_id=conv_id,
-            prompt_mode=prompt_mode,
-        )
-        out = chat(req)
-        txt = (out.get("text") or "").strip()
+            txt = (_generate_raw_ephemeral(
+                system_prompt, user_prompt,
+                temp=temp, top_p=top_p, max_new=max_new) or "").strip()
+        else:
+            # Local import so the server can still boot in USE_TTS=1 mode.
+            from .api import chat, _ChatReq, ChatTurn  # type: ignore
+
+            # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit
+            # ChatTurn construction (identical under real pydantic, which
+            # coerced the previous dicts; required for the offline
+            # pydantic-stub test lane).
+            req = _ChatReq(
+                messages=[
+                    ChatTurn(role="system", content=system_prompt),
+                    ChatTurn(role="user", content=user_prompt),
+                ],
+                temp=temp,
+                top_p=top_p,
+                max_new=max_new,
+                conv_id=conv_id,
+            )
+            out = chat(req)
+            txt = (out.get("text") or "").strip()
         if not txt:
             logger.warning("[llm] LLM returned empty text for extraction request")
         return txt or None
@@ -233,7 +253,8 @@ def draft_travel_section(
         "Write the draft now. Stay strictly within the evidence above."
     )
     # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: raw ephemeral — no
-    # conversation id (chat() would persist turns), no composed wrap.
+    # conversation id, no composed wrap; routed by _try_call_llm to the
+    # INTERNAL api._generate_raw_ephemeral, never the public chat() surface.
     return _try_call_llm(system, user, max_new=max_new, temp=0.5, top_p=0.9,
                          prompt_mode="raw_ephemeral")
 
