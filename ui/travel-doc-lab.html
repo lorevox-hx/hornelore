@@ -12,8 +12,17 @@
   trip data over the live API. NOT part of the production shell; the
   production Travel Doc panel (ui/js/travel-documenter.js) is untouched.
 
+  WO-TRAVEL-DOC-UNIFY-01 Phase 1 — this page is now a THIN HARNESS.
+  ui/js/travel-doc-lab.js no longer boots itself on load; it defines
+  window.lvTravelDocMount(hostEl, opts) and does nothing until called.
+  The mount call below is what makes this page render. Keeping the page
+  alive means the dev surface survives the migration; when the shell
+  mounts the same module into #lvTravelDocHost, both callers exercise
+  one code path.
+
   Usage:  travel-doc-lab.html?api=http://localhost:8000&person_id=<id>
-  (person_id optional — a picker appears when absent)
+  (person_id optional — a picker appears when absent; the querystring is
+  read inside the mount as the fallback for opts.apiBase / opts.person_id)
 
   To remove: delete this file + ui/js/travel-doc-lab.js +
   ui/css/travel-doc-lab.css + tests/test_travel_doc_lab.py.
@@ -23,5 +32,13 @@
 <body class="tdl-body">
 <div id="tdlRoot"></div>
 <script src="js/travel-doc-lab.js"></script>
+<script>
+  // Harness mount. Empty opts on purpose: the standalone page's contract
+  // is the querystring, and the mount falls back to it when opts is bare.
+  // The handle is parked on window so the console can call destroy() to
+  // exercise teardown by hand.
+  window.lvTravelDocLabHandle =
+    window.lvTravelDocMount(document.getElementById("tdlRoot"), {});
+</script>
 </body>
 </html>

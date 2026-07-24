@@ -128,14 +128,74 @@ class HtmlPageTest(unittest.TestCase):
         self.assertNotIn("travel-documenter.css", html)
         self.assertNotIn("app.js", html)
         self.assertNotIn("lori80.css", html)
-        # Exactly one stylesheet + one script tag.
+        # Exactly one stylesheet, and exactly one EXTERNAL script — the
+        # lab's own. WO-TRAVEL-DOC-UNIFY-01 Phase 1 deliberately relaxed
+        # this from "one <script> tag" to "one <script src=>": the page
+        # is now a harness, so it carries a second, inline script whose
+        # only job is to call the mount. The property this test exists
+        # to protect is "no foreign assets", not "no inline code".
         self.assertEqual(len(re.findall(r"<link\b", html)), 1)
-        self.assertEqual(len(re.findall(r"<script\b", html)), 1)
+        srcs = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', html)
+        self.assertEqual(srcs, ["js/travel-doc-lab.js"])
 
     def test_page_mounts_the_lab_root(self):
         html = _HTML.read_text(encoding="utf-8")
         self.assertIn('id="tdlRoot"', html)
         self.assertIn('class="tdl-body"', html)
+
+
+class MountContractTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UNIFY-01 Phase 1 — the lab is a mountable module.
+
+    The lab used to be a page-level IIFE that booted itself on load and
+    grabbed #tdlRoot out of the document. It is now
+    window.lvTravelDocMount(hostEl, opts) -> {destroy()}, so the shell
+    can mount it into #lvTravelDocHost and the standalone page becomes
+    one caller among two rather than the only entry point.
+    """
+
+    def test_module_exposes_the_mount_entry_point(self):
+        src = _stripped_js()
+        self.assertIn("window.lvTravelDocMount = function (hostEl, opts)", src)
+
+    def test_host_element_comes_from_the_caller(self):
+        # The getElementById fallback may stay, but the caller's hostEl
+        # must win — otherwise a shell mount silently renders into the
+        # standalone page's root, or nothing at all.
+        src = _stripped_js()
+        self.assertIn('var root = hostEl || document.getElementById("tdlRoot")',
+                      src)
+
+    def test_module_does_not_boot_itself_at_page_scope(self):
+        # boot() must be called from INSIDE the mount body. A bare
+        # page-scope boot() would fire on script load with no host and
+        # defeat the point of the mount.
+        src = _stripped_js()
+        self.assertNotIn("\n  boot();\n})();", src)
+
+    def test_opts_are_preferred_over_the_querystring(self):
+        # The querystring stays as the standalone page's contract, but
+        # opts must take precedence or the shell cannot select a
+        # narrator.
+        src = _stripped_js()
+        for field in ("opts.apiBase || qsParams.get",
+                      'opts.person_id || qsParams.get("person_id")'):
+            self.assertIn(field, src)
+
+    def test_mount_returns_a_destroy_handle_that_closes_the_channel(self):
+        # Amendment A1. "hornelore-trip-updates" is a NAMED channel, so
+        # a leaked mount means a duplicate subscription and a double
+        # refresh on every cross-tab save. destroy() must close it, drop
+        # the Lori socket, and clear the host.
+        src = _stripped_js()
+        self.assertIn("destroy: function ()", src)
+        self.assertIn("_tdlUpdateChannel.close()", src)
+        self.assertIn("loriPane.reset()", src)
+
+    def test_harness_page_calls_the_mount(self):
+        html = _stripped_html()
+        self.assertIn("lvTravelDocMount(", html)
+        self.assertIn("tdlRoot", html)
 
 
 class UsabilityReviewTest(unittest.TestCase):

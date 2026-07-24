@@ -27,6 +27,33 @@
    - All DOM classes are tdl- namespaced; CSS lives in
      ui/css/travel-doc-lab.css.
 
+   WO-TRAVEL-DOC-UNIFY-01 Phase 1 (2026-07-24) — MOUNTABLE.
+
+   This file is no longer a page-level script. The entire module body is
+   now the body of:
+
+       window.lvTravelDocMount(hostEl, opts) -> { destroy() }
+
+         opts.person_id     narrator id (falls back to ?person_id=)
+         opts.person_label  display name (optional; boot() fetches it)
+         opts.apiBase       API origin (falls back to ?api=, then
+                            window.LOREVOX_API, then localhost:8000)
+
+   Every former module-level binding (st, root, railCollapsed, insOpen,
+   _tdlUpdateChannel, photoEvidence, lightbox, loriPane) is now scoped
+   PER MOUNT, so two mounts cannot collide. Phase 1 changes behaviour in
+   no other way — same tabs, same loads, same drawers, same Lori surface.
+
+   DELIBERATE: the module body is NOT re-indented under the new function.
+   Re-indenting 3,400 lines would bury the real Phase-1 diff in a
+   whitespace change and make review impossible. The mount boundary is
+   marked by the banner comments below and at the foot of the file.
+
+   Teardown (amendment A1): destroy() closes the BroadcastChannel and the
+   Lori WebSocket. The channel is NAMED ("hornelore-trip-updates"), so a
+   leaked mount means duplicate subscriptions and double refreshes —
+   always destroy() a mount you are replacing.
+
    To remove this lab entirely, delete:
      ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
      ui/css/travel-doc-lab.css, tests/test_travel_doc_lab.py
@@ -35,11 +62,17 @@
 (function () {
   "use strict";
 
+  // ══════════════════ MOUNT BOUNDARY — body begins ══════════════════
+  window.lvTravelDocMount = function (hostEl, opts) {
+  opts = opts || {};
+
   var qsParams = new URLSearchParams(window.location.search);
   var st = {
-    apiBase: (qsParams.get("api") || "http://localhost:8000").replace(/\/+$/, ""),
-    personId: (qsParams.get("person_id") || "").trim(),
-    personLabel: "",
+    apiBase: String(opts.apiBase || qsParams.get("api") ||
+                    window.LOREVOX_API ||
+                    "http://localhost:8000").replace(/\/+$/, ""),
+    personId: String(opts.person_id || qsParams.get("person_id") || "").trim(),
+    personLabel: String(opts.person_label || ""),
     tab: "plan",
     trips: [],
     trip: null,          // selected trip row
@@ -86,7 +119,10 @@
   })();
   var insOpen = { overview: true };    // inspector collapsible sections
 
-  var root = document.getElementById("tdlRoot");
+  // WO-TRAVEL-DOC-UNIFY-01 Phase 1 — the host element is supplied by the
+  // caller. The getElementById fallback keeps travel-doc-lab.html working
+  // if it is ever loaded without an explicit host.
+  var root = hostEl || document.getElementById("tdlRoot");
 
   // 2026-07-23 — cross-tab BroadcastChannel listener. When the
   // Documenter (in a different tab) saves a trip and posts
@@ -3411,4 +3447,26 @@
   }
 
   boot();
+
+  // WO-TRAVEL-DOC-UNIFY-01 Phase 1, amendment A1 — the mount handle.
+  //
+  // Without this there is no way to satisfy Phase 1's own acceptance
+  // criterion ("no global state collision if mount is called twice").
+  // The BroadcastChannel is the load-bearing case: it is a NAMED channel
+  // ("hornelore-trip-updates"), so two live mounts mean two subscriptions
+  // on the same name and one cross-tab trip update fires two refreshes.
+  //
+  // destroy() is idempotent and every step is individually guarded — a
+  // teardown must never throw, or a caller swapping panels is left with
+  // a half-torn-down mount and no way to recover.
+  return {
+    destroy: function () {
+      try { if (_tdlUpdateChannel) _tdlUpdateChannel.close(); } catch (e) {}
+      _tdlUpdateChannel = null;
+      try { loriPane.reset(); } catch (e) {}
+      try { if (root) root.textContent = ""; } catch (e) {}
+    }
+  };
+
+  };  // ══════════════════ MOUNT BOUNDARY — body ends ══════════════════
 })();
