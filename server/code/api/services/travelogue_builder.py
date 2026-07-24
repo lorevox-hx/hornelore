@@ -25,11 +25,20 @@ Evidence rules (locked):
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import trip_repository
 from .travel_doc_lori_modal import _packet_from_link
+
+# WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: stale MODSAVE save-sentinel
+# LINES must never reach a model prompt — stripped line-aware from anchor
+# values before llm_prompt assembly ("Real summary.\nMODSAVE-12345" →
+# "Real summary."). Compiled at import (fail-loud doctrine). The raw anchor
+# values themselves are left intact for the operator UI.
+_SENTINEL_LINE_RX = re.compile(r"^[ \t]*MODSAVE-\d+[ \t]*$",
+                               re.IGNORECASE | re.MULTILINE)
 
 _ITINERARY_TYPES = ("base", "lodging", "transit")
 _DISCOVERY_TYPES = ("sight", "meal", "day_trip")
@@ -200,7 +209,15 @@ def _finish_block(block: Dict[str, Any]) -> Dict[str, Any]:
         "(draft" in (a.get("label") or "") for a in anchors
     ) or ("draft" in badges)
     name = _BLOCK_NAMES.get(block.get("block_type"), "block")
-    lines = ["- %s: %s" % (a.get("label"), a.get("value")) for a in anchors]
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: sentinel lines are
+    # stripped from values before they enter the prompt; anchors whose value
+    # was ONLY a sentinel drop out of the prompt entirely.
+    lines = []
+    for a in anchors:
+        val = _SENTINEL_LINE_RX.sub("", str(a.get("value") or "")).strip()
+        if not val:
+            continue
+        lines.append("- %s: %s" % (a.get("label"), val))
     block["llm_prompt"] = (
         "Write a %s titled '%s' using ONLY these evidence anchors:\n%s\n%s"
         % (name, block.get("title") or "", "\n".join(lines) or "- (none)",
@@ -365,24 +382,42 @@ def build_travelogue_outline(trip_id: str) -> Optional[Dict[str, Any]]:
             for s in it_stops:
                 span = " to ".join([d for d in (s.get("date_start"),
                                                 s.get("date_end")) if d])
-                anchors.append({
+                # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: each
+                # itinerary stop also carries its OWN labeled evidence set
+                # (`prose_anchors` / `photos` on its `stops` entry) so
+                # stop-scope drafting works for grouped block types —
+                # base/lodging/transit stops have no per-stop block of
+                # their own. Additive: block-level anchors are unchanged.
+                identity = {
                     "label": "%s stop (operator)" % (s.get("stop_type")),
                     "value": (s.get("location_name") or s.get("title")
                               or "stop") + ((" — " + span) if span else ""),
-                })
+                }
+                anchors.append(identity)
+                s_anchors: List[Dict[str, str]] = [dict(identity)]
                 if s.get("notes"):
-                    anchors.append({"label": "operator note",
-                                    "value": str(s["notes"])})
+                    op_note = {"label": "operator note",
+                               "value": str(s["notes"])}
+                    anchors.append(op_note)
+                    s_anchors.append(dict(op_note))
                     badges.append("operator note")
-                s_notes = promoted_by_stop.get(s.get("id"), [])
-                for n in s_notes:
-                    anchors.append(_note_anchor(n))
-                    badges.append(_note_entry(n)["badge"])
-                    note_ids.append(n.get("id"))
                 s_links = links_by_stop.get(s.get("id"), [])
                 link_ids.extend([l.get("id") for l in s_links])
-                for r in _pub_for_stop(s.get("id")):
-                    anchors.append(_pub_anchor(r))
+                s_packets = [_photo_evidence(l) for l in s_links[:3]]
+                for pkt in s_packets:
+                    s_anchors.extend(_photo_anchors(pkt))
+                s_notes = promoted_by_stop.get(s.get("id"), [])
+                for n in s_notes:
+                    n_anchor = _note_anchor(n)
+                    anchors.append(n_anchor)
+                    s_anchors.append(dict(n_anchor))
+                    badges.append(_note_entry(n)["badge"])
+                    note_ids.append(n.get("id"))
+                s_pub = _pub_for_stop(s.get("id"))
+                for r in s_pub:
+                    p_anchor = _pub_anchor(r)
+                    anchors.append(p_anchor)
+                    s_anchors.append(dict(p_anchor))
                     badges.append(_pub_entry(r)["badge"])
                 stop_entries.append({
                     "stop_id": s.get("id"),
@@ -391,11 +426,12 @@ def build_travelogue_outline(trip_id: str) -> Optional[Dict[str, Any]]:
                     "date_start": s.get("date_start"),
                     "date_end": s.get("date_end"),
                     "notes": s.get("notes"),
+                    "prose_anchors": s_anchors,
                     "promoted_notes": [
                         _note_entry(n) for n in s_notes],
                     "photo_link_ids": [l.get("id") for l in s_links],
-                    "public_context": [
-                        _pub_entry(r) for r in _pub_for_stop(s.get("id"))],
+                    "photos": s_packets,
+                    "public_context": [_pub_entry(r) for r in s_pub],
                 })
             blocks.append(_finish_block({
                 "block_type": "itinerary_tile",
@@ -466,24 +502,41 @@ def build_travelogue_outline(trip_id: str) -> Optional[Dict[str, Any]]:
     coda_link_ids: List[str] = []
     coda_stop_entries: List[Dict[str, Any]] = []
     for s in coda_stops:
-        anchors.append({
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: like itinerary
+        # stops, each memory-anchor stop carries its OWN labeled evidence
+        # set on its `memory_anchor_stops` entry so stop-scope drafting
+        # reaches its curated anchors. Additive: block-level unchanged.
+        identity = {
             "label": "memory anchor (operator)",
             "value": (s.get("location_name") or s.get("title") or "moment")
             + ((" — " + str(s.get("notes"))) if s.get("notes") else ""),
-        })
+        }
+        anchors.append(identity)
+        s_anchors = [dict(identity)]
         s_notes = promoted_by_stop.get(s.get("id"), [])
         for n in s_notes:
-            anchors.append(_note_anchor(n))
+            n_anchor = _note_anchor(n)
+            anchors.append(n_anchor)
+            s_anchors.append(dict(n_anchor))
             badges.append(_note_entry(n)["badge"])
             coda_note_ids.append(n.get("id"))
         s_links = links_by_stop.get(s.get("id"), [])
         coda_link_ids.extend([l.get("id") for l in s_links])
+        s_packets = [_photo_evidence(l) for l in s_links[:3]]
+        for pkt in s_packets:
+            s_anchors.extend(_photo_anchors(pkt))
+        s_pub = _pub_for_stop(s.get("id"))
+        for r in s_pub:
+            s_anchors.append(_pub_anchor(r))
         coda_stop_entries.append({
             "stop_id": s.get("id"),
             "location_name": s.get("location_name"),
             "notes": s.get("notes"),
+            "prose_anchors": s_anchors,
             "promoted_notes": [_note_entry(n) for n in s_notes],
             "photo_link_ids": [l.get("id") for l in s_links],
+            "photos": s_packets,
+            "public_context": [_pub_entry(r) for r in s_pub],
         })
     for n in promoted_floating:
         anchors.append(_note_anchor(n))

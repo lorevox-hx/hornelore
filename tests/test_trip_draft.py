@@ -107,15 +107,22 @@ def _fake_outline(trip_id):
     }
 
 
-class TripDraftTest(unittest.TestCase):
+class _StubbedDraftCase(unittest.TestCase):
+    """Shared stubbing harness. Subclasses may swap in a richer repo /
+    outline (WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 extensions)
+    WITHOUT inheriting each other's test methods."""
+
+    repo_cls = _FakeRepo
+    outline_fn = staticmethod(_fake_outline)
+
     def setUp(self):
         self._repo = trip_draft.trip_repository
         self._builder = trip_draft.travelogue_builder
         self._llm = trip_draft.llm_interview
-        self.fake = _FakeRepo()
+        self.fake = self.repo_cls()
         trip_draft.trip_repository = self.fake
         trip_draft.travelogue_builder = types.SimpleNamespace(
-            build_travelogue_outline=_fake_outline)
+            build_travelogue_outline=self.outline_fn)
         self.llm_calls = []
 
         def _fake_draft(*, scope_title, instruction, evidence_text, max_new=None):
@@ -130,6 +137,9 @@ class TripDraftTest(unittest.TestCase):
         trip_draft.trip_repository = self._repo
         trip_draft.travelogue_builder = self._builder
         trip_draft.llm_interview = self._llm
+
+
+class TripDraftTest(_StubbedDraftCase):
 
     # ── scope resolution ────────────────────────────────────────────────
     def test_cross_trip_scope_rejected(self):
@@ -207,6 +217,299 @@ class TripDraftTest(unittest.TestCase):
         # The fake repo raises if location_note_create is called.
         trip_draft.draft_section(_TRIP, region_id="r2", instruction="x")
         # (no assertion needed — _FakeRepo.location_note_create would raise)
+
+
+# ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 extensions ──────────────
+
+class _NestedFakeRepo(_FakeRepo):
+    """Adds nested (children) stops: r1 gains s2→s2c; new region r3 gains
+    s3→s3c. Nested rows carry trip_region_id=None (stop-attached only) so
+    region scope can ONLY reach them through the recursive tree walk."""
+
+    def __init__(self):
+        super().__init__()
+        self.regions["r3"] = {"id": "r3", "trip_id": _TRIP, "title": "Vienna",
+                              "summary": "Two days."}
+        self.stops.update({
+            "s2": {"id": "s2", "trip_id": _TRIP, "trip_region_id": "r1",
+                   "location_name": "Zugspitze", "notes": ""},
+            "s2c": {"id": "s2c", "trip_id": _TRIP, "trip_region_id": "r1",
+                    "location_name": "Eibsee", "notes": ""},
+            "s3c": {"id": "s3c", "trip_id": _TRIP, "trip_region_id": "r3",
+                    "location_name": "Grinzing", "notes": ""},
+        })
+        self.notes += [
+            {"id": "n4", "trip_region_id": None, "trip_stop_id": "s2c",
+             "source_type": "operator", "include_in_memoir": 1,
+             "note_text": "The lake below the cable car was glass-still."},
+            {"id": "n5", "trip_region_id": None, "trip_stop_id": "s3c",
+             "source_type": "operator", "include_in_memoir": 1,
+             "note_text": "Heuriger tavern under the vines."},
+        ]
+        self.sources += [
+            {"id": "src2", "trip_region_id": None, "trip_stop_id": "s2c",
+             "title": "Funicular ticket", "summary": "Eibsee funicular "
+             "ticket stub.", "pasted_text": "", "include_in_memoir": 0},
+        ]
+
+    def trip_tree(self, tid):
+        if tid != _TRIP:
+            return None
+        return {"regions": [
+            {"id": "r1", "stops": [
+                {"id": "s2", "children": [{"id": "s2c", "children": []}]},
+            ]},
+            {"id": "r2", "stops": [{"id": "s1"}]},
+            {"id": "r3", "stops": [
+                {"id": "s3", "children": [{"id": "s3c"}]},
+            ]},
+        ]}
+
+
+class NestedStopRegionScopeTest(_StubbedDraftCase):
+    """Region scope must include evidence on NESTED child stops (recursive
+    walk mirroring travelogue_builder._walk) while still excluding other
+    regions' stops — nested or not."""
+
+    repo_cls = _NestedFakeRepo
+
+    def test_nested_child_promoted_note_in_region_scope(self):
+        out = trip_draft.draft_section(_TRIP, region_id="r1", preview_only=True)
+        ids = {n["id"] for n in out["context_preview"]["notes"]}
+        self.assertIn("n4", ids)          # promoted note on nested s2c
+
+    def test_nested_child_selected_source_in_region_scope(self):
+        out = trip_draft.draft_section(
+            _TRIP, region_id="r1", include_source_ids=["src2"],
+            preview_only=True)
+        ids = {s["id"] for s in out["context_preview"]["sources"]}
+        self.assertIn("src2", ids)        # selected source on nested s2c
+
+    def test_other_regions_nested_stop_evidence_excluded(self):
+        out = trip_draft.draft_section(_TRIP, region_id="r1", preview_only=True)
+        ctx = out["context_preview"]
+        self.assertNotIn("n5", {n["id"] for n in ctx["notes"]})   # r3 nested
+        out3 = trip_draft.draft_section(_TRIP, region_id="r3", preview_only=True)
+        ids3 = {n["id"] for n in out3["context_preview"]["notes"]}
+        self.assertIn("n5", ids3)
+        self.assertNotIn("n4", ids3)
+
+
+class _GroupedRepo(_FakeRepo):
+    """Adds base/lodging/transit/memory_anchor stops (grouped block types
+    that have no per-stop block in the builder outline)."""
+
+    def __init__(self):
+        super().__init__()
+        for sid, sname in (("sb", "Pension Prague"), ("sl", "Hotel Munich"),
+                           ("st", "Train platform"), ("sm", "Bells at dusk")):
+            self.stops[sid] = {"id": sid, "trip_id": _TRIP,
+                               "trip_region_id": "r2",
+                               "location_name": sname, "notes": ""}
+
+    def trip_tree(self, tid):
+        if tid != _TRIP:
+            return None
+        return {"regions": [
+            {"id": "r1", "stops": []},
+            {"id": "r2", "stops": [{"id": "s1"}, {"id": "sb"}, {"id": "sl"},
+                                   {"id": "st"}, {"id": "sm"}]},
+        ]}
+
+
+_GPS_VALUE = "coordinates recorded — not shown; reverse geocode available"
+
+
+def _fake_outline_grouped(trip_id):
+    """Builder outline with per-stop evidence entries: block["stops"] on the
+    itinerary tile, block["memory_anchor_stops"] on the sensory coda —
+    exactly the key names the production builder emits."""
+    return {
+        "blocks": [
+            {"block_type": "itinerary_tile", "region_id": "r2",
+             "prose_anchors": [
+                 {"label": "base stop (operator)",
+                  "value": "Pension Prague — 2026-05-01 to 2026-05-05"},
+             ],
+             "stops": [
+                 {"stop_id": "sb", "prose_anchors": [
+                     {"label": "base stop (operator)",
+                      "value": "Pension Prague — 2026-05-01 to 2026-05-05"},
+                     {"label": "approved caption",
+                      "value": "Our little room under the roof"},
+                     {"label": "GPS (private)", "value": _GPS_VALUE},
+                 ]},
+                 {"stop_id": "sl", "prose_anchors": [
+                     {"label": "lodging stop (operator)",
+                      "value": "Hotel Munich"},
+                     {"label": "approved operator note",
+                      "value": "Breakfast room overlooked the courtyard."},
+                 ]},
+                 {"stop_id": "st", "prose_anchors": [
+                     {"label": "transit stop (operator)",
+                      "value": "Train platform"},
+                     {"label": "approved public context (public web context)",
+                      "value": "The station hall dates to 1871."},
+                 ]},
+             ]},
+            {"block_type": "sensory_coda", "region_id": None,
+             "prose_anchors": [
+                 {"label": "memory anchor (operator)",
+                  "value": "Bells at dusk"},
+             ],
+             "memory_anchor_stops": [
+                 {"stop_id": "sm", "prose_anchors": [
+                     {"label": "memory anchor (operator)",
+                      "value": "Bells at dusk"},
+                     {"label": "narrator memory (promoted Lori capture)",
+                      "value": "The bells echoed over the empty square."},
+                 ]},
+             ]},
+        ],
+    }
+
+
+class GroupedStopScopeTest(_StubbedDraftCase):
+    """Stop scope for base/lodging/transit/memory_anchor stops collects the
+    builder's per-stop evidence entries; the "GPS (private)" placeholder
+    never becomes evidence."""
+
+    repo_cls = _GroupedRepo
+    outline_fn = staticmethod(_fake_outline_grouped)
+
+    def _anchors(self, stop_id):
+        out = trip_draft.draft_section(_TRIP, stop_id=stop_id,
+                                       preview_only=True)
+        return out["context_preview"]["anchors"]
+
+    def test_base_stop_scope_has_approved_photo_caption(self):
+        values = [a["value"] for a in self._anchors("sb")]
+        self.assertIn("Our little room under the roof", values)
+        self.assertIn("Pension Prague — 2026-05-01 to 2026-05-05", values)
+
+    def test_lodging_stop_scope_has_approved_operator_photo_context(self):
+        values = [a["value"] for a in self._anchors("sl")]
+        self.assertIn("Breakfast room overlooked the courtyard.", values)
+
+    def test_transit_stop_scope_has_public_context(self):
+        anchors = self._anchors("st")
+        by_label = {a["label"]: a for a in anchors}
+        self.assertIn("approved public context (public web context)", by_label)
+        self.assertFalse(
+            by_label["approved public context (public web context)"]["draft"])
+
+    def test_memory_anchor_stop_scope_has_curated_anchors(self):
+        values = [a["value"] for a in self._anchors("sm")]
+        self.assertIn("The bells echoed over the empty square.", values)
+        self.assertIn("Bells at dusk", values)
+
+    def test_gps_placeholder_never_enters_evidence(self):
+        labels = [a["label"] for a in self._anchors("sb")]
+        self.assertNotIn("GPS (private)", labels)
+        trip_draft.draft_section(_TRIP, stop_id="sb", instruction="x")
+        self.assertEqual(len(self.llm_calls), 1)
+        ev = self.llm_calls[0]["evidence"]
+        self.assertNotIn("coordinates recorded", ev)
+        self.assertNotIn("GPS (private)", ev)
+
+
+class SentinelLineAwareTest(_StubbedDraftCase):
+    """MODSAVE sentinel LINES are stripped from WITHIN values — a real
+    summary sharing a value with a sentinel keeps the real text."""
+
+    def test_sentinel_line_stripped_real_text_kept(self):
+        self.fake.regions["r1"]["summary"] = \
+            "Real operator summary.\nMODSAVE-12345"
+        out = trip_draft.draft_section(_TRIP, region_id="r1",
+                                       preview_only=True)
+        self.assertEqual(out["context_preview"]["summary"],
+                         "Real operator summary.")
+
+    def test_sentinel_only_value_still_dropped(self):
+        out = trip_draft.draft_section(_TRIP, region_id="r1",
+                                       preview_only=True)
+        self.assertEqual(out["context_preview"]["summary"], "")
+
+
+class DraftSectionEndpointTest(_StubbedDraftCase):
+    """/draft-section behavior (router fn, real llm_interview shim):
+    preview makes no LLM call and no writes; draft makes exactly ONE
+    raw-ephemeral LLM call with no conversation id and no writes; the raw
+    drafting system prompt carries the transport/arrival prohibition; Keep
+    stays outside the endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        import os
+        from api import llm_interview as real_llm
+        from api.routers import trips as trips_router
+        self.trips = trips_router
+        self._flag = os.environ.get("HORNELORE_TRIPS")
+        os.environ["HORNELORE_TRIPS"] = "1"
+
+        # Route through the REAL draft_travel_section, stubbing only the
+        # chat boundary (_try_call_llm) so prompt_mode/conv_id are observable.
+        self.try_calls = []
+
+        def _fake_try(system_prompt, user_prompt, **kw):
+            self.try_calls.append({"system": system_prompt,
+                                   "user": user_prompt, **kw})
+            return "A drafted paragraph."
+        self._orig_try = real_llm._try_call_llm
+        real_llm._try_call_llm = _fake_try
+        trip_draft.llm_interview = real_llm
+        self.real_llm = real_llm
+
+    def tearDown(self):
+        import os
+        self.real_llm._try_call_llm = self._orig_try
+        if self._flag is None:
+            os.environ.pop("HORNELORE_TRIPS", None)
+        else:
+            os.environ["HORNELORE_TRIPS"] = self._flag
+        super().tearDown()
+
+    def _req(self, **kw):
+        base = {"trip_region_id": None, "trip_stop_id": None,
+                "instruction": None, "include_note_ids": None,
+                "include_source_ids": None, "preview_only": False}
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def test_preview_no_llm_call_no_writes(self):
+        before_notes = len(self.fake.notes)
+        before_sources = len(self.fake.sources)
+        out = self.trips.draft_section(
+            _TRIP, self._req(trip_region_id="r2", preview_only=True))
+        self.assertEqual(out["status"], "preview")
+        self.assertIsNone(out["draft"])
+        self.assertEqual(self.try_calls, [])
+        self.assertEqual(len(self.fake.notes), before_notes)
+        self.assertEqual(len(self.fake.sources), before_sources)
+
+    def test_draft_one_raw_ephemeral_call_no_writes(self):
+        before_notes = len(self.fake.notes)
+        before_sources = len(self.fake.sources)
+        out = self.trips.draft_section(
+            _TRIP, self._req(trip_region_id="r2", instruction="Warm."))
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["draft"], "A drafted paragraph.")
+        self.assertEqual(len(self.try_calls), 1)
+        call = self.try_calls[0]
+        self.assertEqual(call.get("prompt_mode"), "raw_ephemeral")
+        self.assertFalse(call.get("conv_id"))          # no conversation id
+        # note/source counts unchanged; _FakeRepo.location_note_create
+        # would raise on any Keep attempt — Keep stays outside the endpoint
+        self.assertEqual(len(self.fake.notes), before_notes)
+        self.assertEqual(len(self.fake.sources), before_sources)
+
+    def test_raw_system_prompt_carries_transport_prohibition(self):
+        self.trips.draft_section(_TRIP, self._req(trip_region_id="r2"))
+        system = self.try_calls[0]["system"]
+        self.assertIn("no trains, stations, airports, flights, cars, buses, "
+                      "or walking", system)
+        self.assertIn("Do not invent weather", system)
+        self.assertIn("write FEWER sentences", system)
 
 
 if __name__ == "__main__":

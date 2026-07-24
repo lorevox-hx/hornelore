@@ -610,5 +610,129 @@ class HardeningTest(_DbCase):
         self.assertNotIn("[SYSTEM:", text)
 
 
+# ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: builder shape ─────────
+# Grouped block types (itinerary tile / sensory coda) now carry per-stop
+# labeled evidence entries so stop-scope drafting can reach base/lodging/
+# transit/memory_anchor evidence; llm_prompt strings strip MODSAVE
+# sentinel lines. The tests live here (real-DB builder shape) because
+# test_travelogue_builder.py is not owned by this WO's commit.
+
+from api.services import travelogue_builder  # noqa: E402
+
+
+class TravelogueBuilderPerStopEvidenceTest(_DbCase):
+    def setUp(self):
+        super().setUp()
+        # base stop with dates + an approved-caption photo link
+        self.stop_base = trip_repository.stop_create(
+            self.trip_id, self.region_id, "Hotel Munich",
+            stop_type="base", ord_=1,
+            date_start="2026-05-22", date_end="2026-05-28")
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+            "narrator_ready) VALUES ('ph2', ?, '/tmp/ph2.jpg', 'h2', 1)",
+            (self.person_id,))
+        con.commit()
+        con.close()
+        self.base_link = trip_repository.photo_link_upsert(
+            self.trip_id, "ph2", trip_region_id=self.region_id,
+            trip_stop_id=self.stop_base, assignment_method="operator")
+        trip_repository.photo_link_update(
+            self.base_link, caption="Our room under the eaves",
+            caption_approved_for_lori=True)
+        trip_repository.public_context_create(
+            self.trip_id, "The hotel building dates to 1898.",
+            trip_stop_id=self.stop_base, approved_for_lori=True)
+        # memory anchor stop with a promoted note
+        self.stop_anchor = trip_repository.stop_create(
+            self.trip_id, self.region_id, "Bells at dusk",
+            stop_type="memory_anchor", ord_=2)
+        trip_repository.location_note_create(
+            self.trip_id, "The bells echoed over the empty square.",
+            trip_stop_id=self.stop_anchor, source_type="operator",
+            include_in_memoir=True)
+
+    def _block(self, kind):
+        outline = travelogue_builder.build_travelogue_outline(self.trip_id)
+        for b in outline["blocks"]:
+            if b["block_type"] == kind:
+                return b
+        self.fail("no %s block" % kind)
+
+    def test_itinerary_stop_entry_carries_own_evidence(self):
+        tile = self._block("itinerary_tile")
+        entry = next(s for s in tile["stops"]
+                     if s["stop_id"] == self.stop_base)
+        for key in ("stop_id", "prose_anchors", "photo_link_ids", "photos",
+                    "public_context", "promoted_notes"):
+            self.assertIn(key, entry)
+        by_label = {a["label"]: a["value"] for a in entry["prose_anchors"]}
+        self.assertIn("base stop (operator)", by_label)
+        self.assertIn("2026-05-22", by_label["base stop (operator)"])
+        self.assertEqual(by_label.get("approved caption"),
+                         "Our room under the eaves")
+        self.assertIn("approved public context (public web context)",
+                      by_label)
+        self.assertEqual(entry["photo_link_ids"], [self.base_link])
+        self.assertEqual(entry["photos"][0]["photo_id"], "ph2")
+
+    def test_memory_anchor_stop_entry_carries_own_evidence(self):
+        coda = self._block("sensory_coda")
+        entry = next(s for s in coda["memory_anchor_stops"]
+                     if s["stop_id"] == self.stop_anchor)
+        for key in ("prose_anchors", "photo_link_ids", "photos",
+                    "public_context", "promoted_notes"):
+            self.assertIn(key, entry)
+        values = [a["value"] for a in entry["prose_anchors"]]
+        self.assertIn("Bells at dusk", values)
+        self.assertIn("The bells echoed over the empty square.", values)
+        labels = [a["label"] for a in entry["prose_anchors"]]
+        self.assertIn("operator note (promoted)", labels)
+
+    def test_existing_block_keys_preserved(self):
+        # Other consumers (Lab Travelogue tab, travel_doc_lori_modal) rely
+        # on the pre-WO outline shape — the change is additive only.
+        tile = self._block("itinerary_tile")
+        for key in ("block_type", "title", "region_id", "stops",
+                    "prose_anchors", "provenance_badges", "photo_link_ids",
+                    "note_ids", "public_context", "llm_prompt",
+                    "needs_review"):
+            self.assertIn(key, tile)
+        entry = next(s for s in tile["stops"]
+                     if s["stop_id"] == self.stop_base)
+        for key in ("location_name", "stop_type", "date_start", "date_end",
+                    "notes"):
+            self.assertIn(key, entry)
+
+
+class TravelogueBuilderSentinelPromptTest(unittest.TestCase):
+    """llm_prompt sanitization is line-aware — pure _finish_block check."""
+
+    def test_sentinel_lines_stripped_from_llm_prompt(self):
+        block = travelogue_builder._finish_block({
+            "block_type": "region_chapter", "title": "Bavaria",
+            "prose_anchors": [
+                {"label": "operator summary",
+                 "value": "Real operator summary.\nMODSAVE-12345"},
+                {"label": "operator note", "value": "modsave-99"},
+            ],
+            "provenance_badges": [],
+        })
+        self.assertIn("Real operator summary.", block["llm_prompt"])
+        self.assertNotIn("MODSAVE", block["llm_prompt"])
+        self.assertNotIn("modsave", block["llm_prompt"])
+        # the raw anchors stay intact for the operator UI
+        self.assertIn("MODSAVE-12345",
+                      block["prose_anchors"][0]["value"])
+
+    def test_sentinel_only_anchor_line_drops_but_none_marker_intact(self):
+        block = travelogue_builder._finish_block({
+            "block_type": "discovery_tile", "title": "Empty",
+            "prose_anchors": [], "provenance_badges": [],
+        })
+        self.assertIn("- (none)", block["llm_prompt"])
+
+
 if __name__ == "__main__":
     unittest.main()

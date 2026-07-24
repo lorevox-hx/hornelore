@@ -25,13 +25,22 @@ from typing import List, Optional
 _WO10M_SUMMARY_CAP = int(os.getenv("MAX_NEW_TOKENS_SUMMARY", "1024"))
 
 
-def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: float, top_p: float, conv_id: Optional[str] = None) -> Optional[str]:
+def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: float, top_p: float, conv_id: Optional[str] = None, prompt_mode: str = "composed") -> Optional[str]:
     """Return model text, or None if the LLM stack is unavailable.
 
     FIX-3: Accept optional conv_id to isolate extraction calls from shared
     session context. When conv_id is None, falls back to 'default' (legacy).
     Extraction callers should pass a unique ephemeral conv_id to prevent
     cross-narrator context contamination.
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: prompt_mode is passed
+    through to api.chat(). "composed" (default) keeps the legacy composed
+    system prompt (DEFAULT_CORE + PROFILE_JSON + pinned RAG under the
+    'default' session when conv_id is None). "raw_ephemeral" sends
+    system_prompt/user_prompt VERBATIM with no composition and no
+    persistence of any kind — the mode for operator evidence drafting.
+    Note a conv_id is REJECTED by chat() in raw_ephemeral mode (naively
+    passing an ephemeral conv_id would persist turns via add_turn).
     """
     import logging
     logger = logging.getLogger("lorevox.llm")
@@ -44,17 +53,21 @@ def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: f
         temp = 0.01
     try:
         # Local import so the server can still boot in USE_TTS=1 mode.
-        from .api import chat, _ChatReq  # type: ignore
+        from .api import chat, _ChatReq, ChatTurn  # type: ignore
 
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit ChatTurn
+        # construction (identical under real pydantic, which coerced the
+        # previous dicts; required for the offline pydantic-stub test lane).
         req = _ChatReq(
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                ChatTurn(role="system", content=system_prompt),
+                ChatTurn(role="user", content=user_prompt),
             ],
             temp=temp,
             top_p=top_p,
             max_new=max_new,
             conv_id=conv_id,
+            prompt_mode=prompt_mode,
         )
         out = chat(req)
         txt = (out.get("text") or "").strip()
@@ -178,6 +191,14 @@ def draft_travel_section(
     and NOT first-person-speaker — it turns labeled travel evidence (approved
     photo context, operator notes, sources) into readable travelogue prose.
     Returns None if the LLM stack is unavailable or there is no evidence.
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: calls the LLM with
+    prompt_mode="raw_ephemeral" and NO conversation id — the system prompt
+    below reaches the model verbatim, never wrapped by compose_system_prompt
+    (DEFAULT_CORE persona, default-session PROFILE_JSON, pinned RAG). The
+    composed wrap was a live invention vector (a kept draft opened "As I
+    stepped off the train in Prague…" with no train anywhere in evidence),
+    and the prompt now carries explicit anti-invention prohibitions too.
     """
     if max_new is None:
         max_new = _WO10M_SUMMARY_CAP
@@ -194,7 +215,16 @@ def draft_travel_section(
         "'Approved' may be stated plainly. Evidence marked 'Draft' is unconfirmed "
         "— write it suggestively ('appears to', 'seems to', 'may have') and never "
         "assert it as fact. Output draft prose ONLY — no preamble, no 'Here is', "
-        "no markdown headings, no bullet lists unless the instruction asks."
+        "no markdown headings, no bullet lists unless the instruction asks. "
+        # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit
+        # anti-invention prohibitions (supplementing the composer bypass).
+        "Additional hard prohibitions: do not invent the mode of arrival or "
+        "departure — no trains, stations, airports, flights, cars, buses, or "
+        "walking unless the evidence explicitly states them. Do not invent "
+        "weather. Do not invent crowds, bustle, atmosphere, sensory detail, or "
+        "emotions. Add no chronology beyond explicitly supplied dates. Never "
+        "turn a bare place name into a scene. When the evidence is thin, "
+        "write FEWER sentences."
     )
     user = (
         f"Scope: {scope_title}\n"
@@ -202,7 +232,10 @@ def draft_travel_section(
         f"Evidence (use only this):\n{evidence_text}\n\n"
         "Write the draft now. Stay strictly within the evidence above."
     )
-    return _try_call_llm(system, user, max_new=max_new, temp=0.5, top_p=0.9)
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: raw ephemeral — no
+    # conversation id (chat() would persist turns), no composed wrap.
+    return _try_call_llm(system, user, max_new=max_new, temp=0.5, top_p=0.9,
+                         prompt_mode="raw_ephemeral")
 
 
 def draft_final_memoir(

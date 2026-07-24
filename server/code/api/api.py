@@ -6,7 +6,7 @@ import time
 import pathlib
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
@@ -203,6 +203,12 @@ class _ChatReq(BaseModel):
     state: Optional[Dict[str, Any]] = None
     anchor_id: Optional[str] = None
     section: Optional[str] = None
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit prompt mode.
+    # "composed" (default) = legacy behavior: profile extraction, unified
+    # compose_system_prompt (DEFAULT_CORE + PROFILE_JSON + pinned RAG), and
+    # turn/profile persistence when conv_id is present. "raw_ephemeral" =
+    # supplied messages verbatim, no composition, no persistence of any kind.
+    prompt_mode: Literal["composed", "raw_ephemeral"] = "composed"
 
 # ---------------- Stop criteria ----------------
 class StopOnEvent(StoppingCriteria):
@@ -227,35 +233,14 @@ def _apply_chat_template(messages: List[Dict[str, str]]) -> str:
         return f"{m['role'].upper()}:\n{m['content'].strip()}\n"
     return "\n".join(fmt(m) for m in messages) + "\nASSISTANT:\n"
 
-# ---------------- REST chat ----------------
-@router.post("/chat")
-def chat(req: _ChatReq) -> Dict[str, Any]:
-    start = time.time()
-    model, tok = _load_model()
-    # Unified system prompt (pinned RAG + stable role rules)
-    ui_system = next((m.content for m in (req.messages or []) if _normalize_role(m.role) == 'system'), None)
-    profile_obj, ui_base = extract_profile_json_from_ui_system(ui_system)
+# ---------------- Non-streaming generation ----------------
+def _generate_text(model, tok, prompt: str, req: _ChatReq) -> str:
+    """Tokenize → VRAM-guard → generate → decode for the non-streaming path.
 
-    # Phase G: Defer profile persist until AFTER successful generation (fail-closed).
-    # Captured here but written only after generation completes without error.
-    _deferred_profile = profile_obj if (req.conv_id and profile_obj is not None) else None
-
-    user_text = ''
-    for mm in reversed(req.messages or []):
-        if _normalize_role(mm.role) == 'user':
-            user_text = mm.content
-            break
-
-    conv_for_prompt = (req.conv_id or 'default').strip() or 'default'
-    base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
-    unified_system = compose_system_prompt(conv_for_prompt, ui_system=base_system, user_text=user_text)
-
-    msgs = [{'role': 'system', 'content': unified_system}] + [
-        {'role': _normalize_role(m.role), 'content': m.content}
-        for m in (req.messages or [])
-        if _normalize_role(m.role) != 'system'
-    ]
-    prompt = _apply_chat_template(msgs)
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: single generation entry
+    for chat() (both prompt modes) so tests can stub it and exercise chat()'s
+    routing/persistence contract without loading the model.
+    """
     inputs = tok(prompt, return_tensors="pt").to(model.device)
     # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
     if inputs["input_ids"].shape[-1] > MAX_CONTEXT_WINDOW:
@@ -283,7 +268,77 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
         **inputs,
         generation_config=gen_config,
     )
-    text = tok.decode(out[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
+    return tok.decode(out[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
+
+
+def _chat_raw_ephemeral(req: _ChatReq, start: float) -> Dict[str, Any]:
+    """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 — raw ephemeral chat.
+
+    The supplied system + user messages are used VERBATIM. Bypassed entirely:
+    extract_profile_json_from_ui_system, compose_system_prompt (so no
+    DEFAULT_CORE persona, no PROFILE_JSON context block, no pinned RAG /
+    golden-mock docs, no session ensure), session profile state, and every
+    persistence touchpoint (no add_turn, no upsert_session, no profile
+    writes). Built for operator-side evidence drafting
+    (llm_interview.draft_travel_section), whose "use ONLY the evidence"
+    prompt must never be wrapped by the narrator persona — the composed wrap
+    was a live invention/contamination vector. Model load (and its init_db)
+    is model-loader lifecycle, NOT request persistence.
+    """
+    if (req.conv_id or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="prompt_mode='raw_ephemeral' is stateless — conv_id is "
+                   "forbidden (nothing may be persisted from this request)")
+    system_text = next((m.content for m in (req.messages or [])
+                        if _normalize_role(m.role) == "system"), None)
+    if not (system_text or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="prompt_mode='raw_ephemeral' requires a nonempty supplied "
+                   "system message (there is no composed fallback)")
+    model, tok = _load_model()
+    msgs = [{"role": _normalize_role(m.role), "content": m.content}
+            for m in (req.messages or [])]
+    prompt = _apply_chat_template(msgs)
+    text = _generate_text(model, tok, prompt, req)
+    return {"ok": True, "text": text, "latency": round(time.time() - start, 2)}
+
+
+# ---------------- REST chat ----------------
+@router.post("/chat")
+def chat(req: _ChatReq) -> Dict[str, Any]:
+    start = time.time()
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: explicit prompt mode —
+    # raw_ephemeral routes past every composition/persistence touchpoint.
+    if req.prompt_mode == "raw_ephemeral":
+        return _chat_raw_ephemeral(req, start)
+    model, tok = _load_model()
+    # Unified system prompt (pinned RAG + stable role rules)
+    ui_system = next((m.content for m in (req.messages or []) if _normalize_role(m.role) == 'system'), None)
+    profile_obj, ui_base = extract_profile_json_from_ui_system(ui_system)
+
+    # Phase G: Defer profile persist until AFTER successful generation (fail-closed).
+    # Captured here but written only after generation completes without error.
+    _deferred_profile = profile_obj if (req.conv_id and profile_obj is not None) else None
+
+    user_text = ''
+    for mm in reversed(req.messages or []):
+        if _normalize_role(mm.role) == 'user':
+            user_text = mm.content
+            break
+
+    conv_for_prompt = (req.conv_id or 'default').strip() or 'default'
+    base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
+    unified_system = compose_system_prompt(conv_for_prompt, ui_system=base_system, user_text=user_text)
+
+    msgs = [{'role': 'system', 'content': unified_system}] + [
+        {'role': _normalize_role(m.role), 'content': m.content}
+        for m in (req.messages or [])
+        if _normalize_role(m.role) != 'system'
+    ]
+    prompt = _apply_chat_template(msgs)
+    text = _generate_text(model, tok, prompt, req)
     # Phase G: Only persist profile + turns AFTER generation succeeds (fail-closed)
     if req.conv_id:
         if _deferred_profile is not None:
@@ -364,6 +419,13 @@ def warmup_endpoint():
 @router.post("/chat/stream")
 def chat_stream(req: _ChatReq):
     start = time.time()
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: raw_ephemeral is a
+    # chat()-only contract; refuse loudly rather than silently composing.
+    if req.prompt_mode == "raw_ephemeral":
+        raise HTTPException(
+            status_code=400,
+            detail="prompt_mode='raw_ephemeral' is not supported on "
+                   "/chat/stream — use /chat")
     model, tok = _load_model()
     conv_id = (req.conv_id or "").strip()
     anchor_id = (req.anchor_id or "").strip()

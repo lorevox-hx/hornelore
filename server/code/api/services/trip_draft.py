@@ -28,16 +28,24 @@ from .. import llm_interview
 
 # Stale save-sentinel that leaked into some region summaries; never feed it
 # to the model as if it were real evidence.
-_SENTINEL_RX = re.compile(r"^\s*MODSAVE-\d+\s*$", re.IGNORECASE)
+# WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: line-aware — sentinel
+# LINES are stripped from WITHIN multi-line values ("Real summary.\n
+# MODSAVE-12345" → "Real summary."), not just whole-value matches.
+# Compiled at import (fail-loud doctrine).
+_SENTINEL_RX = re.compile(r"^[ \t]*MODSAVE-\d+[ \t]*$",
+                          re.IGNORECASE | re.MULTILINE)
+
+# WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: the builder's UI-only
+# "GPS (private)" placeholder anchor ("coordinates recorded — not shown…")
+# is an operator affordance, never evidence — it must not reach the model.
+_GPS_PLACEHOLDER_LABEL = "GPS (private)"
 
 _MAX_NOTE_CHARS = 600
 _MAX_SOURCE_CHARS = 800
 
 
 def _clean(text: Optional[str]) -> str:
-    t = (text or "").strip()
-    if not t or _SENTINEL_RX.match(t):
-        return ""
+    t = _SENTINEL_RX.sub("", str(text or "")).strip()
     return t
 
 
@@ -78,26 +86,28 @@ def _scope_anchors(trip_id: str, scope: Dict[str, Any]) -> List[Dict[str, Any]]:
     machine-guess evidence '(draft)'. We keep BOTH approved and draft
     anchors — draft ones stay flagged so the prompt writes them
     suggestively, per the builder's no-invention posture. MODSAVE sentinels
-    are dropped. Returns [{label, value, draft: bool}] deduped."""
+    are dropped. Returns [{label, value, draft: bool}] deduped.
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: stop scope also
+    collects from the builder's per-stop evidence entries — matching
+    entries in block["stops"] (itinerary tile: base/lodging/transit) and
+    block["memory_anchor_stops"] (sensory coda) — because those stop types
+    have no per-stop block, so a direct block["stop_id"] match alone gave
+    them ZERO anchors. The UI-only "GPS (private)" placeholder anchor is
+    excluded everywhere (it may remain in the outline for the operator)."""
     outline = travelogue_builder.build_travelogue_outline(trip_id)
     if not outline:
         return []
     blocks = outline.get("blocks") or []
 
-    def _in_scope(b: Dict[str, Any]) -> bool:
-        if scope["kind"] == "trip":
-            return True
-        if scope["kind"] == "region":
-            return b.get("region_id") == scope["id"]
-        return b.get("stop_id") == scope["id"]
-
     anchors: List[Dict[str, Any]] = []
     seen = set()
-    for b in blocks:
-        if not _in_scope(b):
-            continue
-        for a in (b.get("prose_anchors") or []):
+
+    def _collect(anchor_rows) -> None:
+        for a in (anchor_rows or []):
             label = a.get("label") or ""
+            if label == _GPS_PLACEHOLDER_LABEL:
+                continue
             value = _clean(a.get("value"))
             if not value:
                 continue
@@ -107,22 +117,47 @@ def _scope_anchors(trip_id: str, scope: Dict[str, Any]) -> List[Dict[str, Any]]:
             seen.add(key)
             anchors.append({"label": label, "value": value,
                             "draft": "(draft" in label})
+
+    for b in blocks:
+        if scope["kind"] == "trip":
+            _collect(b.get("prose_anchors"))
+        elif scope["kind"] == "region":
+            if b.get("region_id") == scope["id"]:
+                _collect(b.get("prose_anchors"))
+        else:  # stop scope
+            if b.get("stop_id") == scope["id"]:
+                _collect(b.get("prose_anchors"))
+            for entry in list(b.get("stops") or []) \
+                    + list(b.get("memory_anchor_stops") or []):
+                if entry.get("stop_id") == scope["id"]:
+                    _collect(entry.get("prose_anchors"))
     return anchors
 
 
 def _region_stop_ids(trip_id: str, region_id: str) -> set:
     """Stop ids belonging to a region (so a region scope can pick up notes/
-    sources attached to its stops, but not stops from other regions)."""
+    sources attached to its stops, but not stops from other regions).
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: walks stop
+    ["children"] recursively (mirroring travelogue_builder's tree walk) so
+    nested day-trip stops' notes/sources stay inside region scope. Other
+    regions' stops — nested or not — remain excluded."""
     tree = trip_repository.trip_tree(trip_id)
     if not tree:
         return set()
     out = set()
+
+    def _walk(stop: Dict[str, Any]) -> None:
+        if stop.get("id"):
+            out.add(stop["id"])
+        for c in (stop.get("children") or []):
+            _walk(c)
+
     for r in (tree.get("regions") or []):
         if r.get("id") != region_id:
             continue
         for s in (r.get("stops") or []):
-            if s.get("id"):
-                out.add(s["id"])
+            _walk(s)
     return out
 
 
