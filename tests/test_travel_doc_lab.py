@@ -37,6 +37,17 @@ def _stripped_js() -> str:
     return _ssh.strip_js_comments(js)
 
 
+def _destroy_body() -> str:
+    # Phase 1.1: slice the actual destroy() body rather than a fixed-width
+    # window. A fixed window silently stops covering the last teardown step
+    # the moment a step is added, which turns an ordering pin into a
+    # "substring not found" error instead of a real failure.
+    src = _stripped_js()
+    i = src.index("destroy: function ()")
+    end = src.index("\n    }", i)
+    return src[i:end]
+
+
 def _stripped_css() -> str:
     css = _CSS.read_text(encoding="utf-8")
     return re.sub(r"/\*[\s\S]*?\*/", "", css)
@@ -196,6 +207,211 @@ class MountContractTest(unittest.TestCase):
         html = _stripped_html()
         self.assertIn("lvTravelDocMount(", html)
         self.assertIn("tdlRoot", html)
+
+
+class MountLivenessTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UNIFY-01 Phase 1.1 — nothing paints a dead mount.
+
+    Phase 1's destroy() closed the channel, reset Lori, and cleared the
+    host, but held no liveness state. Every async flow in this module
+    (boot, loadTrips, loadTripBundle, evidence reloads, travelogue
+    preview, the Lori drawer refresh) resolves on its own schedule, so a
+    request in flight at teardown still ran its callback: it wrote to
+    `st` and repainted a host the caller had already cleared and may
+    have handed to something else. That only surfaces when panels are
+    swapped, which is precisely what Phase 2 introduces — so it is
+    pinned here, before the shell mount, not after.
+
+    The guard is cheap because the module has exactly one of each thing
+    worth guarding. These tests pin all six choke points; if a future
+    change adds a second fetch() or a second repaint entry point, the
+    coverage assertion below fails and this class has to be revisited.
+    """
+
+    def _mount_body(self) -> str:
+        src = _stripped_js()
+        i = src.index("window.lvTravelDocMount = function (hostEl, opts)")
+        return src[i:]
+
+    def test_mount_declares_a_liveness_flag(self):
+        # Per mount, inside the closure — a module-level flag would be
+        # shared by every mount and one destroy() would kill them all.
+        body = self._mount_body()
+        self.assertIn("var destroyed = false;", body)
+        self.assertNotIn(
+            "window.destroyed", body,
+            "the liveness flag must not be global",
+        )
+
+    def test_destroy_sets_the_flag_before_anything_else(self):
+        # Ordering is the whole point. Each teardown step below can run
+        # script that re-enters the module (a close handler, a rejected
+        # fetch settling at the next microtask checkpoint), so the flag
+        # has to be up before the first one runs. Closing the door and
+        # then flipping the sign leaves a window open.
+        head = _destroy_body()
+        first = head.index("destroyed = true;")
+        for later in ("removeEventListener", "_tdlUpdateChannel",
+                      "loriPane.reset()", "root.textContent"):
+            self.assertIn(
+                later, head,
+                f"destroy() no longer performs the {later} teardown step",
+            )
+            self.assertLess(
+                first, head.index(later),
+                f"destroy() touches {later} before setting destroyed",
+            )
+
+    def test_render_entry_point_no_ops_when_destroyed(self):
+        # renderAll() is the only repaint entry point in the file: every
+        # render* function is reached through it. One early return here
+        # means a dead mount cannot paint regardless of the caller.
+        src = _stripped_js()
+        i = src.index("function renderAll()")
+        head = src[i:i + 200]
+        self.assertIn("if (destroyed) return;", head)
+        # ...and it must come before the host is touched.
+        self.assertLess(head.index("if (destroyed) return;"),
+                        head.index("root."))
+
+    def test_there_is_still_exactly_one_repaint_entry_point(self):
+        # The guard above is only total coverage while this holds.
+        src = _stripped_js()
+        self.assertEqual(
+            len(re.findall(r"\broot\.innerHTML\s*=", src)), 2,
+            "root.innerHTML assignments moved; renderAll() and "
+            "renderPersonPicker() were the only two — a third needs its "
+            "own destroyed guard",
+        )
+
+    def test_the_only_fetch_is_guarded_on_every_arm(self):
+        # api() wraps the file's single fetch(). The mount can die at
+        # three moments — before the request goes out, in flight, and
+        # while an error body is being read — and the REJECTION arm
+        # matters as much as the success arm, because nearly every call
+        # site ends in .catch(e => { st.error = e.message; renderAll() }),
+        # which is itself a write to dead state.
+        src = _stripped_js()
+        self.assertEqual(
+            len(re.findall(r"\bfetch\(", src)), 1,
+            "a second fetch() appeared; it needs its own destroyed guard",
+        )
+        i = src.index("function api(path, opts)")
+        body = src[i:src.index("function el(tag, cls, text)", i)]
+        self.assertGreaterEqual(
+            len(re.findall(r"if \(destroyed\) return abandoned\(\);", body)), 4,
+            "api() must bail on call, on response, on error-body read, "
+            "and on rejection",
+        )
+        # The rejection arm specifically: a two-arg then(), not a bare
+        # .then() that only covers success.
+        self.assertIn("}, function (err) {", body)
+
+    def test_abandoned_promise_never_settles(self):
+        # Returning a rejected promise would fire every call site's
+        # .catch(); returning a resolved one would fire its .then(). The
+        # only shape that runs neither is a promise that never settles.
+        src = _stripped_js()
+        i = src.index("function abandoned()")
+        head = src[i:i + 120]
+        self.assertIn("new Promise(function () {})", head)
+        self.assertNotIn("resolve", head)
+        self.assertNotIn("reject", head)
+
+    def test_broadcast_channel_handler_bails_when_destroyed(self):
+        # close() does not retract message events already queued on the
+        # task queue.
+        src = _stripped_js()
+        i = src.index('_tdlUpdateChannel.addEventListener("message"')
+        head = src[i:i + 200]
+        self.assertIn("if (destroyed) return;", head)
+
+    def test_lori_socket_message_bails_when_destroyed_or_after_reset(self):
+        # Identity comparison against the socket the handler was bound
+        # to covers BOTH cases: destroy(), and reset() on a trip switch
+        # (which nulls this.ws while the old socket may still deliver a
+        # frame). Without it a Trip A token can append into Trip B's
+        # transcript.
+        src = _stripped_js()
+        i = src.index("connect: function ()")
+        body = src[i:i + 1200]
+        self.assertIn("var sock = this.ws;", body)
+        self.assertIn("if (destroyed || self.ws !== sock) return;", body)
+        # connect() itself must refuse to open a socket for a dead mount.
+        self.assertIn("if (destroyed) return;", body)
+
+    def test_lori_send_retry_timer_stops_at_destroy(self):
+        # The file's only timer. Unguarded it keeps retrying for up to
+        # 5s (20 x 250ms) past teardown and signs off by writing into a
+        # log node that is no longer in the document.
+        src = _stripped_js()
+        self.assertEqual(
+            len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 1,
+            "a second timer appeared; it needs its own destroyed guard",
+        )
+        i = src.index("function trySend(attempt)")
+        head = src[i:i + 160]
+        self.assertIn("if (destroyed) return;", head)
+
+    def test_document_level_listener_is_named_and_unbound_on_destroy(self):
+        # This is the only listener bound outside the host element, so
+        # it is the only one clearing the host does not take with it.
+        # Left attached it outlives the mount forever: two mounts means
+        # two live listeners on `document`, and after destroy() an arrow
+        # key would still drive lightboxStep() into renderAll().
+        src = _stripped_js()
+        self.assertEqual(
+            len(re.findall(r"document\.addEventListener\(", src)), 1,
+            "a second document-level listener appeared; it needs "
+            "unbinding in destroy()",
+        )
+        self.assertIn('document.addEventListener("keydown", onDocKeydown)', src)
+        self.assertIn(
+            'document.removeEventListener("keydown", onDocKeydown)', src)
+        # Guarded as well — removeEventListener does not retract an
+        # event already queued.
+        i = src.index("function onDocKeydown(e)")
+        self.assertIn("if (destroyed) return;", src[i:i + 120])
+
+    def test_destroy_remains_idempotent_and_cannot_throw(self):
+        # Unchanged from A1 and re-pinned here, because Phase 1.1 added
+        # a step to destroy(): every statement that touches something
+        # external stays individually try/caught. A teardown that throws
+        # strands a caller mid-swap with a half-dead mount.
+        src = _stripped_js()
+        i = src.index("destroy: function ()")
+        body = src[i:src.index("};", src.index("root.textContent", i))]
+        for step in ("document.removeEventListener", "_tdlUpdateChannel.close()",
+                     "loriPane.reset()", "root.textContent"):
+            j = body.index(step)
+            self.assertIn(
+                "try {", body[max(0, j - 90):j],
+                f"destroy() step {step} is not individually guarded",
+            )
+
+    def test_the_behavioural_proof_ships_alongside_the_guards(self):
+        # Everything above this line reads source text. None of it can
+        # watch a stale callback land on a dead host — that takes a real
+        # browser, and it lives in the headless script below. Pinning the
+        # script's existence and its four scenario names keeps the static
+        # pins from staying green while the behaviour goes unverified.
+        p = _REPO_ROOT / "scripts" / "ui" / "run_travel_doc_mount_liveness.js"
+        self.assertTrue(
+            p.is_file(),
+            "the Phase 1.1 headless liveness proof is missing; the static "
+            "pins in this class only check shape, not behaviour",
+        )
+        src = p.read_text(encoding="utf-8")
+        for scenario in ("control_live", "destroyed_then",
+                         "destroyed_notok", "destroyed_reject"):
+            self.assertIn(
+                scenario, src,
+                f"the {scenario} scenario is gone from the liveness proof",
+            )
+        # control_live is the row that makes the other three mean
+        # anything: three empty hosts also happen when the harness never
+        # delivers a callback at all.
+        self.assertIn("control repaints a live host", src)
 
 
 class UsabilityReviewTest(unittest.TestCase):

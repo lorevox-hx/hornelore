@@ -54,6 +54,19 @@
    leaked mount means duplicate subscriptions and double refreshes —
    always destroy() a mount you are replacing.
 
+   Phase 1.1 (2026-07-24) — LIVENESS. destroy() also sets `destroyed`, and
+   every asynchronous path in this file checks it before writing state or
+   painting: api() (the file's only fetch), renderAll() (the file's only
+   repaint entry point), the BroadcastChannel handler, the Lori socket's
+   onmessage, the Lori send-retry timer, and the document-level keydown
+   listener — which destroy() also unbinds, since it is the one listener
+   not attached inside the host and so the only one clearing the host does
+   not remove. Without this, a request in flight at teardown resolves and
+   repaints a host the caller has already cleared.
+
+   IF YOU ADD A NEW ASYNC PATH: route it through api(), or check
+   `destroyed` yourself before touching `st` or the DOM.
+
    To remove this lab entirely, delete:
      ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
      ui/css/travel-doc-lab.css, tests/test_travel_doc_lab.py
@@ -124,6 +137,32 @@
   // if it is ever loaded without an explicit host.
   var root = hostEl || document.getElementById("tdlRoot");
 
+  // WO-TRAVEL-DOC-UNIFY-01 Phase 1.1 — the liveness flag.
+  //
+  // destroy() closing the channel and clearing the host is not enough on
+  // its own: this module is one long chain of async flows (boot, loadTrips,
+  // loadTripBundle, evidence reloads, travelogue preview, the Lori drawer
+  // refresh), and a request already in flight when the mount is torn down
+  // will still resolve. Its callback then writes to `st` and repaints a
+  // host the caller has already cleared and may have handed to something
+  // else. That only shows up when panels are swapped — which is exactly
+  // what Phase 2 introduces.
+  //
+  // This is deliberately not AbortController. There is exactly ONE fetch()
+  // in this file (inside api()), ONE repaint entry point (renderAll()), one
+  // BroadcastChannel handler, one WebSocket, one timer, and one
+  // document-level listener. Guarding those six is total coverage without
+  // editing all 54 call sites and without inventing a cancellation layer.
+  var destroyed = false;
+
+  // A promise that never settles. api() returns this once the mount is
+  // dead, so the caller's .then()/.catch() never runs. Call sites stay
+  // ignorant of teardown and are covered by construction rather than by
+  // somebody remembering to add a guard to each new one.
+  function abandoned() {
+    return new Promise(function () {});
+  }
+
   // 2026-07-23 — cross-tab BroadcastChannel listener. When the
   // Documenter (in a different tab) saves a trip and posts
   // {trip_id, kind:"trip_saved"|"trip_created"} on the
@@ -135,6 +174,10 @@
     if (typeof BroadcastChannel !== "undefined") {
       _tdlUpdateChannel = new BroadcastChannel("hornelore-trip-updates");
       _tdlUpdateChannel.addEventListener("message", function (ev) {
+        // Phase 1.1: close() does not retract message events already
+        // queued on the task queue, so a cross-tab save landing in the
+        // same tick as destroy() can still arrive here.
+        if (destroyed) return;
         var msg = ev && ev.data;
         if (!msg || !msg.trip_id) return;
         if (!st.trip || String(st.trip.id) !== String(msg.trip_id)) return;
@@ -156,15 +199,27 @@
       init.headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(opts.body);
     }
+    // Phase 1.1 — the single async choke point. Three checks, because the
+    // mount can die at three different moments: before the request goes
+    // out, while it is in flight, and while the error body is being read.
+    // The rejection arm matters as much as the success arm: nearly every
+    // call site ends in .catch(e => { st.error = e.message; renderAll(); }),
+    // which is itself a write to dead state.
+    if (destroyed) return abandoned();
     return fetch(st.apiBase + path, init).then(function (r) {
+      if (destroyed) return abandoned();
       if (!r.ok) {
         return r.text().then(function (t) {
+          if (destroyed) return abandoned();
           var msg = t;
           try { msg = (JSON.parse(t).detail || t); } catch (_) {}
           throw new Error(init.method + " " + path + " -> " + r.status + " " + msg);
         });
       }
       return r.json();
+    }, function (err) {
+      if (destroyed) return abandoned();
+      throw err;
     });
   }
 
@@ -475,6 +530,14 @@
   }
 
   function renderAll() {
+    // Phase 1.1 — the backstop. Every render* function in this file is
+    // reached through renderAll(), so one early return here means a dead
+    // mount cannot repaint no matter which path called it. api() should
+    // already have swallowed the async ones; this catches synchronous
+    // callers (a queued event handler, a timer) and any future flow that
+    // does not go through api().
+    if (destroyed) return;
+
     // Preserve the workspace scroll position across re-renders (drawer
     // open/close, saves, selection) so "back" always lands where the
     // operator left off.
@@ -2364,12 +2427,21 @@
     renderAll();
   }
 
-  document.addEventListener("keydown", function (e) {
+  // Phase 1.1 — this is the only listener in the file bound OUTSIDE the
+  // host element, so it is the only one clearing the host does not take
+  // with it. Left attached it would outlive the mount forever: two mounts
+  // means two live listeners on `document`, and after destroy() an arrow
+  // key would still drive lightboxStep() -> renderAll() on a dead mount.
+  // Held in a named ref so destroy() can remove it; guarded as well,
+  // because removeEventListener does not retract an event already queued.
+  function onDocKeydown(e) {
+    if (destroyed) return;
     if (!lightbox.open) return;
     if (e.key === "Escape") { e.preventDefault(); closeLightbox(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); lightboxStep(-1); }
     else if (e.key === "ArrowRight") { e.preventDefault(); lightboxStep(1); }
-  });
+  }
+  document.addEventListener("keydown", onDocKeydown);
 
   function renderLightbox() {
     var links = filteredLinks();
@@ -3197,6 +3269,8 @@
     },
 
     connect: function () {
+      // Phase 1.1 — never open a socket for a mount that is gone.
+      if (destroyed) return;
       if (this.ws && this.ws.readyState === 1) return;
       var url = st.apiBase.replace(/^http/, "ws") + "/api/chat/ws";
       var self = this;
@@ -3204,14 +3278,25 @@
         this.line("system", "Lori connection failed — is the backend running?");
         return;
       }
+      // Phase 1.1 — pin the socket this handler belongs to. close() does
+      // not retract already-queued message events, and reset() (trip
+      // switch) nulls this.ws while the old socket may still deliver one
+      // more frame. Comparing identity covers BOTH: a frame from a socket
+      // that is no longer the pane's current one is dropped, so a Trip A
+      // token can never append into Trip B's transcript.
+      var sock = this.ws;
       this.ws.onmessage = function (ev) {
+        if (destroyed || self.ws !== sock) return;
         var j = {};
         try { j = JSON.parse(ev.data); } catch (_) { return; }
         if (j.type === "token" && j.delta) self.append(j.delta);
         if (j.type === "done") {
           self.finish(j.final_text);
           Promise.all([reloadNotes(), reloadDays()])
-            .then(function () { self.refreshDrawer(); })
+            .then(function () {
+              if (destroyed || self.ws !== sock) return;
+              self.refreshDrawer();
+            })
             .catch(function () {});
         }
       };
@@ -3253,6 +3338,11 @@
       };
       var self = this;
       (function trySend(attempt) {
+        // Phase 1.1 — the one timer in the file. Without this the retry
+        // ladder keeps running for up to 5s (20 × 250ms) past destroy()
+        // and ends by writing "Lori connection unavailable." into a log
+        // node that was detached from the document.
+        if (destroyed) return;
         if (self.ws && self.ws.readyState === 1) {
           self.ws.send(JSON.stringify(payload));
         } else if (attempt < 20) {
@@ -3459,8 +3549,16 @@
   // destroy() is idempotent and every step is individually guarded — a
   // teardown must never throw, or a caller swapping panels is left with
   // a half-torn-down mount and no way to recover.
+  //
+  // Phase 1.1 — `destroyed = true` is deliberately the FIRST statement.
+  // Every step below can run script that re-enters this module (a close
+  // handler, a rejected fetch settling in the same microtask checkpoint),
+  // so the flag has to be set before anything else is touched, not after.
+  // Closing the door and then flipping the sign leaves a window open.
   return {
     destroy: function () {
+      destroyed = true;
+      try { document.removeEventListener("keydown", onDocKeydown); } catch (e) {}
       try { if (_tdlUpdateChannel) _tdlUpdateChannel.close(); } catch (e) {}
       _tdlUpdateChannel = null;
       try { loriPane.reset(); } catch (e) {}
