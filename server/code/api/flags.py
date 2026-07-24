@@ -155,6 +155,16 @@ def archive_enabled() -> bool:
     return _truthy(os.environ.get("HORNELORE_ARCHIVE_ENABLED"))
 
 
+def memoir_export_enabled() -> bool:
+    """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5). When
+    True, ``POST /api/memoir/export-docx`` serves live. When False the
+    endpoint returns 404 via _require_enabled (same posture as trips /
+    photos: a disabled surface does not advertise itself). Default OFF;
+    the operator deployment sets ``HORNELORE_MEMOIR_EXPORT_ENABLED=1``
+    in ``.env`` to preserve the previously-ungated behavior."""
+    return _truthy(os.environ.get("HORNELORE_MEMOIR_EXPORT_ENABLED"))
+
+
 def spantag_enabled() -> bool:
     """WO-EX-SPANTAG-01. When True, /api/extract-fields uses the two-pass
     SPANTAG extraction pipeline: Pass 1 emits a schema-blind NL tag

@@ -32,12 +32,15 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from .. import flags
 
 logger = logging.getLogger("memoir_export")
 
@@ -52,6 +55,16 @@ except ImportError:
 router = APIRouter(prefix="/api/memoir", tags=["memoir-export"])
 
 
+# ── Flag gate ─────────────────────────────────────────────────────────────────
+
+def _require_enabled() -> None:
+    """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: raise 404 when
+    HORNELORE_MEMOIR_EXPORT_ENABLED is off. Mirrors the trips/photos
+    posture — a disabled surface does not advertise itself."""
+    if not flags.memoir_export_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 # ── Request models ─────────────────────────────────────────────────────────────
 
 class MemoirSection(BaseModel):
@@ -62,10 +75,17 @@ class MemoirSection(BaseModel):
 
 
 class AttachedPhoto(BaseModel):
-    """A photo attached to a memoir section (Media Builder — Task 4)."""
+    """A photo attached to a memoir section (Media Builder — Task 4).
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.2): the
+    client no longer holds file-path authority. ``file_path`` is kept
+    ONLY for wire-compat with old clients that still send it — the
+    server never reads it (not for logging, validation, or rendering).
+    The on-disk location is resolved server-side from ``media_id``
+    through the media table (see _resolve_media_photo_path)."""
     media_id: str
     section_key: str
-    file_path: str          # absolute server-local path; python-docx reads this directly
+    file_path: Optional[str] = None   # IGNORED — wire-compat only, never read
     description: str = ""
     taken_at: str = ""
 
@@ -246,17 +266,140 @@ def _translate_request_content(
     )
 
 
-def _add_photo_to_doc(doc: Any, photo: AttachedPhoto) -> None:
+# ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.3) ──────────────
+# Server-side media authority. The client supplies only media_id; the
+# on-disk path comes from the media table (db.get_media_item — the same
+# authority /api/media/upload writes and /api/media/file/{id} serves
+# from) and must stay contained within the configured media root.
+
+# Mirrors _ALLOWED_MIME_PREFIXES in routers/media.py (the upload-side
+# allowlist). Kept local so importing this module never drags in the
+# media router's FastAPI machinery.
+_IMAGE_MIME_PREFIXES = (
+    "image/jpeg", "image/png", "image/webp", "image/heic",
+    "image/heif", "image/gif", "image/bmp", "image/tiff",
+)
+
+
+def _media_root() -> Path:
+    """Resolve the configured media root: MEDIA_DIR env when set, else
+    the established DATA_DIR/media fallback (the same location
+    routers/media.py stores uploads under). Read at call time so tests
+    can point it at a tempdir via the environment."""
+    raw = (os.environ.get("MEDIA_DIR") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    data_dir = Path(os.environ.get("DATA_DIR", "data")).expanduser()
+    return (data_dir / "media").resolve()
+
+
+def _resolve_media_photo_path(photo: AttachedPhoto, person_id: Optional[str]) -> Path:
+    """Resolve an attached photo's on-disk path SERVER-SIDE from its
+    media_id. The client-supplied file_path is never consulted.
+
+    Containment contract (fail-loud 422, never silent skip):
+      - media row must exist;
+      - when the request carries person_id, the row must belong to it;
+      - stored MIME must be image-compatible;
+      - relative stored filenames join to the media root; absolute ones
+        are accepted only when they resolve inside the media root;
+      - Path.resolve(strict=True) — so symlinks are flattened and a
+        symlink escaping the root is rejected by the containment check;
+      - must be a regular file.
+    Only the path returned here may reach doc.add_picture()."""
+    from .. import db as _db
+
+    item = _db.get_media_item(photo.media_id)
+    if item is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown media_id '{photo.media_id}' — not in media table",
+        )
+
+    if person_id and item.get("person_id") != person_id:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"media '{photo.media_id}' does not belong to person "
+                f"'{person_id}'"
+            ),
+        )
+
+    mime = (item.get("mime") or "").strip().lower()
+    if not any(mime.startswith(p) for p in _IMAGE_MIME_PREFIXES):
+        raise HTTPException(
+            status_code=422,
+            detail=f"media '{photo.media_id}' has non-image mime '{mime}'",
+        )
+
+    root = _media_root()
+    stored = (item.get("filename") or "").strip()
+    if not stored:
+        raise HTTPException(
+            status_code=422,
+            detail=f"media '{photo.media_id}' has no stored filename",
+        )
+
+    candidate = Path(stored)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"media '{photo.media_id}' file missing on disk: {exc}",
+        )
+
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"media '{photo.media_id}' resolves outside the media root"
+            ),
+        )
+
+    if not resolved.is_file():
+        raise HTTPException(
+            status_code=422,
+            detail=f"media '{photo.media_id}' is not a regular file",
+        )
+
+    return resolved
+
+
+def _resolve_attached_photos(req: MemoirExportRequest) -> Dict[str, Path]:
+    """Resolve every attached photo up-front, before any rendering.
+    Returns media_id → contained server-resolved path. Raises 422 on
+    the first authority/containment failure."""
+    resolved: Dict[str, Path] = {}
+    for photo in req.attached_photos:
+        resolved[photo.media_id] = _resolve_media_photo_path(photo, req.person_id)
+    return resolved
+
+
+def _add_photo_to_doc(doc: Any, photo: AttachedPhoto, resolved: Optional[Path]) -> None:
     """
     Insert photo inline in the document.
-    Gracefully skips on any error (corrupt file, format unsupported, missing file).
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: ``resolved`` is the
+    server-resolved, root-contained path from _resolve_media_photo_path
+    — the ONLY path that ever reaches doc.add_picture(). photo.file_path
+    is never read. A correctly-authorized but corrupt/unsupported image
+    still skips gracefully with a warning (never reads another path).
     """
+    if resolved is None:
+        # Defensive: photo without a resolved entry never renders.
+        logger.warning(
+            "[memoir-docx] no resolved path for media %s — skipping",
+            photo.media_id,
+        )
+        return
     try:
-        path = Path(photo.file_path)
-        if not path.exists():
-            logger.warning("[memoir-docx] Photo not found on disk: %s — skipping", path)
-            return
-        doc.add_picture(str(path), width=Inches(3.5))
+        doc.add_picture(str(resolved), width=Inches(3.5))
         # Caption paragraph
         caption_parts = []
         if photo.description:
@@ -270,18 +413,26 @@ def _add_photo_to_doc(doc: Any, photo: AttachedPhoto) -> None:
                 cap.runs[0].font.italic = True
                 cap.runs[0].font.color.rgb = _WARM_GREY
     except Exception as exc:
-        logger.warning("[memoir-docx] Could not add photo %s: %s — skipping", photo.file_path, exc)
+        logger.warning("[memoir-docx] Could not add photo %s: %s — skipping", photo.media_id, exc)
 
 
 # ── DOCX builders ──────────────────────────────────────────────────────────────
 
-def _build_threads_docx(req: MemoirExportRequest, *, render_lang: str = "en") -> bytes:
+def _build_threads_docx(
+    req: MemoirExportRequest,
+    *,
+    render_lang: str = "en",
+    resolved_photos: Optional[Dict[str, Path]] = None,
+) -> bytes:
     """Build DOCX for threads state: grouped sections with bullet items.
 
     `render_lang` controls only the chrome (title / subtitle / photos
     heading / arc-roles label). Section content has already been
     translated upstream by _translate_request_content when needed.
+    `resolved_photos` maps media_id → server-resolved contained path
+    (WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01).
     """
+    resolved_photos = resolved_photos or {}
     doc = Document()
 
     # Title
@@ -316,7 +467,7 @@ def _build_threads_docx(req: MemoirExportRequest, *, render_lang: str = "en") ->
 
         # Inline photos for this section (Media Builder)
         for photo in _photos_for_section(req, sec.id):
-            _add_photo_to_doc(doc, photo)
+            _add_photo_to_doc(doc, photo, resolved_photos.get(photo.media_id))
 
         for item in sec.items:
             p = doc.add_paragraph(style="List Bullet")
@@ -329,11 +480,19 @@ def _build_threads_docx(req: MemoirExportRequest, *, render_lang: str = "en") ->
     return buf.getvalue()
 
 
-def _build_draft_docx(req: MemoirExportRequest, *, render_lang: str = "en") -> bytes:
+def _build_draft_docx(
+    req: MemoirExportRequest,
+    *,
+    render_lang: str = "en",
+    resolved_photos: Optional[Dict[str, Path]] = None,
+) -> bytes:
     """Build DOCX for draft state: prose paragraphs, optionally with arc headings.
 
     `render_lang` controls chrome only; prose content is already
-    translated upstream when needed (see _translate_request_content)."""
+    translated upstream when needed (see _translate_request_content).
+    `resolved_photos` maps media_id → server-resolved contained path
+    (WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01)."""
+    resolved_photos = resolved_photos or {}
     doc = Document()
 
     title_text = _chrome(render_lang, "draft_title").format(narrator=req.narrator_name)
@@ -376,7 +535,7 @@ def _build_draft_docx(req: MemoirExportRequest, *, render_lang: str = "en") -> b
         ph = doc.add_heading(_chrome(render_lang, "photos_heading"), level=1)
         ph.runs[0].font.color.rgb = _DARK_BROWN
         for photo in req.attached_photos:
-            _add_photo_to_doc(doc, photo)
+            _add_photo_to_doc(doc, photo, resolved_photos.get(photo.media_id))
             doc.add_paragraph()
 
     buf = io.BytesIO()
@@ -389,6 +548,8 @@ def _build_draft_docx(req: MemoirExportRequest, *, render_lang: str = "en") -> b
 def _build_threads_docx_bilingual(
     req: MemoirExportRequest,
     translated: MemoirExportRequest,
+    *,
+    resolved_photos: Optional[Dict[str, Path]] = None,
 ) -> bytes:
     """Build DOCX with English + Spanish content interleaved per
     section. The narrator's section in source language renders first,
@@ -399,6 +560,7 @@ def _build_threads_docx_bilingual(
     `req` is the original (source) request; `translated` is the
     translated copy produced by _translate_request_content.
     """
+    resolved_photos = resolved_photos or {}
     doc = Document()
 
     # Bilingual title pairs — render both languages stacked.
@@ -450,7 +612,7 @@ def _build_threads_docx_bilingual(
 
         # Inline photos for this section
         for photo in _photos_for_section(req, ssec.id):
-            _add_photo_to_doc(doc, photo)
+            _add_photo_to_doc(doc, photo, resolved_photos.get(photo.media_id))
 
         # Source items (English)
         for item in ssec.items:
@@ -475,10 +637,13 @@ def _build_threads_docx_bilingual(
 def _build_draft_docx_bilingual(
     req: MemoirExportRequest,
     translated: MemoirExportRequest,
+    *,
+    resolved_photos: Optional[Dict[str, Path]] = None,
 ) -> bytes:
     """Bilingual variant of _build_draft_docx. Source paragraph,
     then translated paragraph in italic, repeated for each prose
     paragraph the narrator wrote."""
+    resolved_photos = resolved_photos or {}
     doc = Document()
 
     src_lang = (req.source_language or "en").strip().lower() or "en"
@@ -545,7 +710,7 @@ def _build_draft_docx_bilingual(
         )
         ph.runs[0].font.color.rgb = _DARK_BROWN
         for photo in req.attached_photos:
-            _add_photo_to_doc(doc, photo)
+            _add_photo_to_doc(doc, photo, resolved_photos.get(photo.media_id))
             doc.add_paragraph()
 
     buf = io.BytesIO()
@@ -617,6 +782,19 @@ def _captured_story_sections(person_id: str) -> List[MemoirSection]:
     return sections
 
 
+# WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.5): strict
+# filename sanitizer, mirroring the trips.py export_docx allowlist.
+# ASCII letters/digits/underscore/hyphen/dot only — everything else
+# (quotes, CR/LF, slashes, backslashes, control chars, non-ASCII)
+# becomes '_'. Deterministic fallback when nothing survives.
+def _safe_filename_component(raw: Optional[str], *, fallback: str, max_len: int = 80) -> str:
+    cleaned = "".join(
+        c if (c.isascii() and (c.isalnum() or c in "-_.")) else "_"
+        for c in (raw or "")
+    )[:max_len].strip("_.")
+    return cleaned or fallback
+
+
 @router.post("/export-docx")
 def api_memoir_export_docx(req: MemoirExportRequest):
     """
@@ -628,13 +806,38 @@ def api_memoir_export_docx(req: MemoirExportRequest):
     every section item + prose paragraph via services.translation
     before rendering. 'bilingual' renders English + Spanish
     interleaved per section / paragraph.
+
+    WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5):
+      - gated behind HORNELORE_MEMOIR_EXPORT_ENABLED (404 when off);
+      - person_id must exist in people (422 otherwise);
+      - attached photos resolve server-side via the media table and
+        must stay contained in the media root (422 on any failure);
+      - Content-Disposition filename is allowlist-sanitized.
     """
+    _require_enabled()
+
     if not _DOCX_AVAILABLE:
-        from fastapi import HTTPException
         raise HTTPException(
             status_code=503,
             detail="python-docx is not installed on this server. Install with: pip install python-docx",
         )
+
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.4): a
+    # supplied person_id must name a real narrator before it can scope
+    # captured-story harvest or media ownership checks.
+    if req.person_id:
+        from .. import db as _db
+        if not _db.get_person(req.person_id):
+            raise HTTPException(
+                status_code=422,
+                detail=f"person_id '{req.person_id}' not found in people",
+            )
+
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.3):
+    # resolve every attached photo through the media authority BEFORE
+    # rendering. Containment/authority failures are loud 422s; only the
+    # server-resolved paths below ever reach doc.add_picture().
+    resolved_photos = _resolve_attached_photos(req)
 
     target_lang = _normalize_target_lang(req)
 
@@ -664,39 +867,48 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         len(req.prose or ""),
     )
 
-    safe_name = (
-        req.narrator_name.strip().lower()
-        .replace(" ", "_")
-        .replace("/", "_")
-    )[:40] or "narrator"
+    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.5):
+    # allowlist-sanitize BOTH client-supplied filename components so no
+    # CR/LF/quote/slash/control char can reach the header.
+    safe_name = _safe_filename_component(
+        (req.narrator_name or "").strip().lower().replace(" ", "_"),
+        fallback="memoir",
+    )
+    safe_state = _safe_filename_component(req.memoir_state, fallback="threads", max_len=20)
     # Filename suffix carries language so re-exports don't overwrite
     # each other when the operator iterates en → es → bilingual.
     lang_suffix = "" if target_lang == "en" else f"_{target_lang}"
-    filename = f"lorevox_memoir_{safe_name}_{req.memoir_state}{lang_suffix}.docx"
+    filename = f"lorevox_memoir_{safe_name}_{safe_state}{lang_suffix}.docx"
 
     # Dispatch by target language.
     if target_lang == "en":
         # Pre-Phase-4B path. Byte-stable.
         if req.memoir_state == "draft":
-            docx_bytes = _build_draft_docx(req, render_lang="en")
+            docx_bytes = _build_draft_docx(
+                req, render_lang="en", resolved_photos=resolved_photos)
         else:
-            docx_bytes = _build_threads_docx(req, render_lang="en")
+            docx_bytes = _build_threads_docx(
+                req, render_lang="en", resolved_photos=resolved_photos)
     elif target_lang == "es":
         # Translate first, then render with Spanish chrome.
         translated = _translate_request_content(req, "es")
         if req.memoir_state == "draft":
-            docx_bytes = _build_draft_docx(translated, render_lang="es")
+            docx_bytes = _build_draft_docx(
+                translated, render_lang="es", resolved_photos=resolved_photos)
         else:
-            docx_bytes = _build_threads_docx(translated, render_lang="es")
+            docx_bytes = _build_threads_docx(
+                translated, render_lang="es", resolved_photos=resolved_photos)
     else:  # bilingual
         # Translate to Spanish; render with both languages interleaved.
         # Source language defaults to 'en' for the v1 scope; future
         # work can extend bilingual to other source languages.
         translated = _translate_request_content(req, "es")
         if req.memoir_state == "draft":
-            docx_bytes = _build_draft_docx_bilingual(req, translated)
+            docx_bytes = _build_draft_docx_bilingual(
+                req, translated, resolved_photos=resolved_photos)
         else:
-            docx_bytes = _build_threads_docx_bilingual(req, translated)
+            docx_bytes = _build_threads_docx_bilingual(
+                req, translated, resolved_photos=resolved_photos)
 
     return StreamingResponse(
         io.BytesIO(docx_bytes),
