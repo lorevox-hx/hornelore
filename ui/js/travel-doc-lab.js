@@ -2485,7 +2485,10 @@
     renderAll();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/regions/reorder", {
       method: "POST",
-      body: JSON.stringify({ ordered_ids: ids }),
+      // `api()` owns the encoding — it stringifies `opts.body` itself, ahead
+      // of its FormData branch. Pre-stringifying here double-encodes the
+      // request into a JSON *string* and the backend answers 422.
+      body: { ordered_ids: ids },
     }).then(function () {
       return routeMoveDone("region", regionId);
     }, function (e) {
@@ -2516,12 +2519,13 @@
     return api("/api/trips/" + encodeURIComponent(st.trip.id) +
                "/stops/" + encodeURIComponent(stopId) + "/move", {
       method: "POST",
-      body: JSON.stringify({
+      // Raw object, never a pre-stringified one — see moveRegionRelative.
+      body: {
         region_id: loc.region.id,
         parent_trip_stop_id: parentId,
         before_stop_id: dir < 0 ? anchor : null,
         after_stop_id: dir > 0 ? anchor : null,
-      }),
+      },
     }).then(function () {
       return routeMoveDone("stop", stopId);
     }, function (e) {

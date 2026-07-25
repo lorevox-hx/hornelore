@@ -1757,6 +1757,46 @@ class RouteOrderBoardTest(unittest.TestCase):
             self.assertNotIn("#", ln,
                              "Phase 3D CSS must reuse --tdl-* colours: " + ln)
 
+    # 18 — the encoding convention. Found by the Phase 3D live smoke and
+    #      NOT by this suite, which is exactly why the gate now exists.
+    def test_no_call_site_pre_stringifies_an_api_body(self):
+        """`api()` owns the encoding. A call site must never do it too.
+
+        `api()` stringifies `opts.body` itself, in the branch that sits
+        after the FormData check. Both Phase 3D movers were first written
+        as `body: JSON.stringify({...})`, so the request went out as a
+        JSON *string* rather than an object and the backend answered 422
+        on every arrow press. Every other call site in the file passes a
+        raw object, so the convention was already unanimous — the two new
+        ones were simply wrong, and no source-scanning test could see it
+        because both spellings look equally plausible in isolation.
+
+        The check is deliberately file-wide rather than scoped to the
+        movers: the next person to add a POST is who it protects.
+        """
+        self.assertNotIn(
+            "body: JSON.stringify", self.src,
+            "api() stringifies opts.body itself; a call site that also "
+            "stringifies double-encodes the request into a JSON string "
+            "and the backend rejects it with 422.")
+        # The positive half — the encoding still happens exactly once,
+        # inside api(). Without this, deleting it from both ends passes.
+        self.assertIn("init.body = JSON.stringify(opts.body);", self.src)
+
+    # 19 — and the movers specifically still send a body at all.
+    def test_route_movers_send_a_plain_object_body(self):
+        """The file-wide ban above would also pass if a mover stopped
+        sending a body entirely, or built one through a helper that
+        stringified on the way. These pin the actual shape."""
+        for name, key in (
+            ("function moveRegionRelative(", "body: { ordered_ids: ids },"),
+            ("function moveStopRelative(", "body: {"),
+        ):
+            fn = self._fn(name)
+            self.assertIn(key, fn, name + " must post a raw object body")
+            self.assertNotIn("JSON.stringify", fn,
+                             name + " must leave encoding to api()")
+
 
 if __name__ == "__main__":
     unittest.main()
