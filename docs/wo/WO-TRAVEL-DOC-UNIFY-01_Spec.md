@@ -960,8 +960,73 @@ a control it can no longer run is a harness that lies about its own coverage.
 
 ### Live smoke
 
-Pending. The stack stays down while code is being written, per standing
-instruction; the fourteen-step list is Chris's Phase 4 order verbatim.
+**Green on all fifteen steps, 2026-07-25.**
+
+Steps 1-6, one surface: the unified workspace mounted directly with
+`_lvTravelDocUnifiedMountedFor` set to the selected narrator; zero
+`[data-td-surface]` attributes, zero `.lv-td-surface-switch` nodes, no
+`#lvTravelDocHost`, and `lvTravelDocSetSurface` and
+`lvTravelDocumenterMount` both undefined on `window`. Across 190
+loaded resources there was not one request for anything named
+documenter, and not one zero-byte JS or CSS asset -- the asset tags
+did not merely stop being referenced, they stopped being fetched. A
+sweep of every visible text node in the shell found zero occurrences
+of *legacy*, *production Travel Doc*, *UI Lab*, *experimental*,
+*lab-only*, *removable* or *documenter*.
+
+Steps 7-10, the workflows Phases 3A-3D moved onto this surface, each
+verified server-side through `/api/trips/{id}/tree` rather than off
+the DOM. Two regions and two stops created; a stop reorder took
+`0:ONE,1:TWO` to `0:TWO,1:ONE` and a region reorder took
+`0:ALPHA,1:BRAVO` to `0:BRAVO,1:ALPHA` with ALPHA's stops travelling
+with it and `region_id`/`parent_trip_stop_id` unchanged; region and
+stop renames both persisted. Photo upload landed unplaced behind the
+intake-not-approval warning, source upload landed private to the trip
+and out of the memoir, and the `FileList` node identity held across
+both drawers. Cluster wrote five links and stated its whole-library
+caveat. Lori opened at `surface: travel_doc_modal`, scoped to the
+trip, captures marked flags-0.
+
+Steps 12-13 are the load-bearing ones for a removal phase. Retiring a
+second surface is exactly the kind of change that leaves a listener
+behind, so the census was functional rather than visual:
+`BroadcastChannel`, `WebSocket` and `document`-level keydown were
+instrumented before the loop, then Travel Doc was left and re-entered
+three times.
+
+```
+round 1   bc 1 / close 0    ws 0 / close 0    keydown +1 / -1    .tdl-root 1
+round 2   bc 2 / close 1    ws 0 / close 0    keydown +2 / -2    .tdl-root 1
+round 3   bc 3 / close 2    ws 0 / close 0    keydown +3 / -3    .tdl-root 1
+```
+
+Each entry opens exactly what the previous exit closed: one channel
+live, one keydown listener live, one root, at every sample. Zero net
+sockets -- leaving Travel Doc never orphaned a Lori socket.
+
+Step 14, the force-delete gate, rendered all ten impact lanes
+(regions 2, stops 2, day cards 6, photo links 5, story notes 0,
+sources 1, story links 0, public context 0, photo context 0, bio
+suggestions 1 -- the lane production omits, and still the reason every
+trip is force-delete-only from birth). A negative control ran first:
+the button was disabled initially, still disabled on a title one
+character short, and armed only on the exact title. Delete completed
+and the trip list returned to zero.
+
+Step 15, and the doctrine gates: **zero native dialogs across the
+entire run**, recorded by a spy over `alert`/`confirm`/`prompt`
+rather than by inspection, and **zero console errors** across a full
+reload plus a sweep of all eight Travel Doc tabs. The standalone
+harness still loads, still exposes `lvTravelDocMount`, and still
+mounts one root.
+
+#### One observation, not a defect
+
+One observation, not a defect: the dev harness page's *rendered* copy still says "Travel Doc UI Lab" and "This experimental lab needs a narrator" and still paints the `UI Lab - experimental` badge, while the page's own HTML header declares it `DEV HARNESS -- DEV-ONLY, REMOVABLE`. All three strings sit behind `embedded ? ... : ...` ternaries (`travel-doc-lab.js` lines 1096, 1100, 1591), so they can only ever render on the standalone page and never in the shell -- which is why the shell-path copy gate came back clean. Requirement 5 is met by quarantine rather than removal, exactly as written. The harness now calls itself two different things; reconciling that is a copy edit, parked rather than taken unilaterally after the code had already been committed.
+
+#### Residue
+
+Smoke residue: the disposable trip and its uploaded source went with the cascade, but the uploaded photo did not -- photo *links* are deleted, photos are not -- so narrator `e7fdb578`'s library now holds five smoke photos, up from the four already accepted as documented residue.
 
 ## Revision history
 
@@ -971,5 +1036,5 @@ instruction; the fourteen-step list is Chris's Phase 4 order verbatim.
 - 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.
 - 2026-07-25 — Phase 3C landed: photo upload at trip/region/stop scope, source upload, and photo clustering built into the unified workspace — a capability, not a port, since the lab had no `FormData` and no file input. `api()` grew a `FormData` branch ahead of its JSON branch. Scope is an explicit drawer selection rather than production's ambient `editorScope()` read, and the drawer never repaints between choosing files and uploading, because a `FileList` cannot be restored by script. Intake never promotes. Found and fixed a same-scope bug: three suites used a string-blind comment stripper and went blind on `files.accept = "image/*"` — migrated to the repo's existing `strip_js_comments`, assertions unchanged. 236 tests green (was 220), sixteen new gates mutation-tested; twelve-step live smoke green across all three upload scopes, with no-auto-promotion verified server-side.
 - 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
-- 2026-07-25 — Phase 4 landed (live smoke pending): the legacy fallback is retired and the unified Travel Doc is the operator's only Travel Doc surface. Removal only — no backend, API, schema or flag change, and no file deleted. Out: the surface toggle and its whole support cast, both legacy asset tags, the switch row, `#lvTravelDocHost`, the `.lv-td-surface-*` / `.lv-td-host-off` / `body.lv-td-focus` rules, and the route board's `prodTravelDocUrl()` deep-link foot-note. **Deliberately not out:** the old module, its stylesheet and its standalone page, because requirement 7 forbids removing what a backend endpoint still serves and that page still mounts it — unmounting a surface and deleting a module are different acts; and `ui/travel-doc-lab.html`, kept and marked `DEV-ONLY` because it is the only caller of `lvTravelDocMount()` that exercises the non-shell identity branch. This narrows the Phase 0 plan written above, which had called for deleting all four and renaming the survivors; the rename stays parked. Five on-path fixes the order did not name, chief among them a `lv80SwitchPerson` teardown fallback nulling the retired marker (a silent no-op) and an ungated, operator-visible photo-picker empty state pointing at a production Travel Doc that no longer exists. A file-wide `assertNotIn("legacy")` on the shell proved invalid — 19 unrelated occurrences — so the gate is scoped to the panel and the mount block, and a stronger one replaced it because the shell now holds zero **raw** occurrences of the old module's name. Tests rewritten not deleted: five out, thirteen in, seven narrowed, with absences now asserted rather than merely unmentioned. 262 tests green (was 255); eight mutants, eight killed; the liveness harness rewritten for one surface with a `singleSurface` probe and its unrunnable negative controls marked as such rather than quietly dropped.
+- 2026-07-25 — Phase 4 landed and smoke-accepted (fifteen steps green, including a three-round mount census showing opens 3 / closes 2, keydown +3 / -3, zero net sockets and one root at every sample): the legacy fallback is retired and the unified Travel Doc is the operator's only Travel Doc surface. Removal only — no backend, API, schema or flag change, and no file deleted. Out: the surface toggle and its whole support cast, both legacy asset tags, the switch row, `#lvTravelDocHost`, the `.lv-td-surface-*` / `.lv-td-host-off` / `body.lv-td-focus` rules, and the route board's `prodTravelDocUrl()` deep-link foot-note. **Deliberately not out:** the old module, its stylesheet and its standalone page, because requirement 7 forbids removing what a backend endpoint still serves and that page still mounts it — unmounting a surface and deleting a module are different acts; and `ui/travel-doc-lab.html`, kept and marked `DEV-ONLY` because it is the only caller of `lvTravelDocMount()` that exercises the non-shell identity branch. This narrows the Phase 0 plan written above, which had called for deleting all four and renaming the survivors; the rename stays parked. Five on-path fixes the order did not name, chief among them a `lv80SwitchPerson` teardown fallback nulling the retired marker (a silent no-op) and an ungated, operator-visible photo-picker empty state pointing at a production Travel Doc that no longer exists. A file-wide `assertNotIn("legacy")` on the shell proved invalid — 19 unrelated occurrences — so the gate is scoped to the panel and the mount block, and a stronger one replaced it because the shell now holds zero **raw** occurrences of the old module's name. Tests rewritten not deleted: five out, thirteen in, seven narrowed, with absences now asserted rather than merely unmentioned. 262 tests green (was 255); eight mutants, eight killed; the liveness harness rewritten for one surface with a `singleSurface` probe and its unrunnable negative controls marked as such rather than quietly dropped.
 - 2026-07-25 — Phase 3D landed and smoke-accepted: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. **The live smoke found a bug that nineteen source-scanning gates could not**: `api()` owns the request encoding, and both new movers pre-stringified their body, so every arrow press on the board answered 422. Fixed with a raw object at both call sites plus two new gates, one banning `body: JSON.stringify` file-wide while pinning that the encoding still happens exactly once inside `api()`. 255 tests green (was 236), nineteen gates mutation-tested, nineteen mutants killed. Eleven-step live smoke green, including insert before/after on a substop, cross-region move, cycle rejection at both layers, order surviving a refresh, both delete ladders, `FileList` node identity, the force-delete gate, and a clean mount/socket census. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2.
