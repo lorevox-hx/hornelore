@@ -6,6 +6,14 @@ tests/test_travel_doc_lab.py / test_travel_documenter_panel.py):
   M5 — travel-doc-lab.js guards destructive re-renders behind a
        dirty-discard confirmation (Save/Cancel stay unguarded).
   M6 — travel-documenter.js closes the modal Lori socket on destroy.
+
+WO-TRAVEL-DOC-UNIFY-01 Phase 5: those two modules are no longer peers.
+travel-doc-lab.js is the operator's only Travel Doc; travel-documenter.js
+was retired from that path by Phase 4 and is reachable only through its
+own standalone page. Both guards still hold and both are still required
+-- M6 protects a socket that page can still open -- so this file names
+its surfaces through tests/travel_doc_surfaces.py instead of repeating
+their paths and its own copy of the comment stripper.
 """
 from __future__ import annotations
 
@@ -16,30 +24,21 @@ from pathlib import Path
 
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-import source_scan_helpers as _ssh  # noqa: E402
+import travel_doc_surfaces as _tds  # noqa: E402
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_LAB = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
-_DOC = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
-
-
-def _strip(js: str) -> str:
-    # WO-TRAVEL-DOC-UNIFY-01 Phase 3C: this used to be
-    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*"), which cannot tell a comment
-    # from a string literal that merely looks like one. Phase 3C added
-    # `files.accept = "image/*"` to the intake drawer, and the "/*" inside
-    # that string opened a phantom block comment that swallowed everything
-    # down to the next real "*/" — several hundred lines of source went
-    # invisible, and the assertions covering them started passing or
-    # failing for reasons that had nothing to do with the code they were
-    # guarding. The shared string-aware scanner removes real comments
-    # only; string, template and regex contents stay visible.
-    return _ssh.strip_js_comments(js)
+# WO-TRAVEL-DOC-UNIFY-01 Phase 5: the paths and the string-aware comment
+# stripper this file used to carry privately now live in
+# tests/travel_doc_surfaces.py, which also records WHY the stripper
+# cannot be a naive comment regex: Phase 3C added `files.accept =
+# "image/*"` to the intake drawer, and the "/*" inside that literal
+# opened a phantom block comment that swallowed several hundred lines of
+# source, so the assertions covering them started passing and failing for
+# reasons unrelated to the code they guard.
 
 
 class H3LoriPaneResetTest(unittest.TestCase):
     def setUp(self):
-        self.src = _strip(_LAB.read_text(encoding="utf-8"))
+        self.src = _tds.UNIFIED_JS.stripped()
 
     def test_loripane_has_reset_method(self):
         self.assertIn("reset: function ()", self.src)
@@ -60,7 +59,7 @@ class H3LoriPaneResetTest(unittest.TestCase):
 
 class M5DirtyGuardTest(unittest.TestCase):
     def setUp(self):
-        self.src = _strip(_LAB.read_text(encoding="utf-8"))
+        self.src = _tds.UNIFIED_JS.stripped()
 
     def test_guard_function_defined(self):
         self.assertIn("function dayFormDirtyBlocks()", self.src)
@@ -114,7 +113,7 @@ class M5DirtyGuardTest(unittest.TestCase):
 
 class M6ModalSocketCloseTest(unittest.TestCase):
     def setUp(self):
-        self.src = _strip(_DOC.read_text(encoding="utf-8"))
+        self.src = _tds.RETIRED_JS.stripped()
 
     def test_destroy_closes_modal_lori_socket(self):
         m = re.search(r"destroy:\s*function\s*\(\)\s*\{(.*?)\},",

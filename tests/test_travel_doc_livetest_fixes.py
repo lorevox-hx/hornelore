@@ -13,6 +13,11 @@ BUG 2 — Tesseract read scene text as garbage.
   resolution problem. Cause: tesseract's DEFAULT page-segmentation mode is for
   scanned DOCUMENTS. We now preprocess and try sparse-text PSMs, keeping the
   best-scoring candidate.
+
+WO-TRAVEL-DOC-UNIFY-01 Phase 5: "the Lab button" above means the button
+on travel-doc-lab.js, which Phase 4 made the operator's only Travel Doc.
+Both bugs were fixed on the surface every operator now uses. The paths
+and the comment stripper come from tests/travel_doc_surfaces.py.
 """
 from __future__ import annotations
 
@@ -24,38 +29,26 @@ from pathlib import Path
 
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-import source_scan_helpers as _ssh  # noqa: E402
+import travel_doc_surfaces as _tds  # noqa: E402
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = _tds.REPO_ROOT
 _SERVER_CODE = _REPO_ROOT / "server" / "code"
 if str(_SERVER_CODE) not in sys.path:
     sys.path.insert(0, str(_SERVER_CODE))
 
-_LAB = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
-_CSS = _REPO_ROOT / "ui" / "css" / "travel-doc-lab.css"
+# WO-TRAVEL-DOC-UNIFY-01 Phase 5: paths and the string-aware comment
+# stripper come from tests/travel_doc_surfaces.py now, which records why
+# a naive comment regex cannot be used on this module.
+_CSS = _tds.UNIFIED_CSS.path
 
 from api.services import travel_doc_photo_ocr as ocr  # noqa: E402
-
-
-def _strip(js: str) -> str:
-    # WO-TRAVEL-DOC-UNIFY-01 Phase 3C: this used to be
-    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*"), which cannot tell a comment
-    # from a string literal that merely looks like one. Phase 3C added
-    # `files.accept = "image/*"` to the intake drawer, and the "/*" inside
-    # that string opened a phantom block comment that swallowed everything
-    # down to the next real "*/" — several hundred lines of source went
-    # invisible, and the assertions covering them started passing or
-    # failing for reasons that had nothing to do with the code they were
-    # guarding. The shared string-aware scanner removes real comments
-    # only; string, template and regex contents stay visible.
-    return _ssh.strip_js_comments(js)
 
 
 class LookupUrlInputTest(unittest.TestCase):
     """BUG 1 — the Lookup button must send a url."""
 
     def setUp(self):
-        self.src = _strip(_LAB.read_text(encoding="utf-8"))
+        self.src = _tds.UNIFIED_JS.stripped()
 
     def test_lookup_sends_a_url(self):
         # The regression: body was `{ source_type: "place_context" }` with no
@@ -244,7 +237,7 @@ class PhotoLightboxTest(unittest.TestCase):
     you could not read the menu you were about to OCR."""
 
     def setUp(self):
-        self.src = _strip(_LAB.read_text(encoding="utf-8"))
+        self.src = _tds.UNIFIED_JS.stripped()
         self.css = _CSS.read_text(encoding="utf-8")
 
     def test_clicking_a_thumbnail_opens_the_lightbox(self):
@@ -297,7 +290,7 @@ class LaptopUsabilityTest(unittest.TestCase):
     """
 
     def setUp(self):
-        self.src = _strip(_LAB.read_text(encoding="utf-8"))
+        self.src = _tds.UNIFIED_JS.stripped()
         self.css = _CSS.read_text(encoding="utf-8")
 
     def test_rail_collapse_is_remembered(self):

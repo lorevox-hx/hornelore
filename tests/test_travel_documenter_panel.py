@@ -30,28 +30,31 @@ import unittest
 from pathlib import Path
 
 try:
-    from tests import source_scan_helpers as _ssh
+    from tests import travel_doc_surfaces as _tds
 except ImportError:  # direct execution: python tests/test_travel_documenter_panel.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import source_scan_helpers as _ssh
+    import travel_doc_surfaces as _tds
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_JS = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
-_APP = _REPO_ROOT / "ui" / "js" / "app.js"
-_HTML = _REPO_ROOT / "ui" / "hornelore1.0.html"
-_STANDALONE = _REPO_ROOT / "ui" / "travel-documenter.html"
+# WO-TRAVEL-DOC-UNIFY-01 Phase 5: these used to be private Path
+# literals. Six suites each kept a copy, so moving a file meant
+# six edits and the sixth was the one always missed. The paths,
+# the roles and the comment strippers now live in
+# tests/travel_doc_surfaces.py; the names below are aliases, kept
+# so the assertions read exactly as they did before.
+_REPO_ROOT = _tds.REPO_ROOT
+_JS = _tds.RETIRED_JS.path
+_APP = _tds.SHELL_JS.path
+_HTML = _tds.SHELL_HTML.path
+_STANDALONE = _tds.RETIRED_PAGE.path
 
 
 def _stripped_js() -> str:
-    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 Phase 6.4: the old
-    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*") stripper treated the "//" inside
-    # string literals like "http://localhost:8000" (travel-documenter.js
-    # ~line 68) as a line comment, blinding every banned-token scan from
-    # there to end-of-line. The shared string-aware scanner (unit-tested
-    # in tests/test_source_scan_helpers.py) removes real comments only;
-    # string/template/regex contents stay visible to the scans below.
-    js = _JS.read_text(encoding="utf-8")
-    return _ssh.strip_js_comments(js)
+    # Phase 5: the string-aware stripper moved to
+    # travel_doc_surfaces.Surface.stripped(), which records why it
+    # cannot be a naive comment regex: a literal like
+    # "image/*" or "http://localhost:8000" opens a phantom comment
+    # and blinds every banned-token scan that follows it.
+    return _tds.RETIRED_JS.stripped()
 
 
 class BoundaryTest(unittest.TestCase):
@@ -120,8 +123,7 @@ class BoundaryTest(unittest.TestCase):
         self.assertNotIn("js/travel-documenter.js", html)
         # Interview-mode boundary: the shell tab strip (which carries
         # this tab) is hidden while interview mode is active.
-        css = (_REPO_ROOT / "ui" / "css" / "lori80.css").read_text(
-            encoding="utf-8")
+        css = _tds.SHELL_CSS.read()
         self.assertIn("body.lv-interview-mode-active #lvShellTabs", css)
 
     def test_standalone_is_thin_wrapper(self):
@@ -168,7 +170,7 @@ class ReviewFixesTest(unittest.TestCase):
     def test_css_fully_scoped(self):
         # Every .td-* component rule must be scoped under .td-root or
         # body.td-standalone; vars defined on BOTH roots.
-        css = (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+        css = (_tds.RETIRED_CSS.path
                ).read_text(encoding="utf-8")
         self.assertIn(".td-root,\nbody.td-standalone {", css)
         for ln in css.splitlines():
@@ -276,7 +278,7 @@ class ReflowTest(unittest.TestCase):
     """
 
     def _css(self) -> str:
-        return (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+        return (_tds.RETIRED_CSS.path
                 ).read_text(encoding="utf-8")
 
     # ── viewport pin + independent body scroll (kept from REFLOW-01) ──
@@ -432,7 +434,7 @@ class PostPushReviewPunchListTest(unittest.TestCase):
     """Post-push review punch-list (2026-07-10) on top of 208678c."""
 
     def _css(self) -> str:
-        return (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+        return (_tds.RETIRED_CSS.path
                 ).read_text(encoding="utf-8")
 
     def test_editor_tabs_are_sibling_before_editor_body(self):
@@ -600,7 +602,7 @@ class EvidenceLifecycleTest(unittest.TestCase):
         # Escape + backdrop close cover the new modal too (both lists
         # end with it, right before their .forEach).
         self.assertEqual(self.src.count('"modalDeleteTrip"].forEach'), 2)
-        css = (_REPO_ROOT / "ui" / "css" / "travel-documenter.css"
+        css = (_tds.RETIRED_CSS.path
                ).read_text(encoding="utf-8")
         for cls in (".td-hidden-stub", ".td-note-hidden",
                     ".td-delete-trip-counts", ".td-delete-trip-warning",

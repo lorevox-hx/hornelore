@@ -53,83 +53,54 @@ import unittest
 from pathlib import Path
 
 try:
-    from tests import source_scan_helpers as _ssh
+    from tests import travel_doc_surfaces as _tds
 except ImportError:  # direct execution: python tests/test_travel_doc_shell_mount.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import source_scan_helpers as _ssh
+    import travel_doc_surfaces as _tds
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_APP = _REPO_ROOT / "ui" / "js" / "app.js"
-_SHELL = _REPO_ROOT / "ui" / "hornelore1.0.html"
-_LAB_JS = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
-_LAB_CSS = _REPO_ROOT / "ui" / "css" / "travel-doc-lab.css"
-_LAB_HTML = _REPO_ROOT / "ui" / "travel-doc-lab.html"
-_SHELL_CSS = _REPO_ROOT / "ui" / "css" / "lori80.css"
-_LEGACY_JS = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
-_LEGACY_CSS = _REPO_ROOT / "ui" / "css" / "travel-documenter.css"
-_LEGACY_HTML = _REPO_ROOT / "ui" / "travel-documenter.html"
-_LIVENESS = (_REPO_ROOT / "scripts" / "ui" /
-             "run_travel_doc_shell_mount_liveness.js")
+# WO-TRAVEL-DOC-UNIFY-01 Phase 5: these used to be private Path
+# literals. Six suites each kept a copy, so moving a file meant
+# six edits and the sixth was the one always missed. The paths,
+# the roles and the comment strippers now live in
+# tests/travel_doc_surfaces.py; the names below are aliases, kept
+# so the assertions read exactly as they did before.
+_APP = _tds.SHELL_JS.path
+_SHELL = _tds.SHELL_HTML.path
+_LAB_JS = _tds.UNIFIED_JS.path
+_LAB_CSS = _tds.UNIFIED_CSS.path
+_LAB_HTML = _tds.DEV_HARNESS.path
+_SHELL_CSS = _tds.SHELL_CSS.path
+_LEGACY_JS = _tds.RETIRED_JS.path
+_LEGACY_CSS = _tds.RETIRED_CSS.path
+_LEGACY_HTML = _tds.RETIRED_PAGE.path
+_LIVENESS = _tds.LIVENESS_HARNESS.path
 
 
 def _stripped_app() -> str:
-    return _ssh.strip_js_comments(_APP.read_text(encoding="utf-8"))
+    return _tds.SHELL_JS.stripped()
 
 
 def _stripped_lab_js() -> str:
-    return _ssh.strip_js_comments(_LAB_JS.read_text(encoding="utf-8"))
+    return _tds.UNIFIED_JS.stripped()
 
 
 def _stripped_shell_html() -> str:
     # Comments in the shell carry a lot of "do not do X" prose that would
     # otherwise trip the banned-string scans below.
-    html = _SHELL.read_text(encoding="utf-8")
-    return re.sub(r"<!--[\s\S]*?-->", "", html)
+    return _tds.SHELL_HTML.stripped()
 
 
 def _stripped_lab_css() -> str:
-    return re.sub(r"/\*[\s\S]*?\*/", "", _LAB_CSS.read_text(encoding="utf-8"))
+    return _tds.UNIFIED_CSS.stripped()
 
 
-def _css_rules(css: str):
-    """Yield (ancestors, selector) for every block in `css`.
-
-    A line-oriented scan cannot tell a real selector from a keyframe step:
-    `0% {` looks exactly like an unscoped element rule. Track brace depth
-    instead, so the caller can skip anything nested under @keyframes while
-    still checking the selectors inside @media — which are real, and are
-    exactly where a scoping mistake would hide.
-    """
-    buf: list[str] = []
-    stack: list[str] = []
-    for ch in css:
-        if ch == "{":
-            sel = "".join(buf).strip()
-            buf = []
-            yield tuple(stack), sel
-            stack.append(sel)
-        elif ch == "}":
-            buf = []
-            if stack:
-                stack.pop()
-        else:
-            buf.append(ch)
-
-
-def _traveldoc_block() -> str:
-    """The `if (tabName === "traveldoc")` arm of lvShellShowTab()."""
-    app = _stripped_app()
-    m = re.search(r'if \(tabName === "traveldoc"\) \{[\s\S]*?\n  \}', app)
-    assert m is not None, "traveldoc mount block missing from app.js"
-    return m.group(0)
-
-
-def _traveldoc_panel() -> str:
-    """The <section id="lvTravelDocTab"> markup, comments stripped."""
-    html = _stripped_shell_html()
-    m = re.search(r'<section id="lvTravelDocTab"[\s\S]*?</section>', html)
-    assert m is not None, "Travel Doc panel missing from the shell"
-    return m.group(0)
+# Phase 5: the brace-depth CSS walker and both region extractors moved to
+# the surface map. _traveldoc_block() in particular was carried privately
+# by two suites, which meant a change to the shell mount block could be
+# caught by one and missed by the other.
+_css_rules = _tds.css_rules
+_traveldoc_block = _tds.traveldoc_block
+_traveldoc_panel = _tds.traveldoc_panel
 
 
 class ShellLoadsTheModuleTest(unittest.TestCase):
@@ -385,7 +356,7 @@ class LegacyFallbackIsGoneTest(unittest.TestCase):
         # legitimately RECORDS the two-surface negative controls, and
         # deleting that history to satisfy a grep would be worse than the
         # grep is worth.
-        src = _ssh.strip_js_comments(_LIVENESS.read_text(encoding="utf-8"))
+        src = _tds.LIVENESS_HARNESS.stripped()
         self.assertNotIn('step("switch_to_legacy"', src)
         self.assertNotIn('step("switch_to_unified"', src)
         self.assertNotIn("lvTravelDocSetSurface(", src)

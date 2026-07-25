@@ -25,26 +25,29 @@ import unittest
 from pathlib import Path
 
 try:
-    from tests import source_scan_helpers as _ssh
+    from tests import travel_doc_surfaces as _tds
 except ImportError:  # direct execution: python tests/test_travel_doc_lab.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import source_scan_helpers as _ssh
+    import travel_doc_surfaces as _tds
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_JS = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
-_CSS = _REPO_ROOT / "ui" / "css" / "travel-doc-lab.css"
-_HTML = _REPO_ROOT / "ui" / "travel-doc-lab.html"
+# WO-TRAVEL-DOC-UNIFY-01 Phase 5: these used to be private Path
+# literals. Six suites each kept a copy, so moving a file meant
+# six edits and the sixth was the one always missed. The paths,
+# the roles and the comment strippers now live in
+# tests/travel_doc_surfaces.py; the names below are aliases, kept
+# so the assertions read exactly as they did before.
+_JS = _tds.UNIFIED_JS.path
+_CSS = _tds.UNIFIED_CSS.path
+_HTML = _tds.DEV_HARNESS.path
 
 
 def _stripped_js() -> str:
-    # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 Phase 6.4: the old
-    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*") stripper treated the "//" inside
-    # string literals like "http://localhost:8000" (travel-doc-lab.js:40)
-    # as a line comment, blinding every banned-token scan below from
-    # there to end-of-line. The shared string-aware scanner removes real
-    # comments only; string/template/regex contents stay visible.
-    js = _JS.read_text(encoding="utf-8")
-    return _ssh.strip_js_comments(js)
+    # Phase 5: the stripper moved to Surface.stripped(). WHY it has to be
+    # string-aware is recorded there, and it matters here: a naive
+    # comment regex reads the "//" inside "http://localhost:8000"
+    # (travel-doc-lab.js:40) as a line comment and blinds every
+    # banned-token scan below from there to end of line.
+    return _tds.UNIFIED_JS.stripped()
 
 
 def _destroy_body() -> str:
@@ -59,13 +62,11 @@ def _destroy_body() -> str:
 
 
 def _stripped_css() -> str:
-    css = _CSS.read_text(encoding="utf-8")
-    return re.sub(r"/\*[\s\S]*?\*/", "", css)
+    return _tds.UNIFIED_CSS.stripped()
 
 
 def _stripped_html() -> str:
-    html = _HTML.read_text(encoding="utf-8")
-    return re.sub(r"<!--[\s\S]*?-->", "", html)
+    return _tds.DEV_HARNESS.stripped()
 
 
 class LabFilesExistTest(unittest.TestCase):
@@ -112,7 +113,15 @@ class BoundaryTest(unittest.TestCase):
             self.assertNotIn(banned, src,
                              f"travel-doc-lab must not reference {banned}")
 
-    def test_lab_does_not_import_production_module(self):
+    def test_the_unified_module_never_loads_the_retired_one(self):
+        # Renamed in Phase 5. The assertion is unchanged and still
+        # required; the OLD NAME was the stale thing. "Lab does not
+        # import production" described a world where the Documenter was
+        # production and this module was an experiment beside it. Phase 4
+        # inverted that: this module IS the operator Travel Doc, and the
+        # rule reads forward now. The one surface an operator reaches
+        # must not drag the retired module back in.
+        #
         # Deep-linking to the standalone travel-documenter.html page is
         # sanctioned (existing flows); loading its JS/CSS is not.
         # Comment-stripped: the docs comments explaining the boundary
@@ -436,7 +445,7 @@ class MountLivenessTest(unittest.TestCase):
         # browser, and it lives in the headless script below. Pinning the
         # script's existence and its four scenario names keeps the static
         # pins from staying green while the behaviour goes unverified.
-        p = _REPO_ROOT / "scripts" / "ui" / "run_travel_doc_mount_liveness.js"
+        p = _tds.MOUNT_LIVENESS_HARNESS.path
         self.assertTrue(
             p.is_file(),
             "the Phase 1.1 headless liveness proof is missing; the static "
@@ -785,9 +794,8 @@ class DocumenterDoubleSendGuardTest(unittest.TestCase):
     not fire the turn twice."""
 
     def setUp(self):
-        p = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
-        # Phase 6.4: string-aware stripper (see _stripped_js above).
-        self.src = _ssh.strip_js_comments(p.read_text(encoding="utf-8"))
+        # Phase 5: the path and the stripper both come from the map.
+        self.src = _tds.RETIRED_JS.stripped()
 
     def test_send_is_guarded_and_cleared(self):
         i = self.src.index("_send: function ()")
@@ -1104,14 +1112,18 @@ class TripForceDeleteGateTest(unittest.TestCase):
         # the fallback: the force-delete gate is self-contained on this
         # surface, and Phase 4 did not delete the older module (Phase 4
         # requirement 7 — its backend endpoints stay in use).
-        self.assertNotIn("function prodTravelDocUrl(", self.src)
-        self.assertNotIn("travel-documenter.html?api=", self.src)
+        # Phase 5 narrowing: this test also asserted that
+        # prodTravelDocUrl and the ?api= deep link are absent MODULE-WIDE.
+        # That is the same claim about the same file that
+        # test_the_fallback_deep_link_is_gone_module_wide makes below, so
+        # a future change to the escape hatch had two owners and no clear
+        # one. The module-wide claim belongs to that test; this one owns
+        # the delete gate.
         self.assertTrue(
-            (_REPO_ROOT / "ui" / "js" / "travel-documenter.js").exists(),
+            _tds.RETIRED_JS.path.exists(),
             "travel-documenter.js must not be deleted — Phase 4 unmounts "
             "it from the shell, it does not remove the module")
-        shell = (_REPO_ROOT / "ui" / "hornelore1.0.html").read_text(
-            encoding="utf-8")
+        shell = _tds.SHELL_HTML.read()
         self.assertNotIn('data-td-surface="legacy"', shell)
         self.assertNotIn('data-td-surface="unified"', shell)
         # The gate itself: impact counts, then an explicit force confirm,

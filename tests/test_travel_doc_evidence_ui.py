@@ -4,6 +4,11 @@ Locks the operator evidence controls in travel-doc-lab.js: Run OCR +
 Lookup public context buttons, the draft/approved/memoir badges, the
 approval-ladder controls, and that OCR/lookup text is rendered via el()
 (textContent), never innerHTML.
+
+WO-TRAVEL-DOC-UNIFY-01 Phase 5: "Lab" in the title above is history, not
+the current boundary. Phase 4 made travel-doc-lab.js the operator's only
+Travel Doc, so these are the operator evidence controls, full stop. The
+paths and the comment stripper come from tests/travel_doc_surfaces.py.
 """
 from __future__ import annotations
 
@@ -14,30 +19,17 @@ from pathlib import Path
 
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-import source_scan_helpers as _ssh  # noqa: E402
+import travel_doc_surfaces as _tds  # noqa: E402
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_JS = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
-_CSS = _REPO_ROOT / "ui" / "css" / "travel-doc-lab.css"
-
-
-def _strip(js: str) -> str:
-    # WO-TRAVEL-DOC-UNIFY-01 Phase 3C: this used to be
-    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*"), which cannot tell a comment
-    # from a string literal that merely looks like one. Phase 3C added
-    # `files.accept = "image/*"` to the intake drawer, and the "/*" inside
-    # that string opened a phantom block comment that swallowed everything
-    # down to the next real "*/" — several hundred lines of source went
-    # invisible, and the assertions covering them started passing or
-    # failing for reasons that had nothing to do with the code they were
-    # guarding. The shared string-aware scanner removes real comments
-    # only; string, template and regex contents stay visible.
-    return _ssh.strip_js_comments(js)
+# WO-TRAVEL-DOC-UNIFY-01 Phase 5: paths and the string-aware comment
+# stripper come from tests/travel_doc_surfaces.py now, which records why
+# a naive comment regex cannot be used on this module.
+_CSS = _tds.UNIFIED_CSS.path
 
 
 class EvidenceUiTest(unittest.TestCase):
     def setUp(self):
-        self.src = _strip(_JS.read_text(encoding="utf-8"))
+        self.src = _tds.UNIFIED_JS.stripped()
 
     def test_ocr_and_lookup_buttons_present(self):
         self.assertIn("Run OCR", self.src)
