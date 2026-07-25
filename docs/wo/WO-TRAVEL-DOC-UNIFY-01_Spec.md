@@ -66,7 +66,7 @@ Mount the module into `#lvTravelDocHost` alongside the Documenter, with a switch
 
 Also fix the discoverability defect found on the way in: the `WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01` launcher block in `hornelore1.0.html` (~3600–3617) has **zero CSS** — no rule for `lvTravelDocLabBtn`, `lv-td-lab-launch`, or `lv-td-lab-hint` exists anywhere in `ui/`, which is why it renders as plain text and Chris could not find it. It is deleted in Phase 4 regardless; if Phase 2 keeps it reachable, it needs a rule.
 
-### Phase 3 — port the Documenter's features in (3A ✅ LANDED 2026-07-25)
+### Phase 3 — port the Documenter's features in (3A ✅ LANDED 2026-07-25, 3B ✅ LANDED 2026-07-25)
 
 The bulk of the work. **The delete gate goes first** — it is the newest and least-exercised code in either panel and the thing most likely to be quietly broken by a port.
 
@@ -78,14 +78,14 @@ Everything lands in the tab currently called "Current", which should be renamed 
 | **Photo upload (trip / region / stop)** | Trip + Photos tabs | **Capability to build, not a control to port — see A2.** |
 | **Source file upload** | Sources tab | `uploadSourceFiles` → `POST /api/trips/{id}/sources/upload`. Missing from both inventories. |
 | Cluster photos | Photos tab | |
-| Trip create / edit modal | Trip tab + sidebar "New trip" | Lab has no trip create at all today. |
-| Region / stop CRUD | Trip tab | Lab's `/tree` render is read-only; genuinely new UI. Includes region **area / start / end / base / summary** and stop **region selector + type** from the eight-value `STOP_TYPES` list — see A4. |
-| Stop insert-at-position | Trip tab | `insertContext` / `insertHint` semantics — behavioural, not visual. See A4. |
+| Trip create / edit modal | Trip tab + sidebar "New trip" | ✅ **Phase 3B, LANDED 2026-07-25.** `+ New trip` in the rail head; edit drawer covers title, dates and summary; `days_warning`/`sync_warning` preserved. |
+| Region / stop CRUD | Trip tab | ✅ **Phase 3B, LANDED 2026-07-25.** All six region fields and the full stop editor including the region selector, the eight-value `STOP_TYPES` and reparenting with subtree exclusion. Both deletes are in-panel reviews (A5 honoured). The region delete is **not verbatim**: it tries unforced first and escalates on 409, because production sends no force flag and never handles the 409, so its delete silently dead-ends. |
+| Stop insert-at-position | Trip tab | ✅ **Phase 3B, LANDED 2026-07-25.** `insertContext` / `insertHint` preserved, plus a guard that discards a stale context when the drawer is retargeted to a different region or parent — production had no such check. |
 | Itinerary tile board | Trip tab, main column | Route order = tile order; reorder, insert, restructure. |
 | Editable Route Outline | Existing sidebar | Share selection with the board via the existing `st.routeSel`. |
 | Timeline view | Trip tab right rail | Documenter's `rightView: editor \| timeline` toggle. |
 | Memoir preview | Trip tab toolbar | |
-| `days_warning` / `sync_warning` banner | Global, above tabs | Added 2026-07-23; **do not drop it** — it is the fix for the day-cards-look-missing confusion. |
+| `days_warning` / `sync_warning` banner | Global, above tabs | ✅ **Phase 3B, LANDED 2026-07-25.** `applyTripWarnings()` sets `st.tripWarning` (Trip tab) and `st.daysWarning` (day cards). The latter had been **read but never set** since the Lab was read-only — a dead banner, now wired. |
 | Focus mode | Shell-level | Writes a body class; check it does not fight the Lab's rail collapse. |
 | Wide editor / Quick Save / Clear | Trip tab editor | Ergonomics from `WO-TRAVEL-DOC-EDITOR-ERGONOMICS-01`. |
 
@@ -103,7 +103,7 @@ Everything lands in the tab currently called "Current", which should be renamed 
 
 **Everything not on that list ports or blocks.**
 
-**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5). 3C — photo and source upload plus cluster (a capability to build, A2). 3D — the itinerary tile board, reorder, and the editable Route Outline. Each is its own session.
+**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5) — ✅ landed. 3C — photo and source upload plus cluster (a capability to build, A2). 3D — the itinerary tile board, reorder, and the editable Route Outline. Each is its own session.
 
 ### Phase 4 — flip and delete
 
@@ -401,9 +401,99 @@ arms · force delete sends `{"force":true,"confirm_trip_id":"…","reason":"…"
 auto-selected · exactly one mount at every point · legacy fallback round-trips
 cleanly · zero console errors.
 
+## Phase 3B — what landed (2026-07-25)
+
+Trip create/edit and region/stop CRUD, in Chris's stated order: the empty-state
+copy bug first, then trip create/edit, then region CRUD, then stop CRUD, with
+insert-at-position preserved and the legacy fallback still reachable. Front-end
+only — no backend, no API, no schema, no flag change. `server/code/api/routers/trips.py`
+was read and needed nothing: every endpoint this phase calls already exists.
+
+**Shape.** Six new `st` fields (`tripEditor`, `regionEditor`, `stopEditor`,
+`routeDelete`, `insertContext`, `tripWarning`) drive four editor drawers and one
+delete-review ladder. The placeholder `renderCurrent()` becomes `renderTripTab()`
+plus a route board; the tab is renamed `current` → `trip` behind a `setTab`
+back-compat shim. New helpers: `notifyTripUpdated`, `allStops`, `locateStop`,
+`subtreeIds`, `regionStopCount`, `regionLabel`, `stopLabel`, `dateRangeWarning`,
+`refreshTripBundle`, `refreshTripsPreservingSelection`, `applyTripWarnings`.
+The CSS added is **structural only** — every colour reuses an existing `--tdl-*`
+variable, because the theme item is retired at Chris's instruction, not deferred.
+
+**Three deliberate non-verbatim ports**, all banner-documented at the head of
+`travel-doc-lab.js`. The load-bearing one is the region delete. `DELETE
+/api/trips/regions/{id}` returns **409** when the region still holds stops unless
+the caller sends a force flag. Production's `deleteRegion` sends no flag and has
+no 409 arm, so once the operator answers `window.confirm()` the request
+dead-ends and nothing is deleted, silently. The port tries unforced first; on
+409 it opens a second review stage that quotes the server's own refusal verbatim
+next to the lab's independent count from the loaded tree, and escalates the
+button to name the blast radius.
+
+**Insert-at-position** keeps production's `insertContext` / `insertHint`
+meaning and adds a guard production lacks:
+
+```js
+var useCtx = (ctx && regionId === ctx.region_id &&
+              parentId === (ctx.parent_stop_id || null)) ? ctx : null;
+```
+
+so retargeting the drawer to a different region or parent drops the stale
+context instead of inserting in the wrong place.
+
+**No native dialogs, by construction and by measurement.** The delete executor
+is named `deleteStopReviewed` rather than `deleteStopConfirmed`, because the
+source scanner strips comments but bans the native-dialog call substrings in
+code. At runtime a spy wrapping all three functions recorded zero hits across
+every destructive flow.
+
+### Phase 3B verification
+
+`node --check` clean on `travel-doc-lab.js`, `ast.parse` clean on both test
+files, CSS braces 332/332, `CR: 0` on all four files on both sides of the
+transfer. **220 tests green** (was 205) across the six suites Phase 3A counted,
+plus a 55-test adjacent sweep green. The new `TripRegionStopCrudTest` adds
+fifteen gates; its `_fn` helper slices the **actual** function body rather than a
+fixed-width window, so a gate cannot pass on text belonging to the next
+function. Test 9's DELETE allow-list widened from one sanctioned shape to three
+(`/api/trips/`, `/api/trips/regions/`, `/api/trips/stops/`) — narrowed, not
+dropped: evidence lanes remain hide-only.
+
+Live smoke on the running stack, all thirteen of Chris's steps green: the
+workspace opens with exactly one `.tdl-root` and zero `.td-root` · the
+empty-state copy fix is live · trip created (10 day cards) with the title typed
+across 19 real keystrokes, focus retained · trip edited, rail row and card both
+refreshed · `+ Stop` correctly disabled at zero regions · region created with all
+six fields, soft out-of-range date warning firing and clearing · region edited
+including a summary cleared to empty (`clear_summary` path confirmed by
+reopening the drawer) · stop created, edited, reparented (36px → 54px indent) and
+moved across regions, with subtree exclusion holding · stop delete review
+in-panel, children-promoted copy verified · empty region deleted unforced ·
+non-empty region opened stage 2 and destroyed nothing at stage 1, then cascaded
+correctly when confirmed · disposable trips removed through the Phase 3A
+force-delete gate · legacy fallback toggled out and back · zero console errors.
+
+**The mount/socket/listener census is functional, not visual.** Counting
+`.tdl-root` proves only the DOM; a leaked subscription is invisible there. So the
+census wraps `WebSocket` and `BroadcastChannel` and drives a full legacy round
+trip with the Lori pane open — 1 socket created / 1 closed / 1 live, channels 6
+created / 5 closed / 1 live, one mount throughout — and then posts a single
+trip-saved message on the named channel and counts the reload: **all eight
+bundle endpoints fetched exactly once**, which would read 2 if the toggle had
+leaked a second mount. The first attempt at that probe returned zero fetches and
+proved nothing, because the handler correctly ignores a trip id that is not the
+open trip; a probe that cannot fail is decoration, so it was rerun against a
+real selected trip.
+
+**Backlog, unchanged by this phase:** whether a self-generated `travel.trip` bio
+suggestion should block an unforced trip delete is a backend/product call and
+stays outside the frontend wall. Selection still does not survive a tab
+round-trip — the fix is to pass saved state into `lvTravelDocMount()`, not to
+keep a hidden mount alive.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
 - 2026-07-24 — Phase 1.1 added and landed after Chris's Phase 1 review found no stale-async guard. Phase 2 was held until it was in.
 - 2026-07-25 — Phase 2 landed: the unified workspace mounts in the shell's Travel Doc tab by default, the legacy Documenter stays reachable behind a temporary surface switch, and the Lab launcher is gone. CSS scoped to `.tdl-root`. Two pre-existing Documenter leaks closed.
 - 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.
+- 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
