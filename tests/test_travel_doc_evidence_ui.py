@@ -56,14 +56,23 @@ class EvidenceUiTest(unittest.TestCase):
         # id, and none of them targets an evidence sub-resource.
         self.assertIn("photo-context/", self.src)
         self.assertIn('method: "PATCH"', self.src)
+        #
+        # WO-TRAVEL-DOC-UNIFY-01 Phase 3B widened it once more: region and
+        # stop deletion are now ported too, so the sanctioned set is the
+        # trip GRAPH (trip / region / stop) rather than the trip row
+        # alone. The evidence exclusion below is untouched — that is the
+        # property this test has always really been about.
         evidence_lanes = ("photo-context", "public-context", "location-notes",
                           "/sources", "photo-links")
+        sanctioned = ('"/api/trips/" + encodeURIComponent(',
+                      '"/api/trips/regions/" + encodeURIComponent(',
+                      '"/api/trips/stops/" + encodeURIComponent(')
         for m in re.finditer(r'method:\s*"DELETE"', self.src):
             # The api() call opens with the path argument, so the enclosing
-            # call site is the ~200 chars before the method option.
-            call = self.src[max(0, m.start() - 200):m.start()]
-            self.assertIn('"/api/trips/" + encodeURIComponent(', call,
-                          "a DELETE in the lab that is not a trip delete")
+            # call site is the ~220 chars before the method option.
+            call = self.src[max(0, m.start() - 220):m.start()]
+            self.assertTrue(any(p in call for p in sanctioned),
+                            "a DELETE in the lab outside the trip graph")
             for lane in evidence_lanes:
                 self.assertNotIn(lane, call,
                                  f"DELETE aimed at the {lane} evidence lane")

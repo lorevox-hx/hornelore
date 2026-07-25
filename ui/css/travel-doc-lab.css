@@ -572,3 +572,37 @@
     position: absolute; top: 58px; right: 0; bottom: 0;
   }
 }
+
+/* ── WO-TRAVEL-DOC-UNIFY-01 Phase 3B — route board + editor drawers ───
+   The Trip tab stopped being a pointer at production and became the
+   editor. These rules are STRUCTURAL only (layout, spacing, depth
+   indentation); every colour is an existing variable, because the
+   Travel Doc palette is settled and this phase is not a theme pass. */
+.tdl-route-board { display: grid; gap: .4rem; }
+.tdl-route-row { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; border: 1px solid var(--tdl-line); border-radius: 12px; background: var(--tdl-paper); padding: .55rem .7rem; }
+.tdl-route-row-main { display: grid; gap: .15rem; flex: 1; min-width: 0; }
+.tdl-route-row-main strong { font-size: .95rem; }
+.tdl-route-row-main .tdl-muted { font-size: .8rem; }
+.tdl-route-row-actions { display: flex; gap: .35rem; flex: none; flex-wrap: wrap; }
+/* A region opens a run of stops, so it carries the heavier rule; stop
+   rows are lighter and lean on their left-edge indent for depth. */
+.tdl-route-row-region { background: var(--tdl-paper2); border-left: 4px solid var(--tdl-blue); margin-top: .55rem; }
+.tdl-route-row-region:first-child { margin-top: 0; }
+.tdl-route-row-stop { border-left: 4px solid var(--tdl-line); }
+.tdl-route-legacy { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: 1.6rem; padding-top: .9rem; border-top: 1px dashed var(--tdl-line); font-size: .84rem; }
+
+/* Editor drawers reuse the drawer chrome; only the body flow differs. */
+.tdl-edit-drawer .tdl-drawer-body { display: grid; gap: .1rem; align-content: start; }
+.tdl-edit-drawer .tdl-label small { font-weight: 600; font-size: .76rem; }
+/* Soft out-of-range date note. Amber, not red: it never blocks a save —
+   an operator recording a stop that ran past the trip window they typed
+   first is right, and the form is not the authority on that. */
+.tdl-date-warn { margin: 0 0 .6rem; padding: .45rem .6rem; border: 1px solid var(--tdl-gold); border-left: 3px solid var(--tdl-gold); border-radius: 10px; background: #fff7e6; color: #6c4a10; font-size: .82rem; font-weight: 700; }
+/* Insert-at-position context, shown in the drawer rather than in a
+   status line that the next status message would erase. */
+.tdl-insert-hint { margin: 0 0 .7rem; padding: .5rem .65rem; border: 1px solid var(--tdl-line); border-left: 3px solid var(--tdl-blue); border-radius: 10px; background: var(--tdl-paper2); font-size: .84rem; font-weight: 700; }
+.tdl-trip-warning { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.tdl-trip-warning .tdl-btn { margin-left: auto; }
+/* The rail head now carries + New trip between the label and the
+   collapse toggle, so the label takes the slack instead of the gap. */
+.tdl-rail-head .tdl-section-label { flex: 1; }

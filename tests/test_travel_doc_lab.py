@@ -1030,12 +1030,23 @@ class TripForceDeleteGateTest(unittest.TestCase):
         for banned in ("window.confirm", "window.prompt", "window.alert",
                        "confirm(", "prompt(", "alert("):
             self.assertNotIn(banned, self.src, banned)
-        # Production's region/stop confirm() behaviour is explicitly NOT
-        # ported: no trip-region / trip-stop DELETE exists here at all.
+        # This loop used to read "and no /regions or /stops DELETE exists
+        # here at all", which was true while Phase 3A was the whole of the
+        # port. Phase 3B ports region and stop deletion deliberately, so
+        # that form is now false by design — but it is WIDENED, not
+        # dropped, because the property it protects is the one that
+        # matters: every DELETE this file issues is aimed at the trip
+        # graph (trip / region / stop) and never at an evidence lane.
+        # An unrecognised DELETE shape still fails the build.
+        sanctioned = ('"/api/trips/" + encodeURIComponent(',
+                      '"/api/trips/regions/" + encodeURIComponent(',
+                      '"/api/trips/stops/" + encodeURIComponent(')
         for m in re.finditer(r'method:\s*"DELETE"', self.src):
             call = self.src[max(0, m.start() - 220):m.start()]
-            self.assertIn('"/api/trips/" + encodeURIComponent(', call)
-            for lane in ("/regions", "/stops"):
+            self.assertTrue(any(p in call for p in sanctioned),
+                            "unrecognised DELETE target in the lab")
+            for lane in ("photo-context", "public-context", "location-notes",
+                         "/sources", "photo-links"):
                 self.assertNotIn(lane, call, lane)
 
     # 10 — the legacy fallback remains reachable.
@@ -1067,6 +1078,214 @@ class TripForceDeleteGateTest(unittest.TestCase):
         # state reachable.
         self.assertNotIn("if (st.trip && st.deleteReview)", self.src)
         self.assertIn("function closeDeleteReview(", self.src)
+
+
+class TripRegionStopCrudTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UNIFY-01 Phase 3B — trip / region / stop CRUD.
+
+    The last production-only editing behaviour, ported into the unified
+    workspace. Source-pattern tests, same doctrine as Phase 3A: each one
+    is written to fail if the SPECIFIC unsafe or lossy variant reappears
+    (a native dialog, a pre-emptive force, a dropped insert position, a
+    reparent into a stop's own subtree), not merely to confirm that some
+    editing code exists.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def _fn(self, name: str) -> str:
+        """Slice the ACTUAL function body, not a fixed-width window.
+
+        A fixed window spills into whatever function comes next, which
+        turns every "this must NOT appear here" assertion below into a
+        coin flip decided by line count. Top-level functions in this file
+        are indented two spaces, so the next one is the end of this one;
+        nested helpers are indented deeper and stay inside.
+        """
+        i = self.src.index(name)
+        j = self.src.find("\n  function ", i + len(name))
+        return self.src[i:(len(self.src) if j == -1 else j)]
+
+    # 1 — the empty state no longer sends the operator to production.
+    def test_empty_state_copy_is_unified(self):
+        self.assertNotIn("Create one in the production Travel Doc tab",
+                         self.src)
+        self.assertIn("No trips yet for this narrator.", self.src)
+        self.assertIn("+ New trip in the left rail", self.src)
+
+    # 2 — a trip can be created from the unified workspace.
+    def test_trip_create_control_exists_in_the_unified_workspace(self):
+        sidebar = self._fn("function renderSidebar(")
+        self.assertIn('"+ New trip"', sidebar)
+        self.assertIn('openTripEditor("create")', sidebar)
+        self.assertIn("function renderTripEditorDrawer(", self.src)
+        drawer = self._fn("function renderTripEditorDrawer(")
+        self.assertIn('api("/api/trips", { method: "POST"', drawer)
+        self.assertIn("person_id: st.personId", drawer)
+
+    # 3 — trip edit goes through the existing PATCH, with the clear_ flags
+    #     production uses to distinguish "unset this" from "leave it".
+    def test_trip_edit_saves_through_the_existing_api(self):
+        drawer = self._fn("function renderTripEditorDrawer(")
+        self.assertIn('method: "PATCH"', drawer)
+        self.assertIn('"/api/trips/" + encodeURIComponent(trip.id)', drawer)
+        for f in ("title:", "start_date:", "clear_start_date:", "end_date:",
+                  "clear_end_date:", "summary:", "clear_summary:"):
+            self.assertIn(f, drawer, f)
+
+    # 4 — days_warning / sync_warning survive a save as a dismissible
+    #     banner, not a status line the next message overwrites.
+    def test_trip_save_warnings_are_preserved(self):
+        fn = self._fn("function applyTripWarnings(")
+        self.assertIn("days_warning", fn)
+        self.assertIn("sync_warning", fn)
+        self.assertIn("st.tripWarning", fn)
+        self.assertIn("function renderTripWarning(", self.src)
+        self.assertIn("applyTripWarnings(out)", self.src)
+
+    # 5 — region create / edit / delete controls all exist.
+    def test_region_crud_controls_exist(self):
+        board = self._fn("function renderRegionRow(")
+        self.assertIn('"+ Stop"', board)
+        self.assertIn('openRegionEditor("edit", r.id)', board)
+        self.assertIn('openRouteDelete("region", r.id)', board)
+        self.assertIn('openRegionEditor("create", null)', self.src)
+        drawer = self._fn("function renderRegionEditorDrawer(")
+        self.assertIn('"/regions", {', drawer)
+        self.assertIn('"/api/trips/regions/" + encodeURIComponent(region.id)',
+                      drawer)
+        for f in ("country_or_area:", "base_address:", "clear_base_address:",
+                  "clear_country_or_area:", "clear_summary:"):
+            self.assertIn(f, drawer, f)
+
+    # 6 — stop create / edit / delete controls all exist.
+    def test_stop_crud_controls_exist(self):
+        row = self._fn("function renderStopRow(")
+        self.assertIn('openStopEditor("edit"', row)
+        self.assertIn('openRouteDelete("stop", s.id)', row)
+        drawer = self._fn("function renderStopEditorDrawer(")
+        self.assertIn('"/stops", {', drawer)
+        self.assertIn('"/api/trips/stops/" + encodeURIComponent(stop.id)',
+                      drawer)
+        for f in ("location_name:", "stop_type:", "date_start:", "date_end:",
+                  "clear_notes:"):
+            self.assertIn(f, drawer, f)
+        # The region selector and the stop-type list are both present —
+        # production supports both and losing either would make the
+        # unified workspace a downgrade.
+        self.assertIn("var STOP_TYPES", self.src)
+        self.assertIn('field("Region", vRegion)', drawer)
+
+    # 7 — insert-at-position is preserved, not quietly dropped.
+    def test_insert_at_position_is_preserved(self):
+        row = self._fn("function renderStopRow(")
+        self.assertIn('"+ Before"', row)
+        self.assertIn('"+ After"', row)
+        self.assertIn('where: "before"', row)
+        self.assertIn('where: "after"', row)
+        drawer = self._fn("function renderStopEditorDrawer(")
+        self.assertIn('"/move"', drawer)
+        self.assertIn("before_stop_id", drawer)
+        self.assertIn("after_stop_id", drawer)
+        # An insert anchor only holds while the new stop is still a
+        # sibling of the row it was anchored to. If the operator changes
+        # the region or the parent in the drawer, the context is dropped
+        # rather than issuing a move that fights the choice just made.
+        self.assertIn("var useCtx", drawer)
+        self.assertIn("ctx.region_id", drawer)
+
+    # 8 — a stop can never be reparented into its own subtree.
+    def test_parent_selector_excludes_the_stops_own_subtree(self):
+        self.assertIn("function subtreeIds(", self.src)
+        drawer = self._fn("function renderStopEditorDrawer(")
+        self.assertIn("subtreeIds(stop)", drawer)
+        self.assertIn("if (forbidden[row.id]) return;", drawer)
+
+    # 9 — region/stop deletion is in-panel, never a native dialog.
+    def test_region_and_stop_delete_use_an_in_panel_review(self):
+        self.assertIn("function renderRouteDeleteReview(", self.src)
+        self.assertIn("function openRouteDelete(", self.src)
+        for banned in ("window.confirm", "window.prompt", "window.alert",
+                       "confirm(", "prompt(", "alert("):
+            self.assertNotIn(banned, self.src, banned)
+        # Both destructive route controls open the review; neither fires
+        # a delete straight off the click.
+        row = self._fn("function renderStopRow(")
+        self.assertIn('openRouteDelete("stop"', row)
+        region = self._fn("function renderRegionRow(")
+        self.assertIn('openRouteDelete("region"', region)
+
+    # 10 — the region delete is a two-stage ladder, unforced FIRST.
+    #
+    #      This is the one place Phase 3B deliberately diverges from
+    #      production behaviour rather than merely from its UI. Production
+    #      sends an unforced DELETE after its confirm() and neither passes
+    #      force nor handles the backend's 409, so a non-empty region
+    #      dead-ends with nothing deleted AFTER the operator agreed.
+    def test_region_delete_tries_unforced_first_then_offers_force(self):
+        unforced = self._fn("function deleteRegionUnforced(")
+        self.assertIn('{ method: "DELETE" }', unforced)
+        self.assertNotIn("force=true", unforced)
+        self.assertIn("e.status === 409", unforced)
+        self.assertIn('st.routeDelete.stage = "force"', unforced)
+        # Stage 2 is reachable only from a real backend refusal, and it
+        # quotes that refusal rather than paraphrasing it.
+        forced = self._fn("function forceDeleteRegion(")
+        self.assertIn("force=true", forced)
+        review = self._fn("function renderRouteDeleteReview(")
+        self.assertIn('rd.stage === "force"', review)
+        self.assertIn("rd.serverMessage", review)
+
+    # 11 — the stop delete states what actually happens to children.
+    def test_stop_delete_review_says_children_are_promoted(self):
+        review = self._fn("function renderRouteDeleteReview(")
+        self.assertIn("they move up to become top-level stops", review)
+        stop_del = self._fn("function deleteStopReviewed(")
+        self.assertIn('"/api/trips/stops/" + encodeURIComponent(rd.id)',
+                      stop_del)
+        self.assertNotIn("force", stop_del)
+
+    # 12 — a delete leaves no dangling selection or open editor behind.
+    def test_route_delete_clears_dangling_handles(self):
+        fn = self._fn("function afterRouteDeleted(")
+        self.assertIn("st.routeSel = null", fn)
+        self.assertIn("st.regionEditor = null", fn)
+        self.assertIn("st.stopEditor = null", fn)
+        self.assertIn("st.insertContext = null", fn)
+        self.assertIn("refreshTripBundle()", fn)
+
+    # 13 — editors are per-trip state and never survive a trip switch.
+    def test_editors_are_cleared_on_trip_switch_and_trip_delete(self):
+        for fn_name in ("function selectTrip(", "function afterTripDeleted("):
+            fn = self._fn(fn_name)
+            for field in ("st.tripEditor = null", "st.regionEditor = null",
+                          "st.stopEditor = null", "st.routeDelete = null",
+                          "st.insertContext = null"):
+                self.assertIn(field, fn, fn_name + " / " + field)
+
+    # 14 — the legacy surface is still reachable from the Trip tab.
+    def test_legacy_deep_link_survives_the_tab_rewrite(self):
+        self.assertIn("function renderTripTab(", self.src)
+        tab = self._fn("function renderTripTab(")
+        self.assertIn("prodTravelDocUrl()", tab)
+        self.assertIn("tdl-route-legacy", tab)
+        # The old placeholder tab id must not strand an operator whose
+        # last session ended on it.
+        self.assertIn('if (tab === "current") tab = "trip";', self.src)
+        self.assertNotIn('case "current": return renderCurrent();', self.src)
+
+    # 15 — the new chrome is tdl- namespaced, like everything else here.
+    def test_phase3b_css_is_tdl_namespaced(self):
+        for cls in (".tdl-route-board", ".tdl-route-row",
+                    ".tdl-route-row-region", ".tdl-route-row-stop",
+                    ".tdl-route-row-actions", ".tdl-edit-drawer",
+                    ".tdl-date-warn", ".tdl-insert-hint",
+                    ".tdl-route-legacy"):
+            self.assertIn(cls, self.css, cls)
+        for cls in ("tdl-route-board", "tdl-edit-drawer", "tdl-insert-hint"):
+            self.assertIn(cls, self.src, cls)
 
 
 if __name__ == "__main__":

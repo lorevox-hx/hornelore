@@ -83,8 +83,43 @@
    site reads e.message and still gets a sentence (a better one: the 409
    used to stringify to "[object Object]").
 
-   SCOPE WALL: region/stop deletion is NOT ported. The production panel
-   still gates those with native confirm(), and this file has none.
+   SCOPE WALL (Phase 3A): region/stop deletion is NOT ported. Phase 3B
+   below lifts that wall — deliberately, and not by copying production.
+
+   WO-TRAVEL-DOC-UNIFY-01 Phase 3B (2026-07-25) — TRIP / REGION / STOP CRUD.
+
+   The last production-only editing behaviour moves in: create and edit a
+   trip, create/edit/delete a region, create/edit/delete a stop, and the
+   insert-at-position ("+ Before" / "+ After") semantics that make the
+   route board an itinerary rather than an append-only list. Front-end
+   only — every endpoint and every field this uses already existed.
+
+   Three things are deliberately NOT verbatim ports:
+
+   1. Region and stop deletion go through an in-panel review drawer, not
+      window.confirm(). Same reason as Phase 3A: a native dialog shows a
+      sentence the operator cannot check against the data, and one click
+      of "OK" is not a gate.
+
+   2. Region deletion is a TWO-STAGE ladder, mirroring the trip gate.
+      Production sends an unforced DELETE after its confirm() and stops
+      there — but the backend refuses a non-empty region with 409
+      RegionNotEmptyError unless ?force=true, so production's flow
+      dead-ends on a raw 409 with nothing deleted, AFTER the operator has
+      already agreed. Here stage 1 sends the unforced delete (an empty
+      region is simply gone), and only a 409 opens stage 2, which quotes
+      the backend's own refusal and offers the forced delete. The backend
+      stays the authority on what is actually there, so a stale tree can
+      never destroy something the operator was not shown.
+
+   3. Reorder arrows are NOT here. Insert-at-position is existing
+      production behaviour and had to survive; general reordering is
+      Phase 3D and would have widened this diff for no merge benefit.
+
+   The Phase 2 "Current" tab — whose entire content was a banner saying
+   the baseline lives in production — becomes the "Trip" tab and is that
+   baseline. The production deep link survives at the foot of it: the
+   legacy surface must stay reachable until Phase 4 retires it.
 
    To remove this lab entirely, delete:
      ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
@@ -156,6 +191,16 @@
     // held in the drawer's closure and read on submit, so typing never
     // triggers a repaint and the field never loses focus mid-word.
     deleteReview: null,
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 3B — the editor drawers. Each holds
+    // only WHICH entity is open and any inline error; the typed field
+    // values live in the drawer's closure and are read on submit, so
+    // typing never repaints and no input can lose focus mid-word.
+    tripEditor: null,        // {mode:"create"|"edit", error}
+    regionEditor: null,      // {mode:"create"|"edit", regionId, error}
+    stopEditor: null,        // {mode:"create"|"edit", stopId, regionId, error}
+    routeDelete: null,       // {kind:"region"|"stop", id, title, stage, ...}
+    insertContext: null,     // {region_id, parent_stop_id, sibling_stop_id, where}
+    tripWarning: "",         // days_warning / sync_warning from a trip save
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
@@ -249,6 +294,22 @@
       });
     }
   } catch (_) { _tdlUpdateChannel = null; }
+
+  // Phase 3B — the Lab has always LISTENED on this channel; now that it
+  // writes trips it must also announce. A BroadcastChannel never delivers
+  // to the instance that posted, so this cannot feed our own handler
+  // above — it only reaches Travel Doc surfaces in other tabs.
+  function notifyTripUpdated(tripId, kind) {
+    if (!_tdlUpdateChannel || !tripId) return;
+    try {
+      _tdlUpdateChannel.postMessage({
+        trip_id: String(tripId),
+        kind: String(kind || "trip_saved"),
+        from: "travel-doc-lab",
+        at: Date.now(),
+      });
+    } catch (_) { /* a closed channel is not worth failing a save over */ }
+  }
 
   // ── helpers ──────────────────────────────────────────────────────────
 
@@ -371,6 +432,83 @@
     return found;
   }
 
+  // ── route graph helpers (WO-TRAVEL-DOC-UNIFY-01 Phase 3B) ────────────
+  //
+  // The Lab has only ever READ the tree, so findRegion/findStop were
+  // enough. Editing a stop needs three things they cannot answer: which
+  // region a stop lives in (the region selector), which stop is its
+  // parent (the parent selector), and which ids sit underneath it — a
+  // stop reparented into its own subtree would orphan the branch.
+
+  var STOP_TYPES = ["base", "sight", "day_trip", "transit", "lodging",
+                    "meal", "disruption", "memory_anchor"];
+
+  function allStops(tree) {
+    var out = [];
+    ((tree && tree.regions) || []).forEach(function (r) {
+      (function walk(stops, depth) {
+        (stops || []).forEach(function (s) {
+          out.push({ id: s.id, region_id: r.id, depth: depth, node: s });
+          walk(s.children, depth + 1);
+        });
+      })(r.stops, 0);
+    });
+    return out;
+  }
+
+  function locateStop(stopId) {
+    var res = null;
+    ((st.tree && st.tree.regions) || []).forEach(function (r) {
+      (function walk(stops, parent) {
+        (stops || []).forEach(function (s) {
+          if (res) return;
+          if (s.id === stopId) {
+            res = { node: s, region: r, parent: parent };
+            return;
+          }
+          walk(s.children, s);
+        });
+      })(r.stops, null);
+    });
+    return res;
+  }
+
+  function subtreeIds(node) {
+    var ids = [];
+    (function walk(s) {
+      ids.push(s.id);
+      (s.children || []).forEach(walk);
+    })(node);
+    return ids;
+  }
+
+  function regionStopCount(region) {
+    var n = 0;
+    (function walk(stops) {
+      (stops || []).forEach(function (s) { n += 1; walk(s.children); });
+    })(region && region.stops);
+    return n;
+  }
+
+  function regionLabel(r) { return (r && r.title) || "Region"; }
+
+  function stopLabel(s) {
+    return (s && (s.location_name || s.title)) || "Stop";
+  }
+
+  // Soft, NON-blocking out-of-range date check (YYYY-MM-DD compares
+  // lexicographically). Ported from production: it warns, it never
+  // refuses the save — operators legitimately record a stop that runs
+  // past the trip window they entered first.
+  function dateRangeWarning(start, end, boundStart, boundEnd, label) {
+    var bad = (start && boundStart && start < boundStart) ||
+              (end && boundEnd && end > boundEnd) ||
+              (start && boundEnd && start > boundEnd) ||
+              (end && boundStart && end < boundStart);
+    return bad ? ("\u26a0 Dates fall outside the " + label +
+      " range \u2014 saved anyway.") : "";
+  }
+
   function dayById(dayId) {
     return st.days.filter(function (d) { return d.id === dayId; })[0] || null;
   }
@@ -424,6 +562,15 @@
     // for. Switching trips with it still open would leave a review armed
     // against a trip the operator is no longer looking at.
     st.deleteReview = null;
+    // Phase 3B: an editor or a delete review belongs to the trip it was
+    // opened against. Carrying one across a trip switch would save (or
+    // destroy) inside a trip the operator is no longer looking at.
+    st.tripEditor = null;
+    st.regionEditor = null;
+    st.stopEditor = null;
+    st.routeDelete = null;
+    st.insertContext = null;
+    st.tripWarning = "";
     // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden-row visibility is a
     // per-trip review choice — reset it on trip switch.
     st.showHiddenNotes = false;
@@ -454,9 +601,11 @@
   // destroy, and refuse to arm the force button until they have typed the
   // trip's exact title or its id. No window.confirm / prompt / alert — a
   // native dialog cannot show the counts, and a one-click "OK" is not a
-  // gate. Region/stop deletion is deliberately NOT ported here; the
-  // production panel still guards those with confirm(), and copying that
-  // is not something Phase 3A does.
+  // gate.
+  //
+  // (Phase 3A said region/stop deletion was not ported here. Phase 3B
+  // ports it — see openRouteDelete() / renderRouteDeleteReview() — and
+  // does NOT copy production's native dialog for it either.)
   //
   // Note the wire always carries confirm_trip_id = the trip id. Accepting
   // the TITLE as well is a client-side affordance (operators know the
@@ -512,6 +661,14 @@
     st.selectedDayId = null;
     st.selectedPhotoLinkId = null;
     st.routeSel = null;
+    // Phase 3B — same rule as selectTrip(), and more urgent here: the
+    // trip these editors point at no longer exists.
+    st.tripEditor = null;
+    st.regionEditor = null;
+    st.stopEditor = null;
+    st.routeDelete = null;
+    st.insertContext = null;
+    st.tripWarning = "";
     st.error = "";
     loriPane.reset();
     return loadTrips({ noAutoSelect: true });
@@ -635,6 +792,50 @@
     });
   }
 
+  // ── post-save refresh (WO-TRAVEL-DOC-UNIFY-01 Phase 3B) ──────────────
+
+  function refreshTripBundle() {
+    if (!st.trip) return Promise.resolve();
+    return loadTripBundle(st.trip.id);
+  }
+
+  // st.trip is a ROW out of st.trips, not a live handle. After a trip
+  // PATCH the rail rows are stale and st.trip is a detached copy of the
+  // pre-save row — re-point it, or the sidebar card keeps showing the old
+  // title and dates until the operator clicks away and back.
+  function refreshTripsPreservingSelection(tripId) {
+    var keep = tripId || (st.trip && st.trip.id) || null;
+    return api("/api/trips?person_id=" + encodeURIComponent(st.personId))
+      .then(function (out) {
+        st.trips = out.trips || [];
+        if (!keep) return;
+        st.trip = st.trips.filter(function (t) {
+          return t.id === keep;
+        })[0] || st.trip;
+      });
+  }
+
+  // POST /api/trips and PATCH /api/trips/{id} can answer with
+  // days_warning (day-card generation could not complete) and/or
+  // sync_warning (the life-record bridge could not sync). Production
+  // learned the hard way that a transient status line loses these to the
+  // very next setStatus() — so this is a persistent banner the operator
+  // dismisses. A clean response CLEARS it: a warning left standing after
+  // a successful re-save reads as an unresolved problem.
+  function applyTripWarnings(out) {
+    if (!out || typeof out !== "object") { st.tripWarning = ""; return; }
+    var parts = [];
+    if (out.days_warning) parts.push(String(out.days_warning));
+    if (out.sync_warning) parts.push(String(out.sync_warning));
+    st.tripWarning = parts.join(" \u2014 ");
+    // The Trip Plan tab has carried a `st.daysWarning` banner since the
+    // Lab was read-only — and nothing has ever set it, because nothing
+    // here could save a trip. Trip create/edit is exactly the call that
+    // produces days_warning, so wire it: the warning belongs next to the
+    // calendar it is about, not only on the Trip tab.
+    st.daysWarning = out.days_warning ? String(out.days_warning) : "";
+  }
+
   function reloadDays() {
     if (!st.trip) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days")
@@ -747,7 +948,7 @@
   // ── shell ─────────────────────────────────────────────────────────────
 
   var TABS = [
-    ["current", "Current"],
+    ["trip", "Trip"],
     ["plan", "Trip Plan"],
     ["photos", "Photos"],
     ["notes", "Story Notes"],
@@ -758,6 +959,9 @@
   ];
 
   function setTab(tab) {
+    // Phase 3B renamed the "current" tab id to "trip". Anything still
+    // asking for the old id lands on the tab that replaced it.
+    if (tab === "current") tab = "trip";
     // WO-TRIP-LANE-AUDIT-FIXPACK-02 (M5b): a tab switch re-renders and
     // would silently discard unsaved day-inspector edits.
     if (dayFormDirtyBlocks()) return;
@@ -824,10 +1028,15 @@
     layout.appendChild(renderSidebar());
     var main = el("section", "tdl-main");
     if (st.error) main.appendChild(el("div", "tdl-error", st.error));
+    // Phase 3B — days_warning / sync_warning from the last trip save.
+    // Above the tab content and outside it, because the warning outlives
+    // the tab the operator happened to be on when the save returned.
+    if (st.tripWarning) main.appendChild(renderTripWarning());
     if (!st.trip) {
       main.appendChild(el("div", "tdl-empty",
         st.trips.length ? "Select a trip from the left rail." :
-          "No trips yet for this narrator. Create one in the production Travel Doc tab."));
+          "No trips yet for this narrator. Use + New trip in the left rail " +
+          "to create one here."));
     } else {
       main.appendChild(renderTab());
     }
@@ -846,6 +1055,15 @@
     // taken away, and the flow that clears st.trip is the same flow that
     // clears the review. Gating it on st.trip would make an unclosable
     // invisible state reachable.
+    // Phase 3B editors. The trip editor is deliberately NOT gated on
+    // st.trip either: "+ New trip" is reachable precisely when there is
+    // no selected trip, and gating it would make the empty state a dead
+    // end again. The region/stop editors ARE gated — they edit rows that
+    // only exist inside a selected trip.
+    if (st.tripEditor) app.appendChild(renderTripEditorDrawer());
+    if (st.trip && st.regionEditor) app.appendChild(renderRegionEditorDrawer());
+    if (st.trip && st.stopEditor) app.appendChild(renderStopEditorDrawer());
+    if (st.trip && st.routeDelete) app.appendChild(renderRouteDeleteReview());
     if (st.deleteReview) app.appendChild(renderDeleteTripReview());
 
     root.appendChild(app);
@@ -875,6 +1093,11 @@
 
     var railHead = el("div", "tdl-rail-head");
     railHead.appendChild(el("div", "tdl-section-label", "My Trips"));
+    // Phase 3B — trip creation lives on the rail, not inside the Trip
+    // tab, because the tab needs a selected trip and creating the FIRST
+    // trip is the case with none.
+    railHead.appendChild(btn("tdl-btn tdl-btn-small tdl-btn-gold",
+      "+ New trip", function () { openTripEditor("create"); }));
     var collapse = btn("tdl-rail-toggle", "⟨", toggleRail);
     collapse.title = "Hide trips";
     railHead.appendChild(collapse);
@@ -936,7 +1159,7 @@
 
   function renderTab() {
     switch (st.tab) {
-      case "current": return renderCurrent();
+      case "trip": return renderTripTab();
       case "plan": return renderPlan();
       case "photos": return renderPhotos();
       case "notes": return renderNotes();
@@ -953,23 +1176,835 @@
       "&person_id=" + encodeURIComponent(st.personId);
   }
 
-  function renderCurrent() {
+  // ── Trip tab (WO-TRAVEL-DOC-UNIFY-01 Phase 3B) ───────────────────────
+  //
+  // Phase 2 shipped this tab as a banner pointing at production. It is
+  // now the trip/region/stop editor itself: header + toolbar + route
+  // board, with every mutation going through a drawer. The production
+  // deep link survives at the foot — the legacy surface stays reachable
+  // until Phase 4 retires it.
+
+  function renderTripWarning() {
+    var box = el("div", "tdl-warn-banner tdl-trip-warning");
+    box.appendChild(el("strong", "", "Trip save warning: "));
+    box.appendChild(document.createTextNode(st.tripWarning));
+    box.appendChild(btn("tdl-btn tdl-btn-small", "✕ Dismiss", function () {
+      st.tripWarning = "";
+      renderAll();
+    }));
+    return box;
+  }
+
+  // ── shared drawer field builders ─────────────────────────────────────
+  //
+  // Every editor below follows the drawer idiom already used by the note
+  // and delete-review drawers: the input elements live in the render
+  // closure and are read on submit. Nothing repaints while the operator
+  // types, so no field can lose focus mid-word.
+
+  function field(labelText, inputEl, hint) {
+    var lab = el("label", "tdl-label");
+    lab.appendChild(el("span", "", labelText));
+    lab.appendChild(inputEl);
+    if (hint) lab.appendChild(el("small", "tdl-muted", hint));
+    return lab;
+  }
+
+  function textInput(value, placeholder) {
+    var i = el("input");
+    i.type = "text";
+    i.value = (value === null || value === undefined) ? "" : String(value);
+    if (placeholder) i.placeholder = placeholder;
+    return i;
+  }
+
+  function dateInput(value) {
+    var i = el("input");
+    i.type = "date";
+    i.value = value ? String(value).slice(0, 10) : "";
+    return i;
+  }
+
+  function areaInput(value, placeholder) {
+    var t = el("textarea");
+    t.value = (value === null || value === undefined) ? "" : String(value);
+    if (placeholder) t.placeholder = placeholder;
+    return t;
+  }
+
+  // options: [[value, label], ...]
+  function selectInput(options, value) {
+    var sel = el("select");
+    options.forEach(function (o) {
+      var opt = el("option", "", o[1]);
+      opt.value = o[0];
+      sel.appendChild(opt);
+    });
+    sel.value = (value === null || value === undefined) ? "" : String(value);
+    return sel;
+  }
+
+  function drawerShell(kicker, title, onClose, cls) {
+    var wrap = el("div", "tdl-drawer-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) onClose();
+    });
+    var drawer = el("aside", "tdl-drawer " + cls);
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker", kicker));
+    ht.appendChild(el("strong", "", title));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Close", onClose));
+    drawer.appendChild(head);
+    var body = el("div", "tdl-drawer-body");
+    var foot = el("div", "tdl-drawer-foot");
+    drawer.appendChild(body);
+    drawer.appendChild(foot);
+    wrap.appendChild(drawer);
+    return { wrap: wrap, drawer: drawer, body: body, foot: foot };
+  }
+
+  // Live, NON-blocking date sanity note. Property assignment on oninput
+  // (not addEventListener) and a textContent swap, so it updates without
+  // a repaint and re-opening the drawer cannot stack a stale handler.
+  function attachDateNote(host, vStart, vEnd, boundStart, boundEnd, label) {
+    var note = el("div", "tdl-date-warn", "");
+    host.appendChild(note);
+    function refresh() {
+      var t = dateRangeWarning(vStart.value, vEnd.value,
+                               boundStart, boundEnd, label);
+      note.textContent = t;
+      note.hidden = !t;
+    }
+    vStart.oninput = refresh;
+    vEnd.oninput = refresh;
+    refresh();
+    return note;
+  }
+
+  // Inline error line. Failures render INSIDE the drawer the operator is
+  // standing in — never as a native dialog, and never by closing the
+  // panel out from under them and losing what they typed.
+  function drawerError(host, text) {
+    var box = el("div", "tdl-delete-error", text || "");
+    box.hidden = !text;
+    host.appendChild(box);
+    return box;
+  }
+
+  // ── editor open/close ────────────────────────────────────────────────
+  //
+  // Each opener re-checks dayFormDirtyBlocks() for the same reason
+  // setTab() does: opening a drawer repaints, and an unsaved day-inspector
+  // edit would be discarded silently.
+
+  function openTripEditor(mode) {
+    if (dayFormDirtyBlocks()) return;
+    if (mode === "edit" && !st.trip) return;
+    st.tripEditor = { mode: mode, error: "" };
+    renderAll();
+  }
+
+  function closeTripEditor() { st.tripEditor = null; renderAll(); }
+
+  function openRegionEditor(mode, regionId) {
+    if (dayFormDirtyBlocks()) return;
+    if (!st.trip) return;
+    st.regionEditor = { mode: mode, regionId: regionId || null, error: "" };
+    renderAll();
+  }
+
+  function closeRegionEditor() { st.regionEditor = null; renderAll(); }
+
+  // opts: {stopId, regionId, insert}
+  function openStopEditor(mode, opts) {
+    if (dayFormDirtyBlocks()) return;
+    if (!st.trip) return;
+    opts = opts || {};
+    st.insertContext = opts.insert || null;
+    st.stopEditor = {
+      mode: mode,
+      stopId: opts.stopId || null,
+      regionId: opts.regionId || null,
+      error: "",
+    };
+    renderAll();
+  }
+
+  // Closing the stop editor drops the insert context with it: an insert
+  // position is a property of the pending create, not of the trip.
+  function closeStopEditor() {
+    st.stopEditor = null;
+    st.insertContext = null;
+    renderAll();
+  }
+
+  // ── trip create / edit ───────────────────────────────────────────────
+
+  function renderTripEditorDrawer() {
+    var ed = st.tripEditor;
+    var creating = ed.mode === "create";
+    var trip = creating ? null : st.trip;
+    if (!creating && !trip) { st.tripEditor = null; return el("div"); }
+
+    var sh = drawerShell(creating ? "New trip" : "Edit trip",
+      creating ? "Create a trip" : (trip.title || "Untitled trip"),
+      closeTripEditor, "tdl-edit-drawer tdl-trip-editor");
+
+    var vTitle = textInput(trip ? trip.title : "", "e.g. Portugal, spring 2019");
+    var vStart = dateInput(trip ? trip.start_date : "");
+    var vEnd = dateInput(trip ? trip.end_date : "");
+    var vSummary = areaInput(trip ? trip.summary : "",
+      "What this trip was, in a sentence or two…");
+    sh.body.appendChild(field("Title", vTitle));
+    sh.body.appendChild(field("Start date", vStart));
+    sh.body.appendChild(field("End date", vEnd));
+    attachDateNote(sh.body, vStart, vEnd, null, null, "trip");
+    sh.body.appendChild(field("Summary", vSummary));
+    sh.body.appendChild(el("p", "tdl-muted",
+      "Saving trip dates regenerates the day calendar. If a day card " +
+      "cannot be generated the save still succeeds and the reason is " +
+      "shown as a warning banner — it is not silently dropped."));
+
+    var errEl = drawerError(sh.body, ed.error);
+
+    var saveBtn = btn("tdl-btn tdl-btn-primary",
+      creating ? "✓ Create trip" : "✓ Save trip", function () {
+        var title = (vTitle.value || "").trim();
+        if (!title) {
+          errEl.textContent = "A trip needs a title.";
+          errEl.hidden = false;
+          return;
+        }
+        saveBtn.disabled = true;
+        var summary = (vSummary.value || "").trim();
+        // A failed save must leave the drawer open with what the operator
+        // typed still in it; only a vanished drawer falls back to st.error.
+        function fail(e) {
+          saveBtn.disabled = false;
+          if (st.tripEditor) st.tripEditor.error = "Save failed: " + e.message;
+          else st.error = e.message;
+          renderAll();
+        }
+        if (creating) {
+          api("/api/trips", { method: "POST", body: {
+            person_id: st.personId,
+            title: title,
+            start_date: vStart.value || null,
+            end_date: vEnd.value || null,
+            summary: summary || null,
+          } }).then(function (out) {
+            applyTripWarnings(out);
+            notifyTripUpdated(out.trip_id, "trip_created");
+            st.tripEditor = null;
+            st.error = "";
+            // noAutoSelect: the list refresh must not pick trips[0] out
+            // from under the trip that was just created.
+            return loadTrips({ noAutoSelect: true }).then(function () {
+              return selectTrip(out.trip_id);
+            });
+          }).catch(fail);
+        } else {
+          api("/api/trips/" + encodeURIComponent(trip.id), {
+            method: "PATCH", body: {
+              title: title,
+              start_date: vStart.value || null,
+              clear_start_date: !vStart.value,
+              end_date: vEnd.value || null,
+              clear_end_date: !vEnd.value,
+              summary: summary || null,
+              clear_summary: !summary,
+            } }).then(function (out) {
+            applyTripWarnings(out);
+            notifyTripUpdated(trip.id, "trip_saved");
+            st.tripEditor = null;
+            st.error = "";
+            return refreshTripsPreservingSelection(trip.id)
+              .then(refreshTripBundle);
+          }).catch(fail);
+        }
+      });
+    sh.foot.appendChild(saveBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeTripEditor));
+    return sh.wrap;
+  }
+
+  // ── region create / edit ─────────────────────────────────────────────
+
+  function renderRegionEditorDrawer() {
+    var ed = st.regionEditor;
+    var creating = ed.mode === "create";
+    var region = creating ? null : findRegion(ed.regionId);
+    if (!creating && !region) { st.regionEditor = null; return el("div"); }
+
+    var sh = drawerShell(creating ? "New region" : "Edit region",
+      creating ? "Add a region" : regionLabel(region),
+      closeRegionEditor, "tdl-edit-drawer tdl-region-editor");
+
+    var vTitle = textInput(region ? region.title : "", "e.g. Algarve");
+    var vArea = textInput(region ? region.country_or_area : "",
+      "Country or area");
+    var vStart = dateInput(region ? region.start_date : "");
+    var vEnd = dateInput(region ? region.end_date : "");
+    var vBase = textInput(region ? region.base_address : "",
+      "Where you stayed in this region");
+    var vSummary = areaInput(region ? region.summary : "",
+      "What this leg of the trip was…");
+    sh.body.appendChild(field("Region title", vTitle));
+    sh.body.appendChild(field("Country / area", vArea));
+    sh.body.appendChild(field("Start date", vStart));
+    sh.body.appendChild(field("End date", vEnd));
+    attachDateNote(sh.body, vStart, vEnd,
+      st.trip.start_date, st.trip.end_date, "trip");
+    sh.body.appendChild(field("Base", vBase));
+    sh.body.appendChild(field("Summary", vSummary));
+
+    var errEl = drawerError(sh.body, ed.error);
+
+    var saveBtn = btn("tdl-btn tdl-btn-primary",
+      creating ? "✓ Add region" : "✓ Save region", function () {
+        var title = (vTitle.value || "").trim();
+        if (!title) {
+          errEl.textContent = "A region needs a title.";
+          errEl.hidden = false;
+          return;
+        }
+        saveBtn.disabled = true;
+        var area = (vArea.value || "").trim();
+        var base = (vBase.value || "").trim();
+        var summary = (vSummary.value || "").trim();
+        function fail(e) {
+          saveBtn.disabled = false;
+          if (st.regionEditor) st.regionEditor.error = "Save failed: " + e.message;
+          else st.error = e.message;
+          renderAll();
+        }
+        function done() {
+          notifyTripUpdated(st.trip.id, "region_saved");
+          st.regionEditor = null;
+          st.error = "";
+          return refreshTripBundle();
+        }
+        if (creating) {
+          api("/api/trips/" + encodeURIComponent(st.trip.id) + "/regions", {
+            method: "POST", body: {
+              title: title,
+              country_or_area: area || null,
+              start_date: vStart.value || null,
+              end_date: vEnd.value || null,
+              base_address: base || null,
+              summary: summary || null,
+            } }).then(done).catch(fail);
+        } else {
+          api("/api/trips/regions/" + encodeURIComponent(region.id), {
+            method: "PATCH", body: {
+              title: title,
+              country_or_area: area || null,
+              clear_country_or_area: !area,
+              start_date: vStart.value || null,
+              clear_start_date: !vStart.value,
+              end_date: vEnd.value || null,
+              clear_end_date: !vEnd.value,
+              base_address: base || null,
+              clear_base_address: !base,
+              summary: summary || null,
+              clear_summary: !summary,
+            } }).then(done).catch(fail);
+        }
+      });
+    sh.foot.appendChild(saveBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeRegionEditor));
+    return sh.wrap;
+  }
+
+  // ── stop create / edit (incl. insert-at-position) ────────────────────
+
+  function stopTypeLabel(t) {
+    return String(t || "").replace(/_/g, " ");
+  }
+
+  function renderStopEditorDrawer() {
+    var ed = st.stopEditor;
+    var creating = ed.mode === "create";
+    var loc = creating ? null : locateStop(ed.stopId);
+    if (!creating && !loc) { st.stopEditor = null; return el("div"); }
+    var stop = loc ? loc.node : null;
+    var regions = (st.tree && st.tree.regions) || [];
+    if (!regions.length) { st.stopEditor = null; return el("div"); }
+    var startRegionId = creating
+      ? (ed.regionId || regions[0].id)
+      : loc.region.id;
+    var ctx = st.insertContext;
+
+    var sh = drawerShell(creating ? "New stop" : "Edit stop",
+      creating ? "Add a stop" : stopLabel(stop),
+      closeStopEditor, "tdl-edit-drawer tdl-stop-editor");
+
+    // The insert position is shown, not implied. Production put this in a
+    // status line that the next status message erased.
+    if (creating && ctx) {
+      var sib = ctx.sibling_stop_id ? findStop(ctx.sibling_stop_id) : null;
+      sh.body.appendChild(el("div", "tdl-insert-hint",
+        "Inserting " + (ctx.where === "before" ? "before" : "after") + " " +
+        (sib ? stopLabel(sib) : "the selected stop") +
+        (ctx.parent_stop_id ? " (as a child stop)" : "")));
+    }
+
+    var vName = textInput(stop ? stop.location_name : "", "e.g. Lagos");
+    var vType = selectInput(STOP_TYPES.map(function (t) {
+      return [t, stopTypeLabel(t)];
+    }), (stop && stop.stop_type) || "sight");
+    var vStart = dateInput(stop ? (stop.date_start || stop.start_date) : "");
+    var vEnd = dateInput(stop ? (stop.date_end || stop.end_date) : "");
+    var vNotes = areaInput(stop ? stop.notes : "",
+      "Anything worth remembering about this stop…");
+    var vRegion = selectInput(regions.map(function (r) {
+      return [r.id, regionLabel(r)];
+    }), startRegionId);
+    var vParent = el("select");
+
+    sh.body.appendChild(field("Stop name", vName));
+    sh.body.appendChild(field("Type", vType));
+    sh.body.appendChild(field("Start date", vStart));
+    sh.body.appendChild(field("End date", vEnd));
+    var boundRegion = findRegion(startRegionId);
+    attachDateNote(sh.body, vStart, vEnd,
+      (boundRegion && boundRegion.start_date) || st.trip.start_date,
+      (boundRegion && boundRegion.end_date) || st.trip.end_date,
+      (boundRegion && boundRegion.start_date) ? "region" : "trip");
+    sh.body.appendChild(field("Region", vRegion));
+    sh.body.appendChild(field("Parent stop", vParent,
+      "Leave as “Top level” unless this stop happened inside another."));
+    sh.body.appendChild(field("Notes", vNotes));
+
+    // A stop can never be reparented into its own subtree — that would
+    // detach the branch from the tree entirely. Production computed this
+    // with subtreeIds(); so does this.
+    var forbidden = {};
+    if (stop) subtreeIds(stop).forEach(function (id) { forbidden[id] = true; });
+
+    function fillParentOptions(regionId, preferred) {
+      vParent.innerHTML = "";
+      var top = el("option", "", "Top level");
+      top.value = "";
+      vParent.appendChild(top);
+      allStops(st.tree).forEach(function (row) {
+        if (row.region_id !== regionId) return;
+        if (forbidden[row.id]) return;
+        var opt = el("option", "",
+          new Array((row.depth || 0) + 1).join("— ") + stopLabel(row.node));
+        opt.value = row.id;
+        vParent.appendChild(opt);
+      });
+      vParent.value = preferred || "";
+      if (vParent.value !== (preferred || "")) vParent.value = "";
+    }
+    fillParentOptions(startRegionId,
+      creating ? ((ctx && ctx.parent_stop_id) || "")
+               : ((loc.parent && loc.parent.id) || ""));
+    // Property assignment: re-opening the drawer for a different stop can
+    // never stack a handler closed over the previous stop's forbidden set.
+    vRegion.onchange = function () { fillParentOptions(vRegion.value, ""); };
+
+    var errEl = drawerError(sh.body, ed.error);
+
+    var saveBtn = btn("tdl-btn tdl-btn-primary",
+      creating ? "✓ Add stop" : "✓ Save stop", function () {
+        var name = (vName.value || "").trim();
+        if (!name) {
+          errEl.textContent = "A stop needs a name.";
+          errEl.hidden = false;
+          return;
+        }
+        saveBtn.disabled = true;
+        var notes = (vNotes.value || "").trim();
+        var regionId = vRegion.value;
+        var parentId = vParent.value || null;
+        function fail(e) {
+          saveBtn.disabled = false;
+          if (st.stopEditor) st.stopEditor.error = "Save failed: " + e.message;
+          else st.error = e.message;
+          renderAll();
+        }
+        function done() {
+          notifyTripUpdated(st.trip.id, "stop_saved");
+          st.stopEditor = null;
+          st.insertContext = null;
+          st.error = "";
+          return refreshTripBundle();
+        }
+        function moveBody(extra) {
+          var b = { region_id: regionId, parent_trip_stop_id: parentId };
+          if (extra) {
+            b.before_stop_id = extra.where === "before"
+              ? extra.sibling_stop_id : null;
+            b.after_stop_id = extra.where === "after"
+              ? extra.sibling_stop_id : null;
+          }
+          return b;
+        }
+        if (creating) {
+          // An insert position is only meaningful while the stop is still
+          // a sibling of the row it was anchored to. If the operator
+          // changed the region or the parent in this drawer, the anchor no
+          // longer applies and the insert is dropped rather than fighting
+          // the choice they just made.
+          var useCtx = (ctx && regionId === ctx.region_id &&
+                        parentId === (ctx.parent_stop_id || null)) ? ctx : null;
+          api("/api/trips/" + encodeURIComponent(st.trip.id) + "/regions/" +
+              encodeURIComponent(regionId) + "/stops", {
+            method: "POST", body: {
+              location_name: name,
+              stop_type: vType.value || null,
+              date_start: vStart.value || null,
+              date_end: vEnd.value || null,
+              notes: notes || null,
+              parent_trip_stop_id: parentId,
+            } }).then(function (out) {
+            if (!useCtx && !parentId) return done();
+            return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+                "/stops/" + encodeURIComponent(out.stop_id) + "/move", {
+              method: "POST", body: moveBody(useCtx),
+            }).then(done);
+          }).catch(fail);
+        } else {
+          var movedRegion = regionId !== loc.region.id;
+          var movedParent = parentId !== ((loc.parent && loc.parent.id) || null);
+          api("/api/trips/stops/" + encodeURIComponent(stop.id), {
+            method: "PATCH", body: {
+              location_name: name,
+              stop_type: vType.value || null,
+              date_start: vStart.value || null,
+              clear_start_date: !vStart.value,
+              date_end: vEnd.value || null,
+              clear_end_date: !vEnd.value,
+              notes: notes || null,
+              clear_notes: !notes,
+            } }).then(function () {
+            if (!movedRegion && !movedParent) return done();
+            return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+                "/stops/" + encodeURIComponent(stop.id) + "/move", {
+              method: "POST", body: moveBody(null),
+            }).then(done);
+          }).catch(fail);
+        }
+      });
+    sh.foot.appendChild(saveBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeStopEditor));
+    return sh.wrap;
+  }
+
+  // ── region / stop delete review ──────────────────────────────────────
+  //
+  // Production gates both of these with window.confirm(). This does not,
+  // for the Phase 3A reason: a native dialog states a consequence the
+  // operator cannot check against the data, and one click of OK is not a
+  // gate. The review names the row and counts what goes with it.
+
+  function openRouteDelete(kind, id) {
+    if (dayFormDirtyBlocks()) return;
+    if (!st.trip) return;
+    var title = "";
+    var count = 0;
+    if (kind === "region") {
+      var r = findRegion(id);
+      if (!r) return;
+      title = regionLabel(r);
+      count = regionStopCount(r);
+    } else {
+      var s = findStop(id);
+      if (!s) return;
+      title = stopLabel(s);
+      count = ((s.children || []).length);
+    }
+    st.routeDelete = {
+      kind: kind, id: id, title: title, count: count,
+      stage: "review", serverMessage: "", error: "",
+    };
+    renderAll();
+  }
+
+  function closeRouteDelete() { st.routeDelete = null; renderAll(); }
+
+  function afterRouteDeleted(kind, id) {
+    // A selection or an editor pointing at a row that no longer exists is
+    // a dangling handle; clear both before the tree reloads under them.
+    if (st.routeSel && (st.routeSel.id === id || st.routeSel.regionId === id)) {
+      st.routeSel = null;
+    }
+    if (kind === "region" && st.regionEditor &&
+        st.regionEditor.regionId === id) st.regionEditor = null;
+    if (kind === "stop" && st.stopEditor &&
+        st.stopEditor.stopId === id) st.stopEditor = null;
+    if (st.insertContext &&
+        (st.insertContext.region_id === id ||
+         st.insertContext.parent_stop_id === id ||
+         st.insertContext.sibling_stop_id === id)) st.insertContext = null;
+    st.routeDelete = null;
+    st.error = "";
+    notifyTripUpdated(st.trip.id, kind + "_deleted");
+    return refreshTripBundle();
+  }
+
+  // Stage 1 — the UNFORCED region delete. An empty region is simply gone.
+  // A non-empty one comes back 409 RegionNotEmptyError and opens stage 2.
+  //
+  // Production sends this same unforced call after its confirm() and then
+  // stops: it neither passes force nor handles the 409, so an operator who
+  // has already agreed to the cascade watches nothing happen. Splitting it
+  // into two stages fixes that AND makes the backend, not a possibly stale
+  // client-side tree, the authority on what is actually inside.
+  function deleteRegionUnforced() {
+    var rd = st.routeDelete;
+    if (!rd) return Promise.resolve();
+    return api("/api/trips/regions/" + encodeURIComponent(rd.id),
+               { method: "DELETE" })
+      .then(function () { return afterRouteDeleted("region", rd.id); })
+      .catch(function (e) {
+        if (e && e.status === 409 && st.routeDelete) {
+          st.routeDelete.stage = "force";
+          st.routeDelete.serverMessage = e.message;
+          st.routeDelete.error = "";
+          renderAll();
+          return;
+        }
+        if (st.routeDelete) st.routeDelete.error = "Delete failed: " + e.message;
+        renderAll();
+      });
+  }
+
+  // Stage 2 — reachable only from the stage-2 panel, which only a real
+  // backend 409 can open.
+  function forceDeleteRegion() {
+    var rd = st.routeDelete;
+    if (!rd) return Promise.resolve();
+    return api("/api/trips/regions/" + encodeURIComponent(rd.id) +
+               "?force=true", { method: "DELETE" })
+      .then(function () { return afterRouteDeleted("region", rd.id); })
+      .catch(function (e) {
+        if (st.routeDelete) st.routeDelete.error = "Delete failed: " + e.message;
+        renderAll();
+      });
+  }
+
+  // Stops are single-stage: the backend never refuses one. Child stops are
+  // PROMOTED to top level in the same region, not destroyed — the review
+  // copy says so, because "delete" reads as a cascade and here it is not.
+  function deleteStopReviewed() {
+    var rd = st.routeDelete;
+    if (!rd) return Promise.resolve();
+    return api("/api/trips/stops/" + encodeURIComponent(rd.id),
+               { method: "DELETE" })
+      .then(function () { return afterRouteDeleted("stop", rd.id); })
+      .catch(function (e) {
+        if (st.routeDelete) st.routeDelete.error = "Delete failed: " + e.message;
+        renderAll();
+      });
+  }
+
+  function renderRouteDeleteReview() {
+    var rd = st.routeDelete;
+    var isRegion = rd.kind === "region";
+    var sh = drawerShell(isRegion ? "Delete region" : "Delete stop",
+      rd.title, closeRouteDelete, "tdl-delete-drawer tdl-route-delete");
+
+    if (isRegion && rd.stage === "force") {
+      sh.body.appendChild(el("p", "tdl-delete-warn",
+        "The server refused the plain delete because this region is not " +
+        "empty. Deleting it now removes the region AND every stop inside " +
+        "it, unrecoverably."));
+      sh.body.appendChild(el("div", "tdl-section-label", "Server said"));
+      sh.body.appendChild(el("p", "tdl-muted", rd.serverMessage ||
+        "This region still has stops."));
+      sh.body.appendChild(el("p", "", "Stops in this region, by the tree " +
+        "loaded here: " + rd.count + "."));
+    } else if (isRegion) {
+      sh.body.appendChild(el("p", "tdl-delete-warn",
+        rd.count
+          ? ("This region holds " + rd.count + " stop" +
+             (rd.count === 1 ? "" : "s") + ". The delete is tried WITHOUT " +
+             "force first — if the server refuses, you will be shown " +
+             "exactly what it says before anything is destroyed.")
+          : "This region has no stops. Deleting it removes the region only."));
+    } else {
+      sh.body.appendChild(el("p", "tdl-delete-warn",
+        rd.count
+          ? ("This stop has " + rd.count + " child stop" +
+             (rd.count === 1 ? "" : "s") + ". They are NOT deleted — " +
+             "they move up to become top-level stops in the same region.")
+          : "This stop will be removed from the route."));
+      sh.body.appendChild(el("p", "tdl-muted",
+        "Day cards, photos, notes and sources are not deleted by this. " +
+        "Anything attached to this stop simply loses the stop link."));
+    }
+    sh.body.appendChild(el("p", "tdl-muted", "Id: " + rd.id));
+    var errEl = drawerError(sh.body, rd.error);
+    if (rd.error) errEl.hidden = false;
+
+    var label, run;
+    if (!isRegion) {
+      label = "Delete stop";
+      run = deleteStopReviewed;
+    } else if (rd.stage === "force") {
+      label = "Delete region and its " + rd.count + " stop" +
+        (rd.count === 1 ? "" : "s");
+      run = forceDeleteRegion;
+    } else {
+      label = "Delete region";
+      run = deleteRegionUnforced;
+    }
+    var goBtn = btn("tdl-btn tdl-btn-danger", label, function () {
+      if (goBtn.disabled) return;
+      goBtn.disabled = true;
+      run();
+    });
+    sh.foot.appendChild(goBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeRouteDelete));
+    return sh.wrap;
+  }
+
+  // ── the route board ──────────────────────────────────────────────────
+
+  function renderStopRow(s, region, depth, out) {
+    var row = el("div", "tdl-route-row tdl-route-row-stop");
+    // Depth is expressed as indentation rather than nested containers so
+    // every row keeps the same action bar geometry at any depth.
+    row.style.paddingLeft = (18 + depth * 18) + "px";
+    var mainCell = el("div", "tdl-route-row-main");
+    mainCell.appendChild(el("strong", "", stopLabel(s)));
+    var meta = [];
+    if (s.stop_type) meta.push(stopTypeLabel(s.stop_type));
+    var ds = s.date_start || s.start_date;
+    var de = s.date_end || s.end_date;
+    if (ds || de) meta.push((ds || "?") + " → " + (de || "?"));
+    if (meta.length) mainCell.appendChild(el("span", "tdl-muted", meta.join(" · ")));
+    row.appendChild(mainCell);
+
+    var acts = el("div", "tdl-route-row-actions");
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "+ Before", function () {
+      openStopEditor("create", {
+        regionId: region.id,
+        insert: {
+          region_id: region.id,
+          parent_stop_id: s.parent_trip_stop_id || null,
+          sibling_stop_id: s.id,
+          where: "before",
+        },
+      });
+    }));
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "+ After", function () {
+      openStopEditor("create", {
+        regionId: region.id,
+        insert: {
+          region_id: region.id,
+          parent_stop_id: s.parent_trip_stop_id || null,
+          sibling_stop_id: s.id,
+          where: "after",
+        },
+      });
+    }));
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Edit", function () {
+      openStopEditor("edit", { stopId: s.id, regionId: region.id });
+    }));
+    acts.appendChild(btn("tdl-btn tdl-btn-small tdl-btn-danger", "Delete",
+      function () { openRouteDelete("stop", s.id); }));
+    row.appendChild(acts);
+    out.appendChild(row);
+    (s.children || []).forEach(function (c) {
+      renderStopRow(c, region, depth + 1, out);
+    });
+  }
+
+  function renderRegionRow(r, out) {
+    var row = el("div", "tdl-route-row tdl-route-row-region");
+    var mainCell = el("div", "tdl-route-row-main");
+    mainCell.appendChild(el("strong", "", regionLabel(r)));
+    var meta = [];
+    if (r.country_or_area) meta.push(r.country_or_area);
+    if (r.start_date || r.end_date) {
+      meta.push((r.start_date || "?") + " → " + (r.end_date || "?"));
+    }
+    meta.push(regionStopCount(r) + " stops");
+    mainCell.appendChild(el("span", "tdl-muted", meta.join(" · ")));
+    row.appendChild(mainCell);
+
+    var acts = el("div", "tdl-route-row-actions");
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "+ Stop", function () {
+      openStopEditor("create", { regionId: r.id });
+    }));
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Edit", function () {
+      openRegionEditor("edit", r.id);
+    }));
+    acts.appendChild(btn("tdl-btn tdl-btn-small tdl-btn-danger", "Delete",
+      function () { openRouteDelete("region", r.id); }));
+    row.appendChild(acts);
+    out.appendChild(row);
+    (r.stops || []).forEach(function (s) { renderStopRow(s, r, 1, out); });
+  }
+
+  function renderTripTab() {
     var wrap = el("div");
-    var note = el("div", "tdl-note-banner");
-    note.appendChild(el("strong", "", "Baseline lives in production. "));
-    note.appendChild(el("span", "",
-      "This lab does not re-implement the current Travel Doc panel. " +
-      "Open the production Travel Doc tab (or the standalone page below) " +
-      "for the baseline three-column editor — then compare it with " +
-      "the Trip Plan redesign here."));
-    wrap.appendChild(note);
+    var trip = st.trip;
+    var regions = (st.tree && st.tree.regions) || [];
+
+    var head = el("div", "tdl-head-row");
+    head.appendChild(el("div", "tdl-title-icon", "✐"));
+    var ht = el("div");
+    ht.appendChild(el("h1", "", trip.title || "Untitled trip"));
+    ht.appendChild(el("p", "tdl-muted",
+      (trip.start_date || "?") + " → " + (trip.end_date || "?") +
+      " · " + regions.length + " region" +
+      (regions.length === 1 ? "" : "s") +
+      " · " + countStops() + " stops"));
+    if (trip.summary) ht.appendChild(el("p", "", trip.summary));
+    head.appendChild(ht);
+    wrap.appendChild(head);
+
+    var bar = el("div", "tdl-toolbar");
+    bar.appendChild(btn("tdl-btn", "✎ Edit trip", function () {
+      openTripEditor("edit");
+    }));
+    bar.appendChild(btn("tdl-btn", "+ Region", function () {
+      openRegionEditor("create", null);
+    }));
+    var addStop = btn("tdl-btn", "+ Stop", function () {
+      openStopEditor("create", { regionId: regions.length ? regions[0].id : null });
+    });
+    // A stop must live in a region, so this is disabled rather than
+    // hidden: an operator who wants a stop needs to be told what is
+    // missing, not shown a control that quietly is not there.
+    if (!regions.length) {
+      addStop.disabled = true;
+      addStop.title = "Add a region first — every stop lives in one.";
+    }
+    bar.appendChild(addStop);
+    wrap.appendChild(bar);
+
+    if (!regions.length) {
+      wrap.appendChild(el("div", "tdl-empty",
+        "No regions yet. Add a region to start building the route."));
+    } else {
+      var board = el("div", "tdl-route-board");
+      regions.forEach(function (r) { renderRegionRow(r, board); });
+      wrap.appendChild(board);
+    }
+
+    // The legacy surface stays reachable until Phase 4 retires it. It is
+    // a foot-note now rather than the whole tab, which is the point of
+    // Phase 3B: the unified workspace is no longer a preview of an editor
+    // that lives somewhere else.
+    var legacy = el("div", "tdl-route-legacy");
+    legacy.appendChild(el("span", "tdl-muted",
+      "Older Travel Documenter (being retired): "));
     var a = document.createElement("a");
-    a.className = "tdl-btn";
+    a.className = "tdl-btn tdl-btn-small";
     a.href = prodTravelDocUrl();
     a.target = "_blank";
     a.rel = "noopener";
     a.textContent = "Open production Travel Doc (standalone) ↗";
-    wrap.appendChild(a);
+    legacy.appendChild(a);
+    wrap.appendChild(legacy);
     return wrap;
   }
 
