@@ -10,8 +10,13 @@ tests/test_travel_doc_lab.py / test_travel_documenter_panel.py):
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import source_scan_helpers as _ssh  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LAB = _REPO_ROOT / "ui" / "js" / "travel-doc-lab.js"
@@ -19,7 +24,17 @@ _DOC = _REPO_ROOT / "ui" / "js" / "travel-documenter.js"
 
 
 def _strip(js: str) -> str:
-    return re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", js)
+    # WO-TRAVEL-DOC-UNIFY-01 Phase 3C: this used to be
+    # re.sub(r"/\*[\s\S]*?\*/|//[^\n]*"), which cannot tell a comment
+    # from a string literal that merely looks like one. Phase 3C added
+    # `files.accept = "image/*"` to the intake drawer, and the "/*" inside
+    # that string opened a phantom block comment that swallowed everything
+    # down to the next real "*/" — several hundred lines of source went
+    # invisible, and the assertions covering them started passing or
+    # failing for reasons that had nothing to do with the code they were
+    # guarding. The shared string-aware scanner removes real comments
+    # only; string, template and regex contents stay visible.
+    return _ssh.strip_js_comments(js)
 
 
 class H3LoriPaneResetTest(unittest.TestCase):
