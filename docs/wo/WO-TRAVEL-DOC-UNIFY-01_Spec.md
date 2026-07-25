@@ -818,6 +818,151 @@ against itself.
 - **Zero native dialogs and zero console errors** across the entire run, the spy
   reading empty at every checkpoint.
 
+## Phase 4 — what landed (2026-07-25)
+
+**Scope:** removal only. Front-end; no backend, no API, no schema, no flag
+change, and — deliberately — no file deleted. Chris framed it as *"a
+cleanup/removal phase, not a new feature phase"* whose job is *"simple: remove
+the split from the operator path."*
+
+### What came out
+
+| Where | What |
+|---|---|
+| `ui/js/app.js` | `_LV_TD_SURFACE_KEY`, `_lvTravelDocSurface()`, `_lvTravelDocDestroyLegacy()`, `_lvTravelDocPaintSurfaceChrome()`, `window.lvTravelDocSetSurface`, the focus-toggle painter block and the `lv-td-focus` body-class clear. The `traveldoc` arm of `lvShellShowTab` is a single-host mount now; `lvTravelDocTeardownAll()` is a single destroy. |
+| `ui/hornelore1.0.html` | Both legacy asset tags, the `.lv-td-surface-switch` row and the `#lvTravelDocHost` div. The panel is one `<div id="lvTravelDocUnifiedHost">` and nothing else. |
+| `ui/css/lori80.css` | The surface-switch block, `.lv-td-host-off`, and three `body.lv-td-focus` rules that became unreachable the moment the Documenter left the shell path. |
+| `ui/js/travel-doc-lab.js` | `prodTravelDocUrl()` and the `.tdl-route-legacy` foot-note that deep-linked off the route board. |
+| `ui/css/travel-doc-lab.css` | The `.tdl-route-legacy` rule, with the markup it styled. |
+
+### What deliberately did NOT come out
+
+The Phase 0 plan in this spec said Phase 4 would *"remove `travel-documenter.js`
+/ `.css`, `travel-doc-lab.html`"* and *"rename survivors to `travel-doc.js` /
+`travel-doc.css`."* Chris's actual Phase 4 order said the opposite on all three
+counts, and it is right on all three.
+
+1. **The old module, its stylesheet and `ui/travel-documenter.html` all stay on
+   disk.** Requirement 7 forbids removing backend endpoints either surface uses,
+   and that standalone page still mounts the module against them. *Unmounting a
+   surface from the shell and deleting a module are different acts, and only the
+   first was ordered.* A new `LegacyModuleStillExistsTest` fails the build if any
+   of those files goes missing — so a future cleanup has to be a decision
+   somebody makes on purpose, not a tidy-up that silently succeeds.
+2. **`ui/travel-doc-lab.html` is kept and explicitly marked `DEV-ONLY`**
+   (requirement 6). Three reasons, now written into the page: it is the only
+   caller of `window.lvTravelDocMount()` outside the shell **and the only one
+   that mounts without the shell's identity flag** — the flag that governs
+   branding, layout and whether the querystring may supply a narrator id, so
+   without this page that whole branch would have no caller and would rot
+   untested; it mounts against a bare host with no shell chrome, which is how a
+   layout or teardown bug the shell happens to mask shows up early; and it parks
+   the handle on `window` so a developer can drive teardown from the console.
+3. **The `travel-doc-lab.js` -> `travel-doc.js` rename is parked**, per Chris's
+   out-of-scope list. Renaming a 3,400-line module is churn that would bury a
+   real diff. The file headers now read *"lab"* as *"this file"*, not as *"a
+   thing you can throw away"*, and the liveness harness carries a note that the
+   rename must update its stack-attribution regex.
+
+### Five on-path fixes the work order did not name
+
+Reported under the standing autonomy rule; all are removal fallout, none crosses
+into another subsystem.
+
+1. **`lv80SwitchPerson`'s teardown fallback was a silent no-op.** It nulled
+   `window._lvTravelDocMountedFor` — the retired Documenter's marker, which no
+   longer exists anywhere — so on any load where `app.js` failed to define the
+   teardown, a narrator switch would have left the previous narrator's mount
+   alive. It nulls `_lvTravelDocUnifiedMountedFor` now, and a test pins it.
+2. **The day photo picker's empty state was ungated and operator-visible**, and
+   read *"add them via Photo Intake, then cluster from the production Travel
+   Doc"* — a dead end twice over: there is no production Travel Doc left to go
+   to, and Phase 3C put both Upload and Cluster on this surface's own toolbar,
+   so the instruction pointed away from the buttons that do the job.
+3. **`renderEvalChecklist` still called itself *"part of the removable lab, not
+   production Travel Doc."*** It is dev-harness framing now, and the test
+   guarding the copy also pins the `!embedded` call site, so the words and the
+   gate cannot drift apart.
+4. The route-board deep-link foot-note and its CSS rule (listed above).
+5. The unreachable `body.lv-td-focus` rules (listed above).
+
+### A gate that looked obvious and was wrong
+
+The acceptance list asks for no visible *"legacy"* on the normal shell path, and
+a file-wide `assertNotIn("legacy")` over `hornelore1.0.html` looks like the way
+to prove it. It is not: the shell carries **19** unrelated occurrences — the QF
+live-ownership override, the retired `/api/facts/add` path,
+`LorevoxEras.legacyKeyToEraId`, welcome-back fallback prose. That gate would
+have been a permanent false alarm about somebody else's code, so it is scoped to
+the Travel Doc panel plus the `app.js` mount block, with the reason recorded in
+the test.
+
+A **stronger** gate became available instead. Every replacement comment in the
+shell was deliberately written without naming the old module, so
+`hornelore1.0.html` now contains **zero raw occurrences** of that name — which
+lets `test_the_shell_never_names_the_legacy_module` assert against the
+un-stripped file rather than a comment-stripped copy.
+
+### Tests: rewritten, not deleted
+
+Requirement 8. Five tests whose boundary genuinely inverted came out of
+`tests/test_travel_doc_shell_mount.py` (the second-handle store, the
+both-destroyers pin, the destroy-the-other-surface pin, the
+switch-tears-both-down pin, the hiding-is-never-the-only-teardown pin) and
+thirteen new ones went in.
+
+The design rule behind the new `LegacyFallbackIsGoneTest`: **assert the absence,
+do not merely stop asserting the presence.** An absence that is asserted fails
+the build when someone re-adds a `<script>` tag; an absence that is only
+unmentioned does not.
+
+Seven inverted tests across the other two suites were narrowed rather than
+dropped. Each keeps the half that still proves something and flips only the half
+Phase 4 retired:
+
+- `test_native_panel_uses_selected_narrator_not_paste` — still proves identity
+  comes from the shell and never from a paste; the mount assertion moved onto
+  the module's surviving caller.
+- `test_shell_tab_and_panel_wired` — still proves the tab is wired; now proves
+  the shell does **not** load that module's assets.
+- `test_legacy_deep_link_survives_the_tab_rewrite` -> `test_the_tab_rewrite_strands_no_operator`
+  — keeps the `current` -> `trip` tab-id migration, drops the escape hatch.
+- `test_legacy_fallback_remains_reachable` -> `test_force_delete_gate_needs_no_fallback_surface`
+  — the gate has shipped and been smoked through 3B/3C/3D; what still needs
+  proving is that it is self-contained on this surface.
+- `test_lab_files_carry_removable_marker` -> `test_the_harness_page_is_the_removable_one`
+  — the old form required a delete-me sign on the two files that are now the
+  operator's Travel Doc. It now pins the true split and fails if either ever
+  claims to be removable again.
+
+### Verification
+
+- `node --check` clean on all three JS files; `ast.parse` clean on all three
+  test files; `CR: 0` on all ten files on both sides of the transfer.
+- **262 tests green** (was 255) across the same six suites, in the container and
+  on the device.
+- **Eight mutants, eight killed**, each by its intended gate: re-add the legacy
+  script tag; re-add the surface toggle markup; revert the switch fallback to
+  the retired marker; re-add the removable marker to the module; re-add the
+  deep-link helper; strip `DEV-ONLY` from the harness page; re-add the off-host
+  CSS rule; re-add the legacy mount call to `app.js`.
+- `scripts/ui/run_travel_doc_shell_mount_liveness.js` rewritten for one surface,
+  with a new `singleSurface` probe that reads the live document for a second
+  host, a toggle, a surface setter or resolver, a legacy asset and a stored
+  surface preference.
+
+**The negative controls were kept honest.** Controls 1 and 5 are still
+re-runnable. Controls 2, 3 and 4 tested toggle behaviour that no longer exists,
+so they are marked **NOT re-runnable after Phase 4** and a re-runnable
+substitute is named in their place: delete `_lvTravelDocDestroyUnified()` from
+the remount arm and confirm `narrator_switch` reports 2/2. A harness that keeps
+a control it can no longer run is a harness that lies about its own coverage.
+
+### Live smoke
+
+Pending. The stack stays down while code is being written, per standing
+instruction; the fourteen-step list is Chris's Phase 4 order verbatim.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
@@ -826,4 +971,5 @@ against itself.
 - 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.
 - 2026-07-25 — Phase 3C landed: photo upload at trip/region/stop scope, source upload, and photo clustering built into the unified workspace — a capability, not a port, since the lab had no `FormData` and no file input. `api()` grew a `FormData` branch ahead of its JSON branch. Scope is an explicit drawer selection rather than production's ambient `editorScope()` read, and the drawer never repaints between choosing files and uploading, because a `FileList` cannot be restored by script. Intake never promotes. Found and fixed a same-scope bug: three suites used a string-blind comment stripper and went blind on `files.accept = "image/*"` — migrated to the repo's existing `strip_js_comments`, assertions unchanged. 236 tests green (was 220), sixteen new gates mutation-tested; twelve-step live smoke green across all three upload scopes, with no-auto-promotion verified server-side.
 - 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
+- 2026-07-25 — Phase 4 landed (live smoke pending): the legacy fallback is retired and the unified Travel Doc is the operator's only Travel Doc surface. Removal only — no backend, API, schema or flag change, and no file deleted. Out: the surface toggle and its whole support cast, both legacy asset tags, the switch row, `#lvTravelDocHost`, the `.lv-td-surface-*` / `.lv-td-host-off` / `body.lv-td-focus` rules, and the route board's `prodTravelDocUrl()` deep-link foot-note. **Deliberately not out:** the old module, its stylesheet and its standalone page, because requirement 7 forbids removing what a backend endpoint still serves and that page still mounts it — unmounting a surface and deleting a module are different acts; and `ui/travel-doc-lab.html`, kept and marked `DEV-ONLY` because it is the only caller of `lvTravelDocMount()` that exercises the non-shell identity branch. This narrows the Phase 0 plan written above, which had called for deleting all four and renaming the survivors; the rename stays parked. Five on-path fixes the order did not name, chief among them a `lv80SwitchPerson` teardown fallback nulling the retired marker (a silent no-op) and an ungated, operator-visible photo-picker empty state pointing at a production Travel Doc that no longer exists. A file-wide `assertNotIn("legacy")` on the shell proved invalid — 19 unrelated occurrences — so the gate is scoped to the panel and the mount block, and a stronger one replaced it because the shell now holds zero **raw** occurrences of the old module's name. Tests rewritten not deleted: five out, thirteen in, seven narrowed, with absences now asserted rather than merely unmentioned. 262 tests green (was 255); eight mutants, eight killed; the liveness harness rewritten for one surface with a `singleSurface` probe and its unrunnable negative controls marked as such rather than quietly dropped.
 - 2026-07-25 — Phase 3D landed and smoke-accepted: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. **The live smoke found a bug that nineteen source-scanning gates could not**: `api()` owns the request encoding, and both new movers pre-stringified their body, so every arrow press on the board answered 422. Fixed with a raw object at both call sites plus two new gates, one banning `body: JSON.stringify` file-wide while pinning that the encoding still happens exactly once inside `api()`. 255 tests green (was 236), nineteen gates mutation-tested, nineteen mutants killed. Eleven-step live smoke green, including insert before/after on a substop, cross-region move, cycle rejection at both layers, order surviving a refresh, both delete ladders, `FileList` node identity, the force-delete gate, and a clean mount/socket census. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2.
