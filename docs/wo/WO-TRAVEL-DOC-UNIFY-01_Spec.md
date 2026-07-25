@@ -75,9 +75,9 @@ Everything lands in the tab currently called "Current", which should be renamed 
 | Production feature | Where it lands | Notes |
 |---|---|---|
 | Trip force-delete gate | Sidebar, selected-trip card | ✅ **Phase 3A, LANDED 2026-07-25.** Not verbatim — production's grid renders nine lanes and omits `bio_suggestions`; the port renders all ten. `e.body.detail` envelope read preserved and pinned in the same commit. |
-| **Photo upload (trip / region / stop)** | Trip + Photos tabs | **Capability to build, not a control to port — see A2.** |
-| **Source file upload** | Sources tab | `uploadSourceFiles` → `POST /api/trips/{id}/sources/upload`. Missing from both inventories. |
-| Cluster photos | Photos tab | |
+| **Photo upload (trip / region / stop)** | Photos tab | ✅ **Phase 3C, LANDED 2026-07-25.** Built, not ported — the lab had zero `FormData` and zero file inputs. One drawer, an explicit scope selector (trip / region / stop) and a target line that names the destination in prose. All three backend endpoints already existed. |
+| **Source file upload** | Sources tab | ✅ **Phase 3C, LANDED 2026-07-25.** `POST /api/trips/{id}/sources/upload` with `source_type` and an optional `title` (single file only). Intake never promotes: neither `include_in_memoir` nor `trip_day_id` is ever sent. |
+| Cluster photos | Photos tab | ✅ **Phase 3C, LANDED 2026-07-25.** In-panel result, never `alert()`. Reports photos considered and links written, warns when placements land below the backend's confidence threshold, and states the honest caveat production hides: the endpoint clusters the narrator's **whole** photo library, not just this trip's. |
 | Trip create / edit modal | Trip tab + sidebar "New trip" | ✅ **Phase 3B, LANDED 2026-07-25.** `+ New trip` in the rail head; edit drawer covers title, dates and summary; `days_warning`/`sync_warning` preserved. |
 | Region / stop CRUD | Trip tab | ✅ **Phase 3B, LANDED 2026-07-25.** All six region fields and the full stop editor including the region selector, the eight-value `STOP_TYPES` and reparenting with subtree exclusion. Both deletes are in-panel reviews (A5 honoured). The region delete is **not verbatim**: it tries unforced first and escalates on 409, because production sends no force flag and never handles the 409, so its delete silently dead-ends. |
 | Stop insert-at-position | Trip tab | ✅ **Phase 3B, LANDED 2026-07-25.** `insertContext` / `insertHint` preserved, plus a guard that discards a stale context when the drawer is retargeted to a different region or parent — production had no such check. |
@@ -103,7 +103,7 @@ Everything lands in the tab currently called "Current", which should be renamed 
 
 **Everything not on that list ports or blocks.**
 
-**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5) — ✅ landed. 3C — photo and source upload plus cluster (a capability to build, A2). 3D — the itinerary tile board, reorder, and the editable Route Outline. Each is its own session.
+**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5) — ✅ landed. 3C — photo and source upload plus cluster (a capability to build, A2) — ✅ landed. 3D — the itinerary tile board, reorder, and the editable Route Outline. Each is its own session.
 
 ### Phase 4 — flip and delete
 
@@ -490,10 +490,140 @@ stays outside the frontend wall. Selection still does not survive a tab
 round-trip — the fix is to pass saved state into `lvTravelDocMount()`, not to
 keep a hidden mount alive.
 
+## Phase 3C — what landed (2026-07-25)
+
+Photo upload, source upload and photo clustering, so the unified workspace can
+now do intake and the legacy Documenter is no longer needed to get material into
+a trip. Front-end only — **no backend, no API, no schema, no flag change**.
+`server/code/api/routers/trips.py` was read first and needed nothing: all five
+endpoints this phase calls already exist.
+
+**The load-bearing constraint is not a backend one — it is `FileList`.** An
+`<input type="file">` holds a `FileList` that script cannot write. That makes
+Phase 3B's problem worse rather than similar: a lost text cursor can be
+restored, a lost file selection cannot. So the upload drawer must not repaint
+between "choose files" and "Upload", and it doesn't — the scope target line
+swaps its own `textContent`, the file hint counts in place, the title field
+enables and disables itself, and the submit button toggles its own `disabled`.
+There is no `renderAll()` anywhere inside either `onchange` handler, and a test
+pins that absence.
+
+**Shape.** Three new `st` fields — `uploadDrawer`, `photoIntake`, `sourceIntake`
+— plus an intake module of roughly four hundred lines: `parseScopeKey`,
+`scopeChoices`, `defaultScopeKey`, `openUploadDrawer`, `renderUploadDrawer`,
+`photoUploadPath`, `uploadPhotoFiles`, `uploadSourceFiles`, `runClusterPhotos`,
+`renderIntakeResult`, `renderPhotoIntakeBar`, `renderSourceIntakeBar`. All three
+fields clear in `selectTrip()` and in `afterTripDeleted()`, for the same reason
+the Phase 3B editors do: an intake result describes a trip the operator may no
+longer be looking at.
+
+**`api()` grew a `FormData` branch.** The file has exactly one `fetch(`, and it
+stringified every body and hand-set `Content-Type: application/json`. A
+`FormData` must go out untouched and *without* a hand-set content type, because
+the browser has to write that header itself in order to append the multipart
+boundary — and `JSON.stringify(new FormData())` yields `"[object FormData]"`.
+The branch sits ahead of the JSON branch, and a test asserts that ordering
+rather than merely asserting both exist.
+
+**Scope is explicit, never ambient — this is a deliberate divergence from
+production.** Production's `uploadSourceFiles` reads `editorScope()` at submit
+time, so retargeting the workspace between choosing a file and pressing Upload
+silently moves the destination. The port instead resolves a scope key inside the
+drawer. `defaultScopeKey()` is the only function permitted to read `st.routeSel`;
+the four upload functions never do, and a test asserts that. The target line
+spells the destination out — *"Target: the stop “Smoke Stop Alpha” in Smoke
+Region North."* — so a wrong scope is visible before the request, not after.
+
+**Intake is not approval.** Nothing here touches the OCR / public-lookup /
+caption / observation ladder. No `include_in_memoir` and no `trip_day_id` is
+ever sent on a source upload; day attach stays its own separate act on the Trip
+Plan tab. Evidence lanes stay hide-only — no new DELETE was added, and the
+existing allow-list tests still hold. Uploads are stamped
+`uploaded_by_user_id = "travel_doc_unified"` so intake from this surface is
+identifiable after the fact; the backend gives special meaning only to
+`uploaded_from_surface == "travels_shelf"`, which this surface deliberately does
+not claim.
+
+### Phase 3C verification
+
+`node --check` clean on `travel-doc-lab.js`, `ast.parse` clean on all four test
+files, CSS braces 344/344, `CR: 0` on all six files on both sides of the
+transfer. **236 tests green** (was 220) across the six suites Phase 3B counted,
+plus a 306-test adjacent sweep green.
+
+The sixteen new gates in `TripIntakeUploadClusterTest` were **mutation-tested
+rather than trusted**: all sixteen passed on the first run, which is suspicious,
+so the tree was copied aside and four defects introduced — the `FormData` branch
+disabled, `uploadPhotoFiles` made to re-read the ambient selection, a
+`renderAll()` added inside `files.onchange`, and `include_in_memoir` appended to
+the source form. Each was caught by exactly its intended gate and by no other.
+
+**A same-scope bug found and fixed: three test suites had gone blind.** Phase
+3C's code contains `files.accept = "image/*"`. Three suites
+(`test_travel_doc_evidence_ui`, `test_travel_doc_livetest_fixes`,
+`test_trip_lane_fixpack_js`) stripped comments with the naive regex
+`/\*[\s\S]*?\*/|//[^\n]*`, which does not know about string literals — so that
+`/*` opened a phantom block comment that swallowed hundreds of lines down to the
+next real `*/`, and three tests failed with one erroring on a `substring not
+found`. The repo already had a string-aware stripper,
+`tests/source_scan_helpers.strip_js_comments`, added under
+`WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01` Phase 6.4 for exactly this
+class of bug, but never applied to these three files. They now use it. The
+assertions were **not** loosened and `image/*` was **not** avoided: the tests
+were blind, not wrong. This is why the stripper migration lands as its own
+commit **before** the Phase 3C code — the Phase 3C code is what makes the naive
+stripper fail, so committing them in the other order would leave one red commit
+on main.
+
+Live smoke on the running stack, every one of Chris's twelve steps green:
+disposable trip created · region and stop added · photos uploaded at **all
+three** scopes, not just one — stop (`/api/trips/stops/{id}/photos`), trip
+(`/api/trips/{id}/photos`) and region
+(`/api/trips/{id}/regions/{id}/photos`), each hitting its own endpoint · the
+Photos tab count climbing 0 → 2 → 3 → 4 with the thumbnails rendering · a photo
+attached to Day 1 through the existing day-attach picker, which offered all four
+uploads · a source uploaded at stop scope with type `itinerary` and a title ·
+Sources climbing 0 → 1 · cluster run in-panel · counts refreshed · no
+auto-promotion · the trip removed through the Phase 3A force-delete gate · and
+the mount census clean.
+
+Three things the smoke proved that a static test could not. **The `FileList`
+survives retargeting**: with two files chosen, changing the scope select from
+trip to stop left the file input node *identically the same object*, both files
+still selected, and only the target line's text changed. **The panel reports
+honestly rather than optimistically**: a byte-identical duplicate uploaded to a
+second scope came back *"Ingested: 0."* because the backend deduplicates on
+hash, and re-running with a genuinely new file gave *"Ingested: 1."* and moved
+the count — the first result was correct, not a failure, and the panel said so.
+And **no-auto-promotion was verified server-side, not by reading the UI**: the
+uploaded source row carries `include_in_memoir = 0`, `trip_day_id = null`, its
+title and `source_type` preserved, and both `trip_region_id` and `trip_stop_id`
+set, which is the stop-scope path correctly deriving the parent region.
+
+Cluster reported 4 photos considered and 4 links written, all below the
+confidence threshold, and the counts did not move — correct, because the smoke
+images were synthetic and carry no EXIF timestamps, and the panel's warning says
+exactly that. A spy wrapping the three native dialog functions recorded **zero
+hits** across the entire run: three uploads, a day attach, two clusters, a
+dismiss, and the force delete.
+
+The mount census was rerun functionally: on legacy exactly one `.td-root` and
+zero `.tdl-root`, back on unified exactly one `.tdl-root` and zero `.td-root`,
+channels 2 created / 1 closed / **1 live**, sockets balanced. The standalone
+`ui/travel-doc-lab.html` still mounts with exactly one `.tdl-root`.
+
+**One honest residue, reported not hidden.** Photos belong to the narrator's
+library, not to a trip, so the four disposable smoke images survived the trip
+force-delete and are still in narrator `e7fdb578`'s library. They are
+identifiable precisely because of the stamp this phase added — every one carries
+`uploaded_by_user_id = "travel_doc_unified"`. They were **not** deleted here:
+photo deletion is outside this phase's wall and the doctrine is hide-only.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
 - 2026-07-24 — Phase 1.1 added and landed after Chris's Phase 1 review found no stale-async guard. Phase 2 was held until it was in.
 - 2026-07-25 — Phase 2 landed: the unified workspace mounts in the shell's Travel Doc tab by default, the legacy Documenter stays reachable behind a temporary surface switch, and the Lab launcher is gone. CSS scoped to `.tdl-root`. Two pre-existing Documenter leaks closed.
 - 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.
+- 2026-07-25 — Phase 3C landed: photo upload at trip/region/stop scope, source upload, and photo clustering built into the unified workspace — a capability, not a port, since the lab had no `FormData` and no file input. `api()` grew a `FormData` branch ahead of its JSON branch. Scope is an explicit drawer selection rather than production's ambient `editorScope()` read, and the drawer never repaints between choosing files and uploading, because a `FileList` cannot be restored by script. Intake never promotes. Found and fixed a same-scope bug: three suites used a string-blind comment stripper and went blind on `files.accept = "image/*"` — migrated to the repo's existing `strip_js_comments`, assertions unchanged. 236 tests green (was 220), sixteen new gates mutation-tested; twelve-step live smoke green across all three upload scopes, with no-auto-promotion verified server-side.
 - 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
