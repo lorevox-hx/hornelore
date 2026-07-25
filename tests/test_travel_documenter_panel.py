@@ -141,9 +141,18 @@ class ReviewFixesTest(unittest.TestCase):
 
     def test_narrator_switch_remounts_travel_doc(self):
         html = _HTML.read_text(encoding="utf-8")
-        m = re.search(r"async function lv80SwitchPerson[\s\S]{0,1200}", html)
+        m = re.search(r"async function lv80SwitchPerson[\s\S]{0,2600}", html)
         self.assertIsNotNone(m)
         block = m.group(0)
+        # WO-TRAVEL-DOC-UNIFY-01 Phase 2: invalidating the mount marker was
+        # never enough on its own. It made the NEXT tab-show remount, but
+        # it left the outgoing narrator's mount live — a document keydown
+        # listener and a modal-Lori socket leaked per switch, and from
+        # Phase 2 a BroadcastChannel subscription bound to a narrator
+        # nobody is looking at. The switch now DESTROYS both Travel Doc
+        # surfaces; the bare marker null survives only as the fallback for
+        # the case where app.js has not defined the teardown yet.
+        self.assertIn("lvTravelDocTeardownAll()", block)
         self.assertIn("_lvTravelDocMountedFor = null", block)
         self.assertIn('lvShellShowTab("traveldoc")', block)
 
