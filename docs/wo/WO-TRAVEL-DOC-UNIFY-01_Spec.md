@@ -60,7 +60,7 @@ Hardening gate between Phase 1 and Phase 2, opened by Chris's review of Phase 1:
 
 Six guards, no behaviour change while a mount is alive. **Phase 2 was blocked until this landed.**
 
-### Phase 2 — coexist in the tab behind a toggle
+### Phase 2 — coexist in the tab behind a toggle ✅ LANDED 2026-07-25
 
 Mount the module into `#lvTravelDocHost` alongside the Documenter, with a switch between them. One cycle of using the merged panel on real trips, with production one click away, will surface the affordances the inventory below misses. **Resist skipping this.**
 
@@ -229,7 +229,108 @@ A green suite that cannot go red is decoration. Re-run both by hand if the guard
 
 **Not exercised:** the shell mount path, still. No backend change, no shell change, `hornelore1.0.html` untouched.
 
+## Phase 2 — what landed (2026-07-25)
+
+Front-end only. No backend, no API, no schema, no flag, no route-editing port,
+no upload/cluster port, no delete-gate port; `travel-documenter.js` still
+present and still reachable.
+
+**The shape.** The Travel Doc tab now hosts two divs, `#lvTravelDocUnifiedHost`
+(the mountable workspace) and `#lvTravelDocHost` (the legacy Documenter), and a
+two-button surface switch above them. `_lvTravelDocSurface()` resolves the
+active surface from `localStorage["lvTravelDocSurface"]`, defaulting anything
+that is not the literal `"legacy"` to `"unified"` — a corrupt or absent value
+must land on the default path, never on the fallback. `lvShellShowTab`
+destroys the surface it is not showing before it mounts the one it is, and
+leaving the tab tears down both.
+
+**Exactly one mount, ever, is a correctness rule and not a tidiness one.** Each
+surface owns a `hornelore-trip-updates` BroadcastChannel subscription, a
+`document`-level keydown listener and a Lori `/api/chat/ws` socket. Two live
+mounts double all three, and the two keydown handlers both answer Escape.
+
+**Two pre-existing leaks closed on the way through.** The shell already called
+`lvTravelDocumenterMount()` and threw the returned handle away, so every
+narrator switch leaked that surface's keydown listener and its modal-Lori
+socket; Phase 2 keeps the handle and calls `destroy()`. Separately,
+`travel-documenter.js` opened its trip-update BroadcastChannel at mount and
+never closed it — tolerable while the shell mounted it once per narrator,
+not once Phase 2 destroys and remounts on every tab exit, narrator switch and
+surface toggle. `destroy()` now closes it. Touching the Documenter is inside
+the Phase 2 wall: the non-goal is *do not remove it yet*, not *do not touch it*.
+
+**CSS scoping — Chris's named risk.** `travel-doc-lab.css` was standalone-page
+styling: `:root` custom properties and bare element rules under `.tdl-body`.
+The 16 `--tdl-*` properties moved from `:root` to `.tdl-root`, and the element
+resets were rescoped beneath it. Custom-property inheritance is DOM-based, not
+layout-based, so the module's three `position: fixed` overlays
+(`.tdl-drawer-scrim`, `.tdl-drawer`, `.tdl-lightbox`) still resolve their
+variables through the host and were deliberately left alone. `lvTravelDocMount()`
+adds `.tdl-root` / `.tdl-root-embedded` to the host and `destroy()` takes them
+back off, so the stylesheet is inert in the shell until something is mounted.
+The `tdl-` prefix is unchanged, per the settled convention above.
+
+**The Lab framing is gone from the operator path.** The
+`WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01` block — the unstyled "🧪 Open Travel Doc
+UI Lab" button that opened a second browser tab — is deleted, replaced by the
+surface switch. The module gates its own Lab furniture on `opts.embedded`: the
+"UI Lab · experimental" badge and the eval checklist are not rendered, the
+picker reads "Travel Doc", and `?person_id=` / `?api=` are quarantined to the
+standalone page so shell identity comes from `opts` and never from the shell
+URL's querystring. `ui/travel-doc-lab.html` is untouched and still works.
+
+### Phase 2 verification
+
+`node --check` clean on `app.js`, `travel-doc-lab.js`, `travel-documenter.js`
+and both inline script blocks of `hornelore1.0.html`. **192 tests green** —
+the five existing lab-reading suites plus `tests/test_travel_doc_shell_mount.py`
+(38 new: shell load, mount contract, one-surface-ever, default surface, CSS
+scoping, no native dialogs, standalone still works).
+
+Static tests pin shape and cannot watch a census, so the behaviour is proved in
+a real browser by `scripts/ui/run_travel_doc_shell_mount_liveness.js` — a second
+headless script that loads the **real** `hornelore1.0.html`, parks every
+`fetch`, and drives `lvShellShowTab` / `lvTravelDocSetSurface` the way an
+operator would. Nine rows (`open_unified`, `leave_tab`, `reenter_tab`,
+`switch_to_legacy`, `switch_to_unified`, `narrator_switch`, `lori_open`,
+`lori_then_leave`, `lori_then_reenter`) plus a destroyed-repaint scenario and a
+branding scan; **22 checks, PASS**, zero unhandled rejections, zero page errors.
+
+**Three defects the script caught that the static tests could not:**
+
+1. `function _lvTravelDocSurface()` cached its result on
+   `window._lvTravelDocSurface`. `app.js` is a classic script with no IIFE, so
+   that identifier **is** the function — the first call overwrote itself with
+   the string `"unified"` and the second died with *"_lvTravelDocSurface is not
+   a function"*. The cache moved to `window._lvTravelDocActiveSurface`, and a
+   new test now fails on any `window.foo = …` in `app.js` that shadows a
+   top-level `function foo()`.
+2. The socket census tested the URL for `/travel_doc/`. Both modules dial
+   `apiBase + "/api/chat/ws"`, so that regex matched nothing and every `ws`
+   assertion in the script was decoration. Attribution is now by call stack.
+3. The destroyed-repaint observer was installed **before** the navigation, so
+   it counted `destroy()`'s own legitimate cleanup as a repaint. The window
+   narrowed to after teardown, with a separate `tornDown` assertion keeping the
+   cleanup itself under test.
+
+**Negative controls, actually run (results in the script header).** Deleting
+the tab-exit `lvTravelDocTeardownAll()` call turns 5 checks red. Deleting
+*both* toggle guards turns 5 red with the census at 2/2 and both hosts painted —
+the exact defect Chris named as the top risk. Deleting *either* toggle guard
+alone still passes: **the two are mutually redundant**, each the other's
+backstop, and a green run should not be read as proof that both are
+load-bearing. Reverting the socket attribution turns the non-vacuity guard red.
+
+**Known behaviour change:** leaving the Travel Doc tab now destroys the mount,
+so trip/day selection does not survive a tab round-trip. That is a deliberate
+reading of the acceptance line *"Switching away/remounting calls destroy()"* —
+a hidden panel is `display:none`, not unloaded, and the alternative is leaving
+a socket and a `document` keydown listener live underneath whatever tab the
+operator is actually looking at. If the round-trip cost is not worth it, the
+fix is to persist selection in `opts`, not to stop destroying.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
 - 2026-07-24 — Phase 1.1 added and landed after Chris's Phase 1 review found no stale-async guard. Phase 2 was held until it was in.
+- 2026-07-25 — Phase 2 landed: the unified workspace mounts in the shell's Travel Doc tab by default, the legacy Documenter stays reachable behind a temporary surface switch, and the Lab launcher is gone. CSS scoped to `.tdl-root`. Two pre-existing Documenter leaks closed.
