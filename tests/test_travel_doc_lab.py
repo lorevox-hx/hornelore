@@ -1508,5 +1508,255 @@ class TripIntakeUploadClusterTest(unittest.TestCase):
             self.assertIn(cls, self.src, cls)
 
 
+class RouteOrderBoardTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UNIFY-01 Phase 3D — route order and board ergonomics.
+
+    The last workflow reason to open the legacy Documenter. Same doctrine
+    as 3A/3B/3C: every test below is written to fail if the SPECIFIC
+    unsafe or lossy variant comes back — a stop reorder that also
+    reparents, a permutation request that a stale tree turns into a
+    refusal, an arrow that silently does nothing at the end of a list, a
+    move refusal reported through a native dialog or swallowed entirely,
+    a badge that costs a fetch per row — not merely to confirm that some
+    reorder code exists.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def _fn(self, name: str) -> str:
+        """Slice the ACTUAL function body — see Phase 3B's note above."""
+        i = self.src.index(name)
+        j = self.src.find("\n  function ", i + len(name))
+        return self.src[i:(len(self.src) if j == -1 else j)]
+
+    # 1 — the board renders regions, then each region's stops, in the
+    #     order the backend returned them. Client-side sorting would make
+    #     the board disagree with the thing the arrows actually move.
+    def test_route_board_renders_regions_and_stops_in_server_order(self):
+        tab = self._fn("function renderTripTab(")
+        self.assertIn("regions.forEach(function (r, i) {", tab)
+        self.assertIn("renderRegionRow(r, board, i, regions.length);", tab)
+        region = self._fn("function renderRegionRow(")
+        self.assertIn("var stops = r.stops || [];", region)
+        self.assertIn("renderStopRow(s, r, 1, out, i, stops.length);", region)
+        stop = self._fn("function renderStopRow(")
+        self.assertIn("var kids = s.children || [];", stop)
+        self.assertIn("renderStopRow(c, region, depth + 1, out, i, kids.length);",
+                      stop)
+        for fn, label in ((tab, "renderTripTab"), (region, "renderRegionRow"),
+                          (stop, "renderStopRow")):
+            self.assertNotIn(".sort(", fn, label)
+            self.assertNotIn(".reverse()", fn, label)
+
+    # 2 — the region reorder affordance is PRESENT (not retired). It was
+    #     the one production route control with no unified equivalent.
+    def test_region_reorder_affordance_is_present(self):
+        region = self._fn("function renderRegionRow(")
+        self.assertIn("moveRegionRelative(r.id, -1)", region)
+        self.assertIn("moveRegionRelative(r.id, 1)", region)
+        self.assertIn('moveBtn("↑", "Move region up"', region)
+        self.assertIn('moveBtn("↓", "Move region down"', region)
+
+    # 3 — a region move goes through the endpoint that already exists.
+    #     No new backend surface was in scope for this phase.
+    def test_region_move_uses_the_existing_reorder_endpoint(self):
+        fn = self._fn("function moveRegionRelative(")
+        self.assertIn('"/regions/reorder"', fn)
+        self.assertIn("ordered_ids: ids", fn)
+        self.assertIn('method: "POST"', fn)
+        self.assertNotIn('method: "DELETE"', fn)
+        self.assertNotIn('method: "PUT"', fn)
+
+    # 4 — a STOP move names its neighbour instead of shipping the whole
+    #     sibling permutation. Production's /stops/reorder is refused
+    #     outright when the tree has drifted since the last load, which
+    #     turns a legal-looking move into an unexplained failure.
+    def test_stop_move_sends_a_neighbour_not_a_permutation(self):
+        fn = self._fn("function moveStopRelative(")
+        self.assertIn('"/stops/" + encodeURIComponent(stopId) + "/move"', fn)
+        self.assertIn("before_stop_id: dir < 0 ? anchor : null", fn)
+        self.assertIn("after_stop_id: dir > 0 ? anchor : null", fn)
+        # The production variant must not come back through this door.
+        self.assertNotIn("ordered_ids", fn)
+        self.assertNotIn("/stops/reorder", fn)
+
+    # 5 — a reorder must NEVER reparent. region_id and parent id are
+    #     echoed back from where the stop already lives, so an arrow
+    #     cannot move a branch into a place the operator was not shown.
+    def test_stop_reorder_cannot_reparent(self):
+        fn = self._fn("function moveStopRelative(")
+        self.assertIn("var loc = locateStop(stopId);", fn)
+        self.assertIn("var parentId = loc.parent ? loc.parent.id : null;", fn)
+        self.assertIn("region_id: loc.region.id", fn)
+        self.assertIn("parent_trip_stop_id: parentId", fn)
+        # Nothing in a reorder may read an editor's selectors.
+        self.assertNotIn("st.stopEditor", fn)
+        self.assertNotIn("regionSel", fn)
+        self.assertNotIn("parentSel", fn)
+
+    # 6 — a substop moves among its OWN siblings, never among the
+    #     region's top-level stops.
+    def test_substop_moves_stay_inside_its_sibling_group(self):
+        sib = self._fn("function siblingsOf(")
+        self.assertIn("var p = findStop(parentStopId);", sib)
+        self.assertIn("return (p && p.children) || [];", sib)
+        fn = self._fn("function moveStopRelative(")
+        self.assertIn("siblingsOf(loc.region.id, parentId)", fn)
+
+    # 7 — Phase 3B's cross-region move / reparent, with its own-subtree
+    #     exclusion, is untouched by this phase.
+    def test_cross_region_move_and_subtree_guard_survive(self):
+        self.assertIn("function subtreeIds(", self.src)
+        drawer = self._fn("function renderStopEditorDrawer(")
+        self.assertIn("subtreeIds(", drawer)
+        self.assertIn("function moveBody(", drawer)
+        self.assertIn("before_stop_id", drawer)
+        self.assertIn("after_stop_id", drawer)
+        self.assertIn("parent_trip_stop_id", drawer)
+
+    # 8 — arrows are DISABLED at the ends. Production returns silently
+    #     there, and a control that answers a click with nothing is
+    #     indistinguishable from a broken build.
+    def test_arrows_disable_at_the_ends(self):
+        mb = self._fn("function moveBtn(")
+        self.assertIn("if (!enabled || st.routeBusy) b.disabled = true;", mb)
+        stop = self._fn("function renderStopRow(")
+        self.assertIn("idx > 0", stop)
+        self.assertIn("idx < total - 1", stop)
+        region = self._fn("function renderRegionRow(")
+        self.assertIn("idx > 0", region)
+        self.assertIn("idx < total - 1", region)
+
+    # 9 — one move at a time. Two interleaved reorders are each computed
+    #     from the tree as it looked before the other one landed.
+    def test_a_move_in_flight_blocks_the_next_one(self):
+        for name in ("function moveStopRelative(", "function moveRegionRelative("):
+            fn = self._fn(name)
+            self.assertIn("if (!st.trip || st.routeBusy) return Promise.resolve();",
+                          fn, name)
+            self.assertIn("st.routeBusy = ", fn, name)
+            self.assertIn("dayFormDirtyBlocks()", fn, name)
+
+    # 10 — a refused move is reported in the panel AND the tree reloads,
+    #      so the next click argues with what exists rather than with an
+    #      order that only survives on screen.
+    def test_move_failure_is_in_panel_and_reloads_the_tree(self):
+        fail = self._fn("function routeMoveFailed(")
+        self.assertIn("st.routeBusy = null;", fail)
+        self.assertIn("st.routeError = prefix", fail)
+        self.assertIn("refreshTripBundle()", fail)
+        tab = self._fn("function renderTripTab(")
+        self.assertIn("if (st.routeError) {", tab)
+        self.assertIn('el("div", "tdl-route-error")', tab)
+        done = self._fn("function routeMoveDone(")
+        self.assertIn("st.routeError = \"\";", done)
+        self.assertIn("notifyTripUpdated(", done)
+        self.assertIn("refreshTripBundle()", done)
+
+    # 11 — no native dialog and no evidence-lane DELETE anywhere on the
+    #      new path. Both are standing rules for this work order.
+    def test_route_order_path_has_no_native_dialog_and_no_delete(self):
+        for name in ("function moveStopRelative(", "function moveRegionRelative(",
+                     "function routeMoveFailed(", "function routeMoveDone(",
+                     "function moveBtn(", "function routeSelect("):
+            fn = self._fn(name)
+            for banned in ("window.confirm", "window.alert", "window.prompt",
+                           'method: "DELETE"'):
+                self.assertNotIn(banned, fn, name + " / " + banned)
+
+    # 12 — route rows are selectable, and for REGIONS as well as stops.
+    #      Before this phase st.routeSel was written in exactly one place
+    #      and only ever as a stop, which left Phase 3C's region-scoped
+    #      upload seeding unreachable: the drawer could default to a
+    #      region that nothing on the surface could select.
+    def test_route_rows_select_regions_and_stops(self):
+        pick = self._fn("function routePickCell(")
+        self.assertIn("routeSelect(kind, id, regionId)", pick)
+        self.assertIn("tdl-route-row-pick", pick)
+        sel = self._fn("function routeSelect(")
+        self.assertIn("st.routeSel = { kind: kind, id: id, regionId: regionId };",
+                      sel)
+        self.assertIn("dayFormDirtyBlocks()", sel)
+        stop = self._fn("function renderStopRow(")
+        self.assertIn('routePickCell("stop", s.id, region.id', stop)
+        region = self._fn("function renderRegionRow(")
+        self.assertIn('routePickCell("region", r.id, r.id', region)
+        # ...and the rail agrees, so both surfaces write the same field.
+        sidebar = self._fn("function renderSidebar(")
+        self.assertIn('routeSelect("region", r.id, r.id)', sidebar)
+        self.assertIn('routeSelect("stop", s.id, r.id)', sidebar)
+        self.assertIn("tdl-route-region-pick", sidebar)
+        # The region branch of the intake seed is now reachable.
+        scope = self._fn("function defaultScopeKey(")
+        self.assertIn('sel.kind === "region"', scope)
+
+    # 13 — badges read state that is already loaded. A per-row fetch on a
+    #      full-repaint surface is a render loop waiting to happen.
+    def test_evidence_badges_cost_no_fetch(self):
+        badge = self._fn("function routeBadgeText(")
+        for field in ("st.notes", "st.sources", "st.photoLinks"):
+            self.assertIn(field, badge, field)
+        self.assertNotIn("api(", badge)
+        self.assertNotIn("fetch(", badge)
+        scoped = self._fn("function routeScopedRows(")
+        self.assertIn("r.trip_stop_id === id", scoped)
+        self.assertIn("r.trip_region_id === id && !r.trip_stop_id", scoped)
+        self.assertNotIn("api(", scoped)
+        stop = self._fn("function renderStopRow(")
+        self.assertIn('routeBadgeText("stop", s.id)', stop)
+        region = self._fn("function renderRegionRow(")
+        self.assertIn('routeBadgeText("region", r.id)', region)
+
+    # 14 — insert-before / insert-after and the stale-insert-context
+    #      guard are Phase 3B behaviour that this phase must not disturb.
+    def test_insert_context_behaviour_remains_pinned(self):
+        stop = self._fn("function renderStopRow(")
+        for marker in ('"+ Before"', '"+ After"', 'where: "before"',
+                       'where: "after"', "sibling_stop_id: s.id"):
+            self.assertIn(marker, stop, marker)
+        drawer = self._fn("function renderStopEditorDrawer(")
+        self.assertIn("var useCtx = (ctx && regionId === ctx.region_id &&", drawer)
+        self.assertIn("st.insertContext", self.src)
+
+    # 15 — the legacy surface stays reachable; Phase 4 retires it, not
+    #      this phase.
+    def test_legacy_fallback_still_reachable(self):
+        tab = self._fn("function renderTripTab(")
+        self.assertIn("tdl-route-legacy", tab)
+        self.assertIn("prodTravelDocUrl()", tab)
+        self.assertIn("function prodTravelDocUrl(", self.src)
+
+    # 16 — a move armed against one trip must not survive a trip switch
+    #      or a trip delete, same rule the editors and drawers follow.
+    def test_route_order_state_clears_with_the_trip(self):
+        for name in ("function selectTrip(", "function afterTripDeleted(",
+                     "function afterRouteDeleted("):
+            fn = self._fn(name)
+            self.assertIn("st.routeBusy = null", fn, name)
+            self.assertIn('st.routeError = ""', fn, name)
+
+    # 17 — the new chrome is tdl- namespaced and structural: the theme
+    #      pass is explicitly out of scope, so no new colour literal may
+    #      appear in these rules.
+    def test_phase3d_css_is_tdl_namespaced_and_structural(self):
+        names = (".tdl-route-row-pick", ".tdl-route-row-sel",
+                 ".tdl-route-ind", ".tdl-route-move",
+                 ".tdl-route-error", ".tdl-route-region-pick")
+        for cls in names:
+            self.assertIn(cls, self.css, cls)
+            self.assertIn(cls.lstrip("."), self.src, cls)
+        # Collect only THIS phase's rules — slicing to end-of-file would
+        # sweep in every later block and make the no-new-colour check
+        # about somebody else's code.
+        rules = [ln for ln in self.css.splitlines()
+                 if ln.startswith(names)]
+        self.assertGreaterEqual(len(rules), len(names))
+        for ln in rules:
+            self.assertNotIn("#", ln,
+                             "Phase 3D CSS must reuse --tdl-* colours: " + ln)
+
+
 if __name__ == "__main__":
     unittest.main()

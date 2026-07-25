@@ -591,6 +591,29 @@
 .tdl-route-row-stop { border-left: 4px solid var(--tdl-line); }
 .tdl-route-legacy { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: 1.6rem; padding-top: .9rem; border-top: 1px dashed var(--tdl-line); font-size: .84rem; }
 
+/* ── WO-TRAVEL-DOC-UNIFY-01 Phase 3D — route order + row selection ────
+   Also structural only, same reason as 3B: no new colour, every value
+   below is an existing --tdl-* variable. The row body became a <button>
+   so it can be selected by keyboard as well as pointer, which means it
+   arrives with a browser button skin that has to be stripped back to the
+   div it replaced — that is all the first rule does. */
+.tdl-route-row-pick { background: none; border: 0; margin: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tdl-route-row-pick:focus-visible { outline: 2px solid var(--tdl-gold); outline-offset: 3px; border-radius: 6px; }
+/* Selection reads on the row, not just the label, because the row is
+   what the intake drawer and the inspector are scoped to. */
+.tdl-route-row-sel { border-color: var(--tdl-gold); box-shadow: inset 3px 0 0 var(--tdl-gold); }
+.tdl-route-ind { font-size: .78rem; color: var(--tdl-muted); }
+.tdl-route-move { min-width: 2.1rem; }
+/* A disabled arrow is the end of the list or a move already in flight;
+   it stays visible so the operator can see the boundary rather than
+   watching a control appear and disappear as rows shuffle. */
+.tdl-route-move[disabled] { opacity: .38; cursor: default; }
+.tdl-route-error { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin: .2rem 0 .7rem; padding: .5rem .7rem; border: 1px solid var(--tdl-line); border-left: 4px solid var(--tdl-red); border-radius: 12px; background: var(--tdl-paper2); font-size: .84rem; }
+/* Rail region label. It sits inside a <summary>, so it must not grow the
+   summary box or fight the disclosure triangle for the row. */
+.tdl-route-region-pick { background: none; border: 0; margin: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tdl-route-region-pick.tdl-active { color: var(--tdl-gold); font-weight: 700; }
+
 /* Editor drawers reuse the drawer chrome; only the body flow differs. */
 .tdl-edit-drawer .tdl-drawer-body { display: grid; gap: .1rem; align-content: start; }
 .tdl-edit-drawer .tdl-label small { font-weight: 600; font-size: .76rem; }

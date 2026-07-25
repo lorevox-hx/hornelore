@@ -114,7 +114,7 @@
 
    3. Reorder arrows are NOT here. Insert-at-position is existing
       production behaviour and had to survive; general reordering is
-      Phase 3D and would have widened this diff for no merge benefit.
+      Phase 3D (see below) and would have widened this diff.
 
    The Phase 2 "Current" tab — whose entire content was a banner saying
    the baseline lives in production — becomes the "Trip" tab and is that
@@ -177,6 +177,53 @@
    clusters every photo belonging to the NARRATOR, not only this trip's,
    so photos_considered counts the library. The result panel says so
    instead of letting the number read as a trip statistic.
+
+   WO-TRAVEL-DOC-UNIFY-01 Phase 3D (2026-07-25) — ROUTE ORDER.
+
+   The last workflow reason to open the legacy Documenter. Phases 3A/3B/3C
+   took the delete gate, trip/region/stop CRUD and upload; what was left
+   was that an operator could build a route here but not RE-ORDER one, so
+   a stop entered in the wrong place still sent them back to the old
+   surface. Four things landed, and one production affordance was
+   deliberately not copied.
+
+   1. STOP MOVES SEND TWO IDS, NOT A PERMUTATION. Production rebuilds the
+      whole sibling group and POSTs /stops/reorder, which the backend
+      accepts only when ordered_ids is EXACTLY that group. That request
+      is precisely as stale as the tree it was built from: if anything
+      landed since the last load — another tab, a clustering run, a
+      sibling deleted — the permutation no longer matches and the move is
+      refused for a reason the operator cannot see on screen. Here a stop
+      move sends the stop and the neighbour it should land beside to
+      /stops/{id}/move (before_stop_id / after_stop_id). The backend
+      re-derives the group, so the wire carries the operator's intent
+      ("put this one after that one") instead of a snapshot of the whole
+      order. Same endpoint the cross-region move already used since 3B.
+
+   2. REGION MOVES STILL SEND A PERMUTATION, because /regions/reorder is
+      the only door — there is no /regions/{id}/move. That is a real
+      staleness exposure, so it is handled rather than hidden: a refusal
+      shows in the board (never a native dialog) AND reloads the tree, so
+      the operator's next attempt is aimed at what actually exists.
+
+   3. ARROWS DISABLE AT THE ENDS AND WHILE A MOVE IS IN FLIGHT.
+      Production's arrows silently return at the ends — a control that
+      answers a click with nothing reads as a broken build. st.routeBusy
+      also disables the whole board mid-move, because two interleaved
+      reorders are each computed from the tree as it looked before the
+      other one landed.
+
+   4. ROUTE ROWS ARE SELECTABLE, FOR REGIONS TOO. Before this, st.routeSel
+      was set in exactly one place — the rail outline — and only ever for
+      a stop, which left Phase 3C's region-scoped upload seeding dead
+      code: the drawer could default to a region that nothing could
+      select. The row body is now the selection control on both the board
+      and the rail, and rows carry the evidence badges production shows
+      (notes / docs / photos), read from already-loaded state so no row
+      costs a fetch.
+
+   NOT copied: nothing. Production has no drag-and-drop on either tile
+   (grep-verified), so there is no reorder affordance left behind.
 
    To remove this lab entirely, delete:
      ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
@@ -258,6 +305,14 @@
     routeDelete: null,       // {kind:"region"|"stop", id, title, stage, ...}
     insertContext: null,     // {region_id, parent_stop_id, sibling_stop_id, where}
     tripWarning: "",         // days_warning / sync_warning from a trip save
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 3D — route order. routeBusy holds the
+    // id of the row whose move is in flight and disables every arrow on
+    // the board while it is set: two interleaved reorders are each built
+    // from the tree as it looked before the other one landed. routeError
+    // is the in-board failure surface — a refused move has to be readable
+    // next to the rows it is about, never in a native dialog.
+    routeBusy: null,         // stop id / region id mid-move, or null
+    routeError: "",          // last reorder/move refusal, shown in-board
     // WO-TRAVEL-DOC-UNIFY-01 Phase 3C — intake. uploadDrawer holds only
     // WHICH drawer is open plus an inline error: the scope select and the
     // file input are live handles in the drawer's closure, because a
@@ -622,6 +677,8 @@
     st.selectedDayId = null;
     st.selectedPhotoLinkId = null;
     st.routeSel = null;
+    st.routeBusy = null;
+    st.routeError = "";
     st.travelogue = null;
     st.draft = null;
     st.loriOverlay = false;
@@ -740,6 +797,8 @@
     st.selectedDayId = null;
     st.selectedPhotoLinkId = null;
     st.routeSel = null;
+    st.routeBusy = null;
+    st.routeError = "";
     // Phase 3B — same rule as selectTrip(), and more urgent here: the
     // trip these editors point at no longer exists.
     st.tripEditor = null;
@@ -1631,17 +1690,28 @@
       ((st.tree && st.tree.regions) || []).forEach(function (r) {
         var det = document.createElement("details");
         det.open = true;
-        var sum = el("summary", "", r.title || "Region");
+        var sum = el("summary", "");
+        // Phase 3D — the region label is a selection control here too, so
+        // the rail and the board share one st.routeSel instead of the
+        // rail being able to express only half of it. preventDefault
+        // stops the click from also toggling the <details>: selecting a
+        // region must not collapse its stops out from under the operator.
+        var regBtn = btn("tdl-route-region-pick" +
+          (isRouteSelected("region", r.id) ? " tdl-active" : ""),
+          r.title || "Region", function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            routeSelect("region", r.id, r.id);
+          });
+        sum.appendChild(regBtn);
         det.appendChild(sum);
         (function walk(stops) {
           (stops || []).forEach(function (s) {
-            var isSel = st.routeSel && st.routeSel.kind === "stop" && st.routeSel.id === s.id;
+            var isSel = isRouteSelected("stop", s.id);
             det.appendChild(btn("tdl-route-item" + (isSel ? " tdl-active" : ""),
               s.location_name || s.title || "Stop", function () {
                 // FIXPACK-02 (M5b): route-rail selection re-renders too.
-                if (dayFormDirtyBlocks()) return;
-                st.routeSel = { kind: "stop", id: s.id, regionId: r.id };
-                renderAll();
+                routeSelect("stop", s.id, r.id);
               }));
             walk(s.children);
           });
@@ -2241,6 +2311,10 @@
          st.insertContext.sibling_stop_id === id)) st.insertContext = null;
     st.routeDelete = null;
     st.error = "";
+    // Phase 3D — a move in flight against a row that is being deleted is
+    // a dangling handle of the same kind; drop it with the rest.
+    st.routeBusy = null;
+    st.routeError = "";
     notifyTripUpdated(st.trip.id, kind + "_deleted");
     return refreshTripBundle();
   }
@@ -2362,14 +2436,168 @@
     return sh.wrap;
   }
 
+  // ── route order (WO-TRAVEL-DOC-UNIFY-01 Phase 3D) ────────────────────
+  //
+  // See decisions 1-3 in the header block. The short version: a stop move
+  // names its stop and its neighbour and lets the backend re-derive the
+  // sibling group; a region move has to send the whole permutation
+  // because /regions/reorder is the only endpoint, so its staleness is
+  // surfaced and reloaded rather than swallowed.
+
+  function siblingsOf(regionId, parentStopId) {
+    if (parentStopId) {
+      var p = findStop(parentStopId);
+      return (p && p.children) || [];
+    }
+    var r = findRegion(regionId);
+    return (r && r.stops) || [];
+  }
+
+  function routeMoveFailed(prefix, e) {
+    st.routeBusy = null;
+    st.routeError = prefix + ": " + ((e && e.message) || "unknown error");
+    // Reload before repainting. Leaving the board showing an order the
+    // backend just refused would make the operator's next click argue
+    // with a tree that only exists on screen.
+    return refreshTripBundle().then(renderAll, renderAll);
+  }
+
+  function routeMoveDone(kind, id) {
+    st.routeBusy = null;
+    st.routeError = "";
+    notifyTripUpdated(st.trip.id, kind + "_reordered");
+    return refreshTripBundle().then(function () { renderAll(); });
+  }
+
+  function moveRegionRelative(regionId, dir) {
+    if (!st.trip || st.routeBusy) return Promise.resolve();
+    if (dayFormDirtyBlocks()) return Promise.resolve();
+    var ids = ((st.tree && st.tree.regions) || []).map(function (r) {
+      return r.id;
+    });
+    var i = ids.indexOf(regionId);
+    var j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return Promise.resolve();
+    ids.splice(i, 1);
+    ids.splice(j, 0, regionId);
+    st.routeBusy = regionId;
+    st.routeError = "";
+    renderAll();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/regions/reorder", {
+      method: "POST",
+      body: JSON.stringify({ ordered_ids: ids }),
+    }).then(function () {
+      return routeMoveDone("region", regionId);
+    }, function (e) {
+      return routeMoveFailed("Could not move that region", e);
+    });
+  }
+
+  function moveStopRelative(stopId, dir) {
+    if (!st.trip || st.routeBusy) return Promise.resolve();
+    if (dayFormDirtyBlocks()) return Promise.resolve();
+    var loc = locateStop(stopId);
+    if (!loc) return Promise.resolve();
+    var parentId = loc.parent ? loc.parent.id : null;
+    var ids = siblingsOf(loc.region.id, parentId).map(function (s) {
+      return s.id;
+    });
+    var i = ids.indexOf(stopId);
+    var j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return Promise.resolve();
+    // The NEIGHBOUR is the whole request. A substop moves among its own
+    // siblings only, so region_id and parent_trip_stop_id are echoed back
+    // unchanged — a reorder must never quietly reparent, which is the one
+    // way an arrow could destroy a branch the operator was not shown.
+    var anchor = ids[j];
+    st.routeBusy = stopId;
+    st.routeError = "";
+    renderAll();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+               "/stops/" + encodeURIComponent(stopId) + "/move", {
+      method: "POST",
+      body: JSON.stringify({
+        region_id: loc.region.id,
+        parent_trip_stop_id: parentId,
+        before_stop_id: dir < 0 ? anchor : null,
+        after_stop_id: dir > 0 ? anchor : null,
+      }),
+    }).then(function () {
+      return routeMoveDone("stop", stopId);
+    }, function (e) {
+      return routeMoveFailed("Could not move that stop", e);
+    });
+  }
+
+  // ── route selection + evidence badges (Phase 3D) ─────────────────────
+
+  function routeSelect(kind, id, regionId) {
+    if (dayFormDirtyBlocks()) return;
+    st.routeSel = { kind: kind, id: id, regionId: regionId };
+    renderAll();
+  }
+
+  function isRouteSelected(kind, id) {
+    return !!(st.routeSel && st.routeSel.kind === kind && st.routeSel.id === id);
+  }
+
+  // Scope filter, same shape dayScopedRows() uses: a region owns the rows
+  // pinned to it that are not pinned to one of its stops.
+  function routeScopedRows(rows, kind, id) {
+    if (kind === "stop") {
+      return (rows || []).filter(function (r) { return r.trip_stop_id === id; });
+    }
+    return (rows || []).filter(function (r) {
+      return r.trip_region_id === id && !r.trip_stop_id;
+    });
+  }
+
+  // Production shows these on its tiles and they are how an operator
+  // tells an empty stop from one that already carries material. Free to
+  // port: st.notes / st.sources / st.photoLinks are already loaded and
+  // already carry trip_region_id / trip_stop_id, so no row costs a fetch.
+  function routeBadgeText(kind, id) {
+    var n = routeScopedRows(st.notes, kind, id).length;
+    var d = routeScopedRows(st.sources, kind, id).length;
+    var p = routeScopedRows(st.photoLinks, kind, id).length;
+    var parts = [];
+    if (n) parts.push(n + " note" + (n > 1 ? "s" : ""));
+    if (d) parts.push(d + " doc" + (d > 1 ? "s" : ""));
+    if (p) parts.push(p + " photo" + (p > 1 ? "s" : ""));
+    return parts.join(" · ");
+  }
+
+  // Disabled at the ends rather than silently no-oping, and disabled
+  // everywhere while any move is in flight.
+  function moveBtn(label, title, enabled, onClick) {
+    var b = btn("tdl-btn tdl-btn-small tdl-route-move", label, onClick);
+    b.title = title;
+    if (!enabled || st.routeBusy) b.disabled = true;
+    return b;
+  }
+
+  // The row body is the selection control. Selecting a row is what makes
+  // the rest of the workspace agree with the board — the intake drawer
+  // seeds its scope from st.routeSel — so this is also what revives the
+  // region branch of Phase 3C's defaultScopeKey().
+  function routePickCell(kind, id, regionId, title) {
+    var cell = btn("tdl-route-row-main tdl-route-row-pick", "", function () {
+      routeSelect(kind, id, regionId);
+    });
+    cell.title = title;
+    if (isRouteSelected(kind, id)) cell.setAttribute("aria-current", "true");
+    return cell;
+  }
+
   // ── the route board ──────────────────────────────────────────────────
 
-  function renderStopRow(s, region, depth, out) {
+  function renderStopRow(s, region, depth, out, idx, total) {
     var row = el("div", "tdl-route-row tdl-route-row-stop");
+    if (isRouteSelected("stop", s.id)) row.className += " tdl-route-row-sel";
     // Depth is expressed as indentation rather than nested containers so
     // every row keeps the same action bar geometry at any depth.
     row.style.paddingLeft = (18 + depth * 18) + "px";
-    var mainCell = el("div", "tdl-route-row-main");
+    var mainCell = routePickCell("stop", s.id, region.id, "Select this stop");
     mainCell.appendChild(el("strong", "", stopLabel(s)));
     var meta = [];
     if (s.stop_type) meta.push(stopTypeLabel(s.stop_type));
@@ -2377,9 +2605,16 @@
     var de = s.date_end || s.end_date;
     if (ds || de) meta.push((ds || "?") + " → " + (de || "?"));
     if (meta.length) mainCell.appendChild(el("span", "tdl-muted", meta.join(" · ")));
+    var badge = routeBadgeText("stop", s.id);
+    if (badge) mainCell.appendChild(el("span", "tdl-route-ind", badge));
     row.appendChild(mainCell);
 
     var acts = el("div", "tdl-route-row-actions");
+    acts.appendChild(moveBtn("↑", "Move up among its siblings", idx > 0,
+      function () { return moveStopRelative(s.id, -1); }));
+    acts.appendChild(moveBtn("↓", "Move down among its siblings",
+      idx < total - 1,
+      function () { return moveStopRelative(s.id, 1); }));
     acts.appendChild(btn("tdl-btn tdl-btn-small", "+ Before", function () {
       openStopEditor("create", {
         regionId: region.id,
@@ -2409,14 +2644,16 @@
       function () { openRouteDelete("stop", s.id); }));
     row.appendChild(acts);
     out.appendChild(row);
-    (s.children || []).forEach(function (c) {
-      renderStopRow(c, region, depth + 1, out);
+    var kids = s.children || [];
+    kids.forEach(function (c, i) {
+      renderStopRow(c, region, depth + 1, out, i, kids.length);
     });
   }
 
-  function renderRegionRow(r, out) {
+  function renderRegionRow(r, out, idx, total) {
     var row = el("div", "tdl-route-row tdl-route-row-region");
-    var mainCell = el("div", "tdl-route-row-main");
+    if (isRouteSelected("region", r.id)) row.className += " tdl-route-row-sel";
+    var mainCell = routePickCell("region", r.id, r.id, "Select this region");
     mainCell.appendChild(el("strong", "", regionLabel(r)));
     var meta = [];
     if (r.country_or_area) meta.push(r.country_or_area);
@@ -2425,9 +2662,15 @@
     }
     meta.push(regionStopCount(r) + " stops");
     mainCell.appendChild(el("span", "tdl-muted", meta.join(" · ")));
+    var badge = routeBadgeText("region", r.id);
+    if (badge) mainCell.appendChild(el("span", "tdl-route-ind", badge));
     row.appendChild(mainCell);
 
     var acts = el("div", "tdl-route-row-actions");
+    acts.appendChild(moveBtn("↑", "Move region up", idx > 0,
+      function () { return moveRegionRelative(r.id, -1); }));
+    acts.appendChild(moveBtn("↓", "Move region down", idx < total - 1,
+      function () { return moveRegionRelative(r.id, 1); }));
     acts.appendChild(btn("tdl-btn tdl-btn-small", "+ Stop", function () {
       openStopEditor("create", { regionId: r.id });
     }));
@@ -2438,7 +2681,10 @@
       function () { openRouteDelete("region", r.id); }));
     row.appendChild(acts);
     out.appendChild(row);
-    (r.stops || []).forEach(function (s) { renderStopRow(s, r, 1, out); });
+    var stops = r.stops || [];
+    stops.forEach(function (s, i) {
+      renderStopRow(s, r, 1, out, i, stops.length);
+    });
   }
 
   function renderTripTab() {
@@ -2479,12 +2725,28 @@
     bar.appendChild(addStop);
     wrap.appendChild(bar);
 
+    // Phase 3D — a refused move is reported HERE, beside the rows it is
+    // about, and never in a native dialog. It is dismissible because the
+    // tree has already been reloaded underneath it: the message describes
+    // an attempt, not the current state.
+    if (st.routeError) {
+      var errBox = el("div", "tdl-route-error");
+      errBox.appendChild(el("span", "", st.routeError));
+      errBox.appendChild(btn("tdl-btn tdl-btn-small", "Dismiss", function () {
+        st.routeError = "";
+        renderAll();
+      }));
+      wrap.appendChild(errBox);
+    }
+
     if (!regions.length) {
       wrap.appendChild(el("div", "tdl-empty",
         "No regions yet. Add a region to start building the route."));
     } else {
       var board = el("div", "tdl-route-board");
-      regions.forEach(function (r) { renderRegionRow(r, board); });
+      regions.forEach(function (r, i) {
+        renderRegionRow(r, board, i, regions.length);
+      });
       wrap.appendChild(board);
     }
 
