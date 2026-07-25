@@ -66,7 +66,7 @@ Mount the module into `#lvTravelDocHost` alongside the Documenter, with a switch
 
 Also fix the discoverability defect found on the way in: the `WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01` launcher block in `hornelore1.0.html` (~3600–3617) has **zero CSS** — no rule for `lvTravelDocLabBtn`, `lv-td-lab-launch`, or `lv-td-lab-hint` exists anywhere in `ui/`, which is why it renders as plain text and Chris could not find it. It is deleted in Phase 4 regardless; if Phase 2 keeps it reachable, it needs a rule.
 
-### Phase 3 — port the Documenter's features in
+### Phase 3 — port the Documenter's features in (3A ✅ LANDED 2026-07-25)
 
 The bulk of the work. **The delete gate goes first** — it is the newest and least-exercised code in either panel and the thing most likely to be quietly broken by a port.
 
@@ -74,7 +74,7 @@ Everything lands in the tab currently called "Current", which should be renamed 
 
 | Production feature | Where it lands | Notes |
 |---|---|---|
-| Trip force-delete gate | Trip tab, trip header | Port verbatim. Preserves the `e.body.detail` envelope read — see risks. |
+| Trip force-delete gate | Sidebar, selected-trip card | ✅ **Phase 3A, LANDED 2026-07-25.** Not verbatim — production's grid renders nine lanes and omits `bio_suggestions`; the port renders all ten. `e.body.detail` envelope read preserved and pinned in the same commit. |
 | **Photo upload (trip / region / stop)** | Trip + Photos tabs | **Capability to build, not a control to port — see A2.** |
 | **Source file upload** | Sources tab | `uploadSourceFiles` → `POST /api/trips/{id}/sources/upload`. Missing from both inventories. |
 | Cluster photos | Photos tab | |
@@ -102,6 +102,8 @@ Everything lands in the tab currently called "Current", which should be renamed 
 | "UI LAB · EXPERIMENTAL" chip | Lab-only. |
 
 **Everything not on that list ports or blocks.**
+
+**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5). 3C — photo and source upload plus cluster (a capability to build, A2). 3D — the itinerary tile board, reorder, and the editable Route Outline. Each is its own session.
 
 ### Phase 4 — flip and delete
 
@@ -329,8 +331,79 @@ a socket and a `document` keydown listener live underneath whatever tab the
 operator is actually looking at. If the round-trip cost is not worth it, the
 fix is to persist selection in `opts`, not to stop destroying.
 
+## Phase 3A — what landed (2026-07-25)
+
+Front-end only. No backend, no API, no schema, no flag. No route board, no
+upload, no cluster, no region/stop CRUD, no theme pass. `travel-documenter.js`
+is untouched and the legacy surface is still reachable.
+
+**The shape.** The selected-trip card in the unified sidebar carries a
+`tdl-btn-danger` "Delete trip" control. It attempts an unforced
+`DELETE /api/trips/{id}` first. A **409** puts the structured impact payload
+into `st.deleteReview`, and `renderAll()` appends `renderDeleteTripReview()` —
+an in-panel review, consistent with the drawer idiom the rest of the module
+already uses. Force delete re-sends with `{force: true, confirm_trip_id,
+reason}`. After a successful delete the trip list reloads with
+`noAutoSelect`, so the operator lands on "Select a trip from the left rail."
+rather than being silently dropped onto a neighbouring trip.
+
+**A prerequisite the port could not have worked without.** The module's single
+`api()` choke point discarded the response body on a non-OK status, so there
+was no impact payload to read. The error arm now attaches `err.status` and
+`err.body`, and the gate reads **`e.body.detail`** — FastAPI nests structured
+payloads under `detail`, and the pinning assertion landed in the same commit as
+the port, exactly as the risks section demanded.
+
+**No native dialogs.** All eight textual `confirm`/`prompt` matches in the file
+are inside comments. Arming is a text input compared against the exact trip
+title *or* the trip id; the drawer holds live DOM references in closures and
+reads `.value` on submit, so typing never triggers a repaint — verified live
+across 27 real keystrokes with focus retained. Handlers are assigned by
+property (`input.oninput = fn`), never `addEventListener`, so reopening the
+review for a different trip cannot stack a stale closure.
+
+**The port is deliberately not verbatim.** `travel-documenter.js` renders
+**nine** impact lanes and never mentions `bio_suggestions` anywhere in the
+file. `trip_repository._TRIP_DEPENDENT_TABLES` has **ten**, and
+`trip_timeline_bridge.sync_trip_to_life_record` writes one `travel.trip` bio
+suggestion on **every trip create**. So every trip is force-delete-only from
+birth, and in production the operator sees an all-zero impact grid beside a
+delete the backend refuses. This was proved live, not inferred: a disposable
+trip created with no dates, no regions and no notes returned 409 with every
+lane zero except `1 Bio suggestions`. The unified port renders all ten lanes.
+Whether a self-generated bio suggestion should block an *unforced* delete is a
+backend/product decision and was outside this phase's frontend-only wall.
+
+**Three blanket "the lab never DELETEs" test guards were narrowed, not
+deleted.** The file-wide form stopped being true the moment the phase ported
+one sanctioned destructive control, but deleting the tests would have retired
+the properties they were really protecting. They now assert that every DELETE
+targets `/api/trips/` plus a trip id and none targets an evidence lane
+(evidence is hide-only — PATCH, never DELETE), and that the reconcile drawer
+and its loader contain no DELETE at all (reconcile *reviews* missing and
+outside-date days; it never silently cleans them up).
+
+### Phase 3A verification
+
+`node --check` clean on `travel-doc-lab.js`. **205 tests green** (was 192),
+including a new `TripForceDeleteGateTest` covering all ten of Chris's stated
+gates: the control exists, normal delete is attempted first, a 409 opens the
+in-panel review, the read is `e.body.detail`, counts render, wrong text blocks
+force delete, the exact title or id enables it, the list refreshes and the
+selection clears, no native dialog appears in the flow, and the legacy fallback
+stays reachable.
+
+Live smoke on the running stack, all ten steps green: DELETE with no body →
+409 → drawer opens with all ten counts · a case-mismatched title leaves the
+button disabled and fires no request · the exact trip id arms · the exact title
+arms · force delete sends `{"force":true,"confirm_trip_id":"…","reason":"…"}`
+→ 200 · the trip disappears from both the server and the rail · nothing is
+auto-selected · exactly one mount at every point · legacy fallback round-trips
+cleanly · zero console errors.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
 - 2026-07-24 — Phase 1.1 added and landed after Chris's Phase 1 review found no stale-async guard. Phase 2 was held until it was in.
 - 2026-07-25 — Phase 2 landed: the unified workspace mounts in the shell's Travel Doc tab by default, the legacy Documenter stays reachable behind a temporary surface switch, and the Lab launcher is gone. CSS scoped to `.tdl-root`. Two pre-existing Documenter leaks closed.
+- 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.

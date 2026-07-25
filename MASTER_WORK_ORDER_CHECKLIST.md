@@ -1,7 +1,8 @@
 # MASTER_WORK_ORDER_CHECKLIST
 
-**Active as of:** 2026-07-25 (WO-TRAVEL-DOC-UNIFY-01 Phase 2 CODE-LANDED — the unified Travel Doc workspace now mounts directly in the shell's Travel Doc tab and is the default operator surface; the legacy Documenter stays reachable behind a temporary surface switch. Lab CSS scoped to `.tdl-root`, Lab branding gone from the operator path, exactly one mount ever live. 192 tests green plus a second headless proof `scripts/ui/run_travel_doc_shell_mount_liveness.js` (22 checks) with four negative controls actually run. Front-end only; no backend, no API, no schema, no flag change. Phase 3 is next and is a separate session.)
+**Active as of:** 2026-07-25 (WO-TRAVEL-DOC-UNIFY-01 Phase 3A CODE-LANDED — the trip force-delete impact-review gate is now in the unified Travel Doc workspace: normal delete first, a 409 opens an in-panel review reading `e.body.detail`, force delete arms only on the exact trip title or trip id, and no native `confirm`/`prompt`/`alert` is used anywhere in the flow. The port renders **ten** impact lanes; production renders nine and omits `bio_suggestions`, which every trip is born with — so every trip is force-delete-only from birth and production shows an all-zero grid next to a refused delete. 205 tests green (was 192), and all ten of Chris's live-smoke steps passed on the running stack. Front-end only; no backend, no API, no schema, no flag change. Phase 3B is a separate session.)
 
+**Previously:** 2026-07-25 (WO-TRAVEL-DOC-UNIFY-01 Phase 2 CODE-LANDED — the unified Travel Doc workspace now mounts directly in the shell's Travel Doc tab and is the default operator surface; the legacy Documenter stays reachable behind a temporary surface switch. Lab CSS scoped to `.tdl-root`, Lab branding gone from the operator path, exactly one mount ever live. 192 tests green plus a second headless proof `scripts/ui/run_travel_doc_shell_mount_liveness.js` (22 checks) with four negative controls actually run. Front-end only; no backend, no API, no schema, no flag change. Phase 3 is next and is a separate session.)
 **Previously:** 2026-07-24 (WO-TRAVEL-DOC-UNIFY-01 Phase 1.1 CODE-LANDED — the mount can no longer be repainted after `destroy()`. Six guards at the file's six async choke points, plus the `document`-level keydown listener now unbound at teardown. 154 tests green; stale-callback behaviour proved in a real browser by `scripts/ui/run_travel_doc_mount_liveness.js`, with two negative controls confirmed red.)
 **Previously:** 2026-07-23 (live-verification pass on the running stack — migrations 0034/0035, trip API baseline, Travel Doc smoke, and response-guard health all GREEN; INC-2026-07-09 response-guard outage closed; camera-consent ambush + extractor guards + trip-create day-count + public-lookup wording fixed. See README "Status as of 2026-07-23" and the CLAUDE.md 2026-07-14 changelog entry.)
 **Earlier:** 2026-07-11 (doc-consistency pass — split "code landed" vs "flag live" vs "formal verification" statuses per Chris's audit; 2026-07-11 HIGH repo-review batch closed via commits ebe64af / cf62c49 / round-2 / round-3), 2026-07-02 (code-vs-checklist adjudication — ALL six build-sequence WOs verified LANDED in-tree; trip-lane conversation layer at 62/72→GREEN pending harness re-verify; Spanish-detection overfire class fixed), 2026-06-16 (post Phase 3+4+5+6+7.5 of QUESTIONNAIRE-BIO-FACTS-MIGRATE), 2026-06-14 (post-universal-pivot)
@@ -97,7 +98,7 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 6. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
 7. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
 
-## Travel Doc unification — WO-TRAVEL-DOC-UNIFY-01 (Phase 2 CODE-LANDED 2026-07-25)
+## Travel Doc unification — WO-TRAVEL-DOC-UNIFY-01 (Phase 3A CODE-LANDED 2026-07-25)
 
 Spec: [`docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md`](docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md)
 
@@ -119,14 +120,17 @@ merge socket, not a feature. **The backend needs no changes at all.**
 | 1 — make the Lab mountable (`window.lvTravelDocMount(hostEl, opts) -> {destroy()}`) | ✅ **CODE-LANDED 2026-07-24.** Behaviour-neutral. `node --check` clean, 142 tests green across the five suites that read the lab source, mount lifecycle driven in a headless browser with `BroadcastChannel` instrumented (load → 1 channel; 2nd mount → 2; `destroy()` → 1 with the first still fully rendered; repeat `destroy()` a no-op). NOT formal-verified in the shell — see Phase 2. |
 | 1.1 — mount liveness (hardening gate before Phase 2) | ✅ **CODE-LANDED 2026-07-24.** Chris's Phase 1 review: `destroy()` tore down but nothing stopped an in-flight async callback from repainting the cleared host. The file has exactly one of each guardable thing — one `fetch(` (in `api()`), one repaint entry (`renderAll()`), one channel handler, one socket `onmessage`, one timer, one `document` listener — so six guards cover all 54 `.then(` sites; the tests pin those counts so a seventh path fails loudly. `api()` returns a never-settling promise when dead, so neither `.then()` nor `.catch()` fires. Socket-identity pinning also fixes a **live-mount** bug: `loriPane.reset()` runs on every trip switch, so a queued Trip A token could append into Trip B's transcript. Also unbinds the `document` keydown listener — the leak the review did not name. 154 tests green; headless proof `scripts/ui/run_travel_doc_mount_liveness.js` (control row repaints, three destroyed rows do not); two negative controls confirmed red. |
 | 2 — coexist in the shell tab behind a toggle | ✅ **CODE-LANDED 2026-07-25.** The tab now holds two hosts and a surface switch; unified is the default, legacy is one click away, and exactly one is ever mounted — each surface owns a BroadcastChannel, a `document` keydown listener and a Lori socket, so two live mounts is a correctness bug, not untidiness. Lab CSS rescoped from `:root`/`.tdl-body` to `.tdl-root` (custom-property inheritance is DOM-based, so the three `position: fixed` overlays still resolve through the host and were left alone). Launcher block deleted; `?person_id=`/`?api=` quarantined to the standalone page. Closed two pre-existing leaks: the shell was discarding the Documenter's handle, and the Documenter never closed its trip-update channel. 192 tests green; `scripts/ui/run_travel_doc_shell_mount_liveness.js` 22/22 on the real shell. It caught three defects static tests could not, including a `window._lvTravelDocSurface` cache that overwrote the same-named function. **Behaviour change:** leaving the tab destroys the mount, so trip/day selection does not survive a tab round-trip. |
-| 3 — port the Documenter's features in | OPEN. The bulk. **Delete gate first** (newest, least-exercised code in either panel), then upload capability, then the route board. Port table + explicit retire list in the spec. |
+| 3A — trip force-delete impact-review gate | ✅ **CODE-LANDED 2026-07-25.** Normal delete first; a 409 loads `e.body.detail` into an in-panel review; force delete arms only on the exact trip title or trip id; zero native dialogs. `api()` now attaches `err.status`/`err.body` — without that the gate could not read the payload at all. Renders **ten** lanes; production renders nine. Three blanket never-DELETE test guards narrowed, not dropped. 205 tests green; ten-step live smoke green. |
+| 3B — trip create/edit + region/stop CRUD | OPEN. Region **area / start / end / base / summary**, stop **region selector + type** (eight-value `STOP_TYPES`), insert-at-position. **Region/stop delete must land as in-panel review — `window.confirm()` must not port** (`travel-documenter.js` 2131 / 2153). |
+| 3C — photo / source upload + cluster | OPEN. **A capability to build, not a control to port** — the lab has zero `FormData` and zero file inputs. |
+| 3D — route board | OPEN. Itinerary tile board, reorder, insert-at-position, editable Route Outline sharing `st.routeSel`. |
 | 4 — flip and delete | OPEN. Remove `travel-documenter.js` / `.css`, `travel-doc-lab.html`, the launcher block; rename survivors to `travel-doc.js` / `travel-doc.css`. Keep the `tdl-` prefix. |
 | 5 — test consolidation | OPEN. Fold both test files into `tests/test_travel_doc.py`. A **rewrite, not a merge** — `test_travel_doc_lab.py` asserts the Lab does NOT reference the production module, and that boundary inverts under this WO. |
 | 6 — live smoke | OPEN. Unification-critical list in the spec; the photo-evidence canaries are run-but-not-gating. |
 
-**A phase is a scope wall — Phase 2 is a separate session.**
+**A phase is a scope wall — Phase 3B is a separate session.**
 
-**Blocking constraints carried into Phase 3 (each already cost real debugging
+**Blocking constraints carried into Phase 3B-3D (each already cost real debugging
 once, or would):**
 
 - **`window.confirm()` must not port.** `travel-documenter.js` lines 2131
@@ -135,8 +139,17 @@ once, or would):**
   posture `WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` established. The Lab is
   currently clean.
 - **The delete gate's error envelope** is pinned at `e.body.detail`, not
-  `e.body`, because FastAPI nests structured payloads under `detail`. Move the
-  pinning assertion in the **same commit** as the port so it never lapses.
+  `e.body`, because FastAPI nests structured payloads under `detail`.
+  ✅ **CLOSED 2026-07-25 in Phase 3A** — the pinning assertion landed in the same
+  commit as the port, and `api()` now attaches `err.status`/`err.body` so there
+  is a body to read. Do not let it lapse in Phase 5's test consolidation.
+- **The impact grid has ten lanes, not nine.** `_TRIP_DEPENDENT_TABLES` includes
+  `bio_suggestions`, which `trip_timeline_bridge.sync_trip_to_life_record`
+  writes on every trip create — so **every trip is force-delete-only from
+  birth**. Production's nine-lane grid renders that as all zeros next to a
+  refused delete. The unified port renders all ten. Whether a self-generated
+  bio suggestion should block an unforced delete is a **backend/product
+  decision** and was out of Phase 3A's frontend-only scope.
 - **Upload is a capability to build, not a control to port.** The Lab contains
   zero `FormData` and zero file inputs; production has three photo-upload
   scopes plus source upload. The Lab was never a complete Travel Doc because
