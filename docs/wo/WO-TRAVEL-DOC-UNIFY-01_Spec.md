@@ -111,7 +111,15 @@ Make the merged module the default, then remove `ui/js/travel-documenter.js`, `u
 
 ### Phase 5 — test consolidation
 
-Fold `tests/test_travel_documenter_panel.py` and `tests/test_travel_doc_lab.py` into one `tests/test_travel_doc.py`. This is a rewrite, not a merge — see risks.
+One coherent Travel Doc test surface, not old Lab-vs-Documenter boundary
+tests. The Phase 0 plan here said to fold `tests/test_travel_documenter_panel.py`
+and `tests/test_travel_doc_lab.py` into one `tests/test_travel_doc.py`, as a
+rewrite rather than a merge. That is **not** what landed, and the reasoning is
+recorded under Phase 5 below: the two suites still guard two different modules
+that both still exist on disk and are both still served, so a single file named
+for one Travel Doc would be claiming a boundary it cannot hold. Coherence came
+instead from a shared surface map plus one doctrine file. The fold remains
+available as a mechanical follow-up if the standalone page is ever retired.
 
 ### Phase 6 — live smoke
 
@@ -1028,6 +1036,120 @@ One observation, not a defect: the dev harness page's *rendered* copy still says
 
 Smoke residue: the disposable trip and its uploaded source went with the cascade, but the uploaded photo did not -- photo *links* are deleted, photos are not -- so narrator `e7fdb578`'s library now holds five smoke photos, up from the four already accepted as documented residue.
 
+## Phase 5 -- what landed (2026-07-25)
+
+**Scope:** tests and docs only. Not one production file was touched -- no
+`ui/`, no `api/`, no schema, no flag. Chris's order: *"Consolidate the Travel
+Doc tests now that the boundary has inverted. Goal: one coherent Travel Doc
+test surface, not old Lab-vs-Documenter boundary tests."*
+
+The problem was not that the tests were failing. They were 262 green. The
+problem was that they were written against a world that Phase 4 had ended.
+Six suites each carried their own private `Path` literals to the same handful
+of files, their own copy of the comment stripper, their own copy of the CSS
+brace walker and the shell region extractors -- and, in several places, a
+premise in the test *name* that was no longer true.
+
+### What was added
+
+| File | What it is |
+|---|---|
+| `tests/travel_doc_surfaces.py` | The single surface map. One `Surface` per file -- path, role, and whether it sits on the operator path -- plus `read()`, `stripped()`, the CSS rule walker and the two shell region extractors that six suites had been carrying privately. Also `SurfaceMapTest`, four tests that fail if a mapped file moves or an extractor stops matching, so the map cannot rot silently. |
+| `tests/test_travel_doc_surface_gates.py` | The doctrine file. The rules that are about the Travel Doc *as a whole* rather than about any one module: the shell mounts the unified module and only that; no native dialogs anywhere on the operator path; no DELETE on the evidence lane; the retired module stays quarantined. |
+
+### What was retargeted
+
+Six suites -- `test_travel_doc_lab.py`, `test_travel_doc_shell_mount.py`,
+`test_travel_documenter_panel.py`, `test_trip_lane_fixpack_js.py`,
+`test_travel_doc_evidence_ui.py`, `test_travel_doc_livetest_fixes.py` --
+now read through the map. Thirty private `Path` literals and eleven private
+copies of a stripper or extractor went away.
+
+**No test body moved.** The path constants became thin aliases (`_JS =
+_tds.UNIFIED_JS.path`) and the helpers became thin delegations
+(`_stripped_js()` returns `_tds.UNIFIED_JS.stripped()`), so every assertion
+reads exactly as it did before and the diff is reviewable line by line. That
+was deliberate: a consolidation that also rewrites assertions gives you no way
+to tell a cleanup from a coverage change.
+
+### Three things the consolidation surfaced
+
+**1. A test name that had become half true.**
+`test_lab_does_not_reference_production` described a world where the Documenter
+was production and the Lab was an experiment beside it. Phase 4 inverted that.
+The assertion was still exactly right -- the one surface an operator reaches
+must not drag the retired module back in -- so the assertion was left alone and
+the *name* was fixed: `test_the_unified_module_never_loads_the_retired_one`.
+Renaming rather than deleting is the whole point; the stale thing was the
+premise, not the coverage.
+
+**2. A harness that was in no inventory at all.**
+`scripts/ui/run_travel_doc_mount_liveness.js` -- the Phase 1.1 behavioural
+proof that a mount/destroy cycle leaves nothing behind -- appeared in no
+surface list and in no doctrine scan. It had been running for four phases
+without ever being checked for native dialogs. It is now mapped, and both
+liveness harnesses are scanned.
+
+**3. Two native `window.confirm` calls in the retired module, pinned rather
+than fixed.** The retired `travel-documenter.js` still calls the browser's own
+confirmation box twice, in region delete and stop delete. Fixing them is out of
+scope, and deleting the assertion would have hidden them. So the gate pins the
+count at **exactly two** and quarantines the file: if a third appears, or if
+either one migrates onto the operator path, the build fails.
+
+### The duplicate that was narrowed
+
+`test_force_delete_gate_needs_no_fallback_surface` carried two module-wide
+assertions about `prodTravelDocUrl` and the `travel-documenter.html?api=`
+deep-link that were already owned, file-wide, by
+`test_the_fallback_deep_link_is_gone_module_wide`. Two tests failing for one
+cause is not two gates, it is one gate and one distraction. The duplicates
+came out; the force-delete test now asserts only what is its own -- and asserts
+positively that the retired module still exists on disk, which is the thing
+requirement 7 actually protects.
+
+### Phase 5 verification
+
+**279 tests green** in 7.6s across the six retargeted suites plus the map and
+the doctrine file -- 262 previously green, untouched, plus 17 new. Adjacent
+Travel Doc suites: 208 green, 6 pre-existing skips. AST parse clean on all
+eight files; direct execution (`python3 tests/test_travel_doc_evidence_ui.py`)
+still works alongside `python3 -m unittest tests.<module>`; zero remaining
+references to the removed private helpers; no repo-wide reference anywhere to
+the renamed test.
+
+**Twelve mutants, twelve killed.** The harness monkeypatches `Surface.read` so
+a mutation lives only in memory -- nothing is written to the working tree,
+which matters because the tree has to stay clean for the commit. It proves each
+target gate is green unmutated, reports KILL/LIVE per case, then re-runs
+unmutated to prove it did not leak.
+
+The first run came back 11/12, and the survivor was the useful part.
+`assertIn("lvTravelDocMount", block)` -- a gate written minutes earlier -- also
+matches the `typeof window.lvTravelDocMount === "function"` guard on the line
+*above* the call. So the gate stayed green against a shell that checked whether
+it could mount and then never mounted. It now pins the call itself and the
+handle it must produce, because the handle is what teardown later has to find:
+
+```python
+self.assertIn("lvTravelDocMount(", block)
+self.assertIn("_lvTravelDocUnifiedHandle = window.lvTravelDocMount(", block)
+```
+
+Re-run: 12/12.
+
+### What was deliberately not done
+
+The literal fold into `tests/test_travel_doc.py` did not happen, and the
+reasoning is above under Phase 5 in the plan. Briefly: 129 + 36 tests
+concatenated is a ~125K file that moves every line number in both suites and
+buries the diff, and it would be named for a boundary that does not exist while
+`ui/travel-documenter.html` is still served. The order asked for *one coherent
+test surface*; that is a coherence requirement, and a shared map plus one
+doctrine file meets it. Also untouched, per the order: no rename of
+`travel-doc-lab.js`, no standalone Documenter file deleted, no backend policy
+change, no smoke-photo cleanup, no new Travel Doc features.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
@@ -1038,3 +1160,4 @@ Smoke residue: the disposable trip and its uploaded source went with the cascade
 - 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
 - 2026-07-25 — Phase 4 landed and smoke-accepted (fifteen steps green, including a three-round mount census showing opens 3 / closes 2, keydown +3 / -3, zero net sockets and one root at every sample): the legacy fallback is retired and the unified Travel Doc is the operator's only Travel Doc surface. Removal only — no backend, API, schema or flag change, and no file deleted. Out: the surface toggle and its whole support cast, both legacy asset tags, the switch row, `#lvTravelDocHost`, the `.lv-td-surface-*` / `.lv-td-host-off` / `body.lv-td-focus` rules, and the route board's `prodTravelDocUrl()` deep-link foot-note. **Deliberately not out:** the old module, its stylesheet and its standalone page, because requirement 7 forbids removing what a backend endpoint still serves and that page still mounts it — unmounting a surface and deleting a module are different acts; and `ui/travel-doc-lab.html`, kept and marked `DEV-ONLY` because it is the only caller of `lvTravelDocMount()` that exercises the non-shell identity branch. This narrows the Phase 0 plan written above, which had called for deleting all four and renaming the survivors; the rename stays parked. Five on-path fixes the order did not name, chief among them a `lv80SwitchPerson` teardown fallback nulling the retired marker (a silent no-op) and an ungated, operator-visible photo-picker empty state pointing at a production Travel Doc that no longer exists. A file-wide `assertNotIn("legacy")` on the shell proved invalid — 19 unrelated occurrences — so the gate is scoped to the panel and the mount block, and a stronger one replaced it because the shell now holds zero **raw** occurrences of the old module's name. Tests rewritten not deleted: five out, thirteen in, seven narrowed, with absences now asserted rather than merely unmentioned. 262 tests green (was 255); eight mutants, eight killed; the liveness harness rewritten for one surface with a `singleSurface` probe and its unrunnable negative controls marked as such rather than quietly dropped.
 - 2026-07-25 — Phase 3D landed and smoke-accepted: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. **The live smoke found a bug that nineteen source-scanning gates could not**: `api()` owns the request encoding, and both new movers pre-stringified their body, so every arrow press on the board answered 422. Fixed with a raw object at both call sites plus two new gates, one banning `body: JSON.stringify` file-wide while pinning that the encoding still happens exactly once inside `api()`. 255 tests green (was 236), nineteen gates mutation-tested, nineteen mutants killed. Eleven-step live smoke green, including insert before/after on a substop, cross-region move, cycle rejection at both layers, order surviving a refresh, both delete ladders, `FileList` node identity, the force-delete gate, and a clean mount/socket census. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2.
+- 2026-07-25 -- Phase 5 landed: one Travel Doc test surface. Tests and docs only; no production file touched. Added `tests/travel_doc_surfaces.py` (the single surface map -- path, role and operator-path flag per file, plus the comment stripper, the CSS brace walker and the two shell region extractors that six suites had been carrying privately, guarded by four tests of its own so the map cannot rot silently) and `tests/test_travel_doc_surface_gates.py` (the doctrine file: shell mounts the unified module and only that, no native dialogs on the operator path, no DELETE on the evidence lane, retired module quarantined). Six suites retargeted onto the map -- thirty private `Path` literals and eleven private stripper/extractor copies removed -- with **no test body moved**, so the diff separates cleanup from coverage change. Three findings: a test name that had gone half true (`test_lab_does_not_reference_production`, describing a world Phase 4 ended) was renamed rather than deleted because its assertion was still exactly right; `scripts/ui/run_travel_doc_mount_liveness.js`, the Phase 1.1 proof, was in no inventory and had gone four phases without a dialog scan; and the retired module's two `window.confirm` calls are now pinned at exactly two and quarantined rather than fixed (out of scope) or unasserted (which would hide them). One duplicate narrowed: two module-wide fallback-deep-link assertions already owned file-wide by another gate came out of the force-delete test, which now also asserts positively that the retired module still exists on disk. 279 tests green (was 262); 208 adjacent green with 6 pre-existing skips. Twelve mutants, twelve killed -- the first run came back 11/12 and the survivor was real: `assertIn("lvTravelDocMount", block)` also matched the `typeof` guard on the line above the call, so the gate would have passed a shell that checked whether it could mount and then never did; it now pins the call and the handle teardown needs. **The literal fold into `tests/test_travel_doc.py` was declined on purpose**, narrowing the Phase 0 plan above: the two suites guard two modules that both still exist and are both still served, so one file named for one Travel Doc would claim a boundary it cannot hold, and 129 + 36 tests concatenated moves every line number in both and buries the diff. Available as a mechanical follow-up if the standalone page is ever retired.
