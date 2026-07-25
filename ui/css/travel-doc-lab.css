@@ -606,3 +606,25 @@
 /* The rail head now carries + New trip between the label and the
    collapse toggle, so the label takes the slack instead of the gap. */
 .tdl-rail-head .tdl-section-label { flex: 1; }
+
+/* ── WO-TRAVEL-DOC-UNIFY-01 Phase 3C — intake ───────────────────────────
+   Structural only. Every colour here resolves to an existing --tdl-*
+   variable or to a tint already used elsewhere in this file; the theme
+   pass is retired at Chris's instruction, not deferred. */
+.tdl-upload-drawer .tdl-drawer-body { gap: .2rem; }
+/* The chosen destination is restated in prose under the select. A wrong
+   scope is the one intake mistake that is invisible afterwards, so it is
+   spelled out rather than left to a dropdown label the eye skips. */
+.tdl-scope-target { margin: .1rem 0 .8rem; padding: .5rem .65rem; border: 1px solid var(--tdl-line); border-left: 3px solid var(--tdl-gold); border-radius: 10px; background: #fff8eb; color: #7a501c; font-size: .84rem; font-weight: 700; }
+.tdl-file-hint { margin: .15rem 0 .8rem; color: var(--tdl-muted); font-size: .82rem; font-weight: 700; }
+.tdl-intake-doctrine { margin: 0 0 .9rem; padding: .55rem .7rem; border: 1px dashed var(--tdl-line); border-radius: 10px; background: var(--tdl-paper2); color: var(--tdl-muted); font-size: .82rem; line-height: 1.45; }
+.tdl-intake-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0 0 .9rem; padding-bottom: .8rem; border-bottom: 1px dashed var(--tdl-line); }
+.tdl-intake-note { font-size: .8rem; }
+/* Results live in the tab, not in a dialog: duplicate counts and EXIF
+   mismatches are the part an OK button would erase. */
+.tdl-intake-result { margin: 0 0 1rem; padding: .65rem .8rem; border: 1px solid var(--tdl-line); border-left: 4px solid var(--tdl-green); border-radius: var(--tdl-radius); background: var(--tdl-paper); box-shadow: var(--tdl-shadow); }
+.tdl-intake-result .tdl-btn { margin-top: .5rem; }
+.tdl-intake-line { margin: 0 0 .3rem; font-size: .88rem; font-weight: 700; color: var(--tdl-ink); }
+.tdl-intake-warn { margin: .35rem 0 0; padding: .4rem .55rem; border-radius: 8px; background: #fff7e6; color: #6c4a10; font-size: .82rem; font-weight: 700; line-height: 1.4; }
+.tdl-intake-err { margin: 0 0 .3rem; color: var(--tdl-red); font-size: .88rem; font-weight: 800; }
+.tdl-intake-failed { border-left-color: var(--tdl-red); }

@@ -1288,5 +1288,225 @@ class TripRegionStopCrudTest(unittest.TestCase):
             self.assertIn(cls, self.src, cls)
 
 
+class TripIntakeUploadClusterTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UNIFY-01 Phase 3C — photo / source intake + cluster.
+
+    The capability the unified workspace was missing entirely: getting
+    material IN. Same doctrine as 3A/3B — every assertion below is aimed
+    at a specific way this can go wrong (a stringified FormData, a scope
+    re-read at submit time, a native dialog swallowing a duplicate count,
+    an upload that quietly promotes itself into the memoir), not merely
+    at the existence of an upload button.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def _fn(self, name: str) -> str:
+        i = self.src.index(name)
+        j = self.src.find("\n  function ", i + len(name))
+        return self.src[i:(len(self.src) if j == -1 else j)]
+
+    # 1 — the unified workspace exposes a photo upload control.
+    def test_photo_upload_control_exists_in_unified_workspace(self):
+        self.assertIn("function renderPhotoIntakeBar(", self.src)
+        bar = self._fn("function renderPhotoIntakeBar(")
+        self.assertIn("Upload photos", bar)
+        self.assertIn('openUploadDrawer("photo")', bar)
+        # It has to be reachable from the empty gallery, so it is rendered
+        # by the Photos tab itself and not by a per-photo row.
+        photos = self._fn("function renderPhotos(")
+        self.assertIn("renderPhotoIntakeBar()", photos)
+
+    # 2 — upload goes out as multipart, through the file's one fetch.
+    def test_upload_uses_formdata_through_the_single_api_choke_point(self):
+        up = self._fn("function uploadPhotoFiles(")
+        self.assertIn("new FormData()", up)
+        self.assertIn('fd.append("files", f)', up)
+        self.assertIn("api(", up)
+        self.assertNotIn("fetch(", up)
+        # The choke point must pass a FormData through untouched. Both
+        # halves matter: JSON.stringify(fd) yields "[object FormData]",
+        # and a hand-set Content-Type omits the multipart boundary.
+        api = self._fn("function api(path, opts)")
+        self.assertIn("opts.body instanceof FormData", api)
+        i = api.index("opts.body instanceof FormData")
+        j = api.index("JSON.stringify(opts.body)")
+        self.assertLess(i, j, "FormData branch must precede the JSON branch")
+        self.assertIn("init.body = opts.body;", api)
+
+    # 3 — trip / region / stop are three distinct, explicit endpoints.
+    def test_photo_upload_target_is_explicit_per_scope(self):
+        path = self._fn("function photoUploadPath(")
+        self.assertIn('scope.level === "stop"', path)
+        self.assertIn('"/api/trips/stops/"', path)
+        self.assertIn('scope.level === "region"', path)
+        self.assertIn('"/regions/"', path)
+        self.assertIn('"/photos"', path)
+        # The destination comes from the drawer's chosen key, never from
+        # the ambient route selection re-read at submit time — that is how
+        # a photo silently lands on the wrong stop.
+        self.assertIn("function parseScopeKey(", self.src)
+        self.assertNotIn("st.routeSel", path)
+        up = self._fn("function uploadPhotoFiles(")
+        self.assertNotIn("st.routeSel", up)
+        src_up = self._fn("function uploadSourceFiles(")
+        self.assertNotIn("st.routeSel", src_up)
+        # routeSel may SEED the drawer, and only there.
+        self.assertIn("st.routeSel", self._fn("function defaultScopeKey("))
+
+    # 4 — after upload, the photo lanes and counts actually refresh.
+    def test_uploaded_photo_refreshes_links_and_counts(self):
+        up = self._fn("function uploadPhotoFiles(")
+        self.assertIn("refreshTripBundle()", up)
+        self.assertIn("notifyTripUpdated(", up)
+        # A trip/region drop lands unplaced, so a filter left on "Needs
+        # review" would show an empty gallery and read as a failed upload.
+        self.assertIn('st.photoFilter = "all"', up)
+        self.assertIn('st.tab = "photos"', up)
+
+    # 5 — the Sources tab exposes its own upload control.
+    def test_source_upload_control_exists(self):
+        self.assertIn("function renderSourceIntakeBar(", self.src)
+        bar = self._fn("function renderSourceIntakeBar(")
+        self.assertIn('openUploadDrawer("source")', bar)
+        sources = self._fn("function renderSources(")
+        self.assertIn("renderSourceIntakeBar()", sources)
+        # renderSources() returns early when the active filter is empty.
+        # The control must be appended ABOVE that return or it vanishes
+        # from exactly the state where it is needed most: no sources yet.
+        self.assertLess(sources.index("renderSourceIntakeBar()"),
+                        sources.index("No sources yet."))
+
+    # 6 — source upload is multipart against the existing endpoint.
+    def test_source_upload_uses_formdata_and_existing_endpoint(self):
+        up = self._fn("function uploadSourceFiles(")
+        self.assertIn("new FormData()", up)
+        self.assertIn('fd.append("files", f)', up)
+        self.assertIn('"/sources/upload"', up)
+        self.assertIn('fd.append("source_type"', up)
+        self.assertNotIn("fetch(", up)
+
+    # 7 — title/source metadata behaviour is preserved, including the
+    #     one-title-per-request truth the backend actually implements.
+    def test_source_metadata_is_preserved(self):
+        self.assertIn("SOURCE_TYPES", self.src)
+        for t in ("itinerary", "receipt", "hotel", "ticket", "note",
+                  "map", "link", "other"):
+            self.assertIn('"' + t + '"', self.src, t)
+        up = self._fn("function uploadSourceFiles(")
+        # The backend stamps ONE title across every file in the request,
+        # so sending a title with several files would erase every
+        # filename. Guard the single-file condition, not just the append.
+        self.assertIn("chosen.length === 1", up)
+        drawer = self._fn("function renderUploadDrawer(")
+        self.assertIn("titleIn.disabled = n > 1", drawer)
+
+    # 8 — intake is intake. Nothing here promotes into the memoir.
+    def test_uploaded_source_is_not_auto_promoted(self):
+        up = self._fn("function uploadSourceFiles(")
+        self.assertNotIn("include_in_memoir", up)
+        # Nor does it attach itself to a day card; day attach stays a
+        # separate, deliberate act.
+        self.assertNotIn("trip_day_id", up)
+        self.assertNotIn("promote", up.lower())
+
+    # 9 — the cluster control exists and is wired to the real endpoint.
+    def test_cluster_control_exists(self):
+        bar = self._fn("function renderPhotoIntakeBar(")
+        self.assertIn("Cluster photos", bar)
+        self.assertIn("runClusterPhotos", bar)
+        run = self._fn("function runClusterPhotos(")
+        self.assertIn('"/cluster-photos"', run)
+        self.assertIn("narrator_id", run)
+
+    # 10 — the cluster result renders in the panel, not in a dialog, and
+    #      the numbers that matter are named rather than dumped.
+    def test_cluster_result_renders_in_panel(self):
+        run = self._fn("function runClusterPhotos(")
+        self.assertIn("st.photoIntake", run)
+        for key in ("photos_considered", "links_written", "needs_review",
+                    "review_threshold", "skipped_operator_confirmed"):
+            self.assertIn(key, run, key)
+        self.assertIn("refreshTripBundle()", run)
+        self.assertIn("function renderIntakeResult(", self.src)
+        box = self._fn("function renderIntakeResult(")
+        self.assertIn("tdl-intake-result", box)
+        self.assertIn("tdl-intake-warn", box)
+        # A failure has to be visible too — a silent catch would leave the
+        # busy panel spinning forever.
+        self.assertIn(".catch(", run)
+        self.assertIn("Cluster failed", run)
+
+    # 11 — no native dialogs anywhere, including the new intake code.
+    def test_intake_adds_no_native_dialogs(self):
+        for token in ("confirm(", "prompt(", "alert("):
+            self.assertNotIn(token, self.src, token)
+        for fn in ("function renderUploadDrawer(", "function uploadPhotoFiles(",
+                   "function uploadSourceFiles(", "function runClusterPhotos("):
+            body = self._fn(fn)
+            self.assertNotIn("window.", body, fn)
+
+    # 12 — intake adds no DELETE on any evidence lane.
+    def test_intake_adds_no_evidence_lane_delete(self):
+        for fn in ("function uploadPhotoFiles(", "function uploadSourceFiles(",
+                   "function runClusterPhotos(", "function renderUploadDrawer(",
+                   "function renderPhotoIntakeBar(",
+                   "function renderSourceIntakeBar("):
+            body = self._fn(fn)
+            self.assertNotIn('"DELETE"', body, fn)
+            self.assertNotIn("method: \"DELETE\"", body, fn)
+
+    # 13 — the drawer must not repaint between "choose files" and
+    #      "Upload". A FileList cannot be written by script, so a
+    #      renderAll() in between destroys the operator's selection with
+    #      no way to restore it. This is the load-bearing constraint of
+    #      the whole phase, so it is pinned rather than trusted.
+    def test_drawer_does_not_repaint_between_choose_and_upload(self):
+        drawer = self._fn("function renderUploadDrawer(")
+        self.assertIn("scopeSel.onchange", drawer)
+        self.assertIn("files.onchange", drawer)
+        self.assertIn("target.textContent", drawer)
+        self.assertIn("hint.textContent", drawer)
+        self.assertNotIn("addEventListener", drawer)
+        # The only renderAll() allowed in the drawer is on the failure
+        # path, where the selection is already spent.
+        for marker in ("scopeSel.onchange = function () {",
+                       "files.onchange = function () {"):
+            i = drawer.index(marker)
+            j = drawer.index("};", i)
+            self.assertNotIn("renderAll()", drawer[i:j], marker)
+
+    # 14 — an open drawer is armed against a specific trip, so switching
+    #      or deleting the trip must disarm it.
+    def test_intake_state_clears_with_the_trip(self):
+        for fn_name in ("function selectTrip(", "function afterTripDeleted("):
+            fn = self._fn(fn_name)
+            for field in ("st.uploadDrawer = null", "st.photoIntake = null",
+                          "st.sourceIntake = null"):
+                self.assertIn(field, fn, fn_name + " / " + field)
+
+    # 15 — provenance is honest: this surface does not impersonate the
+    #      narrator shelf, whose stamp carries backend review meaning.
+    def test_upload_surface_stamp_is_honest(self):
+        self.assertIn('UPLOAD_SURFACE = "travel_doc_unified"', self.src)
+        up = self._fn("function uploadPhotoFiles(")
+        self.assertIn('fd.append("uploaded_from_surface", UPLOAD_SURFACE)', up)
+        self.assertNotIn("travels_shelf", up)
+
+    # 16 — the new chrome is tdl- namespaced, like everything else here.
+    def test_phase3c_css_is_tdl_namespaced(self):
+        for cls in (".tdl-upload-drawer", ".tdl-scope-target",
+                    ".tdl-file-hint", ".tdl-intake-doctrine",
+                    ".tdl-intake-bar", ".tdl-intake-result",
+                    ".tdl-intake-line", ".tdl-intake-warn",
+                    ".tdl-intake-err", ".tdl-intake-failed"):
+            self.assertIn(cls, self.css, cls)
+        for cls in ("tdl-upload-drawer", "tdl-intake-bar",
+                    "tdl-intake-result"):
+            self.assertIn(cls, self.src, cls)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -121,6 +121,63 @@
    baseline. The production deep link survives at the foot of it: the
    legacy surface must stay reachable until Phase 4 retires it.
 
+   WO-TRAVEL-DOC-UNIFY-01 Phase 3C (2026-07-25) — INTAKE.
+
+   Photo upload, source-file upload and photo clustering. This is the
+   capability that kept the legacy Documenter alive: until now the
+   unified workspace could edit a trip but could not get material into
+   it, so every operator still had to go back to the old surface to add
+   a single photo.
+
+   This one is a BUILD, not a port. Phases 3A/3B moved controls that had
+   a shape to copy; this file had zero FormData and zero file inputs, and
+   its own comments admitted the punt ("new uploads still come in via
+   Photo Intake"). Every endpoint already existed — no backend, no API,
+   no schema change — but the client side is new code.
+
+   The constraint that shapes all of it: renderAll() rebuilds the whole
+   DOM, and an <input type="file"> holds a FileList that script cannot
+   write. A repaint between "choose files" and "Upload" destroys the
+   operator's selection with no way to restore it. So the upload drawer
+   repaints for NOTHING in between — the target line swaps its own
+   textContent, the file hint counts in place, the button disables
+   itself, and the flow's first renderAll() happens only after the
+   response lands. Same doctrine the Phase 3B editors use for focus, for
+   a harder reason: focus can be restored, a FileList cannot.
+
+   Four deliberate decisions, none of them verbatim production:
+
+   1. SCOPE IS AN EXPLICIT KEY, not the ambient selection. The target is
+      one string — "trip" | "region:<id>" | "stop:<id>" — chosen in the
+      drawer and read at submit. st.routeSel only SEEDS the select when
+      the drawer opens; it is never consulted again. Production reads its
+      ambient editorScope() at submit time, so retargeting the workspace
+      mid-upload silently moves the destination. A named target line
+      states the scope in words above the button, because a photo filed
+      against the wrong stop is evidence corruption that looks like
+      success.
+
+   2. NO CAPTION FIELD AT INTAKE. The backend accepts one, and adding it
+      would have been free. Upload is intake, not approval — captions
+      belong to the approval ladder, and a caption box in the intake
+      drawer invites the operator to author narrator-facing text at the
+      moment they are least equipped to check it.
+
+   3. NO trip_day_id AT INTAKE. Day attach stays its own deliberate act
+      on the day card. The upload endpoint would take it; sending it
+      would make intake and placement the same gesture.
+
+   4. TITLE IS SENT ONLY FOR A SINGLE FILE. The backend stamps one title
+      on every file in the request, so a title on a multi-file drop
+      erases each document's own name. Production dodges this by never
+      sending a title at all; here the field disables itself the moment a
+      second file is chosen and says why.
+
+   Clustering is reported honestly rather than flatteringly: the backend
+   clusters every photo belonging to the NARRATOR, not only this trip's,
+   so photos_considered counts the library. The result panel says so
+   instead of letting the number read as a trip statistic.
+
    To remove this lab entirely, delete:
      ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
      ui/css/travel-doc-lab.css, tests/test_travel_doc_lab.py
@@ -201,6 +258,14 @@
     routeDelete: null,       // {kind:"region"|"stop", id, title, stage, ...}
     insertContext: null,     // {region_id, parent_stop_id, sibling_stop_id, where}
     tripWarning: "",         // days_warning / sync_warning from a trip save
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 3C — intake. uploadDrawer holds only
+    // WHICH drawer is open plus an inline error: the scope select and the
+    // file input are live handles in the drawer's closure, because a
+    // repaint would silently discard the operator's chosen FileList and
+    // script cannot put one back.
+    uploadDrawer: null,      // {kind:"photo"|"source", error}
+    photoIntake: null,       // Photos-tab result: {kind, busy, lines, warnings, error}
+    sourceIntake: null,      // Sources-tab result: {lines, warnings}
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
@@ -317,8 +382,16 @@
     opts = opts || {};
     var init = { method: opts.method || "GET", headers: {} };
     if (opts.body !== undefined) {
-      init.headers["Content-Type"] = "application/json";
-      init.body = JSON.stringify(opts.body);
+      // Phase 3C — multipart intake. A FormData body must go out
+      // untouched and WITHOUT a hand-set Content-Type: the browser has to
+      // write that header itself so it can append the multipart boundary,
+      // and stringifying a FormData yields "[object FormData]".
+      if (typeof FormData !== "undefined" && opts.body instanceof FormData) {
+        init.body = opts.body;
+      } else {
+        init.headers["Content-Type"] = "application/json";
+        init.body = JSON.stringify(opts.body);
+      }
     }
     // Phase 1.1 — the single async choke point. Three checks, because the
     // mount can die at three different moments: before the request goes
@@ -571,6 +644,12 @@
     st.routeDelete = null;
     st.insertContext = null;
     st.tripWarning = "";
+    // Phase 3C: an open upload drawer is armed against the trip it was
+    // opened from, and an intake result describes a trip the operator is
+    // no longer looking at. Both die with the selection.
+    st.uploadDrawer = null;
+    st.photoIntake = null;
+    st.sourceIntake = null;
     // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden-row visibility is a
     // per-trip review choice — reset it on trip switch.
     st.showHiddenNotes = false;
@@ -669,6 +748,10 @@
     st.routeDelete = null;
     st.insertContext = null;
     st.tripWarning = "";
+    // Phase 3C — same rule, same urgency: the trip is gone.
+    st.uploadDrawer = null;
+    st.photoIntake = null;
+    st.sourceIntake = null;
     st.error = "";
     loriPane.reset();
     return loadTrips({ noAutoSelect: true });
@@ -945,6 +1028,417 @@
     root.appendChild(card);
   }
 
+  // ── intake: photo upload / source upload / photo cluster ─────────────
+  //
+  // WO-TRAVEL-DOC-UNIFY-01 Phase 3C. The banner at the head of this file
+  // carries the reasoning; this is the code.
+  //
+  // NOTHING in an open upload drawer may call renderAll(). An
+  // <input type="file"> holds a FileList that script cannot write, so a
+  // repaint between "choose files" and "Upload" throws the operator's
+  // selection away with no way to restore it. Every in-drawer reaction is
+  // therefore a direct DOM mutation, and the first repaint of the flow
+  // happens after the response lands.
+
+  var SOURCE_TYPES = ["itinerary", "receipt", "hotel", "ticket",
+    "note", "map", "link", "other"];
+
+  // Provenance stamp on every photo this surface ingests. The backend
+  // records uploaded_from_surface verbatim as photo metadata and gives
+  // exactly ONE value special meaning ("travels_shelf" -> stamped
+  // needs_operator_review / narrator_uploaded). This is neither the
+  // narrator shelf nor the legacy Documenter, so it does not claim to be
+  // either.
+  var UPLOAD_SURFACE = "travel_doc_unified";
+
+  // ── explicit upload scope ────────────────────────────────────────────
+  //
+  // One string, three shapes: "trip" | "region:<id>" | "stop:<id>". The
+  // destination is NEVER re-derived from st.routeSel at submit time; the
+  // route selection seeds the select when the drawer opens and is not
+  // consulted again. That is the whole difference between a convenience
+  // default and a silent wrong-scope attach.
+
+  function parseScopeKey(key) {
+    var s = String(key || "trip");
+    if (s.indexOf("region:") === 0) {
+      return { level: "region", regionId: s.slice(7), stopId: null };
+    }
+    if (s.indexOf("stop:") === 0) {
+      return { level: "stop", regionId: null, stopId: s.slice(5) };
+    }
+    return { level: "trip", regionId: null, stopId: null };
+  }
+
+  function scopeChoices() {
+    var out = [["trip", "Trip — " +
+      ((st.trip && st.trip.title) || "this trip")]];
+    ((st.tree && st.tree.regions) || []).forEach(function (r) {
+      out.push(["region:" + r.id, "Region — " + regionLabel(r)]);
+      allStops({ regions: [r] }).forEach(function (e) {
+        out.push(["stop:" + e.id, "Stop — " +
+          new Array(e.depth + 1).join("• ") + stopLabel(e.node)]);
+      });
+    });
+    return out;
+  }
+
+  function scopeNoun(scope) {
+    if (scope.level === "stop") {
+      var loc = locateStop(scope.stopId);
+      return "the stop “" + (loc ? stopLabel(loc.node) : "?") + "”";
+    }
+    if (scope.level === "region") {
+      var r = findRegion(scope.regionId);
+      return "the region “" + (r ? regionLabel(r) : "?") + "”";
+    }
+    return "the trip “" + ((st.trip && st.trip.title) || "") + "”";
+  }
+
+  function scopeTargetText(key) {
+    var scope = parseScopeKey(key);
+    if (scope.level === "stop") {
+      var loc = locateStop(scope.stopId);
+      if (!loc) return "Target: that stop is no longer in this trip — pick again.";
+      return "Target: the stop “" + stopLabel(loc.node) + "” in " +
+        regionLabel(loc.region) + ".";
+    }
+    if (scope.level === "region") {
+      var reg = findRegion(scope.regionId);
+      if (!reg) return "Target: that region is no longer in this trip — pick again.";
+      return "Target: the region “" + regionLabel(reg) +
+        "” — not any one stop in it.";
+    }
+    return "Target: " + scopeNoun(parseScopeKey("trip")) +
+      " — not any region or stop.";
+  }
+
+  // Seed only. st.routeSel is the Trip tab's selection, and starting the
+  // drawer where the operator was already working saves a step — but a
+  // stale id must never survive into a request, so both branches re-check
+  // that the entity is still in the loaded tree.
+  function defaultScopeKey() {
+    var sel = st.routeSel;
+    if (sel && sel.kind === "stop" && findStop(sel.id)) return "stop:" + sel.id;
+    if (sel && sel.kind === "region" && findRegion(sel.id)) {
+      return "region:" + sel.id;
+    }
+    return "trip";
+  }
+
+  // ── the intake drawer ────────────────────────────────────────────────
+
+  function openUploadDrawer(kind) {
+    if (!st.trip) return;
+    if (dayFormDirtyBlocks()) return;
+    st.uploadDrawer = { kind: kind, error: "" };
+    renderAll();
+  }
+
+  function closeUploadDrawer() { st.uploadDrawer = null; renderAll(); }
+
+  function renderUploadDrawer() {
+    var ud = st.uploadDrawer;
+    var isPhoto = ud.kind === "photo";
+    var sh = drawerShell(isPhoto ? "Photo intake" : "Source intake",
+      isPhoto ? "Upload photos" : "Upload documents",
+      closeUploadDrawer, "tdl-edit-drawer tdl-upload-drawer");
+
+    // Evidence doctrine, stated where the operator is acting rather than
+    // in a doc they will not open.
+    sh.body.appendChild(el("p", "tdl-intake-doctrine", isPhoto
+      ? "Upload is intake, not approval. Photos land as evidence at the " +
+        "scope you choose. Captions, OCR, public lookup and anything " +
+        "shared with Lori stay behind their own approval steps."
+      : "Upload is intake, not approval. Documents land private to this " +
+        "trip. Nothing is promoted into the memoir here — that stays " +
+        "the In-memoir toggle on the source itself."));
+
+    var scopeSel = selectInput(scopeChoices(), defaultScopeKey());
+    sh.body.appendChild(field("Upload to", scopeSel));
+    var target = el("div", "tdl-scope-target", scopeTargetText(scopeSel.value));
+    sh.body.appendChild(target);
+    // Property assignment + textContent swap: the target line has to
+    // track the select WITHOUT a repaint, or choosing a scope after
+    // choosing files would wipe the files.
+    scopeSel.onchange = function () {
+      target.textContent = scopeTargetText(scopeSel.value);
+    };
+
+    var files = el("input");
+    files.type = "file";
+    files.multiple = true;
+    if (isPhoto) files.accept = "image/*";
+    sh.body.appendChild(field(isPhoto ? "Photo file(s)" : "File(s)", files));
+    var hint = el("div", "tdl-file-hint", "No files chosen yet.");
+    sh.body.appendChild(hint);
+
+    var typeSel = null;
+    var titleIn = null;
+    if (!isPhoto) {
+      typeSel = selectInput(SOURCE_TYPES.map(function (t) { return [t, t]; }),
+        "other");
+      sh.body.appendChild(field("Type", typeSel));
+      titleIn = textInput("", "Leave empty to keep the file's own name");
+      sh.body.appendChild(field("Title (optional)", titleIn,
+        "One title per upload — with several files each keeps its own name."));
+    }
+
+    var errEl = drawerError(sh.body, ud.error);
+
+    var upBtn = btn("tdl-btn tdl-btn-primary",
+      isPhoto ? "⬆ Upload photos" : "⬆ Upload documents",
+      function () {
+        var chosen = Array.prototype.slice.call(files.files || []);
+        if (!chosen.length) {
+          errEl.textContent = "Choose at least one file first.";
+          errEl.hidden = false;
+          return;
+        }
+        var scope = parseScopeKey(scopeSel.value);
+        errEl.hidden = true;
+        upBtn.disabled = true;
+        function fail(e) {
+          upBtn.disabled = false;
+          if (st.uploadDrawer) {
+            st.uploadDrawer.error = "Upload failed: " + e.message;
+          } else {
+            st.error = e.message;
+          }
+          renderAll();
+        }
+        if (isPhoto) {
+          uploadPhotoFiles(chosen, scope).catch(fail);
+        } else {
+          uploadSourceFiles(chosen, scope, typeSel.value,
+            (titleIn.value || "").trim()).catch(fail);
+        }
+      });
+    upBtn.disabled = true;
+
+    files.onchange = function () {
+      var n = (files.files || []).length;
+      upBtn.disabled = !n;
+      hint.textContent = !n ? "No files chosen yet."
+        : (n === 1 ? "1 file chosen." : n + " files chosen.");
+      if (titleIn) {
+        // The backend stamps ONE title across the whole request, so a
+        // title on a multi-file drop would erase every filename.
+        titleIn.disabled = n > 1;
+        titleIn.placeholder = n > 1
+          ? "Several files — each keeps its own name"
+          : "Leave empty to keep the file's own name";
+      }
+    };
+
+    sh.foot.appendChild(upBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeUploadDrawer));
+    return sh.wrap;
+  }
+
+  // ── photo upload ─────────────────────────────────────────────────────
+
+  function photoUploadPath(scope) {
+    if (scope.level === "stop") {
+      return "/api/trips/stops/" + encodeURIComponent(scope.stopId) + "/photos";
+    }
+    if (scope.level === "region") {
+      return "/api/trips/" + encodeURIComponent(st.trip.id) +
+        "/regions/" + encodeURIComponent(scope.regionId) + "/photos";
+    }
+    return "/api/trips/" + encodeURIComponent(st.trip.id) + "/photos";
+  }
+
+  function photoUploadSummary(out, scope, sent) {
+    var o = out || {};
+    var lines = [
+      "Sent " + sent + (sent === 1 ? " file" : " files") + " to " +
+        scopeNoun(scope) + ".",
+      "Ingested: " + (o.uploaded == null ? "?" : o.uploaded) + ".",
+    ];
+    var warnings = [];
+    if (o.duplicates) {
+      warnings.push(o.duplicates + " already existed in this narrator's " +
+        "library and were not re-ingested.");
+    }
+    if (o.mismatches) {
+      warnings.push(o.mismatches + " flagged: the EXIF date or GPS " +
+        "disagrees with where you dropped them. The placement was kept " +
+        "— they are in the Needs review filter.");
+    }
+    if (o.errors) {
+      warnings.push(o.errors + " could not be read and were NOT ingested.");
+    }
+    if (scope.level !== "stop") {
+      warnings.push("Dropped above stop level, so these stay unplaced " +
+        "until Cluster photos or a stop-level drop places them.");
+    }
+    return { kind: "upload", busy: false, lines: lines, warnings: warnings };
+  }
+
+  function uploadPhotoFiles(chosen, scope) {
+    var fd = new FormData();
+    chosen.forEach(function (f) { fd.append("files", f); });
+    fd.append("uploaded_by_user_id", UPLOAD_SURFACE);
+    fd.append("narrator_ready", "true");
+    fd.append("uploaded_from_surface", UPLOAD_SURFACE);
+    // Deliberately NOT sent: caption. See decision 2 in the file banner.
+    return api(photoUploadPath(scope), { method: "POST", body: fd })
+      .then(function (out) {
+        st.uploadDrawer = null;
+        st.photoIntake = photoUploadSummary(out, scope, chosen.length);
+        // The operator has to be able to SEE what they just uploaded. A
+        // trip- or region-level drop lands unplaced, so a filter left on
+        // "Needs review" or "Shared with Lori" would show an empty
+        // gallery and read as a failed upload.
+        st.photoFilter = "all";
+        st.tab = "photos";
+        st.error = "";
+        notifyTripUpdated(st.trip.id, "photos_uploaded");
+        return refreshTripBundle();
+      });
+  }
+
+  // ── source upload ────────────────────────────────────────────────────
+
+  function uploadSourceFiles(chosen, scope, sourceType, title) {
+    var fd = new FormData();
+    chosen.forEach(function (f) { fd.append("files", f); });
+    fd.append("source_type", sourceType || "other");
+    if (scope.level === "region") {
+      fd.append("trip_region_id", scope.regionId);
+    }
+    if (scope.level === "stop") {
+      var loc = locateStop(scope.stopId);
+      if (loc && loc.region) fd.append("trip_region_id", loc.region.id);
+      fd.append("trip_stop_id", scope.stopId);
+    }
+    if (title && chosen.length === 1) fd.append("title", title);
+    // Deliberately NOT sent: trip_day_id (day attach is its own act) and
+    // include_in_memoir (intake never promotes). See the file banner.
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      "/sources/upload", { method: "POST", body: fd })
+      .then(function (out) {
+        var n = ((out && out.source_ids) || []).length || chosen.length;
+        st.uploadDrawer = null;
+        st.sourceIntake = {
+          busy: false,
+          lines: [
+            "Uploaded " + n + (n === 1 ? " document" : " documents") +
+              " to " + scopeNoun(scope) + " as “" +
+              (sourceType || "other") + "”.",
+            "Private to this trip. Not attached to a day card and not in " +
+              "the memoir — both of those stay deliberate acts.",
+          ],
+          warnings: [],
+        };
+        st.sourceFilter = "all";
+        st.tab = "sources";
+        st.error = "";
+        notifyTripUpdated(st.trip.id, "sources_uploaded");
+        return refreshTripBundle();
+      });
+  }
+
+  // ── photo cluster ────────────────────────────────────────────────────
+
+  function runClusterPhotos() {
+    if (!st.trip) return Promise.resolve();
+    st.photoIntake = { kind: "cluster", busy: true, lines: [], warnings: [] };
+    renderAll();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      "/cluster-photos",
+      { method: "POST", body: { narrator_id: st.personId || null } })
+      .then(function (out) {
+        var o = out || {};
+        var warnings = [];
+        if (o.needs_review) {
+          warnings.push(o.needs_review + " placement" +
+            (o.needs_review === 1 ? "" : "s") + " landed below the " +
+            "confidence threshold (" +
+            (o.review_threshold == null ? "?" : o.review_threshold) +
+            ") — placed but unverified, in the Needs review filter.");
+        }
+        if (o.skipped_operator_confirmed) {
+          warnings.push(o.skipped_operator_confirmed + " already carried an " +
+            "operator placement and were left exactly as they were.");
+        }
+        // Honest, not flattering: the backend clusters the NARRATOR's
+        // whole photo library, so this number is not a trip statistic.
+        warnings.push("Clustering reads every photo belonging to this " +
+          "narrator, not only ones uploaded here — “considered” " +
+          "counts the library, not the trip.");
+        st.photoIntake = {
+          kind: "cluster",
+          busy: false,
+          lines: [
+            "Photos considered: " +
+              (o.photos_considered == null ? "?" : o.photos_considered) + ".",
+            "Photo links written or updated: " +
+              (o.links_written == null ? "?" : o.links_written) + ".",
+          ],
+          warnings: warnings,
+        };
+        st.photoFilter = "all";
+        st.error = "";
+        notifyTripUpdated(st.trip.id, "photos_clustered");
+        return refreshTripBundle();
+      })
+      .catch(function (e) {
+        st.photoIntake = {
+          kind: "cluster", busy: false, lines: [], warnings: [],
+          error: "Cluster failed: " + e.message,
+        };
+        renderAll();
+      });
+  }
+
+  // ── in-panel intake result ───────────────────────────────────────────
+  //
+  // The result of an intake run renders INSIDE the tab that owns it. A
+  // native dialog would be one OK click away from erasing a duplicate
+  // count or a date mismatch the operator needed to read.
+
+  function renderIntakeResult(res, dismiss) {
+    var box = el("div", "tdl-intake-result" +
+      (res.error ? " tdl-intake-failed" : ""));
+    if (res.busy) {
+      box.appendChild(el("p", "tdl-intake-line", "Working…"));
+      return box;
+    }
+    if (res.error) box.appendChild(el("p", "tdl-intake-err", res.error));
+    (res.lines || []).forEach(function (t) {
+      box.appendChild(el("p", "tdl-intake-line", t));
+    });
+    (res.warnings || []).forEach(function (t) {
+      box.appendChild(el("p", "tdl-intake-warn", "⚠ " + t));
+    });
+    box.appendChild(btn("tdl-btn tdl-btn-small", "Dismiss", dismiss));
+    return box;
+  }
+
+  function renderPhotoIntakeBar() {
+    var bar = el("div", "tdl-intake-bar");
+    bar.appendChild(btn("tdl-btn tdl-btn-primary", "⬆ Upload photos",
+      function () { openUploadDrawer("photo"); }));
+    var clusterBtn = btn("tdl-btn", "✦ Cluster photos", runClusterPhotos);
+    if (st.photoIntake && st.photoIntake.busy) clusterBtn.disabled = true;
+    bar.appendChild(clusterBtn);
+    bar.appendChild(el("span", "tdl-muted tdl-intake-note",
+      "Intake only — placing, captioning and sharing stay separate."));
+    return bar;
+  }
+
+  function renderSourceIntakeBar() {
+    var bar = el("div", "tdl-intake-bar");
+    bar.appendChild(btn("tdl-btn tdl-btn-primary", "⬆ Upload document",
+      function () { openUploadDrawer("source"); }));
+    bar.appendChild(el("span", "tdl-muted tdl-intake-note",
+      "Uploaded documents are private to this trip and are not promoted " +
+      "into the memoir."));
+    return bar;
+  }
+
   // ── shell ─────────────────────────────────────────────────────────────
 
   var TABS = [
@@ -1049,6 +1543,10 @@
     if (st.trip && st.photoPickerDayId) app.appendChild(renderPhotoPicker());
     if (st.trip && st.noteDrawerDayId) app.appendChild(renderNoteDrawer());
     if (st.trip && st.sourceDrawerDayId) app.appendChild(renderSourceDrawer());
+    // Phase 3C — intake drawer. Gated on st.trip: every upload endpoint is
+    // addressed under a trip, so there is no such thing as a trip-less
+    // upload to keep reachable.
+    if (st.trip && st.uploadDrawer) app.appendChild(renderUploadDrawer());
     if (st.trip && st.reconcileDrawerOpen) app.appendChild(renderReconcileDrawer());
     // Phase 3A — deliberately NOT gated on st.trip. Every other drawer
     // describes the selected trip; this one describes a trip that is being
@@ -3904,6 +4402,14 @@
   function renderPhotos() {
     var wrap = el("div");
     wrap.appendChild(el("h1", "", "Photo Story"));
+    // Phase 3C — intake lives above the gallery, because the answer to
+    // "there are no photos here" has to be reachable from the empty state.
+    wrap.appendChild(renderPhotoIntakeBar());
+    if (st.photoIntake) {
+      wrap.appendChild(renderIntakeResult(st.photoIntake, function () {
+        st.photoIntake = null; renderAll();
+      }));
+    }
     var ws = el("div", "tdl-photo-workspace");
 
     var rail = el("div", "tdl-filter-rail");
@@ -4197,6 +4703,16 @@
     }).length;
     wrap.appendChild(hiddenToggleRow("showHiddenSources", hiddenSourceCount,
       "sources"));
+    // Phase 3C — intake goes in ABOVE the early return below. This tab
+    // returns early when the active filter is empty, and an upload control
+    // appended after that point would disappear from exactly the state
+    // where the operator needs it most: no sources yet.
+    wrap.appendChild(renderSourceIntakeBar());
+    if (st.sourceIntake) {
+      wrap.appendChild(renderIntakeResult(st.sourceIntake, function () {
+        st.sourceIntake = null; renderAll();
+      }));
+    }
     var rows = st.sources.filter(function (s) {
       return sourceMatchesFilter(s, st.sourceFilter);
     });
