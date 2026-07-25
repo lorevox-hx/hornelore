@@ -687,12 +687,14 @@ anywhere on the badge path.
 ### Phase 3D verification
 
 `node --check` clean on `travel-doc-lab.js`, `ast.parse` clean on the test
-files, `CR: 0` on all four files on both sides of the transfer. **253 tests
+files, `CR: 0` on all four files on both sides of the transfer. **255 tests
 green** (was 236) across the same six suites Phase 3C counted, in the container
 and on the device.
 
-The seventeen new gates in `RouteOrderBoardTest` were **mutation-tested rather
-than trusted**: seventeen mutants, seventeen killed, each by its intended gate.
+The nineteen new gates in `RouteOrderBoardTest` were **mutation-tested rather
+than trusted**: nineteen mutants, nineteen killed, each by its intended gate.
+Seventeen of them existed before the live smoke. The last two were written
+*because* of it, and the reason is the next section.
 One mutant exposed a flaw in the harness rather than in the code — the anchor
 `parent_trip_stop_id: parentId,` occurs twice (the 3B stop-editor drawer and the
 new mover), and the harness correctly refused to mutate an ambiguous anchor
@@ -714,10 +716,107 @@ md5 comparison of eight files confirmed this was the *only* container/device
 divergence. The repair ships as its **own commit**, separate from Phase 3D,
 because it is a Phase 2 test-sync fix and not this phase's work.
 
-**Live smoke: NOT RUN.** The Chrome extension was not connected during this
-session, so none of Chris's eleven live-smoke steps were exercised. Phase 3D is
-CODE-LANDED and test-green; it is **not** smoke-accepted, and the smoke has to
-be run before Phase 4 opens.
+### Phase 3D live smoke - and the bug that nineteen tests could not see
+
+**The smoke ran, and it earned its place in the gate list.** The very first
+arrow press on the running stack failed. Region WEST's up arrow put this into
+the board's own error strip:
+
+    POST /api/trips/{id}/regions/reorder -> 422
+    [{"type":"model_attributes_type","loc":["body"],
+      "msg":"Input should be a valid dictionary or object to extract fields from",
+      "input":"{\"ordered_ids\":[...]}"}]
+
+**Every arrow press on the board was broken, on regions and on stops both.** The
+cause is a convention this file has and never stated: `api()` owns the request
+encoding. It stringifies `opts.body` itself, in the branch that sits after the
+`FormData` check, so a call site must hand it a **raw object**. Both Phase 3D
+movers were written as `body: JSON.stringify({...})`, which double-encoded the
+request into a JSON *string*, and the backend answered 422 on every press.
+
+Two things about how this got through are worth recording. First, **no
+source-scanning test could have caught it**, because both spellings look equally
+plausible read in isolation - the defect lives in the relationship between the
+call site and `api()`, not inside either one, and seventeen gates plus seventeen
+mutants had just passed over it. Second, **the convention was already
+unanimous**: every other call site in a 5,500-line file passes a raw object, so
+the two new movers were the only offenders in the whole file. That is precisely
+the shape of defect a live smoke exists to catch, and it is the argument for
+keeping the smoke a gate rather than a formality.
+
+The fix is a raw object at both call sites plus two new gates. The first bans
+`body: JSON.stringify` **file-wide** while asserting that the encoding still
+happens exactly once inside `api()` - without that positive half, deleting it
+from both ends would pass. The second pins that the two movers still send a body
+at all and still leave the encoding to `api()`, since the file-wide ban alone
+would also be satisfied by a mover that stopped posting anything. Both were
+mutation-tested: reintroducing each `JSON.stringify` gave `FAILED (failures=2)`,
+restoring gave OK.
+
+**The failure surface itself behaved exactly as designed**, which is worth
+crediting rather than glossing: in-panel, next to the rows it was about, quoting
+the server verbatim, with a Dismiss control, no native dialog, and a bundle
+reload that left the board consistent afterwards. An operator hitting this would
+have been able to report it precisely.
+
+**After the fix, every one of Chris's eleven live-smoke steps is green.** All
+tree assertions below were read server-side from `/api/trips/{id}/tree` rather
+than off the DOM, so the board is being checked against the database and not
+against itself.
+
+- **Disposable trip, three regions, seven stops.** Chris's line said two
+  regions; a third was added so that a middle region exists with both arrows
+  enabled.
+- **Region reorder both directions.** WEST up gave `NORTH | WEST | SOUTH`; WEST
+  down put it back.
+- **Stop reorder both directions, and the substops travelled with their
+  parent.** Moving N-Alpha never detached its children, so a reorder did not
+  quietly reparent.
+- **Substop reorder inside its own sibling group**, sub2 up giving
+  `N-Alpha(N-Alpha-sub2, N-Alpha-sub)`.
+- **Arrow end-disable is per sibling group, not per screen row.** The last
+  substop's down arrow is disabled even though a top-level stop sits visually
+  below it, because that stop is not its sibling. A forced click on a disabled
+  arrow is a genuine no-op: the tree before and after was byte-identical, with
+  no error and no dialog - the substop could not be lifted out of its group.
+- **Insert before and insert after**, on a top-level stop and on a substop. The
+  hint reads *"Inserting before N-Bravo"*, and for a child
+  *"Inserting before N-Alpha-sub (as a child stop)"* with the parent select
+  pre-set to N-Alpha. `insertContext` / `insertHint` are intact, and an insert
+  taken relative to a substop lands in the child sibling group rather than at
+  top level.
+- **Move a stop between regions** through the stop editor's region select:
+  N-Bravo went from NORTH to WEST and the server tree agreed.
+- **Unsafe moves stay blocked at both layers.** The parent select for a stop
+  with children offers `Top level` and its non-descendants only; its own subtree
+  is absent. Forcing it past the UI with a direct API call returned **400
+  `move would create a cycle (parent is a descendant of this stop)`**.
+- **Displayed order survives a refresh.** After a full page reload and remount,
+  the twelve board rows came back in exactly the pre-reload sequence and matched
+  the server tree depth-first.
+- **Counts still refresh.** The trip header read `3 regions - 9 stops` and the
+  region row `7 stops`, both having tracked the inserts; the Trip Plan tab's ten
+  day cards each render their photo / note / source / context counts.
+- **Both Phase 3B delete ladders still pass.** The stop ladder opened in-panel
+  with its "loses the stop link" copy and deleted cleanly. The region ladder on
+  a non-empty region tried unforced first, was refused, and escalated to a
+  second rung quoting the server verbatim and naming the blast radius
+  (*"Delete region and its 1 stop"*). **Nothing was destroyed at rung one**; the
+  cascade landed only after the second.
+- **The Phase 3C upload drawer still preserves file selection.** Retargeting the
+  scope select from trip to a stop left the file input node the *identically
+  same object*, still in the document. That node identity is the whole reason a
+  `FileList` survives, and the route work did not disturb it. The scope list had
+  also picked up every stop added during the smoke, including the inserted ones.
+- **The Phase 3A force-delete gate is unchanged and still arms strictly.** Empty
+  field: disabled. `P3D SMOKE` against a title of `P3D SMOKE - disposable`:
+  still disabled. Exact title: armed. Force delete returned the trip to a server
+  404 and the rail to its empty state.
+- **No duplicate mount, socket or listener.** Three full legacy round trips left
+  exactly one `.tdl-root`, zero `.td-root`, one host and **zero new WebSockets**.
+  The legacy fallback is still reachable, as Chris's scope requires.
+- **Zero native dialogs and zero console errors** across the entire run, the spy
+  reading empty at every checkpoint.
 
 ## Revision history
 
@@ -727,4 +826,4 @@ be run before Phase 4 opens.
 - 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.
 - 2026-07-25 — Phase 3C landed: photo upload at trip/region/stop scope, source upload, and photo clustering built into the unified workspace — a capability, not a port, since the lab had no `FormData` and no file input. `api()` grew a `FormData` branch ahead of its JSON branch. Scope is an explicit drawer selection rather than production's ambient `editorScope()` read, and the drawer never repaints between choosing files and uploading, because a `FileList` cannot be restored by script. Intake never promotes. Found and fixed a same-scope bug: three suites used a string-blind comment stripper and went blind on `files.accept = "image/*"` — migrated to the repo's existing `strip_js_comments`, assertions unchanged. 236 tests green (was 220), sixteen new gates mutation-tested; twelve-step live smoke green across all three upload scopes, with no-auto-promotion verified server-side.
 - 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
-- 2026-07-25 — Phase 3D landed: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. 253 tests green (was 236), seventeen new gates mutation-tested, seventeen mutants killed. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2. **Live smoke not run — the browser extension was not connected; Phase 3D is code-landed, not smoke-accepted.**
+- 2026-07-25 — Phase 3D landed and smoke-accepted: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. **The live smoke found a bug that nineteen source-scanning gates could not**: `api()` owns the request encoding, and both new movers pre-stringified their body, so every arrow press on the board answered 422. Fixed with a raw object at both call sites plus two new gates, one banning `body: JSON.stringify` file-wide while pinning that the encoding still happens exactly once inside `api()`. 255 tests green (was 236), nineteen gates mutation-tested, nineteen mutants killed. Eleven-step live smoke green, including insert before/after on a substop, cross-region move, cycle rejection at both layers, order surviving a refresh, both delete ladders, `FileList` node identity, the force-delete gate, and a clean mount/socket census. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2.
