@@ -2728,6 +2728,16 @@
         // WebSocket so narrator-switch remounts don't leak open sockets
         // to /api/chat/ws.
         try { modalLori.close(); } catch (_) {}
+        // WO-TRAVEL-DOC-UNIFY-01 Phase 2: close the trip-update channel
+        // too. It was opened at mount and never closed, which barely
+        // showed while the shell mounted this module once per narrator
+        // and threw the handle away. Phase 2 keeps the handle and now
+        // destroys/remounts on every tab exit, narrator switch and
+        // surface toggle, so an unclosed channel per mount accumulates
+        // fast. Send-only today (postMessage, no onmessage), but leaving
+        // it open is still a live port the operator cannot reclaim.
+        try { if (_tripUpdateChannel) _tripUpdateChannel.close(); } catch (_) {}
+        _tripUpdateChannel = null;
         document.body.classList.remove("lv-td-focus");
         hostEl.innerHTML = "";
         hostEl.classList.remove("td-root");

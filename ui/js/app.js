@@ -468,6 +468,125 @@ function lvShellGetActiveTab() {
 }
 window.lvShellGetActiveTab = lvShellGetActiveTab;
 
+/* ── Travel Doc surface switching (WO-TRAVEL-DOC-UNIFY-01 Phase 2) ─────────
+   The Travel Doc tab hosts TWO possible surfaces for the duration of the
+   port:
+
+     "unified"  #lvTravelDocUnifiedHost  ← js/travel-doc-lab.js, the
+                mountable workspace built in Phase 1 / 1.1. This is the
+                default and the one operators should see.
+     "legacy"   #lvTravelDocHost         ← js/travel-documenter.js, kept
+                reachable behind a comparison toggle until the port is
+                finished, then removed together with the toggle.
+
+   EXACTLY ONE IS EVER MOUNTED, and that is a correctness rule rather than
+   a cosmetic one. Each surface owns a BroadcastChannel subscription, a
+   document-level keydown listener and a Lori websocket. Two live mounts
+   would double all three and the two keydown handlers would both answer
+   Escape. So: switching surfaces destroys the other one first, and leaving
+   the tab destroys both.
+
+   Both modules return a handle carrying destroy(). The legacy one always
+   did — the shell just discarded it, which is why every narrator switch
+   leaked a document keydown listener and a modal-Lori socket. Phase 2
+   keeps the handle and uses it, which closes that pre-existing leak. */
+const _LV_TD_SURFACE_KEY = "lvTravelDocSurface";
+
+/** Resolve the active surface once per page, honouring the operator's
+ *  last choice. Anything that is not the literal "legacy" is "unified" —
+ *  a corrupt or absent localStorage value must land on the default path,
+ *  never on the fallback. */
+function _lvTravelDocSurface() {
+  // The cache lives on window._lvTravelDocActiveSurface, NOT on
+  // window._lvTravelDocSurface. app.js is a classic script with no IIFE
+  // wrapper, so this very function declaration IS window._lvTravelDocSurface —
+  // caching the string there overwrote the function with "unified", and the
+  // second call died with "_lvTravelDocSurface is not a function". The
+  // headless shell proof caught it on the reenter_tab step. Any window
+  // property in this file that shadows a top-level function name is the
+  // same bug.
+  if (window._lvTravelDocActiveSurface) return window._lvTravelDocActiveSurface;
+  let s = "";
+  try { s = localStorage.getItem(_LV_TD_SURFACE_KEY) || ""; } catch (_) {}
+  window._lvTravelDocActiveSurface = (s === "legacy") ? "legacy" : "unified";
+  return window._lvTravelDocActiveSurface;
+}
+
+/** Destroy the unified (travel-doc-lab.js) mount, if any. Idempotent. */
+function _lvTravelDocDestroyUnified() {
+  const h = window._lvTravelDocUnifiedHandle;
+  window._lvTravelDocUnifiedHandle = null;
+  window._lvTravelDocUnifiedMountedFor = null;
+  if (h && typeof h.destroy === "function") {
+    try { h.destroy(); }
+    catch (e) { console.warn("[travel-doc] unified destroy threw:", e); }
+  }
+  // Belt and braces: the module's own destroy() already clears the host
+  // and takes its classes back off, but a mount that threw mid-render may
+  // never have returned a handle at all.
+  const host = document.getElementById("lvTravelDocUnifiedHost");
+  if (host) {
+    host.classList.remove("tdl-root", "tdl-root-embedded");
+    host.innerHTML = "";
+  }
+}
+
+/** Destroy the legacy (travel-documenter.js) mount, if any. Idempotent. */
+function _lvTravelDocDestroyLegacy() {
+  const h = window._lvTravelDocLegacyHandle;
+  window._lvTravelDocLegacyHandle = null;
+  window._lvTravelDocMountedFor = null;
+  if (h && typeof h.destroy === "function") {
+    try { h.destroy(); }
+    catch (e) { console.warn("[travel-doc] legacy destroy threw:", e); }
+  }
+  const host = document.getElementById("lvTravelDocHost");
+  if (host) {
+    host.classList.remove("td-root");
+    host.innerHTML = "";
+  }
+}
+
+/** Tear down both surfaces. Called when leaving the tab, when switching
+ *  surfaces, and by the narrator-switch flow in hornelore1.0.html. */
+window.lvTravelDocTeardownAll = function () {
+  _lvTravelDocDestroyUnified();
+  _lvTravelDocDestroyLegacy();
+};
+
+/** Paint the half of the switch that is pure presentation: which host is
+ *  visible and which toggle button reads as pressed. The other half —
+ *  which surface is actually MOUNTED — is done in lvShellShowTab, because
+ *  hiding a live mount is not the same as destroying it. */
+function _lvTravelDocPaintSurfaceChrome(surface) {
+  try {
+    const uni = document.getElementById("lvTravelDocUnifiedHost");
+    const leg = document.getElementById("lvTravelDocHost");
+    if (uni) uni.classList.toggle("lv-td-host-off", surface !== "unified");
+    if (leg) leg.classList.toggle("lv-td-host-off", surface !== "legacy");
+    document.querySelectorAll("[data-td-surface]").forEach(b => {
+      b.setAttribute(
+        "aria-pressed",
+        b.getAttribute("data-td-surface") === surface ? "true" : "false");
+    });
+  } catch (_) {}
+}
+
+/** Operator-facing surface switch (the temporary Phase 2 toggle). */
+window.lvTravelDocSetSurface = function (name) {
+  const next = (name === "legacy") ? "legacy" : "unified";
+  // Resolve rather than reading the cache raw: on the very first click the
+  // cache is still unset, and comparing against undefined would tear down
+  // and remount the surface the operator is already looking at.
+  if (_lvTravelDocSurface() === next) return;
+  window._lvTravelDocActiveSurface = next;
+  try { localStorage.setItem(_LV_TD_SURFACE_KEY, next); } catch (_) {}
+  // Destroy BOTH before remounting. Replacing the surface is exactly the
+  // moment two Travel Doc mounts could end up live at once.
+  window.lvTravelDocTeardownAll();
+  try { lvShellShowTab("traveldoc"); } catch (_) {}
+};
+
 /**
  * Switch to the named tab.  Safe to call before init (no-op if the DOM
  * isn't present yet).  Updates aria-selected on both tab buttons and
@@ -527,23 +646,60 @@ function lvShellShowTab(tabName) {
     return label || pid;
   }
   if (tabName === "traveldoc") {
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 2 — one tab, two possible surfaces,
+    // never two live mounts. See the doctrine block above lvShellShowTab.
+    const _tdSurface = _lvTravelDocSurface();
+    // Kill the surface we are NOT showing before anything else runs, so a
+    // toggle that lands here can never leave the previous mount holding a
+    // BroadcastChannel, a keydown listener or a Lori socket.
+    if (_tdSurface === "unified") _lvTravelDocDestroyLegacy();
+    else _lvTravelDocDestroyUnified();
+    _lvTravelDocPaintSurfaceChrome(_tdSurface);
     try {
-      const host = document.getElementById("lvTravelDocHost");
+      const unified = _tdSurface === "unified";
+      const host = document.getElementById(
+        unified ? "lvTravelDocUnifiedHost" : "lvTravelDocHost");
       const pid = (state && state.person_id) || "";
       if (host) {
         if (!pid) {
-          window._lvTravelDocMountedFor = null;
-          host.classList.remove("td-root");
+          // No narrator selected → mount nothing, and destroy anything the
+          // PREVIOUS narrator left behind. Hiding it under the empty-state
+          // message would leave a live socket bound to a narrator the
+          // operator has already navigated away from.
+          if (unified) _lvTravelDocDestroyUnified();
+          else _lvTravelDocDestroyLegacy();
           host.innerHTML =
             '<p class="lv-traveldoc-empty">Choose a narrator first.</p>';
+        } else if (unified) {
+          if (window._lvTravelDocUnifiedMountedFor !== pid) {
+            // New narrator (or first open) → fresh mount scoped to them.
+            // Destroy first: remounting over a live mount is the other way
+            // to end up with two of everything.
+            _lvTravelDocDestroyUnified();
+            if (typeof window.lvTravelDocMount === "function") {
+              window._lvTravelDocUnifiedHandle = window.lvTravelDocMount(host, {
+                person_id: pid,
+                // Label from the active narrator card, never the hidden
+                // select — see the note on the helper above.
+                person_label: _lvCurrentNarratorDisplayLabel(pid),
+                apiBase: window.LOREVOX_API || "http://localhost:8000",
+                // Identity comes from the shell, not from the shell URL's
+                // querystring. The module quarantines ?person_id= / ?api=
+                // to the standalone Lab page when this flag is set.
+                embedded: true,
+              });
+              window._lvTravelDocUnifiedMountedFor = pid;
+            } else {
+              host.innerHTML =
+                '<p class="lv-traveldoc-empty">Travel Doc module failed to load.</p>';
+            }
+          }
         } else if (window._lvTravelDocMountedFor !== pid) {
-          // New narrator (or first open) → fresh mount scoped to them.
-          // Label from the active narrator card, never the hidden select.
-          const label = _lvCurrentNarratorDisplayLabel(pid);
+          _lvTravelDocDestroyLegacy();
           if (typeof lvTravelDocumenterMount === "function") {
-            lvTravelDocumenterMount(host, {
+            window._lvTravelDocLegacyHandle = lvTravelDocumenterMount(host, {
               person_id: pid,
-              person_label: label,
+              person_label: _lvCurrentNarratorDisplayLabel(pid),
               apiBase: window.LOREVOX_API || "http://localhost:8000",
             });
             window._lvTravelDocMountedFor = pid;
@@ -588,6 +744,15 @@ function lvShellShowTab(tabName) {
   // everywhere else. The CSS is also data-shell-tab scoped as a backstop.
   if (tabName !== "traveldoc") {
     try { document.body.classList.remove("lv-td-focus"); } catch (_) {}
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 2: leaving the tab tears BOTH surfaces
+    // down. A hidden panel is display:none, not unloaded — before this,
+    // navigating to Media left the Documenter's document-level keydown
+    // listener and its modal-Lori socket live underneath the tab the
+    // operator was actually looking at. It also means the invariant
+    // "at most one Travel Doc mount exists" holds globally rather than
+    // only while the tab is open. Cost: re-entering the tab is a fresh
+    // mount, so trip/day selection does not survive a tab round-trip.
+    try { window.lvTravelDocTeardownAll(); } catch (_) {}
   }
   // Media tab preflight — single-shot probe for /api/photos so we can
   // surface the "not enabled" hint without navigating away.

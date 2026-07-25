@@ -79,12 +79,26 @@
   window.lvTravelDocMount = function (hostEl, opts) {
   opts = opts || {};
 
+  // WO-TRAVEL-DOC-UNIFY-01 Phase 2 — set by the Hornelore shell and by
+  // nothing else. See the block next to `var root` below for what it does
+  // to branding and layout; here it governs where identity comes from.
+  var embedded = !!opts.embedded;
+
   var qsParams = new URLSearchParams(window.location.search);
+  // Phase 2: the querystring fallbacks are STANDALONE-ONLY. On the Lab
+  // page ?person_id= / ?api= are how the operator scopes the surface. In
+  // the shell they are an attack on the shell's own idea of who is
+  // selected: hornelore1.0.html can carry a ?person_id= from any other
+  // launcher, and honouring it would mount Travel Doc against one
+  // narrator while the shell header, the Travels shelf and every other
+  // tab show a different one — silent cross-narrator writes. Embedded
+  // identity comes from opts, or it does not come at all.
   var st = {
-    apiBase: String(opts.apiBase || qsParams.get("api") ||
+    apiBase: String(opts.apiBase || (embedded ? "" : qsParams.get("api")) ||
                     window.LOREVOX_API ||
                     "http://localhost:8000").replace(/\/+$/, ""),
-    personId: String(opts.person_id || qsParams.get("person_id") || "").trim(),
+    personId: String(opts.person_id ||
+                     (embedded ? "" : qsParams.get("person_id")) || "").trim(),
     personLabel: String(opts.person_label || ""),
     tab: "plan",
     trips: [],
@@ -136,6 +150,27 @@
   // caller. The getElementById fallback keeps travel-doc-lab.html working
   // if it is ever loaded without an explicit host.
   var root = hostEl || document.getElementById("tdlRoot");
+
+  // WO-TRAVEL-DOC-UNIFY-01 Phase 2 — embedded mode + host scoping.
+  //
+  // `embedded` is set by the Hornelore shell and by nothing else. It does
+  // exactly two things, and deliberately no more: it drops the Lab's own
+  // branding (the "UI Lab · experimental" badge, the lab-only evaluation
+  // checklist, the picker's "experimental lab" copy), because in the shell
+  // this IS the Travel Doc workspace and calling it a lab is the
+  // discoverability defect Phase 2 is closing; and it adds
+  // .tdl-root-embedded, which swaps the stylesheet's dvh measurements for
+  // percentages of the host.
+  //
+  // The .tdl-root class is added here rather than by the caller so that
+  // EVERY mount is scoped — including the standalone page, which has no
+  // shell code to remember to do it. destroy() takes both classes back
+  // off, so a host handed on to something else carries none of the Lab's
+  // styling with it.
+  if (root) {
+    root.classList.add("tdl-root");
+    if (embedded) root.classList.add("tdl-root-embedded");
+  }
 
   // WO-TRAVEL-DOC-UNIFY-01 Phase 1.1 — the liveness flag.
   //
@@ -479,10 +514,12 @@
   function renderPersonPicker() {
     root.innerHTML = "";
     var card = el("div", "tdl-card tdl-picker");
-    card.appendChild(el("div", "tdl-kicker", "Travel Doc UI Lab"));
+    card.appendChild(el("div", "tdl-kicker",
+      embedded ? "Travel Doc" : "Travel Doc UI Lab"));
     card.appendChild(el("h2", "", "Choose a narrator"));
-    card.appendChild(el("p", "tdl-muted",
-      "This experimental lab needs a narrator. Pick one below (or pass ?person_id= in the URL)."));
+    card.appendChild(el("p", "tdl-muted", embedded
+      ? "Travel Doc works on one narrator at a time. Pick one below."
+      : "This experimental lab needs a narrator. Pick one below (or pass ?person_id= in the URL)."));
     api("/api/people").then(function (out) {
       var people = out.people || out || [];
       if (!people.length) {
@@ -555,7 +592,12 @@
     brand.appendChild(b);
     brand.appendChild(el("span", "tdl-divider"));
     brand.appendChild(el("span", "", "Travel Doc"));
-    brand.appendChild(el("span", "tdl-lab-badge", "UI Lab · experimental"));
+    // Phase 2: the badge is standalone-only. In the shell this surface is
+    // the Travel Doc workspace, not a side experiment, and labelling it
+    // "experimental" is what made operators route around it.
+    if (!embedded) {
+      brand.appendChild(el("span", "tdl-lab-badge", "UI Lab · experimental"));
+    }
     if (st.personLabel) {
       brand.appendChild(el("span", "tdl-muted tdl-brand-person", st.personLabel));
     }
@@ -778,7 +820,10 @@
       wrap.appendChild(cwBox);
     }
 
-    wrap.appendChild(renderEvalChecklist());
+    // Phase 2: the evaluation checklist is scaffolding for reviewing the
+    // Lab against the spec. It says "this panel is part of the removable
+    // lab" in the operator's face; standalone keeps it, the shell does not.
+    if (!embedded) wrap.appendChild(renderEvalChecklist());
 
     var metrics = el("div", "tdl-metrics");
     [["Days", st.days.length],
@@ -3563,6 +3608,13 @@
       _tdlUpdateChannel = null;
       try { loriPane.reset(); } catch (e) {}
       try { if (root) root.textContent = ""; } catch (e) {}
+      // Phase 2 — hand the host back unstyled. The shell reuses the same
+      // <div> for the fallback Documenter comparison toggle; leaving
+      // .tdl-root on it would paint the Lab's cream page background and
+      // font behind whatever mounts next.
+      try {
+        if (root) root.classList.remove("tdl-root", "tdl-root-embedded");
+      } catch (e) {}
     }
   };
 

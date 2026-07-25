@@ -11,7 +11,24 @@
    becomes compact chips; the left rail is collapsible.
    ========================================================================== */
 
-:root {
+/* ── WO-TRAVEL-DOC-UNIFY-01 Phase 2 — HOST SCOPING ────────────────────────
+   Everything in this file now hangs off .tdl-root, the class that
+   lvTravelDocMount() adds to its host element on mount and removes again
+   in destroy(). Before Phase 2 the variables lived on :root and the
+   element resets keyed off .tdl-body, which was correct while
+   ui/travel-doc-lab.html was the only page that loaded this stylesheet.
+   The Hornelore shell loads it too from Phase 2 on, and that breaks the
+   old shape in BOTH directions:
+     - :root publishes twelve --tdl-* custom properties into the shell's
+       global scope, where nothing else needs them;
+     - .tdl-body never matches inside the shell (the shell owns <body>),
+       so the mounted workspace would render with the dark shell's
+       inherited font and colour and without box-sizing — the workspace
+       would look broken in exactly the place operators use it.
+   Scoping to .tdl-root fixes both at once: the shell cannot see the Lab's
+   styling, and the Lab keeps every rule it had. The tdl- prefix is
+   unchanged; no class is renamed. */
+.tdl-root {
   --tdl-ink: #10233b;
   --tdl-muted: #66758a;
   --tdl-navy: #071121;
@@ -30,11 +47,16 @@
   --tdl-serif: Georgia, "Times New Roman", serif;
 }
 
-.tdl-body { margin: 0; min-height: 100%; font-family: var(--tdl-font); color: var(--tdl-ink); background: var(--tdl-cream); overflow-x: hidden; }
-.tdl-body * { box-sizing: border-box; }
-.tdl-body button, .tdl-body input, .tdl-body textarea, .tdl-body select { font: inherit; }
-.tdl-body button { cursor: pointer; }
-.tdl-body h1, .tdl-body h2, .tdl-body h3, .tdl-body h4, .tdl-body p { margin-top: 0; }
+.tdl-root { margin: 0; min-height: 100%; position: relative; font-family: var(--tdl-font); color: var(--tdl-ink); background: var(--tdl-cream); overflow-x: hidden; }
+.tdl-root, .tdl-root * { box-sizing: border-box; }
+.tdl-root button, .tdl-root input, .tdl-root textarea, .tdl-root select { font: inherit; }
+.tdl-root button { cursor: pointer; }
+.tdl-root h1, .tdl-root h2, .tdl-root h3, .tdl-root h4, .tdl-root p { margin-top: 0; }
+/* Standalone page chrome only — ui/travel-doc-lab.html still sets
+   <body class="tdl-body">. The colour is a literal on purpose: the
+   custom properties now live on .tdl-root, which is a DESCENDANT of
+   body, so var(--tdl-cream) would not resolve here. */
+.tdl-body { margin: 0; min-height: 100%; background: #f7f2e9; overflow-x: hidden; }
 .tdl-muted { color: var(--tdl-muted); }
 .tdl-kicker { text-transform: uppercase; letter-spacing: .09em; font-size: .77rem; font-weight: 900; color: #8c5516; }
 
@@ -45,8 +67,8 @@
 .tdl-btn-danger { background: #fff7f6; border-color: #e6b9b5; color: var(--tdl-red); }
 .tdl-btn-small { padding: .25rem .45rem; font-size: .82rem; }
 .tdl-card { background: var(--tdl-paper); border: 1px solid var(--tdl-line); border-radius: var(--tdl-radius); box-shadow: var(--tdl-shadow); padding: 1rem; }
-.tdl-body input, .tdl-body textarea, .tdl-body select { width: 100%; border: 1px solid var(--tdl-line); border-radius: 12px; background: var(--tdl-paper); color: var(--tdl-ink); padding: .6rem; }
-.tdl-body textarea { min-height: 70px; resize: vertical; }
+.tdl-root input, .tdl-root textarea, .tdl-root select { width: 100%; border: 1px solid var(--tdl-line); border-radius: 12px; background: var(--tdl-paper); color: var(--tdl-ink); padding: .6rem; }
+.tdl-root textarea { min-height: 70px; resize: vertical; }
 .tdl-label { display: grid; gap: .35rem; font-weight: 800; color: #655a4e; font-size: .84rem; margin-bottom: .6rem; }
 
 /* Shell */
@@ -503,3 +525,32 @@
 .tdl-row-hidden { opacity: 0.55; border-style: dashed; background: var(--tdl-paper2); }
 .tdl-row-hidden:hover { opacity: 0.85; }
 .tdl-badge-hidden { background: #6b6459; color: #fff; border-color: #6b6459; }
+
+/* ── WO-TRAVEL-DOC-UNIFY-01 Phase 2 — EMBEDDED (in-shell) VARIANT ─────────
+   lvTravelDocMount(host, {embedded:true}) adds .tdl-root-embedded on top
+   of .tdl-root. The only thing this variant changes is SIZE: the
+   standalone page owns the viewport, so the Lab measures itself in dvh;
+   inside the Hornelore shell the host is one flex child of the Travel Doc
+   tab panel, sitting below the shell header AND the tab strip. Leaving
+   the dvh units in place would make the workspace ~140px taller than its
+   own host on every screen — the day list would run off the bottom and
+   the sticky inspector footer would sit below the fold, which is exactly
+   the affordance it exists to keep reachable. Percentages of the host
+   replace them. No colour, spacing or class name is touched. */
+.tdl-root-embedded { height: 100%; min-height: 0; }
+.tdl-root-embedded .tdl-app { min-height: 0; height: 100%; grid-template-rows: 58px minmax(0, 1fr); }
+.tdl-root-embedded .tdl-layout { min-height: 0; height: 100%; }
+.tdl-root-embedded .tdl-inspector { max-height: 100%; }
+
+@media (max-width: 1500px) {
+  /* Below 1500px the inspector leaves the grid and overlays. Standalone
+     pins it to the VIEWPORT 58px down, which is the height of the Lab's
+     own topbar. In the shell that offset is meaningless and the fixed
+     panel would cover the Hornelore header and tab strip — the operator
+     would lose the way out of the tab. Anchor it to the host instead
+     (.tdl-root is position: relative), so it overlays the workspace and
+     nothing above it. */
+  .tdl-root-embedded .tdl-inspector {
+    position: absolute; top: 58px; right: 0; bottom: 0;
+  }
+}
