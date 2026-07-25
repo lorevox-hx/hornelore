@@ -304,6 +304,23 @@
 .tdl-reconcile-day-row { border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper); padding: .5rem .65rem; display: grid; gap: .3rem; }
 .tdl-reconcile-indicators { display: flex; flex-wrap: wrap; gap: .35rem .9rem; color: var(--tdl-muted); font-size: .8rem; }
 
+/* Trip force-delete impact review drawer (WO-TRAVEL-DOC-UNIFY-01 Ph3A).
+   The counts grid is the whole point of the panel: it is what a native
+   confirm() dialog cannot show. Nonzero lanes are marked so an operator
+   scanning it sees what is actually at stake, not a wall of zeroes. */
+.tdl-card-actions { display: flex; gap: .45rem; margin-top: .7rem; }
+.tdl-delete-drawer .tdl-drawer-body { display: grid; gap: .7rem; align-content: start; }
+.tdl-delete-warn { border: 1px solid #e6b9b5; background: #fff7f6; color: #7d2a24; border-radius: 12px; padding: .6rem .75rem; font-weight: 700; font-size: .86rem; margin: 0; }
+.tdl-delete-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+.tdl-delete-count { border: 1px solid var(--tdl-line); border-radius: 10px; background: var(--tdl-paper); padding: .45rem .6rem; display: flex; align-items: baseline; gap: .45rem; }
+.tdl-delete-count strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.tdl-delete-count span { color: var(--tdl-muted); font-size: .8rem; font-weight: 700; }
+.tdl-delete-count-hot { border-color: #e6b9b5; background: #fff7f6; }
+.tdl-delete-count-hot strong { color: var(--tdl-red); }
+.tdl-delete-error { border: 1px solid #e6b9b5; background: #fff1ef; color: var(--tdl-red); border-radius: 10px; padding: .5rem .65rem; font-weight: 700; font-size: .84rem; }
+.tdl-delete-drawer .tdl-drawer-foot .tdl-btn-danger { flex: 1; }
+.tdl-delete-drawer .tdl-btn-danger[disabled] { opacity: .45; cursor: not-allowed; }
+
 /* Day-scoped source rows (inspector) + attach-source drawer */
 .tdl-src-row { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
 .tdl-src-row .tdl-btn-small { margin-left: auto; }
@@ -518,8 +535,9 @@
 
 /* ── Evidence lifecycle (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01) ─────────
    Reversible hide for Story Notes / Sources rows. Hiding is a PATCH
-   {hidden:true} (never a DELETE — the lab's never-delete posture
-   holds). With the per-tab Show hidden toggle on, hidden rows render
+   {hidden:true} (never a DELETE — evidence lanes stay hide-only; the
+   only sanctioned DELETE is the gated trip force-delete, Ph3A above).
+   With the per-tab Show hidden toggle on, hidden rows render
    dimmed with a Restore affordance. */
 .tdl-hidden-toggle-row { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: 0 0 .8rem; }
 .tdl-row-hidden { opacity: 0.55; border-style: dashed; background: var(--tdl-paper2); }

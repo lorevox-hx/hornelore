@@ -42,13 +42,31 @@ class EvidenceUiTest(unittest.TestCase):
         for badge in ("Draft", "Approved", "In memoir", "Rejected"):
             self.assertIn(badge, self.src, badge)
 
-    def test_patch_wired_no_delete_in_lab(self):
-        # Lab honours the never-DELETE posture: hide via PATCH rejected,
-        # never a DELETE request (backend DELETE endpoints exist for the
-        # API, but the lab does not call them).
+    def test_patch_wired_no_delete_on_evidence_lanes(self):
+        # Evidence lanes are hide-only: rejecting a photo-context or
+        # public-context row is a PATCH, never a DELETE.
+        #
+        # WO-TRAVEL-DOC-UNIFY-01 Phase 3A narrowed this from "the lab
+        # issues no DELETE at all" to "the lab issues no DELETE except the
+        # gated trip force-delete". The blanket form had to go — Phase 3A
+        # deliberately ports that one destructive control — but dropping
+        # the test outright would have retired the property it was really
+        # protecting, which is that EVIDENCE is never destroyed from here.
+        # So: assert every DELETE in the file targets /api/trips/ + a trip
+        # id, and none of them targets an evidence sub-resource.
         self.assertIn("photo-context/", self.src)
         self.assertIn('method: "PATCH"', self.src)
-        self.assertNotIn('method: "DELETE"', self.src)
+        evidence_lanes = ("photo-context", "public-context", "location-notes",
+                          "/sources", "photo-links")
+        for m in re.finditer(r'method:\s*"DELETE"', self.src):
+            # The api() call opens with the path argument, so the enclosing
+            # call site is the ~200 chars before the method option.
+            call = self.src[max(0, m.start() - 200):m.start()]
+            self.assertIn('"/api/trips/" + encodeURIComponent(', call,
+                          "a DELETE in the lab that is not a trip delete")
+            for lane in evidence_lanes:
+                self.assertNotIn(lane, call,
+                                 f"DELETE aimed at the {lane} evidence lane")
 
     def test_summary_rendered_via_textcontent_not_innerhtml(self):
         # result_summary must go through el() (textContent), never innerHTML.

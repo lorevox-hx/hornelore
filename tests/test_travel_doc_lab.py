@@ -185,12 +185,23 @@ class MountContractTest(unittest.TestCase):
         self.assertNotIn("\n  boot();\n})();", src)
 
     def test_opts_are_preferred_over_the_querystring(self):
-        # The querystring stays as the standalone page's contract, but
-        # opts must take precedence or the shell cannot select a
-        # narrator.
+        # The querystring stays the STANDALONE page's contract, but opts
+        # must take precedence or the shell cannot select a narrator.
+        #
+        # WO-TRAVEL-DOC-UNIFY-01 Phase 2 tightened this from "opts win" to
+        # "embedded mounts do not read the querystring at all". Precedence
+        # alone stopped being enough once the module mounts inside
+        # hornelore1.0.html, because that page can carry a ?person_id=
+        # from any other launcher: whenever the shell passed no person_id
+        # (no narrator selected, or mid-switch) the old chain fell through
+        # to the shell URL and mounted Travel Doc against a narrator the
+        # header, the Travels shelf and every other tab disagreed with —
+        # silent cross-narrator writes. Embedded identity comes from opts
+        # or it does not come at all.
         src = _stripped_js()
-        for field in ("opts.apiBase || qsParams.get",
-                      'opts.person_id || qsParams.get("person_id")'):
+        for field in ('opts.apiBase || (embedded ? "" : qsParams.get("api"))',
+                      "opts.person_id ||",
+                      '(embedded ? "" : qsParams.get("person_id"))'):
             self.assertIn(field, src)
 
     def test_mount_returns_a_destroy_handle_that_closes_the_channel(self):
@@ -623,10 +634,22 @@ class Lab03Test(unittest.TestCase):
         # Per-day content indicators in the review drawer.
         self.assertIn("Lori captures", src)
         self.assertIn("Mark outside-date days as reviewed (kept)", src)
-        # NEVER-DELETE lock: the lab issues no DELETE request at all —
-        # unlink flows are PATCH clear_day / photos-unlink only.
-        self.assertNotIn('"DELETE"', src)
-        self.assertNotIn("'DELETE'", src)
+        # NEVER-DELETE lock, narrowed by WO-TRAVEL-DOC-UNIFY-01 Phase 3A.
+        #
+        # This used to assert the whole file contained no DELETE at all.
+        # Phase 3A ports exactly one destructive control — the gated trip
+        # force-delete — so the file-wide form is no longer true. What the
+        # test was really protecting is that RECONCILE reviews rather than
+        # destroys: a missing or outside-date day card is reported to the
+        # operator, never silently removed. So assert it of the reconcile
+        # drawer and its loader, which is where a "just clean it up for me"
+        # regression would actually land.
+        recon = src[src.index("function renderReconcileDrawer("):][:6000]
+        self.assertNotIn('"DELETE"', recon)
+        self.assertNotIn("'DELETE'", recon)
+        loader = src[src.index("function reloadReconcile("):][:1600]
+        self.assertNotIn('"DELETE"', loader)
+        self.assertNotIn("'DELETE'", loader)
 
     def test_lab_only_evaluation_checklist(self):
         src = _stripped_js()
@@ -826,10 +849,224 @@ class EvidenceLifecycleLabTest(unittest.TestCase):
         self.assertIn(".tdl-badge-hidden", self.css)
         self.assertIn(".tdl-hidden-toggle-row", self.css)
 
-    def test_never_delete_posture_still_holds(self):
-        # Hide/restore are PATCH-only — the lab still issues no DELETE.
-        self.assertNotIn('"DELETE"', self.src)
-        self.assertNotIn("'DELETE'", self.src)
+    def test_evidence_lanes_are_still_hide_only(self):
+        # Hide/restore stay PATCH-only.
+        #
+        # This test used to read "the lab issues no DELETE at all".
+        # WO-TRAVEL-DOC-UNIFY-01 Phase 3A ports exactly one destructive
+        # control — the gated trip force-delete — so the blanket assertion
+        # is now false by design. It is narrowed rather than deleted: the
+        # property worth keeping is that EVIDENCE (notes, sources, photo
+        # links, photo/public context) is never destroyed from this
+        # surface, and that stays pinned. TripForceDeleteGateTest below
+        # pins the one sanctioned exception.
+        for fn in ("function hideNote(", "function hideSource(",
+                   "function restoreNote(", "function restoreSource("):
+            i = self.src.index(fn)
+            self.assertNotIn("DELETE", self.src[i:i + 450], fn)
+        for lane in ("location-notes/", "/sources/", "photo-context/",
+                     "public-context/", "photo-links/"):
+            for m in re.finditer(re.escape(lane), self.src):
+                window = self.src[m.start():m.start() + 220]
+                self.assertNotIn('method: "DELETE"', window,
+                                 f"DELETE aimed at the {lane} evidence lane")
+
+
+class TripForceDeleteGateTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-UNIFY-01 Phase 3A — the trip force-delete impact gate.
+
+    The production Documenter's destructive-trip control, ported into the
+    unified workspace. These are the ten gates from the work order. They
+    are source-pattern tests (this repo has no JS runner), so each one is
+    written to fail loudly if the SPECIFIC unsafe variant reappears — the
+    wrong error envelope, a looser arming rule, a native dialog — rather
+    than merely checking that some delete code exists.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def _fn(self, name: str, span: int = 1400) -> str:
+        i = self.src.index(name)
+        return self.src[i:i + span]
+
+    # 1 — the unified workspace exposes a delete-trip control.
+    def test_unified_workspace_exposes_a_delete_trip_control(self):
+        sidebar = self._fn("function renderSidebar(", 3000)
+        self.assertIn('"Delete trip"', sidebar)
+        self.assertIn("deleteTrip(st.trip)", sidebar)
+        # It hangs off the SELECTED-trip card, not the rail rows, so it can
+        # only ever act on the trip the operator is looking at.
+        self.assertLess(sidebar.index('el("div", "tdl-card")'),
+                        sidebar.index('"Delete trip"'))
+        self.assertIn("tdl-btn-danger", sidebar)
+
+    # 2 — the first attempt is a NORMAL delete, never a force.
+    def test_delete_attempts_the_unforced_delete_first(self):
+        block = self._fn("function deleteTrip(")
+        self.assertIn('{ method: "DELETE" }', block)
+        # No force payload on the first attempt — leading with force would
+        # skip the impact review entirely.
+        head = block[:block.index(".catch(")]
+        self.assertNotIn("force", head)
+        self.assertNotIn("confirm_trip_id", head)
+
+    # 3 — a 409 impact response opens the in-panel review.
+    def test_409_impact_response_opens_the_in_panel_review(self):
+        block = self._fn("function deleteTrip(")
+        self.assertIn("e.status === 409", block)
+        self.assertIn("impact.requires_force", block)
+        self.assertIn("st.deleteReview = {", block)
+        # The review is a drawer inside the mount — it never navigates away
+        # and never opens a window.
+        self.assertIn("function renderDeleteTripReview(", self.src)
+        self.assertIn(
+            "if (st.deleteReview) app.appendChild(renderDeleteTripReview())",
+            self.src)
+
+    # 4 — the gate reads e.body.detail, not the wrong envelope.
+    def test_gate_reads_the_detail_envelope_not_the_flat_body(self):
+        block = self._fn("function deleteImpactOf(")
+        self.assertIn("e.body.detail", block)
+        self.assertIn('typeof e.body.detail === "object"', block)
+        # The flat read is the silent-failure shape: requires_force is
+        # undefined at that level, so the gate would never open and the
+        # operator would see a raw error string instead of the review.
+        self.assertNotIn("e.body.requires_force", self.src)
+        self.assertNotIn("e.body.counts", self.src)
+
+    # 4b — api() must actually carry the envelope, or 4 is unreachable.
+    def test_api_attaches_status_and_body_to_the_rejection(self):
+        block = self._fn("function api(", 2600)
+        self.assertIn("err.status = r.status", block)
+        self.assertIn("err.body = body", block)
+        # And the old lossy shape is gone: a bare throw of a string-only
+        # Error at the choke point destroys the payload for every caller.
+        self.assertNotIn(
+            'throw new Error(init.method + " " + path + " -> " + r.status',
+            self.src)
+
+    # 5 — the counts render in the review panel.
+    def test_counts_render_in_the_review_panel(self):
+        block = self._fn("function renderDeleteTripReview(", 3800)
+        self.assertIn("TRIP_DELETE_COUNT_LANES.forEach", block)
+        self.assertIn("tdl-delete-counts", block)
+        self.assertIn("tdl-delete-count", block)
+        self.assertIn(".tdl-delete-counts", self.css)
+        self.assertIn(".tdl-delete-count", self.css)
+        # Every lane the backend's _TRIP_DEPENDENT_TABLES allowlist can
+        # return has a labelled cell — including bio_suggestions, which the
+        # production panel's nine-cell grid silently omits.
+        lanes = self.src[self.src.index("var TRIP_DELETE_COUNT_LANES"):]
+        lanes = lanes[:lanes.index("];")]
+        for key in ("regions", "stops", "days", "photo_links", "notes",
+                    "sources", "story_links", "public_context",
+                    "photo_context", "bio_suggestions"):
+            self.assertIn('"' + key + '"', lanes, key)
+        # A lane the backend adds later must still be shown, not dropped.
+        self.assertIn("Object.keys(counts).forEach", block)
+
+    # 6 — a wrong confirmation blocks the force delete.
+    def test_wrong_confirmation_blocks_force_delete(self):
+        block = self._fn("function renderDeleteTripReview(", 3800)
+        self.assertIn("function refreshArm()", block)
+        self.assertIn("confirmBtn.disabled = !armed", block)
+        # Blank never arms, and the button starts disabled (refreshArm is
+        # called once at build time, before the operator types anything).
+        self.assertIn('typed !== ""', block)
+        self.assertIn("refreshArm();", block)
+        # Nothing looser than an exact compare: no case folding, no
+        # substring/prefix matching on the confirmation.
+        arm = block[block.index("function refreshArm()"):]
+        arm = arm[:arm.index("confirmInput.oninput")]
+        for loose in ("toLowerCase", "toUpperCase", "indexOf", "startsWith",
+                      "includes"):
+            self.assertNotIn(loose, arm, loose)
+
+    # 7 — the exact title or the trip id arms the force delete.
+    def test_exact_title_or_trip_id_arms_force_delete(self):
+        block = self._fn("function renderDeleteTripReview(", 3800)
+        self.assertIn('typed === String(review.tripTitle || "").trim()', block)
+        self.assertIn("typed === String(review.tripId)", block)
+        # The WIRE still echoes the id exactly — accepting the title is a
+        # client-side affordance and must never reach the server as one,
+        # or the backend's 422 guard is defeated.
+        force = self._fn("function forceDeleteTrip(")
+        self.assertIn("force: true", force)
+        self.assertIn("confirm_trip_id: review.tripId", force)
+        self.assertNotIn("confirm_trip_id: review.tripTitle", self.src)
+        self.assertIn("reason:", force)
+        # The handler is a property assignment, so re-opening the review
+        # for a different trip cannot stack a stale closure.
+        self.assertIn("confirmInput.oninput = refreshArm", block)
+        self.assertNotIn('confirmInput.addEventListener("input"', block)
+
+    # 8 — force delete refreshes the list and clears the deleted selection.
+    def test_force_delete_refreshes_list_and_clears_selection(self):
+        after = self._fn("function afterTripDeleted(")
+        self.assertIn("st.trip = null", after)
+        self.assertIn("st.tree = null", after)
+        self.assertIn("st.deleteReview = null", after)
+        self.assertIn("st.selectedDayId = null", after)
+        self.assertIn("loriPane.reset()", after)
+        self.assertIn("loadTrips({ noAutoSelect: true })", after)
+        # Both delete paths (empty trip, forced) land there.
+        self.assertIn("afterTripDeleted()", self._fn("function deleteTrip("))
+        self.assertIn("afterTripDeleted()",
+                      self._fn("function forceDeleteTrip("))
+        # And loadTrips honours the flag — otherwise the refresh silently
+        # mounts some OTHER trip's workspace right after a destructive act.
+        loader = self._fn("function loadTrips(")
+        self.assertIn("noAutoSelect", loader)
+        self.assertIn("if (!noAutoSelect && !st.trip && st.trips.length)",
+                      loader)
+        # A pending review never survives a trip switch.
+        self.assertIn("st.deleteReview = null",
+                      self._fn("function selectTrip(", 1200))
+
+    # 9 — no native dialogs anywhere in the unified delete flow.
+    def test_no_native_dialogs_in_the_delete_flow(self):
+        for banned in ("window.confirm", "window.prompt", "window.alert",
+                       "confirm(", "prompt(", "alert("):
+            self.assertNotIn(banned, self.src, banned)
+        # Production's region/stop confirm() behaviour is explicitly NOT
+        # ported: no trip-region / trip-stop DELETE exists here at all.
+        for m in re.finditer(r'method:\s*"DELETE"', self.src):
+            call = self.src[max(0, m.start() - 220):m.start()]
+            self.assertIn('"/api/trips/" + encodeURIComponent(', call)
+            for lane in ("/regions", "/stops"):
+                self.assertNotIn(lane, call, lane)
+
+    # 10 — the legacy fallback remains reachable.
+    def test_legacy_fallback_remains_reachable(self):
+        # The unified workspace still deep-links to the production page,
+        # and the shell still carries the surface switch. Phase 3A removes
+        # neither, and travel-documenter.js is not deleted.
+        self.assertIn("function prodTravelDocUrl(", self.src)
+        self.assertIn("travel-documenter.html?api=", self.src)
+        self.assertTrue(
+            (_REPO_ROOT / "ui" / "js" / "travel-documenter.js").exists(),
+            "travel-documenter.js must not be removed in Phase 3A")
+        shell = (_REPO_ROOT / "ui" / "hornelore1.0.html").read_text(
+            encoding="utf-8")
+        self.assertIn('data-td-surface="legacy"', shell)
+        self.assertIn('data-td-surface="unified"', shell)
+
+    def test_delete_review_css_is_tdl_namespaced(self):
+        for cls in (".tdl-delete-drawer", ".tdl-delete-warn",
+                    ".tdl-delete-counts", ".tdl-delete-count",
+                    ".tdl-delete-error", ".tdl-card-actions"):
+            self.assertIn(cls, self.css, cls)
+
+    def test_review_drawer_is_not_gated_on_a_selected_trip(self):
+        # Every other drawer describes the SELECTED trip and is gated on
+        # st.trip. This one describes a trip being taken away, and the
+        # flow that clears st.trip is the same flow that clears the
+        # review — gating it on st.trip makes an unclosable invisible
+        # state reachable.
+        self.assertNotIn("if (st.trip && st.deleteReview)", self.src)
+        self.assertIn("function closeDeleteReview(", self.src)
 
 
 if __name__ == "__main__":

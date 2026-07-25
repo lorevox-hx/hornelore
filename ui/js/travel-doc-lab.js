@@ -67,6 +67,25 @@
    IF YOU ADD A NEW ASYNC PATH: route it through api(), or check
    `destroyed` yourself before touching `st` or the DOM.
 
+   WO-TRAVEL-DOC-UNIFY-01 Phase 3A (2026-07-25) — TRIP FORCE-DELETE GATE.
+
+   The first destructive control to move into the unified workspace, and
+   the reason it went first: it is the safety-critical one. Ported from
+   the production Documenter without loosening anything — unforced DELETE
+   first, 409 impact payload read out of FastAPI's `detail` envelope, an
+   in-panel review that shows the per-lane counts, force armed only by the
+   trip's exact title or id, and the list refreshed with NOTHING
+   auto-selected afterwards. No window.confirm / prompt / alert.
+
+   This required teaching api() to attach `status` and `body` to its
+   rejection: the old plain Error destroyed the impact payload at the
+   choke point. That change is otherwise invisible — every existing call
+   site reads e.message and still gets a sentence (a better one: the 409
+   used to stringify to "[object Object]").
+
+   SCOPE WALL: region/stop deletion is NOT ported. The production panel
+   still gates those with native confirm(), and this file has none.
+
    To remove this lab entirely, delete:
      ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
      ui/css/travel-doc-lab.css, tests/test_travel_doc_lab.py
@@ -131,6 +150,12 @@
     loriReturnTab: "plan",   // context-aware Back label + return surface
     photoPickerDayId: null,  // in-lab day photo picker drawer
     noteDrawerDayId: null,   // in-lab day note drawer
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 3A — trip force-delete impact review.
+    // null = closed. Open shape: {tripId, tripTitle, counts, error}. The
+    // operator's typed confirmation deliberately does NOT live here: it is
+    // held in the drawer's closure and read on submit, so typing never
+    // triggers a repaint and the field never loses focus mid-word.
+    deleteReview: null,
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
@@ -246,9 +271,40 @@
       if (!r.ok) {
         return r.text().then(function (t) {
           if (destroyed) return abandoned();
-          var msg = t;
-          try { msg = (JSON.parse(t).detail || t); } catch (_) {}
-          throw new Error(init.method + " " + path + " -> " + r.status + " " + msg);
+          // WO-TRAVEL-DOC-UNIFY-01 Phase 3A — the rejection must carry the
+          // STRUCTURED failure, not only a sentence.
+          //
+          // The old shape (`new Error(msg)` and nothing else) threw away
+          // the HTTP status and the parsed body at the file's one and only
+          // fetch, which made a whole class of gated backend contract
+          // unreachable from the Lab: the trip force-delete gate answers
+          // 409 with {detail:{detail, trip_id, requires_force, counts}} and
+          // 422 for a wrong confirm, and a caller that cannot see
+          // e.status / e.body cannot tell those apart from a 500. It also
+          // rendered "[object Object]": `JSON.parse(t).detail` is a DICT on
+          // that 409, and string-concatenating a dict is exactly that.
+          //
+          // So: parse once, attach status + body (mirroring what the
+          // production Documenter's api() has always done), and flatten the
+          // message defensively for the plain `st.error = e.message` call
+          // sites that just want a sentence.
+          var body = null;
+          try { body = JSON.parse(t); } catch (_) { body = null; }
+          var detail = (body && body.detail !== undefined) ? body.detail : t;
+          var msg;
+          if (typeof detail === "string") {
+            msg = detail;
+          } else if (detail && typeof detail === "object" &&
+                     typeof detail.detail === "string") {
+            msg = detail.detail;                       // nested envelope
+          } else {
+            try { msg = JSON.stringify(detail); } catch (_) { msg = t; }
+          }
+          var err = new Error(init.method + " " + path + " -> " + r.status +
+                              " " + msg);
+          err.status = r.status;
+          err.body = body;
+          throw err;
         });
       }
       return r.json();
@@ -332,11 +388,20 @@
 
   // ── data loading (single shared adapter — no per-view duplication) ───
 
-  function loadTrips() {
+  // opts.noAutoSelect — WO-TRAVEL-DOC-UNIFY-01 Phase 3A. On boot, landing
+  // the operator on their first trip is the right default. Straight after a
+  // force delete it is not: silently mounting some OTHER trip's workspace
+  // under the cursor of someone who just destroyed irreplaceable evidence
+  // is precisely the stale-selection confusion the confirm gate exists to
+  // prevent. The refresh keeps the rail honest and leaves nothing selected.
+  function loadTrips(opts) {
+    var noAutoSelect = !!(opts && opts.noAutoSelect);
     return api("/api/trips?person_id=" + encodeURIComponent(st.personId))
       .then(function (out) {
         st.trips = out.trips || [];
-        if (!st.trip && st.trips.length) return selectTrip(st.trips[0].id);
+        if (!noAutoSelect && !st.trip && st.trips.length) {
+          return selectTrip(st.trips[0].id);
+        }
         renderAll();
       });
   }
@@ -355,6 +420,10 @@
     st.sourceDrawerDayId = null;
     st.reconcile = null;
     st.reconcileDrawerOpen = false;
+    // Phase 3A: a pending impact review belongs to the trip it was opened
+    // for. Switching trips with it still open would leave a review armed
+    // against a trip the operator is no longer looking at.
+    st.deleteReview = null;
     // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: hidden-row visibility is a
     // per-trip review choice — reset it on trip switch.
     st.showHiddenNotes = false;
@@ -362,6 +431,142 @@
     loriPane.reset();
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
+  }
+
+  // ── trip force-delete impact gate (WO-TRAVEL-DOC-UNIFY-01 Phase 3A) ───
+  //
+  // Ported from the production Documenter, unchanged in substance. The
+  // backend (DELETE /api/trips/{id}) already implements the whole ladder
+  // and needs no change:
+  //
+  //   empty trip                     -> 200, gone
+  //   any dependent evidence, no force -> 409 {detail:{detail, trip_id,
+  //                                     requires_force, counts}},
+  //                                     NOTHING modified
+  //   force without an exact
+  //     confirm_trip_id echo         -> 422, NOTHING modified
+  //   force + exact echo             -> one transaction: audit row then
+  //                                     FK cascade
+  //
+  // So the client's job is narrow and must be done exactly: try the plain
+  // delete FIRST (never lead with force), read the impact payload out of
+  // FastAPI's `detail` envelope, show the operator what they are about to
+  // destroy, and refuse to arm the force button until they have typed the
+  // trip's exact title or its id. No window.confirm / prompt / alert — a
+  // native dialog cannot show the counts, and a one-click "OK" is not a
+  // gate. Region/stop deletion is deliberately NOT ported here; the
+  // production panel still guards those with confirm(), and copying that
+  // is not something Phase 3A does.
+  //
+  // Note the wire always carries confirm_trip_id = the trip id. Accepting
+  // the TITLE as well is a client-side affordance (operators know the
+  // trip by name, not by uuid); it never loosens the server's check.
+
+  // The dependent-count lanes, in the order the operator should read them,
+  // with their display labels. Sourced from the backend's
+  // _TRIP_DEPENDENT_TABLES allowlist, which is the authority.
+  //
+  // NOTE (reported as a Phase 3A finding): the production Documenter's
+  // grid renders only nine of these ten — it silently omits
+  // bio_suggestions, so a trip whose ONLY evidence is bio suggestions
+  // shows an all-zero impact grid while the backend is refusing the
+  // delete. The unified workspace renders all ten, plus any key a future
+  // backend adds (see the unknown-key sweep in renderDeleteTripReview).
+  var TRIP_DELETE_COUNT_LANES = [
+    ["regions", "Regions"],
+    ["stops", "Stops"],
+    ["days", "Day cards"],
+    ["photo_links", "Photo links"],
+    ["notes", "Story notes"],
+    ["sources", "Sources"],
+    ["story_links", "Story links"],
+    ["public_context", "Public context"],
+    ["photo_context", "Photo context"],
+    ["bio_suggestions", "Bio suggestions"],
+  ];
+
+  // The 409 impact payload ships inside FastAPI's standard `detail`
+  // envelope, so the structured body is at e.body.detail — NOT e.body.
+  // Reading the wrong level is a silent failure: `requires_force` is
+  // undefined there, the gate never opens, and the operator sees a raw
+  // error string instead of an impact review. The e.body fallback is for
+  // robustness only, in case a future backend flattens the envelope.
+  function deleteImpactOf(e) {
+    if (!e || !e.body) return null;
+    if (e.body.detail && typeof e.body.detail === "object") return e.body.detail;
+    return e.body;
+  }
+
+  function afterTripDeleted() {
+    st.deleteReview = null;
+    st.trip = null;
+    st.tree = null;
+    st.days = [];
+    st.preservedDays = [];
+    st.photoLinks = [];
+    st.notes = [];
+    st.sources = [];
+    st.publicContext = [];
+    st.travelogue = null;
+    st.draft = null;
+    st.selectedDayId = null;
+    st.selectedPhotoLinkId = null;
+    st.routeSel = null;
+    st.error = "";
+    loriPane.reset();
+    return loadTrips({ noAutoSelect: true });
+  }
+
+  // Step 1: always the UNFORCED delete. An empty trip is simply gone; a
+  // trip with evidence comes back 409 and opens the review.
+  function deleteTrip(trip) {
+    if (!trip) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(trip.id), { method: "DELETE" })
+      .then(function () { return afterTripDeleted(); })
+      .catch(function (e) {
+        var impact = deleteImpactOf(e);
+        if (e && e.status === 409 && impact && impact.requires_force) {
+          st.deleteReview = {
+            tripId: trip.id,
+            tripTitle: String(trip.title || ""),
+            counts: impact.counts || {},
+            error: "",
+          };
+          st.error = "";
+          renderAll();
+          return;
+        }
+        st.error = e.message;
+        renderAll();
+      });
+  }
+
+  // Step 2: the forced delete, reachable only from the review drawer and
+  // only once refreshArm() has armed the button.
+  function forceDeleteTrip(reasonText) {
+    var review = st.deleteReview;
+    if (!review) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(review.tripId), {
+      method: "DELETE",
+      body: {
+        force: true,
+        confirm_trip_id: review.tripId,
+        reason: (reasonText || "").trim() || "operator cleanup",
+      },
+    })
+      .then(function () { return afterTripDeleted(); })
+      .catch(function (e) {
+        // A 422 (wrong confirm) or anything else renders INLINE in the
+        // review, never as a native dialog and never by closing the panel
+        // out from under the operator.
+        if (st.deleteReview) st.deleteReview.error = "Delete failed: " + e.message;
+        renderAll();
+      });
+  }
+
+  function closeDeleteReview() {
+    st.deleteReview = null;
+    renderAll();
   }
 
   function loadTripBundle(tripId) {
@@ -636,6 +841,12 @@
     if (st.trip && st.noteDrawerDayId) app.appendChild(renderNoteDrawer());
     if (st.trip && st.sourceDrawerDayId) app.appendChild(renderSourceDrawer());
     if (st.trip && st.reconcileDrawerOpen) app.appendChild(renderReconcileDrawer());
+    // Phase 3A — deliberately NOT gated on st.trip. Every other drawer
+    // describes the selected trip; this one describes a trip that is being
+    // taken away, and the flow that clears st.trip is the same flow that
+    // clears the review. Gating it on st.trip would make an unclosable
+    // invisible state reachable.
+    if (st.deleteReview) app.appendChild(renderDeleteTripReview());
 
     root.appendChild(app);
     main.scrollTop = st.mainScroll || 0;
@@ -685,6 +896,13 @@
       var range = (st.trip.start_date || "?") + " → " + (st.trip.end_date || "?");
       card.appendChild(el("p", "tdl-muted", range));
       card.appendChild(el("span", "tdl-status", st.trip.status || "draft"));
+      // Phase 3A — the destructive control lives on the selected-trip card
+      // (never on the rail rows), so it can only ever act on the trip whose
+      // title, dates and status the operator is currently looking at.
+      var delRow = el("div", "tdl-card-actions");
+      delRow.appendChild(btn("tdl-btn tdl-btn-small tdl-btn-danger",
+        "Delete trip", function () { deleteTrip(st.trip); }));
+      card.appendChild(delRow);
       side.appendChild(card);
 
       side.appendChild(el("div", "tdl-section-label", "Route Outline"));
@@ -2078,6 +2296,111 @@
     return wrap;
   }
 
+  // ── trip force-delete impact review (Phase 3A) ───────────────────────
+  //
+  // Follows the drawer idiom used by the note/source drawers: the input
+  // elements are held in this closure and read on submit, so nothing here
+  // repaints while the operator types and the confirmation field cannot
+  // lose focus mid-word. The arm/disarm is done by touching the button's
+  // .disabled directly for the same reason.
+  function renderDeleteTripReview() {
+    var review = st.deleteReview;
+    var counts = (review && review.counts) || {};
+    var wrap = el("div", "tdl-drawer-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closeDeleteReview();
+    });
+    var drawer = el("aside", "tdl-drawer tdl-delete-drawer");
+
+    var head = el("div", "tdl-drawer-head");
+    var ht = el("div");
+    ht.appendChild(el("div", "tdl-kicker", "Delete trip"));
+    ht.appendChild(el("strong", "", review.tripTitle || "Untitled trip"));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Cancel", closeDeleteReview));
+    drawer.appendChild(head);
+
+    var body = el("div", "tdl-drawer-body");
+    body.appendChild(el("p", "tdl-delete-warn",
+      "This trip still holds evidence. Deleting it removes everything " +
+      "listed below in one unrecoverable cascade. Photos themselves are " +
+      "not deleted — only their links to this trip."));
+
+    body.appendChild(el("div", "tdl-section-label", "What will be deleted"));
+    var countsHost = el("div", "tdl-delete-counts");
+    var seen = {};
+    TRIP_DELETE_COUNT_LANES.forEach(function (c) {
+      seen[c[0]] = true;
+      var cell = el("div", "tdl-delete-count" +
+        (Number(counts[c[0]] || 0) > 0 ? " tdl-delete-count-hot" : ""));
+      cell.appendChild(el("strong", "", String(counts[c[0]] || 0)));
+      cell.appendChild(el("span", "", c[1]));
+      countsHost.appendChild(cell);
+    });
+    // A count lane the backend added and this list has not learned yet
+    // must still be SHOWN, not silently dropped — an unlisted lane is
+    // evidence the operator would destroy without ever being told about.
+    Object.keys(counts).forEach(function (k) {
+      if (seen[k]) return;
+      var cell = el("div", "tdl-delete-count" +
+        (Number(counts[k] || 0) > 0 ? " tdl-delete-count-hot" : ""));
+      cell.appendChild(el("strong", "", String(counts[k] || 0)));
+      cell.appendChild(el("span", "", k));
+      countsHost.appendChild(cell);
+    });
+    body.appendChild(countsHost);
+
+    var confirmInput = el("input");
+    confirmInput.placeholder = review.tripTitle || review.tripId;
+    var labConfirm = el("label", "tdl-label");
+    labConfirm.appendChild(el("span", "",
+      "Type the exact trip title (or its id) to confirm"));
+    labConfirm.appendChild(confirmInput);
+    body.appendChild(labConfirm);
+    body.appendChild(el("p", "tdl-muted", "Trip id: " + review.tripId));
+
+    var reasonInput = el("input");
+    reasonInput.placeholder = "e.g. duplicate import";
+    var labReason = el("label", "tdl-label");
+    labReason.appendChild(el("span", "", "Reason (recorded in the audit log)"));
+    labReason.appendChild(reasonInput);
+    body.appendChild(labReason);
+
+    var errEl = el("div", "tdl-delete-error", review.error || "");
+    errEl.hidden = !review.error;
+    body.appendChild(errEl);
+    drawer.appendChild(body);
+
+    var foot = el("div", "tdl-drawer-foot");
+    var confirmBtn = btn("tdl-btn tdl-btn-danger", "Force delete trip",
+      function () {
+        if (confirmBtn.disabled) return;   // belt and braces
+        confirmBtn.disabled = true;
+        forceDeleteTrip(reasonInput.value);
+      });
+    // Armed ONLY by an exact match of the trip title (trim-compared) or
+    // the trip id. Nothing looser — no case folding, no prefix, no
+    // "contains". A blank field never arms.
+    function refreshArm() {
+      var typed = (confirmInput.value || "").trim();
+      var armed = typed !== "" &&
+        (typed === String(review.tripTitle || "").trim() ||
+         typed === String(review.tripId));
+      confirmBtn.disabled = !armed;
+    }
+    // Property assignment, not addEventListener: re-opening the review
+    // for another trip can then never stack a stale handler closed over
+    // the previous trip's id.
+    confirmInput.oninput = refreshArm;
+    refreshArm();
+    foot.appendChild(confirmBtn);
+    foot.appendChild(btn("tdl-btn", "Cancel", closeDeleteReview));
+    drawer.appendChild(foot);
+
+    wrap.appendChild(drawer);
+    return wrap;
+  }
+
   // ── Photos (mockup3) ─────────────────────────────────────────────────
 
   function linkNeedsReview(l) {
@@ -2648,8 +2971,11 @@
 
   // ── Evidence lifecycle (WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01) ─────────
   // Removing a note/source from view is a reversible HIDE — a PATCH
-  // {hidden:true} — never a DELETE (the lab's never-delete posture
-  // holds). Restore is PATCH {hidden:false}. The server excludes
+  // {hidden:true} — never a DELETE. (Phase 3A narrowed the blanket
+  // "the Lab never DELETEs" posture to exactly one sanctioned path: the
+  // gated trip force-delete above. Every EVIDENCE lane — notes, sources,
+  // photo context, public context — is still hide-only, and the tests
+  // pin that.) Restore is PATCH {hidden:false}. The server excludes
   // hidden rows from list responses (unless include_hidden=1) and from
   // evidence assembly, so the Draft tab needs no change.
 
