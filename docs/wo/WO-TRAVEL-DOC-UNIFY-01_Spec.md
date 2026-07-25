@@ -1,6 +1,6 @@
 # WO-TRAVEL-DOC-UNIFY-01
 
-**Status:** ACTIVE — Phase 1 LANDED 2026-07-24; Phase 1.1 (mount liveness) LANDED 2026-07-24. Phases 2–6 open.
+**Status:** CLOSED 2026-07-25 -- all six phases landed and the Phase 6 live smoke came back green on all thirty-seven steps with zero defects. Post-unification backlog carried forward at the foot of this spec.
 **Lane:** Trips / operator tooling
 **Parent:** `WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01` (the production panel), `WO-TRAVEL-DOC-UI-LAB-02` / `-03` (the lab being promoted), `WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` (the delete gate that must survive the port).
 **Origin:** Chris, 2026-07-24 — *"I dont want a cosmetic fix, I want one merged best of what we have on the two and do away with the lab and have it just be the travel docs."*
@@ -1150,6 +1150,227 @@ doctrine file meets it. Also untouched, per the order: no rename of
 `travel-doc-lab.js`, no standalone Documenter file deleted, no backend policy
 change, no smoke-photo cleanup, no new Travel Doc features.
 
+## Phase 6 -- live smoke and close-out (2026-07-25)
+
+**Scope:** live verification and docs only. **Not one line of code was
+written.** No `ui/`, no `api/`, no `server/`, no schema, no flag, no test file
+changed -- the only files this phase touches are this spec, `CLAUDE.md` and
+`MASTER_WORK_ORDER_CHECKLIST.md`. Chris's order: *"Run the final end-to-end
+live smoke for the unified Travel Doc operator path and close
+WO-TRAVEL-DOC-UNIFY-01 only if the live path is green."*
+
+**Thirty-seven steps, thirty-seven green, zero defects.** The WO closes.
+
+### How it was driven
+
+Refs churn on every re-render inside the Travel Doc, so ref-based and
+coordinate-based clicking went stale between the read and the click and was
+abandoned early. Interaction ran instead through a page-side helper
+(`window.__sm`) that resolves each element by its text and structure at call
+time, and every structural claim was read back out of the DOM or, where the
+claim is about persistence, out of `/api/trips/{id}/tree` server-side rather
+than off the screen.
+
+Behaviour that a screenshot cannot prove was recorded by an instrumentation
+spy (`window.__p6`) installed before the workspace mounted. It patches
+`alert` / `confirm` / `prompt` to record and neutralise, wraps the
+`BroadcastChannel` and `WebSocket` constructors and their `close()`, counts
+`document` keydown add/remove, wraps `console.error`, listens for `error` and
+`unhandledrejection`, wraps `fetch` to log any non-2xx, and -- added for step
+28 -- wraps `WebSocket.prototype.send` so the outbound frames themselves are
+readable. Every dialog, listener, socket and error claim below comes from that
+spy, not from inspection.
+
+### The disposable trip
+
+`P6 SMOKE DISPOSABLE`, id `97c1b810-73ed-4079-8ac0-605524bb3025`,
+2019-05-12 -> 2019-05-17, on narrator `e7fdb578`. Built up to two regions and
+nine stops including a three-deep substop group, exercised, then destroyed
+through the force-delete gate at step 33.
+
+### What the thirty-seven steps established
+
+**Startup and surface (1-7).** The shell reaches the normal Operator/Narrator
+shell, a narrator selects, and the Travel Doc tab mounts the unified workspace
+**directly** -- one `.tdl-root`, painted, with no fallback toggle, no
+`#lvTravelDocHost`, no surface switch and no retired Documenter UI anywhere in
+the tab. A scan of the shell's rendered text for *legacy*, *production Travel
+Doc*, *UI Lab*, *experimental*, *lab-only*, *removable* and *documenter*
+returned zero occurrences.
+
+**Trip and route structure (8-19).** A trip created with dates generated its
+day cards in-panel. Two regions, multiple stops in each, a child substop, and
+an edit at all four levels -- trip, region, stop and substop -- all landed.
+Regions reordered; stops reordered within a region; **substop arrows moved a
+substop only among its own siblings and never out of its parent group**; a
+stop moved between regions through the edit drawer; insert-before and
+insert-after both worked on a top-level stop and on a substop. A full page
+refresh returned the same order, read back from the server rather than from
+the DOM -- so the order is persisted, not merely painted.
+
+**Evidence intake (20-25).** One disposable photo and one disposable source
+uploaded. Step 22's subject -- that choosing an upload scope after choosing
+files must not wipe the files, because a `FileList` cannot be restored by
+script -- was verified by injecting a real `DataTransfer`-backed `File` into
+the drawer's own visible input and then retargeting the scope: the `FileList`
+node survived, identity intact. Cluster ran and stated its caveat in the
+panel: it reads the narrator's whole photo library, not only this trip.
+Evidence badges and counts refreshed.
+
+**Tabs, Lori and lifecycle (26-31).** All eight Travel Doc tabs opened. Lori
+opened inside the Travel Doc, and the modal scope was proved **from the
+outbound WebSocket frame** rather than from the on-screen label: the
+`start_turn` payload carried `surface: "travel_doc_modal"` with the trip's own
+session id. Three full leave/re-enter cycles were then censused:
+
+```
+baseline  tdlRoots 1  painted true   bc 1/0  ws 1/0  key 1/1
+leave1    tdlRoots 0  painted false  bc 1/1  ws 1/1  key 1/2
+enter1    tdlRoots 1  painted true   bc 2/1  ws 1/1  key 2/2
+leave2    tdlRoots 0  painted false  bc 2/2  ws 1/1  key 2/3
+enter2    tdlRoots 1  painted true   bc 3/2  ws 1/1  key 3/3
+leave3    tdlRoots 0  painted false  bc 3/3  ws 1/1  key 3/4
+enter3    tdlRoots 1  painted true   bc 4/3  ws 1/1  key 4/4
+```
+
+Read as deltas, every entry opens exactly what the previous exit closed:
+never more than one live BroadcastChannel, never more than one live document
+keydown listener, and the Lori socket opened exactly once in the whole run and
+closed on the first leave without ever duplicating. Zero native dialogs across
+every destructive flow, every drawer and every delete. Zero console errors,
+zero page errors, zero unhandled rejections.
+
+**The force-delete gate (33-35).** The gate rendered **all ten impact lanes**,
+in order, with the hot lanes marked:
+
+```
+Regions 2   Stops 9   Day cards 6   Photo links 6   Story notes 1
+Sources 1   Story links 0   Public context 0   Photo context 0
+Bio suggestions 1
+```
+
+The tenth lane is the one production's grid omits, and it was **hot** -- the
+Lori turn had created a bio suggestion, so a nine-lane grid would have shown
+this trip's bio-suggestion evidence nowhere while the backend refused the
+delete. That is the Phase 3A finding reproducing live rather than in theory.
+
+Arming was tested against a fifteen-case matrix rather than a single happy
+path:
+
+| Typed | Armed |
+|---|---|
+| `""` (blank) | no |
+| `" "` | no |
+| `p6 smoke disposable` (case folded) | no |
+| `P6 SMOKE DISPOSABL` (one short) | no |
+| `P6 SMOKE DISPOSABLE!` (one extra) | no |
+| `P6 SMOKE` (prefix) | no |
+| `SMOKE DISPOSABLE` (suffix) | no |
+| `97c1b810` (id prefix) | no |
+| `97c1b810-...-605524bb302` (id one short) | no |
+| `97C1B810-...-605524BB3025` (id case folded) | no |
+| `XXX` after an armed value (disarm) | no |
+| `P6 SMOKE DISPOSABLE` (exact title) | **yes** |
+| `97c1b810-73ed-4079-8ac0-605524bb3025` (exact id) | **yes** |
+| `P6 SMOKE DISPOSABLE ` / ` P6 SMOKE DISPOSABLE` | **yes** (trim, by design) |
+
+The forced delete then completed in one transaction and the trip list for that
+narrator came back empty from the API, not merely from the picker.
+
+**Quarantine (36-37).** The standalone dev harness `ui/travel-doc-lab.html`
+still mounts, still shows its own narrator picker and still loads a real
+workspace when a narrator is chosen. The retired Documenter still exists and
+is still served -- `ui/travel-documenter.html` 200, `ui/js/travel-documenter.js`
+200 at 122262 bytes -- and is unreachable from the normal shell path: across
+82 script tags the shell requests no travel-documenter asset, no anchor or
+link points at it, and its globals are `undefined` at runtime. The six
+remaining textual references to the retired module across `app.js` and
+`travel-doc-lab.js` are **all inside comments**; none is executable.
+
+### Regression surface re-run
+
+`279 tests green` across the eight Phase 5 suites, run on the device in three
+batches (35 + 174 + 70). Both Playwright liveness harnesses PASS:
+`run_travel_doc_mount_liveness.js` 14/14 and
+`run_travel_doc_shell_mount_liveness.js` 23/23, both EXIT=0.
+
+### Findings recorded, none of them defects
+
+**1. The liveness harnesses cannot run on Chris's machine.** `node_modules`
+does not exist in the working tree, so both Playwright harnesses fail there
+with `playwright is not installed`. They were run in the cloud container after
+`md5sum` proved the eight relevant files byte-identical between the two
+copies. This is an operational gap in the proof chain, not a code defect: the
+gates that Chris can run himself are the 279 unit tests, and anything the
+harnesses uniquely prove is currently provable only by someone with a Node
+install. Worth an `npm install` or a documented "these two do not run here".
+
+**2. Force-delete arming trims whitespace.** ` P6 SMOKE DISPOSABLE` and
+`P6 SMOKE DISPOSABLE ` both arm the button. This is the documented
+trim-compare and it is deliberate, and it cannot loosen anything server-side
+because the wire always carries `confirm_trip_id = the trip id` regardless of
+what was typed -- the typed string is a client-side affordance only. Recorded
+here so a later reader does not mistake it for a hole.
+
+**3. The smoke photo survives the cascade.** Photo *links* are deleted with
+the trip; photos are not. Narrator `e7fdb578`'s library now holds **six**
+smoke photos, up from the five documented after Phase 4. This is the
+smoke-photo residue item, and it now has a number.
+
+**4. Two person records read as the same narrator.** `e7fdb578` is
+`Christopher` and `a4b2f07a` is `Christopher Todd Horne`. Pre-existing data,
+untouched, and nothing to do with this WO -- but the dev harness picker and
+the shell header can show what looks like one narrator and be two, which is
+worth knowing before the next live session picks a narrator by name.
+
+**5. Cluster writes links for the whole library.** Running cluster on the
+disposable trip wrote photo links for six photos, five of them pre-existing
+narrator-library photos rather than smoke uploads. That is exactly the
+behaviour the panel's own caveat states, and the links died with the trip.
+Recorded because it makes the trip's `photo_links` count larger than an
+operator would predict from what they uploaded.
+
+### Close-out
+
+Every requirement of WO-TRAVEL-DOC-UNIFY-01 is met and proved live. There is
+one Travel Doc on the operator path, no toggle, no second implementation
+reachable, no native dialog, no leaked listener or socket, and the destructive
+path is gated exactly as `WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` requires.
+**WO-TRAVEL-DOC-UNIFY-01 is CLOSED.**
+
+## Post-unification backlog (carried forward from Phase 6)
+
+None of these blocked the close; all of them were held out of scope on
+purpose and each needs its own decision or its own work order.
+
+1. **`travel-doc-lab.js` -> `travel-doc.js` rename.** Pure churn against a
+   240K file that would bury every future diff; parked since Phase 4 and still
+   the right call until something else forces the file to move.
+2. **Delete the retired standalone Documenter.** `ui/travel-documenter.html`,
+   `ui/js/travel-documenter.js` and its stylesheet still exist and are still
+   served. Requirement 7 is met by quarantine. Deleting them is a separate,
+   reversible decision -- and it is the trigger that would make the Phase 5
+   test fold into `tests/test_travel_doc.py` mechanical and correct.
+3. **`bio_suggestions` force-delete-from-birth.** Every trip is born with at
+   least one bio suggestion, so every trip is force-delete-only from the
+   moment it exists. That is a backend/product question, not a UI one: either
+   the lane should not count toward `requires_force`, or the ladder is
+   working as intended and the nine-lane production grid was simply wrong.
+4. **Selection persistence across a tab round-trip.** Leaving the Travel Doc
+   tab destroys the mount, so trip and day selection do not survive
+   re-entering. Known since Phase 2 and accepted then; still a real ergonomic
+   cost for an operator who tab-hops.
+5. **Smoke-photo residue.** Six disposable photos now sit in narrator
+   `e7fdb578`'s library. They need either a cleanup pass or a documented
+   "these are test rows".
+6. **`WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` live smoke.** Its gate was
+   exercised end-to-end here as part of the Travel Doc path, but that WO has
+   never had its own live smoke run against it.
+7. **The post-unification epic.** Import Provenance Foundation, Evidence
+   Review Queue, Google Photos Picker, Google Takeout import, Lori Review
+   Assistant, Lori Narrator Trip Story, and Export Pipeline. Chris's revised
+   plan is the direction; it starts now that this WO is closed.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
@@ -1161,3 +1382,4 @@ change, no smoke-photo cleanup, no new Travel Doc features.
 - 2026-07-25 — Phase 4 landed and smoke-accepted (fifteen steps green, including a three-round mount census showing opens 3 / closes 2, keydown +3 / -3, zero net sockets and one root at every sample): the legacy fallback is retired and the unified Travel Doc is the operator's only Travel Doc surface. Removal only — no backend, API, schema or flag change, and no file deleted. Out: the surface toggle and its whole support cast, both legacy asset tags, the switch row, `#lvTravelDocHost`, the `.lv-td-surface-*` / `.lv-td-host-off` / `body.lv-td-focus` rules, and the route board's `prodTravelDocUrl()` deep-link foot-note. **Deliberately not out:** the old module, its stylesheet and its standalone page, because requirement 7 forbids removing what a backend endpoint still serves and that page still mounts it — unmounting a surface and deleting a module are different acts; and `ui/travel-doc-lab.html`, kept and marked `DEV-ONLY` because it is the only caller of `lvTravelDocMount()` that exercises the non-shell identity branch. This narrows the Phase 0 plan written above, which had called for deleting all four and renaming the survivors; the rename stays parked. Five on-path fixes the order did not name, chief among them a `lv80SwitchPerson` teardown fallback nulling the retired marker (a silent no-op) and an ungated, operator-visible photo-picker empty state pointing at a production Travel Doc that no longer exists. A file-wide `assertNotIn("legacy")` on the shell proved invalid — 19 unrelated occurrences — so the gate is scoped to the panel and the mount block, and a stronger one replaced it because the shell now holds zero **raw** occurrences of the old module's name. Tests rewritten not deleted: five out, thirteen in, seven narrowed, with absences now asserted rather than merely unmentioned. 262 tests green (was 255); eight mutants, eight killed; the liveness harness rewritten for one surface with a `singleSurface` probe and its unrunnable negative controls marked as such rather than quietly dropped.
 - 2026-07-25 — Phase 3D landed and smoke-accepted: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. **The live smoke found a bug that nineteen source-scanning gates could not**: `api()` owns the request encoding, and both new movers pre-stringified their body, so every arrow press on the board answered 422. Fixed with a raw object at both call sites plus two new gates, one banning `body: JSON.stringify` file-wide while pinning that the encoding still happens exactly once inside `api()`. 255 tests green (was 236), nineteen gates mutation-tested, nineteen mutants killed. Eleven-step live smoke green, including insert before/after on a substop, cross-region move, cycle rejection at both layers, order surviving a refresh, both delete ladders, `FileList` node identity, the force-delete gate, and a clean mount/socket census. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2.
 - 2026-07-25 -- Phase 5 landed: one Travel Doc test surface. Tests and docs only; no production file touched. Added `tests/travel_doc_surfaces.py` (the single surface map -- path, role and operator-path flag per file, plus the comment stripper, the CSS brace walker and the two shell region extractors that six suites had been carrying privately, guarded by four tests of its own so the map cannot rot silently) and `tests/test_travel_doc_surface_gates.py` (the doctrine file: shell mounts the unified module and only that, no native dialogs on the operator path, no DELETE on the evidence lane, retired module quarantined). Six suites retargeted onto the map -- thirty private `Path` literals and eleven private stripper/extractor copies removed -- with **no test body moved**, so the diff separates cleanup from coverage change. Three findings: a test name that had gone half true (`test_lab_does_not_reference_production`, describing a world Phase 4 ended) was renamed rather than deleted because its assertion was still exactly right; `scripts/ui/run_travel_doc_mount_liveness.js`, the Phase 1.1 proof, was in no inventory and had gone four phases without a dialog scan; and the retired module's two `window.confirm` calls are now pinned at exactly two and quarantined rather than fixed (out of scope) or unasserted (which would hide them). One duplicate narrowed: two module-wide fallback-deep-link assertions already owned file-wide by another gate came out of the force-delete test, which now also asserts positively that the retired module still exists on disk. 279 tests green (was 262); 208 adjacent green with 6 pre-existing skips. Twelve mutants, twelve killed -- the first run came back 11/12 and the survivor was real: `assertIn("lvTravelDocMount", block)` also matched the `typeof` guard on the line above the call, so the gate would have passed a shell that checked whether it could mount and then never did; it now pins the call and the handle teardown needs. **The literal fold into `tests/test_travel_doc.py` was declined on purpose**, narrowing the Phase 0 plan above: the two suites guard two modules that both still exist and are both still served, so one file named for one Travel Doc would claim a boundary it cannot hold, and 129 + 36 tests concatenated moves every line number in both and buries the diff. Available as a mechanical follow-up if the standalone page is ever retired.
+- 2026-07-25 -- **Phase 6 landed and WO-TRAVEL-DOC-UNIFY-01 CLOSED.** Live verification and docs only; not one line of code written, and no `ui/`, `api/`, `server/`, schema, flag or test file changed. Thirty-seven-step live smoke, thirty-seven green, zero defects. Ref-based clicking was abandoned early because refs churn on every re-render inside the workspace, so interaction ran through a page-side helper resolving elements by text and structure at call time, and every persistence claim was read back from `/api/trips/{id}/tree` server-side rather than off the DOM. Dialogs, listeners, sockets, console errors and non-2xx traffic were recorded by an instrumentation spy installed before the mount -- including a `WebSocket.prototype.send` wrap, so step 28 was proved from the actual outbound `start_turn` frame carrying `surface: "travel_doc_modal"` rather than from the on-screen label. The unified workspace mounts directly with no toggle and no retired UI, and the shell's rendered text holds zero occurrences of *legacy*, *production Travel Doc*, *UI Lab*, *experimental*, *lab-only*, *removable* or *documenter*. Two regions and nine stops built, edited at all four levels, reordered, insert-before/after on both a top-level stop and a substop, a cross-region move through the edit drawer, substop arrows confined to their sibling group, and order surviving a full refresh. Upload `FileList` node identity held across a scope retarget. Cluster stated its whole-library caveat. **The mount census across three leave/re-enter cycles is the load-bearing lifecycle proof**: read as deltas, every entry opened exactly what the previous exit closed, never more than one live channel or one live keydown listener, and the Lori socket opened exactly once in the whole run. The force-delete gate rendered **all ten** impact lanes with `bio_suggestions` **hot at 1** -- the Phase 3A finding reproducing live, since production's nine-lane grid would have shown that evidence nowhere while the backend refused the delete -- and arming was tested against a fifteen-case matrix: case folding, prefix, suffix, one-character-short and one-character-long all refused; only the exact title, the exact id, or those with surrounding whitespace armed. 279 tests green; both Playwright harnesses PASS (14/14 and 23/23). **Five findings, none a defect:** the liveness harnesses cannot run on Chris's machine at all because `node_modules` is absent from the working tree (they ran in the container after md5 proved the eight relevant files byte-identical); force-delete arming trims whitespace by design and cannot loosen the server check because the wire always sends the trip id; the smoke photo survived the cascade because photo *links* are deleted and photos are not, putting narrator `e7fdb578`'s library at six smoke photos; `e7fdb578` and `a4b2f07a` are two different person records that both read as Christopher; and cluster wrote links for six photos, five of them pre-existing library photos, exactly as its caveat states. Seven-item post-unification backlog recorded at the foot of the spec.
