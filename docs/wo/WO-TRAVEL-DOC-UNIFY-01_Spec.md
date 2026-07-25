@@ -66,7 +66,7 @@ Mount the module into `#lvTravelDocHost` alongside the Documenter, with a switch
 
 Also fix the discoverability defect found on the way in: the `WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01` launcher block in `hornelore1.0.html` (~3600–3617) has **zero CSS** — no rule for `lvTravelDocLabBtn`, `lv-td-lab-launch`, or `lv-td-lab-hint` exists anywhere in `ui/`, which is why it renders as plain text and Chris could not find it. It is deleted in Phase 4 regardless; if Phase 2 keeps it reachable, it needs a rule.
 
-### Phase 3 — port the Documenter's features in (3A ✅ LANDED 2026-07-25, 3B ✅ LANDED 2026-07-25)
+### Phase 3 — port the Documenter's features in (3A ✅ 3B ✅ 3C ✅ 3D ✅ — all LANDED 2026-07-25)
 
 The bulk of the work. **The delete gate goes first** — it is the newest and least-exercised code in either panel and the thing most likely to be quietly broken by a port.
 
@@ -81,8 +81,8 @@ Everything lands in the tab currently called "Current", which should be renamed 
 | Trip create / edit modal | Trip tab + sidebar "New trip" | ✅ **Phase 3B, LANDED 2026-07-25.** `+ New trip` in the rail head; edit drawer covers title, dates and summary; `days_warning`/`sync_warning` preserved. |
 | Region / stop CRUD | Trip tab | ✅ **Phase 3B, LANDED 2026-07-25.** All six region fields and the full stop editor including the region selector, the eight-value `STOP_TYPES` and reparenting with subtree exclusion. Both deletes are in-panel reviews (A5 honoured). The region delete is **not verbatim**: it tries unforced first and escalates on 409, because production sends no force flag and never handles the 409, so its delete silently dead-ends. |
 | Stop insert-at-position | Trip tab | ✅ **Phase 3B, LANDED 2026-07-25.** `insertContext` / `insertHint` preserved, plus a guard that discards a stale context when the drawer is retargeted to a different region or parent — production had no such check. |
-| Itinerary tile board | Trip tab, main column | Route order = tile order; reorder, insert, restructure. |
-| Editable Route Outline | Existing sidebar | Share selection with the board via the existing `st.routeSel`. |
+| Itinerary tile board | Trip tab, main column | ✅ **Phase 3D, LANDED 2026-07-25.** Rows render in server order (a test bans client-side `.sort(` / `.reverse()` on the board path) with per-row up/down arrows that disable at the ends and while a move is in flight. Evidence badges ported at zero fetch cost. Insert-at-position was already in from 3B and is unchanged. |
+| Editable Route Outline | Existing sidebar | ✅ **Phase 3D, LANDED 2026-07-25.** Rail and board now share `st.routeSel` in both directions, and the rail's region summary became selectable — previously `st.routeSel` was written in exactly one place and only ever as a stop. |
 | Timeline view | Trip tab right rail | Documenter's `rightView: editor \| timeline` toggle. |
 | Memoir preview | Trip tab toolbar | |
 | `days_warning` / `sync_warning` banner | Global, above tabs | ✅ **Phase 3B, LANDED 2026-07-25.** `applyTripWarnings()` sets `st.tripWarning` (Trip tab) and `st.daysWarning` (day cards). The latter had been **read but never set** since the Lab was read-only — a dead banner, now wired. |
@@ -103,7 +103,7 @@ Everything lands in the tab currently called "Current", which should be renamed 
 
 **Everything not on that list ports or blocks.**
 
-**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5) — ✅ landed. 3C — photo and source upload plus cluster (a capability to build, A2) — ✅ landed. 3D — the itinerary tile board, reorder, and the editable Route Outline. Each is its own session.
+**Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5) — ✅ landed. 3C — photo and source upload plus cluster (a capability to build, A2) — ✅ landed. 3D — the itinerary tile board, reorder, and the editable Route Outline (✅ landed). Each is its own session.
 
 ### Phase 4 — flip and delete
 
@@ -619,6 +619,106 @@ identifiable precisely because of the stamp this phase added — every one carri
 `uploaded_by_user_id = "travel_doc_unified"`. They were **not** deleted here:
 photo deletion is outside this phase's wall and the doctrine is hide-only.
 
+## Phase 3D — what landed (2026-07-25)
+
+Route order and route-row ergonomics, so the legacy Documenter no longer holds a
+workflow advantage on the one surface where it still had one. Front-end only —
+**no backend, no API, no schema, no flag change**. `trips.py` was read first and
+needed nothing: all three reorder/move endpoints already exist and validate
+strictly.
+
+**The gap list.** Production's route board was reviewed against the unified
+workspace and had exactly four affordances the port did not: region reorder,
+stop reorder, evidence badges on route rows, and a selectable region row. All
+four are now in and **nothing was retired**. Production has no drag-and-drop on
+either tile — grep-verified, not assumed — so nothing was copied that does not
+exist.
+
+**The load-bearing decision: a stop move sends two ids, not a permutation.**
+Production's stop reorder builds the whole sibling list and posts it to
+`POST /api/trips/{id}/stops/reorder`, which 400s unless that list is *exactly*
+the current sibling group. Such a request is precisely as stale as the tree it
+was built from, so any concurrent insert or delete turns a move the operator can
+see is legal into a refusal they cannot explain. The port instead calls
+`POST /api/trips/{id}/stops/{stop_id}/move` with `before_stop_id` /
+`after_stop_id` and lets the backend re-derive the sibling group from two ids
+that are still true. This is a deliberate divergence, and it satisfies Chris's
+test line *"stop reorder before/after works through existing API shape"* —
+`/move` **is** the existing shape, and it is the endpoint production already
+uses for cross-region moves. A test bans both `ordered_ids` and `/stops/reorder`
+inside `moveStopRelative` so the permutation cannot creep back in later.
+
+**A reorder must never quietly reparent.** `moveStopRelative` echoes `region_id`
+and `parent_trip_stop_id` back unchanged, so a substop moves among its own
+siblings and only there. That is the one way an up/down arrow could destroy a
+branch the operator was never shown, and two tests pin it.
+
+**Regions still send a permutation, because there is no other door.**
+`POST /api/trips/{id}/regions/reorder` is the only region-order endpoint and it
+demands a full permutation, so the staleness above is unavoidable there. The
+port handles it the way Phase 3B handled the region-delete 409: the refusal is
+surfaced in-panel, next to the rows it is about, and the trip bundle is reloaded
+so the operator's next attempt is built from a fresh tree. It does not dead-end,
+and it never reaches for a native dialog.
+
+**Two new `st` fields.** `routeBusy` holds the id of the row whose move is in
+flight and disables every arrow on the board while it is set — two interleaved
+reorders are each built from the tree as it looked before the other one landed.
+`routeError` is the in-board failure surface; a refused move has to be readable
+next to the rows it concerns. Both clear in `selectTrip()`, in
+`afterTripDeleted()` and in `afterRouteDeleted()`, for the same reason the 3B
+editors and the 3C intake fields do: a move in flight against a row that is
+being deleted is a dangling handle of the same kind.
+
+**Row selection revived a branch that could never fire.** Phase 3C's
+`defaultScopeKey()` has a region arm, but `st.routeSel` was written in exactly
+one place and only ever as a stop — so the upload drawer could default to a
+region that nothing on the surface was able to select. Route rows are now
+selectable for regions as well as stops, on both the board and the rail, and the
+arm is live. The row body became a `<button>` so selection works from the
+keyboard as well as the pointer, which is why the first new CSS rule exists: it
+strips the browser button skin back to the `div` it replaced.
+
+**Evidence badges cost nothing.** `st.notes`, `st.sources` and `st.photoLinks`
+already carry `trip_region_id` / `trip_stop_id`, so the badges are a filter over
+state the bundle has already fetched. A test asserts there is no `api(` call
+anywhere on the badge path.
+
+### Phase 3D verification
+
+`node --check` clean on `travel-doc-lab.js`, `ast.parse` clean on the test
+files, `CR: 0` on all four files on both sides of the transfer. **253 tests
+green** (was 236) across the same six suites Phase 3C counted, in the container
+and on the device.
+
+The seventeen new gates in `RouteOrderBoardTest` were **mutation-tested rather
+than trusted**: seventeen mutants, seventeen killed, each by its intended gate.
+One mutant exposed a flaw in the harness rather than in the code — the anchor
+`parent_trip_stop_id: parentId,` occurs twice (the 3B stop-editor drawer and the
+new mover), and the harness correctly refused to mutate an ambiguous anchor
+instead of silently patching the wrong one; re-run with a two-line unique
+anchor, it was killed. One test also had to be rewritten after it passed: the
+CSS check originally sliced from the first Phase 3D class name to end-of-file,
+which swept in every later block and made the no-new-colour assertion about
+somebody else's code. It is now line-based over the six Phase 3D class names.
+
+**A pre-existing red, found here and red since Phase 2.** The device's six-suite
+run came back `FAILED (failures=1)` while the container's came back OK. The
+cause was not this phase. Phase 2 commit `e9b792c` widened the
+`lv80SwitchPerson` block in `ui/hornelore1.0.html`, but the matching widening of
+the 1200-character regex window in `tests/test_travel_documenter_panel.py` never
+got committed — so on the device that window truncated before the
+`lvShellShowTab("traveldoc")` assertion. The device's real baseline had been
+**235/236 since Phase 2**, and container-only test runs had been masking it. An
+md5 comparison of eight files confirmed this was the *only* container/device
+divergence. The repair ships as its **own commit**, separate from Phase 3D,
+because it is a Phase 2 test-sync fix and not this phase's work.
+
+**Live smoke: NOT RUN.** The Chrome extension was not connected during this
+session, so none of Chris's eleven live-smoke steps were exercised. Phase 3D is
+CODE-LANDED and test-green; it is **not** smoke-accepted, and the smoke has to
+be run before Phase 4 opens.
+
 ## Revision history
 
 - 2026-07-24 — Spec authored (Claude), folding Chris's merge brief, ChatGPT's six-phase work order, and Claude's six amendments. Phase 1 landed same day.
@@ -627,3 +727,4 @@ photo deletion is outside this phase's wall and the doctrine is hide-only.
 - 2026-07-25 — Phase 3A landed: the trip force-delete impact-review gate ported into the unified workspace, reading `e.body.detail` and rendering ten impact lanes where production renders nine. `api()` now surfaces `err.status`/`err.body`. Phase 3 formally split into 3A/3B/3C/3D scope walls. Backlog note: every trip is born with a `travel.trip` bio suggestion, so every trip is force-delete-only from birth.
 - 2026-07-25 — Phase 3C landed: photo upload at trip/region/stop scope, source upload, and photo clustering built into the unified workspace — a capability, not a port, since the lab had no `FormData` and no file input. `api()` grew a `FormData` branch ahead of its JSON branch. Scope is an explicit drawer selection rather than production's ambient `editorScope()` read, and the drawer never repaints between choosing files and uploading, because a `FileList` cannot be restored by script. Intake never promotes. Found and fixed a same-scope bug: three suites used a string-blind comment stripper and went blind on `files.accept = "image/*"` — migrated to the repo's existing `strip_js_comments`, assertions unchanged. 236 tests green (was 220), sixteen new gates mutation-tested; twelve-step live smoke green across all three upload scopes, with no-auto-promotion verified server-side.
 - 2026-07-25 — Phase 3B landed: trip create/edit and region/stop CRUD ported into the unified workspace, with insert-at-position preserved and both deletes as in-panel reviews. The region delete is deliberately not verbatim — it fixes a production dead-end where a non-empty region's DELETE 409s and production neither forces nor handles it. Empty-state copy fixed; `st.daysWarning` wired after being read-but-never-set. 220 tests green (was 205); thirteen-step live smoke green with a functional socket/channel/listener census.
+- 2026-07-25 — Phase 3D landed: route order and route-row ergonomics in the unified workspace. Region and stop up/down reorder, evidence badges on route rows, and region rows made selectable — which revived Phase 3C's `defaultScopeKey()` region arm, previously unreachable because `st.routeSel` was only ever written as a stop. A stop move deliberately posts two ids to `/stops/{id}/move` rather than production's full permutation to `/stops/reorder`, because a permutation is exactly as stale as the tree it was built from; regions still post a permutation because that is the only endpoint, so a refusal is surfaced in-panel and the bundle reloaded rather than dead-ending. `routeBusy` serialises moves; `routeError` is the in-board failure surface. 253 tests green (was 236), seventeen new gates mutation-tested, seventeen mutants killed. Also repaired a pre-existing red: the Phase 2 `lv80SwitchPerson` test window was never committed, so the device baseline had really been 235/236 since Phase 2. **Live smoke not run — the browser extension was not connected; Phase 3D is code-landed, not smoke-accepted.**
