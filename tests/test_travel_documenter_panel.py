@@ -2,8 +2,25 @@
 
 The Travel Documenter is an OPERATOR tool for editing trips; the
 Travels shelf is the narrator/Lori conversation surface. These tests
-FAIL THE BUILD if the two ever mix state, or if the native panel
+FAIL THE BUILD if the two ever mix state, or if the operator panel
 regresses to requiring pasted person_ids.
+
+WO-TRAVEL-DOC-UNIFY-01 Phase 4 moved the boundary this file guards.
+The older Documenter module (ui/js/travel-documenter.js) is no longer
+what the shell mounts — the unified Travel Doc is — but the module and
+its standalone page ui/travel-documenter.html both still exist and both
+still call the backend, so every safety rule below still has to hold.
+What changed is only WHERE each rule is proved:
+
+  - the shell-mount assertions moved off the module and onto the
+    standalone page, which is now the module's only caller;
+  - the shell-wiring test inverted: it asserts the shell does NOT load
+    the module's assets, while still proving the tab itself is wired;
+  - the remount marker is _lvTravelDocUnifiedMountedFor now, because
+    the marker these tests used to name no longer exists anywhere.
+
+Nothing was deleted. A test that still proves required behavior was
+narrowed, not dropped — see Phase 4 requirement 8.
 """
 from __future__ import annotations
 
@@ -55,29 +72,52 @@ class BoundaryTest(unittest.TestCase):
         self.assertIn("window.lvTravelDocumenterMount", src)
 
     def test_native_panel_uses_selected_narrator_not_paste(self):
-        # The native mount call in app.js must pass state.person_id;
-        # the module must consume opts.person_id.
+        # The rule: the operator's Travel Doc tab is handed an identity by
+        # the shell, and refuses to work without one. It never asks the
+        # operator to paste a person_id.
+        #
+        # Phase 4 note: this used to assert lvTravelDocumenterMount inside
+        # the app.js block, because that block was what mounted this
+        # module. It now mounts the unified Travel Doc instead, so naming
+        # the old mount there would assert the exact thing Phase 4
+        # removed. The shell half of the rule is therefore checked on the
+        # shell's actual behaviour, and the module half is checked against
+        # the module's surviving caller — ui/travel-documenter.html.
         app = _APP.read_text(encoding="utf-8")
         m = re.search(r'if \(tabName === "traveldoc"\) \{[\s\S]*?\n  \}', app)
         self.assertIsNotNone(m, "traveldoc mount block missing in app.js")
         block = m.group(0)
         self.assertIn("state.person_id", block)
-        self.assertIn("lvTravelDocumenterMount", block)
         self.assertIn("Choose a narrator first", block)
+        # The module still takes its identity from opts, and its remaining
+        # page still supplies one through that mount.
         src = _stripped_js()
         self.assertIn("opts.person_id", src)
+        self.assertIn("lvTravelDocumenterMount",
+                      _STANDALONE.read_text(encoding="utf-8"))
 
     def test_remount_on_narrator_change(self):
+        # A per-narrator mount marker must exist, so a narrator switch can
+        # invalidate the mounted surface instead of leaving another
+        # narrator's document on screen. Phase 4 retired the old
+        # _lvTravelDocMountedFor along with the surface it tracked; the
+        # marker that governs the operator path now is the unified one.
         app = _APP.read_text(encoding="utf-8")
-        self.assertIn("_lvTravelDocMountedFor", app)
+        self.assertIn("_lvTravelDocUnifiedMountedFor", app)
 
     def test_shell_tab_and_panel_wired(self):
+        # The tab itself is unchanged and still has to be wired. What
+        # Phase 4 inverted is which module fills it: the shell must no
+        # longer pull this module's script or stylesheet, and the host div
+        # it used to mount into must be gone. Asserting the absence here
+        # (rather than deleting the test) means a re-added <script> tag
+        # fails the same gate that used to require one.
         html = _HTML.read_text(encoding="utf-8")
         self.assertIn('data-tab="traveldoc"', html)
         self.assertIn('id="lvTravelDocTab"', html)
-        self.assertIn('id="lvTravelDocHost"', html)
-        self.assertIn("css/travel-documenter.css", html)
-        self.assertIn("js/travel-documenter.js", html)
+        self.assertNotIn('id="lvTravelDocHost"', html)
+        self.assertNotIn("css/travel-documenter.css", html)
+        self.assertNotIn("js/travel-documenter.js", html)
         # Interview-mode boundary: the shell tab strip (which carries
         # this tab) is hidden while interview mode is active.
         css = (_REPO_ROOT / "ui" / "css" / "lori80.css").read_text(
@@ -149,11 +189,18 @@ class ReviewFixesTest(unittest.TestCase):
         # it left the outgoing narrator's mount live — a document keydown
         # listener and a modal-Lori socket leaked per switch, and from
         # Phase 2 a BroadcastChannel subscription bound to a narrator
-        # nobody is looking at. The switch now DESTROYS both Travel Doc
-        # surfaces; the bare marker null survives only as the fallback for
+        # nobody is looking at. The switch now DESTROYS the Travel Doc
+        # surface; the bare marker null survives only as the fallback for
         # the case where app.js has not defined the teardown yet.
+        #
+        # Phase 4: there is one surface now, not two, and the fallback has
+        # to null the marker that still exists. It named
+        # _lvTravelDocMountedFor — the retired Documenter's marker — which
+        # made the fallback a silent no-op that would have let a stale
+        # mount survive on any load where app.js failed. Pin the real one.
         self.assertIn("lvTravelDocTeardownAll()", block)
-        self.assertIn("_lvTravelDocMountedFor = null", block)
+        self.assertIn("_lvTravelDocUnifiedMountedFor = null", block)
+        self.assertNotIn("_lvTravelDocMountedFor = null", block)
         self.assertIn('lvShellShowTab("traveldoc")', block)
 
     def test_parent_dropdown_filters_by_region(self):

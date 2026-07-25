@@ -2536,78 +2536,26 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
   cursor: pointer;
 }
 
-/* ── Travel Doc focus mode (WO-TRAVEL-DOC-LAYOUT-REFLOW-01) ──────────────
-   Toggled by the "Focus" button in the operator Travel Doc panel, which
-   flips body.lv-td-focus. Scoped to the Travel Doc tab via the
-   data-shell-tab attribute lvShellShowTab already sets, so it auto-clears
-   the moment the operator switches tabs — no JS cleanup needed.
-   Compresses the interview mode controls (Lori's role segmented control +
-   posture badge) to give the trip workspace more vertical room. Narrator
-   identity, brand, and Mic/Cam/Bug stay visible. Visual only — no Lori,
-   runtime71, or Travels-shelf state is touched. */
-body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header .memory-segmented-control,
-body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header .lv80-posture-badge { display: none; }
-body.lv-td-focus[data-shell-tab="traveldoc"] #lv80Header { padding-top: 8px; padding-bottom: 8px; }
+/* WO-TRAVEL-DOC-LAYOUT-REFLOW-01's Travel Doc "Focus" mode lived here:
+   three body.lv-td-focus rules that compressed the shell header while the
+   operator worked in the trip workspace. The ONLY control that ever set
+   that class was the legacy Documenter's own "Focus" button, and
+   WO-TRAVEL-DOC-UNIFY-01 Phase 4 took that surface off the shell path.
+   The rules were therefore unreachable, not merely unused, so they came
+   out with it rather than sitting here waiting for a setter that no
+   longer exists. */
 
-/* ── Travel Doc surface switch (WO-TRAVEL-DOC-UNIFY-01 Phase 2) ──────────
-   Replaces the WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01 launcher row, which
-   opened a separate tab and — the defect Phase 2 closes — had ZERO CSS
-   anywhere in ui/, so it rendered as unstyled text on a dark background
-   and Chris could not find it. This row is the temporary Phase 2
-   comparison control: the unified workspace is the default and the legacy
-   Documenter stays one click away until the port is finished, at which
-   point this whole block and its markup come out together.
+/* ── Travel Doc host (WO-TRAVEL-DOC-UNIFY-01 Phase 4) ────────────────────
+   Phase 2 put a surface-switch row above this host — two pill buttons and
+   a hint line — so the operator could fall back to the old Documenter
+   while the port was in flight. Phase 4 retired the fallback, so the row,
+   its .lv-td-surface-* rules and the .lv-td-host-off hide rule that let
+   one host sit behind the other all came out together. One host is left.
 
-   Two hosts live under this row and exactly one is ever mounted. The
-   hidden one is not merely display:none'd — app.js destroys it — because
-   two live Travel Doc mounts would mean two BroadcastChannel
-   subscriptions, two document-level keydown listeners and two Lori
-   sockets. The class below only handles the visual half of that. */
-.lv-td-surface-switch {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: rgba(10,10,20,0.98);
-  border-bottom: 1px solid rgba(99,102,241,0.2);
-}
-.lv-td-surface-btn {
-  appearance: none;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(99,102,241,0.35);
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-.lv-td-surface-btn:hover { color: #cbd5e1; background: rgba(99,102,241,0.08); }
-.lv-td-surface-btn:focus-visible {
-  outline: 2px solid rgba(99,102,241,0.6);
-  outline-offset: 2px;
-}
-.lv-td-surface-btn[aria-pressed="true"] {
-  color: #e2e8f0;
-  border-color: #a5b4fc;
-  background: rgba(99,102,241,0.16);
-}
-.lv-td-surface-hint {
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.3;
-}
-/* The unified host is a flex child of #lvTravelDocTab (a flex column), so
-   it takes the panel's remaining height rather than a magic 100vh offset
-   that has to be re-guessed every time the shell header changes. The
-   LEGACY host deliberately keeps its existing inline height — this phase
-   does not re-lay-out the fallback surface, only hides it. */
+   It is a flex child of #lvTravelDocTab (a flex column), so it takes the
+   panel's remaining height rather than a magic 100vh offset that has to
+   be re-guessed every time the shell header changes. */
 #lvTravelDocTab > .lv-td-host { flex: 1; min-height: 0; overflow: auto; }
-#lvTravelDocTab > .lv-td-host-off { display: none; }
 
 /* WO-TRIP-LORI-REAL-BETA-USABILITY-01 Phase 2 — in-chat add-trip-photo button */
 #lvAddTripPhotoBtn {

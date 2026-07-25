@@ -1,11 +1,21 @@
-"""WO-TRAVEL-DOC-UI-LAB-01 — boundary gate for the (removable) UI Lab.
+"""WO-TRAVEL-DOC-UI-LAB-01 — boundary gate for the Travel Doc module.
 
-The lab is an experimental, API-connected redesign surface. These tests
-FAIL THE BUILD if it ever leaks into production state, loads the
-production Travel Doc module, calls an unsanctioned endpoint, or drops
-its tdl- namespace. The production panel (ui/js/travel-documenter.js)
-cannot be guarded byte-for-byte from a test, so instead we lock the lab
-side: the lab must not import or script-load the production module.
+This file started as the gate for an experimental, removable redesign
+surface sitting beside the shipped Travel Documenter. WO-TRAVEL-DOC-
+UNIFY-01 turned that experiment into the product: Phases 3A-3D ported
+the force-delete gate, trip/region/stop CRUD, upload/source/cluster and
+route ordering into it, and Phase 4 unmounted the older Documenter from
+the shell. ui/js/travel-doc-lab.js and ui/css/travel-doc-lab.css are now
+the operator's only Travel Doc; only ui/travel-doc-lab.html is still a
+removable dev harness. (The file names still say "lab" because renaming
+a 3,400-line module is churn that would bury a real diff — that rename
+is parked, not forgotten.)
+
+The tests still FAIL THE BUILD if this surface leaks into narrator or
+Travels-shelf state, loads the older Travel Doc module, calls an
+unsanctioned endpoint, or drops its tdl- namespace. The older module
+(ui/js/travel-documenter.js) cannot be guarded byte-for-byte from a
+test, so we lock this side: it must not import or script-load that one.
 """
 from __future__ import annotations
 
@@ -63,10 +73,30 @@ class LabFilesExistTest(unittest.TestCase):
         for p in (_JS, _CSS, _HTML):
             self.assertTrue(p.exists(), f"missing lab file: {p}")
 
-    def test_lab_files_carry_removable_marker(self):
-        for p in (_JS, _CSS, _HTML):
-            self.assertIn("REMOVABLE", p.read_text(encoding="utf-8"),
-                          f"{p.name} must declare itself removable")
+    def test_the_harness_page_is_the_removable_one(self):
+        # This gate used to require all three files to say REMOVABLE,
+        # because all three WERE — the lab was an experiment sitting
+        # beside a separate operator Travel Doc, and the marker told the
+        # next reader they could delete the whole set.
+        #
+        # WO-TRAVEL-DOC-UNIFY-01 Phase 4 inverted that for two of them.
+        # The shell now mounts travel-doc-lab.js, styled by
+        # travel-doc-lab.css, as the operator's only Travel Doc. Deleting
+        # those two would delete the Travel Doc tab. Keeping the old
+        # assertion would have kept a delete-me sign nailed to
+        # load-bearing code, so the gate now pins the true split: the
+        # harness PAGE is removable and says so; the two modules are not,
+        # and must not claim to be.
+        html = _HTML.read_text(encoding="utf-8")
+        self.assertIn("REMOVABLE", html,
+                      "the dev harness page must declare itself removable")
+        self.assertIn("DEV-ONLY", html,
+                      "the dev harness page must declare itself dev-only")
+        for p in (_JS, _CSS):
+            self.assertNotIn(
+                "REMOVABLE", p.read_text(encoding="utf-8"),
+                f"{p.name} IS the operator Travel Doc since Phase 4 — it "
+                f"must not carry a removable marker")
 
 
 class BoundaryTest(unittest.TestCase):
@@ -654,7 +684,18 @@ class Lab03Test(unittest.TestCase):
     def test_lab_only_evaluation_checklist(self):
         src = _stripped_js()
         self.assertIn("Lab-only evaluation checklist", src)
-        self.assertIn("removable lab, not production", src)
+        # The panel's own copy has to say who it is for. It used to read
+        # "part of the removable lab, not production Travel Doc" — a
+        # sentence Phase 4 made false in both halves: this module is not
+        # removable any more, and there is no other Travel Doc to be the
+        # production one. What the copy still has to convey is the part
+        # that stayed true: an operator never sees this panel. The gate
+        # that actually enforces that is the !embedded call site, pinned
+        # below, so the copy and the code cannot drift apart.
+        self.assertIn("Dev harness only", src)
+        self.assertNotIn("removable lab, not production", src)
+        self.assertIn("if (!embedded) wrap.appendChild(renderEvalChecklist());",
+                      src)
         for label in ("Day cards generated / reconciled",
                       "Photos attached to days",
                       "Sources attached to days",
@@ -1049,20 +1090,34 @@ class TripForceDeleteGateTest(unittest.TestCase):
                          "/sources", "photo-links"):
                 self.assertNotIn(lane, call, lane)
 
-    # 10 — the legacy fallback remains reachable.
-    def test_legacy_fallback_remains_reachable(self):
-        # The unified workspace still deep-links to the production page,
-        # and the shell still carries the surface switch. Phase 3A removes
-        # neither, and travel-documenter.js is not deleted.
-        self.assertIn("function prodTravelDocUrl(", self.src)
-        self.assertIn("travel-documenter.html?api=", self.src)
+    # 10 — the force-delete gate does not depend on a second surface.
+    def test_force_delete_gate_needs_no_fallback_surface(self):
+        # Phase 3A wrote this as "the legacy fallback remains reachable":
+        # while the impact gate was new, the old page had to stay one
+        # click away so an operator could finish a delete if the new
+        # drawer misbehaved. WO-TRAVEL-DOC-UNIFY-01 Phase 4 retired that
+        # escape hatch on purpose — the gate has shipped and been smoked
+        # through 3B/3C/3D — so asserting the deep link and the surface
+        # toggle would now assert the exact thing Phase 4 removed.
+        #
+        # What still has to be proved is the half that never depended on
+        # the fallback: the force-delete gate is self-contained on this
+        # surface, and Phase 4 did not delete the older module (Phase 4
+        # requirement 7 — its backend endpoints stay in use).
+        self.assertNotIn("function prodTravelDocUrl(", self.src)
+        self.assertNotIn("travel-documenter.html?api=", self.src)
         self.assertTrue(
             (_REPO_ROOT / "ui" / "js" / "travel-documenter.js").exists(),
-            "travel-documenter.js must not be removed in Phase 3A")
+            "travel-documenter.js must not be deleted — Phase 4 unmounts "
+            "it from the shell, it does not remove the module")
         shell = (_REPO_ROOT / "ui" / "hornelore1.0.html").read_text(
             encoding="utf-8")
-        self.assertIn('data-td-surface="legacy"', shell)
-        self.assertIn('data-td-surface="unified"', shell)
+        self.assertNotIn('data-td-surface="legacy"', shell)
+        self.assertNotIn('data-td-surface="unified"', shell)
+        # The gate itself: impact counts, then an explicit force confirm,
+        # both rendered by this module with no way out to another page.
+        self.assertIn("force=true", self.src)
+        self.assertIn("tdl-delete-drawer", self.src)
 
     def test_delete_review_css_is_tdl_namespaced(self):
         for cls in (".tdl-delete-drawer", ".tdl-delete-warn",
@@ -1265,12 +1320,17 @@ class TripRegionStopCrudTest(unittest.TestCase):
                           "st.insertContext = null"):
                 self.assertIn(field, fn, fn_name + " / " + field)
 
-    # 14 — the legacy surface is still reachable from the Trip tab.
-    def test_legacy_deep_link_survives_the_tab_rewrite(self):
+    # 14 — the Trip tab rewrite strands nobody, and offers no way out.
+    def test_the_tab_rewrite_strands_no_operator(self):
+        # Phase 3B put a foot-note deep link at the bottom of the route
+        # board so an operator could bail to the old page mid-rewrite.
+        # Phase 4 removed the link with the fallback it pointed at, so
+        # this test keeps the half that is still load-bearing — the tab
+        # id migration — and inverts the half that Phase 4 retired.
         self.assertIn("function renderTripTab(", self.src)
         tab = self._fn("function renderTripTab(")
-        self.assertIn("prodTravelDocUrl()", tab)
-        self.assertIn("tdl-route-legacy", tab)
+        self.assertNotIn("prodTravelDocUrl()", tab)
+        self.assertNotIn("tdl-route-legacy", tab)
         # The old placeholder tab id must not strand an operator whose
         # last session ended on it.
         self.assertIn('if (tab === "current") tab = "trip";', self.src)
@@ -1281,8 +1341,9 @@ class TripRegionStopCrudTest(unittest.TestCase):
         for cls in (".tdl-route-board", ".tdl-route-row",
                     ".tdl-route-row-region", ".tdl-route-row-stop",
                     ".tdl-route-row-actions", ".tdl-edit-drawer",
-                    ".tdl-date-warn", ".tdl-insert-hint",
-                    ".tdl-route-legacy"):
+                    ".tdl-date-warn", ".tdl-insert-hint"):
+            # .tdl-route-legacy was in this list until Phase 4. It styled
+            # the deep-link foot-note; rule and markup came out together.
             self.assertIn(cls, self.css, cls)
         for cls in ("tdl-route-board", "tdl-edit-drawer", "tdl-insert-hint"):
             self.assertIn(cls, self.src, cls)
@@ -1720,13 +1781,17 @@ class RouteOrderBoardTest(unittest.TestCase):
         self.assertIn("var useCtx = (ctx && regionId === ctx.region_id &&", drawer)
         self.assertIn("st.insertContext", self.src)
 
-    # 15 — the legacy surface stays reachable; Phase 4 retires it, not
-    #      this phase.
-    def test_legacy_fallback_still_reachable(self):
+    # 15 — Phase 3D held the fallback open; Phase 4 closed it. This is
+    #      the module-wide version of that close-out: no helper, no
+    #      caller, no URL left behind anywhere in the file.
+    def test_the_fallback_deep_link_is_gone_module_wide(self):
         tab = self._fn("function renderTripTab(")
-        self.assertIn("tdl-route-legacy", tab)
-        self.assertIn("prodTravelDocUrl()", tab)
-        self.assertIn("function prodTravelDocUrl(", self.src)
+        self.assertNotIn("tdl-route-legacy", tab)
+        self.assertNotIn("prodTravelDocUrl()", tab)
+        self.assertNotIn("function prodTravelDocUrl(", self.src)
+        self.assertNotIn("prodTravelDocUrl", self.src)
+        # Nothing else may hand-roll the same escape hatch.
+        self.assertNotIn("travel-documenter.html", self.src)
 
     # 16 — a move armed against one trip must not survive a trip switch
     #      or a trip delete, same rule the editors and drawers follow.

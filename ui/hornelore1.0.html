@@ -35,14 +35,17 @@
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/bug-panel-preflight.css">
   <link rel="stylesheet" href="css/affect.css">
-  <link rel="stylesheet" href="css/travel-documenter.css?v=2026-07-08b" />
   <!-- WO-TRAVEL-DOC-UNIFY-01 Phase 2: the unified Travel Doc workspace
        mounts inside the Travel Doc tab, so the shell now needs the Lab's
        stylesheet. It is safe to load globally: every rule in it is scoped
        to .tdl-root, the class lvTravelDocMount() puts on its host and
        destroy() takes back off, so nothing here reaches the dark shell.
        Loaded BEFORE lori80.css on purpose — lori80.css owns the host
-       sizing and the surface switch, and should win any tie. -->
+       sizing and should win any tie.
+
+       Phase 4: the old Documenter's stylesheet used to load immediately
+       above this comment. It came out with the surface toggle — that
+       module is no longer on the shell path at all. -->
   <link rel="stylesheet" href="css/travel-doc-lab.css?v=2026-07-25a" />
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
@@ -3604,45 +3607,22 @@
        during interview mode. This panel never touches Lori / runtime71 /
        Travels shelf state.
 
-       WO-TRAVEL-DOC-UNIFY-01 Phase 2: the tab now holds TWO hosts and
-       mounts exactly one of them. The default is the unified workspace
-       (js/travel-doc-lab.js); the legacy Documenter
-       (js/travel-documenter.js) stays one click away as a comparison
-       fallback until the port finishes, at which point the switch row,
-       the legacy host and the legacy script tag all come out together.
+       WO-TRAVEL-DOC-UNIFY-01 Phase 4: the tab holds ONE host and mounts
+       ONE surface — the unified workspace (js/travel-doc-lab.js). Phase 2
+       put a second host beside it, behind a comparison toggle, because
+       the port was not finished. Phases 3A-3D finished it, and Phase 4
+       took the toggle, the second host and the old Documenter's two asset
+       tags back out. The module itself is not deleted and its standalone
+       page still mounts it; it is simply not on the shell path.
        All of the mount/destroy logic lives in lvShellShowTab() in
-       js/app.js — see the doctrine block above it for why only one
-       surface may ever be live. -->
+       js/app.js — see the doctrine block above it for why at most one
+       mount may ever be live. -->
   <section id="lvTravelDocTab" class="lv-shell-panel"
            role="tabpanel" aria-labelledby="lvShellTabTravelDoc">
-    <!-- WO-TRAVEL-DOC-UNIFY-01 Phase 2 — temporary surface switch. This
-         REPLACES WO-TRAVEL-DOC-LAB-LAUNCH-BUTTON-01, the "🧪 Open Travel
-         Doc UI Lab" button that opened a second browser tab: it framed
-         the workspace as a side experiment, carried no stylesheet at all
-         so it rendered as unstyled text on the dark shell, and left the
-         operator with two Travel Doc surfaces in two tabs. aria-pressed
-         is painted by _lvTravelDocPaintSurfaceChrome() in js/app.js. -->
-    <div class="lv-td-surface-switch">
-      <button type="button" class="lv-td-surface-btn" data-td-surface="unified"
-              aria-pressed="true"
-              title="The unified Travel Doc workspace (default)"
-              onclick="lvTravelDocSetSurface('unified')">Travel Doc</button>
-      <button type="button" class="lv-td-surface-btn" data-td-surface="legacy"
-              aria-pressed="false"
-              title="The previous Travel Documenter, kept for comparison"
-              onclick="lvTravelDocSetSurface('legacy')">Legacy Documenter</button>
-      <span class="lv-td-surface-hint">
-        Temporary comparison toggle — the legacy surface is being retired.
-      </span>
-    </div>
-    <!-- Unified workspace host. Sized by lori80.css as a flex child of the
-         panel rather than by a viewport calc, so it does not need
-         re-guessing every time the shell header changes height. -->
+    <!-- Travel Doc host. Sized by lori80.css as a flex child of the panel
+         rather than by a viewport calc, so it does not need re-guessing
+         every time the shell header changes height. -->
     <div id="lvTravelDocUnifiedHost" class="lv-td-host"></div>
-    <!-- Legacy Documenter host. Keeps its original inline height: Phase 2
-         hides this surface, it does not re-lay-it-out. -->
-    <div id="lvTravelDocHost" class="lv-td-host-legacy lv-td-host-off"
-         style="height:calc(100vh - 140px); overflow:auto;"></div>
   </section>
 
   <section id="lvMediaTab" class="lv-shell-panel"
@@ -5494,12 +5474,16 @@
 <script src="js/focus-canvas.js"></script>
 <script src="js/chronology-accordion.js"></script>
 <script src="js/travels-shelf.js"></script>
-<script src="js/travel-documenter.js?v=2026-07-08b"></script>
 <!-- WO-TRAVEL-DOC-UNIFY-01 Phase 2: the mountable Travel Doc workspace.
      Defines window.lvTravelDocMount(hostEl, opts) -> { destroy() } and
      nothing else at load time — it does not touch the DOM, open a socket
      or subscribe to anything until the shell mounts it. Same file the
-     standalone ui/travel-doc-lab.html harness loads. -->
+     standalone dev harness loads.
+
+     Phase 4: the old Documenter's script tag used to sit immediately
+     above this comment. It came out with the surface toggle. The module
+     still exists on disk and its own standalone page still loads it —
+     the shell just no longer does. -->
 <script src="js/travel-doc-lab.js?v=2026-07-25a"></script>
 <script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
@@ -5800,23 +5784,29 @@ async function lv80SwitchPerson(personId) {
   if (!personId) return;
 
   // WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01 (review fix): a narrator
-  // switch invalidates the mounted Travel Documenter. Null the mount
-  // marker so the next tab-show remounts; if the operator is SITTING
-  // on the Travel Doc tab right now, remount immediately (deferred so
-  // state.person_id has been updated by the switch flow below).
+  // switch invalidates the mounted Travel Doc. Null the mount marker so
+  // the next tab-show remounts; if the operator is SITTING on the Travel
+  // Doc tab right now, remount immediately (deferred so state.person_id
+  // has been updated by the switch flow below).
   //
   // WO-TRAVEL-DOC-UNIFY-01 Phase 2: nulling the marker is no longer
   // enough. It made the next tab-show remount, but it did NOT tear the
   // outgoing mount down — so every narrator switch left the previous
   // narrator's document keydown listener and modal-Lori socket alive,
-  // and from Phase 2 would also leave a BroadcastChannel subscription
-  // bound to a narrator nobody is looking at. Destroy both surfaces
-  // instead; lvTravelDocTeardownAll() nulls both markers as it goes.
+  // plus a BroadcastChannel subscription bound to a narrator nobody is
+  // looking at. Destroy instead; lvTravelDocTeardownAll() nulls the
+  // marker as it goes.
+  //
+  // Phase 4: the else-branch below used to null _lvTravelDocMountedFor,
+  // the OLD Documenter's marker. That marker no longer exists — the
+  // surviving one is _lvTravelDocUnifiedMountedFor — so the fallback had
+  // quietly become a no-op that would have let a stale mount survive on
+  // any page where app.js failed to load. It now nulls the real marker.
   try {
     if (typeof window.lvTravelDocTeardownAll === "function") {
       window.lvTravelDocTeardownAll();
     } else {
-      window._lvTravelDocMountedFor = null;
+      window._lvTravelDocUnifiedMountedFor = null;
     }
     const _tdPanel = document.getElementById("lvTravelDocTab");
     if (_tdPanel && _tdPanel.classList.contains("lv-shell-panel-active")) {

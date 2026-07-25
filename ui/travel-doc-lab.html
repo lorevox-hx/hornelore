@@ -3,29 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lorevox — Travel Doc UI Lab (experimental)</title>
+<title>Lorevox — Travel Doc dev harness</title>
 <!--
-  Travel Doc UI Lab — EXPERIMENTAL, REMOVABLE.
+  Travel Doc DEV HARNESS — DEV-ONLY, REMOVABLE.
 
-  Standalone redesign lab. Tests the Trip-Calendar-centric Travel Doc
-  redesign (docs/mockups/lorevox-travel-doc-ui-lab-v2/) against real
-  trip data over the live API. NOT part of the production shell; the
-  production Travel Doc panel (ui/js/travel-documenter.js) is untouched.
+  NOT an operator surface. Operators open Travel Doc from the Hornelore
+  shell (ui/hornelore1.0.html -> Travel Doc tab), which mounts this same
+  module into #lvTravelDocUnifiedHost. Since WO-TRAVEL-DOC-UNIFY-01
+  Phase 4 that shell tab is the ONLY Travel Doc an operator sees: the
+  fallback toggle and the older Documenter came off the shell path, so
+  nothing here is a second way in for anyone doing real work.
 
-  WO-TRAVEL-DOC-UNIFY-01 Phase 1 — this page is now a THIN HARNESS.
-  ui/js/travel-doc-lab.js no longer boots itself on load; it defines
-  window.lvTravelDocMount(hostEl, opts) and does nothing until called.
-  The mount call below is what makes this page render. Keeping the page
-  alive means the dev surface survives the migration; when the shell
-  mounts the same module into #lvTravelDocHost, both callers exercise
-  one code path.
+  What this page is for, and why Phase 4 kept it rather than deleting it:
+
+  1. It is the only caller of window.lvTravelDocMount() outside the
+     shell, and the only one that mounts WITHOUT the shell's identity
+     flag. That flag governs branding, layout and - load-bearing -
+     whether the querystring is allowed to supply a narrator id. If this
+     page went away, the non-shell branch of that code would have no
+     caller and would rot untested.
+  2. It mounts against a bare host with no shell chrome around it, which
+     is how a layout or teardown bug that the shell happens to mask
+     shows up early.
+  3. The mount handle is parked on window below, so a developer can call
+     destroy() from the console and watch teardown by hand.
+
+  This page renders its own dev branding - a badge and lab-framed copy -
+  precisely BECAUSE it is not the operator surface; the module suppresses
+  all of that in the shell. If you are looking at that badge, you are on
+  the dev page.
 
   Usage:  travel-doc-lab.html?api=http://localhost:8000&person_id=<id>
   (person_id optional — a picker appears when absent; the querystring is
   read inside the mount as the fallback for opts.apiBase / opts.person_id)
 
-  To remove: delete this file + ui/js/travel-doc-lab.js +
-  ui/css/travel-doc-lab.css + tests/test_travel_doc_lab.py.
+  To remove: delete this file and the StandaloneStillWorksTest /
+  HtmlPageTest gates in tests/test_travel_doc_lab.py. Do NOT also delete
+  ui/js/travel-doc-lab.js or ui/css/travel-doc-lab.css — despite their
+  names, those two ARE the operator Travel Doc, and deleting them takes
+  the shell tab with them.
 -->
 <link rel="stylesheet" href="css/travel-doc-lab.css">
 </head>

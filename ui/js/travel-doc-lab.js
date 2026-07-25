@@ -1,9 +1,17 @@
 /* ==========================================================================
-   Lorevox Travel Doc UI Lab — EXPERIMENTAL, REMOVABLE.
+   Lorevox Travel Doc — the operator Travel Doc workspace.
 
-   Standalone redesign lab (ui/travel-doc-lab.html) for testing the
-   Trip-Calendar-centric Travel Doc redesign against REAL trip data.
-   Design reference: docs/mockups/lorevox-travel-doc-ui-lab-v2/.
+   Mountable module. The Hornelore shell mounts it into
+   #lvTravelDocUnifiedHost as the Travel Doc tab; ui/travel-doc-lab.html
+   mounts it into #tdlRoot as a dev harness. Since
+   WO-TRAVEL-DOC-UNIFY-01 Phase 4 the shell path is the only Travel Doc
+   an operator sees. Design reference:
+   docs/mockups/lorevox-travel-doc-ui-lab-v2/.
+
+   The filename still says "lab" because renaming a 3,400-line module is
+   churn that would bury a real diff; the rename to travel-doc.js is
+   parked, not forgotten. Read "lab" here as "this file", not as "a
+   thing you can throw away".
 
    WO-TRAVEL-DOC-UI-LAB-02 (2026-07-10, Chris's live usability review):
    sticky Save Day + dirty tracking, laptop drawer layout, consistent
@@ -19,9 +27,11 @@
    lab-only evaluation checklist panel on Trip Plan.
 
    Boundaries (locked, enforced by tests/test_travel_doc_lab.py):
-   - Zero impact on production surfaces: does NOT load or reference the
-     production Travel Doc module, the narrator room, the Travels shelf,
-     or any narrator-session state.
+   - Zero reach into other surfaces: does NOT load or reference the older
+     Travel Doc module, the narrator room, the Travels shelf, or any
+     narrator-session state. The locked rule this serves: Travel Doc is
+     the operator tool for editing trips, the Travels shelf is the
+     narrator/Lori conversation surface, and their state does not mix.
    - API surface: /api/trips*, /api/photos/{id}/thumb, /api/people,
      /api/chat/ws (surface=travel_doc_modal) ONLY.
    - All DOM classes are tdl- namespaced; CSS lives in
@@ -118,8 +128,9 @@
 
    The Phase 2 "Current" tab — whose entire content was a banner saying
    the baseline lives in production — becomes the "Trip" tab and is that
-   baseline. The production deep link survives at the foot of it: the
-   legacy surface must stay reachable until Phase 4 retires it.
+   baseline. Phase 3B left a deep link at the foot of it, because the
+   older surface had to stay reachable while the port was in flight;
+   Phase 4 removed the link along with the fallback.
 
    WO-TRAVEL-DOC-UNIFY-01 Phase 3C (2026-07-25) — INTAKE.
 
@@ -225,10 +236,29 @@
    NOT copied: nothing. Production has no drag-and-drop on either tile
    (grep-verified), so there is no reorder affordance left behind.
 
-   To remove this lab entirely, delete:
-     ui/travel-doc-lab.html, ui/js/travel-doc-lab.js,
-     ui/css/travel-doc-lab.css, tests/test_travel_doc_lab.py
-   (the trip_days backend layer stays — it is UI-independent).
+   WO-TRAVEL-DOC-UNIFY-01 Phase 4 (2026-07-25) — ONE SURFACE.
+
+   Removal phase, no new behaviour. The shell used to carry a toggle over
+   two hosts: this module, and the older ui/js/travel-documenter.js. With
+   3A/3B/3C/3D landed there was no workflow left that needed the fallback,
+   so Phase 4 took out the toggle, the stored surface preference, the
+   second host, and the two legacy asset tags in hornelore1.0.html.
+
+   What Phase 4 did NOT do: delete ui/js/travel-documenter.js, its
+   stylesheet, ui/travel-documenter.html, or a single backend endpoint.
+   The old module still exists and its own standalone page still mounts
+   it, so every endpoint either surface calls is untouched. There is
+   simply no route from the operator shell into it any more.
+
+   Out of this file, Phase 4 removed prodTravelDocUrl() and the route
+   board's deep link to that page — the last place this module knew the
+   old page's filename.
+
+   This file is no longer removable. It IS the operator Travel Doc; the
+   header used to end with a delete-these-four-files recipe, and that
+   recipe would now delete the Travel Doc tab. The dev harness page
+   (ui/travel-doc-lab.html) is the removable part: dropping it costs the
+   only non-shell caller of the mount, nothing an operator uses.
    ========================================================================== */
 (function () {
   "use strict";
@@ -1739,18 +1769,16 @@
     }
   }
 
-  function prodTravelDocUrl() {
-    return "travel-documenter.html?api=" + encodeURIComponent(st.apiBase) +
-      "&person_id=" + encodeURIComponent(st.personId);
-  }
-
   // ── Trip tab (WO-TRAVEL-DOC-UNIFY-01 Phase 3B) ───────────────────────
   //
-  // Phase 2 shipped this tab as a banner pointing at production. It is
-  // now the trip/region/stop editor itself: header + toolbar + route
-  // board, with every mutation going through a drawer. The production
-  // deep link survives at the foot — the legacy surface stays reachable
-  // until Phase 4 retires it.
+  // Phase 2 shipped this tab as a banner pointing at the old Documenter.
+  // It is now the trip/region/stop editor itself: header + toolbar +
+  // route board, with every mutation going through a drawer.
+  //
+  // Phase 4 removed prodTravelDocUrl() and the deep link that used to sit
+  // at the foot of the route board. That link was the last thing in the
+  // workspace still framing this surface as the newcomer, and it was the
+  // only reason this module knew the old page's filename at all.
 
   function renderTripWarning() {
     var box = el("div", "tdl-warn-banner tdl-trip-warning");
@@ -2754,21 +2782,10 @@
       wrap.appendChild(board);
     }
 
-    // The legacy surface stays reachable until Phase 4 retires it. It is
-    // a foot-note now rather than the whole tab, which is the point of
-    // Phase 3B: the unified workspace is no longer a preview of an editor
-    // that lives somewhere else.
-    var legacy = el("div", "tdl-route-legacy");
-    legacy.appendChild(el("span", "tdl-muted",
-      "Older Travel Documenter (being retired): "));
-    var a = document.createElement("a");
-    a.className = "tdl-btn tdl-btn-small";
-    a.href = prodTravelDocUrl();
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = "Open production Travel Doc (standalone) ↗";
-    legacy.appendChild(a);
-    wrap.appendChild(legacy);
+    // WO-TRAVEL-DOC-UNIFY-01 Phase 4: an "Older Travel Documenter (being
+    // retired)" foot-note used to hang off the bottom of this board,
+    // deep-linking to the old standalone page. The fallback is retired,
+    // so the foot-note went with it.
     return wrap;
   }
 
@@ -2978,9 +2995,10 @@
     return set;
   }
 
-  // ── Lab-only evaluation checklist (WO-TRAVEL-DOC-UI-LAB-03 Part C) ──
-  // Live booleans over the loaded trip data. This panel is part of the
-  // removable lab — it never ships to production Travel Doc.
+  // ── Dev-harness evaluation checklist (WO-TRAVEL-DOC-UI-LAB-03 Part C) ──
+  // Live booleans over the loaded trip data. Rendered only when this
+  // module is NOT mounted by the shell, so an operator never sees it —
+  // see the !embedded gate at its call site.
   function renderEvalChecklist() {
     var rec = st.reconcile;
     var reconciled = st.days.length > 0 && !!rec &&
@@ -3003,8 +3021,8 @@
     var head = el("div", "tdl-eval-head");
     head.appendChild(el("strong", "", "Lab-only evaluation checklist"));
     head.appendChild(el("span", "tdl-muted",
-      " · live status of the UI Lab flows — this panel is part of the " +
-      "removable lab, not production Travel Doc."));
+      " · live status of the Travel Doc flows. Dev harness only — the " +
+      "operator's Travel Doc tab does not render this panel."));
     panel.appendChild(head);
     var row = el("div", "tdl-eval-items");
     items.forEach(function (it) {
@@ -3950,11 +3968,16 @@
       return l.trip_day_id !== day.id;
     });
     if (!pickable.length) {
+      // Phase 4: this used to read "add them via Photo Intake, then
+      // cluster from the production Travel Doc" — a dead end twice over.
+      // There is no production Travel Doc to go to any more, and Phase 3C
+      // put upload AND cluster on this surface's own toolbar, so the
+      // instruction was pointing away from the buttons that do the job.
       grid.appendChild(el("div", "tdl-empty",
         st.photoLinks.length ?
           "Every trip photo is already attached to this day." :
-          "This trip has no photos yet — add them via Photo Intake, then " +
-          "cluster from the production Travel Doc."));
+          "This trip has no photos yet. Use Upload on the trip toolbar to " +
+          "add them, then Cluster to sort them into days."));
     }
     pickable.forEach(function (l) {
       var cell = el("label", "tdl-picker-cell");

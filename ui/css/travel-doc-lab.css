@@ -1,9 +1,18 @@
 /* ==========================================================================
-   Lorevox Travel Doc UI Lab — EXPERIMENTAL, REMOVABLE.
-   Standalone-page styles for ui/travel-doc-lab.html only. Every class is
-   tdl- namespaced; nothing here touches the production Travel Doc panel
-   (travel-documenter.css) or any narrator surface. Visual language ported
-   from docs/mockups/lorevox-travel-doc-ui-lab-v2/styles.css.
+   Lorevox Travel Doc — operator Travel Doc styles.
+
+   Styles for ui/js/travel-doc-lab.js, which the operator shell mounts
+   into #lvTravelDocUnifiedHost and the dev harness page mounts into
+   #tdlRoot. Every class is tdl- namespaced, so this sheet cannot reach
+   the narrator room, the Travels shelf or any other shell surface.
+   Visual language ported from docs/mockups/lorevox-travel-doc-ui-lab-v2/.
+
+   This file started life as a standalone redesign lab, and until
+   WO-TRAVEL-DOC-UNIFY-01 Phase 4 its header said so — an experiment,
+   deletable, styles "for the lab page only", side by side with a
+   separate production stylesheet. Phase 4 retired that split: the old
+   Documenter no longer loads in the shell, so this sheet is the operator
+   Travel Doc's stylesheet and is not removable in any useful sense.
 
    WO-TRAVEL-DOC-UI-LAB-02 (laptop review): the workspace column is always
    minmax(0, 1fr) so the page NEVER horizontal-scrolls; at <=1500px the
@@ -589,7 +598,9 @@
 .tdl-route-row-region { background: var(--tdl-paper2); border-left: 4px solid var(--tdl-blue); margin-top: .55rem; }
 .tdl-route-row-region:first-child { margin-top: 0; }
 .tdl-route-row-stop { border-left: 4px solid var(--tdl-line); }
-.tdl-route-legacy { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: 1.6rem; padding-top: .9rem; border-top: 1px dashed var(--tdl-line); font-size: .84rem; }
+/* Phase 4: a .tdl-route-legacy foot-note used to close this board with a
+   deep link out to the old standalone Documenter page. The fallback is
+   retired, so the rule and the markup that used it came out together. */
 
 /* ── WO-TRAVEL-DOC-UNIFY-01 Phase 3D — route order + row selection ────
    Also structural only, same reason as 3B: no new colour, every value
