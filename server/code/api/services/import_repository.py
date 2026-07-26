@@ -475,7 +475,11 @@ def batch_list(person_id: Optional[str] = None,
     sql = "SELECT * FROM import_batch"
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY created_at DESC, id"
+    # rowid, not id, as the tiebreaker. created_at has whole-second
+    # precision, so a batch opened in the same second as another would
+    # otherwise sort by uuid -- which is to say, at random. rowid is
+    # insertion order, which is what "newest first" actually means.
+    sql += " ORDER BY created_at DESC, rowid DESC"
     con = _connect()
     try:
         return [_row_to_dict(r) for r in con.execute(sql, args).fetchall()]
@@ -729,7 +733,10 @@ def candidates_list(
     sql = "SELECT * FROM import_candidate"
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY created_at ASC, id"
+    # See batch_list: rowid is insertion order, uuid is not. A real
+    # import lands hundreds of candidates inside one second, and a
+    # review queue that shuffles them is not a queue.
+    sql += " ORDER BY created_at ASC, rowid ASC"
     if limit is not None:
         if not isinstance(limit, int) or limit < 0:
             raise InvalidStateError("limit must be a non-negative int")

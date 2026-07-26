@@ -666,5 +666,38 @@ class BatchLifecycleTests(_Base):
             con.close()
 
 
+# ======================================================================
+#  QUEUE ORDER -- found in Phase 4, fixed in Phase 3's module
+# ======================================================================
+
+
+class QueueOrderTests(_Base):
+    """created_at has whole-second precision. A real import lands its
+    whole batch inside one second, so ordering that falls back to the
+    uuid is ordering at random. The list queries tiebreak on rowid,
+    which is insertion order."""
+
+    def test_candidates_come_back_in_the_order_they_landed(self):
+        bid = self._open_batch()
+        ids = [repo.candidate_create(bid, external_id="ext-%02d" % i)
+               for i in range(12)]
+        got = [c["id"] for c in repo.candidates_list(batch_id=bid)]
+        self.assertEqual(got, ids)
+
+    def test_batches_come_back_newest_first_within_the_same_second(self):
+        ids = [self._open_batch() for _ in range(8)]
+        got = [b["id"] for b in repo.batch_list(person_id=self.person_id)]
+        self.assertEqual(got, list(reversed(ids)))
+
+    def test_a_hidden_then_restored_candidate_keeps_its_place(self):
+        bid = self._open_batch()
+        ids = [repo.candidate_create(bid, external_id="ext-%d" % i)
+               for i in range(5)]
+        repo.candidate_hide(ids[2], hidden=True)
+        repo.candidate_hide(ids[2], hidden=False)
+        got = [c["id"] for c in repo.candidates_list(batch_id=bid)]
+        self.assertEqual(got, ids)
+
+
 if __name__ == "__main__":
     unittest.main()
