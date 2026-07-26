@@ -1,0 +1,206 @@
+# scripts/audit_identity_preflight.py --db <live copy>
+# run 2026-07-26 against a byte-identical read-only copy of
+#   C:\hornelore_data\db\hornelore.sqlite3  (md5 fddf635a7526aa960495deb30d1ed65c)
+# read-only (sqlite mode=ro); the live file was never opened by the agent.
+
+====================================================================
+IDENTITY PRE-FLIGHT AUDIT (read-only)
+====================================================================
+repo root : /root/hornelore
+database  : /mnt/user-data/uploads/hornelore_data/db/hornelore.sqlite3
+
+--------------------------------------------------------------------
+1. people
+--------------------------------------------------------------------
+  37 row(s)
+    a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2    Christopher Todd Horne        role=subject    dob=1962-12-24   2026-04-11T23:32:03.864916
+    4aa0cc2b-1f27-433a-9152-203bb1f69a55    Kent                          role=subject    dob=1939-12-24   2026-04-11T23:32:04.199375
+    93479171-0b97-4072-bcf0-d44c7f9078ba    Janice                        role=subject    dob=1939-08-30   2026-04-11T23:32:04.819391
+    06b918b2-8c5f-4dd9-9c90-f7ef78af4aeb    William Alan Shatner          role=subject    dob=1931-03-22   2026-04-12T00:29:50.231506
+    e2e2575b-a88a-4f04-82c9-51d26dde713c    Dolly Rebecca Parton          role=subject    dob=1946-01-19   2026-04-12T00:29:50.627499
+    c884a74d-8563-4590-8eaf-38f7bd078ad1    Wally Banks                   role=           dob=             2026-04-26T22:46:54.307562
+    ac271ebc-e6b1-4b5e-b954-e72c4b0149be    Amelia                        role=           dob=1994-08-05   2026-04-27T03:44:46.697461
+    f6fdd20e-7672-4d0d-984d-5c0e1fbf5465    Test Harness Sarah Reed       role=test       dob=1954-06-12   2026-04-27T03:52:36.882899
+    0f4dce43-ab7f-4a48-af2a-9b0e4d220053    Test Harness Sarah Reed       role=test       dob=1954-06-12   2026-04-28T01:35:08.999800
+    9c27b99f-af87-459f-9e5b-e53b0296647d    Test Harness Sarah mohyal79   role=test       dob=             2026-04-28T01:35:11.426184
+    1de10e8d-e21f-45b3-a44d-2589da038656    mary                          role=           dob=1940-01-01   2026-05-05T04:55:45.663015
+    7199d191-39d7-4a40-8b73-00d052a2b19e    Marvin Mann                   role=           dob=1949-12-06   2026-05-05T05:10:44.784533
+    d56900b5-3dda-4f44-b419-4891e1683007    Melanie Zollner               role=           dob=             2026-05-07T02:49:49.279157
+    162439b8-6795-49e4-ad4d-2a4966972460    Esteban García (Spanish smok  role=           dob=1955-03-12   2026-06-24T21:14:38.960423
+    f1bb1072-9155-4acc-ae9a-0d060c4ddba4    Esteban García (Spanish smok  role=           dob=1955-03-12   2026-06-24T21:16:23.909903
+    8cb3aa9d-db74-4357-8c2f-01daf36c43da    Esteban García (Spanish smok  role=           dob=1955-03-12   2026-06-24T21:33:58.471072
+    617c1aff-fe20-4f2c-8756-da90838baa7f    Walt                          role=           dob=1948-03-17   2026-06-24T21:38:33.941732
+    cb68d523-79d6-4f92-9d3f-bb3aa10f69a1    Walt                          role=           dob=1948-03-17   2026-06-24T22:09:37.854876
+    91f10de2-2380-4e4c-813a-acc42456926b    Walt                          role=           dob=1948-03-17   2026-06-24T22:21:51.793601
+    e7a80448-c797-4b29-bb7c-4134a895c906    Walt                          role=           dob=1948-03-17   2026-06-24T22:40:31.106413
+    10c17b47-5af7-4753-89de-9a871a634c7e    Walt                          role=           dob=1948-03-17   2026-06-24T23:00:33.258487
+    6a16f775-4737-47c8-bb3a-a119c00157f2    Walt                          role=           dob=1948-03-17   2026-06-24T23:10:57.398140
+    397d5c39-6816-4c2d-96e9-e747876df0e1    Walt                          role=           dob=1948-03-17   2026-06-24T23:24:42.431322
+    94dd0666-9cb9-4fa5-aae5-dcaefefc67d7    Kent Horne (factual-chain ha  role=           dob=1947-08-14   2026-06-25T01:38:54.863793
+    f359815b-4b08-4f92-a8a0-e2d92e4d1664    Trip Canary Narrator (Spring  role=           dob=1965-12-24   2026-06-25T01:39:45.906776
+    628bbba2-47b0-4281-8cb8-8ad409fb1d9a    Trip Canary Narrator (Spring  role=           dob=1965-12-24   2026-06-25T15:35:07.756796
+    932239a3-1509-48f4-be7a-64cb1128fdae    Kent Horne (factual-chain ha  role=           dob=1947-08-14   2026-06-25T16:45:52.464031
+    1569af88-104d-4558-8fec-53f5e66c1225    Trip Canary Narrator (Spring  role=           dob=1965-12-24   2026-06-25T16:46:46.416399
+    ea173d0d-3876-457c-9a64-0bab89ef7a64    Trip Canary Narrator (2019 F  role=           dob=1965-12-24   2026-06-25T16:56:54.307483
+    bbb51100-a768-423a-8505-e7c996f84007    Kent Horne (factual-chain ha  role=           dob=1947-08-14   2026-07-01T15:41:06.836176
+    cfe544f8-9c19-406b-85bc-c268069e9993    Trip Canary Narrator (Spring  role=           dob=1965-12-24   2026-07-01T15:42:01.712008
+    a649589d-6405-4e8f-a1de-40b8587781f3    Trip Canary Narrator (2019 F  role=           dob=1965-12-24   2026-07-01T15:42:53.487004
+    d8ace7de-ed39-48f4-9a53-9ea22acc0448    Trip Canary Narrator (2019 F  role=           dob=1965-12-24   2026-07-02T11:17:38.179390
+    9cfef186-d700-4b59-8dee-4bdd85fe8f63    Trip Canary Narrator (2019 F  role=           dob=1965-12-24   2026-07-02T14:29:59.789947
+    d960b187-39f1-4c4b-9eae-ea70fed60da1    Trip Canary Narrator (Spring  role=           dob=1965-12-24   2026-07-02T14:31:28.854010
+    a0418999-37e6-40f5-a3c8-5e97949da355    Kent Horne (factual-chain ha  role=           dob=1947-08-14   2026-07-02T14:32:23.898074
+    e7fdb578-5563-479f-8951-aab764faa6d8    Christopher                   role=           dob=1962-12-24   2026-07-06T21:07:04.961386
+
+--------------------------------------------------------------------
+2. possible duplicate people (name clusters)
+--------------------------------------------------------------------
+  7 name cluster(s) with more than one id; 6 of them carry narrator activity on more than one id
+
+    cluster 'Christopher Todd Horne'  (2 ids, 2 active)  <-- SPLIT CARRIES DATA
+       * a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2   photo_sessions=6, photos=13, profiles=1, story_candidates=3, trips=2
+       * e7fdb578-5563-479f-8951-aab764faa6d8   bio_facts=9, photos=6, profiles=1
+
+    cluster 'Kent'  (5 ids, 3 active)  <-- SPLIT CARRIES DATA
+         4aa0cc2b-1f27-433a-9152-203bb1f69a55   profiles=1
+         94dd0666-9cb9-4fa5-aae5-dcaefefc67d7   profiles=1
+       * 932239a3-1509-48f4-be7a-64cb1128fdae   profiles=1, story_candidates=5
+       * bbb51100-a768-423a-8505-e7c996f84007   profiles=1, story_candidates=5
+       * a0418999-37e6-40f5-a3c8-5e97949da355   profiles=1, story_candidates=5
+
+    cluster 'Test Harness Sarah Reed'  (2 ids, 0 active)
+         f6fdd20e-7672-4d0d-984d-5c0e1fbf5465   profiles=1
+         0f4dce43-ab7f-4a48-af2a-9b0e4d220053   profiles=1
+
+    cluster 'Esteban García (Spanish smoke harness)'  (3 ids, 3 active)  <-- SPLIT CARRIES DATA
+       * 162439b8-6795-49e4-ad4d-2a4966972460   bio_facts=3, profiles=1
+       * f1bb1072-9155-4acc-ae9a-0d060c4ddba4   bio_facts=3, profiles=1
+       * 8cb3aa9d-db74-4357-8c2f-01daf36c43da   bio_facts=3, profiles=1
+
+    cluster 'Walt'  (7 ids, 7 active)  <-- SPLIT CARRIES DATA
+       * 617c1aff-fe20-4f2c-8756-da90838baa7f   bio_facts=15, profiles=1, story_candidates=3
+       * cb68d523-79d6-4f92-9d3f-bb3aa10f69a1   bio_facts=15, profiles=1, story_candidates=3
+       * 91f10de2-2380-4e4c-813a-acc42456926b   bio_facts=15, profiles=1, story_candidates=3
+       * e7a80448-c797-4b29-bb7c-4134a895c906   bio_facts=15, profiles=1, story_candidates=3
+       * 10c17b47-5af7-4753-89de-9a871a634c7e   bio_facts=15, profiles=1, story_candidates=3
+       * 6a16f775-4737-47c8-bb3a-a119c00157f2   bio_facts=15, profiles=1, story_candidates=3
+       * 397d5c39-6816-4c2d-96e9-e747876df0e1   bio_facts=15, profiles=1, story_candidates=3
+
+    cluster 'Trip Canary Narrator (Spring 2026)'  (5 ids, 3 active)  <-- SPLIT CARRIES DATA
+         f359815b-4b08-4f92-a8a0-e2d92e4d1664   profiles=1
+         628bbba2-47b0-4281-8cb8-8ad409fb1d9a   profiles=1
+       * 1569af88-104d-4558-8fec-53f5e66c1225   profiles=1, story_candidates=4
+       * cfe544f8-9c19-406b-85bc-c268069e9993   profiles=1, story_candidates=4
+       * d960b187-39f1-4c4b-9eae-ea70fed60da1   profiles=1, story_candidates=5
+
+    cluster 'Trip Canary Narrator (2019 France Italy)'  (4 ids, 4 active)  <-- SPLIT CARRIES DATA
+       * ea173d0d-3876-457c-9a64-0bab89ef7a64   profiles=1, story_candidates=5
+       * a649589d-6405-4e8f-a1de-40b8587781f3   profiles=1, story_candidates=5
+       * d8ace7de-ed39-48f4-9a53-9ea22acc0448   profiles=1, story_candidates=5
+       * 9cfef186-d700-4b59-8dee-4bdd85fe8f63   profiles=1, story_candidates=7
+
+--------------------------------------------------------------------
+3. row ownership per table
+--------------------------------------------------------------------
+  photos             keyed by narrator_id
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2       13
+      e7fdb578-5563-479f-8951-aab764faa6d8        6
+      e2e2575b-a88a-4f04-82c9-51d26dde713c        1
+      c884a74d-8563-4590-8eaf-38f7bd078ad1        1
+      93479171-0b97-4072-bcf0-d44c7f9078ba        1
+  photo_sessions     keyed by narrator_id
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2        6
+      93479171-0b97-4072-bcf0-d44c7f9078ba        1
+  bio_facts          keyed by narrator_id
+      10c17b47-5af7-4753-89de-9a871a634c7e       15
+      397d5c39-6816-4c2d-96e9-e747876df0e1       15
+      617c1aff-fe20-4f2c-8756-da90838baa7f       15
+      6a16f775-4737-47c8-bb3a-a119c00157f2       15
+      91f10de2-2380-4e4c-813a-acc42456926b       15
+      cb68d523-79d6-4f92-9d3f-bb3aa10f69a1       15
+      e7a80448-c797-4b29-bb7c-4134a895c906       15
+      e7fdb578-5563-479f-8951-aab764faa6d8        9
+      162439b8-6795-49e4-ad4d-2a4966972460        3
+      8cb3aa9d-db74-4357-8c2f-01daf36c43da        3
+      f1bb1072-9155-4acc-ae9a-0d060c4ddba4        3
+  story_candidates   keyed by narrator_id
+      9cfef186-d700-4b59-8dee-4bdd85fe8f63        7
+      932239a3-1509-48f4-be7a-64cb1128fdae        5
+      a0418999-37e6-40f5-a3c8-5e97949da355        5
+      a649589d-6405-4e8f-a1de-40b8587781f3        5
+      bbb51100-a768-423a-8505-e7c996f84007        5
+      d8ace7de-ed39-48f4-9a53-9ea22acc0448        5
+      d960b187-39f1-4c4b-9eae-ea70fed60da1        5
+      ea173d0d-3876-457c-9a64-0bab89ef7a64        5
+      1569af88-104d-4558-8fec-53f5e66c1225        4
+      cfe544f8-9c19-406b-85bc-c268069e9993        4
+      10c17b47-5af7-4753-89de-9a871a634c7e        3
+      397d5c39-6816-4c2d-96e9-e747876df0e1        3
+      617c1aff-fe20-4f2c-8756-da90838baa7f        3
+      6a16f775-4737-47c8-bb3a-a119c00157f2        3
+      91f10de2-2380-4e4c-813a-acc42456926b        3
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2        3
+      cb68d523-79d6-4f92-9d3f-bb3aa10f69a1        3
+      e7a80448-c797-4b29-bb7c-4134a895c906        3
+      d56900b5-3dda-4f44-b419-4891e1683007        1
+  trips              keyed by person_id
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2        2
+  profiles           keyed by person_id
+      06b918b2-8c5f-4dd9-9c90-f7ef78af4aeb        1
+      0f4dce43-ab7f-4a48-af2a-9b0e4d220053        1
+      10c17b47-5af7-4753-89de-9a871a634c7e        1
+      1569af88-104d-4558-8fec-53f5e66c1225        1
+      162439b8-6795-49e4-ad4d-2a4966972460        1
+      1de10e8d-e21f-45b3-a44d-2589da038656        1
+      397d5c39-6816-4c2d-96e9-e747876df0e1        1
+      4aa0cc2b-1f27-433a-9152-203bb1f69a55        1
+      617c1aff-fe20-4f2c-8756-da90838baa7f        1
+      628bbba2-47b0-4281-8cb8-8ad409fb1d9a        1
+      6a16f775-4737-47c8-bb3a-a119c00157f2        1
+      7199d191-39d7-4a40-8b73-00d052a2b19e        1
+      8cb3aa9d-db74-4357-8c2f-01daf36c43da        1
+      91f10de2-2380-4e4c-813a-acc42456926b        1
+      932239a3-1509-48f4-be7a-64cb1128fdae        1
+      93479171-0b97-4072-bcf0-d44c7f9078ba        1
+      94dd0666-9cb9-4fa5-aae5-dcaefefc67d7        1
+      9c27b99f-af87-459f-9e5b-e53b0296647d        1
+      9cfef186-d700-4b59-8dee-4bdd85fe8f63        1
+      a0418999-37e6-40f5-a3c8-5e97949da355        1
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2        1
+      a649589d-6405-4e8f-a1de-40b8587781f3        1
+      ac271ebc-e6b1-4b5e-b954-e72c4b0149be        1
+      bbb51100-a768-423a-8505-e7c996f84007        1
+      c884a74d-8563-4590-8eaf-38f7bd078ad1        1
+      cb68d523-79d6-4f92-9d3f-bb3aa10f69a1        1
+      cfe544f8-9c19-406b-85bc-c268069e9993        1
+      d56900b5-3dda-4f44-b419-4891e1683007        1
+      d8ace7de-ed39-48f4-9a53-9ea22acc0448        1
+      d960b187-39f1-4c4b-9eae-ea70fed60da1        1
+      e2e2575b-a88a-4f04-82c9-51d26dde713c        1
+      e7a80448-c797-4b29-bb7c-4134a895c906        1
+      e7fdb578-5563-479f-8951-aab764faa6d8        1
+      ea173d0d-3876-457c-9a64-0bab89ef7a64        1
+      f1bb1072-9155-4acc-ae9a-0d060c4ddba4        1
+      f359815b-4b08-4f92-a8a0-e2d92e4d1664        1
+      f6fdd20e-7672-4d0d-984d-5c0e1fbf5465        1
+
+--------------------------------------------------------------------
+4. trip_photo_links pointing across owners  (THE ONE THAT MATTERS)
+--------------------------------------------------------------------
+  links whose photo_id has no photos row : 0
+  links where photo.narrator_id <> trip.person_id : 0
+
+--------------------------------------------------------------------
+5. what photo clustering would see, per trip
+--------------------------------------------------------------------
+  2 trip(s)
+  trips whose owner has zero visible photos: 0 of 2
+
+--------------------------------------------------------------------
+VERDICT
+--------------------------------------------------------------------
+  IDENTITY SPLIT DETECTED
+    * 6 duplicate-name cluster(s) carry narrator activity on more than one id
+
+  Nothing was modified. This audit is read-only.
+
+EXIT=1  (IDENTITY SPLIT DETECTED)
