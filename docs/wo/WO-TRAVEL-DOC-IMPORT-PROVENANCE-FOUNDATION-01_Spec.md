@@ -645,11 +645,125 @@ input, not a Phase 4 blocker, so Phase 4 stayed no-migration. (2) The plan's
 (softer than rejected) have no 0037 state; whether they become states, a
 separate column, or nothing at all is a WO-2 decision.
 
-### Phase 5 -- live smoke
+### Phase 5 -- live smoke (RUN AGAINST THE SERVING STACK 2026-07-26, GREEN)
 
 The Epic Plan's smoke list: disposable trip, fake batch, fake candidates,
-list, accept one, skip one, hide one, and confirm nothing became
-narrator-facing or memoir-approved.
+list, accept one, hide one, and confirm nothing became narrator-facing or
+memoir-approved. **The plan's word `skipped` is not used as a state here.**
+The shipped states are `pending`, `accepted`, `rejected`, `duplicate`,
+`error`; `changed` and `skipped` are WO-2 design inputs and Phase 4 already
+refuses them with 400. The smoke asserts that refusal rather than exercising
+them.
+
+**Result: 66 assertions, 66 pass.** One assertion initially failed and was
+the test's fault, not the product's (Finding 1 below). Transcript:
+`docs/reports/phase5_import_provenance_smoke.console.txt`.
+
+**How it ran, and why.** The unittest route suite runs under `.venv`
+(fastapi 0.136.1 / starlette 1.0.0). The serving API runs under `.venv-gpu`
+(fastapi 0.135.1 / starlette 0.52.1). Rather than assert against the version
+the tests use, the whole smoke was driven over HTTP against the live serving
+stack from the operator UI origin, so what was verified is the code that
+actually answers requests. The operator's ruling on the drift is recorded
+verbatim in Finding 3.
+
+**Steps 1-3, flag OFF.** All 15 routes probed with well-formed bodies, empty
+bodies, junk bodies, and no body. **All 404** -- after the gate fix below.
+Before the fix, two of them answered 422.
+
+**A real defect, found here and fixed here.** With the flag off,
+`POST /batches` and `POST /candidates/{id}/decision` returned **422 with the
+names of their required fields**. FastAPI validates the request body before
+it calls the handler, and the gate was the first line *inside* the handler,
+so a malformed body never reached it. A disabled surface was disclosing both
+that it exists and what its schema is. Fixed by promoting the gate from a
+per-handler call to a **router-level dependency**
+(`dependencies=[Depends(_require_enabled)]`); the per-handler calls were
+kept. The Phase 4 gate test missed this because it only ever sent well-formed
+bodies -- a prober does not. Two tests added: every body-taking route x
+(`{}`, junk, no body) -> 404, and an assertion that
+`router.dependencies` is non-empty so the gate cannot be demoted back into
+the handlers. Route suite 65 -> 67.
+
+**Steps 4-7, flag ON.** Valid requests reach the repository; invalid bodies
+return validation errors; every repository refusal maps to the deliberate
+400/404/409 it was designed to. `/enums` returns exactly the shipped
+vocabulary -- `skipped` and `changed` are absent, asserted.
+
+**Step 8, the fake-data smoke.** Two batches, four candidates, in three
+candidate shapes (Picker-style `external_id`, Takeout-style filename, manual).
+Covered: creation defaults (born `open`, born visible, null trip); person
+inherited from the batch, never accepted from the caller; oldest-first list
+order stable across equal-second timestamps; `match_reason` round-trip;
+**four token-shaped inputs refused 400 with the token text absent from the
+response body**, and no row created by the refused calls; accept against an
+existing same-person photo; reject; duplicate; hide/unhide with the decision,
+reviewer and reason preserved across both; counters; close and reopen, with a
+closed batch refusing new candidates 409; **no DELETE route on either lane**;
+cross-person photo 409 with no partial apply; cross-trip 4xx on batch,
+candidate and list; and both batches retired hidden at the end.
+
+**Deliberate deviation.** Batch A is Christopher's own person rather than a
+synthetic one, because all four photos in the database are his and the accept
+step requires a photo owned by the candidate's person. Batch B is Kent's and
+exists to supply the cross-person case. Everything created is tagged
+`PHASE5-SMOKE` and both batches were left `hidden=1`.
+
+**Steps 13-14, the database proof.** Read-only (`mode=ro`) fingerprints taken
+before and after:
+
+    photos, approval subset (6 cols)  rows=4  sha256 6c4c6a07e2...  UNCHANGED
+    trip_photo_links, full row        rows=0  sha256 e3b0c44298...  UNCHANGED
+    photos, full row (new baseline)   rows=4  sha256 8e5f7a577a...
+
+All four photos still carry their April `updated_at` values, including the
+one the accept pointed at; `narrator_ready` is still `1,1,0,1`; every
+`date_approved_for_lori` and `location_approved_for_lori` is still 0. Photos
+still 4, trips 0, trip_photo_links 0 -- **no route created a photo, and no
+route touched an approval flag.** Zero rows in either import table contain
+token-shaped text. The full-row `photos` hash is recorded as a new forward
+baseline; it differs from the approval-subset hash because they cover
+different columns, not because anything changed.
+
+**Findings.**
+
+1. The one initial FAIL was the assertion, not the product. `match_reason` is
+   stored via `json.dumps(..., sort_keys=True)`, so keys come back
+   alphabetized; the check used order-sensitive string equality. A deep-equal
+   comparison passes -- every key, nested object, float and array element
+   round-tripped exactly. The sorting is deliberate: it makes the stored JSON
+   stable and diffable. No product change.
+2. `stored_rejected_count = 2` while live `rejected = 1` is correct, not
+   drift. `_refresh_batch_counters` counts `rejected` **and** `duplicate` into
+   the schema's `rejected_count`. `batch_counts()` returns both the live
+   per-state counts and the stored counters on purpose, so a caller can see if
+   the two ever disagree. Here they measure different things and do not
+   disagree. Counters are recomputed from the candidate rows, never
+   incremented, and hidden candidates still count -- hiding is retirement from
+   a view, not a claim the import never happened.
+3. Venv drift, in the operator's words: *"The unittest route suite ran under
+   .venv, while the serving API used .venv-gpu with older FastAPI/Starlette.
+   The Phase 5 smoke therefore verified the serving version directly.
+   Dependency alignment belongs in a later harness/environment work order, not
+   inside Import Provenance Phase 5."* Deferred, not a Phase 5 item.
+4. The 422 gate defect and its fix, above. A real information disclosure while
+   the flag was off, and the reason the flag-off probe set was widened to
+   malformed and empty bodies.
+5. Chrome throttles backgrounded tabs -- per-request latency measured 75-120s
+   through the browser while `api.log` showed the server answering promptly.
+   The stack was never slow. Anyone repeating this should batch the whole
+   smoke into one payload rather than one request per round trip.
+6. The disposable-context deviation, above, with its mitigations.
+7. Pre-existing and not touched: `tests/` has cross-module contamination, so
+   `python3 -m unittest discover -s tests` is not a usable gate and pytest is
+   not installed. Modules must be run individually. Outside the Phase 5 scope
+   wall.
+
+**State left behind.** Two hidden `import_batch` rows and four
+`import_candidate` rows, all tagged `PHASE5-SMOKE`. Nothing else in the
+database changed. There is no DELETE route and no destructive cleanup was
+performed, by design -- removing these rows would be a deliberate operator
+action against the live database, which is the operator's to run.
 
 ---
 
@@ -781,3 +895,39 @@ narrator-facing or memoir-approved.
   **Migration 0037 has not yet touched the live database**; the runner applies
   it on the next `init_db()`, so the next stack start is the moment it lands.
   *(Superseded by the entry above: it applied at 02:54:47 on that next start.)*
+- 2026-07-26 -- **Phase 5 GREEN: the live smoke ran against the serving
+  stack.** 66 assertions, 66 pass, driven over HTTP from the operator UI
+  origin rather than through the unittest harness, because the two virtualenvs
+  disagree on FastAPI/Starlette and the serving one is what answers requests.
+  **A real defect was found and fixed inside this phase:** with the flag off,
+  `POST /batches` and `POST /candidates/{id}/decision` answered **422 with
+  their required field names** instead of 404, because FastAPI validates the
+  body before calling the handler and the gate lived inside the handler -- a
+  disabled surface disclosing its own schema. The gate is now a router-level
+  dependency; the per-handler calls were kept; two tests were added (every
+  body-taking route x empty/junk/no-body -> 404, and an assertion that
+  `router.dependencies` is non-empty), taking the route suite 65 -> 67 and the
+  baseline 397 -> 399. The smoke covered the full list: three candidate
+  shapes, creation defaults, person inherited from the batch, oldest-first
+  order stable inside a second, `match_reason` round-trip, four token-shaped
+  refusals returning 400 **without echoing the token** and creating no rows,
+  accept against an existing same-person photo, reject, duplicate, hide/unhide
+  preserving decision and reason, counters, close/reopen with a closed batch
+  refusing 409, cross-person 409 with no partial apply, cross-trip refusals,
+  and no DELETE on either lane. Read-only fingerprints prove the blast radius
+  was zero outside the two import tables: the `photos` approval subset still
+  hashes `6c4c6a07e2...` and `trip_photo_links` still `e3b0c44298...`, all
+  four photos still carry April `updated_at`, `narrator_ready` is still
+  `1,1,0,1`, every Lori-approval flag is still 0, and photos/trips/links are
+  still 4/0/0 -- **no route created a photo or touched an approval field.**
+  Two false alarms were run to ground rather than reported as defects: keys
+  returning alphabetized is `sort_keys=True`, not corruption, and
+  `stored_rejected_count = 2` vs live `rejected = 1` is `rejected_count`
+  counting duplicates by design. Deferred out of scope: the `.venv` /
+  `.venv-gpu` dependency drift, and the pre-existing `tests/` discovery
+  contamination. Two hidden `PHASE5-SMOKE` batches and four candidates were
+  left in place -- there is no DELETE route, and removing them is the
+  operator's action to run.
+  Transcript: `docs/reports/phase5_import_provenance_smoke.console.txt`.
+  **The Import Provenance foundation is complete. WO-2, the Evidence Review
+  Queue, is the next work order and a separate session.**
