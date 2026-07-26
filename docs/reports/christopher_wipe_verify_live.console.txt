@@ -1,0 +1,28 @@
+======================================================================
+  WIPE NARRATOR IDENTITY -- WO-IMPORT-PROVENANCE-FOUNDATION-01 Phase 1.1
+======================================================================
+  database : /mnt/c/hornelore_data/db/hornelore.sqlite3
+  target   : e7fdb578-5563-479f-8951-aab764faa6d8
+  mode     : VERIFY-ONLY
+
+--- 1. target row ---
+      GONE (no people row under this id)
+
+--- 2. residue under the target id ---
+      (none)
+
+--- 3. orphan sweep ---
+      CLEAN -- no orphans, no crossing links, foreign_key_check empty
+
+--- 4. remaining christopher rows ---
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  is_deleted=0  'Christopher Todd Horne'
+
+--- 5. protected narrators ---
+      OK      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  Christopher Todd Horne
+      OK      93479171-0b97-4072-bcf0-d44c7f9078ba  Janice
+      OK      4aa0cc2b-1f27-433a-9152-203bb1f69a55  Kent
+      OK      d56900b5-3dda-4f44-b419-4891e1683007  Melanie Zollner
+
+======================================================================
+  VERIFY: CLEAN
+======================================================================

@@ -187,18 +187,24 @@ tidiness problem into a data problem, because it writes a durable `person_id`
 onto every candidate row it creates. Provenance recorded against the wrong
 Christopher is worse than no provenance, because it looks correct.
 
-**The decision the operator owns, in the order it matters:**
+**Both decisions were made by the operator on 2026-07-26. Neither is open.**
 
-1. **The two Christopher rows** -- merge onto `a4b2f07a` (which holds the
-   trips, the photo sessions and the older library), keep them separate
-   deliberately, or add a canonical pointer. This blocks the first import, not
-   the migration.
-2. **A / B / C for `import_candidate`** -- with B now measured as safe.
+1. **The two Christopher rows -- DECIDED: delete `e7fdb578`, keep
+   `a4b2f07a`.** Not a merge, not a canonical pointer, not a `merged_into`
+   column, and explicitly not person-merge tooling. `a4b2f07a`
+   (`Christopher Todd Horne`) holds both trips, all thirteen linked photos, the
+   photo sessions and the older library, so it survives untouched; `e7fdb578`
+   (`Christopher`) is treated as bad seed and removed with its dependent rows.
+   The operator's words: *delete just the other one and keep Christopher Todd
+   Horne*. See Phase 1.1 below for what that cost in rows.
+2. **A / B / C for `import_candidate` -- DECIDED: Option B**, which Phase 1
+   measured as safe (every orphan count zero). Landed as migration 0037.
 
-A note, not a fourth option to decide today: if a merge is chosen, the cheap
-shape is a `merged_into` column on `people` plus resolution at read time,
-because it is reversible. A physical row move across five owner-keyed tables is
-not.
+**Scope wall, stated by the operator and binding on every later session:** the
+deletion is the unblocker, not the project. No merge tooling, no canonical
+pointer, no general duplicate-person cleanup, no Walt/Test/Kent harness
+cleanup, no identity-architecture expansion. *Do not spend another session on
+identity architecture.*
 
 ---
 
@@ -308,26 +314,170 @@ and leaves the Christopher question entirely untouched. Any claim that adding
 the FKs "fixes the identity problem" would be false, and this spec should not
 be read as making it.
 
-Closing the Christopher question needs one of: a person merge (move
-`e7fdb578`'s 6 photos and 9 bio_facts onto `a4b2f07a` and retire the row), or a
-canonical pointer on `people` so both ids resolve to one narrator. **No merge
-tooling exists in the repository.** Whichever is chosen is its own piece of
-work, and it should land before the first import writes provenance rows, not
-after.
+Closing the Christopher question therefore had to happen outside the
+migration, and it did -- by deletion rather than by reconciliation. `e7fdb578`
+and its dependent rows are removed; `a4b2f07a` is the single Christopher
+identity the epic keys against. **No merge tooling exists in the repository and
+none was written**, which is deliberate: a merge would have been a new
+subsystem, and the operator ruled that out in favour of the cheaper reset. R6
+still stands as a general statement -- an FK cannot fix a wrong-reference
+failure -- but the specific wrong reference it described no longer has two
+targets to choose between.
 
-### Phase 1.1 -- resolve the two Christopher rows (BLOCKS the first import)
+### Phase 1.1 -- resolve the two Christopher rows (EXECUTED AGAINST THE LIVE DATABASE 2026-07-26)
 
-Not started. Needs the operator's decision above before it can be specified.
-Whatever shape it takes, it is a data/identity change and belongs in its own
-session with its own before/after audit run -- the Phase 1 script is the
-before/after instrument and should be re-run on both sides of it.
+**Decision: delete `e7fdb578-5563-479f-8951-aab764faa6d8` (`Christopher`) and
+every dependent row it owns. Keep `a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2`
+(`Christopher Todd Horne`) untouched.**
 
-### Phase 2 -- migration 0037 (BLOCKED on the identity decision)
+Delivered as `scripts/wipe_narrator_identity.py`, gated so that it cannot be
+pointed anywhere else:
 
-`import_batch` and `import_candidate` per the Epic Plan's field list, keyed
-per the Option A/B/C decision, with `hidden`/`hidden_at` following F7.
-Includes the FK hardening if and only if Phase 1 shows it is safe, or shows
-what must be reconciled first.
+- **Allowlist refusal.** `ALLOWED_TARGETS` contains exactly one id.
+  `PROTECTED_IDS` contains `a4b2f07a` plus Kent, Janice and Melanie Zollner.
+  Anything else exits 1 without opening a write connection.
+- **Delete by id, never by name.** The display name is an *abort-only*
+  condition -- if the row's name does not match what the allowlist expects, the
+  script refuses. It is never used as a selector. This is required safety rule
+  4 and it is enforced in code, not by convention.
+- **`--commit` requires `--i-acknowledge` *and* a `--backup` file** that passes
+  `PRAGMA integrity_check` and still contains the target row.
+- **Deletion delegates to the application's own `hard_delete_person()`** rather
+  than to hand-written SQL, so the 14 non-FK person-scoped tables, the FK
+  cascades, the `narrator_delete_audit` row and the KAWA directory removal all
+  follow the path the product already uses.
+- Modes: default dry-run/report, `--commit`, `--verify-only`. Exit 0 clean /
+  1 refused-or-failed / 2 DB unreachable.
+
+**Rehearsed end to end on throwaway copies of the live database** -- dry run,
+commit, verify-only, then a preflight re-run -- exit 0 at every step. Full
+transcript at `docs/reports/christopher_wipe_rehearsal_20260726.console.txt`.
+
+**Then RUN LIVE by the operator on 2026-07-26**, against
+`/mnt/c/hornelore_data/db/hornelore.sqlite3`, backup
+`backup_pre_christopher_wipe_20260725_205530.sqlite3` (`integrity_check ok`,
+verified to still contain the target row before the delete was allowed to
+proceed). Live transcripts:
+`docs/reports/christopher_wipe_dryrun_live.console.txt`,
+`christopher_wipe_commit_live.console.txt`,
+`christopher_wipe_verify_live.console.txt`,
+`identity_preflight_after_wipe_live.console.txt`.
+
+The live run reproduced the rehearsal **exactly** -- the same 21 dependent rows
+across the same seven tables, the same four protected narrators with the same
+121 / 51 / 41 / 5 dependent-row totals, the same clean orphan sweep. Live
+result: `status: hard_deleted`, people row gone **YES**, residue **0**, orphan
+sweep **CLEAN**, all four protected narrators **OK**, and section 4 of the
+verify pass now lists exactly one Christopher row --
+`a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2`. **`VERIFY: CLEAN`, exit 0.** Phase 1.1
+is closed.
+
+**One safety event worth recording, because the gate is the point.** On the
+first attempt the operator passed the literal placeholder string `BACKUP_PATH`
+rather than the backup's real path. The script printed its full impact report,
+then **refused** -- `REFUSED: backup file does not exist: BACKUP_PATH` -- before
+opening any write connection. The `--backup` requirement is not decoration; it
+caught a real paste error on a real destructive run.
+
+**Before/after counts (required safety rule 10).** 21 dependent rows destroyed
+under `e7fdb578`:
+
+| Table | Rows removed |
+|---|---|
+| photos | 6 |
+| bio_facts | 9 |
+| consent_attestations | 2 |
+| profiles | 1 |
+| interview_sessions | 1 |
+| interview_projections | 1 |
+| bio_builder_questionnaires | 1 |
+
+Global totals across the whole database:
+
+| Table | Before | After |
+|---|---|---|
+| people | 37 | 36 |
+| photos | 22 | 16 |
+| bio_facts | 123 | 114 |
+| profiles | 37 | 36 |
+| consent_attestations | 2 | 0 |
+| interview_sessions | 61 | 60 |
+| interview_projections | 13 | 12 |
+| bio_builder_questionnaires | 13 | 12 |
+| trips | 2 | 2 |
+| trip_photo_links | 13 | 13 |
+| trip_photo_context | 51 | 51 |
+| photo_sessions | 7 | 7 |
+| story_candidates | 75 | 75 |
+| narrator_delete_audit | 52 | 53 |
+
+Residue for the deleted id: **0** across all 29 person-scoped `(table, column)`
+pairs. Orphan sweep CLEAN. `PRAGMA foreign_key_check` **empty**. All four
+protected narrators intact with **unchanged** dependent-row totals -- `a4b2f07a`
+121, Janice 51, Kent 41, Melanie 5 -- which is the direct evidence for required
+safety rule 6. The `narrator_delete_audit` table survives the delete and records
+it (52 -> 53).
+
+**An honest limitation, recorded rather than engineered around.**
+`scripts/audit_identity_preflight.py` still exits **1** after a perfect wipe.
+Its verdict is global: it fires whenever *any* duplicate-name cluster carries
+activity on more than one id. Before the wipe, six clusters qualified; after,
+five -- Walt x7, Trip Canary x5 and x4, the Kent harness cluster, and Esteban x3.
+Confirmed live: the post-wipe preflight prints *5 duplicate-name cluster(s)
+carry narrator activity on more than one id* and exits 1, with `people` down
+from 37 rows to 36.
+Every one of those is smoke-test residue that the operator has explicitly
+forbidden cleaning. Within its own sections the preflight is green on the thing
+Phase 1.1 owns: the Christopher cluster is gone from section 2, section 4 shows
+0 missing-photo links and 0 crossing links, and section 5 shows 0 of 2 trips
+clustering empty. **The preflight was deliberately NOT modified** -- changing
+its verdict logic would be exactly the identity-architecture expansion the scope
+wall forbids. **The Phase 1.1 gate is therefore
+`wipe_narrator_identity.py --verify-only`, which exits 0.**
+
+Rule 9 -- creating one clean Christopher record afterward -- is not needed:
+`a4b2f07a` is retained and is already that record.
+
+### Phase 2 -- migration 0037 (LANDED 2026-07-26)
+
+`server/code/db/migrations/0037_import_provenance_foundation.sql`, Option B,
+built on `0034`'s two-phase FK-rebuild precedent (PRAGMA statements outside
+`BEGIN`; the orphan `DELETE` runs with foreign keys **ON** so cascades fire; the
+table rebuild runs with them **OFF**; then re-arm and `PRAGMA
+foreign_key_check`). `0034`'s rev-1 bug -- deleting with FKs off -- is not
+repeated.
+
+**Part A, FK hardening.** A1 sweeps orphans in dependency order (orphan
+`photos` first so cascades fire, then dangling `trip_photo_links`, then dangling
+`trip_photo_context`). A2 rebuilds `photos` with
+`narrator_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE`, all 33
+columns carried verbatim through an explicit column-list `INSERT ... SELECT`,
+5 indexes recreated. A3 rebuilds `trip_photo_links` with
+`photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE`, preserving the
+existing trips/trip_regions/trip_stops/trip_days foreign keys, 6 indexes
+recreated including the UNIQUE `(trip_id, photo_id)`. This closes F2 and F4.
+
+**Part B, the landing zone.** `import_batch` (18 columns, 3 indexes) and
+`import_candidate` (25 columns, 6 indexes including UNIQUE
+`(batch_id, external_id)`), both carrying the reversible `hidden`/`hidden_at`
+pattern established by `0036`. `import_candidate.photo_id` is
+`ON DELETE SET NULL`, not CASCADE: losing a photo must not silently destroy the
+provenance record of how it arrived.
+
+**Intake is not approval, enforced by absence.** `import_candidate` has **no**
+`narrator_ready` column and **no** `include_in_memoir` column. The absence *is*
+the enforcement -- a column that does not exist cannot be set by a future
+import path that forgets the rule. It also carries no token or credential
+columns of any kind. `tests/test_import_provenance_foundation_migration.py`
+asserts all of this directly, including that setting `state='accepted'` flips no
+photo flag.
+
+**Proof.** 37 new tests, all green. The migration was applied through the real
+`run_pending_migrations` runner against two copies of the live database -- one
+pre-wipe, one post-wipe -- with zero row loss across all seven photo/link
+tables, both new FKs present with CASCADE, `foreign_key_check` **empty**,
+`integrity_check` **ok**, 20 indexes present, and a second run a clean no-op.
+Regression-tested across the 20 affected suites: **539 tests, OK (skipped=6)**.
 
 ### Phase 3 -- repository layer
 
@@ -394,3 +544,32 @@ narrator-facing or memoir-approved.
   reference that points at the wrong one of two valid rows, so the Christopher
   question is promoted to Phase 1.1 and blocks the first import rather than the
   migration. Still no schema, code, test, flag or UI change in this session.
+- 2026-07-26 -- **Phase 1.1 tooling delivered and rehearsed; Phase 2 landed.**
+  The operator closed both open decisions: delete `e7fdb578` and keep
+  `a4b2f07a` (no merge, no canonical pointer, no merge tooling), and Option B
+  for `import_candidate`. `scripts/wipe_narrator_identity.py` is a single-target
+  allowlisted deleter that refuses on display name rather than selecting by it,
+  requires a verified backup before `--commit`, and delegates the delete to the
+  application's own `hard_delete_person()`. Rehearsed four ways on throwaway
+  copies of the live database, exit 0 throughout: 21 dependent rows destroyed,
+  residue 0, orphan sweep clean, `foreign_key_check` empty, all four protected
+  narrators' dependent-row totals unchanged. The honest caveat is recorded in
+  Phase 1.1 above -- `audit_identity_preflight.py` still exits 1 on five
+  forbidden-to-clean harness clusters, so `--verify-only` is the gate instead,
+  and the preflight itself was deliberately left alone. Migration 0037 adds the
+  two missing foreign keys and creates `import_batch` and `import_candidate`
+  with `hidden`/`hidden_at`, no `narrator_ready`, no `include_in_memoir` and no
+  token columns; 37 new tests green, 539 green across the affected suites, and
+  the migration verified idempotent against real data. **The destructive run
+  itself belongs to Chris** -- the deliverable is the tooling plus a WSL run
+  block, never an agent-side write to the live database.
+- 2026-07-26 -- **Phase 1.1 EXECUTED LIVE by the operator.** `VERIFY: CLEAN`,
+  exit 0. The live run matched the rehearsal on every number: 21 dependent rows
+  across seven tables, people 37 -> 36, residue 0, orphan sweep clean, the four
+  protected narrators unchanged at 121 / 51 / 41 / 5, and one Christopher row
+  remaining (`a4b2f07a`). The post-wipe preflight exits 1 on the five remaining
+  harness clusters exactly as predicted, which is forbidden work and stays.
+  A first `--commit` attempt was **refused** because the backup path was still
+  the literal placeholder -- the gate fired before any write connection opened.
+  **Migration 0037 has not yet touched the live database**; the runner applies
+  it on the next `init_db()`, so the next stack start is the moment it lands.

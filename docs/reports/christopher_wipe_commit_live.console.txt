@@ -1,0 +1,52 @@
+======================================================================
+  WIPE NARRATOR IDENTITY -- WO-IMPORT-PROVENANCE-FOUNDATION-01 Phase 1.1
+======================================================================
+  database : /mnt/c/hornelore_data/db/hornelore.sqlite3
+  target   : e7fdb578-5563-479f-8951-aab764faa6d8
+  mode     : COMMIT
+
+--- target row ---
+      display_name : 'Christopher'
+      created_at   : 2026-07-06T21:07:04.961386
+      is_deleted   : 0
+
+--- dependent rows that will be destroyed (21 total) ---
+      bio_builder_questionnaires.person_id  1
+      bio_facts.narrator_id                 9
+      consent_attestations.narrator_id      2
+      interview_projections.person_id       1
+      interview_sessions.person_id          1
+      photos.narrator_id                    6
+      profiles.person_id                    1
+
+--- protected narrators (must be untouched) ---
+      OK      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  Christopher Todd Horne  (121 dependent rows)
+      OK      93479171-0b97-4072-bcf0-d44c7f9078ba  Janice  (51 dependent rows)
+      OK      4aa0cc2b-1f27-433a-9152-203bb1f69a55  Kent  (41 dependent rows)
+      OK      d56900b5-3dda-4f44-b419-4891e1683007  Melanie Zollner  (5 dependent rows)
+
+--- pre-delete orphan sweep ---
+      CLEAN
+
+--- backup validated ---
+      /mnt/c/hornelore_data/db/backup_pre_christopher_wipe_20260725_205530.sqlite3
+      integrity_check ok, contains the target row
+
+--- deleting via api.db.hard_delete_person() ---
+      status: hard_deleted  name: 'Christopher'
+
+--- post-delete verification ---
+      people row gone            : YES
+      residue under target id    : 0
+      orphan sweep               : CLEAN
+      protected Christopher Todd Horne   OK
+      protected Janice                   OK
+      protected Kent                     OK
+      protected Melanie Zollner          OK
+
+--- remaining christopher rows ---
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  is_deleted=0  'Christopher Todd Horne'
+
+======================================================================
+  PHASE 1.1: CLEAN
+======================================================================

@@ -1,0 +1,220 @@
+====================================================================
+ PHASE 1.1 REHEARSAL -- scripts/wipe_narrator_identity.py
+ WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01
+ Date: 2026-07-26
+====================================================================
+
+This is a REHEARSAL against a writable throwaway copy of the live
+database, taken from C:\hornelore_data\db\hornelore.sqlite3
+(md5 cac11904dab249f9bea6e7bb7e7b35a0, 2613248 bytes).
+
+The live database was NOT touched by this run. Its purpose is to
+prove the tooling and produce the expected before/after numbers
+BEFORE the operator runs the real delete.
+
+Target : e7fdb578-5563-479f-8951-aab764faa6d8  'Christopher'
+Keep   : a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  'Christopher Todd Horne'
+
+####################################################################
+# STEP 1 of 4 -- DRY RUN (read-only)
+####################################################################
+======================================================================
+  WIPE NARRATOR IDENTITY -- WO-IMPORT-PROVENANCE-FOUNDATION-01 Phase 1.1
+======================================================================
+  database : /root/dbwork/reh2/db/hornelore.sqlite3
+  target   : e7fdb578-5563-479f-8951-aab764faa6d8
+  mode     : REPORT (dry run)
+
+--- target row ---
+      display_name : 'Christopher'
+      created_at   : 2026-07-06T21:07:04.961386
+      is_deleted   : 0
+
+--- dependent rows that will be destroyed (21 total) ---
+      bio_builder_questionnaires.person_id  1
+      bio_facts.narrator_id                 9
+      consent_attestations.narrator_id      2
+      interview_projections.person_id       1
+      interview_sessions.person_id          1
+      photos.narrator_id                    6
+      profiles.person_id                    1
+
+--- protected narrators (must be untouched) ---
+      OK      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  Christopher Todd Horne  (121 dependent rows)
+      OK      93479171-0b97-4072-bcf0-d44c7f9078ba  Janice  (51 dependent rows)
+      OK      4aa0cc2b-1f27-433a-9152-203bb1f69a55  Kent  (41 dependent rows)
+      OK      d56900b5-3dda-4f44-b419-4891e1683007  Melanie Zollner  (5 dependent rows)
+
+--- pre-delete orphan sweep ---
+      CLEAN
+
+======================================================================
+  DRY RUN -- nothing was written.
+  To execute: take a backup, then re-run with
+    --backup <path> --commit --i-acknowledge
+======================================================================
+exit=0
+
+####################################################################
+# STEP 2 of 4 -- COMMIT
+####################################################################
+======================================================================
+  WIPE NARRATOR IDENTITY -- WO-IMPORT-PROVENANCE-FOUNDATION-01 Phase 1.1
+======================================================================
+  database : /root/dbwork/reh2/db/hornelore.sqlite3
+  target   : e7fdb578-5563-479f-8951-aab764faa6d8
+  mode     : COMMIT
+
+--- target row ---
+      display_name : 'Christopher'
+      created_at   : 2026-07-06T21:07:04.961386
+      is_deleted   : 0
+
+--- dependent rows that will be destroyed (21 total) ---
+      bio_builder_questionnaires.person_id  1
+      bio_facts.narrator_id                 9
+      consent_attestations.narrator_id      2
+      interview_projections.person_id       1
+      interview_sessions.person_id          1
+      photos.narrator_id                    6
+      profiles.person_id                    1
+
+--- protected narrators (must be untouched) ---
+      OK      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  Christopher Todd Horne  (121 dependent rows)
+      OK      93479171-0b97-4072-bcf0-d44c7f9078ba  Janice  (51 dependent rows)
+      OK      4aa0cc2b-1f27-433a-9152-203bb1f69a55  Kent  (41 dependent rows)
+      OK      d56900b5-3dda-4f44-b419-4891e1683007  Melanie Zollner  (5 dependent rows)
+
+--- pre-delete orphan sweep ---
+      CLEAN
+
+--- backup validated ---
+      /root/dbwork/reh2/backup_rehearsal.sqlite3
+      integrity_check ok, contains the target row
+
+--- deleting via api.db.hard_delete_person() ---
+      status: hard_deleted  name: 'Christopher'
+
+--- post-delete verification ---
+      people row gone            : YES
+      residue under target id    : 0
+      orphan sweep               : CLEAN
+      protected Christopher Todd Horne   OK
+      protected Janice                   OK
+      protected Kent                     OK
+      protected Melanie Zollner          OK
+
+--- remaining christopher rows ---
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  is_deleted=0  'Christopher Todd Horne'
+
+======================================================================
+  PHASE 1.1: CLEAN
+======================================================================
+exit=0
+
+####################################################################
+# STEP 3 of 4 -- VERIFY-ONLY (read-only)
+####################################################################
+======================================================================
+  WIPE NARRATOR IDENTITY -- WO-IMPORT-PROVENANCE-FOUNDATION-01 Phase 1.1
+======================================================================
+  database : /root/dbwork/reh2/db/hornelore.sqlite3
+  target   : e7fdb578-5563-479f-8951-aab764faa6d8
+  mode     : VERIFY-ONLY
+
+--- 1. target row ---
+      GONE (no people row under this id)
+
+--- 2. residue under the target id ---
+      (none)
+
+--- 3. orphan sweep ---
+      CLEAN -- no orphans, no crossing links, foreign_key_check empty
+
+--- 4. remaining christopher rows ---
+      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  is_deleted=0  'Christopher Todd Horne'
+
+--- 5. protected narrators ---
+      OK      a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  Christopher Todd Horne
+      OK      93479171-0b97-4072-bcf0-d44c7f9078ba  Janice
+      OK      4aa0cc2b-1f27-433a-9152-203bb1f69a55  Kent
+      OK      d56900b5-3dda-4f44-b419-4891e1683007  Melanie Zollner
+
+======================================================================
+  VERIFY: CLEAN
+======================================================================
+exit=0
+
+####################################################################
+# STEP 4 of 4 -- IDENTITY PRE-FLIGHT RERUN
+####################################################################
+2. possible duplicate people (name clusters)
+--------------------------------------------------------------------
+  6 name cluster(s) with more than one id; 5 of them carry narrator activity on more than one id
+4. trip_photo_links pointing across owners  (THE ONE THAT MATTERS)
+--------------------------------------------------------------------
+  links whose photo_id has no photos row : 0
+  links where photo.narrator_id <> trip.person_id : 0
+
+--------------------------------------------------------------------
+5. what photo clustering would see, per trip
+--------------------------------------------------------------------
+  2 trip(s)
+  trips whose owner has zero visible photos: 0 of 2
+
+--------------------------------------------------------------------
+VERDICT
+--------------------------------------------------------------------
+  IDENTITY SPLIT DETECTED
+    * 5 duplicate-name cluster(s) carry narrator activity on more than one id
+
+  Nothing was modified. This audit is read-only.
+
+####################################################################
+# GLOBAL TABLE COUNTS, BEFORE vs AFTER
+####################################################################
+  table                            before    after    delta
+  people                               37       36       -1
+  photos                               22       16       -6
+  bio_facts                           123      114       -9
+  profiles                             37       36       -1
+  consent_attestations                  2        0       -2
+  interview_sessions                   61       60       -1
+  interview_projections                13       12       -1
+  bio_builder_questionnaires           13       12       -1
+  trips                                 2        2       +0
+  trip_photo_links                     13       13       +0
+  trip_photo_context                   51       51       +0
+  photo_sessions                        7        7       +0
+  story_candidates                     75       75       +0
+  narrator_delete_audit                52       53       +1 <-- audit row added by the delete
+
+####################################################################
+# READ THIS BEFORE ACTING ON THE PRE-FLIGHT EXIT CODE
+####################################################################
+
+The pre-flight still exits 1 after the wipe. That is EXPECTED and is
+NOT a Phase 1.1 failure. Its verdict is global: it exits 1 whenever
+ANY duplicate-name cluster carries activity on more than one id.
+
+Before the wipe : 6 clusters, 6 carrying activity  (incl. Christopher)
+After  the wipe : 6 clusters, 5 carrying activity  (Christopher gone)
+
+The 5 that remain are Walt x7, Trip Canary x5+4, Kent-harness, and
+Esteban x3 -- all smoke-test residue. Cleaning them is explicitly
+FORBIDDEN work for this phase (no Walt/Test/Kent harness cleanup, no
+general duplicate-person cleanup). So the exit code cannot reach 0
+here without doing forbidden work, and it was not forced to.
+
+The Phase 1.1 acceptance criteria are the Christopher-specific ones,
+and every one of them is met above:
+  * no Christopher / Christopher Todd Horne split      -- section 2
+  * no orphan rows under the deleted id                -- STEP 3 sec 2
+  * no trip_photo_links pointing at a missing photo    -- section 4, 0
+  * no links crossing owners                           -- section 4, 0
+  * PRAGMA foreign_key_check empty                     -- STEP 3 sec 3
+  * Kent, Janice, Melanie, Christopher Todd Horne intact and
+    dependent-row counts unchanged                     -- STEP 2
+
+wipe_narrator_identity.py --verify-only is the gate for this phase.
+It exited 0.
