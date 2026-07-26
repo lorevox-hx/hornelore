@@ -511,13 +511,69 @@ tables, both new FKs present with CASCADE, `foreign_key_check` **empty**,
 `integrity_check` **ok**, 20 indexes present, and a second run a clean no-op.
 Regression-tested across the 20 affected suites: **539 tests, OK (skipped=6)**.
 
-### Phase 3 -- repository layer
+### Phase 3 -- repository layer (LANDED 2026-07-26)
 
-`services/import_repository.py` plus its unit suite. Enforces the Epic
-Plan's rules at the write path: import is intake not approval; candidate
-creation implies neither memoir inclusion nor narrator-ready; candidates
-cannot cross the person/trip boundary; no raw external tokens in candidate
-rows; `match_reasons_json` round-trips.
+`server/code/api/services/import_repository.py` plus its unit suite. Note the
+path: there is no `services/` directory at the repository root -- the import
+repository lives beside `trip_repository.py` in `server/code/api/services/`,
+and earlier drafts of this spec said otherwise.
+
+**What the module is for.** Migration 0037 states four rules in the only
+language a schema has, which is the presence and absence of columns and
+constraints. Three of those rules a schema cannot state at all. `import_batch`
+carries `person_id` and `trip_id` as independent foreign keys, so nothing in
+SQLite stops a batch owned by one person from pointing at another person's
+trip -- that is exactly the class of confusion the two Christopher rows
+produced. Nothing stops an OAuth access token from being pasted into
+`external_ref`, which is a plain `TEXT` column. And the absence of
+`narrator_ready` prevents a column from being set, but cannot prevent a future
+import path from reaching sideways into `photos` and setting it there. Phase 3
+is where those rules become procedure.
+
+**Rule 1 -- import is intake, not approval.** `candidate_create` takes no
+`state` parameter and no approval flag of any kind; every candidate is born
+`pending`. `candidate_decide` is the only way a candidate leaves that state,
+and `'accepted'` **requires** a `photo_id` that already exists and is owned by
+the candidate's person -- the repository never creates a photos row, so
+accepting records a decision about a photo the operator already has rather than
+manufacturing one. Every other decision (`rejected`, `duplicate`, `error`)
+**refuses** a `photo_id`; `'pending'` is not a decision. A runtime guard runs
+`PRAGMA table_info(import_candidate)` on every write and raises if
+`narrator_ready` or `include_in_memoir` has appeared, so if a later migration
+adds the column the schema's silence is no longer load-bearing and the
+repository says so out loud.
+
+**Rule 2 -- the person/trip boundary.** A candidate does not accept a
+`person_id`; it copies its batch's. A batch cannot be created on, or bound to,
+a trip belonging to someone else. A candidate cannot claim a trip its person
+does not own, and cannot disagree with the trip its batch is already bound to.
+Accepting refuses a photo belonging to another person. `candidates_list`
+filtered by person never returns another person's rows.
+
+**Rule 3 -- no raw external tokens.** Every operator-supplied string is scanned
+before it is written: Google OAuth access (`ya29.`) and refresh (`1//`) tokens,
+GitHub tokens, OpenAI keys, JWTs, `Bearer` headers, and credential-bearing
+query strings, plus a key-name check over `match_reason` that recurses to a
+bounded depth. The scan is calibrated, not merely loud -- real Google Photos
+media ids and real Takeout archive filenames pass, which is the test that keeps
+the guard from becoming something a future author disables.
+
+**Rule 4 -- reversibility.** The module contains no `DELETE FROM` and no
+`DROP TABLE`; a test reads its own source and asserts that. Hiding is a flag,
+and hidden rows still count toward batch totals. Counters are **recomputed**
+from the candidate rows on every state change rather than incremented, so a
+replayed decision cannot drift them.
+
+**Idempotence.** `candidate_create` honours 0037's UNIQUE
+`(batch_id, external_id)` by returning the existing id rather than raising, so
+re-running the same fetch adds nothing and the first write wins.
+
+**Proof.** 50 new tests, all green, in six classes matching the four rules plus
+batch lifecycle and boundary enforcement -- including that a person hard-delete
+cascades the whole landing zone through 0037's foreign keys, which is why
+`import_batch` and `import_candidate` do **not** need adding to
+`hard_delete_person`'s explicit table list. The 0037 migration lock re-ran
+clean at 37 tests. Test baseline 279 -> 329.
 
 ### Phase 4 -- minimal verification surface
 
@@ -595,6 +651,26 @@ narrator-facing or memoir-approved.
   the migration verified idempotent against real data. **The destructive run
   itself belongs to Chris** -- the deliverable is the tooling plus a WSL run
   block, never an agent-side write to the live database.
+- 2026-07-26 -- **Phase 3 landed: the import repository.**
+  `server/code/api/services/import_repository.py` (ASCII-only, `ast.parse`
+  clean) plus `tests/test_import_repository.py`, 50 tests green. The module
+  holds procedurally the three rules a schema cannot state: a candidate copies
+  its batch's person rather than accepting one, and no batch or candidate may
+  reach a trip or photo belonging to someone else; every operator-supplied
+  string is scanned for OAuth/JWT/bearer/credential-URL shapes before it is
+  written, while real Google Photos media ids and Takeout archive names still
+  pass; and acceptance requires an existing photo owned by the candidate's
+  person, with the repository never creating a photos row and never setting an
+  approval flag. It contains no `DELETE FROM` and no `DROP TABLE`, asserted by
+  a test that reads its own source. Counters are recomputed, not incremented.
+  `candidate_create` is idempotent on `(batch_id, external_id)`. A runtime
+  `PRAGMA table_info` guard fires if `narrator_ready` or `include_in_memoir`
+  ever appears on `import_candidate`, so the schema's silence stops being
+  load-bearing the moment it is broken. Two documentation errors corrected
+  here: the column is `match_reason_json` (singular), and the module path is
+  `server/code/api/services/`, not a nonexistent root-level `services/`.
+  Baseline 279 -> 329. **Phase 4 -- the minimal verification surface -- is
+  next.**
 - 2026-07-26 -- **Phase 2 verified live, schema and UI.** Migration 0037
   applied on stack start at 02:54:47 -- before the 03:00 wipe, so the delete
   cascaded through the new `photos.narrator_id` FK. Read-only checks against
