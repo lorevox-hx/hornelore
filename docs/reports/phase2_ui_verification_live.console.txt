@@ -1,0 +1,125 @@
+WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01 -- Phase 2 live UI verification
+2026-07-26, stack up, read-only.
+
+WHY THIS EXISTS
+Schema checks (foreign_key_check, integrity_check, PRAGMA foreign_key_list)
+prove migration 0037 rebuilt `photos` and `trip_photo_links` correctly. They
+cannot prove the rebuilt tables still SERVE the Travel Doc operator path --
+that every column the API reads survived the explicit-column-list
+INSERT ... SELECT, that the indexes still back the queries, and that the
+UNIQUE (trip_id, photo_id) did not silently drop a link. This is that check.
+
+Shell:  http://localhost:8082/ui/hornelore1.0.html
+API:    http://localhost:8000   (window._crApiBase)
+Narrator under test: a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2  Christopher Todd Horne
+
+
+SECTION 1 -- narrator picker (visual confirmation of Phase 1.1)
+---------------------------------------------------------------
+Narrators panel lists exactly four people:
+  Melanie Zollner       TEST
+  Janice Josephine (Zarr) Horne   FAMILY
+  Kent James Horne      FAMILY
+  Christopher Todd Horne          FAMILY   Dec 24, 1962 - Williston, North Dakota
+
+EXACTLY ONE Christopher. The `e7fdb578` duplicate is gone from the surface
+that made the split visible in the first place. Header after Open reads
+"ACTIVE NARRATOR / Chris / Christopher Todd Horne".
+
+
+SECTION 2 -- API surface, all read-only GETs
+---------------------------------------------------------------
+GET /api/trips?person_id=a4b2f07a...              200   2 trips
+      9538cd88-5c8b-4da4-b2a9-2a03f8db32a3  Bismarck Trip
+      e4a7a5aa-82e0-4d20-b8df-b8996f37ffd7  Spring 2026 Central Europe & Northern Italy
+GET /api/photos?narrator_id=a4b2f07a...           200   count 13
+
+per trip:
+  9538cd88 (Bismarck)
+      /photo-links                                200   0 links   (expected: no photos)
+      /tree                                       200
+      /days                                       200
+  e4a7a5aa (Europe)
+      /photo-links                                200   13 links
+      /tree                                       200
+      /days                                       200
+
+  13 links, 13 DISTINCT photo_id, 0 NULL photo_id.
+  Matches trip_photo_links = 13 in the live DB exactly. No link lost in the
+  rebuild, no link orphaned, no duplicate introduced.
+
+  Link row still carries all 32 fields the panel reads, including the
+  join-side columns the rebuild had to preserve:
+    id trip_id trip_region_id trip_stop_id photo_id ord taken_at
+    assignment_method cluster_confidence caption narrator_caption
+    include_in_memoir thematic_tags_json created_at updated_at
+    caption_approved_for_lori operator_context_note
+    operator_context_approved_for_lori trip_day_id link_gps_present
+    hidden hidden_at photo_date_value photo_date_precision photo_date_source
+    photo_taken_at_filename_guess photo_location_label photo_metadata_trust
+    photo_date_approved_for_lori photo_location_approved_for_lori
+    photo_narrator_ready photo_gps_present
+
+
+SECTION 3 -- the FK actually resolves end to end
+---------------------------------------------------------------
+sample link  3ad74ef0-b096-49ec-964c-7ac0e0946a63
+  -> photo_id 73376b6ddd5849009ce8453f2b8950fb
+
+GET /api/photos/73376b6d...                       200
+      narrator_id = a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2   (correct Christopher)
+GET /api/photos/73376b6d.../thumb                 200  image/jpeg
+GET /api/photos/73376b6d.../image                 200  image/jpeg
+GET /api/trips/photo-links/3ad74ef0.../photo-context   200
+
+trip_photo_links.photo_id -> photos.id -> photos.narrator_id -> people.id
+traverses cleanly at the API layer, and the terminal person is the surviving
+Christopher. This is the chain migration 0037 hardened.
+
+
+SECTION 4 -- downstream readers of the rebuilt tables
+---------------------------------------------------------------
+GET /api/trips/e4a7a5aa.../memoir-preview         200
+GET /api/trips/e4a7a5aa.../travelogue-preview     200
+GET /api/trips/e4a7a5aa.../narrator-photo-links   200
+GET /api/trips/e4a7a5aa.../date-confirmations     200
+GET /api/trips/e4a7a5aa.../sources                200
+GET /api/trips/e4a7a5aa.../tree                   200
+GET /api/trips/e4a7a5aa.../days                   200
+
+Zero 4xx, zero 5xx.
+
+
+SECTION 5 -- rendered operator path
+---------------------------------------------------------------
+Travel Doc tab opens. MY TRIPS lists both trips for Christopher Todd Horne.
+Trip Plan for Bismarck: 6 Days / 0 Regions / 0 Stops / 0 Photos / 0 Story
+Notes / 0 Sources -- consistent with 0 photo links.
+Photos tab for the Europe trip renders the filter row:
+      All (13)   Unplaced (4)   Needs review (4)   Shared with Lori (1)
+Thumbnails render with their date chips (2026-05-17 .. 2026-05-19). Images
+are served from disk through the rebuilt `photos` table, so the rebuild
+preserved the storage-path columns as well as the metadata columns.
+
+
+SECTION 6 -- console
+---------------------------------------------------------------
+read_console_messages filtered on error|Error|failed|Failed|Uncaught|500|404
+returns ONE line, and it is not an error:
+
+  [LOG] app.js:6587  [WO-11][chat-state] WS connected -- clearing any stale
+                     error state
+
+No uncaught exceptions. No failed fetches. No 404s. No 500s.
+
+
+VERDICT
+---------------------------------------------------------------
+PHASE 2 UI VERIFICATION: CLEAN.
+
+The rebuilt `photos` and `trip_photo_links` serve the Travel Doc operator
+path with no observable change. Phase 2 is closed at both the schema layer
+and the operator layer.
+
+Nothing was written during this pass. No POST, no PATCH, no DELETE, no
+upload, no cluster run.

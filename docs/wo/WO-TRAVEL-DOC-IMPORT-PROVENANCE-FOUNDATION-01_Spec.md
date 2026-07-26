@@ -438,7 +438,7 @@ wall forbids. **The Phase 1.1 gate is therefore
 Rule 9 -- creating one clean Christopher record afterward -- is not needed:
 `a4b2f07a` is retained and is already that record.
 
-### Phase 2 -- migration 0037 (LANDED 2026-07-26)
+### Phase 2 -- migration 0037 (LANDED AND VERIFIED LIVE 2026-07-26)
 
 `server/code/db/migrations/0037_import_provenance_foundation.sql`, Option B,
 built on `0034`'s two-phase FK-rebuild precedent (PRAGMA statements outside
@@ -457,12 +457,44 @@ columns carried verbatim through an explicit column-list `INSERT ... SELECT`,
 existing trips/trip_regions/trip_stops/trip_days foreign keys, 6 indexes
 recreated including the UNIQUE `(trip_id, photo_id)`. This closes F2 and F4.
 
+**Applied to the live database 2026-07-26 at 02:54:47** by the runner on
+stack start, recorded in `schema_migrations`. Read-only verification against
+the live file confirms both new FKs present with CASCADE, `import_batch` and
+`import_candidate` present with all six FKs correct, `PRAGMA foreign_key_check`
+**empty**, `integrity_check ok`, `import_candidate` at 25 columns with
+`narrator_ready`, `include_in_memoir`, `access_token` and `refresh_token` all
+**absent**, and row counts matching the predicted post-wipe state exactly
+(people 36, photos 16, trip_photo_links 13, import_batch 0,
+import_candidate 0). Note the ordering: 0037 landed at 02:54, the Phase 1.1
+wipe ran at 03:00, so `hard_delete_person` cascaded **through** the new
+`photos.narrator_id` foreign key rather than around it -- the stronger path --
+and came out with `foreign_key_check` empty.
+
 **Part B, the landing zone.** `import_batch` (18 columns, 3 indexes) and
 `import_candidate` (25 columns, 6 indexes including UNIQUE
 `(batch_id, external_id)`), both carrying the reversible `hidden`/`hidden_at`
 pattern established by `0036`. `import_candidate.photo_id` is
 `ON DELETE SET NULL`, not CASCADE: losing a photo must not silently destroy the
 provenance record of how it arrived.
+
+**Verified through the operator path, not only the schema.** Schema checks
+cannot prove that a rebuilt table still *serves* the UI -- that every column the
+API reads survived the explicit-column-list `INSERT ... SELECT`, that the
+indexes still back the queries, that the UNIQUE `(trip_id, photo_id)` did not
+silently drop a link. A read-only pass against the running stack closed that
+gap: both of Christopher Todd Horne's trips list, `/photo-links` returns **13
+links, 13 distinct `photo_id`, 0 null**, matching `trip_photo_links` exactly;
+the chain `trip_photo_links.photo_id -> photos.id -> photos.narrator_id ->
+people.id` resolves end to end and terminates on the surviving Christopher;
+`/thumb` and `/image` both serve `image/jpeg`; memoir-preview,
+travelogue-preview, narrator-photo-links, date-confirmations, sources, tree and
+days all 200; the Photos tab renders `All (13) / Unplaced (4) / Needs review
+(4) / Shared with Lori (1)` with thumbnails and date chips; and the console is
+clean -- zero uncaught exceptions, zero failed fetches, zero 4xx, zero 5xx. The
+narrator picker shows **exactly one Christopher**, which is Phase 1.1 confirmed
+on the surface that made the split visible in the first place. Transcript at
+`docs/reports/phase2_ui_verification_live.console.txt`. Nothing was written
+during the pass -- no POST, no PATCH, no DELETE, no upload, no cluster run.
 
 **Intake is not approval, enforced by absence.** `import_candidate` has **no**
 `narrator_ready` column and **no** `include_in_memoir` column. The absence *is*
@@ -563,6 +595,18 @@ narrator-facing or memoir-approved.
   the migration verified idempotent against real data. **The destructive run
   itself belongs to Chris** -- the deliverable is the tooling plus a WSL run
   block, never an agent-side write to the live database.
+- 2026-07-26 -- **Phase 2 verified live, schema and UI.** Migration 0037
+  applied on stack start at 02:54:47 -- before the 03:00 wipe, so the delete
+  cascaded through the new `photos.narrator_id` FK. Read-only checks against
+  the live database: both FKs CASCADE, both new tables present with all six FKs
+  correct, `foreign_key_check` empty, `integrity_check ok`, forbidden columns
+  absent, row counts exact. Then a read-only pass over the running operator
+  path: 13 photo links / 13 distinct photos / 0 null, the full
+  link -> photo -> person chain resolving onto the surviving Christopher,
+  thumbnails and images served, seven downstream trip endpoints 200, and a
+  clean console. `docs/reports/phase2_ui_verification_live.console.txt`.
+  **Phase 2 is closed at both layers. Phase 3 -- the import repository -- is
+  next and is a separate session.**
 - 2026-07-26 -- **Phase 1.1 EXECUTED LIVE by the operator.** `VERIFY: CLEAN`,
   exit 0. The live run matched the rehearsal on every number: 21 dependent rows
   across seven tables, people 37 -> 36, residue 0, orphan sweep clean, the four
@@ -573,3 +617,4 @@ narrator-facing or memoir-approved.
   the literal placeholder -- the gate fired before any write connection opened.
   **Migration 0037 has not yet touched the live database**; the runner applies
   it on the next `init_db()`, so the next stack start is the moment it lands.
+  *(Superseded by the entry above: it applied at 02:54:47 on that next start.)*
