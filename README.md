@@ -41,6 +41,69 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 ---
 
+## Status as of 2026-07-26
+
+**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first.
+
+**Headline: there is one Travel Doc.** `WO-TRAVEL-DOC-UNIFY-01` is **CLOSED** —
+the operator reaches a single unified Travel Doc workspace in the shell tab,
+with no surface toggle, no second implementation reachable, and no native
+dialog anywhere on that path.
+
+**WO-TRAVEL-DOC-UNIFY-01: CLOSED 2026-07-25** (spec:
+[`docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md`](docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md)).
+
+- Six phases, each its own session: 1 mountable · 1.1 mount liveness · 2 coexist
+  behind a toggle · 3A–3D feature port (force-delete gate, trip/region/stop CRUD,
+  upload + cluster, route order) · 4 flip · 5 test consolidation · 6 live smoke.
+- **Direction was the Lab absorbing the Documenter, not the reverse.** The
+  formerly-experimental module is now the operator surface; the old Documenter is
+  **retired but not deleted** — `ui/travel-documenter.html` and its module and
+  stylesheet still exist and are still served, unreachable from the shell, with a
+  test pinning that quarantine. Unmounting a surface and deleting a module are
+  different acts and only the first was ordered.
+- **Ported features fixed defects rather than copying them.** Region delete in
+  production dead-ends on a 409 it neither forces nor handles; the port escalates
+  to an in-panel review quoting the server. The force-delete impact grid renders
+  **ten** lanes where production renders nine, and the missing lane is the one
+  every trip is born with. Stop reorder sends two ids to `/stops/{id}/move`
+  instead of posting a whole sibling permutation that 400s whenever the tree has
+  moved underneath it.
+- **Zero native `confirm`/`prompt`/`alert` on the operator path**, proved by a
+  spy across every destructive flow rather than by inspection.
+- **279 unit tests green** across eight suites, reading through one shared
+  surface map (`tests/travel_doc_surfaces.py`) plus a doctrine file
+  (`tests/test_travel_doc_surface_gates.py`). Two headless Playwright liveness
+  harnesses green at 14/14 and 23/23.
+- Phase 6 was thirty-seven live steps on a disposable trip, with every
+  persistence claim read back from `/api/trips/{id}/tree` server-side rather than
+  off the DOM, and the mount/socket/listener census read as deltas across three
+  leave/re-enter cycles. Zero defects found.
+
+**WO-HARNESS-DEPS-01: LANDED 2026-07-26.** Both Playwright liveness harnesses
+now run on the dev machine instead of container-only. The dependency was never
+missing from `package.json`; the gitignored `node_modules/` was, and nothing in
+git could restore it. The browser cache already on disk matched Playwright
+**1.58.2** on all five binaries, so this cost a JavaScript-only install rather
+than a ~500 MB download — but `^1.58.2` resolves to 1.62.0 today, which wants a
+different browser revision, so all three Playwright entries are pinned exact and
+`package-lock.json` is committed. Root cause was documentation: the string
+`npm install` appeared in **zero** `.md` files in this repo, and
+`scripts/ui/README.md` documented one of that folder's five harnesses while never
+mentioning either `.js` file. That README now covers both toolchains.
+
+**Active lane: the post-unification epic** — Import Provenance Foundation,
+Evidence Review Queue, Google Photos Picker, Google Takeout import, Lori Review
+Assistant, Lori Narrator Trip Story, Export Pipeline. An eight-item
+post-unification backlog is carried at the foot of the unification spec; two of
+those items are worth settling *before* the first import path exists, both
+recorded there.
+
+**Live baseline unchanged:** extractor eval `r5h-followup-guard-v1` (78/114,
+v3=49/72, v2=43/72, mnw=2).
+
+---
+
 ## Status as of 2026-07-24
 
 **Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first. A newer-agent handoff lives in [`docs/handoffs/HANDOFF_2026-07-24.md`](docs/handoffs/HANDOFF_2026-07-24.md).
@@ -122,9 +185,10 @@ This positions Hornelore as a tool that maps onto OT life-review practice with o
 
 **Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG default-OFF; BINDING-01 in-tree default-off.
 
-**Immediate open items (P1/P2)** — current priority is Travel Doc Lab product depth:
+**Immediate open items (P1/P2)** — as written on 2026-07-24; superseded by the
+2026-07-26 block above, which moves the active lane to the post-unification epic:
 
-1. **Travel Doc Lab depth** (the active lane) — richer Draft Assistant (per-block picker, multi-note/source selection UI, arrival-mode prompt tightening); wire the memoir/DOCX export to harvest `story_candidates` (WO-MEMOIR-STORY-CANDIDATES-WIRE-01); day-level story support once day cards carry richer operator content.
+1. **Travel Doc depth** (no longer the active lane; still open) — richer Draft Assistant (per-block picker, multi-note/source selection UI, arrival-mode prompt tightening); wire the memoir/DOCX export to harvest `story_candidates` (WO-MEMOIR-STORY-CANDIDATES-WIRE-01); day-level story support once day cards carry richer operator content.
 2. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
 3. **Gate 7 truth-pipeline observability** — the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change.
 4. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
@@ -902,12 +966,12 @@ A whole-repo code review on 2026-07-11 surfaced HIGH / MEDIUM / LOW items. All e
 - **`server/code/api/routers/trips.py` context patch/delete routes** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` blindly, no cross-trip ownership check. Single-tenant so not a security issue; still a stale-FE-state hazard where a cached row ID could patch the wrong trip's context. Consider trip-scoped route variants (`/{trip_id}/photo-context/{id}`) or a body-side trip-scope check.
 - **`server/code/api/services/lori_response_guards.py:173-188`** — `_looks_spanish` accent-tier requires "≥1 strong word + accent" but `_SPANISH_ONLY_WORDS_RX` still contains loose tokens (`hola`, single `iba`) that may appear in quoted travelogue text. Consider requiring ≥2 strong tokens in the accent tier, or exempting quoted spans.
 - **`server/code/api/routers/chat_ws.py:262-263`** — `_TRIP_PREV_LORI` and `_TRIP_LAST_CAPTURE` are unbounded module-level dicts keyed by conv_id, populated per trip turn with no eviction. Memory leaks linearly with conversations. Already flagged in CLAUDE.md 2026-07-09 as pending; still open. Fix: LRU-cap or purge on WebSocketDisconnect.
-- **`ui/js/travel-documenter.js:2152-2299`** — `modalLori._send` has no double-send guard (equivalent to `_loriIsBusy` in main chat). Two fast Sends in the modal, or a Send while main chat is still generating, can collide. Same class as the 2026-05-07 fix.
+- **`ui/js/travel-documenter.js:2152-2299`** — `modalLori._send` has no double-send guard (equivalent to `_loriIsBusy` in main chat). Two fast Sends in the modal, or a Send while main chat is still generating, can collide. Same class as the 2026-05-07 fix. **Scope changed 2026-07-25:** this module is retired and unreachable from the shell after `WO-TRAVEL-DOC-UNIFY-01` Phase 4, so the defect is no longer on the operator path — it is reachable only by opening the standalone `ui/travel-documenter.html` directly. Still on disk, still served, and it also still carries the two native `window.confirm()` calls, which the surface gates pin at exactly two so a third or a migration back onto the operator path fails the build. Deleting the module outright is post-unification backlog item 2.
 - **`ui/js/app.js` — multiple `sysBubble()` calls** at lines 7183, 7192, 7197-7204, 3162, 3702, 4058, 4238, 5520 write emoji-prefixed operator-tone strings (💾/⚠/💡/🎤) into `#chatMessages` (the narrator conversation surface). Only line 3702 is gated by `LV_INLINE_OPERATOR_BUBBLES`; the rest violate CLAUDE.md design principle 3 (no system-tone in narrator flow).
 - **Test-order pollution in full `discover` run** — 191 spurious `sqlite3.OperationalError: no such table: trips` errors when running the whole suite together. Same tests pass in isolation (trip lane 422/422). Likely `test_memoir_story_wire.py:167` or `test_softened_mode_persistence.py:246` monkeypatch `_db.DB_PATH` and never restore it in tearDown. Doesn't affect correctness of the code under test; masks real regressions in CI. Fix: `unittest.load_tests` protocol to snapshot + restore `_db.DB_PATH` per module.
 - **Thread-bank surfacing** — genuine failures in `test_thread_bank.py`: `BankNewThreadsTest.test_persists_candidates`, `SurfacingTargetTest.test_emerging_mode_with_closing_marker_allows_surfacing`, `test_normal_mode_picks_oldest_eligible`. Not deps, not ordering; surfacing returns `None` where it should return a candidate.
 - **`server/code/api/prompt_composer.py:3227`** — `context.setdefault("last_user_text", user_text[:800])` then rendered via `_safe_json` into the system prompt. `json.dumps` quotes the string but doesn't neutralize embedded `[SYSTEM:` / `PROFILE_JSON:` sentinels a hostile browser extension could inject. Single-tenant so risk is small; still a real prompt-injection surface.
-- **Travel Doc Lab evidence panel — native `window.prompt()` for draft observation + place-from-context entry** *(ui/js/travel-doc-lab.js)*. Functional for preflight; not ideal for real operator use. Replace with a small in-panel editor or drawer after live verification.
+- **Travel Doc evidence panel — native `window.prompt()` for draft observation + place-from-context entry** *(ui/js/travel-doc-lab.js)*. ✅ **CLOSED — verified 2026-07-26.** The in-panel evidence editor landed; the module now contains **zero** executable `window.prompt` / `confirm` / `alert` calls, and the six remaining textual occurrences are all comments recording the doctrine. Pinned by the no-native-dialog gate in `tests/test_travel_doc_surface_gates.py`, so a reintroduction fails the build rather than reaching an operator.
 
 ### LOW — cleanup / hygiene:
 
@@ -974,6 +1038,8 @@ A whole-repo code review on 2026-07-11 surfaced HIGH / MEDIUM / LOW items. All e
 | WO-SESSION-STYLE-WIRING-01 | Complete | Operator session-style picker drives narrator behavior; questionnaire_first BYPASSES the v9 incomplete-narrator gate (Corky rule) |
 | WO-HORNELORE-SESSION-LOOP-01 | Complete | Post-identity orchestrator: one Bio Builder question at a time + sessionStyle routing + repeatable-section deferred-handoff |
 | WO-10C | Complete | Cognitive Support Mode — 6 dementia-safe behavioral guarantees (protected silence at 120s/300s/600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts) |
+| WO-TRAVEL-DOC-UNIFY-01 | Complete | One Travel Doc on the operator path — six phases, Lab absorbs the Documenter, retired module quarantined not deleted; CLOSED 2026-07-25 after a thirty-seven-step live smoke with zero defects |
+| WO-HARNESS-DEPS-01 | Complete | Node Playwright toolchain declared, pinned exact at 1.58.2, lockfile committed, and `scripts/ui/README.md` rewritten to cover both toolchains and both liveness harnesses |
 | WO-MEDIA-WATCHFOLDER-01 | Planned | Auto-import from `C:\Users\chris\Hornelore Scans\` into Document Archive intake queue |
 | WO-MEDIA-OCR-01 | Planned | Tesseract OCR for scanned docs; promotes `text_status` from `image_only_needs_ocr` → `ocr_complete` |
 | WO-MEDIA-ARCHIVE-CANDIDATES-01 | Planned | Harvest items flagged `candidate_ready=true` and surface to Bio Builder review queue |

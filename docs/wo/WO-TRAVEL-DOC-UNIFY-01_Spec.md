@@ -105,7 +105,7 @@ Everything lands in the tab currently called "Current", which should be renamed 
 
 **Phase 3 splits into scope walls.** 3A — trip force-delete gate (✅ landed). 3B — trip create/edit + region/stop CRUD, including insert-at-position, with region/stop delete landing as in-panel review rather than `window.confirm()` (A5) — ✅ landed. 3C — photo and source upload plus cluster (a capability to build, A2) — ✅ landed. 3D — the itinerary tile board, reorder, and the editable Route Outline (✅ landed). Each is its own session.
 
-### Phase 4 — flip and delete
+### Phase 4 — flip and delete ✅ LANDED 2026-07-25
 
 Make the merged module the default and take the fallback out of the operator
 path. This Phase 0 text also said to remove `ui/js/travel-documenter.js`,
@@ -120,7 +120,7 @@ still mounts the old module against endpoints requirement 7 protects. The
 deletions and the rename are carried as post-unification backlog items at the
 foot of this spec, not as work Phase 4 skipped.
 
-### Phase 5 — test consolidation
+### Phase 5 — test consolidation ✅ LANDED 2026-07-25
 
 One coherent Travel Doc test surface, not old Lab-vs-Documenter boundary
 tests. The Phase 0 plan here said to fold `tests/test_travel_documenter_panel.py`
@@ -132,7 +132,7 @@ for one Travel Doc would be claiming a boundary it cannot hold. Coherence came
 instead from a shared surface map plus one doctrine file. The fold remains
 available as a mechanical follow-up if the standalone page is ever retired.
 
-### Phase 6 — live smoke
+### Phase 6 — live smoke ✅ CLOSED 2026-07-25
 
 Unification-critical items: shell tab mounts the unified workspace · trip create/edit · region/stop create/edit/reorder · day generate/reconcile · day edit · photo attach · **photo upload** · **source upload** · evidence approve/reject · travelogue preview · draft-stays-draft · force-delete through impact review · exactly one Lori socket across tab/overlay switching.
 
@@ -1316,6 +1316,15 @@ gates that Chris can run himself are the 279 unit tests, and anything the
 harnesses uniquely prove is currently provable only by someone with a Node
 install. Worth an `npm install` or a documented "these two do not run here".
 
+**RESOLVED 2026-07-26 by WO-HARNESS-DEPS-01.** The dependency was declared
+in `package.json` the whole time; only the gitignored `node_modules/` was
+absent, and the browser cache already on disk turned out to match Playwright
+1.58.2 on all five binaries, so the fix cost a JavaScript-only install rather
+than a browser download. All three Playwright entries are now pinned exact
+against caret drift, `package-lock.json` is committed, and both harnesses run
+on Chris's machine -- 14/14 and 23/23, `EXIT=0`. The proof chain is
+reproducible where the code lives.
+
 **2. Force-delete arming trims whitespace.** ` P6 SMOKE DISPOSABLE` and
 `P6 SMOKE DISPOSABLE ` both arm the button. This is the documented
 trim-compare and it is deliberate, and it cannot loosen anything server-side
@@ -1372,8 +1381,17 @@ purpose and each needs its own decision or its own work order.
    re-entering. Known since Phase 2 and accepted then; still a real ergonomic
    cost for an operator who tab-hops.
 5. **Smoke-photo residue.** Six disposable photos now sit in narrator
-   `e7fdb578`'s library. They need either a cleanup pass or a documented
-   "these are test rows".
+   `e7fdb578`'s library -- photo *links* die with the trip, photos do not.
+   **Taken as documented test rows for now**, which is the second of the two
+   options this item always offered. The cleanup pass is deferred rather than
+   declined, and it is deferred for a concrete reason: the live database is
+   **outside the repository**, at `$DATA_DIR/db/$DB_NAME` --
+   `/mnt/c/hornelore_data/db/hornelore.sqlite3` on this machine, per `.env`.
+   Neither the cloud container nor the device bridge can reach it, so no
+   agent-side pass can identify the six rows, let alone remove them. Clearing
+   them needs either the running stack or a direct sqlite session Chris opens
+   himself. Until then the rows are known and accounted for here, which is
+   what keeps them from being read as narrator truth later.
 6. **`WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` live smoke.** Its gate was
    exercised end-to-end here as part of the Travel Doc path, but that WO has
    never had its own live smoke run against it.
@@ -1381,6 +1399,18 @@ purpose and each needs its own decision or its own work order.
    Review Queue, Google Photos Picker, Google Takeout import, Lori Review
    Assistant, Lori Narrator Trip Story, and Export Pipeline. Chris's revised
    plan is the direction; it starts now that this WO is closed.
+8. **Two person records read as the same narrator.** `e7fdb578` is
+   `Christopher` and `a4b2f07a` is `Christopher Todd Horne`. This was
+   recorded as Phase 6 Finding 4 and left as a curiosity; it is promoted to
+   the backlog here because the epic changes what it costs. Import Provenance
+   Foundation writes provenance against a `person_id`, and Google Photos and
+   Takeout import against one too. Two rows that read as one human in every
+   picker is the exact shape of failure that splits an import across two
+   narrators without erroring -- each half internally consistent, the pair
+   silently wrong, and no single query that looks obviously bad afterwards.
+   Pre-existing data, untouched by this WO, and cheap to settle **before**
+   the first import path exists rather than after two of them do. Decide
+   which record is canonical, or confirm they are two real people.
 
 ## Revision history
 
