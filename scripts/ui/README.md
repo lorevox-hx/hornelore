@@ -4,7 +4,16 @@ Playwright-based browser harnesses that exercise the Hornelore UI end-to-end.
 These are **proof-side** harnesses — they don't replace product fixes, they
 prove the fixes work in the running stack.
 
+**There are two toolchains in this folder and they install separately.** The
+`*.py` harnesses use Python Playwright; the `*.js` harnesses use Node
+Playwright. Having one installed does not give you the other, and neither
+arrives with `git pull` — the browser binaries live outside the repo in
+`~/.cache/ms-playwright`, and the Node packages live under a gitignored
+`node_modules/`.
+
 ## Setup (one-time)
+
+### Python harnesses (`*.py`)
 
 ```bash
 python -m pip install playwright
@@ -17,6 +26,123 @@ and intervene if anything looks off. Add `--headless` for unattended runs.
 The stack must already be warm before invoking — the harness does NOT start
 or stop the API / UI / TTS processes. Cold-boot takes ~4 minutes; verify
 `http://localhost:8082/ui/hornelore1.0.html` loads in your browser first.
+
+### Node harnesses (`*.js`)
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+npm install
+```
+
+Driven by the repo-root `package.json`. Playwright is pinned there to an
+**exact** version rather than a caret range, and that pin is load-bearing.
+Browser binaries live in `~/.cache/ms-playwright` in folders named for a
+revision tied to one exact Playwright release — 1.58.2 wants
+`chromium-1208`, 1.62.0 wants `chromium-1234` — so a caret that drifts to a
+newer release downloads a second full browser set (~500 MB) and strands the
+one already on disk. `package-lock.json` is committed for the same reason.
+**If `npm install` starts downloading browsers, stop and check the version
+before letting it finish**; a correct install here fetches only JavaScript.
+
+Unlike the Python harnesses these are **headless**, need **no warm stack**
+and take **no arguments** — each starts its own static file server on an
+ephemeral port and drives the real page off disk. Exit `0` is PASS, `1` is
+FAIL, `2` means Playwright is not installed.
+
+Two environment overrides both harnesses honour:
+
+| Variable | Effect |
+|---|---|
+| `NODE_PATH` | Where `require("playwright")` resolves from. Lets you install once outside the repo instead of into `node_modules/`. |
+| `PLAYWRIGHT_CHROMIUM_PATH` | Passed through as Playwright's `executablePath`, for a Chromium in a non-standard location. |
+
+On WSL, writing `node_modules/` under `/mnt/c` crosses the 9p boundary and
+is slow. To keep the repo tree clean and the install fast, put it in your
+home directory instead and point `NODE_PATH` at it:
+
+```bash
+mkdir -p ~/pw-1582 && cd ~/pw-1582 && npm init -y >/dev/null
+npm install playwright@1.58.2
+```
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+NODE_PATH=$HOME/pw-1582/node_modules node scripts/ui/run_travel_doc_mount_liveness.js
+```
+
+---
+
+## run_travel_doc_mount_liveness.js
+
+WO-TRAVEL-DOC-UNIFY-01 Phase 1.1. Proves the **module**: that a Travel Doc
+mount which has been destroyed cannot be repainted by a callback already in
+flight, and that `destroy()` gives back everything the mount took.
+
+```bash
+node scripts/ui/run_travel_doc_mount_liveness.js
+```
+
+It loads `ui/travel-doc-lab.html` and replaces `window.fetch` with one that
+parks every request until the test releases it. That is the whole trick:
+with fetch parked, `boot()` paints nothing, because `renderAll()` lives
+inside the `.then()`. So "host is empty" is the identical starting state for
+all four scenarios, and the only difference between them is whether the
+mount was destroyed before the parked request came back.
+
+| Scenario | Destroyed first? | Host must |
+|---|---|---|
+| `control_live` | no, released | repaint |
+| `destroyed_then` | yes, resolves 200 | stay empty |
+| `destroyed_notok` | yes, resolves 500 | stay empty |
+| `destroyed_reject` | yes, rejects | stay empty |
+
+`control_live` is the load-bearing row. Without it, three "nothing happened"
+results prove nothing — a harness that never delivers a callback also
+produces three empty hosts.
+
+The two census checks count BroadcastChannel subscriptions and
+document-level keydown registrations at bind/unbind rather than observing
+effects, because the keydown handler early-returns unless a lightbox is
+open: an "assert no repaint on keypress" test would pass vacuously with the
+listener still bound. Counting cannot go vacuous.
+
+**14 checks.** Two negative controls are recorded in the file header and
+should be re-run by hand if the guards ever change. A green suite that
+cannot go red is decoration.
+
+## run_travel_doc_shell_mount_liveness.js
+
+The same question one level up: proves the **shell**. The module harness
+mounts into a bare `<div>`, which is the right isolation for "can a dead
+mount repaint" and the wrong one for "can the shell start a mount while an
+older one is still live".
+
+```bash
+node scripts/ui/run_travel_doc_shell_mount_liveness.js
+```
+
+It loads the real `ui/hornelore1.0.html` and drives `lvShellShowTab()` the
+way an operator would — first open, narrator switch, tab exit, re-entry.
+Every one of those is a path where the shell could mount over a live mount,
+and a live mount owns a BroadcastChannel, a document-level keydown listener
+and a Lori socket. So a double mount is not cosmetic: it is doubled
+cross-tab refresh traffic, two handlers fighting over Escape, and a spare
+`/api/chat/ws` connection bound to a narrator nobody is looking at.
+
+Phase 4 retired the fallback surface, so the `single_surface` probe now
+asserts that absence directly — one host in the panel, no legacy host, no
+toggle buttons, no surface setter, no retired asset tag in the live
+document. The double-mount risk itself did not go away with the toggle,
+which is why every census row survived Phase 4 unchanged.
+
+**23 checks.**
+
+The Python-side counterparts — `tests/test_travel_doc_lab.py::MountLivenessTest`
+and `tests/test_travel_doc_shell_mount.py` — pin the *shape* of these guards
+by reading the source. Static assertions cannot watch a stale callback land
+on a dead host, and they cannot take a census. That is the entire reason
+these two scripts exist, and it is why a green Python suite is not a
+substitute for running them.
 
 ---
 

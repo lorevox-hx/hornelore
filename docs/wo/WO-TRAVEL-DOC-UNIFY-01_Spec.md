@@ -107,7 +107,18 @@ Everything lands in the tab currently called "Current", which should be renamed 
 
 ### Phase 4 — flip and delete
 
-Make the merged module the default, then remove `ui/js/travel-documenter.js`, `ui/css/travel-documenter.css`, `ui/travel-doc-lab.html`, and the launcher block in `hornelore1.0.html`. Rename the survivors to `travel-doc.js` / `travel-doc.css`.
+Make the merged module the default and take the fallback out of the operator
+path. This Phase 0 text also said to remove `ui/js/travel-documenter.js`,
+`ui/css/travel-documenter.css`, `ui/travel-doc-lab.html` and the launcher block
+in `hornelore1.0.html`, and to rename the survivors to `travel-doc.js` /
+`travel-doc.css`. That is **not** what landed, and the reasoning is recorded
+under "What deliberately did NOT come out" in the Phase 4 section below.
+Briefly: Chris's actual Phase 4 order said the opposite on all three counts and
+was right on all three. Unmounting a surface from the shell and deleting a
+module are different acts, only the first was ordered, and the standalone page
+still mounts the old module against endpoints requirement 7 protects. The
+deletions and the rename are carried as post-unification backlog items at the
+foot of this spec, not as work Phase 4 skipped.
 
 ### Phase 5 — test consolidation
 
