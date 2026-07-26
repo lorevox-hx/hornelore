@@ -57,14 +57,12 @@ import os
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..services import import_repository as repo
 
 logger = logging.getLogger("code.api.routers.import_provenance")
-
-router = APIRouter(prefix="/api/import-provenance", tags=["import-provenance"])
 
 
 # -- gate -------------------------------------------------------------------
@@ -79,6 +77,21 @@ def _import_provenance_enabled() -> bool:
 def _require_enabled() -> None:
     if not _import_provenance_enabled():
         raise HTTPException(status_code=404, detail="Not found")
+
+
+# The gate is a router-level dependency, NOT only a first line inside each
+# handler. FastAPI validates the request body before it calls the handler,
+# so a gate that lives only in the handler never runs for a malformed
+# body: `POST /batches {}` came back 422 with the required field names
+# while the flag was off, which announces both that the route exists and
+# what it wants. A dependency is solved before body validation, so the
+# 404 wins. The per-handler `_require_enabled()` calls are kept as well --
+# they cost nothing and they keep each handler correct on its own.
+router = APIRouter(
+    prefix="/api/import-provenance",
+    tags=["import-provenance"],
+    dependencies=[Depends(_require_enabled)],
+)
 
 
 # -- error mapping ----------------------------------------------------------

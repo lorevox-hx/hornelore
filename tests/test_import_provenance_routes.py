@@ -241,6 +241,38 @@ class FlagGateTests(_Base):
                 self.assertEqual(r.status_code, 404, "%s %s -> %s"
                                  % (method, path, r.status_code))
 
+    def test_every_route_404s_when_the_flag_is_off_and_the_body_is_junk(self):
+        """A prober does not send a well-formed body.
+
+        The test above sends valid bodies, so it only ever proved the gate
+        for callers who already know the schema. FastAPI validates the
+        body before it calls the handler, so a gate that lives only in the
+        handler is skipped entirely for a malformed body: on the live
+        stack with the flag off, `POST /batches {}` answered 422 and named
+        the fields it wanted. 404 is the only answer that keeps the
+        surface quiet.
+        """
+        for method, path, body in self._all_routes():
+            if body is None:
+                continue
+            for junk in ({}, {"nonsense": True}, None):
+                with self.subTest(route="%s %s" % (method.upper(), path),
+                                  body=junk):
+                    fn = getattr(self.client, method)
+                    r = fn(path) if junk is None else fn(path, json=junk)
+                    self.assertEqual(r.status_code, 404, "%s %s %r -> %s"
+                                     % (method, path, junk, r.status_code))
+
+    def test_the_gate_is_a_router_dependency_not_only_a_handler_call(self):
+        """Lock the mechanism, not just the symptom.
+
+        If someone later drops the router-level dependency and leaves the
+        per-handler calls, the junk-body test above starts failing in a
+        way that reads like a FastAPI change. This says what to put back.
+        """
+        self.assertTrue(ip.router.dependencies,
+                        "import-provenance router declares no gate dependency")
+
     def test_route_count_is_the_count_the_gate_test_covers(self):
         """If someone adds a route, the gate list above must grow too."""
         paths = {r.path for r in ip.router.routes}
