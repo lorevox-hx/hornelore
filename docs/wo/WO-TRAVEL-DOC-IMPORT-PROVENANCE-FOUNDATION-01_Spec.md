@@ -575,10 +575,75 @@ cascades the whole landing zone through 0037's foreign keys, which is why
 `hard_delete_person`'s explicit table list. The 0037 migration lock re-ran
 clean at 37 tests. Test baseline 279 -> 329.
 
-### Phase 4 -- minimal verification surface
+### Phase 4 -- minimal verification surface (LANDED 2026-07-26)
 
 Operator-only list/create/decide endpoints -- the least UI that lets the
 Phase 5 smoke happen. Not the Evidence Review Queue; that is WO-2.
+
+**What landed.** `server/code/api/routers/import_provenance.py`, 15 routes
+under `/api/import-provenance`, registered in `server/code/api/main.py` and
+gated default-OFF behind `HORNELORE_IMPORT_PROVENANCE=1`. With the flag off
+every route answers **404**, not 403 -- a disabled surface should not
+advertise that it exists. The router adds **no database logic of its own**;
+it is a boundary over the Phase 3 repository.
+
+**The shipped column names win over the plan's working names.** The Epic
+Plan drafted `review_status` and `operator_decision_json`; migration 0037
+shipped `state`, `state_reason`, `reviewed_by_user_id` and `reviewed_at`.
+The route bodies use the 0037 names. The plan's enum values `needs_review`,
+`changed` and `skipped` have no 0037 equivalent and are refused with **400**
+rather than quietly mapped onto something adjacent, which is asserted by a
+test so a later author cannot make the mapping by accident.
+
+**Boundaries are re-checked at the route layer, not forwarded and trusted.**
+A small read-only helper resolves `trips.person_id` and `photos.narrator_id`
+directly before the repository is called, so a trip belonging to another
+person, a photo belonging to another narrator, or a `person_id`/`trip_id`
+pair that disagree all come back **409** at the edge. The mismatched-pair
+case is deliberately an error and not an empty list: *this person has
+nothing on that trip* and *that trip is not theirs* are two different facts
+and should not share an answer -- the empty-list-as-success failure mode is
+the one Phase 0 found in the existing photo clustering code.
+
+**Every repository exception maps to a deliberate status.** Not-found to 404,
+the four boundary and lifecycle refusals to 409, a refused token shape and
+an invalid state to 400. Only the base `ImportRepositoryError` -- raised when
+the database itself has drifted, e.g. 0037 unapplied or an approval column
+grown by hand -- reaches 500, because that is a server condition and not a
+bad request. Ten tests assert that a rejected token returns 400 **and that
+the token text does not appear anywhere in the response body**.
+
+**What is deliberately absent:** no `@router.delete` anywhere; no `person_id`
+on the candidate-create body (a candidate copies its batch's person); no
+route that can set `narrator_ready` or `include_in_memoir`; no Google Photos,
+no Takeout, no Evidence Queue UI, no Lori behavior.
+
+**A Phase 3 defect found and fixed here.** The route list endpoint promises
+oldest-first, and it did not deliver it. `_now()` in `import_repository.py`
+has whole-second precision, so `ORDER BY created_at, id` degrades to **uuid
+order** for everything created inside the same second -- which for a real
+import is the entire batch. Both list queries now tiebreak on `rowid`, which
+is insertion order (0037 declares no `WITHOUT ROWID`, so `rowid` exists).
+Fixed in the Phase 3 module where the code lives, and locked by three tests
+added to the Phase 3 suite rather than the Phase 4 one.
+
+**Proof.** 65 new route tests green in six classes -- flag gate 4, batch
+routes 15, candidate routes 16, decision routes 10, token refusal 10, and
+no-DELETE/wiring 5 -- on a fixture with two people and a trip each, so every
+boundary test has a real second person to try to cross into. One gate test
+compares the router's own route table to the list it covers, so a route added
+without a gate fails there. Plus 3 new ordering tests in the Phase 3 suite
+(50 -> 53). Test baseline 329 -> 397.
+
+**Two inputs recorded for WO-2, not acted on here.** (1) The Epic Plan's
+`import_candidate` lists `proposed_trip_day_id`, `proposed_trip_region_id`
+and `proposed_trip_stop_id`; **0037 has none of them**, so placement can only
+be expressed at trip granularity today. The Evidence Review Queue needs
+day/region/stop granularity, which means a future migration 0038 -- a WO-2
+input, not a Phase 4 blocker, so Phase 4 stayed no-migration. (2) The plan's
+`changed` (accepted at a different placement than proposed) and `skipped`
+(softer than rejected) have no 0037 state; whether they become states, a
+separate column, or nothing at all is a WO-2 decision.
 
 ### Phase 5 -- live smoke
 
@@ -651,6 +716,28 @@ narrator-facing or memoir-approved.
   the migration verified idempotent against real data. **The destructive run
   itself belongs to Chris** -- the deliverable is the tooling plus a WSL run
   block, never an agent-side write to the live database.
+- 2026-07-26 -- **Phase 4 landed: the minimal verification surface.**
+  `server/code/api/routers/import_provenance.py` (ASCII-only, `ast.parse`
+  clean, zero `@router.delete`) plus `tests/test_import_provenance_routes.py`,
+  65 tests green, and registration in `server/code/api/main.py`. 15 routes
+  under `/api/import-provenance`, gated default-OFF behind
+  `HORNELORE_IMPORT_PROVENANCE=1` and answering 404 rather than 403 when the
+  flag is off. The router holds no database logic; it is the HTTP boundary
+  over the Phase 3 repository, and it re-checks the person/trip/photo
+  boundaries itself instead of forwarding and trusting. Every
+  `ImportRepositoryError` subclass maps to a deliberate status -- 404 for
+  not-found, 409 for the boundary and lifecycle refusals, 400 for a refused
+  token shape or an invalid state -- so only genuine schema drift reaches
+  500, and ten tests assert a refused token returns 400 **without echoing the
+  token**. The 0037 column names (`state`, `state_reason`,
+  `reviewed_by_user_id`, `reviewed_at`) are used in place of the Epic Plan's
+  working names, and the plan's `needs_review` / `changed` / `skipped` values
+  are refused with 400 rather than mapped. **A Phase 3 defect was found here
+  and fixed there:** `_now()` has whole-second precision, so the list
+  queries' `created_at` ordering degraded to uuid order inside a second --
+  i.e. across a whole real import; both now tiebreak on `rowid`, locked by
+  three tests added to the Phase 3 suite (50 -> 53). Baseline 329 -> 397.
+  **Phase 5 -- the live smoke -- is next.**
 - 2026-07-26 -- **Phase 3 landed: the import repository.**
   `server/code/api/services/import_repository.py` (ASCII-only, `ast.parse`
   clean) plus `tests/test_import_repository.py`, 50 tests green. The module
@@ -670,7 +757,7 @@ narrator-facing or memoir-approved.
   here: the column is `match_reason_json` (singular), and the module path is
   `server/code/api/services/`, not a nonexistent root-level `services/`.
   Baseline 279 -> 329. **Phase 4 -- the minimal verification surface -- is
-  next.**
+  next.** (Phase 4 has since landed; see the entry above.)
 - 2026-07-26 -- **Phase 2 verified live, schema and UI.** Migration 0037
   applied on stack start at 02:54:47 -- before the 03:00 wipe, so the delete
   cascaded through the new `photos.narrator_id` FK. Read-only checks against
