@@ -95,6 +95,12 @@ server/data/memory/
 # is a suffix after .bak, so add an explicit pattern here.
 .env.bak*
 .env.backup*
+# Any other timestamped/prefixed .env copy an operator makes before an edit
+# (e.g. .env.before-google-picker.20260727-181500). Without this, a backup
+# named anything other than .env.bak*/.env.backup* shows up as an UNTRACKED
+# file in GitHub Desktop with real credentials in it.
+.env.*
+!.env.example
 
 # ── OS / tool junk ──
 *.orig
