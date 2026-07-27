@@ -366,9 +366,64 @@ into `.venv`. No per-lane work orders opened.
 
 ## Open items
 
-1. **Restart the API**, then confirm `GET /api/trips/captured-notes` returns 200 and the
-   Captured Notes tab paints. The only unproven claim in this package.
+1. ~~Restart the API and prove Lane 3 live.~~ **DONE 2026-07-27 -- see the Lane 3 live
+   check section below. All twelve points passed; no defect found; no code changed.**
 2. **Decide the web-stack alignment** (audit section 4.2 / 8). Recommended; not executed.
 3. **`lxml` pin vs serving venv** (audit section 5) — one-line call, Chris's.
 4. **Shared `tests/_offline_stubs.py`** — the durable fix for the stub race. Out of scope
    here; worth its own small pass.
+
+---
+
+## Lane 3 live check -- RUN AND PASSED 2026-07-27
+
+Run against the restarted serving stack, driven from the `:8082` operator page against
+`:8000`. Chris's twelve points, in his order. **No defect found, so no code changed.**
+
+1. **`/api/trips/captured-notes` appears in `openapi.json`.** Present exactly once, with a
+   single `get` operation. Path count 225 -> 226 -- the new route and nothing else.
+2. **`GET /api/trips/captured-notes` no longer returns 405.** Returns **200** with
+   `notes` and `counts`. The 405 was the stale uvicorn, as diagnosed; the restart cleared it.
+3. **Travel Documenter opens from `:8082`.** Narrator Christopher Todd Horne, Travel Doc
+   shell mounted. The served `travel-doc-lab.js` is the committed build -- the cache-busted
+   URL and a fresh cache-bypassing fetch return the same 276,776 bytes, both containing
+   `captured-notes`.
+4. **The Captured Notes tab opens.** Present in the tab strip between Story Notes and Sources.
+5. **It loads notes and counts from `:8000`.** Observed on the wire:
+   `GET http://localhost:8000/api/trips/captured-notes` with `person_id`, and with
+   `person_id,source_surface` when the surface filter is set. Counter strip read
+   `12 notes - 0 in memoir - 12 not in memoir`, with `Captured from Travel Doc modal 4`.
+   The `promoted=true` / `promoted=false` filters returned 0 and 12 respectively.
+6. **It is exempt from the trip gate only as intended.** Proved both directions live by
+   switching to Kent James Horne, who has zero trips, and walking every tab. Evidence and
+   Captured Notes render their own screens; **Trip Plan, Photos, Story Notes, Travelogue,
+   Draft and Lori all render the gate** -- *"No trips yet for this narrator."* Captured Notes
+   with no trips shows its honest empty state, `0 notes - 0 in memoir - 0 not in memoir`.
+7. **Unpromoted notes remain `include_in_memoir=0`.** All 12 rows read `false` over the API
+   and `include_in_memoir=0` in SQLite before any action. Merely opening the screen promoted
+   nothing.
+8. **One note promoted through the existing location-notes PATCH path.** Toggling the note
+   `9df82b33` (Bismarck Trip, `travel_doc_modal`) issued exactly
+   `PATCH /api/trips/location-notes/{note_id}` and then re-read the list. **No second write
+   route was used.** Counter strip moved to `1 in memoir - 11 not in memoir`; SQLite
+   confirmed `include_in_memoir=1`.
+9. **The promoted note appears in the memoir trip lane.** `GET /api/trips/{trip_id}/memoir-preview`
+   for the Bismarck trip went from `story_notes` **0** to **1**, carrying that note's text.
+10. **Demoted back.** Second toggle, same PATCH path, `story_notes` back to **0** and the
+    memoir-preview payload byte-length back to its exact pre-promotion value (685). SQLite
+    `include_in_memoir=0`, promoted count back to 0. **The database is where it started.**
+11. **No archive write, no life-story/modal boundary change.** Read straight out of
+    `hornelore.sqlite3` before and after: `turns` **1397 -> 1397**, `memory_archive_turns`
+    **0 -> 0**, `memory_archive_sessions` **0 -> 0**, `trip_location_notes` **12 -> 12**.
+    Promotion writes one flag on one row and touches nothing else. (`sessions` moved 513 ->
+    515, entirely from two page reloads during the check; it did not move across the
+    promote/demote pair.) The two-surface rule is intact -- `archive-writer.js` still logs
+    *auto-chain DISABLED (BUG-209: backend chat_ws is sole transcript writer)*.
+12. **Console stays clean.** 218 messages captured from page load through the full
+    promote/demote round trip. **Zero errors, zero exceptions.** A filter for
+    error/uncaught/exception/`not defined`/failed matched nothing. The one WARNING is the
+    pre-existing `[bb-hydrate]` cross-narrator guard, unrelated to this lane.
+
+**Lane 2 was incidentally re-proven in the same pass**: a real mouse click on the active
+narrator card opened the Narrators switcher with all four narrators, and
+`typeof window.lv80ToggleNarratorSwitcher === "function"`.
