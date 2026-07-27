@@ -1137,12 +1137,23 @@ class EvidenceReviewQueueTest(unittest.TestCase):
                       "st.showHiddenEvidence = false"):
             self.assertIn(field, block, field)
 
-    def test_evidence_tab_is_the_only_one_exempt_from_the_trip_gate(self):
+    def test_only_the_review_tabs_are_exempt_from_the_trip_gate(self):
         # A deliberate structural change to the single repaint entry
         # point: the rows most in need of review are precisely the ones
-        # not filed to a trip yet, so this tab must render with no trip
-        # selected. It is the ONLY tab that does.
-        self.assertIn('if (!st.trip && st.tab !== "evidence") {', self.src)
+        # not filed to a trip yet, so these tabs must render with no
+        # trip selected.
+        #
+        # WO-POST-LORI-CLEANUP-AND-UNBLOCK-01 Lane 3 added the second
+        # and, so far, last exemption -- "captured", the cross-trip
+        # captured-note review, which is person-scoped for exactly the
+        # same reason the evidence queue is. This assertion is pinned to
+        # the literal so a third exemption cannot be added by accident:
+        # every OTHER tab in this file describes one trip.
+        self.assertIn(
+            'if (!st.trip && st.tab !== "evidence" && st.tab !== "captured") {',
+            self.src)
+        exempt = re.findall(r'st\.tab !== "(\w+)"', self.src)
+        self.assertEqual(sorted(set(exempt)), ["captured", "evidence"])
 
     def test_queue_drawers_add_no_native_dialogs(self):
         sec = self._section()

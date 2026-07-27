@@ -1005,6 +1005,164 @@ def location_note_delete(note_id: str) -> bool:
         con.close()
 
 
+# ── Captured-note review feed (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01) ───
+
+# Lane 3. The per-trip note list already exists and the "In memoir"
+# toggle already works -- what did not exist was a way to FIND a
+# captured note. trip_location_notes rows written by the Travel Doc
+# modal capture path (source_surface='travel_doc_modal') land under
+# whichever trip/region/stop/day scope the operator happened to be in,
+# so the only way to see them was to already know where to look. Every
+# one of the 12 rows on the live DB sat at include_in_memoir=0, which
+# is the correct default -- but it also meant the memoir trip lane
+# shipped by WO-MEMOIR-TRIP-STORY-LANE-01 could never produce output.
+#
+# This is a READ. It creates no new write path: promotion still goes
+# through PATCH /api/trips/location-notes/{id}, the same endpoint the
+# per-trip Story Notes list has always used, with the same validation.
+# It does not auto-promote anything and it does not change the
+# include_in_memoir=0 default. It does not touch the archive: these
+# rows are trip material and the two-surface rule of 2026-07-09 is
+# unaffected by reading them.
+#
+# Tolerant of a pre-0036 DB (no hidden/hidden_at) and of a pre-0031 DB
+# (no source_surface) for the same reason location_notes_list is: a
+# review feed that raises on an un-migrated DB is worse than one that
+# returns fewer columns.
+
+_CAPTURED_NOTE_BASE_COLS = (
+    "n.id AS id",
+    "n.trip_id AS trip_id",
+    "n.trip_region_id AS trip_region_id",
+    "n.trip_stop_id AS trip_stop_id",
+    "n.trip_day_id AS trip_day_id",
+    "n.note_title AS note_title",
+    "n.note_text AS note_text",
+    "n.source_type AS source_type",
+    "n.source_ref AS source_ref",
+    "n.include_in_memoir AS include_in_memoir",
+    "n.include_in_interview_context AS include_in_interview_context",
+    "n.created_at AS created_at",
+    "n.updated_at AS updated_at",
+    "t.title AS trip_title",
+    "t.start_date AS trip_start_date",
+    "t.person_id AS person_id",
+    "r.title AS region_title",
+    "s.title AS stop_title",
+    "s.location_name AS stop_location_name",
+)
+
+
+def captured_notes_review_list(
+    person_id: Optional[str] = None,
+    source_surface: Optional[str] = None,
+    include_hidden: bool = False,
+    promoted: Optional[bool] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Cross-trip review feed of story notes, newest first.
+
+    ``person_id``      restrict to one narrator's trips (recommended).
+    ``source_surface`` exact match, e.g. 'travel_doc_modal'. None = any,
+                       including the NULL-surface rows written before
+                       the column existed.
+    ``include_hidden`` False (default) excludes hidden=1 rows, matching
+                       location_notes_list and the memoir lane.
+    ``promoted``       True = only include_in_memoir=1, False = only 0,
+                       None = both.
+    ``limit``          hard cap, clamped to 1..1000.
+
+    Never raises on a shape problem -- returns [] so an operator review
+    screen degrades to empty rather than 500-ing.
+    """
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        lim = 200
+    lim = max(1, min(1000, lim))
+
+    con = _connect()
+    try:
+        has_hidden = _table_has_column(con, "trip_location_notes", "hidden")
+        has_surface = _table_has_column(
+            con, "trip_location_notes", "source_surface")
+
+        cols = list(_CAPTURED_NOTE_BASE_COLS)
+        if has_surface:
+            cols.append("n.source_surface AS source_surface")
+            cols.append("n.source_turn_ref AS source_turn_ref")
+        if has_hidden:
+            cols.append("n.hidden AS hidden")
+            cols.append("n.hidden_at AS hidden_at")
+
+        where = []
+        args: List[Any] = []
+        if person_id:
+            where.append("t.person_id = ?")
+            args.append(person_id)
+        if source_surface is not None:
+            if not has_surface:
+                return []      # cannot honour the filter -> honest empty
+            where.append("n.source_surface = ?")
+            args.append(source_surface)
+        if promoted is not None:
+            where.append("n.include_in_memoir = ?")
+            args.append(1 if promoted else 0)
+        if has_hidden and not include_hidden:
+            where.append("n.hidden = 0")
+
+        sql = (
+            "SELECT " + ", ".join(cols) + " "
+            "FROM trip_location_notes n "
+            "JOIN trips t ON t.id = n.trip_id "
+            "LEFT JOIN trip_regions r ON r.id = n.trip_region_id "
+            "LEFT JOIN trip_stops s ON s.id = n.trip_stop_id "
+            + (("WHERE " + " AND ".join(where) + " ") if where else "")
+            + "ORDER BY n.created_at DESC, n.id DESC LIMIT ?"
+        )
+        args.append(lim)
+        rows = con.execute(sql, args).fetchall()
+        out = [_row_to_dict(r) for r in rows]
+        for d in out:
+            d["include_in_memoir"] = bool(d.get("include_in_memoir"))
+            d["include_in_interview_context"] = bool(
+                d.get("include_in_interview_context"))
+            if "hidden" in d:
+                d["hidden"] = bool(d.get("hidden"))
+            else:
+                d["hidden"] = False
+            d.setdefault("source_surface", None)
+        return out
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def captured_notes_review_counts(
+    person_id: Optional[str] = None,
+) -> Dict[str, int]:
+    """Counter strip for the review screen. Same tolerance posture."""
+    rows = captured_notes_review_list(
+        person_id=person_id, include_hidden=True, limit=1000)
+    out = {
+        "total": 0, "promoted": 0, "unpromoted": 0,
+        "hidden": 0, "travel_doc_modal": 0,
+    }
+    for r in rows:
+        if r.get("hidden"):
+            out["hidden"] += 1
+            continue
+        out["total"] += 1
+        if r.get("include_in_memoir"):
+            out["promoted"] += 1
+        else:
+            out["unpromoted"] += 1
+        if r.get("source_surface") == "travel_doc_modal":
+            out["travel_doc_modal"] += 1
+    return out
+
+
 # ── Sources (documents — WO-TRAVEL-DOC-SOURCES-01) ─────────────────────────
 #
 # Non-photo source material (files, pasted text, links) attached to a

@@ -369,6 +369,20 @@
     // WHICH review is open plus its inline error. The chosen file and the
     // typed reason live in the drawer's closure and are read on submit.
     evidenceDrawer: null,    // {kind:"promote"|"decide"|"file", candidateId, state, error}
+    // WO-POST-LORI-CLEANUP-AND-UNBLOCK-01 Lane 3 -- captured-note review.
+    // Person-scoped like the evidence queue, for the same reason: a note
+    // captured by the Travel Doc modal lands under whichever trip scope
+    // the operator happened to be in, so requiring a trip selection to
+    // find it would hide exactly the rows that need finding. `captured`
+    // holds the whole GET /captured-notes payload verbatim (notes +
+    // counts) so the screen cannot drift from what the route said.
+    captured: null,          // GET /captured-notes payload, or null
+    capturedSurface: "travel_doc_modal", // "" = any surface
+    capturedPromoted: "",    // "" = all | "0" unpromoted | "1" promoted
+    capturedBusy: false,
+    capturedOff: false,      // trips lane is flag-off on this server
+    capturedError: "",
+    showHiddenCaptured: false,
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
@@ -1562,6 +1576,7 @@
     ["photos", "Photos"],
     ["evidence", "Evidence"],
     ["notes", "Story Notes"],
+    ["captured", "Captured Notes"],
     ["sources", "Sources"],
     ["travelogue", "Travelogue"],
     ["draft", "Draft"],
@@ -1587,6 +1602,11 @@
     // re-render, which would fetch again.
     if (tab === "evidence" && !st.evidence && !st.evidenceOff && st.personId) {
       reloadEvidence().then(function () { renderAll(); });
+    }
+    // Same lazy shape, same reason: fetched on the tab switch, never
+    // from render.
+    if (tab === "captured" && !st.captured && !st.capturedOff && st.personId) {
+      reloadCaptured().then(function () { renderAll(); });
     }
     renderAll();
   }
@@ -1654,7 +1674,11 @@
     // and the rows most in need of review are precisely the ones not
     // filed to a trip yet — so gating it on a selection would hide the
     // unfiled queue behind a trip the operator has not made.
-    if (!st.trip && st.tab !== "evidence") {
+    // Lane 3 adds the second exemption, on the same argument: the
+    // captured-note review describes a PERSON's captured notes, and the
+    // rows most in need of promotion are the ones the operator cannot
+    // locate by trip.
+    if (!st.trip && st.tab !== "evidence" && st.tab !== "captured") {
       main.appendChild(el("div", "tdl-empty",
         st.trips.length ? "Select a trip from the left rail." :
           "No trips yet for this narrator. Use + New trip in the left rail " +
@@ -1804,6 +1828,7 @@
       case "photos": return renderPhotos();
       case "evidence": return renderEvidence();
       case "notes": return renderNotes();
+      case "captured": return renderCaptured();
       case "sources": return renderSources();
       case "travelogue": return renderTravelogue();
       case "draft": return renderDraft();
@@ -5593,6 +5618,219 @@
       // DELETE) — the row reappears under Show hidden with a Restore.
       toggles.appendChild(btn("tdl-btn tdl-btn-small", "Hide",
         function () { hideNote(n.id); }));
+      row.appendChild(toggles);
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  // ── Captured-note review (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01) ───────
+
+  // Lane 3. This screen is a FINDER, not a new capture or promotion
+  // path. Every checkbox on it writes through the same
+  // PATCH /api/trips/location-notes/{id} the per-trip Story Notes list
+  // has always used, with the same server validation. Nothing here
+  // auto-promotes, nothing changes the include_in_memoir=0 default, and
+  // nothing writes to the life-story archive -- these are trip rows and
+  // the two-surface rule of 2026-07-09 is untouched.
+
+  var CAPTURED_SURFACES = [
+    ["travel_doc_modal", "Travel Doc modal"],
+    ["", "Any surface"],
+  ];
+
+  var CAPTURED_PROMOTION = [
+    ["", "All"],
+    ["0", "Not in memoir"],
+    ["1", "In memoir"],
+  ];
+
+  function capturedQueryPath() {
+    var q = ["person_id=" + encodeURIComponent(st.personId || "")];
+    if (st.capturedSurface) {
+      q.push("source_surface=" + encodeURIComponent(st.capturedSurface));
+    }
+    if (st.capturedPromoted === "0") q.push("promoted=false");
+    if (st.capturedPromoted === "1") q.push("promoted=true");
+    if (st.showHiddenCaptured) q.push("include_hidden=true");
+    return "/api/trips/captured-notes?" + q.join("&");
+  }
+
+  function reloadCaptured() {
+    if (!st.personId) return Promise.resolve();
+    st.capturedBusy = true;
+    return api(capturedQueryPath())
+      .then(function (out) {
+        st.captured = out;
+        st.capturedOff = false;
+        st.capturedError = "";
+        st.capturedBusy = false;
+      })
+      .catch(function (e) {
+        st.capturedBusy = false;
+        if (e && e.status === 404) {
+          // The whole trips lane is behind a default-off server flag and
+          // answers 404 while it is off. That is configuration, not an
+          // error, and must not paint the workspace-wide red bar.
+          st.capturedOff = true;
+          st.captured = null;
+          st.capturedError = "";
+          return;
+        }
+        st.capturedError = e.message;
+      });
+  }
+
+  function setCapturedSurface(v) {
+    if (st.capturedSurface === v) return;
+    st.capturedSurface = v;
+    reloadCaptured().then(function () { renderAll(); });
+  }
+
+  function setCapturedPromoted(v) {
+    if (st.capturedPromoted === v) return;
+    st.capturedPromoted = v;
+    reloadCaptured().then(function () { renderAll(); });
+  }
+
+  function toggleCapturedHidden() {
+    st.showHiddenCaptured = !st.showHiddenCaptured;
+    reloadCaptured().then(function () { renderAll(); });
+  }
+
+  // The one write on this screen. Deliberately the existing endpoint.
+  function setCapturedMemoir(noteId, on, cb) {
+    return api("/api/trips/location-notes/" + encodeURIComponent(noteId),
+      { method: "PATCH", body: { include_in_memoir: !!on } })
+      .then(function () { return reloadCaptured(); })
+      .then(function () { renderAll(); })
+      .catch(function (e) {
+        if (cb) cb.checked = !cb.checked;
+        st.capturedError = e.message;
+        renderAll();
+      });
+  }
+
+  function capturedScopeLabel(n) {
+    var bits = [];
+    if (n.stop_location_name || n.stop_title) {
+      bits.push(n.stop_location_name || n.stop_title);
+    } else if (n.region_title) {
+      bits.push(n.region_title);
+    }
+    return bits.join(" · ");
+  }
+
+  function renderCaptured() {
+    var wrap = el("div", "tdl-erq");
+    wrap.appendChild(el("h1", "", "Captured Notes"));
+    wrap.appendChild(el("p", "tdl-muted",
+      "Story notes captured across every trip for this narrator, newest " +
+      "first. Captured notes are OFF for the memoir by default — this " +
+      "screen is where an operator finds them and turns one on. " +
+      "“In memoir” here is the same flag, and the same write, as " +
+      "the toggle on the per-trip Story Notes list."));
+
+    if (!st.personId) {
+      wrap.appendChild(el("div", "tdl-empty",
+        "No narrator is selected, and this review is per person."));
+      return wrap;
+    }
+    if (st.capturedOff) {
+      wrap.appendChild(el("div", "tdl-erq-off",
+        "The trips lane is switched off on this server, so there is no " +
+        "captured-note feed to read. Nothing is broken and nothing is lost."));
+      return wrap;
+    }
+    if (st.capturedError) {
+      wrap.appendChild(el("div", "tdl-error", st.capturedError));
+    }
+
+    var surfRail = el("div", "tdl-filter-rail tdl-filter-rail-row");
+    CAPTURED_SURFACES.forEach(function (s) {
+      surfRail.appendChild(btn(
+        st.capturedSurface === s[0] ? "tdl-active" : "", s[1],
+        function () { setCapturedSurface(s[0]); }));
+    });
+    wrap.appendChild(surfRail);
+
+    var promRail = el("div", "tdl-filter-rail tdl-filter-rail-row");
+    CAPTURED_PROMOTION.forEach(function (p) {
+      promRail.appendChild(btn(
+        st.capturedPromoted === p[0] ? "tdl-active" : "", p[1],
+        function () { setCapturedPromoted(p[0]); }));
+    });
+    promRail.appendChild(btn(
+      st.showHiddenCaptured ? "tdl-active" : "",
+      st.showHiddenCaptured ? "Hiding hidden" : "Show hidden",
+      function () { toggleCapturedHidden(); }));
+    wrap.appendChild(promRail);
+
+    // Counts describe the whole feed behind the page, not the filter --
+    // that is the point of a counter strip on a screen whose default
+    // filter hides most of what it is counting.
+    var counts = (st.captured && st.captured.counts) || {};
+    var strip = el("div", "tdl-erq-summary");
+    strip.appendChild(el("span", "tdl-badge tdl-erq-depth",
+      "Captured from Travel Doc modal " + (counts.travel_doc_modal || 0)));
+    strip.appendChild(el("span", "tdl-muted",
+      (counts.total || 0) + " notes · " + (counts.promoted || 0) +
+      " in memoir · " + (counts.unpromoted || 0) + " not in memoir" +
+      (counts.hidden ? " · " + counts.hidden + " hidden" : "")));
+    wrap.appendChild(strip);
+
+    var notes = (st.captured && st.captured.notes) || [];
+    if (!notes.length) {
+      wrap.appendChild(el("div", "tdl-empty",
+        st.capturedBusy ? "Loading…" :
+          "No captured notes match this filter."));
+      return wrap;
+    }
+
+    notes.forEach(function (n) {
+      var row = el("div", "tdl-note-row" + (n.hidden ? " tdl-row-hidden" : ""));
+      var badges = el("div", "tdl-note-badges");
+      badges.appendChild(el("span", "tdl-badge", n.source_type || "note"));
+      badges.appendChild(el("span",
+        n.source_surface === "travel_doc_modal"
+          ? "tdl-badge tdl-badge-lori" : "tdl-badge",
+        n.source_surface || "no surface"));
+      badges.appendChild(el("span",
+        n.include_in_memoir ? "tdl-flag-on" : "tdl-flag-off",
+        n.include_in_memoir ? "In memoir ON" : "In memoir OFF"));
+      if (n.hidden) {
+        badges.appendChild(el("span", "tdl-badge tdl-badge-hidden", "hidden"));
+      }
+      badges.appendChild(el("span", "tdl-badge",
+        n.trip_title || "untitled trip"));
+      var scope = capturedScopeLabel(n);
+      if (scope) badges.appendChild(el("span", "tdl-badge", scope));
+      badges.appendChild(el("span", "tdl-muted",
+        datePrefix(n.created_at) || "no date"));
+      row.appendChild(badges);
+
+      if (n.note_title) row.appendChild(el("strong", "", n.note_title));
+      // Preview only. The full note stays where it is edited: this is a
+      // finder, and a second full editor for the same row is how two
+      // surfaces drift apart.
+      var text = String(n.note_text || "");
+      row.appendChild(el("p", "",
+        text.length > 400 ? text.slice(0, 400) + "…" : text));
+
+      var toggles = el("div", "tdl-note-toggles");
+      var lab = el("label");
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!n.include_in_memoir;
+      cb.addEventListener("change", function () {
+        setCapturedMemoir(n.id, cb.checked, cb);
+      });
+      lab.appendChild(cb);
+      lab.appendChild(el("span", "", "In memoir"));
+      toggles.appendChild(lab);
+      toggles.appendChild(el("span", "tdl-muted",
+        "Promotes this note into the memoir trip lane. Nothing is copied " +
+        "into the life-story archive."));
       row.appendChild(toggles);
       wrap.appendChild(row);
     });

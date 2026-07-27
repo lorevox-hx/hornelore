@@ -1787,6 +1787,62 @@ def delete_trip(trip_id: str,
 _LOCATION_NOTE_SOURCE_TYPES = ("operator", "lori", "external", "draft")
 
 
+# ── Captured-note review feed (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01) ───
+
+# Lane 3. READ-ONLY. The promotion write path is unchanged: the operator
+# still flips include_in_memoir through
+# PATCH /api/trips/location-notes/{note_id} above, with the same
+# validation it has always had. This route exists only because a note
+# captured by the Travel Doc modal was unfindable -- it lands under
+# whichever trip/region/stop/day scope the operator happened to be in,
+# and the only list surface was the per-trip Story Notes list, which
+# requires already knowing the trip.
+#
+# Single-segment path. Safe at any position in this module: there is no
+# bare @router.get("/{trip_id}") to shadow it, and /capture-status above
+# is the existing single-segment precedent.
+#
+# Does not auto-promote. Does not change the include_in_memoir=0
+# default. Does not touch the archive.
+
+
+@router.get("/captured-notes")
+def list_captured_notes(person_id: Optional[str] = None,
+                        source_surface: Optional[str] = None,
+                        promoted: Optional[bool] = None,
+                        include_hidden: bool = False,
+                        limit: int = 200) -> Dict[str, Any]:
+    """Cross-trip review feed of story notes, newest first.
+
+    ``person_id``      restrict to one narrator's trips (recommended).
+    ``source_surface`` exact match, e.g. 'travel_doc_modal'. Omit for any
+                       surface, including the NULL-surface rows written
+                       before the column existed.
+    ``promoted``       true = only include_in_memoir=1, false = only 0,
+                       omit = both.
+    ``include_hidden`` default false, matching the per-trip note list and
+                       the memoir trip lane.
+    ``limit``          clamped 1..1000 by the repository.
+
+    Returns the rows plus a counter strip so the review screen can show
+    how many captured notes are still unpromoted without a second call.
+    """
+    _require_trips_enabled()
+    notes = trip_repository.captured_notes_review_list(
+        person_id=person_id,
+        source_surface=source_surface,
+        promoted=promoted,
+        include_hidden=bool(include_hidden),
+        limit=limit,
+    )
+    return {
+        "notes": notes,
+        "counts": trip_repository.captured_notes_review_counts(
+            person_id=person_id),
+    }
+
+
+
 @router.get("/{trip_id}/location-notes")
 def list_location_notes(trip_id: str, region_id: Optional[str] = None,
                         stop_id: Optional[str] = None,
