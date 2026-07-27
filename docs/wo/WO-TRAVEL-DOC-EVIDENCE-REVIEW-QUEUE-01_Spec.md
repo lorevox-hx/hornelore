@@ -1,9 +1,21 @@
 # WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01
 
-**Status:** Phase 1 (the queue read) LANDED 2026-07-26 -- repository function,
-one route, 56 new tests green, route baseline held at 67. Phase 2 (the screen)
-NOT started; it is a separate session. **Three decisions belong to Chris and
-two of them block Phase 2.**
+**Status:** Phases 1, 2 and 3 LANDED. **All three decisions are CLOSED by
+Chris** (recorded below) and Phase 2/3 were opened together as one vertical
+slice at his explicit instruction -- the single override of the standing
+"a phase is a scope wall" rule, granted in writing for this slice only and
+not generalisable to the next one.
+
+- Phase 1 (the queue read) landed 2026-07-26: `queue_read()`, `GET /queue`,
+  56 tests.
+- Phase 3 (promotion) landed 2026-07-27: `candidate_promote()`,
+  `POST /candidates/{id}/promote`, 62 tests. Built **before** Phase 2 on
+  purpose: Decision 3 makes "accept" unreachable without it, and a screen
+  shipping a button that cannot work is worse than a screen that waits.
+- Phase 2 (the screen) landed 2026-07-27: the Evidence tab in Travel
+  Documenter, 21 new tests, lab suite 129 -> 150.
+
+Phase 4 (live smoke against the serving stack) is the only phase still open.
 
 **Opened:** 2026-07-26
 **Predecessor:** WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01 (closed
@@ -156,10 +168,26 @@ It **cannot accept**. See Decision 3, which is the important one.
 
 ---
 
-## THREE DECISIONS FOR CHRIS
+## THREE DECISIONS FOR CHRIS -- ALL THREE CLOSED 2026-07-27
 
 These are the "schema/design decisions" flagged when WO-2 was queued. They are
 recorded here with a recommendation each, not guessed at in code.
+
+**Chris ruled on all three on 2026-07-27, in writing, before any of Phase 2 or
+Phase 3 was built:**
+
+| Decision | Ruling | What it forbids |
+|---|---|---|
+| 1 -- placement granularity | **Trip level. No migration 0038.** | No region / stop / day control anywhere on the screen. "File to trip" is the whole of placement. |
+| 2 -- `changed` / `skipped` as states | **No. They do not become states.** | The state rail offers exactly the five that shipped in 0037 and the screen invents no sixth. |
+| 3 -- who creates the `photos` row | **Explicit promote route, option B.** | No `create_photo` flag on the decision route. Promotion is a separate call that returns a `photo_id` and leaves the candidate `pending`; the existing decision route then accepts using that id. |
+
+These are closed. They are not reopened by a later session, and the tests in
+`EvidenceReviewQueueTest` pin each of them by name so that reopening one by
+accident fails the build rather than shipping quietly.
+
+The recommendations that follow are kept as written rather than rewritten
+after the fact, so the reasoning that led to each ruling stays auditable.
 
 ### Decision 1 -- placement granularity: does the queue file to a trip, or to a day/region/stop?
 
@@ -289,6 +317,119 @@ triage but not approve. That is still useful -- rejecting and de-duplicating
 several hundred Takeout candidates is most of the work -- but it should be a
 choice you made, not a limitation you discovered after the screen was built.
 
+*(Moot as of 2026-07-27. Chris decided all three, so the screen approves.)*
+
+---
+
+## Phase 3 -- promotion (LANDED 2026-07-27)
+
+Decision 3, option B, built exactly as ruled.
+
+`candidate_promote(candidate_id, source_path=None, original_filename=None,
+promoted_by_user_id=None)` resolves in a fixed order, first match wins:
+
+1. the candidate already carries a `photo_id` -> reuse it, `reused="candidate"`;
+2. its declared `file_hash` matches a live photo of **this person** -> link
+   that one, `reused="hash"`;
+3. bytes were supplied -> sha256 them; a person-scoped hit links, a **global**
+   clash raises `CrossPersonError` (409) rather than quietly linking one
+   narrator's photo into another's queue; otherwise store the file, create the
+   photo, and assert it was born unapproved;
+4. no bytes and nothing to reuse -> `PhotoBytesMissingError` (409).
+
+The route is `POST /candidates/{id}/promote`, taking an optional multipart
+`file`. Three properties matter and each has tests:
+
+- **The photo is born not narrator-facing and not approved for Lori**, on
+  neither its date nor its location. `_assert_born_unapproved` is a real
+  assertion, not a comment -- *intake is not approval* is enforced at runtime.
+- **Promotion does not decide.** The candidate is still `pending` afterwards.
+  Build point 3, and it is what makes the two-step honest.
+- **Promotion is idempotent.** Re-promoting reuses. This is what makes the
+  halfway state (promoted, accept failed) safe to retry, which is what lets
+  the screen tell the operator to just press the button again.
+
+No new dependency: `python-multipart` is already in both virtualenvs.
+
+## Phase 2 -- the screen (LANDED 2026-07-27)
+
+The **Evidence** tab in Travel Documenter, between Photos and Story Notes.
+`ui/js/travel-doc-lab.js`, in that module's existing idiom -- `el`/`btn`/
+`field`/`drawerShell`, the single `api()` choke point, the single `renderAll()`
+repaint entry point.
+
+**What it shows** (build point 6): candidates, the state counts, the batch
+(label, source, status, hidden), the trip (title **and its date window**),
+filename **and** external id both, mime, byte size, `taken_at` with its
+source, `match_reason` printed key-by-key exactly as the importer stored it,
+`match_confidence`, `state` and `state_reason`.
+
+The trip date window sits next to `taken_at` deliberately: *does this photo's
+`taken_at` fall inside the trip it is filed under* is the most common review
+question, and the queue already returns the dates, so it is answerable without
+opening the trip.
+
+`match_reason` is printed as key/value pairs in a monospace column and never
+paraphrased. The repository round-trips it and says why -- "round-trip, never
+a summary, never prose" -- so a screen that summarised it would be the summary
+that refusal exists to prevent.
+
+**What it does** (build point 7): promote + accept, reject, duplicate, error,
+hide/unhide, file to trip. Every one goes through an in-panel drawer. No
+native `prompt`/`confirm`/`alert`, no DELETE.
+
+### Four deliberate boundary changes, none of them quiet
+
+1. **The sanctioned-endpoint gate was widened by one entry.**
+   `tests/test_travel_doc_lab.py` locked this module to `/api/trips`,
+   `/api/photos/`, `/api/people`, `/api/chat/ws`. `/api/import-provenance` is
+   now a fifth. The gate is a prefix allow-list, so it still fails the build
+   on anything else; the lane it admits is behind a default-off flag, is not
+   narrator-facing, and cannot delete. The reason is written into the test.
+
+2. **The Evidence tab is exempt from `renderAll()`'s selected-trip gate, and
+   it is the only tab that is.** Every other tab describes a trip. This one
+   describes a *person's* imports, and the rows most in need of review are
+   precisely the ones not filed to a trip yet -- gating it on a selection
+   would hide the unfiled queue behind a trip the operator has not made. The
+   drawers are ungated for the same reason.
+
+3. **The CSS namespace is `tdl-erq-`, not `tdl-ev-`.** `tdl-ev-` was already
+   owned by the per-photo evidence panel (`tdl-ev-badge`, `tdl-ev-row`,
+   `tdl-ev-off`, `tdl-ev-editor` and more). The first draft used it and would
+   have restyled that panel from across the file. Two different meanings of
+   "evidence" live in this stylesheet and they do not share a prefix. The same
+   collision existed in JS -- `renderEvidenceRow` was already taken -- and the
+   queue's row renderer is `renderErqRow`. A `var` hoist would have silently
+   replaced the older function.
+
+4. **Decided rows are not re-decidable from this screen.** That is a refusal,
+   not an omission, and the row says so. `candidate_decide` writes `photo_id`
+   unconditionally, so re-deciding an accepted candidate sets it to NULL and
+   strands the `photos` row it pointed at -- unreferenced and still
+   unapproved. That cleanup is a photo-lane act on the photo; it is not
+   something to trigger by mis-clicking in a queue.
+
+### Two states the screen names rather than hides
+
+- **The flag is off.** Every route in the lane answers 404 while
+  `HORNELORE_IMPORT_PROVENANCE` is unset, so the tab renders its own
+  explanatory panel -- *switched off on this server, nothing is broken and
+  nothing is lost* -- instead of the red error bar. Painting a configuration
+  fact as an error sends an operator hunting for a broken trip.
+- **Promoted but not accepted.** The two requests are separate by ruling, so
+  the first can land and the second fail. The drawer reports it in those
+  words, says the candidate is still pending, and says the retry is safe --
+  which it is, because promotion is idempotent.
+
+### Known limitation, stated rather than papered over
+
+`GET /queue` has no "trip is null" filter and this screen does not invent one.
+Unfiled candidates are found under **All trips**, and the count of unfiled
+rows shown in the summary is computed from the current page only -- it is
+labelled "on this page" for exactly that reason. If unfiled-only becomes a
+real review need, it belongs in the route, not in client-side guesswork.
+
 ---
 
 ## Proposed phases
@@ -296,15 +437,15 @@ choice you made, not a limitation you discovered after the screen was built.
 | Phase | Status |
 |---|---|
 | 1 -- the queue read | ✅ **LANDED 2026-07-26.** `queue_read()` + `GET /api/import-provenance/queue` + 56 tests. Baseline 399 -> 455; routes suite held at 67; import-provenance surface 15 -> 16 routes; still zero DELETE. Person required and never inferred, both kinds of hidden honoured, counts describe the queue and not the page, order is insertion order tiebroken on `rowid`, `match_reason` verbatim, and four tests proving the read writes nothing. |
-| 2 -- the screen | ⛔ **BLOCKED on Decisions 1 and 3.** The Evidence Review Queue UI on the operator path. Batch/state/trip filters, the counts header, per-candidate detail with `match_reason` shown as the importer wrote it, and the decision controls. No native `prompt`/`confirm`/`alert` -- in-panel review, same as the Travel Doc delete drawer. **A phase is a scope wall: this is a separate session.** |
-| 3 -- promotion | ⬜ **NOT STARTED, depends on Decision 3.** Whatever settles the "who materializes the photos row" question. If (B), a `POST /candidates/{id}/promote` route plus the local/manual path. |
+| 2 -- the screen | ✅ **LANDED 2026-07-27.** The Evidence Review Queue tab on the operator path, in `ui/js/travel-doc-lab.js` + `ui/css/travel-doc-lab.css`. State/scope/hidden filters, the counts header, per-candidate detail with `match_reason` printed as the importer wrote it, and the seven row actions. No native `prompt`/`confirm`/`alert` -- in-panel drawers, same as the Travel Doc delete drawer. Lab suite 129 -> 150. |
+| 3 -- promotion | ✅ **LANDED 2026-07-27, and built BEFORE phase 2 rather than after it.** Decision 3 chose the explicit promote route, which means "accept" is literally unreachable from a screen until promotion exists -- a candidate has no `photo_id` to accept with. Building the screen first would have shipped an accept button with nothing behind it. `candidate_promote()` + `POST /candidates/{id}/promote` + 62 tests. |
 | 4 -- live smoke | ⬜ **NOT STARTED.** Against the serving stack from the operator UI origin, not the unittest harness -- `.venv` and `.venv-gpu` disagree on FastAPI/Starlette and the serving one is what answers requests. Read-only fingerprints before and after to prove blast radius, same as the WO-1 Phase 5 pattern. |
 
 ---
 
 ## Test surface
 
-New: `tests/test_import_provenance_queue.py`, **56 tests** in eight classes.
+### Phase 1 -- `tests/test_import_provenance_queue.py`, **56 tests** in eight classes.
 
 | Class | Proves |
 |---|---|
@@ -321,11 +462,63 @@ The fixture is a deliberate **copy** of the routes fixture rather than an
 import: `unittest discover` cross-contaminates across modules in this repo, so
 each module has to stand alone. Run it by module name, never by discovery.
 
+### Phase 3 -- `tests/test_import_provenance_promote.py`, **62 tests** in thirteen classes.
+
+| Class | Tests | Proves |
+|---|---|---|
+| `PromoteFlagGateTests` | 2 | Flag off -> 404, before it validates anything else. |
+| `PromoteUnknownCandidateTests` | 2 | Unknown candidate 404; another person's candidate is not reachable. |
+| `PromotedPhotoIsBornUnapprovedTests` | 8 | The row is born **not narrator-facing and not Lori-approved** -- every approval-shaped column checked by name, not by a spot check on one of them. |
+| `PromotionDoesNotDecideTests` | 7 | Build point 3. Promotion returns `photo_id` and **leaves the candidate `pending`**; it writes no `state`, no `state_reason`, no `reviewed_by_user_id`, no `reviewed_at`. The existing decision route is still the only thing that decides. |
+| `PromotionIsIdempotentTests` | 2 | Promoting twice returns the same `photo_id` and creates no second row -- so a half-completed promote+accept is safe to re-run, which is exactly what the screen tells the operator. |
+| `PromotionRefusesToInventAPhotoTests` | 4 | No bytes, no photo. `PhotoBytesMissingError` -> 409 rather than an empty file on disk. |
+| `PromotableSourceTests` | 6 | Only `local_upload` and `manual` promote here. `google_photos_picker`, `google_takeout` and `csv` are refused -- those are later epics and this route does not quietly become their importer. |
+| `PromoteMimeTests` | 3 | The six-value accepted-type tuple, and the refusal for anything outside it. |
+| `PromoteHashTests` | 7 | The four-step resolution order for `file_hash`, and that a supplied file whose hash contradicts the candidate is refused rather than silently trusted. |
+| `PromoteDateDoctrineTests` | 5 | `taken_at` / `taken_at_source` carry across without upgrading their own confidence -- a `filename_guess` does not become `exif` by being promoted. |
+| `PromoteLocationDoctrineTests` | 5 | Same doctrine for lat/long and `location_source`. |
+| `PromoteProvenanceTrailTests` | 6 | The photo points back at the candidate it came from and the trail survives a later decision. |
+| `PromoteStaysTripLevelTests` | 2 | Decision 1. The promoted row inherits **trip** and nothing finer -- no region, no stop, no day. |
+| `PromoteAddsNoDeleteTests` | 3 | Build point 12. The lane still has zero DELETE after this phase. |
+
+### Phase 2 -- `tests/test_travel_doc_lab.py`, **129 -> 150** (`EvidenceReviewQueueTest`, 21 tests).
+
+This is a source-reading suite, not a browser suite: it asserts against the
+text of `travel-doc-lab.js` and `travel-doc-lab.css`. That is what the existing
+150-test module already is, and it is why it can pin things a DOM test cannot
+-- request ordering, the absence of a native dialog, namespace ownership.
+
+The 21 map onto Chris's build list rather than onto the code's own shape:
+build point 5 (`test_evidence_tab_is_registered`), point 6
+(`test_screen_shows_the_six_things_build_point_6_asks_for`,
+`test_match_reason_is_printed_verbatim_never_paraphrased`), point 7
+(`test_all_seven_row_actions_exist`), points 1--4
+(`test_promote_then_accept_is_two_requests_in_that_order`,
+`test_refusals_send_no_photo_id`,
+`test_promote_uses_formdata_through_the_single_api_choke_point`), Decision 1
+(`test_placement_is_trip_granularity_and_nothing_finer`), Decision 2
+(`test_state_rail_offers_exactly_the_five_shipped_states`), and points 8--12
+(`test_no_picker_and_no_takeout_in_this_phase`,
+`test_the_queue_adds_nothing_narrator_facing_and_no_lori_control`,
+`test_hide_is_reversible_and_the_queue_has_no_delete`).
+
+The ordering test is structural rather than textual -- it takes the index of
+`"/promote"` and the index of `"/decision"` inside the function body and
+asserts the first is less than the second. A test that merely asserted both
+strings are present would pass on code that accepts before it promotes.
+
+`_section()` slices exactly from `var EVIDENCE_BASE` to `function renderNotes(`
+rather than taking a fixed-width window. Both failure modes of the fixed window
+were observed while writing this suite: a window starting at
+`function renderEvidence(` clipped the action-label constants off the front and
+reported them missing, and the same window overran the section end and reported
+`include_in_memoir` as a narrator leak from unrelated code below.
+
 ---
 
 ## Files
 
-**Changed**
+**Changed -- phase 1**
 
 - `server/code/api/services/import_repository.py` -- `queue_read()`,
   `_QUEUE_BATCH_COLUMNS`, `_QUEUE_TRIP_COLUMNS` appended. No existing function
@@ -336,10 +529,38 @@ each module has to stand alone. Run it by module name, never by discovery.
 - `tests/test_import_provenance_routes.py` -- one entry in
   `FlagGateTests._all_routes()`. Required, not cosmetic.
 
+**Changed -- phase 3**
+
+- `server/code/api/services/import_repository.py` -- `candidate_promote()`
+  appended. Again no existing function touched.
+- `server/code/api/routers/import_provenance.py` -- `POST
+  /candidates/{candidate_id}/promote` appended. Surface 16 -> 17 routes, still
+  zero DELETE.
+- `tests/test_import_provenance_routes.py` -- the promote route added to
+  `FlagGateTests._all_routes()`, same reason as phase 1.
+
+**Changed -- phase 2**
+
+- `ui/js/travel-doc-lab.js` -- 5788 -> 6432 lines. Eight patch sites: seven
+  small ones (state fields, the `selectTrip()` reset, the `TABS` entry, the
+  lazy load in `setTab()`, the trip-gate exemption and drawer append in
+  `renderAll()`, the `renderTab()` case) and the section itself at 4912--5512.
+  No existing function body rewritten.
+- `ui/css/travel-doc-lab.css` -- 664 -> 713 lines, appended only.
+- `tests/test_travel_doc_lab.py` -- `EvidenceReviewQueueTest` added, **and one
+  existing assertion deliberately widened** (see below).
+
 **Added**
 
 - `tests/test_import_provenance_queue.py`
+- `tests/test_import_provenance_promote.py`
 - `docs/wo/WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01_Spec.md` (this file)
 
-**Not touched:** no migration, no `main.py` change (the router is already
-registered), no UI file, no flag change, no `.env`, no schema.
+**Not touched:** no migration (Decision 1 killed 0038), no `main.py` change
+(the router is already registered), no flag change, no `.env`, no schema, no
+narrator-facing file, no Travels-shelf file, no Lori file, no new dependency
+(`python-multipart` is already in both virtualenvs).
+
+The widened assertion, the two namespace collisions, the two named
+states and the known limitation are all written up under **Phase 2 -- the
+screen** above; they are not repeated here.
