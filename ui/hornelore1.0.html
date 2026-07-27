@@ -2925,7 +2925,7 @@
     <div style="display:flex;align-items:center;gap:16px;min-width:0;">
       <div class="brand-serif">Hornelore <span class="brand-ver">1.0</span></div>
 
-      <div id="lv80ActiveNarratorCard" class="lv80-active-narrator" onclick="lv80ToggleNarratorSwitcher()">
+      <div id="lv80ActiveNarratorCard" class="lv80-active-narrator" onclick="window.lv80ToggleNarratorSwitcher ? window.lv80ToggleNarratorSwitcher() : console.warn('[lv80] narrator switcher not ready yet — page still loading')">
         <div class="lv80-narrator-avatar" id="lv80NarratorAvatar">MT</div>
         <div class="lv80-narrator-meta">
           <div class="lv80-narrator-label">Active Narrator</div>
@@ -6564,6 +6564,24 @@ function lv80OpenNarratorSwitcher(){
   _lv80RenderOrKickRefresh();
   try{ if (!pop.matches(":popover-open")) pop.showPopover(); }catch(_){}
 }
+
+// BUG-LV80-TOGGLE-REFERENCEERROR-01 (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01
+// Lane 2). The header narrator card at the top of <body> carries an
+// inline onclick, but its handler is declared here -- roughly 3,600
+// lines into a ~105 KB inline <script> that starts at line 5532, with
+// ~60 external scripts still loading behind it. During the ~4-minute
+// cold boot an operator can and does click that chip before this block
+// has finished evaluating, and the console then reports
+// "lv80ToggleNarratorSwitcher is not defined". Nothing was renamed and
+// nothing was removed: the control is live and stays live.
+//
+// Two halves to the fix. The onclick above is now feature-tested, so an
+// early click warns instead of throwing. These mirrors make the global
+// binding INTENTIONAL rather than a side effect of sloppy-mode
+// top-level function declarations -- the same convention already used
+// for the WO-10C silence-ladder constants further down this file.
+window.lv80ToggleNarratorSwitcher = lv80ToggleNarratorSwitcher;
+window.lv80OpenNarratorSwitcher   = lv80OpenNarratorSwitcher;
 
 function lv80ConfirmNarratorSwitch(pid){
   // v9: debounce — if already loading this pid, ignore repeated clicks
