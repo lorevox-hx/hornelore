@@ -57,10 +57,23 @@ if "pydantic" not in sys.modules:
     pstub = types.ModuleType("pydantic")
 
     class _BaseModel:
-        pass
+        # 2026-07-27 (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01, incidental):
+        # a bare `pass` here satisfies `class X(BaseModel)` but not
+        # `X(id=..., label=...)`. Whichever sibling test loaded FIRST
+        # won the sys.modules race, so a suite that passed alone failed
+        # in a batch run -- a test env making tests lie. Matches the
+        # stub tests/test_memoir_trip_story_lane.py already ships.
+        def __init__(self, **kw):
+            for _k, _v in kw.items():
+                setattr(self, _k, _v)
 
     pstub.BaseModel = _BaseModel
-    pstub.Field = lambda default=None, **k: default
+    def _field(default=None, default_factory=None, **k):
+        if default_factory is not None:
+            return default_factory()
+        return default
+
+    pstub.Field = _field
     pstub.field_validator = lambda *a, **k: (lambda f: f)
     pstub.validator = lambda *a, **k: (lambda f: f)
     pstub.ConfigDict = dict
@@ -166,6 +179,30 @@ class _EditableFixesCase(unittest.TestCase):
         except OSError:
             pass
 
+    def _seed_photo(self, photo_id):
+        """Insert a real photos row so photo_link_upsert can point at it.
+
+        2026-07-27 (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01, incidental):
+        trip_photo_links.photo_id is
+        `REFERENCES photos(id) ON DELETE CASCADE`, so linking a
+        never-inserted id raised
+        `sqlite3.IntegrityError: FOREIGN KEY constraint failed` and two
+        tests below had been erroring. Pre-existing -- reproduced with
+        the pre-sweep pydantic stub, so not caused by the stub sweep in
+        this work order. photos requires narrator_id (FK to people),
+        image_path and a UNIQUE file_hash.
+        """
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO photos (id, narrator_id, image_path, file_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (photo_id, self.person_id, "/tmp/%s.jpg" % photo_id,
+             "hash-%s" % photo_id),
+        )
+        con.commit()
+        con.close()
+        return photo_id
+
     def _raw_ords(self, region_id, parent=None):
         con = sqlite3.connect(str(self.db_path))
         con.row_factory = sqlite3.Row
@@ -229,6 +266,7 @@ class _EditableFixesCase(unittest.TestCase):
     # ── Bug 3: move updates photo-link region ────────────────────────────
 
     def test_move_updates_photo_link_region(self):
+        self._seed_photo("photo-1")
         lid = trip_repository.photo_link_upsert(
             self.trip_id, "photo-1", trip_region_id=self.czechia,
             trip_stop_id=self.prague, assignment_method="operator")
@@ -288,6 +326,7 @@ class _EditableFixesCase(unittest.TestCase):
         child = trip_repository.stop_create(
             self.trip_id, self.czechia, "Kutna Hora",
             parent_trip_stop_id=self.prague, ord_=0, stop_type="day_trip")
+        self._seed_photo("photo-child")
         child_link = trip_repository.photo_link_upsert(
             self.trip_id, "photo-child", trip_region_id=self.czechia,
             trip_stop_id=child, assignment_method="operator")

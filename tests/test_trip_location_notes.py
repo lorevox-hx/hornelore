@@ -44,16 +44,39 @@ if "fastapi" not in sys.modules:
     stub.File = lambda default=None, **k: default
     stub.Form = lambda default=None, **k: default
     stub.UploadFile = object
+    # 2026-07-27 (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01, incidental fix):
+    # register fastapi.responses too. Without it this stub satisfies
+    # `import fastapi` but not `from fastapi.responses import
+    # StreamingResponse`, so any sibling loaded AFTER this file that
+    # imports api.routers.memoir_export died at collection with a
+    # loader error -- a suite that reports a failure it does not have.
+    _responses = types.ModuleType("fastapi.responses")
+    _responses.StreamingResponse = object
+    stub.responses = _responses
     sys.modules["fastapi"] = stub
+    sys.modules["fastapi.responses"] = _responses
 
 if "pydantic" not in sys.modules:
     pstub = types.ModuleType("pydantic")
 
     class _BaseModel:
-        pass
+        # 2026-07-27 (WO-POST-LORI-CLEANUP-AND-UNBLOCK-01, incidental):
+        # a bare `pass` here satisfies `class X(BaseModel)` but not
+        # `X(id=..., label=...)`. Whichever sibling test loaded FIRST
+        # won the sys.modules race, so a suite that passed alone failed
+        # in a batch run -- a test env making tests lie. Matches the
+        # stub tests/test_memoir_trip_story_lane.py already ships.
+        def __init__(self, **kw):
+            for _k, _v in kw.items():
+                setattr(self, _k, _v)
 
     pstub.BaseModel = _BaseModel
-    pstub.Field = lambda default=None, **k: default
+    def _field(default=None, default_factory=None, **k):
+        if default_factory is not None:
+            return default_factory()
+        return default
+
+    pstub.Field = _field
     pstub.field_validator = lambda *a, **k: (lambda f: f)
     pstub.validator = lambda *a, **k: (lambda f: f)
     pstub.ConfigDict = dict
