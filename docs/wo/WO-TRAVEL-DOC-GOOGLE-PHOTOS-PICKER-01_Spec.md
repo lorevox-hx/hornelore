@@ -406,3 +406,74 @@ Google account — is designed in
 `docs/wo/WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01_Spec.md`. That document is
 **FUTURE DESIGN ONLY**. Nothing in it is implemented, and nothing in it may be
 implemented as part of this work order.
+
+---
+
+## 11. Phase 1 live proof (2026-07-27)
+
+Phase 1 was proven against live Google infrastructure on 2026-07-27. This
+section is the record of what was configured and what the three checks
+returned, so the next person to touch this lane does not have to re-derive it.
+
+### 11.1 What was configured on the Google side
+
+| Thing | Value |
+|---|---|
+| Google Cloud project | `Lorevox-2026` |
+| API enabled | `photospicker.googleapis.com` (Public API, Enabled) |
+| Consent screen user type | External |
+| Publishing status | Testing |
+| Test users | one — the operator's own Google account |
+| OAuth client type | **Web application** |
+| Authorized redirect URI | `https://developers.google.com/oauthplayground` (no trailing slash) |
+| Authorized JavaScript origins | **empty** |
+| Refresh token minted via | OAuth Playground, server-side flow, access type offline, force-prompt on, "use your own OAuth credentials" |
+| Scope | `https://www.googleapis.com/auth/photospicker.mediaitems.readonly` |
+
+The client must be **Web application**. A Desktop client has no redirect URI
+field at all, and the Playground flow cannot complete without one. The
+JavaScript origins field is for browser-side flows and is never consulted here;
+filling it in is harmless but pointless. The refresh token is bound to that
+exact client id + secret pair — regenerating the secret kills the token.
+
+### 11.2 The three checks, in order
+
+**1. `GET /api/google-picker/health`** returned `phase: 1`, both flags `true`,
+all three `credentials_present` booleans `true`, `credentials_complete: true`,
+and `access_token_cached: false` (this route mints nothing). Critically, the
+live payload contained **no prefix, no length, and no masked tail** of any
+credential. The credential rule in §10.4 survived contact with real values.
+
+**2. `POST /api/google-picker/sessions`** with an explicit
+`person_id` and no `trip_id` minted a real access token from the refresh token,
+created a real Picking session at Google, and opened `import_batch`
+`202718fb-314e-40d0-b748-c6525fcdaf68` with `source='google_photos_picker'` and
+the Picker session id stored in `external_ref`. The response carried
+`picker_uri`, `media_items_set: false`, `poll_interval: "5s"`, and
+`timeout_in: "1799.978126s"` — the 30-minute picking window.
+
+**3. `GET /api/google-picker/sessions/{batch_id}`**, after the operator opened
+the `picker_uri` and selected photos in Google Photos, returned
+`media_items_set: true`, `batch_status: "open"`, and `ingest_available: false`.
+
+### 11.3 What the live run proves about the phase wall
+
+Real photographs were selected at Google and **Hornelore downloaded no bytes,
+created no `import_candidate` rows, and did not add `google_photos_picker` to
+`PROMOTABLE_SOURCES`**. The selection exists on Google's side; the batch on
+Hornelore's side knows only that a selection happened. That gap is Phase 2, and
+it is still empty on purpose.
+
+The destination person was supplied explicitly by the caller and was not
+inferred from the Google account that owns the photographs. That is §10.2
+holding under live conditions rather than in a unit test.
+
+### 11.4 The 7-day expiry is operational, not a defect
+
+While the project sits in **Testing** publishing status, Google expires the
+refresh token every 7 days for this scope. The symptom is `503` with reason
+`refresh_token_expired` from any route that mints a token. The fix is to
+re-mint the refresh token in the OAuth Playground using the same client id and
+secret and replace `GOOGLE_PICKER_REFRESH_TOKEN` in `.env`. Do not diagnose
+this as a broken route, and do not "fix" it by publishing the app — publishing
+starts a verification review that Phase 1 does not need.
