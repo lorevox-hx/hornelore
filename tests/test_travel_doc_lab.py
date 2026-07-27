@@ -134,8 +134,22 @@ class BoundaryTest(unittest.TestCase):
 
     def test_endpoints_are_a_subset_of_the_sanctioned_api(self):
         src = _stripped_js()
+        # WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 2 widened this
+        # tuple by one entry, on purpose and with the failure read first.
+        # /api/import-provenance is the fifth surface this module may
+        # touch, and it is here because the Evidence Review Queue tab is
+        # the operator screen over that lane -- GET /queue to read it,
+        # promote/decision/trip/hidden to act on it.
+        #
+        # The gate is not weakened by the addition. It is a PREFIX
+        # allow-list, so widening it admits exactly one lane and still
+        # fails the build on anything else; and every route behind that
+        # prefix is behind a default-off server flag, none of it is
+        # narrator-facing, and none of it can delete. What this gate
+        # exists to catch -- the module quietly growing a reach into
+        # narrator or Travels-shelf state -- is unchanged.
         allowed = ("/api/trips", "/api/photos/", "/api/people",
-                   "/api/chat/ws")
+                   "/api/chat/ws", "/api/import-provenance")
         for m in re.finditer(r'"(/api/[^"]*)"', src):
             path = m.group(1)
             self.assertTrue(
@@ -919,6 +933,245 @@ class EvidenceLifecycleLabTest(unittest.TestCase):
                 window = self.src[m.start():m.start() + 220]
                 self.assertNotIn('method: "DELETE"', window,
                                  f"DELETE aimed at the {lane} evidence lane")
+
+
+class EvidenceReviewQueueTest(unittest.TestCase):
+    """WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 2 — the operator screen.
+
+    Phase 1 shipped GET /queue and Phase 3 shipped POST
+    /candidates/{id}/promote. This suite pins the tab built over them,
+    and it pins the three CLOSED decisions as much as it pins the
+    feature, because the decisions are the part a later edit is most
+    likely to undo by accident:
+
+      1. placement is trip granularity and nothing finer;
+      2. the states are the five that shipped, and no others;
+      3. promotion is a separate explicit call, never a flag on the
+         decision.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def _section(self):
+        # Exact slice, not a fixed-width window: the queue starts at its
+        # own constants and ends where Story Notes begins. A fixed window
+        # either clips the constants off the front (and stops seeing the
+        # action labels) or overruns into code this suite has no business
+        # asserting about — both were observed while writing this.
+        i = self.src.index("var EVIDENCE_BASE")
+        return self.src[i:self.src.index("function renderNotes(", i)]
+
+    def test_evidence_tab_is_registered(self):
+        self.assertIn('["evidence", "Evidence"]', self.src)
+        self.assertIn('case "evidence": return renderEvidence();', self.src)
+
+    def test_queue_is_read_through_the_phase_1_route(self):
+        i = self.src.index("function evidenceQueryPath(")
+        block = self.src[i:i + 700]
+        self.assertIn('"/queue', block)
+        # person_id is required by the route and is never defaulted: a
+        # queue that inferred its person could show a reviewer somebody
+        # else's evidence.
+        self.assertIn("person_id=", block)
+        self.assertIn("trip_id=", block)
+        self.assertIn("state=", block)
+        self.assertIn("include_hidden=1", block)
+
+    def test_flag_off_renders_as_configuration_not_as_an_error(self):
+        # Every route in the lane answers 404 while the server flag is
+        # off. Painting that as an error would send the operator hunting
+        # for a broken trip, so the 404 arm is pinned to set its own
+        # state and to CLEAR the error rather than set one.
+        i = self.src.index("function reloadEvidence(")
+        block = self.src[i:i + 1200]
+        self.assertIn("e.status === 404", block)
+        self.assertIn("st.evidenceOff = true", block)
+        self.assertIn('st.evidenceError = ""', block)
+        self.assertIn("tdl-erq-off", self.src)
+        self.assertIn(".tdl-erq-off", self.css)
+
+    def test_screen_shows_the_six_things_build_point_6_asks_for(self):
+        sec = self._section()
+        # counts + queue depth
+        self.assertIn("state_counts", sec)
+        self.assertIn("queue_depth", sec)
+        # batch and trip, both inline on the row
+        self.assertIn('"batch · "', sec)
+        self.assertIn('"trip · "', sec)
+        # filename AND external id -- they answer different questions
+        # (what the operator called it vs what the provider called it)
+        # and collapsing them loses one of the two.
+        self.assertIn('"file "', sec)
+        self.assertIn('"external id "', sec)
+        # match_reason and state
+        self.assertIn("function renderMatchReason(", self.src)
+        self.assertIn("tdl-erq-state-badge", sec)
+
+    def test_match_reason_is_printed_verbatim_never_paraphrased(self):
+        # The repository round-trips match_reason unchanged and says why:
+        # "round-trip, never a summary, never prose". A screen that
+        # paraphrased it would be the summary that refusal prevents.
+        i = self.src.index("function renderMatchReason(")
+        block = self.src[i:i + 1400]
+        self.assertIn("Object.keys(", block)
+        self.assertIn("match_confidence", block)
+        self.assertIn("tdl-erq-reason-key", block)
+        self.assertIn("tdl-erq-reason-val", block)
+
+    def test_state_rail_offers_exactly_the_five_shipped_states(self):
+        i = self.src.index("var EVIDENCE_STATES")
+        block = self.src[i:self.src.index("]", self.src.index("]", i) + 1) + 400]
+        for state in ("pending", "accepted", "rejected", "duplicate",
+                      "error"):
+            self.assertIn('"%s"' % state, block)
+        # Decision 2: `changed` and `skipped` did NOT become states, and
+        # this screen does not invent them.
+        for ghost in ("changed", "skipped"):
+            self.assertNotIn('"%s"' % ghost, block)
+
+    def test_promote_then_accept_is_two_requests_in_that_order(self):
+        # Decision 3, option B: promotion is an explicit separate route.
+        # The promote call must come first, the decision must consume the
+        # photo_id it returned, and nothing may invent a photo_id.
+        i = self.src.index("function promoteAndAccept(")
+        block = self.src[i:i + 1800]
+        p = block.index('"/promote"')
+        d = block.index('"/decision"')
+        self.assertLess(p, d, "accept must follow promote, not precede it")
+        self.assertIn("out.photo_id", block)
+        self.assertIn('state: "accepted"', block)
+        self.assertIn("photo_id: photoId", block)
+
+    def test_the_halfway_state_is_reported_in_those_words(self):
+        # Promoted-but-not-accepted is reachable, recoverable, and safe to
+        # retry (promotion is idempotent). The operator is told all three
+        # rather than left with a bare failure.
+        i = self.src.index("function promoteAndAccept(")
+        block = self.src[i:i + 1800]
+        self.assertIn("still pending", block)
+        self.assertIn("safe", block)
+
+    def test_promote_uses_formdata_through_the_single_api_choke_point(self):
+        i = self.src.index("function promoteAndAccept(")
+        block = self.src[i:i + 1800]
+        self.assertIn("new FormData()", block)
+        self.assertIn('fd.append("file"', block)
+        # No hand-set Content-Type: the browser must write its own so it
+        # can append the multipart boundary.
+        self.assertNotIn("Content-Type", block)
+        self.assertNotIn("fetch(", block)
+
+    def test_refusals_send_no_photo_id(self):
+        # The decision route refuses a photo_id on any non-accepted state
+        # (400). Sending one would buy a 400 that means nothing to the
+        # operator.
+        i = self.src.index("function renderEvidenceDecideDrawer(")
+        block = self.src[i:i + 1800]
+        self.assertIn("state_reason", block)
+        self.assertNotIn("photo_id", block)
+
+    def test_all_seven_row_actions_exist(self):
+        sec = self._section()
+        for label in ('"Promote + accept"', '"Reject"', '"Duplicate"',
+                      '"Error"', '"Hide"', '"Unhide"', '"File to trip"'):
+            self.assertIn(label, sec, label)
+
+    def test_placement_is_trip_granularity_and_nothing_finer(self):
+        # Decision 1: no migration 0038, so the import tables have no
+        # column for a region, stop or day. The screen must not offer a
+        # placement it cannot store.
+        i = self.src.index("function renderEvidenceFileDrawer(")
+        block = self.src[i:i + 1600]
+        self.assertIn('"/trip"', block)
+        self.assertIn('method: "PATCH"', block)
+        self.assertIn("trip_id: sel.value || null", block)
+        for finer in ("region_id", "stop_id", "day_id", "day_index"):
+            self.assertNotIn(finer, block, finer)
+
+    def test_hide_is_reversible_and_the_queue_has_no_delete(self):
+        i = self.src.index("function setEvidenceHidden(")
+        block = self.src[i:i + 600]
+        self.assertIn('method: "PATCH"', block)
+        self.assertIn("hidden: !!hidden", block)
+        self.assertNotIn("DELETE", block)
+        # Build point 12, module-wide for this lane: nothing aimed at
+        # /api/import-provenance may be a DELETE.
+        for m in re.finditer(re.escape("/api/import-provenance"), self.src):
+            window = self.src[m.start():m.start() + 400]
+            self.assertNotIn('method: "DELETE"', window,
+                             "DELETE aimed at the import-provenance lane")
+
+    def test_the_queue_adds_nothing_narrator_facing_and_no_lori_control(self):
+        # Build points 10 and 11. Promotion creates a photo born not
+        # narrator-facing and not approved for Lori; the screen must not
+        # offer to change either, and must say so.
+        sec = self._section()
+        for banned in ("narrator_ready", "include_in_memoir",
+                       "date_approved_for_lori",
+                       "location_approved_for_lori"):
+            self.assertNotIn(banned, sec, banned)
+        self.assertIn("not narrator-facing", sec)
+
+    def test_no_picker_and_no_takeout_in_this_phase(self):
+        # Build points 8 and 9 — the next epic step, not this one.
+        sec = self._section()
+        for banned in ("google_photos_picker", "google_takeout",
+                       "Picker", "Takeout"):
+            self.assertNotIn(banned, sec, banned)
+
+    def test_decided_rows_are_not_re_decidable_from_this_screen(self):
+        # candidate_decide writes photo_id unconditionally, so re-deciding
+        # an accepted candidate sets it to NULL and strands the photos row
+        # it pointed at. That cleanup is a photo-lane act; it is not
+        # something to trigger by mis-clicking in a queue. The refusal is
+        # explained on the row rather than silently omitted.
+        sec = self._section()
+        self.assertIn("does not re-open a decision", sec)
+
+    def test_evidence_state_clears_with_the_trip(self):
+        i = self.src.index("function selectTrip(")
+        block = self.src[i:i + 1600]
+        for field in ("st.evidence = null", "st.evidenceDrawer = null",
+                      "st.showHiddenEvidence = false"):
+            self.assertIn(field, block, field)
+
+    def test_evidence_tab_is_the_only_one_exempt_from_the_trip_gate(self):
+        # A deliberate structural change to the single repaint entry
+        # point: the rows most in need of review are precisely the ones
+        # not filed to a trip yet, so this tab must render with no trip
+        # selected. It is the ONLY tab that does.
+        self.assertIn('if (!st.trip && st.tab !== "evidence") {', self.src)
+
+    def test_queue_drawers_add_no_native_dialogs(self):
+        sec = self._section()
+        for banned in ("window.prompt", "window.confirm", "window.alert",
+                       "prompt(", "confirm(", "alert("):
+            self.assertNotIn(banned, sec, banned)
+
+    def test_promote_drawer_does_not_repaint_between_choose_and_upload(self):
+        # Same FileList constraint as the intake drawer: an
+        # <input type="file"> holds a FileList that script cannot write,
+        # so a repaint between "choose file" and "Promote" throws the
+        # operator's selection away with no way to restore it. The
+        # validation failure therefore writes textContent directly.
+        i = self.src.index("function renderEvidencePromoteDrawer(")
+        block = self.src[i:self.src.index("function renderEvidenceDecideDrawer(")]
+        choose = block.index('errEl.textContent =')
+        self.assertNotIn("renderAll()", block[:choose])
+
+    def test_queue_css_is_tdl_namespaced_and_does_not_collide(self):
+        for cls in (".tdl-erq", ".tdl-erq-row", ".tdl-erq-summary",
+                    ".tdl-erq-actions", ".tdl-erq-reason",
+                    ".tdl-erq-state-badge", ".tdl-badge-unfiled"):
+            self.assertIn(cls, self.css, cls)
+        # The queue is namespaced tdl-erq-, NOT tdl-ev-: tdl-ev- was
+        # already owned by the per-photo evidence panel, and reusing it
+        # would restyle that panel from across the file. Two different
+        # meanings of "evidence" live here; they do not share a prefix.
+        sec = self._section()
+        self.assertNotIn("tdl-ev-", sec)
 
 
 class TripForceDeleteGateTest(unittest.TestCase):

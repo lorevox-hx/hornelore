@@ -106,6 +106,17 @@ CANDIDATE_LOCATION_SOURCES = (
 # is not a write this module offers.
 DECIDABLE_STATES = ("accepted", "rejected", "duplicate", "error")
 
+# The batch sources a candidate can be promoted from. Promotion needs
+# the image bytes, and `local_upload` / `manual` are the two sources
+# where the operator is the one holding them. The provider-side sources
+# are deliberately absent: `google_photos_picker` and `google_takeout`
+# each have to fetch their own bytes through their own lane first, and
+# `csv` is a manifest of claims about files nobody has handed us. Adding
+# a source here without also building its fetch would turn promotion
+# into a way to mint photo rows for images that do not exist.
+PROMOTABLE_SOURCES = ("local_upload", "manual")
+
+
 # Columns that must never exist on import_candidate. If one appears, the
 # migration lock in tests/test_import_provenance_foundation_migration.py
 # has been argued away and this module refuses to write rather than
@@ -148,6 +159,21 @@ class IntakeIsNotApprovalError(ImportRepositoryError):
 
 class InvalidStateError(ImportRepositoryError):
     """An off-enum value, or a decision that does not match its payload."""
+
+
+class PhotoBytesMissingError(ImportRepositoryError):
+    """Promotion was asked for and there is nothing to promote.
+
+    `photos.image_path` is NOT NULL and `photos.file_hash` is NOT NULL
+    UNIQUE. An import_candidate carries a filename, a size, a mime type
+    and possibly a hash -- it does NOT carry the image. So promotion has
+    exactly two honest ways to end up with a photos row: the operator
+    hands over the file, or the same bytes are already in the archive
+    under this person and we point at them. When neither is true this is
+    the refusal. It is emphatically not an invitation to write a
+    plausible-looking image_path: a photos row whose path resolves to
+    nothing would flow straight into Lori's photo grounding as a real
+    picture, and there is no later check that would catch it."""
 
 
 class BatchClosedError(ImportRepositoryError):
@@ -1087,3 +1113,508 @@ def queue_read(
         }
     finally:
         con.close()
+
+
+# --------------------------------------------------- WO-2 promotion
+#
+# WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 3 (2026-07-27).
+#
+# `candidate_decide(state='accepted')` has always required a photo_id
+# and has always refused to create one. Migration 0037 wrote the reason
+# into its own DDL comment: "'accepted' means an operator promoted it to
+# a photos row". Until now nothing in this lane performed that
+# promotion, so acceptance was a state no operator could actually reach
+# from the review queue -- they had to go and materialize a photo by
+# some other route and bring its id back. This function is that missing
+# step, kept as a separate explicit call rather than folded into the
+# decision (WO-2 Decision 3, option B, closed by Chris 2026-07-27).
+#
+# Why a separate route and not an argument on the decision:
+#
+#   * The decision route's contract is that acceptance RECORDS a
+#     promotion that already happened. Making it also perform the
+#     promotion would mean a request that fails halfway leaves a photos
+#     row with no accepted candidate, or an accepted candidate with no
+#     photo -- and the caller could not tell which.
+#   * Promotion moves bytes onto disk. The decision does not. Keeping a
+#     filesystem write out of the state machine keeps the state machine
+#     replayable.
+#   * Promotion is idempotent here; a decision is not.
+#
+# What promotion deliberately does NOT do:
+#
+#   * It does not decide. The candidate is still `pending` afterwards.
+#     Point 3 of the build list, and the honest reading: materializing
+#     the file is not the same act as saying "yes, this one belongs".
+#     The operator still has to accept, and the existing decision route
+#     is what they accept through.
+#   * It does not approve. The photos row is born narrator_ready = 0,
+#     needs_confirmation = 1, date_approved_for_lori = 0 and
+#     location_approved_for_lori = 0. Three of those four are simply
+#     the schema defaults and the fourth is passed explicitly; this
+#     function asserts them rather than trusting them, because "born
+#     unapproved" is the entire safety property and a default is a
+#     weaker guarantee than a check.
+#   * It does not delete anything, ever, including on failure. If the
+#     bytes land and the row insert then fails, the bytes stay in the
+#     archive as an orphan and the candidate stays pending. That is the
+#     recoverable failure; unwinding a filesystem move is not.
+#
+# One consequence worth knowing rather than discovering: rejecting a
+# candidate AFTER promoting it clears `import_candidate.photo_id` (the
+# decision path sets photo_id = NULL for every non-accepted state), and
+# the photos row it pointed at survives, unreferenced and still
+# unapproved. There is no DELETE in this lane and this function does not
+# add one. Cleaning that up is a photo-lane act on the photo, not an
+# import-lane act on the candidate.
+
+
+# ---- vocabulary translation -----------------------------------------
+#
+# The two tables do NOT share their enums, and promotion is where that
+# stops being a documentation problem. `import_candidate.location_source`
+# allows 'provider_metadata' and 'operator'; `photos.location_source`
+# does not -- its CHECK is (exif_gps, typed_address, spoken_place,
+# description_geocode, unknown). A pass-through would raise IntegrityError
+# on insert and surface as a 500.
+#
+# So the collapse is explicit and documented, and it always collapses
+# DOWNWARD, to 'unknown'. Promotion must never assert more provenance
+# than it has: 'operator' on a candidate means an operator typed the
+# coordinates during import, which is not the same claim as
+# 'typed_address', and 'provider_metadata' is Google saying so, which is
+# not EXIF. Neither has an honest home in the photos vocabulary, so both
+# become 'unknown' and the true candidate-side value is preserved
+# verbatim in photos.metadata_json.import_provenance, where nothing
+# consumes it as authority but the trail survives.
+_PROMOTE_LOCATION_SOURCE = {
+    "exif_gps": "exif_gps",
+    "typed_address": "typed_address",
+    "provider_metadata": "unknown",
+    "operator": "unknown",
+    "unknown": "unknown",
+}
+
+# `photos.date_source` has NO CHECK constraint -- migration 0023 left its
+# vocabulary (exif | filename_guess | operator_confirmed | missing |
+# unknown) as a header comment. That makes it the easy column to lie in,
+# so this map is deliberately conservative in the one place it matters:
+# candidate 'operator' does NOT become 'operator_confirmed'. At promotion
+# time nothing has been confirmed by anyone -- the operator supplied a
+# file, they did not review a date -- and 'operator_confirmed' is a value
+# a later approval gate could reasonably trust.
+_PROMOTE_DATE_SOURCE = {
+    "exif": "exif",
+    "filename_guess": "filename_guess",
+    "provider_metadata": "unknown",
+    "operator": "unknown",
+    "unknown": "unknown",
+}
+
+
+def _promote_date_fields(cand: Dict[str, Any]) -> Dict[str, Any]:
+    """Candidate taken_at -> the four photos date columns.
+
+    Migration 0023 is binding here: a date parsed from a FILENAME is
+    "LOW CONFIDENCE -- display only, NEVER auto-fills date_value". So
+    the filename_guess branch parks the value in
+    `taken_at_filename_guess` and leaves `date_value` NULL, which is the
+    one branch where promotion knowingly drops a date it was handed.
+    """
+    taken_at = cand.get("taken_at")
+    src = cand.get("taken_at_source") or "unknown"
+    date_source = _PROMOTE_DATE_SOURCE.get(src, "unknown")
+
+    if src == "filename_guess":
+        return {
+            "date_value": None,
+            "date_precision": "unknown",
+            "date_source": date_source,
+            "taken_at_filename_guess": taken_at,
+        }
+    if src == "exif" and taken_at:
+        # EXIF is the only source that earns 'exact'. Every other
+        # precision value ('month', 'year', 'decade') is a claim about
+        # how coarse the date is, and a candidate has no column that
+        # could express it.
+        return {
+            "date_value": taken_at,
+            "date_precision": "exact",
+            "date_source": date_source,
+            "taken_at_filename_guess": None,
+        }
+    if src in ("provider_metadata", "operator") and taken_at:
+        return {
+            "date_value": taken_at,
+            "date_precision": "unknown",
+            "date_source": date_source,
+            "taken_at_filename_guess": None,
+        }
+    return {
+        "date_value": None,
+        "date_precision": "unknown",
+        "date_source": date_source,
+        "taken_at_filename_guess": None,
+    }
+
+
+def _promote_location_fields(cand: Dict[str, Any]) -> Dict[str, Any]:
+    """Candidate location -> the photos location columns.
+
+    `location_label` stays NULL. A candidate has coordinates, not a
+    place name, and 0023 is explicit that raw GPS stays private while
+    location approval covers "the operator-entered broad location_label
+    only" -- so inventing a label here would manufacture the exact field
+    the approval gate exists to guard.
+    """
+    src = cand.get("location_source") or "unknown"
+    return {
+        "location_source": _PROMOTE_LOCATION_SOURCE.get(src, "unknown"),
+        "latitude": cand.get("latitude"),
+        "longitude": cand.get("longitude"),
+        "location_label": None,
+    }
+
+
+def _promote_metadata(cand: Dict[str, Any],
+                      batch: Dict[str, Any],
+                      promoted_by_user_id: Optional[str]) -> Dict[str, Any]:
+    """The forensic trail, stamped into photos.metadata_json.
+
+    Non-authoritative by contract (0001 says so of the whole column), and
+    that is exactly right for this: it holds the candidate-side values
+    the vocabulary collapse above could not carry, so 'this photo's
+    location_source is unknown' and 'the importer said provider_metadata'
+    are both recoverable facts.
+    """
+    reason = cand.get("match_reason")
+    if not isinstance(reason, dict):
+        reason = {}
+    return {
+        "import_provenance": {
+            "candidate_id": cand.get("id"),
+            "batch_id": cand.get("batch_id"),
+            "batch_source": batch.get("source"),
+            "batch_label": batch.get("label"),
+            "external_id": cand.get("external_id"),
+            "filename": cand.get("filename"),
+            "mime_type": cand.get("mime_type"),
+            "byte_size": cand.get("byte_size"),
+            "trip_id": cand.get("trip_id"),
+            "candidate_taken_at": cand.get("taken_at"),
+            "candidate_taken_at_source": cand.get("taken_at_source"),
+            "candidate_location_source": cand.get("location_source"),
+            "match_confidence": cand.get("match_confidence"),
+            "match_reason": reason,
+            "promoted_at": _now(),
+            "promoted_by_user_id": promoted_by_user_id,
+        }
+    }
+
+
+# ---- late imports ----------------------------------------------------
+#
+# Deferred, and with the same two-rooting fallback `photos/repository.py`
+# uses on its own db import, because the offline test env roots sys.path
+# at `server/` while the served app roots it at `server/code`. Deferring
+# also keeps this module importable by the migration tests, which have
+# no reason to drag the photo lane in.
+
+def _photo_repo() -> Any:
+    try:
+        from ...services.photos import repository as _pr  # type: ignore
+    except ImportError:
+        from services.photos import repository as _pr  # type: ignore
+    return _pr
+
+
+def _store_photo_file() -> Any:
+    try:
+        from ...services.photo_intake.storage import (  # type: ignore
+            store_photo_file as _s,
+        )
+    except ImportError:
+        from services.photo_intake.storage import (  # type: ignore
+            store_photo_file as _s,
+        )
+    return _s
+
+
+def _sha256_file() -> Any:
+    try:
+        from ...services.photo_intake.dedupe import (  # type: ignore
+            sha256_file as _h,
+        )
+    except ImportError:
+        from services.photo_intake.dedupe import (  # type: ignore
+            sha256_file as _h,
+        )
+    return _h
+
+
+# ---- the promotion --------------------------------------------------
+
+def _link_photo(candidate_id: str, photo_id: str) -> None:
+    """Point the candidate at its photo WITHOUT touching its state.
+
+    Spelled out as its own write rather than reusing candidate_decide so
+    that it is impossible for this function to move a candidate out of
+    'pending' by accident. The batch counters are refreshed anyway --
+    they recompute from the rows, and the rows did not change state, so
+    this is a no-op that keeps the "counters are always recomputed after
+    a candidate write" habit unbroken.
+    """
+    con = _connect()
+    try:
+        cand = _candidate_row(con, candidate_id)
+        con.execute(
+            "UPDATE import_candidate SET photo_id = ?, updated_at = ? "
+            "WHERE id = ?",
+            (photo_id, _now(), candidate_id),
+        )
+        _refresh_batch_counters(con, cand["batch_id"])
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def _assert_born_unapproved(photo_id: str) -> None:
+    """Read the row back and refuse to hand over a photo_id that is
+    approved for anything.
+
+    This is a paranoid re-read, on purpose. Everything above passes
+    narrator_ready=False and leans on schema defaults for the three
+    Lori flags, and a schema default is exactly the kind of guarantee
+    that gets quietly changed by a later migration. If that ever
+    happens, promotion must fail loudly here rather than start minting
+    narrator-facing photos out of an import queue.
+    """
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT narrator_ready, needs_confirmation, "
+            "date_approved_for_lori, location_approved_for_lori "
+            "FROM photos WHERE id = ?", (photo_id,),
+        ).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        raise ImportRepositoryError(
+            "photo %s vanished between creation and verification" % photo_id
+        )
+    offenders = []
+    if int(row["narrator_ready"] or 0):
+        offenders.append("narrator_ready")
+    if not int(row["needs_confirmation"] or 0):
+        offenders.append("needs_confirmation=0")
+    if int(row["date_approved_for_lori"] or 0):
+        offenders.append("date_approved_for_lori")
+    if int(row["location_approved_for_lori"] or 0):
+        offenders.append("location_approved_for_lori")
+    if offenders:
+        raise IntakeIsNotApprovalError(
+            "promoted photo %s was born with %s set. A photo materialized "
+            "from an import candidate is not narrator-facing and is not "
+            "approved for Lori; something has changed the photos defaults."
+            % (photo_id, ", ".join(offenders))
+        )
+
+
+def candidate_promote(
+    candidate_id: str,
+    source_path: Optional[str] = None,
+    original_filename: Optional[str] = None,
+    promoted_by_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Materialize one candidate into a photos row. Does NOT decide it.
+
+    Returns {photo_id, created, reused, candidate}. `created` is True
+    only when this call inserted the photos row; `reused` says why it
+    did not ('candidate' = already promoted, 'hash' = the same bytes are
+    already in this person's archive).
+
+    Resolution order, first match wins:
+
+      1. The candidate already has a photo_id -> return it. Promotion is
+         idempotent, which matters because the review screen's
+         "promote + accept" is two requests and the second one can fail.
+      2. The candidate's declared file_hash matches a live photo of this
+         person -> point at it. This is the ordinary case once the
+         operator has already uploaded the image through the photo lane.
+      3. `source_path` was supplied -> hash it, refuse if those bytes
+         belong to another narrator, store, insert.
+      4. Otherwise PhotoBytesMissingError.
+    """
+    con = _connect()
+    try:
+        _assert_intake_not_approval(con)
+        cand_row = _candidate_row(con, candidate_id)
+        batch_row = _batch_row(con, cand_row["batch_id"])
+        cand = _row_to_dict(cand_row) or {}
+        batch = dict(batch_row)
+    finally:
+        con.close()
+
+    if batch.get("source") not in PROMOTABLE_SOURCES:
+        raise InvalidStateError(
+            "batch %s is a %r import; promotion is defined only for %s. A "
+            "provider-side import has to fetch its own bytes through its "
+            "own lane before there is anything to promote."
+            % (batch.get("id"), batch.get("source"),
+               " and ".join(PROMOTABLE_SOURCES))
+        )
+
+    person_id = cand["person_id"]
+    photo_repo = _photo_repo()
+
+    # -- 1. already promoted ------------------------------------------
+    if cand.get("photo_id"):
+        con = _connect()
+        try:
+            # Deleted rows included on purpose: a soft-deleted photo is
+            # still the photo this candidate was promoted into, and
+            # saying "not promoted" about it would invite a second
+            # promotion that the UNIQUE file_hash would then refuse.
+            _assert_photo_owned_by(con, cand["photo_id"], person_id)
+        finally:
+            con.close()
+        return {
+            "photo_id": cand["photo_id"],
+            "created": False,
+            "reused": "candidate",
+            "candidate": candidate_get(candidate_id),
+        }
+
+    # -- 2. these bytes are already in this person's archive -----------
+    declared_hash = (cand.get("file_hash") or "").strip()
+    if declared_hash:
+        hit = photo_repo.find_photo_by_hash(person_id, declared_hash)
+        if hit:
+            _link_photo(candidate_id, hit["id"])
+            return {
+                "photo_id": hit["id"],
+                "created": False,
+                "reused": "hash",
+                "candidate": candidate_get(candidate_id),
+            }
+
+    # -- 3. materialize from supplied bytes ----------------------------
+    if not source_path:
+        raise PhotoBytesMissingError(
+            "candidate %s has no photo to promote: it is not already "
+            "linked, and no file was supplied. An import candidate "
+            "carries a filename and a size, never the image itself, so "
+            "promotion needs either the file or a photo of this person "
+            "already holding the same bytes." % candidate_id
+        )
+
+    # Hash BEFORE moving anything, exactly as POST /api/photos does, so
+    # a duplicate does not litter the archive with an orphan copy.
+    real_hash = _sha256_file()(source_path)
+
+    con = _connect()
+    try:
+        # Person-scoped first: same bytes, same person -> link, and the
+        # operator's file was simply one they already had.
+        mine = photo_repo.find_photo_by_hash(person_id, real_hash)
+        if mine:
+            _link_photo(candidate_id, mine["id"])
+            return {
+                "photo_id": mine["id"],
+                "created": False,
+                "reused": "hash",
+                "candidate": candidate_get(candidate_id),
+            }
+        # photos.file_hash is UNIQUE across the WHOLE table, not per
+        # narrator, and soft-deleted rows keep their hash. So a hash
+        # owned by anyone else -- or soft-deleted under this person --
+        # is an insert that will raise IntegrityError. Answer it here,
+        # where the reason can be named, instead of as a 500.
+        clash = con.execute(
+            "SELECT id, narrator_id, deleted_at FROM photos "
+            "WHERE file_hash = ?", (real_hash,),
+        ).fetchone()
+    finally:
+        con.close()
+
+    if clash is not None:
+        if clash["narrator_id"] != person_id:
+            raise CrossPersonError(
+                "those bytes are already stored as photo %s under another "
+                "narrator; promoting them here would file one person's "
+                "picture as another person's evidence" % clash["id"]
+            )
+        raise CrossPersonError(
+            "those bytes are already stored as photo %s for this person "
+            "but that photo is deleted; restore it in the photo lane "
+            "rather than promoting a second copy" % clash["id"]
+        )
+
+    date_fields = _promote_date_fields(cand)
+    loc_fields = _promote_location_fields(cand)
+    metadata = _promote_metadata(cand, batch, promoted_by_user_id)
+
+    photo_id = uuid.uuid4().hex
+    stored = _store_photo_file()(
+        narrator_id=person_id,
+        source_path=source_path,
+        original_filename=(original_filename or cand.get("filename")
+                           or "promoted.bin"),
+        photo_id=photo_id,
+    )
+
+    photo_repo.create_photo(
+        narrator_id=person_id,
+        photo_id=photo_id,
+        image_path=stored["image_path"],
+        thumbnail_path=stored.get("thumbnail_path"),
+        file_hash=stored["file_hash"],
+        description=None,
+        date_value=date_fields["date_value"],
+        date_precision=date_fields["date_precision"],
+        location_label=loc_fields["location_label"],
+        location_source=loc_fields["location_source"],
+        latitude=loc_fields["latitude"],
+        longitude=loc_fields["longitude"],
+        # Born not narrator-facing. needs_confirmation stays 1 because
+        # nothing about this row has been looked at by a human yet.
+        narrator_ready=False,
+        needs_confirmation=True,
+        uploaded_by_user_id=promoted_by_user_id,
+        metadata=metadata,
+    )
+
+    # `create_photo` does not list date_source or taken_at_filename_guess
+    # in its INSERT -- they were added by 0023, after it was written, and
+    # widening a module the whole photo lane shares is not this slice's
+    # business. So they are stamped here, in their own statement. The
+    # two *_approved_for_lori columns are deliberately NOT touched: their
+    # DEFAULT 0 is the correct value and writing it explicitly would make
+    # this function look like it has an opinion about approval.
+    con = _connect()
+    try:
+        con.execute(
+            "UPDATE photos SET date_source = ?, taken_at_filename_guess = ? "
+            "WHERE id = ?",
+            (date_fields["date_source"],
+             date_fields["taken_at_filename_guess"], photo_id),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+    _assert_born_unapproved(photo_id)
+    _link_photo(candidate_id, photo_id)
+
+    return {
+        "photo_id": photo_id,
+        "created": True,
+        "reused": None,
+        "candidate": candidate_get(candidate_id),
+    }

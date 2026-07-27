@@ -351,6 +351,24 @@
     uploadDrawer: null,      // {kind:"photo"|"source", error}
     photoIntake: null,       // Photos-tab result: {kind, busy, lines, warnings, error}
     sourceIntake: null,      // Sources-tab result: {lines, warnings}
+    // WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 2 -- the review queue.
+    // `evidence` is the whole GET /queue payload (page + total +
+    // state_counts), held verbatim rather than unpacked, so the screen
+    // cannot drift from what the route actually said. `evidenceOff` is
+    // NOT an error: the import lane is flag-gated and answers 404 on
+    // every route while it is off, which is a configuration fact and
+    // must not paint the workspace-wide red bar.
+    evidence: null,          // GET /queue payload, or null
+    evidenceScope: "trip",   // "trip" (filter by selection) | "all"
+    evidenceState: "pending",// "" = all five states
+    evidenceBusy: false,
+    evidenceOff: false,      // the lane is switched off on this server
+    evidenceError: "",
+    showHiddenEvidence: false,
+    // Same closure discipline as every other drawer here: this holds only
+    // WHICH review is open plus its inline error. The chosen file and the
+    // typed reason live in the drawer's closure and are read on submit.
+    evidenceDrawer: null,    // {kind:"promote"|"decide"|"file", candidateId, state, error}
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
@@ -741,6 +759,14 @@
     // per-trip review choice — reset it on trip switch.
     st.showHiddenNotes = false;
     st.showHiddenSources = false;
+    // WO-2 Phase 2: the review queue is person-scoped, but its default
+    // filter is the selected trip, so the page it holds describes a trip
+    // the operator is no longer looking at. Drop the page and any open
+    // review with it; the tab reloads on next visit.
+    st.evidence = null;
+    st.evidenceDrawer = null;
+    st.evidenceError = "";
+    st.showHiddenEvidence = false;
     loriPane.reset();
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
@@ -1534,6 +1560,7 @@
     ["trip", "Trip"],
     ["plan", "Trip Plan"],
     ["photos", "Photos"],
+    ["evidence", "Evidence"],
     ["notes", "Story Notes"],
     ["sources", "Sources"],
     ["travelogue", "Travelogue"],
@@ -1554,6 +1581,12 @@
       api("/api/trips/" + encodeURIComponent(st.trip.id) + "/travelogue-preview")
         .then(function (out) { st.travelogue = out; renderAll(); })
         .catch(function (e) { st.error = e.message; renderAll(); });
+    }
+    // WO-2 Phase 2 — same lazy shape as the travelogue: fetched on the tab
+    // switch, never from render. A queue fetched during render would
+    // re-render, which would fetch again.
+    if (tab === "evidence" && !st.evidence && !st.evidenceOff && st.personId) {
+      reloadEvidence().then(function () { renderAll(); });
     }
     renderAll();
   }
@@ -1615,7 +1648,13 @@
     // Above the tab content and outside it, because the warning outlives
     // the tab the operator happened to be on when the save returned.
     if (st.tripWarning) main.appendChild(renderTripWarning());
-    if (!st.trip) {
+    // WO-2 Phase 2 — the Evidence tab is deliberately exempt from the
+    // selected-trip gate, and it is the only one. Every other tab
+    // describes a trip. The review queue describes a PERSON's imports,
+    // and the rows most in need of review are precisely the ones not
+    // filed to a trip yet — so gating it on a selection would hide the
+    // unfiled queue behind a trip the operator has not made.
+    if (!st.trip && st.tab !== "evidence") {
       main.appendChild(el("div", "tdl-empty",
         st.trips.length ? "Select a trip from the left rail." :
           "No trips yet for this narrator. Use + New trip in the left rail " +
@@ -1652,6 +1691,9 @@
     if (st.trip && st.stopEditor) app.appendChild(renderStopEditorDrawer());
     if (st.trip && st.routeDelete) app.appendChild(renderRouteDeleteReview());
     if (st.deleteReview) app.appendChild(renderDeleteTripReview());
+    // WO-2 Phase 2 — not gated on st.trip, for the same reason the tab is
+    // not: a review opened on an unfiled candidate has no trip behind it.
+    if (st.evidenceDrawer) app.appendChild(renderEvidenceDrawer());
 
     root.appendChild(app);
     main.scrollTop = st.mainScroll || 0;
@@ -1760,6 +1802,7 @@
       case "trip": return renderTripTab();
       case "plan": return renderPlan();
       case "photos": return renderPhotos();
+      case "evidence": return renderEvidence();
       case "notes": return renderNotes();
       case "sources": return renderSources();
       case "travelogue": return renderTravelogue();
@@ -4864,6 +4907,607 @@
         "Hidden " + kindLabel + " render dimmed — Restore brings one back."));
     }
     return row;
+  }
+
+  // ── Evidence Review Queue ────────────────────────────────────────────
+  //
+  // WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 2, the screen.
+  //
+  // Phase 1 shipped GET /queue (the read a review screen is built on) and
+  // Phase 3 shipped POST /candidates/{id}/promote (the write that makes
+  // 'accepted' reachable at all). This tab is the operator surface over
+  // both, and it is the first thing in this file to call anything outside
+  // /api/trips. That widening is deliberate, not incidental: the
+  // sanctioned-endpoint gate in tests/test_travel_doc_lab.py had to be
+  // edited to allow it, which is exactly what that gate is for.
+  //
+  // Three closed decisions shape what is NOT here:
+  //
+  //   1. Placement is trip granularity. No region, stop or day control on
+  //      any row, because the import tables have no column to hold one.
+  //      "File to trip" is the whole of placement, and it is reversible.
+  //   2. The states are the five that shipped in migration 0037 --
+  //      pending, accepted, rejected, duplicate, error. The filter rail
+  //      offers exactly those and this screen invents no others.
+  //   3. Promotion is an explicit separate call, never a flag on the
+  //      decision. So "Promote + accept" is TWO requests in sequence, the
+  //      drawer says so, and the halfway state (promoted, still pending)
+  //      is reported in those words when it happens -- because it is
+  //      reachable, it is recoverable, and the retry is safe.
+  //
+  // Deliberately absent: no Google Picker, no Takeout, no Lori control,
+  // nothing narrator-facing, and no DELETE. Retirement is Hide, the same
+  // as every other evidence lane in this workspace.
+
+  var EVIDENCE_BASE = "/api/import-provenance";
+
+  // The five states, plus an unfiltered view. Order is the order a
+  // reviewer reads them in, not alphabetical.
+  var EVIDENCE_STATES = [
+    ["", "All"],
+    ["pending", "Pending"],
+    ["accepted", "Accepted"],
+    ["rejected", "Rejected"],
+    ["duplicate", "Duplicate"],
+    ["error", "Error"],
+  ];
+
+  // The decisions an operator can record WITHOUT a photo. 'accepted' is
+  // deliberately not in this list: it requires the photo_id of a row that
+  // already exists, so it goes through the promote drawer instead.
+  var EVIDENCE_REFUSALS = [
+    ["rejected", "Reject", "not evidence for this trip"],
+    ["duplicate", "Duplicate", "already in the archive"],
+    ["error", "Error", "could not be imported"],
+  ];
+
+  function evidenceCandidates() {
+    return (st.evidence && st.evidence.candidates) || [];
+  }
+
+  function evidenceCandidatePath(candidateId) {
+    return EVIDENCE_BASE + "/candidates/" + encodeURIComponent(candidateId);
+  }
+
+  function candidateName(c) {
+    return c.filename || c.external_id ||
+      ("candidate " + String(c.id || "").slice(0, 8));
+  }
+
+  // person_id is required by the route and is not defaulted anywhere,
+  // here or there. A queue that inferred its person would be one bad
+  // inference away from showing a reviewer someone else's evidence.
+  function evidenceQueryPath() {
+    var q = "?person_id=" + encodeURIComponent(st.personId);
+    if (st.evidenceScope === "trip" && st.trip) {
+      q += "&trip_id=" + encodeURIComponent(st.trip.id);
+    }
+    if (st.evidenceState) {
+      q += "&state=" + encodeURIComponent(st.evidenceState);
+    }
+    if (st.showHiddenEvidence) q += "&include_hidden=1";
+    return EVIDENCE_BASE + "/queue" + q;
+  }
+
+  // Never rejects. Callers repaint unconditionally, so a failure has to
+  // land on st rather than in an unhandled rejection.
+  function reloadEvidence() {
+    if (!st.personId) return Promise.resolve();
+    st.evidenceBusy = true;
+    return api(evidenceQueryPath())
+      .then(function (out) {
+        st.evidence = out;
+        st.evidenceOff = false;
+        st.evidenceError = "";
+        st.evidenceBusy = false;
+      })
+      .catch(function (e) {
+        st.evidenceBusy = false;
+        if (e && e.status === 404) {
+          // The whole lane is behind a default-off server flag and every
+          // route in it answers 404 while that flag is off. Reporting
+          // that as an error would send the operator looking for a broken
+          // trip; it renders as its own explanatory panel instead.
+          st.evidenceOff = true;
+          st.evidence = null;
+          st.evidenceError = "";
+          return;
+        }
+        st.evidenceError = e.message;
+      });
+  }
+
+  function setEvidenceScope(scope) {
+    if (st.evidenceScope === scope) return;
+    st.evidenceScope = scope;
+    reloadEvidence().then(function () { renderAll(); });
+  }
+
+  function setEvidenceState(state) {
+    if (st.evidenceState === state) return;
+    st.evidenceState = state;
+    reloadEvidence().then(function () { renderAll(); });
+  }
+
+  // Hide is retirement from a view. The candidate row, its match reason
+  // and its decision all survive -- there is no DELETE in this lane and
+  // this screen does not add one.
+  function setEvidenceHidden(candidateId, hidden) {
+    api(evidenceCandidatePath(candidateId) + "/hidden",
+        { method: "PATCH", body: { hidden: !!hidden } })
+      .then(function () { return reloadEvidence(); })
+      .then(function () { renderAll(); })
+      .catch(function (e) { st.evidenceError = e.message; renderAll(); });
+  }
+
+  // ── the queue screen ─────────────────────────────────────────────────
+
+  function renderEvidence() {
+    var wrap = el("div", "tdl-erq");
+    wrap.appendChild(el("h1", "", "Evidence Review Queue"));
+    wrap.appendChild(el("p", "tdl-muted",
+      "Imported candidates waiting on an operator. Nothing on this screen " +
+      "is narrator-facing and nothing on it approves anything for Lori: " +
+      "promoting a candidate creates the photo, accepting records that the " +
+      "promotion happened, and the photo stays unapproved either way."));
+
+    if (!st.personId) {
+      wrap.appendChild(el("div", "tdl-empty",
+        "No narrator is selected, and this queue is per person."));
+      return wrap;
+    }
+    if (st.evidenceOff) {
+      wrap.appendChild(el("div", "tdl-erq-off",
+        "The import provenance lane is switched off on this server, so " +
+        "there is no queue to read — every route in it answers 404 while " +
+        "the flag is off. Nothing is broken and nothing is lost."));
+      return wrap;
+    }
+
+    // Scope. The queue is person-scoped; the trip is a FILTER on it, not
+    // its subject. "All trips" is where unfiled candidates live, because
+    // the route has no "trip is null" filter and this screen does not
+    // invent one -- it counts them on the page and says so instead.
+    var scopeRail = el("div", "tdl-filter-rail tdl-filter-rail-row");
+    scopeRail.appendChild(btn(
+      st.evidenceScope === "trip" ? "tdl-active" : "",
+      "This trip", function () { setEvidenceScope("trip"); }));
+    scopeRail.appendChild(btn(
+      st.evidenceScope === "all" ? "tdl-active" : "",
+      "All trips", function () { setEvidenceScope("all"); }));
+    if (!st.trip) {
+      scopeRail.appendChild(el("span", "tdl-muted",
+        "No trip selected — showing every candidate for this narrator."));
+    }
+    wrap.appendChild(scopeRail);
+
+    // The counts describe the whole queue behind the page and are NOT
+    // narrowed by the state filter -- that is a documented property of
+    // GET /queue, and it is why a reviewer standing in Pending can still
+    // see how much has been accepted without changing the filter to find
+    // out. Summing them is therefore the honest "All" count.
+    var counts = (st.evidence && st.evidence.state_counts) || {};
+    var allCount = 0;
+    EVIDENCE_STATES.forEach(function (s) {
+      if (s[0]) allCount += (counts[s[0]] || 0);
+    });
+    var stateRail = el("div", "tdl-filter-rail tdl-filter-rail-row");
+    EVIDENCE_STATES.forEach(function (s) {
+      var label = s[1] + " (" + (s[0] ? (counts[s[0]] || 0) : allCount) + ")";
+      stateRail.appendChild(btn(
+        st.evidenceState === s[0] ? "tdl-active" : "", label,
+        function () { setEvidenceState(s[0]); }));
+    });
+    wrap.appendChild(stateRail);
+
+    var summary = el("div", "tdl-erq-summary");
+    if (st.evidence) {
+      var unfiled = evidenceCandidates().filter(function (c) {
+        return !c.trip;
+      }).length;
+      summary.appendChild(el("span", "tdl-badge tdl-erq-depth",
+        "Queue depth " + (st.evidence.queue_depth || 0)));
+      summary.appendChild(el("span", "tdl-muted",
+        "Showing " + (st.evidence.returned || 0) + " of " +
+        (st.evidence.total || 0) + " in this filter" +
+        (unfiled ? " · " + unfiled + " on this page not filed to a trip"
+                 : "")));
+    }
+    summary.appendChild(btn("tdl-btn tdl-btn-small", "↻ Refresh",
+      function () { reloadEvidence().then(function () { renderAll(); }); }));
+    wrap.appendChild(summary);
+
+    // Click-driven fetch only, never from render.
+    var hidRow = el("div", "tdl-hidden-toggle-row");
+    hidRow.appendChild(btn("tdl-btn tdl-btn-small" +
+      (st.showHiddenEvidence ? " tdl-active" : ""),
+      st.showHiddenEvidence ? "Show hidden ✓" : "Show hidden",
+      function () {
+        st.showHiddenEvidence = !st.showHiddenEvidence;
+        reloadEvidence().then(function () { renderAll(); });
+      }));
+    if (st.showHiddenEvidence) {
+      hidRow.appendChild(el("span", "tdl-muted",
+        "Hidden candidates — and candidates in a hidden batch — render " +
+        "dimmed. Unhide brings one back; nothing was deleted."));
+    }
+    wrap.appendChild(hidRow);
+
+    if (st.evidenceError) {
+      wrap.appendChild(el("div", "tdl-error", st.evidenceError));
+    }
+    if (!st.evidence) {
+      wrap.appendChild(el("div", "tdl-empty", st.evidenceBusy ?
+        "Loading the queue…" : "Queue not loaded yet — use Refresh."));
+      return wrap;
+    }
+    var rows = evidenceCandidates();
+    if (!rows.length) {
+      wrap.appendChild(el("div", "tdl-empty", "Nothing in this filter." +
+        ((st.evidenceScope === "trip" && st.trip) ?
+          " Candidates not yet filed to a trip only appear under All trips."
+          : "")));
+      return wrap;
+    }
+    rows.forEach(function (c) { wrap.appendChild(renderErqRow(c)); });
+    return wrap;
+  }
+
+  // The importer's reasoning, printed as the keys and values it actually
+  // stored. The repository round-trips match_reason unchanged and states
+  // why -- "round-trip, never a summary, never prose" -- so a screen that
+  // paraphrased it would be the summary that refusal exists to prevent.
+  function renderMatchReason(c) {
+    var box = el("div", "tdl-erq-reason");
+    function line(k, v) {
+      var d = el("div", "tdl-erq-reason-line");
+      d.appendChild(el("span", "tdl-erq-reason-key", k));
+      d.appendChild(el("span", "tdl-erq-reason-val", v));
+      box.appendChild(d);
+    }
+    if (typeof c.match_confidence === "number") {
+      line("match_confidence", String(c.match_confidence));
+    }
+    var mr = c.match_reason;
+    var keys = (mr && typeof mr === "object") ? Object.keys(mr) : [];
+    if (!keys.length) {
+      box.appendChild(el("div", "tdl-muted", "No match reason recorded."));
+      return box;
+    }
+    keys.forEach(function (k) {
+      var v = mr[k];
+      var text;
+      if (v === null || v === undefined) text = "null";
+      else if (typeof v === "string") text = v;
+      else {
+        try { text = JSON.stringify(v); } catch (_) { text = String(v); }
+      }
+      line(k, text);
+    });
+    return box;
+  }
+
+  function renderErqRow(c) {
+    var row = el("div", "tdl-erq-row" + (c.hidden ? " tdl-row-hidden" : ""));
+    var b = c.batch || {};
+
+    var badges = el("div", "tdl-note-badges");
+    badges.appendChild(el("span", "tdl-badge tdl-erq-state-badge",
+      c.state || "pending"));
+    badges.appendChild(el("span", "tdl-badge", "batch · " +
+      (b.label || b.source || (b.id ? String(b.id).slice(0, 8) : "?"))));
+    if (b.source) badges.appendChild(el("span", "tdl-badge", b.source));
+    if (b.status && b.status !== "open") {
+      badges.appendChild(el("span", "tdl-badge", "batch " + b.status));
+    }
+    badges.appendChild(el("span",
+      "tdl-badge" + (c.trip ? "" : " tdl-badge-unfiled"),
+      c.trip ? ("trip · " + (c.trip.title || "Untitled trip"))
+             : "not filed to a trip"));
+    if (c.photo_id) badges.appendChild(el("span", "tdl-badge", "promoted"));
+    if (c.hidden) {
+      badges.appendChild(el("span", "tdl-badge tdl-badge-hidden", "hidden"));
+    }
+    if (b.hidden) {
+      badges.appendChild(el("span", "tdl-badge tdl-badge-hidden",
+        "batch hidden"));
+    }
+    row.appendChild(badges);
+
+    row.appendChild(el("strong", "", candidateName(c)));
+
+    // Filename AND external id, both, when both exist. They answer
+    // different questions -- what the operator called it and what the
+    // provider called it -- and collapsing them loses one of the two.
+    var idBits = [];
+    if (c.filename) idBits.push("file " + c.filename);
+    if (c.external_id) idBits.push("external id " + c.external_id);
+    if (c.mime_type) idBits.push(c.mime_type);
+    if (c.byte_size) idBits.push(String(c.byte_size) + " bytes");
+    if (idBits.length) row.appendChild(el("p", "tdl-muted", idBits.join(" · ")));
+
+    // The trip's date window sits next to the candidate's taken_at on
+    // purpose: "does this fall inside the trip it is filed under" is the
+    // single most common review question, and the queue returns the trip
+    // dates so it can be answered without opening the trip.
+    var when = [];
+    if (c.taken_at) {
+      when.push("taken " + datePrefix(c.taken_at) +
+        " (" + (c.taken_at_source || "unknown") + ")");
+    }
+    if (c.trip && (c.trip.start_date || c.trip.end_date)) {
+      when.push("trip window " + (c.trip.start_date || "?") + " → " +
+        (c.trip.end_date || "?"));
+    }
+    if (when.length) row.appendChild(el("p", "tdl-muted", when.join(" · ")));
+
+    row.appendChild(renderMatchReason(c));
+    if (c.state_reason) {
+      row.appendChild(el("p", "tdl-erq-state-reason", c.state_reason));
+    }
+
+    var acts = el("div", "tdl-erq-actions");
+    if (c.hidden) {
+      // A hidden row is already out of review. Offer the way back and
+      // nothing else -- deciding a row the operator has retired from the
+      // view is a decision taken half-blind.
+      acts.appendChild(btn("tdl-btn tdl-btn-small", "Unhide",
+        function () { setEvidenceHidden(c.id, false); }));
+      row.appendChild(acts);
+      return row;
+    }
+    if (c.state === "pending") {
+      acts.appendChild(btn("tdl-btn tdl-btn-small tdl-btn-primary",
+        c.photo_id ? "Accept (already promoted)" : "Promote + accept",
+        function () { openEvidenceDrawer("promote", c.id); }));
+      EVIDENCE_REFUSALS.forEach(function (r) {
+        acts.appendChild(btn("tdl-btn tdl-btn-small", r[1], function () {
+          openEvidenceDrawer("decide", c.id, r[0]);
+        }));
+      });
+    } else {
+      // Decided rows are not re-decidable from here, and that is a
+      // refusal rather than an omission. Re-deciding an accepted
+      // candidate clears its photo_id and strands the photos row it
+      // pointed at, unreferenced. That cleanup is a photo-lane act on
+      // the photo, not something to trigger by mis-clicking in a queue.
+      acts.appendChild(el("span", "tdl-muted", "Decided" +
+        (c.reviewed_at ? " " + datePrefix(c.reviewed_at) : "") +
+        " — this screen does not re-open a decision."));
+    }
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "File to trip",
+      function () { openEvidenceDrawer("file", c.id); }));
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Hide",
+      function () { setEvidenceHidden(c.id, true); }));
+    row.appendChild(acts);
+    return row;
+  }
+
+  // ── the review drawers ───────────────────────────────────────────────
+
+  function openEvidenceDrawer(kind, candidateId, state) {
+    if (dayFormDirtyBlocks()) return;
+    st.evidenceDrawer = {
+      kind: kind,
+      candidateId: candidateId,
+      state: state || "",
+      error: "",
+    };
+    renderAll();
+  }
+
+  function closeEvidenceDrawer() { st.evidenceDrawer = null; renderAll(); }
+
+  function evidenceDrawerCandidate() {
+    var d = st.evidenceDrawer;
+    if (!d) return null;
+    return evidenceCandidates().filter(function (c) {
+      return String(c.id) === String(d.candidateId);
+    })[0] || null;
+  }
+
+  function renderEvidenceDrawer() {
+    var d = st.evidenceDrawer;
+    var c = evidenceDrawerCandidate();
+    if (!c) {
+      // The row left the page under the open drawer (a filter change, a
+      // reload after someone else decided it). Say so rather than acting
+      // on an id this screen can no longer show the operator.
+      var sh = drawerShell("Evidence review",
+        "That candidate is no longer on this page", closeEvidenceDrawer,
+        "tdl-edit-drawer tdl-erq-drawer");
+      sh.body.appendChild(el("p", "tdl-muted",
+        "Nothing was changed. Close this and find it again with the " +
+        "filters above."));
+      return sh.wrap;
+    }
+    if (d.kind === "promote") return renderEvidencePromoteDrawer(d, c);
+    if (d.kind === "file") return renderEvidenceFileDrawer(d, c);
+    return renderEvidenceDecideDrawer(d, c);
+  }
+
+  // Build points 1-4 walked from the client side. Promote hands back a
+  // photo_id and leaves the candidate pending; the EXISTING decision
+  // route is what accepts, using that photo_id. Nothing here invents a
+  // photo_id and nothing here approves anything.
+  //
+  // Same file-input constraint as the intake drawer: an <input type=file>
+  // holds a FileList that script cannot write, so nothing in an open
+  // promote drawer may call renderAll(). The first repaint of the flow
+  // happens after a response lands.
+  function promoteAndAccept(candidateId, file, onFail) {
+    var base = evidenceCandidatePath(candidateId);
+    var opts = { method: "POST" };
+    if (file) {
+      // Multipart, and the browser must write its own Content-Type so it
+      // can append the boundary — api() knows not to touch a FormData.
+      var fd = new FormData();
+      fd.append("file", file, file.name);
+      opts.body = fd;
+    }
+    // No file and no body at all is the already-promoted path: the route
+    // takes `file` as optional precisely so a candidate that already has
+    // a photo is not made to re-upload one it already has.
+    api(base + "/promote", opts)
+      .then(function (out) {
+        var photoId = out && out.photo_id;
+        if (!photoId) throw new Error("promotion returned no photo_id");
+        return api(base + "/decision", {
+          method: "POST",
+          body: { state: "accepted", photo_id: photoId },
+        }).catch(function (e) {
+          // The halfway state, named exactly. The photo exists and is
+          // unapproved, the candidate did not move, and the retry is
+          // safe because promotion is idempotent.
+          e.message = "Promoted (photo " + String(photoId).slice(0, 8) +
+            ") but the accept did not land: " + e.message +
+            " — the candidate is still pending and running this again is " +
+            "safe.";
+          throw e;
+        });
+      })
+      .then(function () {
+        st.evidenceDrawer = null;
+        return reloadEvidence();
+      })
+      .then(function () { renderAll(); })
+      .catch(function (e) { onFail(e.message); });
+  }
+
+  function renderEvidencePromoteDrawer(d, c) {
+    var sh = drawerShell("Evidence review", "Promote + accept",
+      closeEvidenceDrawer, "tdl-edit-drawer tdl-erq-drawer");
+    sh.body.appendChild(el("strong", "", candidateName(c)));
+    sh.body.appendChild(el("p", "tdl-intake-doctrine",
+      "Two requests, in this order, because promotion and the decision " +
+      "are separate acts on purpose. First the candidate is materialized " +
+      "into a photo — born not narrator-facing and not approved for Lori " +
+      "on either its date or its location. Then the decision records that " +
+      "it happened. If the first lands and the second does not, the " +
+      "candidate is promoted and still pending, this drawer says so, and " +
+      "running it again is safe."));
+
+    var already = !!c.photo_id;
+    var files = null;
+    if (already) {
+      sh.body.appendChild(el("p", "tdl-muted",
+        "This candidate is already promoted (photo " +
+        String(c.photo_id).slice(0, 8) + "), so it needs no file — " +
+        "accepting will reuse the photo it already has."));
+    } else {
+      files = el("input");
+      files.type = "file";
+      files.accept = "image/*";
+      sh.body.appendChild(field("Image file", files,
+        "An import candidate carries a filename and a byte count, never " +
+        "the image itself. Without the bytes there is nothing to build " +
+        "the photo out of."));
+    }
+
+    var errEl = drawerError(sh.body, d.error);
+    var goBtn = btn("tdl-btn tdl-btn-primary", "Promote + accept",
+      function () {
+        var chosen = files ?
+          Array.prototype.slice.call(files.files || []) : [];
+        if (!already && !chosen.length) {
+          errEl.textContent = "Choose the image file for this candidate first.";
+          errEl.hidden = false;
+          return;
+        }
+        errEl.hidden = true;
+        goBtn.disabled = true;
+        promoteAndAccept(c.id, chosen[0] || null, function (msg) {
+          goBtn.disabled = false;
+          if (st.evidenceDrawer) st.evidenceDrawer.error = msg;
+          renderAll();
+        });
+      });
+    sh.foot.appendChild(goBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeEvidenceDrawer));
+    return sh.wrap;
+  }
+
+  function renderEvidenceDecideDrawer(d, c) {
+    var meta = EVIDENCE_REFUSALS.filter(function (r) {
+      return r[0] === d.state;
+    })[0] || EVIDENCE_REFUSALS[0];
+    var sh = drawerShell("Evidence review", meta[1] + " this candidate",
+      closeEvidenceDrawer, "tdl-edit-drawer tdl-erq-drawer");
+    sh.body.appendChild(el("strong", "", candidateName(c)));
+    sh.body.appendChild(el("p", "tdl-muted",
+      "Recording “" + meta[0] + "” — " + meta[2] + ". The candidate row, " +
+      "its match reason and its batch all survive: a decision here is a " +
+      "record, not an erasure, and this lane has no DELETE."));
+    var reason = areaInput("",
+      "Why (optional) — kept on the candidate as state_reason");
+    sh.body.appendChild(field("Reason", reason));
+    var errEl = drawerError(sh.body, d.error);
+    var goBtn = btn("tdl-btn tdl-btn-primary", meta[1], function () {
+      errEl.hidden = true;
+      goBtn.disabled = true;
+      // No photo_id: the route refuses one on any non-accepted state, and
+      // sending one would be asking for a 400 that means nothing to the
+      // operator.
+      api(evidenceCandidatePath(c.id) + "/decision", {
+        method: "POST",
+        body: {
+          state: meta[0],
+          state_reason: (reason.value || "").trim() || null,
+        },
+      })
+        .then(function () {
+          st.evidenceDrawer = null;
+          return reloadEvidence();
+        })
+        .then(function () { renderAll(); })
+        .catch(function (e) {
+          goBtn.disabled = false;
+          if (st.evidenceDrawer) st.evidenceDrawer.error = e.message;
+          renderAll();
+        });
+    });
+    sh.foot.appendChild(goBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeEvidenceDrawer));
+    return sh.wrap;
+  }
+
+  function renderEvidenceFileDrawer(d, c) {
+    var sh = drawerShell("Evidence review", "File to trip",
+      closeEvidenceDrawer, "tdl-edit-drawer tdl-erq-drawer");
+    sh.body.appendChild(el("strong", "", candidateName(c)));
+    sh.body.appendChild(el("p", "tdl-muted",
+      "Placement in this lane is trip granularity and nothing finer — " +
+      "there is no region, stop or day here because the import tables " +
+      "have no column to hold one. Filing is reversible: choose “Not " +
+      "filed” to unbind it again."));
+    var choices = [["", "Not filed"]];
+    st.trips.forEach(function (t) {
+      choices.push([String(t.id), t.title || "Untitled trip"]);
+    });
+    var sel = selectInput(choices, c.trip_id ? String(c.trip_id) : "");
+    sh.body.appendChild(field("Trip", sel));
+    var errEl = drawerError(sh.body, d.error);
+    var goBtn = btn("tdl-btn tdl-btn-primary", "Save placement", function () {
+      errEl.hidden = true;
+      goBtn.disabled = true;
+      api(evidenceCandidatePath(c.id) + "/trip", {
+        method: "PATCH",
+        body: { trip_id: sel.value || null },
+      })
+        .then(function () {
+          st.evidenceDrawer = null;
+          return reloadEvidence();
+        })
+        .then(function () { renderAll(); })
+        .catch(function (e) {
+          goBtn.disabled = false;
+          if (st.evidenceDrawer) st.evidenceDrawer.error = e.message;
+          renderAll();
+        });
+    });
+    sh.foot.appendChild(goBtn);
+    sh.foot.appendChild(btn("tdl-btn", "Cancel", closeEvidenceDrawer));
+    return sh.wrap;
   }
 
   // ── Story Notes ──────────────────────────────────────────────────────

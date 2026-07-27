@@ -229,6 +229,12 @@ class FlagGateTests(_Base):
             ("patch", "/api/import-provenance/candidates/c1/trip", {"trip_id": None}),
             ("post", "/api/import-provenance/candidates/c1/decision",
              {"state": "rejected"}),
+            # WO-2 Phase 3. Multipart in production; listed here with a
+            # JSON body on purpose, because the junk-body test below is
+            # the one that matters for a multipart route -- a request
+            # whose content type the handler would reject must still be
+            # answered by the gate, not by the body validator.
+            ("post", "/api/import-provenance/candidates/c1/promote", {}),
             ("patch", "/api/import-provenance/candidates/c1/hidden", {"hidden": True}),
             # WO-2 Phase 1. Listed without its required `person_id` query
             # on purpose: with the flag off the answer must still be 404,

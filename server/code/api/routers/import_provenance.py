@@ -1,7 +1,7 @@
 """Import provenance router -- WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01
 Phase 4, the minimal verification surface (2026-07-26), plus
 WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 1, the queue read
-(2026-07-26).
+(2026-07-26), and Phase 3, promotion (2026-07-27).
 
 Phase 4 is the least API that lets a human prove, through the real
 backend boundary, that the Phase 3 repository behaves the way Phase 3
@@ -12,8 +12,16 @@ deleted.
 
 WO-2 Phase 1 adds exactly one route to that surface -- ``GET /queue``,
 the read a review screen is built on. It is a read and nothing else.
-The Evidence Review Queue UI, the accept path, and any placement finer
-than a trip are later WO-2 phases and are not here.
+
+WO-2 Phase 3 adds the one write that was missing: ``POST
+/candidates/{id}/promote``. Acceptance has always required a photo_id
+of a photos row that already exists, and until now nothing in this lane
+could produce one, so 'accepted' was a state the review queue could not
+reach. Promotion produces it -- and stops there. It does not decide, it
+does not approve, and it is a separate request from the decision on
+purpose (WO-2 Decision 3, option B). Placement is still trip
+granularity and nothing finer (Decision 1), and the candidate states
+are still the five that shipped in 0037 (Decision 2).
 
 ALL routes are gated behind ``HORNELORE_IMPORT_PROVENANCE=1`` and 404
 when it is off, mirroring the ``HORNELORE_TRIPS`` posture in trips.py.
@@ -34,6 +42,7 @@ Endpoints:
     GET    /api/import-provenance/candidates/{candidate_id}
     PATCH  /api/import-provenance/candidates/{candidate_id}/trip    {trip_id|null}
     POST   /api/import-provenance/candidates/{candidate_id}/decision
+    POST   /api/import-provenance/candidates/{candidate_id}/promote  (multipart)
     PATCH  /api/import-provenance/candidates/{candidate_id}/hidden  {hidden}
 
     GET    /api/import-provenance/queue?person_id=&trip_id=&batch_id=&state=&include_hidden=&limit=&offset=
@@ -47,13 +56,16 @@ Deliberately absent, and to stay absent:
     person is copied from its batch and cannot be asserted by a caller,
     so the route layer cannot express a cross-person candidate at all.
   * There is no route that sets ``narrator_ready`` or
-    ``include_in_memoir``, and no route that materializes a photo.
-    Accepting a candidate records a promotion that already happened
-    somewhere else; it cannot cause one.
-  * There is no Google Photos, no Takeout, no Evidence Queue UI and no
-    Lori behavior here. ``GET /queue`` is the queue's read, not the
-    queue's screen; the screen is WO-2 Phase 2 and the rest is WO-3
-    through WO-5.
+    ``include_in_memoir``. ``POST /promote`` materializes a photo, and
+    that photo is born narrator_ready = 0, needs_confirmation = 1 and
+    unapproved for Lori on both the date and the location. Accepting a
+    candidate still only RECORDS a promotion; it still cannot cause one.
+  * ``POST /promote`` is restricted to ``local_upload`` and ``manual``
+    batches. The provider-side sources have no fetch yet, and promotion
+    without bytes would mean inventing an ``image_path``.
+  * There is no Google Photos and no Takeout here. ``GET /queue`` is the
+    queue's read and ``POST /promote`` is its one write; WO-3 through
+    WO-5 are elsewhere.
   * ``GET /queue`` has no ``proposed_trip_day_id`` /
     ``proposed_region_id`` / ``proposed_stop_id``. Migration 0037 has no
     such columns, so placement in this system is trip-granularity and
@@ -72,9 +84,19 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 
 from ..services import import_repository as repo
@@ -124,6 +146,10 @@ _STATUS_BY_ERROR = (
     (repo.CrossTripError, 409),
     (repo.IntakeIsNotApprovalError, 409),
     (repo.BatchClosedError, 409),
+    # 409 and not 400: the request is well formed and the candidate is
+    # real. What is missing is the image, which is a fact about the
+    # state of the world, not about the request.
+    (repo.PhotoBytesMissingError, 409),
     (repo.ExternalTokenError, 400),
     (repo.InvalidStateError, 400),
 )
@@ -212,6 +238,23 @@ def _assert_photo_belongs_to(photo_id: Optional[str],
                    "candidate onto it would merge two people's evidence"
                    % photo_id,
         )
+
+
+# Copied value-for-value from `_ALLOWED_IMAGE_MIME_PREFIXES` in
+# routers/photos.py. Restated rather than imported because importing it
+# would drag the whole photo router -- and its own separate flag gate --
+# into this module's import graph. Deliberately the same narrow list and
+# not a loose "image/" prefix: a promoted photo and an uploaded photo
+# land in the same archive under the same rules, and a file the upload
+# route would refuse must not get in through the side door.
+_PROMOTE_MIME_PREFIXES = (
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+    "image/gif",
+)
 
 
 def _require_batch(batch_id: str) -> Dict[str, Any]:
@@ -528,6 +571,80 @@ def decide_candidate_route(
         photo_id=payload.photo_id,
     )
     return {"ok": True, "candidate": repo.candidate_get(candidate_id)}
+
+
+@router.post("/candidates/{candidate_id}/promote")
+async def promote_candidate_route(
+    candidate_id: str,
+    file: Optional[UploadFile] = File(None),
+    promoted_by_user_id: Optional[str] = Form(None),
+) -> Dict[str, Any]:
+    """Materialize a candidate into a photos row. Does not decide it.
+
+    Multipart, and ``file`` is optional, because there are two ways this
+    ends with a photo_id and only one of them needs bytes. If the
+    candidate is already promoted, or its ``file_hash`` matches a photo
+    this person already has, the answer is a lookup and the operator
+    should not be made to find a file they already uploaded. When
+    neither holds, the file IS the request: an import_candidate carries
+    a filename and a byte count, never the image, so there is nothing
+    else promotion could build ``photos.image_path`` out of.
+
+    The candidate is still ``pending`` when this returns. Accepting it
+    is the next, separate request, to ``POST /decision`` with the
+    ``photo_id`` this one hands back.
+    """
+    _require_enabled()
+    _require_candidate(candidate_id)
+
+    if file is None:
+        return {
+            "ok": True,
+            **_call(
+                repo.candidate_promote,
+                candidate_id,
+                source_path=None,
+                original_filename=None,
+                promoted_by_user_id=promoted_by_user_id,
+            ),
+        }
+
+    mime = (file.content_type or "").lower()
+    if mime and not any(mime.startswith(p) for p in _PROMOTE_MIME_PREFIXES):
+        raise HTTPException(
+            status_code=415, detail="unsupported media type: %s" % mime,
+        )
+
+    # Stream to a temp file rather than reading into memory, and let the
+    # repository move it from there -- the same shape POST /api/photos
+    # uses, so both paths hit `store_photo_file` with a real path and
+    # neither has to know how the bytes arrived.
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="promote_", suffix=".bin")
+    try:
+        with os.fdopen(tmp_fd, "wb") as out:
+            while True:
+                chunk = await file.read(65536)
+                if not chunk:
+                    break
+                out.write(chunk)
+        result = _call(
+            repo.candidate_promote,
+            candidate_id,
+            source_path=tmp_path,
+            original_filename=file.filename,
+            promoted_by_user_id=promoted_by_user_id,
+        )
+    finally:
+        # On success the repository moved the temp file into the archive
+        # and this unlink finds nothing; on any refusal it is still here
+        # and must not be left behind.
+        try:
+            if Path(tmp_path).exists():
+                Path(tmp_path).unlink()
+        except OSError:
+            pass
+
+    return {"ok": True, **result}
 
 
 @router.patch("/candidates/{candidate_id}/hidden")

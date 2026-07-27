@@ -662,3 +662,52 @@
 .tdl-intake-warn { margin: .35rem 0 0; padding: .4rem .55rem; border-radius: 8px; background: #fff7e6; color: #6c4a10; font-size: .82rem; font-weight: 700; line-height: 1.4; }
 .tdl-intake-err { margin: 0 0 .3rem; color: var(--tdl-red); font-size: .88rem; font-weight: 800; }
 .tdl-intake-failed { border-left-color: var(--tdl-red); }
+
+/* ── Evidence Review Queue (WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 P2) ──
+   Namespace is `tdl-erq-`, NOT `tdl-ev-`. `tdl-ev-` was already taken by
+   the per-photo evidence panel (badges, note, editor) and reusing it would
+   have restyled that panel from across the file. Two different meanings of
+   "evidence" live in this stylesheet; they do not share a prefix. */
+.tdl-erq { max-width: 980px; }
+
+/* The lane is behind a default-off server flag and every route in it
+   answers 404 while that flag is off. That is a configuration fact, so it
+   is styled as a neutral panel — deliberately NOT .tdl-error, which would
+   send an operator looking for something broken. */
+.tdl-erq-off {
+  border: 1px dashed var(--tdl-line); border-radius: 12px;
+  background: var(--tdl-paper2); color: var(--tdl-muted);
+  padding: 1rem 1.1rem; line-height: 1.5; font-size: .9rem;
+}
+
+.tdl-erq-summary { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: 0 0 .7rem; }
+.tdl-erq-depth { background: #e6ecf9; border-color: #c6d4ef; color: #274b86; }
+
+.tdl-erq-row { border: 1px solid var(--tdl-line); background: var(--tdl-paper); border-radius: 12px; padding: .75rem .85rem; margin-bottom: .6rem; }
+.tdl-erq-row strong { display: block; margin: .1rem 0 .2rem; }
+.tdl-erq-row p { margin: .15rem 0; font-size: .84rem; }
+
+/* The state is the first thing read on a row, so it is the loudest badge
+   on it. One neutral treatment for all five: the queue reports the state,
+   it does not editorialise about which ones are good news. */
+.tdl-erq-state-badge { background: var(--tdl-navy); border-color: var(--tdl-navy); color: #fff; text-transform: uppercase; letter-spacing: .04em; }
+
+/* "not filed to a trip" is the row most in need of an operator, so it is
+   the one badge that reads as an open question rather than a fact. */
+.tdl-badge-unfiled { background: #fff7e6; border-color: var(--tdl-gold2); color: #7a501c; border-style: dashed; }
+
+.tdl-erq-state-reason { margin: .35rem 0 0; padding: .35rem .55rem; border-left: 3px solid var(--tdl-line); background: var(--tdl-paper2); color: var(--tdl-ink); font-size: .84rem; }
+
+/* match_reason is round-tripped from the importer verbatim, never
+   summarised, so it is rendered as key/value pairs in a monospace column
+   rather than as a sentence. It should look like stored data, because
+   that is what it is. */
+.tdl-erq-reason { margin: .4rem 0 .1rem; display: grid; gap: .1rem; }
+.tdl-erq-reason-line { display: flex; gap: .5rem; align-items: baseline; font-size: .8rem; }
+.tdl-erq-reason-key { flex: 0 0 auto; min-width: 11ch; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 800; color: var(--tdl-muted); }
+.tdl-erq-reason-val { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--tdl-ink); overflow-wrap: anywhere; }
+
+.tdl-erq-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .6rem; padding-top: .55rem; border-top: 1px solid var(--tdl-line); }
+.tdl-erq-actions .tdl-muted { font-size: .8rem; }
+
+.tdl-erq-drawer .tdl-drawer-body { gap: .35rem; }
