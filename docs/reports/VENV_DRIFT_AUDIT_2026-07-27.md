@@ -266,10 +266,19 @@ cannot run these — it will fail at `peft` — and that failure is correct beha
 defect to patch.
 
 **`.venv` is authoritative for the HTTP/route/repository layer** — the eight TestClient
-suites and everything below them — **only once section 4.2's alignment lands.** Until
-then `.venv` is running starlette 1.0.0 against a server on 0.52.1, and a green result
-there is weaker evidence than it looks. This is the single most important sentence in this
-report.
+suites and everything below them. Full stop, as of 2026-07-27. Section 4.2's alignment
+**has landed** under WO-WEB-STACK-TEST-ENV-ALIGNMENT-01: `.venv` now runs the same
+starlette 0.52.1 / fastapi 0.135.1 / pydantic 2.12.5 / httpx 0.27.2 generation the serving
+venv answers requests with, and `requirements-test.txt` is the checked-in lock that keeps
+it there. The caveat this paragraph used to carry — *"a green result there is weaker
+evidence than it looks"* — is retired. A green TestClient suite now means what it says.
+
+**The standing environment rule that replaces it:** the web-stack block at the top of
+`requirements-test.txt` MUST match `requirements-gpu.txt` exactly. If you change a
+web-framework pin in one, you change it in the other in the same commit, or you have
+re-opened this whole problem. Everything outside that block in `requirements-test.txt` is
+frozen at what `.venv` already had and is deliberately *not* re-aligned — see the
+known-drift list at the bottom of that file.
 
 **Either venv is fine for pure-python suites** — the source-assertion tests, the JS
 source-literal tests, the sqlite repository tests. These import no framework and no model
@@ -362,3 +371,35 @@ the suite had been depending on starlette 1.0.0 behaviour that production does n
 | Future work knows which environment is authoritative for which kind of test | section 7 |
 | No model stack is broken | nothing was installed, removed or upgraded; torch untouched; `peft` not added to `.venv` |
 | Existing BUG-LORI guard tests still pass | re-run green — see the consolidated closeout report |
+
+---
+
+## 10. Follow-up: section 4.2 was executed, 2026-07-27
+
+This audit recommended the web-stack alignment; it did not perform it. The alignment
+shipped separately as **WO-WEB-STACK-TEST-ENV-ALIGNMENT-01**. Execution record, run
+logs and outcome live in `docs/reports/WO-WEB-STACK-TEST-ENV-ALIGNMENT-01.md`.
+
+Three corrections that work order had to make to **section 8** of this audit, recorded
+here so nobody re-derives section 8 and trusts it as-shipped:
+
+| section 8 said | actually |
+|---|---|
+| `anyio` is cosmetic drift | it is starlette's async substrate and the engine under TestClient's blocking portal. Moved into the web-stack block at 4.12.1. |
+| `sniffio` needs no attention | `.venv` had no `sniffio` at all. httpx 0.27.2 requires it (0.28 dropped the requirement), so the alignment installs it net-new at 1.3.1. |
+| `markupsafe==3.0.2` is already aligned | `.venv` has 3.0.3. Left at 3.0.3 and recorded as known drift, not corrected. |
+
+Section 8's re-run block also listed seven suites, not eight — it dropped
+`tests.boris_quality.test_phase3_facts_add_truth_v2`, which section 4.2 correctly counts.
+The work order ran all eight.
+
+**Outcome, stated plainly:** the downgrade produced **zero behavioural differences**.
+Every suite that was green before the alignment was green after it, with identical test
+counts. The one red suite (`tests.test_trip_days_http_sequence`) was red before the
+alignment for an unrelated reason — a stale assertion, not a compatibility problem — and
+failed identically after. The value delivered is not a bug fix; it is that section 7's
+caveat can now be deleted.
+
+**The `lxml` finding in section 5 stands unchanged.** The serving venv runs 6.1.1 while
+`requirements-gpu.txt` pins 6.0.2. That is serving-env drift, it was explicitly ruled out
+of scope for the test-env alignment, and it is still open.
