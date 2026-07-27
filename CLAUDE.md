@@ -79,6 +79,44 @@ Web-derived context must be labeled as public context or draft evidence
 until confirmed by the operator/narrator, and public context is never
 presented as personal memory.
 
+## Google Photos Picker identity boundary (permanent doctrine, 2026-07-27)
+
+Five separate things, and collapsing any two of them is a defect: the **Google
+Cloud project / OAuth client** owns app registration, consent screen, redirect
+URIs, client id + secret, and API quota; the **authorized Google account** owns
+the photo library being picked from (it is normal for these two to be different
+accounts); the **Hornelore operator** drives the import; the **Hornelore person
+(narrator)** is the destination; the **trip** is an optional destination
+sub-scope.
+
+**A Google account is not a Hornelore narrator. An operator is not a narrator
+unless a human explicitly selected that narrator as the destination. The
+application must never infer `person_id` or `trip_id` from the Google account**
+— not from its email, display name, subject id, or anything in the picker
+payload. Destination is always explicit in the request: no default, no
+fallback, no "if there is only one person, use that one."
+
+`narrator_id` is **not** a third destination field. It is the `photos` table's
+column name for the same identity the import lane calls `person_id`; the
+repository compares them directly at `import_repository.py:407` and `:1604`,
+and that comparison *is* the cross-person guard. Anything that treats
+`narrator_id` as separately suppliable is introducing a bug.
+
+Credentials belong to humans who sign in, never to memoir subjects. **Do not
+create per-narrator Google credentials** — permanently forbidden, not deferred.
+Do not store raw Google tokens in SQLite; do not log, echo, or display token
+values (no prefixes, no lengths, no masked tails); health may report credential
+presence as **booleans only** and must never return raw or truncated values.
+
+The single-operator `.env` refresh token is correct for the local proof and
+authorizes one *source* account only — it says nothing about who the photos are
+*for*. The multi-operator future (per-operator encrypted tokens, connect/
+disconnect, interactive OAuth) is designed in
+`docs/wo/WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01_Spec.md` and is **FUTURE
+DESIGN ONLY** — no token tables, no encryption machinery, no multi-user auth is
+to be built without Chris explicitly opening that work order. Full statement:
+`docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md` §10.
+
 ## Environment
 
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.
@@ -235,7 +273,7 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 
 ## Changelog
 
-### 2026-07-27 — WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 opened, and Phase 1 built
+### 2026-07-27 — WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 opened, Phase 1 built, and the identity boundary set
 
 Closed the web-stack alignment and stale-trip-delete-test lane per Chris's ruling ("No more environment/test work in this session"). Opened the next product lane and wrote its spec. No product code written; awaiting Chris's decisions in spec section 7.
 
@@ -253,11 +291,18 @@ Two things this lane cost nothing: **no migration** (0037's `source` CHECK alrea
 
 **Import-path correction caught before delivery.** The new router uses `from ...services.google_picker import ...`, a three-dot relative import that only resolves under the production package layout (`python -m uvicorn code.api.main:app` with `cwd=server`). The new test file originally put `server/code` on `sys.path` and imported `api.routers.google_picker`, which makes `api` top-level and dies with "attempted relative import beyond top-level package". Rewritten to mirror production and import through the `code.` root — including `code.api.services.import_repository` and `code.api.db`, so the repo/db module objects are IDENTICAL to the ones the router holds and the test's `DB_PATH` rebind actually reaches it. Pattern copied from `tests/test_photo_show_next_scope_failure.py`, which documents the same trap.
 
-- Files changed: CLAUDE.md, MASTER_WORK_ORDER_CHECKLIST.md, docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md, server/code/api/main.py, .env.example
-- Files added: docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md, server/code/services/google_picker/__init__.py, server/code/services/google_picker/oauth.py, server/code/services/google_picker/picker_client.py, server/code/api/routers/google_picker.py, tests/test_google_picker_phase1.py
+**Identity boundary written into the docs, code untouched.** The picker spec gained a section 10 that separates five things people habitually collapse: the Google Cloud project / OAuth client (app config + quota), the authorized Google account (the source library -- routinely a *different* account from the Cloud project's), the operator, the person/narrator destination, and the trip. Core rule: a Google account is not a narrator, an operator is not a narrator unless a human picked that narrator, and the app must never infer person_id or trip_id from the Google account. The Phase 1 code already obeys this -- person_id is Field(..., min_length=1), and batch_create re-checks it server-side via _assert_person_exists and _assert_trip_owned_by.
+
+**One correction applied to the handoff text.** It listed person_id, narrator_id and trip_id as three destination fields. In this repo narrator_id is the photos table's column name for the same identity the import lane calls person_id -- they are compared directly at import_repository.py:407 and :1604, and that comparison IS the cross-person guard. Writing them as separate destinations would have put a fiction in the docs, so the doctrine says the destination is person_id (+ optional trip_id) with narrator_id named as the photos-table column for that same person.
+
+**Multi-operator future documented, nothing built.** docs/wo/WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01_Spec.md is marked FUTURE DESIGN ONLY: per-operator encrypted tokens, interactive OAuth, connect/disconnect, and the permission question of which narrators an operator may file into. No token tables, no encryption machinery, no multi-user auth exists or may be built without Chris opening that WO. Per-narrator Google credentials are forbidden permanently, not deferred -- credentials belong to humans who sign in, and many narrators cannot sign in to anything.
+
+
+- Files changed: CLAUDE.md, MASTER_WORK_ORDER_CHECKLIST.md, docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md, server/code/api/main.py, .env.example, .gitignore
+- Files added: docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md, server/code/services/google_picker/__init__.py, server/code/services/google_picker/oauth.py, server/code/services/google_picker/picker_client.py, server/code/api/routers/google_picker.py, tests/test_google_picker_phase1.py, docs/wo/WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01_Spec.md
 - Active baseline unchanged: no UI, no schema, no migration, no dependency, no venv change, no change to PROMOTABLE_SOURCES, no DELETE on the evidence lane. The only server change outside the new package is the router registration in main.py, and the new router 404s unless BOTH flags are on.
 - Flag state: HORNELORE_IMPORT_PROVENANCE=1 in Chris's .env; HORNELORE_TRIPS default-OFF. NEW: HORNELORE_GOOGLE_PICKER, default 0, documented in .env.example along with three EMPTY credential keys. Chris's live .env does not have it yet — the lane is dark until he adds HORNELORE_GOOGLE_PICKER=1 and the three credentials.
-- Open items: tests/test_google_picker_phase1.py RAN GREEN on Chris's machine and the Phase 1 package is committed (a65e4f1 code, c717042 docs). Phase 1 has NOT been proven LIVE yet -- the lane stays dark until Chris puts HORNELORE_GOOGLE_PICKER=1 and the three credential values in .env and restarts. Phase 2 (ingest/bytes/candidates), Phase 3 and Phase 4 are untouched scope walls. The picker source is deliberately still absent from PROMOTABLE_SOURCES and picker_client deliberately has no list_media_items -- the test suite asserts both absences, so Phase 2 will have to delete those assertions knowingly.
+- Open items: tests/test_google_picker_phase1.py RAN GREEN on Chris's machine and the Phase 1 package is committed (a65e4f1 code, c717042 docs). Phase 1 has NOT been proven LIVE yet -- the lane stays dark until Chris puts HORNELORE_GOOGLE_PICKER=1 and the three credential values in .env and restarts. Phase 2 (ingest/bytes/candidates), Phase 3 and Phase 4 are untouched scope walls. The picker source is deliberately still absent from PROMOTABLE_SOURCES and picker_client deliberately has no list_media_items -- the test suite asserts both absences, so Phase 2 will have to delete those assertions knowingly. NAMING DECISION AWAITING CHRIS: the multi-operator design doc was named WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01 rather than the proposed ...-PICKER-PHASE-2-MULTI-OPERATOR-AUTH-01, because 'Phase 2' of the picker lane is already committed as the fetch/ingest phase; say the word and it gets renamed in one commit.
 
 
 - 2026-07-27 (**FIX-TRIP-DELETE-STALE-ASSERTION-01 -- the eight-suite TestClient set is now fully green, and the fix added coverage rather than just changing an expectation. Test-only: no product code, no router, no repository change.**): The web-stack alignment's one red suite was red for its own reason and I closed it under the standing fix-it-don't-wait order now that that package's scope wall is retired. `tests/test_trip_days_http_sequence.py` step 7 asserted a bare `DELETE /api/trips/{id}` returns 200/204. That predates WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 Phase 2, so **the test was asserting the absence of a shipped safety feature** -- by step 7 the sequence has built a trip carrying 9 `trip_days` (five in-window after step 6's shrink, four preserved) and 1 `trip_bio_suggestions` row, and `trip_delete_impact()` correctly refuses an unforced delete of any trip with a nonzero dependent count. **The server was right and the test was stale.** The cheap fix was to flip the expectation to 409; I did the more useful one and drove the whole gate through real HTTP, which nothing previously did: **7a** unforced delete -> 409, asserting `requires_force`, the echoed `trip_id` and `counts["days"] == 9`, then a follow-up GET proving the refusal was a genuine no-op; **7b** `force: true` with a `confirm_trip_id` that does not echo the path id -> 422, with another GET proving nothing was removed; **7c** `force: true` with the exact `confirm_trip_id` -> 200 and `deleted: true`, then GET -> 404. **A detail worth keeping:** httpx's `.delete()` accepts no `json=` argument, so both force bodies go through `client.request("DELETE", ...)` -- a shape that is only correct because `.venv` now runs the same httpx 0.27.2 the server does. `narrator_delete_audit` is created by `init_db()`, so the force path's append-only audit row writes cleanly into the per-test temp sqlite; the class docstring was updated to describe the gate instead of the old "returns 200". Files changed: `tests/test_trip_days_http_sequence.py`, `MASTER_WORK_ORDER_CHECKLIST.md`, `CLAUDE.md`. Files added: none. Active baseline unchanged: r5h-followup-guard-v1 (78/114, v3=49/72, v2=43/72, mnw=2). Flag state unchanged: `HORNELORE_IMPORT_PROVENANCE=1` in `.env`, `HORNELORE_TRIPS` default-OFF, no new flag. Open items: checklist item 9 is retired; item 10, the serving `lxml` 6.1.1 vs pinned 6.0.2 discrepancy, stays open as a serving-env decision and was not touched; `.venv-gpu` and `requirements-gpu.txt` unchanged; the shared `tests/_offline_stubs.py` refactor remains out of scope.

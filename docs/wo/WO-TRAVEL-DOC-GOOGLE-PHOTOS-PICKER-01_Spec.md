@@ -295,3 +295,114 @@ reconcile. That check does not exist yet and belongs in Phase 3.
   `server/schema` and `server/code/api`.
 - Work-order specs live in `docs/wo/` as `<NAME>_Spec.md`. `docs/reports/` holds audits
   and run reports. This file follows the `docs/wo/` convention.
+
+---
+
+## 10. Identity boundary — who owns what (Phase 1 doctrine, binding)
+
+This section exists because media-import systems fail in one predictable way:
+they collapse the source provider's identity into the application's domain
+model. Once that happens, "whose photo is this?" is answered by whoever
+happened to be signed in to Google, and the answer is wrong the first time a
+second person is involved. The boundary below is set now, while the lane is
+still dark, so no later phase can drift across it.
+
+### 10.1 Five separate things
+
+| Thing | What it owns | Where it lives |
+| --- | --- | --- |
+| **Google Cloud project / OAuth client** | App registration, consent screen, publishing status, authorized redirect URIs, client id + secret, and **API quota**. | Google Cloud console. Configured once by Chris. |
+| **Authorized Google account** | The **source library** the picker picks from. This is the account that granted the refresh token. | Google. Referenced only by the refresh token in `.env`. |
+| **Hornelore operator** | Drives the import. Clicks the picker, decides what gets filed where. | Phase 1: implicit — there is exactly one, locally. |
+| **Hornelore person (narrator)** | The **destination** identity. Whose evidence queue and whose photo library the picked media lands in. | `person_id`, an explicit request field. |
+| **Hornelore trip** | The optional destination sub-scope inside that person. | `trip_id`, an explicit request field. |
+
+The Cloud project and the authorized account are **not the same account and
+must not be described as if they were**. It is normal and expected for the
+Cloud project to sit under one address (e.g. a development address) while the
+photo library being picked from belongs to a different personal Google
+account. Quota belongs to the project; photos belong to the account.
+
+### 10.2 The core rule
+
+> **A Google account is not a Hornelore narrator.**
+> **An operator is not a narrator** unless a human explicitly selected that
+> narrator as the destination.
+> **The application must never infer `person_id` or `trip_id` from the Google
+> account** — not from its email address, not from its display name, not from
+> its subject id, not from anything in the picker payload.
+
+Destination is always **explicit, and supplied by the request**. There is no
+default, no fallback, and no "if only one person exists, use that one."
+
+The Phase 1 code already obeys this. `SessionCreateBody.person_id` is
+`Field(..., min_length=1)` — required, never defaulted — and the router's own
+docstring records why: a picker session that inferred its person would be one
+bad inference away from landing someone else's photographs in a narrator's
+evidence queue. `repo.batch_create()` then re-checks the same thing server-side
+via `_assert_person_exists` (raises `CrossPersonError`) and
+`_assert_trip_owned_by` (raises `CrossTripError` for an unknown trip **and** for
+a trip owned by a different person).
+
+### 10.3 `narrator_id` is not a third destination field
+
+Earlier drafts of this doctrine listed `person_id`, `narrator_id`, and
+`trip_id` as three destination fields. **That is wrong for this repository**
+and would have written a fiction into the docs.
+
+`narrator_id` is the **`photos` table's column name for the same identity that
+the import lane calls `person_id`**. They are not two identities; they are one
+identity under two column names, and the repository compares them directly:
+
+```python
+# server/code/api/services/import_repository.py
+"SELECT narrator_id FROM photos WHERE id = ?", (photo_id,)   # :403
+if row["narrator_id"] != person_id:                          # :407
+    ... % (photo_id, row["narrator_id"], person_id)           # :412
+
+"SELECT id, narrator_id, deleted_at FROM photos "            # :1597
+if clash["narrator_id"] != person_id:                        # :1604
+```
+
+That comparison **is** the cross-person guard. So the accurate statement is:
+
+- The destination is **`person_id`**, optionally narrowed by **`trip_id`**.
+- **`narrator_id`** is the `photos`-table column holding that same person, and
+  the repository already refuses any operation where the two disagree.
+
+Any future doc or code that treats `narrator_id` as a separately-suppliable
+destination field is introducing a bug, not a feature.
+
+### 10.4 Phase 1 is local, single-operator, and that is a deliberate ceiling
+
+- Phase 1 is **local / single-operator only**.
+- **One global `.env` refresh token is acceptable** for Chris's local proof.
+- That token authorizes **one Google Photos source account**. It says nothing
+  about who the photos are *for*.
+- **Do not create per-narrator Google credentials.** Ever. Not in Phase 1, not
+  in the multi-operator design. Credentials belong to humans who sign in, not
+  to memoir subjects who may be elderly, deceased, or otherwise incapable of
+  holding an OAuth grant. This is the single most important line in this
+  section.
+- **Do not store raw Google tokens in SQLite.** Phase 1 holds the access token
+  in a process-local memory cache only (`oauth._cached_token`), and it dies
+  with the process.
+- **Do not log, echo, or display token values** — no full values, no prefixes,
+  no lengths, no masked tails.
+- **The health endpoint may report credential presence as booleans only. It
+  must never return raw or truncated credential values.** `credentials_present()`
+  returns `{key: bool(...)}` and nothing else, by construction.
+
+### 10.5 What this means for later phases
+
+When Phase 2 files a picked media item, the destination comes from the batch
+that Phase 1 opened, which got it from the operator's explicit request. It does
+not come from the picker payload. The picker payload contributes bytes,
+filename, mime type, timestamps, and the Google media id — **evidence**, not
+**identity**.
+
+The multi-operator future — where each Lorevox operator connects their own
+Google account — is designed in
+`docs/wo/WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01_Spec.md`. That document is
+**FUTURE DESIGN ONLY**. Nothing in it is implemented, and nothing in it may be
+implemented as part of this work order.
