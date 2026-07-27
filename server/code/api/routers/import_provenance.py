@@ -1,12 +1,19 @@
 """Import provenance router -- WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01
-Phase 4, the minimal verification surface (2026-07-26).
+Phase 4, the minimal verification surface (2026-07-26), plus
+WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 1, the queue read
+(2026-07-26).
 
-This is not the Evidence Review Queue. It is the least API that lets a
-human prove, through the real backend boundary, that the Phase 3
-repository behaves the way Phase 3 claims it does: that intake is not
-approval, that a batch cannot reach across people, that a candidate
-cannot claim another person's trip or another person's photo, and that
-nothing in the evidence lane is ever deleted.
+Phase 4 is the least API that lets a human prove, through the real
+backend boundary, that the Phase 3 repository behaves the way Phase 3
+claims it does: that intake is not approval, that a batch cannot reach
+across people, that a candidate cannot claim another person's trip or
+another person's photo, and that nothing in the evidence lane is ever
+deleted.
+
+WO-2 Phase 1 adds exactly one route to that surface -- ``GET /queue``,
+the read a review screen is built on. It is a read and nothing else.
+The Evidence Review Queue UI, the accept path, and any placement finer
+than a trip are later WO-2 phases and are not here.
 
 ALL routes are gated behind ``HORNELORE_IMPORT_PROVENANCE=1`` and 404
 when it is off, mirroring the ``HORNELORE_TRIPS`` posture in trips.py.
@@ -29,6 +36,9 @@ Endpoints:
     POST   /api/import-provenance/candidates/{candidate_id}/decision
     PATCH  /api/import-provenance/candidates/{candidate_id}/hidden  {hidden}
 
+    GET    /api/import-provenance/queue?person_id=&trip_id=&batch_id=&state=&include_hidden=&limit=&offset=
+    GET    /api/import-provenance/enums
+
 Deliberately absent, and to stay absent:
 
   * There is no DELETE. Retirement is ``hidden``, per the evidence-lane
@@ -41,7 +51,14 @@ Deliberately absent, and to stay absent:
     Accepting a candidate records a promotion that already happened
     somewhere else; it cannot cause one.
   * There is no Google Photos, no Takeout, no Evidence Queue UI and no
-    Lori behavior here. Those are WO-2 through WO-5.
+    Lori behavior here. ``GET /queue`` is the queue's read, not the
+    queue's screen; the screen is WO-2 Phase 2 and the rest is WO-3
+    through WO-5.
+  * ``GET /queue`` has no ``proposed_trip_day_id`` /
+    ``proposed_region_id`` / ``proposed_stop_id``. Migration 0037 has no
+    such columns, so placement in this system is trip-granularity and
+    nothing finer. The route does not invent a finer answer than the
+    schema can hold.
 
 The route layer re-checks the person/trip/photo boundaries itself rather
 than trusting the repository to be the only guard. The repository check
@@ -541,3 +558,57 @@ def enums_route() -> Dict[str, Any]:
         "taken_at_sources": list(repo.TAKEN_AT_SOURCES),
         "location_sources": list(repo.CANDIDATE_LOCATION_SOURCES),
     }
+
+
+# -- evidence review queue --------------------------------------------------
+#
+# WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 1 (2026-07-26).
+#
+# `GET /candidates` above is the raw table read. This is the page read:
+# the same rows, but each one carrying the batch it arrived in and the
+# trip it is filed under, plus the counts a reviewer needs to know how
+# much is behind the page. See `import_repository.queue_read` for why it
+# is one query and not one-per-batch.
+#
+# It is still a read. It sets nothing, decides nothing, and materializes
+# no photo. The decision path is unchanged: POST /candidates/{id}/decision,
+# which still refuses `accepted` without a photo_id of a photos row the
+# caller already created. Phase 1 can show and reject; it cannot accept
+# until a promotion path exists, and that is a WO-2 decision, not a gap
+# this route is allowed to paper over.
+
+@router.get("/queue")
+def queue_route(
+    person_id: str = Query(..., min_length=1),
+    trip_id: Optional[str] = Query(None),
+    batch_id: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    include_hidden: bool = Query(False),
+    limit: Optional[int] = Query(None, ge=0),
+    offset: int = Query(0, ge=0),
+) -> Dict[str, Any]:
+    """One page of the Evidence Review Queue for one person.
+
+    `person_id` is required and is not defaulted from anywhere. A queue
+    that inferred its person would be one bad inference away from showing
+    a reviewer another person's evidence, and the evidence lane is the
+    last place in this system that should guess.
+
+    `state` filters the page but deliberately does NOT filter
+    `state_counts`: the counts describe the whole queue behind the page,
+    so a reviewer looking at `pending` can still see how much has been
+    accepted, rejected or errored without changing the filter to find out.
+    """
+    _require_enabled()
+    _assert_trip_belongs_to(trip_id, person_id, "this queue")
+    result: Dict[str, Any] = _call(
+        repo.queue_read,
+        person_id=person_id,
+        trip_id=trip_id,
+        batch_id=batch_id,
+        state=state,
+        include_hidden=include_hidden,
+        limit=limit,
+        offset=offset,
+    )
+    return {"ok": True, **result}

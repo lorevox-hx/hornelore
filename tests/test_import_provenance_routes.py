@@ -230,6 +230,11 @@ class FlagGateTests(_Base):
             ("post", "/api/import-provenance/candidates/c1/decision",
              {"state": "rejected"}),
             ("patch", "/api/import-provenance/candidates/c1/hidden", {"hidden": True}),
+            # WO-2 Phase 1. Listed without its required `person_id` query
+            # on purpose: with the flag off the answer must still be 404,
+            # not the 422 that would name the parameter and confirm the
+            # route exists.
+            ("get", "/api/import-provenance/queue", None),
             ("get", "/api/import-provenance/enums", None),
         ]
 

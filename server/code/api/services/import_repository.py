@@ -889,3 +889,201 @@ def batch_counts(batch_id: str) -> Dict[str, int]:
         }
     finally:
         con.close()
+
+
+# ------------------------------------------------------- WO-2 queue read
+#
+# WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 Phase 1 (2026-07-26).
+#
+# `candidates_list()` above is the raw table read: it answers "which rows
+# match these filters". A review screen needs a different thing. For each
+# candidate it must also show which batch the material arrived in, what
+# that batch's source and status were, and which trip -- if any -- the
+# candidate is filed under. Assembling that from `candidates_list()`
+# means one query for the page, plus one per distinct batch, plus one per
+# distinct trip. A real Takeout import lands hundreds of candidates from
+# a handful of batches, so that is an N+1 against the exact shape of the
+# data. This does it in one read.
+#
+# Four rules this function holds that the raw list does not:
+#
+#   1. `person_id` is REQUIRED, not optional. A review queue with no
+#      person is a cross-person read. The boundary is easier to keep as a
+#      required argument than as a caller's discipline, and an unknown
+#      person raises CrossPersonError rather than returning [] -- "this
+#      person has nothing" and "there is no such person" are different
+#      facts and must not share an answer.
+#
+#   2. A candidate inside a hidden batch is out of the queue even when
+#      the candidate's own `hidden` is 0. Hiding a batch retires the
+#      material it landed; a queue that kept serving its rows would make
+#      batch-hide a lie. `include_hidden=True` brings both back, and each
+#      row carries `batch.hidden` so the caller can tell which kind of
+#      hidden it is looking at.
+#
+#   3. `state_counts` is computed over the whole filtered set and
+#      deliberately IGNORES the `state` filter. Counting only what the
+#      page returned would report "12 pending" because twelve fit on the
+#      page; counting only the requested state would report the queue
+#      depth as the thing you already asked for. The useful answer is:
+#      you are looking at pending, and here is the shape of the whole
+#      queue behind it.
+#
+#   4. `match_reason` round-trips unchanged, exactly as `candidate_get()`
+#      hands it back. Migration 0037 made that column JSON so the review
+#      queue could show the importer's reasoning verbatim. This function
+#      is the first caller that actually displays it, and it must not be
+#      the place a summary creeps in.
+#
+# This is a read. There is no write here, no counter refresh, and no
+# decision: WO-2's decision path is still `candidate_decide()`, which
+# still refuses to materialize a photo. Intake is not approval, and
+# neither is being looked at.
+
+# Batch and trip columns the queue needs, and no others. Spelled out
+# rather than SELECT b.* because `import_batch`, `import_candidate` and
+# `trips` all have `id`, `person_id`, `trip_id`, `hidden`, `created_at`
+# and `updated_at`, and a star-join would silently let one shadow
+# another.
+_QUEUE_BATCH_COLUMNS = (
+    "id", "label", "source", "status", "external_ref", "hidden",
+    "candidate_count", "accepted_count", "rejected_count",
+)
+#
+# The trip columns include its date window on purpose. The single most
+# common review question is "does this photo's taken_at fall inside the
+# trip it is filed under", and a queue that showed only the trip title
+# would make the reviewer open the trip to answer it.
+_QUEUE_TRIP_COLUMNS = ("id", "title", "start_date", "end_date", "status")
+
+
+def queue_read(
+    person_id: str,
+    trip_id: Optional[str] = None,
+    batch_id: Optional[str] = None,
+    state: Optional[str] = None,
+    include_hidden: bool = False,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """One read that answers everything an Evidence Review Queue page needs.
+
+    Returns a dict with the page of candidates (each carrying its batch
+    and trip inline), the total behind the page, and the state counts for
+    the whole filtered queue. Ordered oldest-first, tiebroken on rowid,
+    because a review queue is a queue and `created_at` has whole-second
+    precision -- a single import lands inside one second and must not
+    come back shuffled into uuid order.
+    """
+    if not isinstance(person_id, str) or not person_id.strip():
+        raise InvalidStateError(
+            "queue_read requires a person_id; a review queue with no "
+            "person is a cross-person read"
+        )
+    person_id = person_id.strip()
+    if state is not None and state not in CANDIDATE_STATES:
+        raise InvalidStateError(
+            "unknown candidate state %r; known states are %s"
+            % (state, ", ".join(CANDIDATE_STATES))
+        )
+    if limit is not None and (not isinstance(limit, int) or limit < 0):
+        raise InvalidStateError("limit must be a non-negative int")
+    if not isinstance(offset, int) or offset < 0:
+        raise InvalidStateError("offset must be a non-negative int")
+
+    con = _connect()
+    try:
+        _assert_person_exists(con, person_id)
+        if trip_id:
+            _assert_trip_owned_by(con, trip_id, person_id)
+        if batch_id:
+            batch = _batch_row(con, batch_id)
+            if batch["person_id"] != person_id:
+                raise CrossPersonError(
+                    "batch %s belongs to person %s, not %s -- a review "
+                    "queue cannot read across people"
+                    % (batch_id, batch["person_id"], person_id)
+                )
+
+        # The filter every query below shares. `state` is applied to the
+        # page and the total but NOT to the state counts; see rule 3.
+        base_where = ["c.person_id = ?"]
+        base_args: List[Any] = [person_id]
+        if batch_id:
+            base_where.append("c.batch_id = ?"); base_args.append(batch_id)
+        if trip_id:
+            base_where.append("c.trip_id = ?"); base_args.append(trip_id)
+        if not include_hidden:
+            # Both kinds of hidden. See rule 2.
+            base_where.append("c.hidden = 0")
+            base_where.append("b.hidden = 0")
+
+        join = ("FROM import_candidate c "
+                "JOIN import_batch b ON b.id = c.batch_id "
+                "LEFT JOIN trips t ON t.id = c.trip_id")
+        base_sql = " WHERE " + " AND ".join(base_where)
+
+        # -- state counts, over the filtered queue minus the state filter
+        counts = {s: 0 for s in CANDIDATE_STATES}
+        for row in con.execute(
+            "SELECT c.state AS state, COUNT(*) AS n " + join + base_sql
+            + " GROUP BY c.state", base_args,
+        ).fetchall():
+            if row["state"] in counts:
+                counts[row["state"]] = row["n"]
+
+        page_where = list(base_where)
+        page_args = list(base_args)
+        if state:
+            page_where.append("c.state = ?"); page_args.append(state)
+        page_sql = " WHERE " + " AND ".join(page_where)
+
+        total = con.execute(
+            "SELECT COUNT(*) AS n " + join + page_sql, page_args,
+        ).fetchone()["n"]
+
+        select_cols = ["c.*"]
+        select_cols += ["b.%s AS _b_%s" % (c, c) for c in _QUEUE_BATCH_COLUMNS]
+        select_cols += ["t.%s AS _t_%s" % (c, c) for c in _QUEUE_TRIP_COLUMNS]
+        sql = ("SELECT " + ", ".join(select_cols) + " " + join + page_sql
+               + " ORDER BY c.created_at ASC, c.rowid ASC")
+        args = list(page_args)
+        if limit is not None:
+            sql += " LIMIT ?"; args.append(limit)
+            if offset:
+                sql += " OFFSET ?"; args.append(offset)
+        elif offset:
+            # SQLite will not take OFFSET without LIMIT. -1 is its
+            # documented "no limit" sentinel, not a magic number.
+            sql += " LIMIT -1 OFFSET ?"; args.append(offset)
+
+        out: List[Dict[str, Any]] = []
+        for row in con.execute(sql, args).fetchall():
+            d = _row_to_dict(row)
+            batch_d = {c: d.pop("_b_" + c) for c in _QUEUE_BATCH_COLUMNS}
+            trip_d = {c: d.pop("_t_" + c) for c in _QUEUE_TRIP_COLUMNS}
+            d["batch"] = batch_d
+            # A candidate with no trip gets None, not a dict of Nones --
+            # "not filed yet" is the single most common state in this
+            # queue and it should read as one thing, not three nulls.
+            d["trip"] = trip_d if trip_d.get("id") else None
+            out.append(d)
+
+        return {
+            "person_id": person_id,
+            "filters": {
+                "batch_id": batch_id,
+                "trip_id": trip_id,
+                "state": state,
+                "include_hidden": bool(include_hidden),
+                "limit": limit,
+                "offset": offset,
+            },
+            "total": total,
+            "returned": len(out),
+            "state_counts": counts,
+            "queue_depth": counts["pending"],
+            "candidates": out,
+        }
+    finally:
+        con.close()
