@@ -551,6 +551,189 @@ real review need, it belongs in the route, not in client-side guesswork.
 
 ---
 
+## Phase 4 -- the live smoke (RUN AND PASSED 2026-07-27)
+
+Twenty-seven probes against the serving stack, issued from the operator page
+on `:8082` against the API on `:8000` -- deliberately not the unittest
+harness, because `.venv` and `.venv-gpu` disagree on FastAPI and Starlette and
+the serving one is what answers real requests. The flag was read from `.env`
+rather than exported into a shell, because Chris starts the stack from a
+shortcut and an interactive `export` never reaches it.
+
+### What held
+
+| Probe | Expected | Got |
+|---|---|---|
+| `POST /batches` | 200 | 200 |
+| `POST /batches/{id}/candidates` x5 | 200 | 200 x5 |
+| `GET /queue` shape | `total` / `returned` / `state_counts` / `queue_depth` | all present |
+| `PATCH /candidates/{id}/trip` -> Bismarck | 200 | 200 |
+| `PATCH` trip to a bogus id | 4xx | 409, and the message names the candidate |
+| Hide one candidate -> queue 5 -> 4 | yes | yes |
+| `include_hidden=true` -> 5 | yes | yes |
+| Unhide -> 5 | yes | yes |
+| decisions `rejected` / `duplicate` / `error` | 200 x3 | 200 x3 |
+| `accepted` with no `photo_id` | refuse | 409, and the message says why |
+| state `"skipped"` | 400 | 400, `'skipped' is not a decision` |
+| promote with no file | refuse | 409, full `PhotoBytesMissing` explanation |
+| promote `text/plain` | 415 | 415 |
+| promote a real JPEG | 200 | 200, `created: true` |
+| candidate after promote | still `pending` | still `pending` |
+| re-promote | same id, creates nothing | `created: false`, `reused: "candidate"`, same id |
+| `accepted` **with** `photo_id` | 200 | 200 |
+| `DELETE` candidate / batch / decision | 405 x3 | 405 x3 |
+
+The promoted `photos` row was read straight out of SQLite rather than trusted
+from the response, and it is born exactly as Phase 3 promised:
+`narrator_ready=0`, `date_approved_for_lori=0`,
+`location_approved_for_lori=0`, `deleted_at=NULL`, owner
+`a4b2f07a-...` -- the candidate's person and nobody else's.
+
+### The one thing that did not hold
+
+Re-deciding an **already accepted** candidate as `rejected` returned **200**
+and set its `photo_id` to `NULL`. See Decision 5.
+
+### Not a defect, written down so the next reader stops where I stopped
+
+`stored_rejected_count` on the batch row read 2 while the live `state_counts`
+read `rejected: 1`. That is not counter drift. `_refresh_batch_counters()`
+recomputes rather than increments, and it deliberately groups
+`rejected + duplicate` into one stored number, while `state_counts` on the
+queue reports the five states separately. Two groupings on one response, both
+correct, and the only thing missing was this sentence.
+
+### Residue, sanctioned by Decision 4
+
+The smoke batch was closed and hidden rather than deleted, which is the
+doctrine Decision 4 wrote down. It is invisible to the queue by default,
+recoverable through `include_hidden=true`, and Chris clears it against the
+database with a backup if and when he wants the rows gone.
+
+---
+
+## Decision 5 -- decisions are one-way, enforced where the write happens (2026-07-27)
+
+### What the smoke found
+
+`candidate_decide()` never read the candidate's current `state` before its
+UPDATE. So an `accepted` candidate could be decided again as `rejected`, and
+because the function writes `photo_id` unconditionally and a non-accepted
+decision must not carry one, the link cleared -- leaving the promoted `photos`
+row unreferenced, still unapproved, and unreachable from the queue.
+
+That is the **exact** failure mode Decision 4 refused a DELETE route over. The
+lane had no DELETE and the hole was open anyway, one route to the left.
+
+### Why nothing caught it
+
+The invariant was asserted twice and enforced zero times. It was in
+`candidate_decide()`'s own docstring, and it was in the screen's comment --
+*"this screen does not re-open a decision"* -- and the only thing actually
+holding it was the UI's `c.state === "pending"` gate in
+`ui/js/travel-doc-lab.js`. A screen is not an invariant. WO-3's Picker and
+Takeout importers are the next callers of this function and neither of them
+goes through that screen.
+
+A `grep` over the server suites found **zero** tests on the behaviour, in
+either direction, which is why a doc comment survived three phases pretending
+to be a rule.
+
+### THE RULING -- Chris, 2026-07-27, verbatim
+
+```
+candidate_decide() may only decide a pending candidate.
+
+If current state is:
+- accepted
+- rejected
+- duplicate
+- error
+
+then any new decision returns 409 and changes nothing.
+```
+
+and, on where it lives:
+
+> The guard belongs in `import_repository.candidate_decide()`, not only in the
+> UI. The UI already hides re-decision, but WO-3 Picker/Takeout or any future
+> caller could hit the API directly.
+
+> My call: strict guard is the right choice. It preserves the audit trail and
+> prevents the stranded-photo failure from any caller, not just the screen.
+
+### What was built
+
+- **`CandidateAlreadyDecidedError`** in `import_repository.py`, a new subclass
+  of `ImportRepositoryError`, sitting with `BatchClosedError` because it is the
+  same kind of refusal: a well-formed request that the resource's own state
+  declines.
+- **The guard** in `candidate_decide()`, immediately after `_candidate_row()`
+  and **before** `_assert_photo_owned_by()`, so a refused re-decision does no
+  lookups and no writes of any kind. It tests `state != "pending"` rather than
+  testing whether the new decision differs from the old one, because
+  re-asserting the *same* decision is still a second review event and would
+  still rewrite `reviewed_by_user_id` and `reviewed_at` over the first.
+- **409, not 400**, in `_STATUS_BY_ERROR`. The payload is well formed and
+  `rejected` is a real decision; it is this candidate's state that refuses it.
+  A 400 would send the caller off to fix a request that has nothing wrong with
+  it. Same reasoning as `BatchClosedError`, which is already a 409.
+
+### The mirror guard in `candidate_promote()` -- flagged as beyond the ruling
+
+Chris ruled on re-decide. Closing only that leaves the same stranding
+reachable from the other end: a candidate that is already `rejected`,
+`duplicate` or `error` and has **no** photo could still be promoted, minting a
+`photos` row that the new decide guard then guarantees can never be
+referenced, because that candidate can no longer be accepted. So
+`candidate_promote()` raises the same error in that case.
+
+It is deliberately conditioned on `not cand.get("photo_id")`. A candidate that
+**already** carries a photo is a pure lookup in that function -- it creates
+nothing -- and the "promote + accept" retry path depends on it still answering
+200 with the same `photo_id` after the accept succeeded. Punishing a duplicate
+click was not the goal.
+
+**This exceeds Chris's literal answer and is offered for reversion.** Removing
+it is one `if` block and the three tests in
+`PromotingADecidedCandidateTests`; nothing else depends on it.
+
+### Route surface unchanged
+
+Still **17 routes, zero DELETE**. Decision 5 adds an error class and a guard,
+not a route, so `test_route_count_is_the_count_the_gate_test_covers` is
+untouched.
+
+### The one test whose intent was inverted
+
+`test_rejecting_after_promoting_unlinks_but_keeps_the_photo` in
+`tests/test_import_provenance_promote.py` was written to **lock the old
+behaviour** -- it asserted the 200 and the cleared `photo_id` as "a known and
+accepted consequence". Chris's ruling reverses it, so it was rewritten rather
+than deleted, and narrowed to the case that is still true: deciding a
+**pending** promoted candidate as `rejected` does clear the link, and that is
+a legitimate first decision. It is now
+`test_rejecting_a_promoted_but_still_pending_candidate_unlinks_it`, and the
+rewrite is called out in its own comment so the change cannot read as drift.
+
+It is **not** one of the no-DELETE tests, so Decision 4's *"do not change the
+no-DELETE tests"* rule does not cover it. `PromoteAddsNoDeleteTests`,
+`test_hide_is_reversible_and_the_queue_has_no_delete` and the route-count gate
+are all untouched.
+
+`test_decided_rows_are_not_re_decidable_from_this_screen` in
+`tests/test_travel_doc_lab.py` also stays exactly as written -- it was always
+true, it was just the only enforcement.
+
+### What was left open
+
+Correcting a decision made in error is now impossible through the API, on
+purpose. It has to see the `photos` row as well as the candidate, so it
+belongs to the same future maintenance work order as Decision 4's guarded
+purge tool -- not to the queue.
+
+---
+
 ## Proposed phases
 
 | Phase | Status |
@@ -558,7 +741,7 @@ real review need, it belongs in the route, not in client-side guesswork.
 | 1 -- the queue read | ✅ **LANDED 2026-07-26.** `queue_read()` + `GET /api/import-provenance/queue` + 56 tests. Baseline 399 -> 455; routes suite held at 67; import-provenance surface 15 -> 16 routes; still zero DELETE. Person required and never inferred, both kinds of hidden honoured, counts describe the queue and not the page, order is insertion order tiebroken on `rowid`, `match_reason` verbatim, and four tests proving the read writes nothing. |
 | 2 -- the screen | ✅ **LANDED 2026-07-27.** The Evidence Review Queue tab on the operator path, in `ui/js/travel-doc-lab.js` + `ui/css/travel-doc-lab.css`. State/scope/hidden filters, the counts header, per-candidate detail with `match_reason` printed as the importer wrote it, and the seven row actions. No native `prompt`/`confirm`/`alert` -- in-panel drawers, same as the Travel Doc delete drawer. Lab suite 129 -> 150. |
 | 3 -- promotion | ✅ **LANDED 2026-07-27, and built BEFORE phase 2 rather than after it.** Decision 3 chose the explicit promote route, which means "accept" is literally unreachable from a screen until promotion exists -- a candidate has no `photo_id` to accept with. Building the screen first would have shipped an accept button with nothing behind it. `candidate_promote()` + `POST /candidates/{id}/promote` + 62 tests. |
-| 4 -- live smoke | ⬜ **NOT STARTED.** Against the serving stack from the operator UI origin, not the unittest harness -- `.venv` and `.venv-gpu` disagree on FastAPI/Starlette and the serving one is what answers requests. Read-only fingerprints before and after to prove blast radius, same as the WO-1 Phase 5 pattern. |
+| 4 -- live smoke | ✅ **RUN AND PASSED 2026-07-27.** 27 probes against the serving stack, driven from the `:8082` operator page against `:8000`. Every contract held except one, and that one is **Decision 5** below. Blast radius measured read-only before and after: `photos` 16 -> 17, `import_batch` 0 -> 1, `import_candidate` 0 -> 5, and `trips` 2 / `people` 36 / `trip_photo_context` 51 all unmoved. Residue retired with `hidden` per Decision 4. Run against the serving stack rather than the unittest harness on purpose -- `.venv` and `.venv-gpu` disagree on FastAPI/Starlette and the serving one is what answers requests. |
 
 ---
 
@@ -581,7 +764,9 @@ The fixture is a deliberate **copy** of the routes fixture rather than an
 import: `unittest discover` cross-contaminates across modules in this repo, so
 each module has to stand alone. Run it by module name, never by discovery.
 
-### Phase 3 -- `tests/test_import_provenance_promote.py`, **62 tests** in thirteen classes.
+### Phase 3 -- `tests/test_import_provenance_promote.py`, **62 -> 78 tests** in fifteen classes.
+
+The last two classes are Decision 5 and postdate the phase; the thirteen above them are Phase 3 as it landed.
 
 | Class | Tests | Proves |
 |---|---|---|
@@ -599,6 +784,8 @@ each module has to stand alone. Run it by module name, never by discovery.
 | `PromoteProvenanceTrailTests` | 6 | The photo points back at the candidate it came from and the trail survives a later decision. |
 | `PromoteStaysTripLevelTests` | 2 | Decision 1. The promoted row inherits **trip** and nothing finer -- no region, no stop, no day. |
 | `PromoteAddsNoDeleteTests` | 3 | Build point 12. The lane still has zero DELETE after this phase. |
+| `DecisionsAreOneWayTests` | 13 | **Decision 5.** `accepted -> rejected` is 409; the accepted candidate keeps its `photo_id`, its `state_reason`, its reviewer and its `reviewed_at`; the whole candidate row is compared before and after, so a partial write cannot hide; `rejected -> accepted`, `duplicate -> rejected` and `error -> accepted` are all 409; re-asserting the *same* decision is 409 too; `pending` still takes all four decisions; and the `photos` row is byte-identical after a refused re-decision, still not narrator-facing and not soft-deleted. |
+| `PromotingADecidedCandidateTests` | 3 | The mirror guard. A decided candidate with no photo cannot be promoted (409, and `photos` stays empty), while an accepted candidate that already has one still re-promotes to the same id -- the duplicate-click path. **Beyond Chris's literal ruling; see Decision 5.** |
 
 ### Phase 2 -- `tests/test_travel_doc_lab.py`, **129 -> 150** (`EvidenceReviewQueueTest`, 21 tests).
 
@@ -657,6 +844,24 @@ reported them missing, and the same window overran the section end and reported
   zero DELETE.
 - `tests/test_import_provenance_routes.py` -- the promote route added to
   `FlagGateTests._all_routes()`, same reason as phase 1.
+
+**Changed -- decision 5**
+
+- `server/code/api/services/import_repository.py` --
+  `CandidateAlreadyDecidedError` added beside `BatchClosedError`, the one-way
+  guard added inside `candidate_decide()`, the mirror guard added inside
+  `candidate_promote()`, and `candidate_decide()`'s docstring gains the fourth
+  bullet. 1620 -> 1680 lines.
+- `server/code/api/routers/import_provenance.py` -- one entry in
+  `_STATUS_BY_ERROR`. 731 -> 736 lines. **No route added or removed.**
+- `tests/test_import_provenance_promote.py` -- `DecisionsAreOneWayTests` and
+  `PromotingADecidedCandidateTests` added, and
+  `test_rejecting_after_promoting_unlinks_but_keeps_the_photo` **rewritten**
+  (see Decision 5). 856 -> 1065 lines, 62 -> 78 tests.
+- `tests/test_import_provenance_routes.py` -- a route-level 409 test, the new
+  error added to `test_every_repository_error_has_a_deliberate_status`, and a
+  named test pinning 409 rather than merely sub-500. 886 -> 915 lines,
+  67 -> 69 tests.
 
 **Changed -- phase 2**
 
