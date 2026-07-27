@@ -64,6 +64,22 @@ DELETE route on either import lane and there is not going to be one here.
 Removing those rows is Chris's action, run by Chris, against
 `C:\hornelore_data`.
 
+> **CLOSED 2026-07-27.** Chris removed them himself, exactly as this section
+> said he would. A read-only query against
+> `C:\hornelore_data\db\hornelore.sqlite3` returns `import_batch` **0 rows**,
+> `import_candidate` **0 rows**, and no hidden batches of any label. `photos`
+> is **16**, `trips` **2**, `people` **36** -- so nothing outside the import
+> lane moved. This is the worked example of the cleanup doctrine in Decision 4:
+> the residue left by a smoke run is cleared by the operator against the
+> database with a backup, **not** by a permanent API route added for the
+> purpose. The import lane starting from empty is also why Phase 4's live smoke
+> has a clean baseline to measure against.
+
+**And out of scope permanently, as of 2026-07-27:** any DELETE route on this
+lane at all. Chris raised one mid-build and then ruled against it. That is
+**Decision 4** below, and it is a decision rather than an omission -- read it
+before concluding the gap is an oversight.
+
 ---
 
 ## Phase 1 -- the queue read (LANDED 2026-07-26)
@@ -318,6 +334,109 @@ several hundred Takeout candidates is most of the work -- but it should be a
 choice you made, not a limitation you discovered after the screen was built.
 
 *(Moot as of 2026-07-27. Chris decided all three, so the screen approves.)*
+
+---
+
+## Decision 4 -- DELETE was raised, analysed, and refused (2026-07-27)
+
+This one is recorded because it was **proposed and then rejected**, not because
+it was never considered. A later session that finds no DELETE route here should
+read this section rather than assume the gap is an oversight and helpfully fill
+it in.
+
+**Raised by Chris**, after Phases 1-3 had landed: *"add a delete route"*, then
+refined to *"if we do not have a delete option what if we make a mistake and
+want to delete what actually would we delete, can it be a soft delete and also
+a permenate one"*. That reverses build point 12 of the Phase 2/3 order, so it
+was answered properly instead of waved off. The analysis put in front of him,
+and his ruling, are both below.
+
+### What a soft delete would be -- it already exists, and it is `hidden`
+
+`PATCH /candidates/{id}/hidden` and `PATCH /batches/{id}/hidden` are honoured by
+`queue_read()` in both forms, are reversible, are recoverable through
+`include_hidden`, are already on the screen as Hide / Unhide, and are pinned by
+eight tests -- including the one proving that **reopening a batch is not the
+same as unhiding it**. A hidden candidate is invisible to the queue and intact
+in the database. That is a soft delete in everything but name, so building a
+second one would have been duplicate machinery under a scarier word.
+
+### What a "mistake" actually looks like, and what already covers it
+
+| The mistake | What already handles it |
+|---|---|
+| Junk landed in the batch | Decide it `rejected` or `error`. It stops asking for attention and the reason survives. |
+| A whole import was bad | Hide the batch. `queue_read()` stops serving all of it in one call. |
+| Filed to the wrong trip | `PATCH /candidates/{id}/trip`. |
+| **A promotion you regret** | **Nothing in this lane.** Hiding the candidate does not touch the `photos` row promotion created. |
+
+That last row was the honest justification for a delete route, and it is the
+only one. Everything else was already covered before the question was asked.
+
+### The precedents that made "soft and also permanent" a fair ask
+
+The pattern exists twice in this codebase already, so Chris was not inventing
+anything: `people.py` carries `DELETE /api/people/{person_id}` soft by default
+and hard with `?mode=hard`, plus `POST /api/people/{person_id}/restore`; and
+`photos.py` carries `DELETE /api/photos/{photo_id}` as a pure soft delete that
+requires `actor_id` and returns the row read back with `deleted=True`.
+
+### The trap that decided it
+
+A permanent delete of a **promoted** candidate must either refuse with a 409 or
+also deal with the photo. If it does neither it strands an unreferenced,
+still-unapproved `photos` row -- which is the **identical** failure mode already
+refused for re-deciding, recorded elsewhere in this spec as *"`candidate_decide`
+writes `photo_id` unconditionally, so re-deciding an accepted candidate sets it
+to NULL and strands the `photos` row it pointed at."* Adding DELETE would have
+re-opened, at the operator's fingertips, the exact hole the promote design was
+built to close.
+
+### THE RULING -- Chris, 2026-07-27, verbatim
+
+- Do not add DELETE.
+- Keep the import/evidence lane reversible through hidden/unhidden.
+- Do not change the no-DELETE tests.
+- Do not add DELETE to the sanctioned route surface.
+- Do not delete candidates from the UI.
+- Do not solve smoke residue with a permanent API route.
+- For operator cleanup: `hidden` is the product behaviour; manual DB cleanup
+  with backup remains Chris-only; a future maintenance/cleanup work order can
+  define a guarded purge tool if needed.
+- For promoted candidates: deletion is especially not allowed because it can
+  strand a `photos` row -- build around visibility / state / audit instead.
+
+### The product rule, as Chris wrote it
+
+> Evidence candidates are auditable intake records.
+> Bad or unwanted ones are hidden, rejected, duplicate, or error.
+> They are not deleted from the operator UI.
+
+### The screen wording rule
+
+Operator-facing labels on this screen use **Hide**, **Unhide**, **Retire from
+queue**, or **Remove from review view**. They do **not** use *Delete*.
+
+Audited on 2026-07-27 against `ui/js/travel-doc-lab.js`: the Evidence panel's
+complete label set is Refresh, Show/Hide hidden, Unhide, Promote + accept,
+Reject, Duplicate, Error, File to trip, Hide, Restore, Save placement, Cancel.
+**Zero occurrences of "Delete".** Every `Delete` string elsewhere in that file
+belongs to the gated trip force-delete ladder and the region/stop review drawers
+(WO-TRAVEL-DOC-UNIFY-01 Phase 3A) -- a different subsystem, and the *only*
+sanctioned DELETE the Lab issues. No code change was needed to comply with this
+rule; it was already true, and this paragraph is the evidence that it was
+checked rather than assumed.
+
+### What stays red on purpose
+
+`PromoteAddsNoDeleteTests` (3 tests),
+`test_hide_is_reversible_and_the_queue_has_no_delete`, and the route-count gate
+(`FlagGateTests._all_routes()` +
+`test_route_count_is_the_count_the_gate_test_covers`) all assert the **absence**
+of a DELETE route. They stay exactly as they are. If a future change adds a
+route to this lane, that gate will fail until the route is added to the flag-off
+list -- which is the guard working, and is the intended way anyone discovers
+they have widened this surface.
 
 ---
 
