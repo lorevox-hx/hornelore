@@ -121,6 +121,13 @@ class MemoirExportRequest(BaseModel):
     # pre-wire caller. include_captured_stories=False opts out.
     person_id: Optional[str] = Field(default=None)
     include_captured_stories: bool = Field(default=True)
+    # WO-MEMOIR-TRIP-STORY-LANE-01 (2026-07-27): approved Travel Doc
+    # trip stories (trip_location_notes.include_in_memoir=1) join the
+    # narrator memoir as their own clearly-sourced sections. This is a
+    # DB read. It NEVER writes a travel_doc_modal turn into the
+    # life-story archive -- the two-surface rule of 2026-07-09 holds
+    # (see tests/test_modal_archive_boundary.py). Opt out per request.
+    include_trip_stories: bool = Field(default=True)
     sections: List[MemoirSection] = Field(default_factory=list)
     prose: Optional[str] = Field(default=None)
     arc_roles: List[str] = Field(default_factory=list)
@@ -782,6 +789,77 @@ def _captured_story_sections(person_id: str) -> List[MemoirSection]:
     return sections
 
 
+def _trip_story_sections(person_id: str) -> List[MemoirSection]:
+    """Harvest APPROVED Travel Doc trip stories into memoir sections.
+
+    WO-MEMOIR-TRIP-STORY-LANE-01 (2026-07-27). Travel Doc modal turns
+    are captured to trip_location_notes (source_surface=
+    travel_doc_modal) and are deliberately NEVER written to the
+    narrator's life-story archive -- that boundary is the two-surface
+    rule of 2026-07-09, locked by tests/test_modal_archive_boundary.py.
+    Rebuilding an archive bridge would resurrect
+    BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01, where operator workspace
+    chatter came back to the narrator as their own life.
+
+    This lane is the sanctioned way trip material reaches the memoir:
+    a DB read, gated on the operator's explicit include_in_memoir=1,
+    rendered as its own clearly-sourced section. It performs no archive
+    write of any kind. Notes the operator has not promoted never appear;
+    hidden=1 rows are already excluded by location_notes_list. The trip
+    DOCX export path is untouched.
+
+    Never raises -- memoir export must not fail because trip rows are
+    unreadable."""
+    # Trips are a default-OFF surface. If the operator has not enabled
+    # them, trip material does not appear in the memoir either.
+    if os.getenv("HORNELORE_TRIPS", "0").strip().lower() not in (
+        "1", "true", "yes", "on",
+    ):
+        return []
+    try:
+        from ..services import trip_repository as _tr
+        trips = _tr.trip_list(person_id)
+    except Exception as exc:
+        logger.warning("[memoir-docx] trip harvest failed: %s", exc)
+        return []
+    if not trips:
+        return []
+
+    def _order(t: Dict[str, Any]):
+        """Dated trips in chronological order, undated ones after."""
+        start = (t.get("start_date") or "").strip()
+        return (0, start) if start else (1, (t.get("created_at") or ""))
+
+    sections: List[MemoirSection] = []
+    for trip in sorted(trips, key=_order):
+        trip_id = trip.get("id")
+        if not trip_id:
+            continue
+        try:
+            notes = _tr.location_notes_list(trip_id)
+        except Exception as exc:
+            logger.warning(
+                "[memoir-docx] trip notes unreadable trip=%s: %s",
+                trip_id, exc)
+            continue
+        items: List[str] = []
+        for n in notes:
+            if not n.get("include_in_memoir"):
+                continue          # unapproved never reaches the memoir
+            text = (n.get("note_text") or "").strip()
+            if not text:
+                continue
+            title = (n.get("note_title") or "").strip()
+            items.append(f"{title} \u2014 {text}" if title else text)
+        if not items:
+            continue
+        label = "From your travels \u2014 " + (
+            (trip.get("title") or "").strip() or "A trip")
+        sections.append(MemoirSection(
+            id=f"trip_stories_{trip_id}", label=label, items=items))
+    return sections
+
+
 # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.5): strict
 # filename sanitizer, mirroring the trips.py export_docx allowlist.
 # ASCII letters/digits/underscore/hyphen/dot only — everything else
@@ -858,6 +936,25 @@ def api_memoir_export_docx(req: MemoirExportRequest):
                 len(_story_sections),
                 sum(len(s.items) for s in _story_sections),
                 "y" if sum(len(s.items) for s in _story_sections) == 1 else "ies",
+            )
+
+    # WO-MEMOIR-TRIP-STORY-LANE-01: append APPROVED Travel Doc trip
+    # stories as their own sections. DB read only -- this adds no
+    # archive write, and no travel_doc_modal turn enters the narrator's
+    # life-story archive as a result of it.
+    if req.person_id and req.include_trip_stories:
+        _trip_sections = _trip_story_sections(req.person_id)
+        if _trip_sections:
+            req = req.model_copy(update={
+                "sections": list(req.sections) + _trip_sections,
+            }) if hasattr(req, "model_copy") else req
+            if not hasattr(req, "model_copy"):
+                req.sections = list(req.sections) + _trip_sections
+            logger.info(
+                "[memoir-docx] trip stories appended: %d section(s), "
+                "%d note(s)",
+                len(_trip_sections),
+                sum(len(s.items) for s in _trip_sections),
             )
 
     logger.info(
