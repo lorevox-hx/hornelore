@@ -1,0 +1,80 @@
+# requirements-test.txt
+# Test-environment lock for .venv. Companion to requirements-gpu.txt,
+# which describes the SERVING venv (.venv-gpu).
+#
+# Rule: the web stack in this file MUST match requirements-gpu.txt exactly.
+# Eight suites drive the fastapi TestClient against the real app; if these
+# pins drift, those suites validate a different framework generation than
+# the one that serves Chris's stack.
+#   See docs/reports/VENV_DRIFT_AUDIT_2026-07-27.md sections 4.2 and 7,
+#   and docs/reports/WO-WEB-STACK-TEST-ENV-ALIGNMENT-01.md for the execution record.
+#
+# This file deliberately does NOT pin torch, CUDA, transformers, peft,
+# accelerate or bitsandbytes. Suites that need those run in .venv-gpu.
+# See audit sections 4.1, 4.3 and 4.4.
+#
+# Everything outside the web-stack block is FROZEN AT WHAT .venv ALREADY
+# HAS, not re-aligned to serving. That is deliberate: this package changes
+# the web stack and nothing else, so a red suite after the install has
+# exactly one possible cause. Known non-web-stack drift against serving is
+# listed at the bottom of this file and is NOT corrected here.
+
+# ── web stack: MUST match requirements-gpu.txt ──────────────────────────
+fastapi==0.135.1
+starlette==0.52.1
+pydantic==2.12.5
+pydantic_core==2.41.5
+httpx==0.27.2
+uvicorn==0.41.0
+python-multipart==0.0.22
+# anyio is starlette's async substrate and the engine under TestClient's
+# blocking portal. requirements-gpu.txt pins it; it belongs in this block,
+# not in the cosmetic transitives where the audit first filed it.
+anyio==4.12.1
+# Forced by httpx 0.27.2, which requires sniffio. httpx 0.28 dropped that
+# requirement, so .venv currently has no sniffio at all. This is the one
+# net-new package the alignment installs.
+sniffio==1.3.1
+
+# ── web-stack transitives that already agree with serving ───────────────
+h11==0.16.0
+httpcore==1.0.9
+typing_extensions==4.15.0
+typing_inspection==0.4.2
+annotated_doc==0.0.4
+annotated-types==0.7.0
+
+# ── document / export path (already agrees with serving) ────────────────
+pillow==12.2.0
+python-docx==1.2.0
+lxml==6.0.2
+jinja2==3.1.6
+
+# ── transitives, frozen at current .venv (NOT re-aligned) ───────────────
+certifi==2026.4.22
+charset-normalizer==3.4.7
+click==8.3.3
+idna==3.13
+markupsafe==3.0.3
+packaging==26.2
+python-dotenv==1.2.2
+pyyaml==6.0.3
+requests==2.33.1
+urllib3==2.7.0
+websockets==16.0
+
+# ── Known drift NOT corrected by this file ──────────────────────────────
+# These differ from .venv-gpu / requirements-gpu.txt and are left alone on
+# purpose. None is reachable from an assertion in the eight suites.
+#   certifi           .venv 2026.4.22   serving 2026.2.25
+#   charset-normalizer .venv 3.4.7      serving 3.4.5
+#   click             .venv 8.3.3       serving 8.3.1
+#   idna              .venv 3.13        serving 3.11
+#   markupsafe        .venv 3.0.3       serving 3.0.2
+#   packaging         .venv 26.2        serving 26.0
+#   requests          .venv 2.33.1      serving 2.32.5
+#   urllib3           .venv 2.7.0       serving 2.6.3
+# Separately, the serving venv runs lxml 6.1.1 while requirements-gpu.txt
+# pins 6.0.2. That is a SERVING-env discrepancy, recorded in audit section 5
+# and explicitly out of scope here by Chris's ruling. .venv keeps 6.0.2,
+# which matches the pin.
