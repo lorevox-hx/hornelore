@@ -564,7 +564,30 @@ _LEADING_SYSTEM_RX = re.compile(r'^\s*["\'\u201c]?(?:SYSTEM|System)\s*[.:]\s*')
 _META_REASONING_RX = re.compile(
     r"i(?:'ll| will) (?:respond|reply|answer) with a "
     r"(?:neutral|generic|simple) (?:message|response)"
-    r"|since there(?:'s| is) no prior conversation",
+    r"|since there(?:'s| is) no prior conversation"
+    # BUG-LORI-REASONING-LEAK-01 (2026-07-27) -- live leak reached the
+    # transcript and was persisted as assistant content:
+    #   "The narrator is speaking in English, so I will respond in
+    #    English too. \"Hi there, I'm Lori. ...\""
+    # Two shapes the detector had no pattern for. First, a
+    # language-planning clause: the 2026-07-07 preamble regex covers
+    # "I will respond BY/WITH/USING" but not "respond IN <language>".
+    # Pinned to an explicit language vocabulary so ordinary narrator-
+    # facing prose ("he never knew how to respond in a crisis") cannot
+    # trip it. Second, a third-person planning clause -- the model
+    # narrating its own decision about the narrator. Anchored on the
+    # ", so I" tail for the same reason: Lori legitimately says "the
+    # narrator" almost never, but the tail makes a false positive
+    # effectively impossible. The repair path is unchanged; because
+    # this RX drives per-sentence removal, the quoted draft that
+    # follows the meta sentence is recovered by the existing
+    # _QUOTED_DRAFT_RX branch.
+    r"|i(?:'ll| will| shall) (?:respond|reply|answer|speak|continue)\s+in\s+"
+    r"(?:english|spanish|french|german|italian|portuguese|"
+    r"ingl[e\u00e9]s|espa[n\u00f1]ol|the same language|that language|"
+    r"their language|the narrator'?s? language)"
+    r"|the narrator (?:is|has|had|was|seems|appears)\b[^.!?\n]{0,100}?,\s*"
+    r"so i\b",
     re.IGNORECASE)
 
 
