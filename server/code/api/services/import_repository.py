@@ -180,6 +180,30 @@ class BatchClosedError(ImportRepositoryError):
     """New candidates cannot land in a batch that is closed or failed."""
 
 
+class CandidateAlreadyDecidedError(ImportRepositoryError):
+    """A decision has already been recorded for this candidate.
+
+    Decisions are one-way here, and that is a refusal rather than an
+    omission. `candidate_decide()` writes `photo_id` unconditionally and
+    a non-accepted decision must not carry one, so re-deciding an
+    ACCEPTED candidate would set its `photo_id` to NULL and leave the
+    promoted `photos` row unreferenced and still unapproved -- the exact
+    stranding this lane refused a DELETE route over (WO-2 Decision 4).
+
+    The Evidence Review Queue has always said so on the row ("this
+    screen does not re-open a decision"), but the screen was the only
+    thing enforcing it; any other caller -- the Picker and Takeout
+    importers being the obvious next ones -- could walk straight
+    through. Found live by the WO-2 Phase 4 smoke on 2026-07-27, which
+    re-decided an accepted candidate and got a 200. The rule now lives
+    where the write happens.
+
+    Correcting a decision made in error is therefore not a queue action.
+    It is an explicit, audited act that has to see the photos row too,
+    and it belongs to a maintenance work order, alongside the guarded
+    purge tool Decision 4 left open."""
+
+
 # ---------------------------------------------------------------- plumbing
 
 
@@ -825,6 +849,12 @@ def candidate_decide(
         duplicate candidate has no photo to point at.
       * 'pending' is not decidable. Undeciding is not a write offered
         here; the review history is the point of the table.
+      * a candidate that has ALREADY been decided is not decidable
+        either. This is the same rule seen from the other side, and it
+        is enforced below rather than merely documented, because the
+        Phase 4 smoke proved a doc comment stops nobody: re-deciding an
+        accepted candidate cleared its photo_id and stranded the photos
+        row it pointed at. See CandidateAlreadyDecidedError.
     """
     if state not in DECIDABLE_STATES:
         raise InvalidStateError(
@@ -847,6 +877,19 @@ def candidate_decide(
     try:
         _assert_intake_not_approval(con)
         cand = _candidate_row(con, candidate_id)
+        # One-way. Checked against the stored state and not against
+        # whether the new decision differs, because re-asserting the
+        # same decision is still a second review event and would still
+        # rewrite reviewed_by_user_id and reviewed_at over the first.
+        if cand["state"] != "pending":
+            raise CandidateAlreadyDecidedError(
+                "candidate %s was already decided as %r; a decision is not "
+                "re-opened here. Re-deciding an accepted candidate clears "
+                "its photo_id and strands the promoted photos row, which is "
+                "why this lane has neither a DELETE nor an undecide. Retire "
+                "the row with hidden if it should leave the queue."
+                % (candidate_id, cand["state"])
+            )
         if photo_id:
             _assert_photo_owned_by(con, photo_id, cand["person_id"])
         cur = con.execute(
@@ -1465,6 +1508,23 @@ def candidate_promote(
             "own lane before there is anything to promote."
             % (batch.get("id"), batch.get("source"),
                " and ".join(PROMOTABLE_SOURCES))
+        )
+
+    # The same rule as candidate_decide()'s one-way guard, seen from the
+    # other end. A candidate that was refused (rejected / duplicate /
+    # error) and has no photo yet must not mint one: it can never be
+    # accepted now, so the photos row would be born unreferenced and
+    # stay that way. Deliberately conditioned on there being no
+    # photo_id, because an ALREADY-linked candidate is a pure lookup
+    # below -- it creates nothing, and a "promote + accept" retry after
+    # the accept succeeded must keep answering with the same photo_id
+    # rather than punishing the operator for a duplicate click.
+    if not cand.get("photo_id") and cand.get("state") != "pending":
+        raise CandidateAlreadyDecidedError(
+            "candidate %s was decided as %r and has no photo; promoting it "
+            "now would create a photos row nothing can ever reference, "
+            "because a decided candidate cannot be accepted. Promote before "
+            "deciding." % (candidate_id, cand.get("state"))
         )
 
     person_id = cand["person_id"]

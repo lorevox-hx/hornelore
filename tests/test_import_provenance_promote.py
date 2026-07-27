@@ -403,18 +403,227 @@ class PromotionDoesNotDecideTests(_Base):
         self.assertEqual(int(after["needs_confirmation"]), 1)
         self.assertEqual(after["updated_at"], before["updated_at"])
 
-    def test_rejecting_after_promoting_unlinks_but_keeps_the_photo(self):
-        # A known and accepted consequence, locked so it cannot change
-        # silently: candidate_decide writes photo_id unconditionally, and
-        # a non-accepted decision must not carry one, so the link clears.
-        # The photos row survives, unreferenced and still unapproved --
-        # there is no DELETE in this lane and promotion did not add one.
+    def test_rejecting_a_promoted_but_still_pending_candidate_unlinks_it(self):
+        # REWRITTEN 2026-07-27. This test used to assert the same thing
+        # about an ALREADY-ACCEPTED candidate, and that path is now a 409
+        # (see DecisionsAreOneWayTests). What survives is the narrower and
+        # still-true statement: candidate_decide writes photo_id
+        # unconditionally and a non-accepted decision must not carry one,
+        # so deciding a PENDING promoted candidate as rejected clears the
+        # link. That is a legitimate first decision -- the operator
+        # promoted, looked at the image, and said no -- and the photos row
+        # survives unreferenced and still unapproved, because there is no
+        # DELETE in this lane and promotion did not add one.
+        self.assertEqual(self._candidate(self.cid)["state"], "pending")
         r = self._decide(self.cid, state="rejected")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIsNone(self._candidate(self.cid)["photo_id"])
         self.assertEqual(self._photo_count(), 1)
         self.assertEqual(int(self._photo_row(self.photo_id)["narrator_ready"]),
                          0)
+
+
+# ======================================================================
+#  3b -- DECISIONS ARE ONE WAY
+# ======================================================================
+
+
+class DecisionsAreOneWayTests(_Base):
+    """A decided candidate is not decidable again. 409, and nothing moves.
+
+    Found by the WO-2 Phase 4 live smoke on 2026-07-27: re-deciding an
+    ACCEPTED candidate as rejected returned 200 and cleared its photo_id,
+    stranding the promoted photos row unreferenced and still unapproved --
+    the exact failure mode Decision 4 refused a DELETE route over. The
+    invariant was written in candidate_decide's docstring and in the
+    screen's own comment and enforced in neither; the UI's
+    `c.state === "pending"` gate was the only thing holding it, so any
+    other caller walked straight through. WO-3's Picker and Takeout
+    importers are the obvious next callers.
+
+    Chris's ruling: refuse any re-decide. Decisions are one-way, and
+    correcting one made in error is a deliberate maintenance work order
+    that has to see the photos row too -- not a queue action.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.batch_id = self._open_batch()
+        self.cid = self._new_candidate(self.batch_id, filename="a.png")
+        r = self._promote(self.cid, data=_PNG)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.photo_id = r.json()["photo_id"]
+
+    def _accept(self):
+        r = self._decide(self.cid, state="accepted", photo_id=self.photo_id,
+                         state_reason="looks right",
+                         reviewed_by_user_id=self.person_id)
+        self.assertEqual(r.status_code, 200, r.text)
+        return self._candidate(self.cid)
+
+    def _refuse(self, state, **body):
+        """Decide once, then decide again and demand the second one lose."""
+        first = self._decide(self.cid, state=state, **body)
+        self.assertEqual(first.status_code, 200, first.text)
+        return self._candidate(self.cid)
+
+    # -- the headline case ----------------------------------------------
+
+    def test_accepted_then_rejected_is_409(self):
+        self._accept()
+        r = self._decide(self.cid, state="rejected")
+        self.assertEqual(r.status_code, 409, r.text)
+
+    def test_accepted_keeps_its_photo_id(self):
+        # The whole point. A 200 here used to null this column.
+        self._accept()
+        self._decide(self.cid, state="rejected")
+        self.assertEqual(self._candidate(self.cid)["photo_id"], self.photo_id)
+
+    def test_accepted_keeps_its_state_reason_and_reviewer(self):
+        before = self._accept()
+        self._decide(self.cid, state="rejected", state_reason="changed my mind",
+                     reviewed_by_user_id=self.other_person_id)
+        after = self._candidate(self.cid)
+        self.assertEqual(after["state"], "accepted")
+        self.assertEqual(after["state_reason"], before["state_reason"])
+        self.assertEqual(after["reviewed_by_user_id"],
+                         before["reviewed_by_user_id"])
+        self.assertEqual(after["reviewed_at"], before["reviewed_at"])
+
+    def test_the_refused_re_decision_writes_nothing_at_all(self):
+        # No partial write: every column the route can touch is compared,
+        # not just the ones the failure mode was about.
+        before = self._accept()
+        self._decide(self.cid, state="rejected", state_reason="nope",
+                     reviewed_by_user_id=self.other_person_id)
+        self.assertEqual(self._candidate(self.cid), before)
+
+    # -- the other three decided states ---------------------------------
+
+    def test_rejected_then_accepted_is_409(self):
+        self._refuse("rejected", state_reason="blurry")
+        r = self._decide(self.cid, state="accepted", photo_id=self.photo_id)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(self._candidate(self.cid)["state"], "rejected")
+
+    def test_duplicate_then_rejected_is_409(self):
+        self._refuse("duplicate", state_reason="same file_hash")
+        r = self._decide(self.cid, state="rejected")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(self._candidate(self.cid)["state"], "duplicate")
+
+    def test_error_then_accepted_is_409(self):
+        self._refuse("error", state_reason="zero byte file")
+        r = self._decide(self.cid, state="accepted", photo_id=self.photo_id)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(self._candidate(self.cid)["state"], "error")
+
+    def test_re_asserting_the_same_decision_is_also_409(self):
+        # Checked against the stored state and not against whether the new
+        # decision differs: accepted -> accepted is still a second review
+        # event and would still rewrite reviewed_at over the first.
+        before = self._accept()
+        r = self._decide(self.cid, state="accepted", photo_id=self.photo_id,
+                         reviewed_by_user_id=self.other_person_id)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(self._candidate(self.cid)["reviewed_at"],
+                         before["reviewed_at"])
+
+    # -- the first decision still works ---------------------------------
+
+    def test_pending_still_accepts(self):
+        r = self._decide(self.cid, state="accepted", photo_id=self.photo_id)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._candidate(self.cid)["state"], "accepted")
+
+    def test_pending_still_takes_every_refusal_state(self):
+        for state in ("rejected", "duplicate", "error"):
+            with self.subTest(state=state):
+                cid = self._new_candidate(self.batch_id,
+                                          filename="%s.png" % state)
+                r = self._decide(cid, state=state)
+                self.assertEqual(r.status_code, 200, r.text)
+                self.assertEqual(self._candidate(cid)["state"], state)
+
+    # -- the photos row -------------------------------------------------
+
+    def test_a_refused_re_decision_leaves_the_photos_table_alone(self):
+        self._accept()
+        before = self._photo_row(self.photo_id)
+        self.assertEqual(self._photo_count(), 1)
+        self._decide(self.cid, state="rejected")
+        self.assertEqual(self._photo_count(), 1)
+        self.assertEqual(self._photo_row(self.photo_id), before)
+
+    def test_the_photo_is_still_born_unapproved_after_the_refusal(self):
+        self._accept()
+        self._decide(self.cid, state="rejected")
+        row = self._photo_row(self.photo_id)
+        self.assertEqual(int(row["narrator_ready"]), 0)
+        self.assertEqual(int(row["needs_confirmation"]), 1)
+        self.assertEqual(int(row["date_approved_for_lori"]), 0)
+        self.assertEqual(int(row["location_approved_for_lori"]), 0)
+        self.assertIsNone(row["deleted_at"])
+
+    def test_the_refusal_explains_itself(self):
+        self._accept()
+        detail = str(self._decide(self.cid, state="rejected").json())
+        self.assertIn("already decided", detail)
+        self.assertIn("accepted", detail)
+
+
+# ======================================================================
+#  3c -- PROMOTION IS ALSO ONE WAY ROUND THE OTHER SIDE
+# ======================================================================
+
+
+class PromotingADecidedCandidateTests(_Base):
+    """A refused candidate with no photo must not mint one.
+
+    The mirror of the decide guard. Once a candidate is rejected /
+    duplicate / error it can never be accepted, so a photos row created
+    for it now would be born unreferenced and stay that way -- the same
+    stranding, arrived at from the other end.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.batch_id = self._open_batch()
+
+    def test_promoting_a_rejected_candidate_is_409(self):
+        cid = self._new_candidate(self.batch_id, filename="a.png")
+        self.assertEqual(self._decide(cid, state="rejected").status_code, 200)
+        r = self._promote(cid, data=_PNG)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(self._photo_count(), 0)
+
+    def test_promoting_a_duplicate_or_error_candidate_is_409(self):
+        for state in ("duplicate", "error"):
+            with self.subTest(state=state):
+                cid = self._new_candidate(self.batch_id,
+                                          filename="%s.png" % state)
+                self._decide(cid, state=state)
+                self.assertEqual(self._promote(cid, data=_PNG).status_code,
+                                 409)
+        self.assertEqual(self._photo_count(), 0)
+
+    def test_an_already_promoted_accepted_candidate_still_re_promotes(self):
+        # Deliberately NOT refused. "Promote + accept" is two requests and
+        # the operator may click it twice; once the candidate carries a
+        # photo_id the promote route is a pure lookup that creates
+        # nothing, so a retry after the accept succeeded must keep
+        # answering with the same photo rather than punishing the click.
+        cid = self._new_candidate(self.batch_id, filename="a.png")
+        photo_id = self._promote(cid, data=_PNG).json()["photo_id"]
+        self.assertEqual(
+            self._decide(cid, state="accepted",
+                         photo_id=photo_id).status_code, 200)
+        again = self._promote(cid)
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json()["photo_id"], photo_id)
+        self.assertFalse(again.json()["created"])
+        self.assertEqual(self._photo_count(), 1)
 
 
 class PromotionIsIdempotentTests(_Base):

@@ -146,6 +146,11 @@ _STATUS_BY_ERROR = (
     (repo.CrossTripError, 409),
     (repo.IntakeIsNotApprovalError, 409),
     (repo.BatchClosedError, 409),
+    # Also 409 rather than 400, and for the same reason as BatchClosed:
+    # 'rejected' is a perfectly valid decision, it is this candidate's
+    # current state that refuses it. A 400 would tell the caller to fix
+    # its payload, and there is nothing wrong with the payload.
+    (repo.CandidateAlreadyDecidedError, 409),
     # 409 and not 400: the request is well formed and the candidate is
     # real. What is missing is the image, which is a fact about the
     # state of the world, not about the request.

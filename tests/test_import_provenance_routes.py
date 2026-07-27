@@ -716,6 +716,28 @@ class DecisionRouteTests(_Base):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._photo_row(photo_id), before)
 
+    def test_re_deciding_a_decided_candidate_is_409_at_the_route(self):
+        """409 and not 400, on purpose.
+
+        The payload is well formed and 'rejected' is a real decision --
+        it is this candidate's state that refuses it, exactly as with
+        BatchClosedError. A 400 would tell the caller to go fix a request
+        that has nothing wrong with it. The repository-level proof that
+        nothing moves lives in DecisionsAreOneWayTests; this pins the
+        status code the wire actually sees.
+        """
+        cid = self._new_candidate(external_id="d-7")
+        photo_id = self._insert_photo(self.person_id)
+        self.assertEqual(
+            self._decide(cid, state="accepted",
+                         photo_id=photo_id).status_code, 200)
+        r = self._decide(cid, state="rejected")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("already decided", r.json()["detail"])
+        cand = repo.candidate_get(cid)
+        self.assertEqual(cand["state"], "accepted")
+        self.assertEqual(cand["photo_id"], photo_id)
+
     def test_a_rejection_cannot_carry_a_photo(self):
         cid = self._new_candidate(external_id="d-6")
         r = self._decide(cid, state="rejected",
@@ -833,11 +855,18 @@ class TokenRefusalRouteTests(_Base):
         for kind in (repo.BatchNotFoundError, repo.CandidateNotFoundError,
                      repo.CrossPersonError, repo.CrossTripError,
                      repo.IntakeIsNotApprovalError, repo.BatchClosedError,
-                     repo.ExternalTokenError, repo.InvalidStateError):
+                     repo.ExternalTokenError, repo.InvalidStateError,
+                     repo.CandidateAlreadyDecidedError):
             with self.subTest(error=kind.__name__):
                 self.assertLess(ip._status_for(kind("x")), 500)
         # The base class is the drifted-database case, and that IS a 500.
         self.assertEqual(ip._status_for(repo.ImportRepositoryError("x")), 500)
+
+    def test_already_decided_maps_to_409_and_not_400(self):
+        # Named separately from the loop above because which sub-500 code
+        # it gets is the decision, not merely that it has one.
+        self.assertEqual(
+            ip._status_for(repo.CandidateAlreadyDecidedError("x")), 409)
 
 
 # ======================================================================
