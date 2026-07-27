@@ -71,7 +71,11 @@ class NorthDakotaHttpSequenceTest(unittest.TestCase):
       * POST /api/trips serializes and validates through Pydantic
       * GET /api/trips/{id}/days returns partitioned response
       * PATCH /api/trips/{id} accepts JSON body and returns days_warning
-      * DELETE /api/trips/{id} routes and returns 200
+      * DELETE /api/trips/{id} routes, and the Phase 2 impact gate
+        holds through real HTTP: unforced delete of a trip with
+        evidence is 409 + requires_force and changes nothing, a
+        mismatched confirm_trip_id is 422 and changes nothing, and
+        force + exact confirm deletes
       * A bogus person_id is rejected as 422 through the real HTTP path
       * No HTTP 500 anywhere in the sequence
     """
@@ -196,10 +200,51 @@ class NorthDakotaHttpSequenceTest(unittest.TestCase):
         self.assertEqual([d["day_index"] for d in body["days"]],
                          [1, 2, 3, 4, 5])
 
-        # 7. DELETE /api/trips/{id} — no 500
+        # 7a. DELETE /api/trips/{id} with no body — the impact gate REFUSES.
+        # This trip is not empty: step 4 extended it to Aug 1-9, so nine
+        # trip_days rows exist (five in-window after step 6's shrink, four
+        # preserved). WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 Phase 2 says any
+        # nonzero dependent count blocks an unforced delete and modifies
+        # NOTHING. Asserting 200/204 here is what this test used to do; it
+        # predated the gate and was asserting the absence of a shipped
+        # safety feature.
         r = self.client.delete(f"/api/trips/{trip_id}")
-        self.assertIn(r.status_code, (200, 204),
-                      f"delete returned {r.status_code}: {r.text[:400]}")
+        self.assertEqual(r.status_code, 409,
+                         f"unforced delete of a trip with evidence should be "
+                         f"refused, got {r.status_code}: {r.text[:400]}")
+        env = r.json()["detail"]
+        self.assertTrue(env["requires_force"])
+        self.assertEqual(env["trip_id"], trip_id)
+        self.assertEqual(env["counts"]["days"], 9,
+                         f"expected the nine Aug 1-9 days in the impact "
+                         f"counts, got {env['counts']}")
+        # and the refusal really was a no-op — the trip is still there
+        r = self.client.get(f"/api/trips/{trip_id}/days")
+        self.assertEqual(r.status_code, 200,
+                         "a refused delete must not remove anything")
+
+        # 7b. force=true with a confirm id that does not echo the path id
+        # → 422, still nothing deleted. httpx's .delete() takes no json=,
+        # so the body goes through .request().
+        r = self.client.request("DELETE", f"/api/trips/{trip_id}",
+                                json={"force": True,
+                                      "confirm_trip_id": "not-the-trip-id"})
+        self.assertEqual(r.status_code, 422,
+                         f"mismatched confirm_trip_id should be refused, "
+                         f"got {r.status_code}: {r.text[:400]}")
+        r = self.client.get(f"/api/trips/{trip_id}/days")
+        self.assertEqual(r.status_code, 200,
+                         "a refused force delete must not remove anything")
+
+        # 7c. force=true with the exact confirm id → the delete goes through.
+        r = self.client.request("DELETE", f"/api/trips/{trip_id}",
+                                json={"force": True,
+                                      "confirm_trip_id": trip_id,
+                                      "reason": "http sequence teardown"})
+        self.assertEqual(r.status_code, 200,
+                         f"confirmed force delete returned {r.status_code}: "
+                         f"{r.text[:400]}")
+        self.assertTrue(r.json()["deleted"])
         # And a GET now returns 404
         r = self.client.get(f"/api/trips/{trip_id}/days")
         self.assertEqual(r.status_code, 404)
