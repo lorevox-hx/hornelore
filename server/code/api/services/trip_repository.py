@@ -3283,15 +3283,143 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
 
 
 
+# ── What a day card actually holds (WO-TRIP-PLAN-AS-HUB-01 Phase A) ───────
+#
+# Two different questions, two different answers, and conflating them is
+# the bug this section exists to prevent:
+#
+#   "What should this card show?"  -> trip_day_counts, above. Generous
+#      on purpose: photos matched by taken-date, notes and sources
+#      inherited through the day's stop or region. The operator wants to
+#      see what belongs to that date, however it got there.
+#
+#   "What would removing this card destroy?"  -> the functions below.
+#      Strict on purpose: only rows fastened to this day by trip_day_id,
+#      plus the text typed into the day row itself. Everything the
+#      generous answer adds survives the delete untouched -- the photo
+#      link keeps its taken_at, the region-scoped note keeps its region.
+#
+# Answering the second question with the first one's numbers would be
+# safe in the trivial sense and useless in practice: trip_days_generate
+# auto-fills trip_region_id, so on a trip with any region-scoped notes
+# every generated card reports content, and a rule that removes empty
+# cards would never find one.
+
+# Operator-typed fields that live IN the trip_days row and die with it.
+# trip_region_id is absent deliberately: generation fills it in from the
+# region date ranges, so its presence says nothing about whether a
+# person has touched this card. trip_stop_id is present for the mirror
+# reason -- nothing sets it but a person.
+DAY_OWN_TEXT_FIELDS = (
+    "title", "main_location", "lodging_base",
+    "morning_notes", "afternoon_notes", "evening_notes",
+)
+DAY_OWN_LIST_FIELDS = ("places_visited_json", "meals_json")
+
+
+def day_own_content(day: Dict[str, Any]) -> List[str]:
+    """Names of the day row's own fields that carry operator content.
+
+    Empty list means the row is a bare generated card: a date, an index,
+    and whatever the generator filled in. Order is stable so a caller can
+    show it to a person without sorting it first."""
+    held: List[str] = []
+    for f in DAY_OWN_TEXT_FIELDS:
+        if str(day.get(f) or "").strip():
+            held.append(f)
+    for f in DAY_OWN_LIST_FIELDS:
+        v = day.get(f)
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except Exception:
+                v = []
+        if v:
+            held.append(f)
+    if day.get("trip_stop_id"):
+        held.append("trip_stop_id")
+    return held
+
+
+def _day_attachment_counts(con: sqlite3.Connection,
+                           trip_id: str) -> Dict[str, Dict[str, int]]:
+    """Rows fastened to each day by trip_day_id, keyed by day id.
+
+    Takes an open connection so the caller can run this INSIDE the same
+    transaction as a delete. A count read outside the write lock and
+    acted on inside it is exactly the read-then-write race that
+    trip_days_generate was already corrected for on 2026-07-23.
+
+    Hidden photo links count. A hidden link is still an attachment: the
+    delete would null its trip_day_id and the operator would unhide it
+    later onto no day at all. Honest-counts (a hidden photo must not
+    look like present evidence) governs what a card DISPLAYS; it has no
+    bearing on what a delete would detach.
+
+    A pre-0028 / pre-0029 database has no trip_day_id column on one or
+    more of these tables, which means nothing can be attached through
+    it, which means zero -- that specific absence is the one thing
+    swallowed here. Every other operational error re-raises, because a
+    lock or an I/O failure reported as "zero attachments" would license
+    a delete on a day nobody could read."""
+    out: Dict[str, Dict[str, int]] = {}
+
+    def _tally(table: str, bucket: str) -> None:
+        if not _table_has_column(con, table, "trip_day_id"):
+            return
+        rows = con.execute(
+            "SELECT trip_day_id AS d, COUNT(*) AS n FROM " + table
+            + " WHERE trip_id = ? AND trip_day_id IS NOT NULL"
+              " GROUP BY trip_day_id",
+            (trip_id,),
+        ).fetchall()
+        for r in rows:
+            did = str(r["d"] or "")
+            if not did:
+                continue
+            slot = out.setdefault(
+                did, {"photos": 0, "notes": 0, "sources": 0})
+            slot[bucket] = int(r["n"])
+
+    _tally("trip_photo_links", "photos")
+    _tally("trip_location_notes", "notes")
+    _tally("trip_sources", "sources")
+    return out
+
+
+def trip_day_attached_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
+    """Public read-only wrapper over _day_attachment_counts."""
+    con = _connect()
+    try:
+        return _day_attachment_counts(con, trip_id)
+    finally:
+        con.close()
+
+
+def _day_is_empty(day: Dict[str, Any],
+                  attached: Dict[str, Dict[str, int]]) -> bool:
+    """True when removing this day row would destroy or detach nothing."""
+    if day_own_content(day):
+        return False
+    a = attached.get(str(day.get("id")), {})
+    return not (a.get("photos") or a.get("notes") or a.get("sources"))
+
+
 # ── Trip-day date-range reconcile (WO-TRAVEL-DOC-UI-LAB-03) ────────────────
 #
 # When trip start/end dates change AFTER day cards exist, generation only
 # appends missing dates — it never deletes operator work. The reconcile
 # pair below makes that state visible and operator-resolvable:
 #   * preview — read-only diff of the trip window vs. existing day rows.
-#   * reconcile — add ONLY missing in-range days and/or acknowledge
-#     out-of-range days (reconcile_status, migration 0029). NOTHING is
-#     ever deleted; out-of-range day cards are kept to protect notes.
+#   * reconcile — add missing in-range days, acknowledge out-of-range
+#     days (reconcile_status, migration 0029), and, since 2026-07-28,
+#     drop the out-of-range days that hold nothing.
+#
+# [This block ended "NOTHING is ever deleted; out-of-range day cards are
+# kept to protect notes." until 2026-07-28. See the retirement note in
+# trip_days_reconcile's docstring for why that rule was right and why it
+# was not sufficient. The half of it that still holds, and always will:
+# a day card that holds anything is never deleted here, by any flag.]
 
 RECONCILE_STATUS_ACTIVE = "active"
 RECONCILE_STATUS_OUT_OF_RANGE_ACK = "out_of_range_acknowledged"
@@ -3317,7 +3445,16 @@ def trip_days_reconcile_preview(trip_id: str) -> Dict[str, Any]:
     missing_dates, out_of_range_days, duplicate_or_invalid_days}.
     When the trip has no usable date window, missing_dates and
     out_of_range_days are [] (no window means nothing can honestly be
-    called missing or out of range)."""
+    called missing or out of range).
+
+    2026-07-28 (WO-TRIP-PLAN-AS-HUB-01 Phase A) — each out-of-range row
+    additionally carries ``holds`` {photos, notes, sources, own} and
+    ``is_empty``, so a caller can tell the two out-of-range cases apart
+    without a second round trip: a bare generated card the dates moved
+    past, and a card somebody worked on. ``holds`` counts ATTACHED rows
+    only and is a different number from the ``counts`` the /days route
+    merges in — see the section above for why the display number is the
+    wrong one to make a delete decision with. Still read-only."""
     from datetime import timedelta as _timedelta
 
     trip = trip_get(trip_id)
@@ -3357,6 +3494,26 @@ def trip_days_reconcile_preview(trip_id: str) -> Dict[str, Any]:
                 missing.append(iso)
             cur = cur + _timedelta(days=1)
 
+    # Only pay for the attachment queries when there is something to
+    # describe. A trip whose dates never moved has no out-of-range rows
+    # and this preview runs on every load of the surface.
+    if out_of_range:
+        con = _connect()
+        try:
+            attached = _day_attachment_counts(con, trip_id)
+        finally:
+            con.close()
+        for d in out_of_range:
+            a = attached.get(str(d.get("id")), {})
+            own = day_own_content(d)
+            d["holds"] = {
+                "photos": int(a.get("photos", 0)),
+                "notes": int(a.get("notes", 0)),
+                "sources": int(a.get("sources", 0)),
+                "own": own,
+            }
+            d["is_empty"] = _day_is_empty(d, attached)
+
     return {
         "trip_id": trip_id,
         "trip_start_date": start_raw or None,
@@ -3372,6 +3529,7 @@ def trip_days_reconcile(
     trip_id: str,
     add_missing: bool = False,
     mark_out_of_range: bool = False,
+    drop_empty_out_of_range: bool = False,
 ) -> Dict[str, Any]:
     """Apply the operator-requested reconcile actions.
 
@@ -3382,13 +3540,79 @@ def trip_days_reconcile(
       'out_of_range_acknowledged' on out-of-range day rows, and resets
       in-range rows that were previously acknowledged back to 'active'
       (honest status when trip dates change again).
+    * ``drop_empty_out_of_range`` deletes out-of-range day rows that
+      hold nothing — no rows attached by trip_day_id, no text in the
+      row itself (see _day_is_empty). A day that holds anything is left
+      exactly where it is and reported back in ``kept_out_of_range``.
 
-    NOTHING is ever deleted here — out-of-range day cards are kept to
-    protect the operator's notes."""
+    2026-07-28 (WO-TRIP-PLAN-AS-HUB-01 Phase A) — this function used to
+    end: "NOTHING is ever deleted here — out-of-range day cards are kept
+    to protect the operator's notes." That stopped being true when
+    ``drop_empty_out_of_range`` was added on Chris's instruction:
+
+        Implement the complete shrinking-date rule: remove empty
+        out-of-range days; refuse and clearly list out-of-range days
+        containing work.
+
+    The reason the old sentence was right and is no longer sufficient:
+    it was written for the reconcile drawer, where an operator reviews
+    cards one at a time and every card on screen is one somebody might
+    want. It also had to cover the case where nobody could tell an
+    untouched card from a worked-on one, because until now nothing here
+    could. A bare generated card that the trip dates moved past holds no
+    notes to protect, and leaving it drawn under a header that says the
+    trip ended three days earlier is its own kind of dishonesty.
+
+    What did NOT change: a day card that holds anything is still never
+    deleted by this function, by any flag, and the emptiness test is
+    re-run inside the write transaction rather than trusted from the
+    preview. Migration 0029's header comment still states the older,
+    absolute rule; it is left as written because an applied migration is
+    a record of what that migration did."""
     preview = trip_days_reconcile_preview(trip_id)
     added = 0
     if add_missing and preview["missing_dates"]:
         added = trip_days_generate(trip_id)["created"]
+
+    dropped: List[Dict[str, Any]] = []
+    kept: List[Dict[str, Any]] = []
+    if drop_empty_out_of_range:
+        # Re-preview: an add_missing in the same call can have moved
+        # rows in or out of range, and acting on the stale list would
+        # delete against a window that no longer applies.
+        fresh = trip_days_reconcile_preview(trip_id)
+        candidates = [d for d in fresh["out_of_range_days"]
+                      if d.get("is_empty")]
+        if candidates:
+            con = _connect()
+            try:
+                # BEGIN IMMEDIATE for the same reason trip_days_generate
+                # takes it: the emptiness test and the delete have to be
+                # one decision. Reading "empty" outside the write lock
+                # and deleting inside it is a window in which another
+                # tab attaches a photo to a card this call then removes.
+                con.execute("BEGIN IMMEDIATE;")
+                attached = _day_attachment_counts(con, trip_id)
+                for d in candidates:
+                    did = str(d["id"])
+                    row = con.execute(
+                        "SELECT * FROM trip_days WHERE id = ?", (did,),
+                    ).fetchone()
+                    if row is None:
+                        continue          # already gone; nothing to do
+                    live = _day_row_to_dict(row)
+                    if not _day_is_empty(live, attached):
+                        # It filled up between the preview and the lock.
+                        kept.append({"id": did, "date": live.get("date")})
+                        continue
+                    con.execute("DELETE FROM trip_days WHERE id = ?", (did,))
+                    dropped.append({"id": did, "date": live.get("date")})
+                con.commit()
+            except Exception:
+                con.rollback()
+                raise
+            finally:
+                con.close()
 
     marked = 0
     reactivated = 0
@@ -3437,5 +3661,8 @@ def trip_days_reconcile(
         "added": added,
         "marked_out_of_range": marked,
         "reactivated": reactivated,
+        "dropped_empty_out_of_range": len(dropped),
+        "dropped_days": dropped,
+        "kept_out_of_range": kept,
         "preview": trip_days_reconcile_preview(trip_id),
     }

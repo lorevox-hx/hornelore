@@ -47,7 +47,8 @@ mirroring the operator_eval_harness posture):
     PATCH /api/trips/sources/{source_id}
     DELETE /api/trips/sources/{source_id}
     GET   /api/trips/{trip_id}/days/reconcile-preview   (read-only date diff)
-    POST  /api/trips/{trip_id}/days/reconcile  {add_missing, mark_out_of_range}
+    POST  /api/trips/{trip_id}/days/reconcile
+          {add_missing, mark_out_of_range, drop_empty_out_of_range}
 
 WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01 (2026-07-24) — evidence lifecycle
 safety + destructive-trip controls:
@@ -3259,14 +3260,28 @@ def generate_trip_days(trip_id: str) -> Dict[str, Any]:
 class TripDaysReconcileReq(BaseModel):
     add_missing: bool = False
     mark_out_of_range: bool = False
+    # 2026-07-28 (WO-TRIP-PLAN-AS-HUB-01 Phase A). Defaults False: every
+    # existing caller keeps the behaviour it was written against, and a
+    # request that deletes has to say so in as many words.
+    drop_empty_out_of_range: bool = False
 
 
 @router.get("/{trip_id}/days/reconcile-preview")
 def reconcile_preview_trip_days(trip_id: str) -> Dict[str, Any]:
     """WO-TRAVEL-DOC-UI-LAB-03 — READ-ONLY diff between the trip's
     start/end window and its existing day rows: missing in-range dates,
-    out-of-range day cards (kept, never deleted), duplicate/invalid
-    dates. No writes."""
+    out-of-range day cards, duplicate/invalid dates. No writes.
+
+    2026-07-28 — each out-of-range row carries ``holds`` {photos, notes,
+    sources, own} and ``is_empty``, which is what a caller needs to tell
+    an operator WHICH cards are blocking a date change and what is on
+    them. ``holds`` counts rows attached by trip_day_id only; it is a
+    smaller number than the ``counts`` the /days route merges in, on
+    purpose — see trip_repository's "What a day card actually holds".
+
+    [This docstring described out-of-range day cards as "(kept, never
+    deleted)" until 2026-07-28. This route still never deletes anything;
+    the reconcile POST below now can, when asked.]"""
     _require_trips_enabled()
     try:
         exists = trip_repository.trip_get(trip_id) is not None
@@ -3288,8 +3303,25 @@ def reconcile_trip_days(trip_id: str,
     """WO-TRAVEL-DOC-UI-LAB-03 — apply reconcile actions. add_missing
     creates ONLY missing in-range days (existing/operator-edited rows
     are never overwritten); mark_out_of_range stamps reconcile_status =
-    'out_of_range_acknowledged' on out-of-range day cards. NOTHING is
-    deleted — out-of-range cards are kept to protect operator notes."""
+    'out_of_range_acknowledged' on out-of-range day cards;
+    drop_empty_out_of_range deletes the out-of-range cards that hold
+    nothing and returns the ones it refused to touch in
+    ``kept_out_of_range``.
+
+    2026-07-28 (WO-TRIP-PLAN-AS-HUB-01 Phase A) — this docstring used to
+    end: "NOTHING is deleted — out-of-range cards are kept to protect
+    operator notes." Chris's Phase A review asked for the rest of the
+    shrinking-date rule: "remove empty out-of-range days; refuse and
+    clearly list out-of-range days containing work." A bare generated
+    card the trip dates moved past has no operator notes to protect, and
+    a trip header reading July 14-18 above a visible July 20 card is its
+    own dishonesty.
+
+    What did not change: a card that holds anything is never deleted, by
+    any flag; emptiness is decided inside the write transaction, not
+    from the preview; and "holds" means rows attached by trip_day_id
+    plus text typed into the day row — not the generous display counts.
+    The full reasoning is in trip_days_reconcile's docstring."""
     _require_trips_enabled()
     try:
         exists = trip_repository.trip_get(trip_id) is not None
@@ -3304,6 +3336,8 @@ def reconcile_trip_days(trip_id: str,
             add_missing=bool(getattr(req, "add_missing", False)),
             mark_out_of_range=bool(getattr(req, "mark_out_of_range",
                                            False)),
+            drop_empty_out_of_range=bool(
+                getattr(req, "drop_empty_out_of_range", False)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -3311,8 +3345,15 @@ def reconcile_trip_days(trip_id: str,
         raise _classified_sqlite_500(
             exc, "[trips][days][reconcile]", trip_id) from exc
     logger.info("[trips][days] reconcile trip=%s added=%d marked=%d "
-                "reactivated=%d", trip_id, out["added"],
-                out["marked_out_of_range"], out["reactivated"])
+                "reactivated=%d dropped=%d kept=%d", trip_id, out["added"],
+                out["marked_out_of_range"], out["reactivated"],
+                out.get("dropped_empty_out_of_range", 0),
+                len(out.get("kept_out_of_range") or []))
+    for d in (out.get("dropped_days") or []):
+        # Dates, not ids: the id means nothing after the row is gone, and
+        # the date is what an operator would ask about.
+        logger.info("[trips][days] dropped empty out-of-range day trip=%s "
+                    "date=%s", trip_id, d.get("date"))
     try:
         out["days"] = trip_repository.trip_days_list(trip_id)
     except sqlite3.Error as exc:
