@@ -324,14 +324,92 @@ stacks (fastapi 0.135.1 / starlette 0.52.1 / pydantic 2.12.5 / httpx 0.27.2,
 exactly what `requirements-test.txt` pins), so a green TestClient result is
 evidence about the same framework generation that serves.
 
-### 2.5 What "verified" does not yet cover
+### 2.5 Picker Phase 2D — the operator affordance
+
+`ui/js/travel-doc-lab.js` gains a Google Photos import strip at the top of
+the existing Evidence tab, styled from a new `tdl-gp-` block in
+`ui/css/travel-doc-lab.css`. It is **not an eleventh tab**. Ruling 1.3 gives
+candidate review to the Evidence Review Queue, and a screen of its own is how
+a second queue starts — first as a place to see what was imported, then as a
+place to act on it. A strip above the queue can only ever be an on-ramp to
+the rows below it.
+
+The strip speaks the four verbs §12.8 names and no others: `GET /health` to
+learn whether the lane is even on, `POST /sessions` to open a picking
+session, `GET /sessions/{batch_id}` to poll it, and
+`POST /sessions/{batch_id}/ingest` to stage what was picked. After an
+ingest it calls the queue's own reload, so the authoritative screen is the
+one that shows the result.
+
+**The per-run report is a receipt, not a queue.** It is rendered once from
+the response already in hand, is never refetched, and carries no control:
+the seven queue row actions, `/promote`, `/decision` and every `DELETE` are
+asserted absent from the strip's half of the module. The lane's one DELETE
+route — it releases the picking session at Google and answers
+`batch_deleted: false` — is deliberately not surfaced. That is a scope wall,
+not a safety one, and it is asserted rather than assumed, because "safe and
+therefore fine to add" is how the first DELETE gets in.
+
+**Nothing credential-shaped reaches the browser.** `/health` is rendered as
+presence booleans and a list of missing key *names*; no response field named
+`baseUrl`, `access_token`, `refresh_token`, `client_secret` or `session_id`
+is read anywhere in the block. There is no Google JavaScript, no
+`apis.google.com`, no injected `<script>` and no `window.open` — the picker
+URI is an ordinary anchor with `target="_blank"` and
+`rel="noopener noreferrer"`, so the one step that happens off this screen
+happens in Google's own window with no handle back.
+
+**The destination is explicit, per §10.2.** `person_id` is required and
+`trip_id` is sent only when the operator has a trip selected and has left the
+file-to-trip control on. Nothing is inferred from the Google account, and the
+unfiled case is stated on the panel rather than defaulted away. The badge
+names the batch's **own** trip id, because a run survives a trip switch and a
+badge reading "filed to a trip" would otherwise mean "the one you are looking
+at" exactly when that was false.
+
+**Flag-off is rendered as configuration, not as an error** — a neutral dashed
+panel modelled on the queue's `.tdl-erq-off`, deliberately not `.tdl-error`,
+because a red panel sends an operator hunting for a broken thing when the
+true answer is that nobody switched it on. The front end reads no flag; it
+infers the gate from a 404, and **only on `/health` and `POST /sessions`**,
+neither of which takes a path parameter, so nothing behind them can be "not
+found" except the gate itself. On `GET /sessions/{batch_id}` and on ingest a
+404 has three possible meanings, so it is reported with its reason instead of
+interpreted. The two off-states are independent: the queue needs
+`HORNELORE_IMPORT_PROVENANCE`, the strip needs that **and**
+`HORNELORE_GOOGLE_PICKER`, so a readable queue with no import affordance
+above it is a correct configuration rather than a fault.
+
+**Verification:** `tests/test_travel_doc_picker_ui.py` is new — 24 tests,
+source-scanning the shipped JS and CSS, ordered by what they guard:
+credentials first, then ruling 1.3, then the explicit destination, then the
+flag-off arm and its 404 disambiguation. `tests/test_travel_doc_lab.py` runs
+150, OK; `tests/test_travel_doc_evidence_ui.py` runs 7, OK. Two existing
+gates had to be loosened and both were **retired in place**, quoting the old
+assertion with the date it stopped being right: the endpoint allow-list
+gained `/api/google-picker` as a sixth and separate prefix, and the timer
+inventory that read "the file's only timer" now counts two and asserts a
+`destroyed` check on both. That second one failed first and named its own
+fix — it is the gate working, not the gate being in the way.
+
+### 2.6 What "verified" does not yet cover
 
 No run has touched a real `baseUrl`, a real bearer token, or real EXIF. The
 credential-hygiene claims in 1.10 are proved against fixtures. The live smoke
 against a real Picker session is the next gate and it has not been run.
 
-Phase 1 is live-proven. Phase 2 is suite-proven. Those are different words on
-purpose.
+**2D does not change that, and it is worth being exact about why.** Its 24
+tests read the shipped JavaScript and CSS as text. That is the right shape of
+test for the properties they guard — "no credential-shaped field is read
+anywhere in this block" and "no decision control exists in this half of the
+file" are claims about what the source contains, and a browser could not
+prove either one more strongly than a scan does. But no browser has rendered
+the strip, no operator has clicked the link, and nothing has been ingested
+through it. A source scan cannot see a typo in a class name or a panel that
+lays out wrongly.
+
+Phase 1 is live-proven. Phase 2, 2D included, is suite-proven. Those are
+different words on purpose.
 
 ---
 
@@ -345,11 +423,27 @@ Adding `google_photos_picker` to `PROMOTABLE_SOURCES`, so a reviewed picker
 candidate can become a `photos` row. Not started. It is gated behind the fetch
 lane existing, which it now does, and behind 3.3.
 
-### 3.2 Phase 2D / Phase 4 — the operator affordance
+### 3.2 ~~Phase 2D~~ / Phase 4 — the operator affordance
 
-The minimal Picker UI: open picker, check selection, ingest, refresh queue.
-Deliberately sequenced *after* 2A and 2B were reviewed and committed, so that
-the UI cannot hide a server defect. Bound in advance by ruling 1.3.
+**The 2D half moved to 2.5 on 2026-07-28. It is struck here rather than
+deleted, per this document's own Maintenance rule.** It read, in full:
+
+> The minimal Picker UI: open picker, check selection, ingest, refresh queue.
+> Deliberately sequenced *after* 2A and 2B were reviewed and committed, so
+> that the UI cannot hide a server defect. Bound in advance by ruling 1.3.
+
+All four of those verbs shipped, in that sequencing, bound by that ruling.
+The sentence about sequencing is the one worth keeping in view: it was
+written as a plan and 2D is the evidence it was followed, which is a
+different and better thing than a plan nobody checked afterwards.
+
+**Phase 4 has not landed and does not move.** What 2.5 shipped is the
+*minimal* affordance — a strip that opens a session, polls it, ingests it and
+hands off to the queue. Anything past that (batch history, a re-open of a
+prior batch, a persisted per-run failure summary — see 3.4) is Phase 4 and is
+subject to 1.3 exactly as 2D was. A strip that grows a list of past runs with
+controls on them has become the second queue ruling 1.3 forbids, and it will
+get there one reasonable-looking feature at a time if nobody is counting.
 
 ### 3.3 The promote-time re-hash check (spec §8)
 
