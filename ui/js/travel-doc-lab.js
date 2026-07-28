@@ -1146,24 +1146,80 @@
   // lands in st.daysWarning, which renderPlan already draws above the
   // calendar. Swallowing it would leave an operator looking at a short
   // calendar with nothing on screen admitting why.
+  // Keyed on the trip AND on the exact set of dates that were missing
+  // when the attempt ran.
+  //
+  // [The key was the trip id alone. Corrected 2026-07-28 on Chris's
+  // review of this phase: "Replace the once-per-trip auto-generation
+  // guard with a guard tied to the current missing-date set, or reset it
+  // after trip-date edits." Keyed on the trip alone, extending a trip's
+  // dates inside one browser session found the new dates missing and
+  // then declined to add them, because that trip had already been
+  // tried --- so the calendar stayed short until the surface was
+  // remounted. That contradicts the promise this phase makes, which is
+  // that the day cards are derived from the CURRENT trip dates.]
+  //
+  // The server covers the common path already: a PATCH that moves the
+  // trip dates runs its own add-missing reconcile before it answers
+  // (_auto_reconcile_days_on_patch). This guard is the second line, for
+  // the paths that do not go through a trip-date save --- a window that
+  // was already open when another tab moved the dates, a reconcile that
+  // failed server-side and left the gap behind.
   var autoDaysTried = {};
+
+  // A mount-lifetime ceiling, and deliberately not part of the key.
+  // The key stops a repeat of the SAME attempt; this stops an unbounded
+  // sequence of DIFFERENT ones. Adding reloads the preview, which lands
+  // back here, so this is a cycle: while each pass strictly shrinks the
+  // missing set the cycle ends on its own, and the old once-per-trip key
+  // made that guarantee structurally. A key that moves with the data
+  // does not, so the bound is stated instead of assumed.
+  var autoDaysAttempts = 0;
+  var AUTO_DAYS_MAX_ATTEMPTS = 6;
+
+  function autoDaysKey(tripId, missing) {
+    // Sorted, because the same gap reported in a different order is the
+    // same gap, and a key that disagreed would re-add dates that are
+    // already there.
+    return String(tripId) + "|" + missing.slice().sort().join(",");
+  }
 
   function maybeAutoAddMissingDays() {
     if (!st.trip) return Promise.resolve();
     var rec = st.reconcile;
-    if (!rec || !(rec.missing_dates || []).length) return Promise.resolve();
-    // Once per trip per mount. The add reloads the preview, which lands
-    // back in this function; without the guard a route that failed to
-    // add would re-fire for as long as the tab stayed open.
-    if (autoDaysTried[st.trip.id]) return Promise.resolve();
-    autoDaysTried[st.trip.id] = true;
+    var missing = (rec && rec.missing_dates) || [];
+    if (!missing.length) return Promise.resolve();
+    var key = autoDaysKey(st.trip.id, missing);
+    // Once per (trip, missing-set) per mount. The add reloads the
+    // preview, which lands back in this function; without the guard a
+    // route that failed to add would re-fire for as long as the tab
+    // stayed open. A failed attempt keeps its key, so it does not
+    // retry itself --- the operator retries it, from the reconcile
+    // review, which is what the warning below points at.
+    if (autoDaysTried[key]) return Promise.resolve();
+    if (autoDaysAttempts >= AUTO_DAYS_MAX_ATTEMPTS) {
+      st.daysWarning = "Day cards stopped generating automatically after " +
+        AUTO_DAYS_MAX_ATTEMPTS + " attempts in this session. Reload the " +
+        "page, and if the calendar is still short, open the reconcile " +
+        "review and add the days by hand.";
+      return Promise.resolve();
+    }
+    autoDaysTried[key] = true;
+    autoDaysAttempts += 1;
     var tripId = st.trip.id;
     return api("/api/trips/" + encodeURIComponent(tripId) + "/days/reconcile",
       { method: "POST", body: { add_missing: true } })
-      .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      .then(function () {
+        // Same rule applyTripWarnings already follows for the save path:
+        // a warning left standing after the thing it complained about
+        // succeeded reads as an unresolved problem.
+        st.daysWarning = "";
+        return Promise.all([reloadDays(), reloadReconcile()]);
+      })
       .catch(function (e) {
         st.daysWarning = "Day cards could not be generated from the trip " +
-          "dates automatically: " + e.message;
+          "dates automatically: " + e.message + " Open the reconcile " +
+          "review to add them by hand.";
       });
   }
 

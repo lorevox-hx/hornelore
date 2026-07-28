@@ -1003,7 +1003,11 @@ class Lab03Test(unittest.TestCase):
         failure.]
         """
         src = _stripped_js()
-        # Automatic generation, once per trip per page load.
+        # Automatic generation, once per (trip, missing-date set) per
+        # page load. [This read "once per trip per page load" until
+        # 2026-07-28. That was the shipped behaviour and it was wrong ---
+        # see test_the_auto_generation_guard_follows_the_missing_dates
+        # below, and Chris's review that found it.]
         self.assertIn("function maybeAutoAddMissingDays()", src)
         self.assertIn("autoDaysTried", src)
         i = src.index("function reloadReconcile(")
@@ -1024,6 +1028,73 @@ class Lab03Test(unittest.TestCase):
         # The UI still reads the read-only preview endpoint.
         self.assertIn("/days/reconcile-preview", src)
         self.assertIn("reloadReconcile", src)
+
+    def test_the_auto_generation_guard_follows_the_missing_dates(self):
+        """Chris's correction 1, 2026-07-28.
+
+        "Replace the once-per-trip auto-generation guard with a guard
+        tied to the current missing-date set, or reset it after trip-date
+        edits."
+
+        His scenario: open a trip, let the automatic generation run and
+        mark the trip tried, open Trip setup, widen July 14-19 to
+        July 14-21, come back. The preview reports July 20 and 21
+        missing, the trip is already marked tried, and nothing is added
+        until the surface is remounted. That contradicts the promise the
+        phase makes.
+        """
+        src = _stripped_js()
+        j = src.index("function maybeAutoAddMissingDays()")
+        auto = src[j:src.index("\n  }", j)]
+        # The key is built from the trip AND the dates, and it is sorted:
+        # the same gap reported in a different order is the same gap.
+        self.assertIn("function autoDaysKey(", src)
+        k = src.index("function autoDaysKey(")
+        keyfn = src[k:src.index("\n  }", k)]
+        self.assertIn("missing.slice().sort().join(", keyfn)
+        self.assertIn("String(tripId)", keyfn)
+        # The guard reads and writes the composite key.
+        self.assertIn("autoDaysTried[key]", auto)
+        # And the retired per-trip key is gone from the code. The words
+        # survive in the comment that records the retirement, so this is
+        # asserted against the subscript form, not the identifier.
+        self.assertNotIn("autoDaysTried[st.trip.id]", src)
+
+    def test_the_auto_generation_guard_still_terminates(self):
+        """A key that moves with the data is not a bound by itself.
+
+        The retired per-trip key could fire at most once per trip per
+        mount, so add -> reload -> add was bounded by construction. The
+        missing-date key is bounded only while each pass strictly shrinks
+        the missing set, which is the normal case and not a guarantee.
+        The ceiling is separate from the key on purpose and says so.
+        """
+        src = _stripped_js()
+        self.assertIn("var AUTO_DAYS_MAX_ATTEMPTS", src)
+        j = src.index("function maybeAutoAddMissingDays()")
+        auto = src[j:src.index("\n  }", j)]
+        self.assertIn("autoDaysAttempts >= AUTO_DAYS_MAX_ATTEMPTS", auto)
+        self.assertIn("autoDaysAttempts += 1", auto)
+        # Hitting the ceiling is reported, not silent: a calendar that
+        # quietly stopped filling itself in looks like a trip with no
+        # dates.
+        self.assertIn("stopped generating automatically after", auto)
+        self.assertIn("st.daysWarning", auto)
+
+    def test_a_successful_auto_generation_clears_its_own_warning(self):
+        """applyTripWarnings already follows this rule for the save path.
+
+        A warning left standing after the thing it complained about
+        succeeded reads as an unresolved problem, and the automatic add
+        can now legitimately run more than once in a session, so a
+        failure followed by a success is a shape that actually happens.
+        """
+        src = _stripped_js()
+        j = src.index("function maybeAutoAddMissingDays()")
+        auto = src[j:src.index("\n  }", j)]
+        self.assertIn('st.daysWarning = "";', auto)
+        # The failure still says where to go by hand.
+        self.assertIn("Open the reconcile", auto)
 
     def test_shrinking_dates_never_drops_a_day_card_from_this_surface(self):
         """The other half of the 2026-07-28 ruling, stated as a wall.
