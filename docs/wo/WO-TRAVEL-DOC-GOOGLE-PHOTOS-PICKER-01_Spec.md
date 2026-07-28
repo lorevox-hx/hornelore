@@ -1,6 +1,11 @@
 # WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 — Google Photos Picker into the Evidence Queue
 
-**Status:** SPEC ONLY. No code written. Awaiting Chris's decisions in §7.
+**Status:** ACTIVE — partially implemented. Phase 1 live-proven 2026-07-27.
+Phases 2A, 2B and 2C landed 2026-07-28. Phases 2D, 3 and 4 are not started.
+Doctrine is consolidated in `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`.
+Corrected 2026-07-28 by the 2C pass; this line previously read "SPEC ONLY.
+No code written." §7's decisions are taken except (c), which the code and
+the spec still disagree about — see the doctrine document, Part 3.5.
 **Opened:** 2026-07-27
 **Predecessors:** WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01 (migration 0037),
 WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 (the review screen), WO-MEMOIR-TRIP-STORY-LANE-01.
@@ -480,12 +485,26 @@ starts a verification review that Phase 1 does not need.
 
 ---
 
-## 12. Phase 2 rulings (recorded 2026-07-27, NOT implemented)
+## 12. Phase 2 rulings (recorded 2026-07-27; 2A and 2B implemented 2026-07-28)
 
 Phase 2 was specified in an external work order, reviewed against this
 repository, and corrected. The rulings below are binding on whoever
-implements Phase 2. **No Phase 2 code exists.** This section is a decision
-record, not a description of shipped behaviour.
+implements Phase 2, and they stay binding now that part of it is
+implemented — a ruling does not expire when code lands.
+
+**Correction, 2026-07-28.** This paragraph carried the sentence **"No Phase 2
+code exists."** until the 2C documentation pass. It was written on 2026-07-27
+and was true that day. Phase 2A and Phase 2B both landed on 2026-07-28 and the
+sentence survived a day of being read, because every ruling around it was
+still correct and camouflaged it. What exists now:
+`picker_client.list_media_items()` (2A), `services/google_picker/acquire.py`
+and `POST /api/google-picker/sessions/{batch_id}/ingest` (2B).
+Phases 2D, 3 and 4 are not started. `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`
+keeps rulings, shipped behaviour, deferred work and future design in
+four separate parts precisely so that this cannot happen again.
+
+This section is a decision record. Where it describes shipped behaviour it
+says so and dates it.
 
 ### 12.1 Content validation and the byte cap must be BUILT, not reused
 
