@@ -477,3 +477,149 @@ re-mint the refresh token in the OAuth Playground using the same client id and
 secret and replace `GOOGLE_PICKER_REFRESH_TOKEN` in `.env`. Do not diagnose
 this as a broken route, and do not "fix" it by publishing the app — publishing
 starts a verification review that Phase 1 does not need.
+
+---
+
+## 12. Phase 2 rulings (recorded 2026-07-27, NOT implemented)
+
+Phase 2 was specified in an external work order, reviewed against this
+repository, and corrected. The rulings below are binding on whoever
+implements Phase 2. **No Phase 2 code exists.** This section is a decision
+record, not a description of shipped behaviour.
+
+### 12.1 Content validation and the byte cap must be BUILT, not reused
+
+The Phase 2 draft assumed Hornelore already had a "narrow image posture" and a
+shared upload size limit to reuse. It does not.
+
+`server/code/api/routers/photos.py` checks `file.content_type` — a
+client-supplied header — against `_ALLOWED_IMAGE_MIME_PREFIXES`, and only when
+that header is non-empty. There is no magic-byte inspection anywhere in the
+photo lane, there is no maximum-upload-bytes constant anywhere in the
+repository, and `_safe_ext()` in `photo_intake/storage.py` **falls back to
+`.jpg`** for an unrecognised suffix rather than rejecting it.
+
+Phase 2 must therefore build: a real streamed byte cap
+(`HORNELORE_GOOGLE_PICKER_MAX_BYTES`), actual content inspection rather than
+trust in the provider's declared MIME type, a verified MIME-to-extension map,
+and **rejection** rather than `.jpg` fallback for unrecognised bytes. Do not
+write a comment claiming an existing shared limit is being reused.
+
+### 12.2 Never preallocate a candidate id
+
+`candidate_create()` is idempotent on `(batch_id, external_id)` and **returns
+the id of the existing row** when one is found, discarding any `candidate_id`
+the caller passed. Staging bytes under a preallocated id therefore orphans the
+file on any re-ingest.
+
+Required order: download to a temporary file, validate it, extract metadata,
+call `candidate_create()`, take the id it actually returned, then atomically
+move the bytes into that id's staging location.
+
+### 12.3 An ingest failure is NOT a candidate decision
+
+`candidate_create()` has no `state` parameter — every candidate is born
+`pending`, deliberately. The only way to reach `error` is `candidate_decide()`,
+and that path is **hard one-way**: it raises `CandidateAlreadyDecidedError`
+when the stored state is anything but `pending`, on the explicit reasoning that
+re-deciding an accepted candidate clears its `photo_id` and strands the
+promoted `photos` row. There is no undecide and no DELETE on this lane.
+
+So a candidate parked in `error` by an automated download failure is
+**permanently stuck**. Its only exit is `hidden`. A transient network timeout
+would produce an irreversible operator-review record that no human made.
+
+**Ruling:** ingestion must never call `candidate_decide()`. A successfully
+downloaded, validated and staged item becomes a `pending` candidate. An item
+that could not be acquired produces **no candidate row at all** and is reported
+as a retryable ingest failure in the route response. Re-running ingest retries
+those items. A candidate is created only when Hornelore holds enough verified
+bytes and metadata to represent the item honestly.
+
+A future work order may add a separate retryable acquisition state
+(`listed` / `downloading` / `staged` / `fetch_error`) distinct from the
+operator-decision states. That needs schema and repository design and must not
+be improvised inside Phase 2.
+
+The distinction to preserve:
+
+> **Ingest failure** = connector operation result, retryable, not a review.
+> **Candidate `error`** = an operator's terminal judgement about an item.
+
+### 12.4 There is no home for a persisted per-run failure summary
+
+The draft asked that the batch retain a safe failure summary. The only column
+that could hold one is `import_batch.failure_reason`, and the only writer is
+`batch_close(failed=True, ...)`, which sets `status='failed'` and `closed_at`.
+A batch cannot carry a failure summary while it is still open, and
+`batch_reopen()` clears `failure_reason` outright — so persisting a partial
+failure summary and then retrying are mutually exclusive with today's schema.
+
+**Ruling for Phase 2:** partial-failure detail lives in the ingest route's HTTP
+response and in logs, not in the database. `batch_close(failed=True,
+failure_reason=...)` is reserved for the case where the whole Picker session is
+unusable — an expired session that lists nothing — which is the batch-level
+failure the column was built for. Do not add a column for this in Phase 2.
+
+### 12.5 Deterministic staging layout, never persisted in `match_reason`
+
+`match_reason` is effectively write-once: the repository offers
+`candidate_set_trip`, `candidate_decide` and `candidate_hide`, and no function
+that updates candidate metadata. A `{"staging": {"verified": true}}` claim
+could therefore never be corrected after a file was repaired, lost or found
+corrupt.
+
+Staging layout is deterministic and derived, never stored:
+
+```
+DATA_DIR/import_staging/<batch_id>/<candidate_id>/original.<verified_ext>
+```
+
+Phase 3 resolves that directory from the batch id and candidate id and requires
+exactly one valid `original.*` inside it. `DATA_DIR` is read through the
+existing configuration (`photo_intake/storage.py` reads the `DATA_DIR`
+environment variable); `C:\hornelore_data` must not be hard-coded in product
+logic. No browser-supplied path and no absolute path is ever accepted.
+
+The candidate's own `file_hash` and `byte_size` already establish that bytes
+were acquired at creation time, so no `bytes_staged_at_ingest` flag is needed.
+
+### 12.6 `sha256_file()` lives in `dedupe.py`
+
+It is defined in `server/code/services/photo_intake/dedupe.py`.
+`storage.py` imports it. Reuse it; do not write a second hasher.
+
+### 12.7 Evidence lanes are plural — `import_candidate` is not the universal sink
+
+The draft stated that every future evidence producer terminates at
+`import_candidate`. That is too broad, and this repository already contradicts
+it. `trip_sources` exists (currently zero rows) with columns
+`source_type, title, filename, mime_type, storage_path, pasted_text, link_url,
+source_date, summary, include_in_memoir, ord, hidden` and placement at
+`trip_id / trip_region_id / trip_stop_id / trip_day_id`. It is already shaped
+for itineraries, boarding passes, receipts, PDFs, pasted text and links — the
+exact producers the draft wanted to force through `import_candidate`.
+
+The lanes, as ruled:
+
+| Lane | Holds |
+|---|---|
+| `import_batch` / `import_candidate` | externally acquired photo/media candidates awaiting review and promotion — byte acquisition, hashing, metadata inspection, duplicate detection |
+| `photos` | permanent approved photograph authority |
+| `trip_photo_links` | approved photo placement within a trip |
+| `trip_sources` | approved trip-scoped documents: itineraries, boarding passes, hotel confirmations, receipts, PDFs, pasted text, links — placed at trip, region, stop or day |
+| `trip_location_notes` and the story structures | human memory, operator context, interview material, narrative |
+
+The doctrine is therefore: **every external producer must enter an appropriate
+shared intake and review lane, and no producer may create its own review queue,
+its own approval semantics, or its own permanent archive.** Which lane depends
+on the evidence type. A PDF itinerary is not a photo candidate.
+
+### 12.8 Phase 2 is split into four reviewable pieces
+
+* **2A** — `picker_client.list_media_items()`: pagination to exhaustion, response-shape validation, typed upstream errors, no `baseUrl` or credential in any error or log. No database, no staging.
+* **2B** — acquisition and ingest: content validation, byte cap, temporary download, metadata extraction, hash and true size, `candidate_create`, deterministic staging, idempotency and retry, the HTTP route, queue visibility, partial-run reporting.
+* **2C** — `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` plus the repository record updates. Must state §12.7 explicitly.
+* **2D** — minimal operator UI (open picker, check selection, ingest, refresh queue), only after 2A and 2B are reviewed, so the UI cannot hide a server defect.
+
+Each is its own session and its own commit. **A phase is a scope wall.**
