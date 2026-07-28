@@ -65,6 +65,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 # Same import strategy as tests/test_google_picker_phase1.py: mirror the
@@ -495,7 +496,14 @@ class TestDownloadUpstreamErrors(_Base):
             self._expect(status, "upstream_error", True)
 
     def test_other_client_errors_are_not_retryable(self):
-        self._expect(400, "upstream_error", False)
+        """A 4xx nobody mapped is this request being wrong, and it will
+        be just as wrong next run. It gets its OWN reason rather than
+        sharing `upstream_error` with the 5xx case: a reason whose
+        retryability depends on the status that produced it cannot be
+        classified in the vocabulary, which is the thing that let
+        `staging_failed` contradict itself."""
+        for status in (400, 402, 418, 451):
+            self._expect(status, "upstream_client_error", False)
 
     def test_no_upstream_failure_leaves_bytes_behind(self):
         for status in (400, 401, 403, 404, 429, 500, 503):
@@ -583,6 +591,60 @@ class TestFailureVocabulary(_Base):
         self.assertEqual(raised - declared, set(),
                          "a failure reason is raised but not classified as "
                          "retryable or permanent")
+
+    def test_the_status_map_raises_only_declared_reasons(self):
+        """The AST scan above only sees `reason=` written as a literal.
+        `_raise_for_status` passes a VARIABLE, so its reasons were
+        invisible to it -- which is a fair description of how the
+        contradiction survived review the first time."""
+        declared = set(acq.RETRYABLE_REASONS) | set(acq.PERMANENT_REASONS)
+        self.assertTrue(acq._STATUS_REASONS)
+        self.assertEqual(set(acq._STATUS_REASONS.values()) - declared, set())
+
+    def test_a_raise_site_cannot_disagree_with_the_vocabulary(self):
+        """THE fix for the `staging_failed` contradiction, asserted
+        rather than described.
+
+        `staging_failed` sat in PERMANENT_REASONS while both of its raise
+        sites passed `retryable=True`. Membership tests could not see it,
+        because it WAS a member -- of the wrong list. So retryability is
+        no longer something a raise site can pass at all; it is derived
+        from the reason. This walks the entire vocabulary and proves the
+        derivation, and it would fail on the old code by construction."""
+        for reason in acq.RETRYABLE_REASONS:
+            self.assertTrue(acq.AcquireError("x", reason=reason).retryable,
+                            "%s is declared retryable but is not" % reason)
+            self.assertTrue(acq.is_retryable(reason))
+        for reason in acq.PERMANENT_REASONS:
+            self.assertFalse(acq.AcquireError("x", reason=reason).retryable,
+                             "%s is declared permanent but is not" % reason)
+            self.assertFalse(acq.is_retryable(reason))
+
+    def test_retryability_is_not_a_constructor_argument(self):
+        """Belt and braces: even the ABILITY to pass it is gone, so a
+        future raise site cannot reintroduce the disagreement."""
+        with self.assertRaises(TypeError):
+            acq.AcquireError("x", reason="network", retryable=False)
+
+    def test_an_unclassified_reason_fails_open_to_retryable_and_says_so(self):
+        """A reason nobody classified is a bug, and the question is which
+        way it should fail. Retryable costs one wasted download on the
+        next run. Permanent strands a photograph the operator picked and
+        never explains why. The warning is what makes the bug findable."""
+        exc = acq.AcquireError("x", reason="a_reason_nobody_declared")
+        self.assertTrue(exc.retryable)
+        self.assertIn("unclassified failure reason", self.logs.blob())
+
+    def test_staging_and_hashing_are_machine_facts_not_operator_verdicts(self):
+        """Named rather than left to the loop above, because this is the
+        product ruling: a locked file or a disk hiccup is a fact about
+        this machine at this moment, not a judgement about the
+        photograph. Only an operator issues those, via `candidate_decide`,
+        which this lane never calls."""
+        self.assertIn("staging_failed", acq.RETRYABLE_REASONS)
+        self.assertIn("hash_failed", acq.RETRYABLE_REASONS)
+        self.assertNotIn("staging_failed", acq.PERMANENT_REASONS)
+        self.assertNotIn("hash_failed", acq.PERMANENT_REASONS)
 
 
 # ------------------------------------------------------------------- metadata
@@ -702,13 +764,61 @@ class TestEvidenceMetadata(_Base):
             self.assertIsNone(out["taken_at"], "accepted %r" % (raw,))
             self.assertEqual(out["taken_at_source"], "unknown")
 
-    def test_fractional_and_offset_provider_times_normalise(self):
+    def test_provider_times_normalise_to_the_shape_the_repository_reads(self):
         self.use()
-        for raw in ("2026-04-11T09:15:00.123456Z", "2026-04-11T09:15:00+02:00",
-                    "2026-04-11 09:15:00"):
+        for raw in ("2026-04-11T09:15:00Z", "2026-04-11T09:15:00.123456Z",
+                    "2026-04-11t09:15:00z", "2026-04-11 09:15:00"):
             out = acq.read_evidence_metadata("/tmp/whatever",
                                              provider_create_time=raw)
-            self.assertEqual(out["taken_at"], "2026-04-11 09:15:00")
+            self.assertEqual(out["taken_at"], "2026-04-11 09:15:00",
+                             "mis-normalised %r" % (raw,))
+
+    def test_a_provider_offset_is_converted_not_trimmed(self):
+        """This test previously asserted the BUG. It expected
+        `09:15:00+02:00` to become `09:15:00`, which is a different
+        instant wearing the same digits -- two hours wrong, silently.
+
+        The offset is real information and this repository has nowhere to
+        put it: every `_now()` in the services layer is UTC stored naive
+        or with a literal `Z`, and `trip_photo_clustering._parse_dt`, the
+        one reader of capture times, strips a trailing `Z` and cannot
+        read a numeric offset at all -- a value ending `+02:00` parses as
+        nothing there and drops out of time scoring without a word. So
+        the offset is honoured and then normalised away."""
+        self.use()
+        for raw, expected in (
+                ("2026-04-11T09:15:00+02:00", "2026-04-11 07:15:00"),
+                ("2026-04-11T09:15:00-05:00", "2026-04-11 14:15:00"),
+                ("2026-04-11T09:15:00+0200", "2026-04-11 07:15:00"),
+                ("2026-04-11T09:15:00-00:30", "2026-04-11 09:45:00")):
+            out = acq.read_evidence_metadata("/tmp/whatever",
+                                             provider_create_time=raw)
+            self.assertEqual(out["taken_at"], expected,
+                             "mis-converted %r" % (raw,))
+
+    def test_an_offset_that_crosses_midnight_moves_the_date(self):
+        """The consequence worth being explicit about: UTC wall time is
+        not local capture time, and for a photo taken just after midnight
+        in a positive-offset zone the DATE differs. Nothing in the Picker
+        payload can tell us the local zone, which is exactly why this
+        value is labelled `provider_metadata` and promotes with
+        `date_precision='unknown'` -- a starting point the operator
+        corrects, never an authority. EXIF, when present, wins outright
+        and is local wall time by definition."""
+        self.use()
+        out = acq.read_evidence_metadata(
+            "/tmp/whatever", provider_create_time="2026-04-11T00:30:00+02:00")
+        self.assertEqual(out["taken_at"], "2026-04-10 22:30:00")
+        self.assertEqual(out["taken_at_source"], "provider_metadata")
+
+    def test_the_normalised_shape_is_one_the_repositorys_reader_accepts(self):
+        """Guards the shape against a well-meaning tidy-up. If this ever
+        emits an offset or an ISO `T`, clustering silently stops scoring
+        every provider-dated photo -- no error, just worse results."""
+        self.use()
+        out = acq.read_evidence_metadata(
+            "/tmp/whatever", provider_create_time="2026-04-11T09:15:00+02:00")
+        datetime.strptime(out["taken_at"], "%Y-%m-%d %H:%M:%S")
 
     def test_an_exif_reader_failure_is_not_an_ingest_failure(self):
         """A photo whose EXIF cannot be read is still evidence. It lands
@@ -856,6 +966,42 @@ class TestStagingPath(_Base):
         self.assertTrue(str(path).endswith(
             "338dfc4b-15f4-438a-aeee-357a7d4c8810"))
 
+    def test_the_incoming_area_sits_beside_the_batches_under_one_root(self):
+        """The download area has to share a filesystem with the staging
+        directory or the final move cannot be a rename. Sharing a root is
+        how that is guaranteed, so the layout is asserted, not assumed."""
+        self.assertEqual(
+            acq.incoming_dir_for("batch-1"),
+            Path(self.tmp) / "import_staging" / ".incoming" / "batch-1")
+        self.assertEqual(
+            acq.incoming_dir_for("batch-1").parent.parent,
+            acq.staging_dir_for("batch-1", "cand-2").parent.parent,
+            "the incoming area and the batch directories have drifted "
+            "apart; staging can no longer promise a rename")
+
+    def test_no_batch_id_can_ever_name_the_incoming_directory(self):
+        """The `.incoming` reservation is STRUCTURAL, not lucky.
+
+        `_SAFE_ID_RX` requires a leading alphanumeric, so no accepted
+        batch id can begin with a dot -- which means none can collide
+        with `.incoming` and be mistaken for a batch by a reader that
+        globs this root. Asserted against the expression itself rather
+        than against a handful of sample ids, because the guarantee is
+        what makes the reservation safe to rely on.
+        """
+        self.assertIsNone(acq._SAFE_ID_RX.match(acq.INCOMING_DIRNAME),
+                          "a batch id could be named %r, which would put a "
+                          "batch inside the download area"
+                          % acq.INCOMING_DIRNAME)
+        for leading_dot in (".incoming", ".", ".x", "..", ".hidden"):
+            self.assertIsNone(acq._SAFE_ID_RX.match(leading_dot),
+                              "%r passed the id rule" % leading_dot)
+            with self.assertRaises(acq.AcquireError,
+                                   msg="accepted %r" % leading_dot) as caught:
+                acq.incoming_dir_for(leading_dot)
+            self.assertIn(caught.exception.reason,
+                          ("unsafe_identifier", "invalid_request"))
+
 
 class TestStageOriginal(_Base):
     def setUp(self):
@@ -931,6 +1077,66 @@ class TestStageOriginal(_Base):
         self.assertFalse(os.path.exists(
             os.path.join(self.data_dir, "import_staging")))
 
+    def test_a_failed_replacement_leaves_the_previous_original_intact(self):
+        """The rule Chris named: a re-ingest that fails must not be able
+        to end with NO staged original.
+
+        The second `os.replace` -- the one that puts the new bytes onto
+        `original.jpg` -- is made to fail. What must survive is the
+        photograph that was already staged and verified, byte for byte.
+        """
+        acq.stage_original(self._temp_file(), "batch-1", "cand-2", ".jpg")
+        directory = acq.staging_dir_for("batch-1", "cand-2")
+        self.assertEqual((directory / "original.jpg").read_bytes(), _JPEG)
+
+        newer = _JPEG[:-2] + b"\x33\xff\xd9"
+        real_replace = acq.os.replace
+        calls = {"n": 0}
+
+        def flaky_replace(src, dst):
+            calls["n"] += 1
+            # Call 1 is the temp file landing on the `.incoming-` name
+            # inside the candidate directory. Call 2 is the one that
+            # matters: `.incoming-` -> `original.jpg`.
+            if calls["n"] >= 2:
+                raise OSError(13, "Permission denied")
+            return real_replace(src, dst)
+
+        acq.os.replace = flaky_replace
+        try:
+            with self.assertRaises(acq.AcquireError) as caught:
+                acq.stage_original(self._temp_file(newer, "second.part"),
+                                   "batch-1", "cand-2", ".jpg")
+        finally:
+            acq.os.replace = real_replace
+
+        self.assertEqual(caught.exception.reason, "staging_failed")
+        self.assertTrue(caught.exception.retryable,
+                        "a full disk is a fact about the machine, not a "
+                        "verdict about the photograph")
+        self.assertEqual(
+            (directory / "original.jpg").read_bytes(), _JPEG,
+            "a failed replacement destroyed the previously staged original")
+        self.assertEqual(
+            sorted(p.name for p in directory.glob("original.*")),
+            ["original.jpg"])
+        self.assertEqual(
+            sorted(p.name for p in directory.glob(".incoming-*")), [],
+            "the failed attempt left its scratch file behind")
+
+    def test_a_successful_reingest_leaves_no_scratch_files_behind(self):
+        """`.incoming-` files are invisible to a reader counting
+        `original.*`, but they are still bytes on someone's disk."""
+        acq.stage_original(self._temp_file(), "batch-1", "cand-2", ".jpg")
+        acq.stage_original(self._temp_file(_PNG, "second.part"),
+                           "batch-1", "cand-2", ".png")
+        acq.stage_original(self._temp_file(_PNG, "third.part"),
+                           "batch-1", "cand-2", ".png")
+        directory = acq.staging_dir_for("batch-1", "cand-2")
+        self.assertEqual(
+            sorted(p.name for p in directory.iterdir()), ["original.png"],
+            "staging left something other than the one original behind")
+
     def test_the_full_download_to_staging_round_trip(self):
         self.serve([_JPEG])
         out = self.download()
@@ -942,6 +1148,112 @@ class TestStageOriginal(_Base):
             out["file_hash"],
             "the hash recorded at download does not describe the staged file")
         self.assertNothingLeaked()
+
+
+class TestDownloadLandsWhereStagingCanRename(_Base):
+    """Where the temp file lands decides whether staging is atomic.
+
+    `download_original` writing into the system temp directory and
+    `stage_original` renaming out of it is the arrangement that quietly
+    degrades to a copy on this stack, because /tmp and DATA_DIR are
+    different filesystems. Passing `batch_id` is what fixes it, so the
+    fix is asserted at the boundary rather than trusted to a docstring.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.data_dir = os.path.join(self.tmp, "data")
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.environ[acq.DATA_DIR_ENV] = self.data_dir
+
+    def test_a_batch_id_puts_the_download_under_the_staging_root(self):
+        self.serve([_JPEG])
+        out = self.download(batch_id="batch-1", tmp_dir=None)
+        landed = Path(out["tmp_path"]).parent
+        self.assertEqual(landed, acq.incoming_dir_for("batch-1"))
+        self.assertEqual(
+            landed.parent.parent,
+            acq.staging_dir_for("batch-1", "cand-2").parent.parent,
+            "the download did not land under the staging root, so the "
+            "final move is a cross-filesystem copy again")
+
+    def test_the_incoming_directory_is_created_on_demand(self):
+        self.assertFalse(os.path.exists(
+            os.path.join(self.data_dir, "import_staging")))
+        self.serve([_JPEG])
+        out = self.download(batch_id="batch-1", tmp_dir=None)
+        self.assertTrue(os.path.isfile(out["tmp_path"]))
+
+    def test_an_explicit_tmp_dir_still_wins_for_callers_that_pass_one(self):
+        """The offline fixtures and the round-trip test pass `tmp_dir`
+        directly; adding `batch_id` must not have taken that away."""
+        self.serve([_JPEG])
+        out = self.download(tmp_dir=self.tmp, batch_id="batch-1")
+        self.assertEqual(Path(out["tmp_path"]).parent, Path(self.tmp))
+
+    def test_a_download_that_lands_in_incoming_stages_by_rename(self):
+        self.serve([_JPEG])
+        out = self.download(batch_id="batch-1", tmp_dir=None)
+        moved = []
+        real_copy = acq.shutil.copy2
+        acq.shutil.copy2 = lambda *a, **k: moved.append(a) or real_copy(*a, **k)
+        try:
+            target = acq.stage_original(out["tmp_path"], "batch-1", "cand-2",
+                                        out["verified_ext"])
+        finally:
+            acq.shutil.copy2 = real_copy
+        self.assertEqual(moved, [],
+                         "staging fell back to a copy even though the bytes "
+                         "were already under DATA_DIR")
+        self.assertEqual(Path(target).read_bytes(), _JPEG)
+
+    def test_a_hashing_failure_removes_the_bytes_and_is_retryable(self):
+        """Hashing happens after the streaming loop's own cleanup, so it
+        needs its own. Until `download_original` returns, no caller knows
+        the temp file exists to remove it."""
+        self.serve([_JPEG])
+        real_hasher = acq.sha256_file
+
+        def boom(path):
+            raise OSError(5, "Input/output error")
+
+        acq.sha256_file = boom
+        try:
+            with self.assertRaises(acq.AcquireError) as caught:
+                self.download(batch_id="batch-1", tmp_dir=None)
+        finally:
+            acq.sha256_file = real_hasher
+
+        self.assertEqual(caught.exception.reason, "hash_failed")
+        self.assertTrue(caught.exception.retryable,
+                        "an unreadable file is a fact about this machine, "
+                        "not a verdict about the photograph")
+        self.assertEqual(
+            sorted(p.name for p in acq.incoming_dir_for("batch-1").iterdir()),
+            [],
+            "a complete, valid, unreferenced photo was left in the "
+            "incoming directory with nobody holding a reference to it")
+        self.assertNotIn("Input/output error", str(caught.exception))
+        self.assertNothingLeaked(str(caught.exception))
+
+    def test_a_hashing_failure_in_the_system_temp_dir_cleans_up_too(self):
+        self.serve([_JPEG])
+        real_hasher = acq.sha256_file
+        acq.sha256_file = lambda path: (_ for _ in ()).throw(
+            OSError(5, "Input/output error"))
+        try:
+            with self.assertRaises(acq.AcquireError) as caught:
+                self.download()
+        finally:
+            acq.sha256_file = real_hasher
+        self.assertEqual(caught.exception.reason, "hash_failed")
+        # Not assertTempDirEmpty(): this class keeps its DATA_DIR inside
+        # the same scratch directory, so the check has to name what it
+        # is actually looking for rather than demand an empty directory.
+        self.assertEqual(
+            sorted(p for p in os.listdir(self.tmp) if p.startswith("picker-")),
+            [],
+            "a hashing failure left the downloaded bytes behind")
 
 
 # ------------------------------------------------------------- the phase wall
@@ -961,8 +1273,11 @@ class TestPhaseWall(_Base):
                 imported.add("." * node.level + (node.module or ""))
         self.assertEqual(
             imported,
+            # "errno" arrived with _move_onto's EXDEV branch: the final
+            # staging move falls back to copy+replace when the temp file and
+            # the destination turn out to sit on different filesystems.
             {"__future__", "logging", "os", "re", "shutil", "tempfile",
-             "datetime", "pathlib", "typing", "requests",
+             "errno", "datetime", "pathlib", "typing", "requests",
              "..photo_intake.dedupe", "..photo_intake.exif",
              "..photo_intake.metadata_trust"},
             "the acquisition module grew a collaborator; the database and "

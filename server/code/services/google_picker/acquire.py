@@ -6,8 +6,10 @@ WHAT THIS MODULE DOES
     sniff_image()            magic-byte content inspection -> (mime, ext)
     download_original()      one picked item's original bytes -> a temp file
     read_evidence_metadata() EXIF date + GPS read off the bytes on disk
+    incoming_dir_for()       DATA_DIR/import_staging/.incoming/<batch>/
     staging_dir_for()        DATA_DIR/import_staging/<batch>/<candidate>/
     stage_original()         move the temp file into that directory
+    is_retryable()           reason -> whether re-running ingest can fix it
 
 WHAT IT DELIBERATELY DOES NOT DO
 
@@ -42,16 +44,48 @@ the access token. That includes transport failures: a ``requests``
 exception stringifies to a message CONTAINING the full URL, so only the
 exception class name is ever reported. Failures name the item id and a
 reason, nothing else.
+
+THE CONSISTENCY GAP THIS MODULE IS SHAPED AROUND
+
+``candidate_create()`` commits and cannot be rolled back, and the file
+is staged AFTER it returns. So there is a window in which a committed
+candidate row has no staged original, and the only thing that decides
+whether that window is repairable is whether staging failed in a way
+worth retrying and whether a half-written file was left behind. Every
+staging rule below exists for that window:
+
+  * the temp file is written UNDER ``DATA_DIR`` so the final move is a
+    same-filesystem rename rather than a copy that can tear;
+  * the final step is ``os.replace`` onto ``original.<ext>``, which
+    either happens or does not -- no reader ever sees a partial one;
+  * an existing staged original is not removed until its replacement is
+    already in place, so a failed re-ingest cannot destroy the last
+    verified copy;
+  * every failure that a retry could fix is classified retryable IN THE
+    VOCABULARY, not at the raise site, so the two cannot disagree.
+
+TIMESTAMPS
+
+This repository stores timestamps as UTC with no offset -- naive
+strings, or a literal ``Z``. Its one reader of photo capture times,
+``trip_photo_clustering._parse_dt``, accepts ``YYYY-MM-DDTHH:MM:SS``,
+``YYYY-MM-DD HH:MM:SS``, ``YYYY:MM:DD HH:MM:SS`` and ``YYYY-MM-DD``,
+strips a trailing ``Z``, and CANNOT read a numeric offset at all: a
+value ending ``+02:00`` parses as nothing and drops silently out of
+scoring. The Picker's ``createTime`` is RFC 3339 and does carry an
+offset. So this module parses that offset, converts to UTC, and emits
+the naive shape -- see ``_provider_time``.
 """
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import re
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -75,6 +109,7 @@ _CHUNK = 65536
 _TIMEOUT = (10, 120)                      # (connect, read-between-chunks)
 
 STAGING_ROOT = "import_staging"
+INCOMING_DIRNAME = ".incoming"
 DATA_DIR_ENV = "DATA_DIR"
 
 
@@ -111,6 +146,71 @@ def max_bytes() -> int:
 
 # ---------------------------------------------------------------- the errors
 
+# Every reason this module raises, and whether re-running ingest can fix
+# it. Kept as data so the route can report the split without restating
+# the judgement, and so a new reason cannot be added without landing in
+# exactly one of these.
+#
+# `staging_failed` and `hash_failed` are RETRYABLE, and that is a product
+# ruling rather than an implementation detail: a locked file, an
+# interrupted permission, a full disk or a temp file that vanished under
+# us is a fact about this machine at this moment. It is not an operator's
+# verdict about the photograph. Classifying either as permanent would
+# strand a perfectly good picked item that a second run would have taken.
+RETRYABLE_REASONS = (
+    "acquire_error",          # the unspecific default; see AcquireError
+    "network",
+    "base_url_expired",
+    "upstream_rate_limited",
+    "upstream_error",
+    "empty_body",
+    "hash_failed",
+    "staging_failed",
+)
+PERMANENT_REASONS = (
+    "invalid_request",
+    "too_large",
+    "unsupported_content",
+    "item_not_found",
+    "data_dir_unset",
+    "unsafe_identifier",
+    "upstream_client_error",
+)
+
+# The vocabulary flattened into the one lookup every raise site obeys.
+# Built here, once, from the two tuples above so the tuples cannot drift
+# apart from the behaviour -- and asserted disjoint at import, because a
+# reason living in both lists would resolve to whichever tuple happened
+# to be second.
+_REASON_RETRYABLE: Dict[str, bool] = {}
+for _reason in RETRYABLE_REASONS:
+    _REASON_RETRYABLE[_reason] = True
+for _reason in PERMANENT_REASONS:
+    if _reason in _REASON_RETRYABLE:
+        raise AssertionError(
+            "google_picker acquire: %r is classified both retryable and "
+            "permanent" % _reason)
+    _REASON_RETRYABLE[_reason] = False
+del _reason
+
+
+def is_retryable(reason: str) -> bool:
+    """Whether re-running ingest can fix a failure with this reason.
+
+    An unrecognised reason is treated as retryable. That is the safe
+    default of the two: a retryable failure that is really permanent
+    costs one wasted download on the next run, while a permanent verdict
+    on a really-transient failure strands a photograph the operator
+    picked and never explains why.
+    """
+    known = _REASON_RETRYABLE.get(reason)
+    if known is None:
+        logger.warning("google_picker: unclassified failure reason %r; "
+                       "treating it as retryable", reason)
+        return True
+    return known
+
+
 class AcquireError(Exception):
     """One item could not be acquired.
 
@@ -120,38 +220,24 @@ class AcquireError(Exception):
     new one. A file whose bytes are not an image never becomes one, so
     retrying it forever would be a lie told once per run.
 
+    IT IS NOT A CONSTRUCTOR ARGUMENT. It is derived from ``reason`` via
+    ``is_retryable`` precisely so a raise site cannot contradict the
+    vocabulary the route reports against -- which is exactly what had
+    happened: ``staging_failed`` sat in ``PERMANENT_REASONS`` while both
+    of its raise sites passed ``retryable=True``, so the route and the
+    exception would have told an operator two different stories about
+    the same photograph.
+
     Neither the message nor any attribute here ever carries a credential
     or a download URL.
     """
 
     def __init__(self, message: str, *, reason: str = "acquire_error",
-                 retryable: bool = True, status: int = 0) -> None:
+                 status: int = 0) -> None:
         super().__init__(message)
         self.reason = reason
-        self.retryable = retryable
+        self.retryable = is_retryable(reason)
         self.status = status
-
-
-# Every reason this module raises, and whether re-running ingest can fix
-# it. Kept as data so the route can report the split without restating
-# the judgement, and so a new reason cannot be added without landing in
-# exactly one of these.
-RETRYABLE_REASONS = (
-    "network",
-    "base_url_expired",
-    "upstream_rate_limited",
-    "upstream_error",
-    "empty_body",
-)
-PERMANENT_REASONS = (
-    "invalid_request",
-    "too_large",
-    "unsupported_content",
-    "item_not_found",
-    "data_dir_unset",
-    "unsafe_identifier",
-    "staging_failed",
-)
 
 
 # --------------------------------------------------------------- the sniffer
@@ -214,11 +300,15 @@ def _auth_headers(access_token: str) -> Dict[str, str]:
             "Accept": "*/*"}
 
 
+# Status -> reason only. The retryability that used to ride along in
+# these tuples now comes from the vocabulary, which is the whole point of
+# fix 1: two places that each carried half the judgement had already
+# managed to disagree once.
 _STATUS_REASONS = {
-    401: ("base_url_expired", True),
-    403: ("base_url_expired", True),
-    404: ("item_not_found", False),
-    429: ("upstream_rate_limited", True),
+    401: "base_url_expired",
+    403: "base_url_expired",
+    404: "item_not_found",
+    429: "upstream_rate_limited",
 }
 
 
@@ -226,7 +316,7 @@ def _raise_for_status(status: int, item_id: str) -> None:
     if status == 200:
         return
     if status in _STATUS_REASONS:
-        reason, retryable = _STATUS_REASONS[status]
+        reason = _STATUS_REASONS[status]
         if reason == "base_url_expired":
             message = ("Google refused the download of item %s (HTTP %d). A "
                        "picked item's download URL is short-lived; re-list "
@@ -237,13 +327,18 @@ def _raise_for_status(status: int, item_id: str) -> None:
         else:
             message = ("Google rate-limited the download of item %s (HTTP "
                        "%d)." % (item_id, status))
-        raise AcquireError(message, reason=reason, retryable=retryable,
-                           status=status)
-    retryable = status >= 500
+        raise AcquireError(message, reason=reason, status=status)
+    # An unmapped 5xx is Google having a bad minute and is worth another
+    # run; an unmapped 4xx is this request being wrong and will be just
+    # as wrong next time. They get SEPARATE reasons rather than one
+    # reason carrying a computed retryable, because a reason whose
+    # retryability depends on its call site is exactly what the
+    # vocabulary now forbids.
+    reason = "upstream_error" if status >= 500 else "upstream_client_error"
     raise AcquireError(
         "Google answered HTTP %d downloading item %s (body withheld)."
         % (status, item_id),
-        reason="upstream_error", retryable=retryable, status=status)
+        reason=reason, status=status)
 
 
 def _refuse_declared_oversize(headers: Any, item_id: str, cap: int) -> None:
@@ -260,7 +355,7 @@ def _refuse_declared_oversize(headers: Any, item_id: str, cap: int) -> None:
         raise AcquireError(
             "item %s declares %d bytes, over the %d byte cap (%s)."
             % (item_id, declared, cap, MAX_BYTES_ENV),
-            reason="too_large", retryable=False, status=200)
+            reason="too_large", status=200)
 
 
 def _unlink(path: Optional[str]) -> None:
@@ -305,7 +400,7 @@ def _stream_to_temp(resp: Any, item_id: str, cap: int,
                 raise AcquireError(
                     "the download of item %s failed before it started (%s)."
                     % (item_id, "transport error"),
-                    reason="network", retryable=True) from None
+                    reason="network") from None
             while True:
                 try:
                     chunk = next(chunks)
@@ -317,7 +412,7 @@ def _stream_to_temp(resp: Any, item_id: str, cap: int,
                     raise AcquireError(
                         "the download of item %s was interrupted (%s)."
                         % (item_id, exc.__class__.__name__),
-                        reason="network", retryable=True) from None
+                        reason="network") from None
                 if not chunk:
                     continue
                 total += len(chunk)
@@ -325,7 +420,7 @@ def _stream_to_temp(resp: Any, item_id: str, cap: int,
                     raise AcquireError(
                         "item %s exceeded the %d byte cap (%s) while "
                         "downloading." % (item_id, cap, MAX_BYTES_ENV),
-                        reason="too_large", retryable=False)
+                        reason="too_large")
                 if sniffed is None:
                     if len(head) < SNIFF_BYTES:
                         head += chunk[:SNIFF_BYTES - len(head)]
@@ -338,17 +433,17 @@ def _stream_to_temp(resp: Any, item_id: str, cap: int,
                                 "signature. Video and other media are not "
                                 "evidence this lane can stage yet."
                                 % item_id,
-                                reason="unsupported_content", retryable=False)
+                                reason="unsupported_content")
                 handle.write(chunk)
         if total == 0:
             raise AcquireError(
                 "item %s returned an empty body." % item_id,
-                reason="empty_body", retryable=True)
+                reason="empty_body")
         if sniffed is None:
             raise AcquireError(
                 "item %s returned only %d byte(s), too few to identify as "
                 "an image." % (item_id, total),
-                reason="unsupported_content", retryable=False)
+                reason="unsupported_content")
     except BaseException:
         _unlink(tmp_name)
         raise
@@ -359,6 +454,7 @@ def _stream_to_temp(resp: Any, item_id: str, cap: int,
 def download_original(access_token: str, base_url: str, *,
                       item_id: str = "unknown",
                       cap: Optional[int] = None,
+                      batch_id: Optional[str] = None,
                       tmp_dir: Optional[str] = None) -> Dict[str, Any]:
     """Download one picked item's ORIGINAL bytes to a temporary file.
 
@@ -366,6 +462,17 @@ def download_original(access_token: str, base_url: str, *,
     with the same bearer token the listing used. Without the suffix the
     response is a display-sized re-encode -- which would look fine and
     would silently destroy the EXIF this lane exists to read.
+
+    WHERE THE TEMP FILE LANDS DECIDES WHETHER STAGING CAN BE ATOMIC.
+    Pass ``batch_id`` and the bytes are written into
+    ``DATA_DIR/import_staging/.incoming/<batch_id>/``, which shares a
+    filesystem with the staging directory, so ``stage_original`` finishes
+    with a rename. Pass neither ``batch_id`` nor ``tmp_dir`` and the
+    system temp directory is used -- which on this stack is a different
+    filesystem from ``DATA_DIR``, so the final move degrades to a copy.
+    ``stage_original`` still lands the bytes correctly in that case; it
+    just cannot promise the same thing about a crash mid-copy. The route
+    passes ``batch_id``.
 
     Returns ``{tmp_path, byte_size, file_hash, verified_mime,
     verified_ext}``. The caller owns the temp file from here: hand it to
@@ -375,14 +482,16 @@ def download_original(access_token: str, base_url: str, *,
     """
     if not isinstance(access_token, str) or not access_token.strip():
         raise AcquireError("an access token is required to download bytes.",
-                           reason="invalid_request", retryable=False)
+                           reason="invalid_request")
     if not isinstance(base_url, str) or not base_url.strip():
         raise AcquireError(
             "item %s has no download URL." % item_id,
-            reason="invalid_request", retryable=False)
+            reason="invalid_request")
 
     cap = int(cap) if cap else max_bytes()
     url = base_url.strip() + "=d"
+    if tmp_dir is None and batch_id is not None:
+        tmp_dir = str(_ensure_incoming_dir(batch_id))
 
     try:
         resp = requests.get(url, headers=_auth_headers(access_token),
@@ -391,7 +500,7 @@ def download_original(access_token: str, base_url: str, *,
         raise AcquireError(
             "could not reach Google to download item %s (%s)."
             % (item_id, exc.__class__.__name__),
-            reason="network", retryable=True) from None
+            reason="network") from None
 
     try:
         _raise_for_status(getattr(resp, "status_code", 0), item_id)
@@ -404,7 +513,20 @@ def download_original(access_token: str, base_url: str, *,
         except Exception:
             pass
 
-    file_hash = sha256_file(tmp_name)
+    # Hashing sits OUTSIDE the streaming loop's cleanup, so it needs its
+    # own. Until this returns, the caller does not know the temp file
+    # exists and cannot be expected to remove it; a read error here would
+    # otherwise leave a complete, valid, unreferenced photo in the
+    # incoming directory forever.
+    try:
+        file_hash = sha256_file(tmp_name)
+    except Exception as exc:
+        _unlink(tmp_name)
+        raise AcquireError(
+            "could not hash the downloaded bytes for item %s (%s)."
+            % (item_id, exc.__class__.__name__),
+            reason="hash_failed") from None
+
     logger.info("google_picker: downloaded item %s -- %d byte(s), %s",
                 item_id, total, mime)
     return {
@@ -418,8 +540,36 @@ def download_original(access_token: str, base_url: str, *,
 
 # -------------------------------------------------------------- the metadata
 
+# The offset tail of an RFC 3339 timestamp: Z, +HH:MM, -HH:MM, +HHMM.
+_OFFSET_RX = re.compile(r"(?:Z|z|(?P<sign>[+-])(?P<h>\d{2}):?(?P<m>\d{2}))$")
+
+
 def _provider_time(raw: Optional[str]) -> Optional[str]:
-    """RFC3339 from Google -> the 'YYYY-MM-DD HH:MM:SS' shape EXIF uses.
+    """RFC 3339 from Google -> naive UTC ``'YYYY-MM-DD HH:MM:SS'``.
+
+    THE OFFSET IS PARSED, NOT TRIMMED. This used to slice the string to
+    nineteen characters, which turns ``2026-04-11T09:15:00+02:00`` into
+    ``2026-04-11 09:15:00`` -- a different instant wearing the same
+    digits, two hours wrong, and wrong silently.
+
+    Converting to UTC rather than keeping the provider's wall clock is
+    what this repository already does everywhere else: every ``_now()``
+    helper in the services layer is
+    ``datetime.now(timezone.utc)`` stored naive or with a literal ``Z``,
+    and ``trip_photo_clustering._parse_dt`` -- the one reader of capture
+    times -- has no tz-aware branch and cannot read a numeric offset at
+    all. Emitting ``+02:00`` would parse as nothing there and the photo
+    would drop out of time scoring without a word.
+
+    So the offset is honoured and then normalised away. The result is UTC
+    wall time, which is NOT local capture time -- a photo taken at 01:30
+    in Rome is dated the previous day here. Nothing in the Picker payload
+    can tell us the local zone, so that is not a gap this lane can close,
+    and it is precisely why the value is labelled
+    ``taken_at_source='provider_metadata'`` and promotes with
+    ``date_precision='unknown'``: a starting point the operator corrects,
+    never an authority. EXIF, when the file carries it, wins outright and
+    is local wall time by definition.
 
     Returns ``None`` for anything that does not parse, rather than a
     partial date. Half a timestamp is worse than no timestamp: it looks
@@ -427,12 +577,40 @@ def _provider_time(raw: Optional[str]) -> Optional[str]:
     """
     if not isinstance(raw, str) or not raw.strip():
         return None
-    text = raw.strip().replace("T", " ")[:19]
+    text = raw.strip()
+
+    offset = None
+    match = _OFFSET_RX.search(text)
+    if match:
+        text = text[:match.start()]
+        if match.group("h") is None:
+            offset = timedelta(0)                       # Z
+        else:
+            offset = timedelta(hours=int(match.group("h")),
+                               minutes=int(match.group("m")))
+            if match.group("sign") == "-":
+                offset = -offset
+
+    text = text.replace("T", " ").replace("t", " ")
+    fraction = ""
+    if "." in text:
+        text, fraction = text.split(".", 1)
+    if fraction and not fraction.isdigit():
+        return None                                     # not a fraction
+
     try:
-        datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        moment = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
-    return text
+
+    # No offset at all is not valid RFC 3339, but Google is not the only
+    # thing that will ever hand this function a string. Such a value is
+    # taken at face value rather than assumed to be UTC, because guessing
+    # would move a timestamp that was already right.
+    if offset is not None:
+        moment = (moment.replace(tzinfo=timezone.utc) - offset
+                  ).astimezone(timezone.utc).replace(tzinfo=None)
+    return moment.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def read_evidence_metadata(path: str, *,
@@ -517,7 +695,7 @@ def _data_dir() -> Path:
         raise AcquireError(
             "%s is not set; refusing to stage bytes without an explicit "
             "base path." % DATA_DIR_ENV,
-            reason="data_dir_unset", retryable=False)
+            reason="data_dir_unset")
     return Path(raw).expanduser()
 
 
@@ -525,12 +703,12 @@ def _safe_segment(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AcquireError("a %s is required to resolve a staging path."
                            % label,
-                           reason="invalid_request", retryable=False)
+                           reason="invalid_request")
     text = value.strip()
     if not _SAFE_ID_RX.match(text) or ".." in text:
         raise AcquireError(
             "%s is not usable as a path segment (value withheld)." % label,
-            reason="unsafe_identifier", retryable=False)
+            reason="unsafe_identifier")
     return text
 
 
@@ -546,58 +724,134 @@ def staging_dir_for(batch_id: str, candidate_id: str) -> Path:
             / _safe_segment(candidate_id, "candidate_id"))
 
 
+def incoming_dir_for(batch_id: str) -> Path:
+    """``DATA_DIR/import_staging/.incoming/<batch_id>/`` -- derived.
+
+    Downloads land here rather than in the system temp directory for one
+    reason: this is under ``DATA_DIR``, so the move into
+    ``staging_dir_for(...)`` is a rename on one filesystem and the final
+    step can be genuinely atomic. ``shutil.move`` across filesystems is a
+    copy followed by a delete, and a copy can be interrupted halfway.
+
+    ``.incoming`` sits alongside the per-batch directories and CANNOT
+    collide with one: ``_SAFE_ID_RX`` requires a batch id to begin with
+    an alphanumeric, so no batch can ever produce a directory whose name
+    starts with a dot. The reservation is enforced by the same expression
+    that keeps ``..`` out of these paths, not by hoping uuids stay uuids.
+    """
+    return (_data_dir() / STAGING_ROOT / INCOMING_DIRNAME
+            / _safe_segment(batch_id, "batch_id"))
+
+
+def _ensure_incoming_dir(batch_id: str) -> Path:
+    path = incoming_dir_for(batch_id)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise AcquireError(
+            "could not open a download area for this batch (%s)."
+            % exc.__class__.__name__,
+            reason="staging_failed") from None
+    return path
+
+
+def _move_onto(src: Path, dst: Path) -> None:
+    """Rename ``src`` onto ``dst``, falling back to a copy across devices.
+
+    ``os.replace`` is the whole point -- it is atomic and it overwrites.
+    The ``EXDEV`` branch exists only for a caller that downloaded into
+    the system temp directory instead of the incoming area; it is not
+    atomic and cannot be, which is why the incoming area exists.
+    """
+    try:
+        os.replace(str(src), str(dst))
+        return
+    except OSError as exc:
+        if getattr(exc, "errno", None) != errno.EXDEV:
+            raise
+    shutil.copy2(str(src), str(dst))
+    _unlink(str(src))
+
+
 def stage_original(tmp_path: str, batch_id: str, candidate_id: str,
                    verified_ext: str) -> str:
     """Move the downloaded bytes into the candidate's staging directory.
 
     Called ONLY after ``candidate_create()`` has returned a real id.
 
+    THE ORDER HERE IS THE POINT. A re-ingest of a candidate that already
+    has a staged original must not be able to end with NO staged
+    original. So the bytes go to a temp name inside the candidate's own
+    directory first, that temp name is atomically renamed onto
+    ``original.<ext>``, and only once that has succeeded is a stale
+    ``original.*`` with a DIFFERENT extension removed. Deleting first --
+    which is what this did -- means an interrupted replacement takes the
+    last verified copy with it.
+
     Phase 3 will require exactly one ``original.*`` in this directory, so
-    a re-ingest that produces a different verified extension -- the same
-    photo re-exported, say -- must not leave two. Any pre-existing
-    ``original.*`` is removed first.
+    a re-ingest that produces a different verified extension (the same
+    photo re-exported, say) must not leave two. A crash between the
+    rename and the cleanup can leave a ``.incoming-`` file behind, which
+    is harmless: it does not match ``original.*`` and so is invisible to
+    the reader that counts.
     """
     if verified_ext not in VERIFIED_EXTENSIONS:
         raise AcquireError(
             "refusing to stage item bytes with an unverified extension %r."
             % verified_ext,
-            reason="unsupported_content", retryable=False)
+            reason="unsupported_content")
     src = Path(tmp_path)
     if not src.is_file():
         raise AcquireError(
             "the downloaded bytes for candidate %s are gone before staging."
             % candidate_id,
-            reason="staging_failed", retryable=True)
+            reason="staging_failed")
 
     target_dir = staging_dir_for(batch_id, candidate_id)
+    target = target_dir / ("original%s" % verified_ext)
+    pending: Optional[str] = None
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-        for stale in target_dir.glob("original.*"):
-            if stale.name != "original%s" % verified_ext:
-                logger.info("google_picker: replacing a stale %s for "
-                            "candidate %s", stale.name, candidate_id)
-                stale.unlink()
-        target = target_dir / ("original%s" % verified_ext)
-        shutil.move(str(src), str(target))
+        handle, pending = tempfile.mkstemp(dir=str(target_dir),
+                                           prefix=".incoming-",
+                                           suffix=verified_ext)
+        os.close(handle)
+        _move_onto(src, Path(pending))
+        os.replace(pending, str(target))
+        pending = None
     except AcquireError:
+        _unlink(pending)
         raise
     except OSError as exc:
+        _unlink(pending)
         raise AcquireError(
             "could not stage the bytes for candidate %s (%s)."
             % (candidate_id, exc.__class__.__name__),
-            reason="staging_failed", retryable=True) from None
+            reason="staging_failed") from None
+
+    # Only now. The new original is already in place, so a failure in
+    # this loop costs a duplicate to clean up rather than the photograph.
+    for stale in target_dir.glob("original.*"):
+        if stale.name == target.name:
+            continue
+        logger.info("google_picker: removing a stale %s for candidate %s",
+                    stale.name, candidate_id)
+        _unlink(str(stale))
     return str(target)
 
 
 __all__ = [
     "AcquireError",
     "DEFAULT_MAX_BYTES",
+    "INCOMING_DIRNAME",
     "MAX_BYTES_ENV",
     "PERMANENT_REASONS",
     "RETRYABLE_REASONS",
     "STAGING_ROOT",
     "VERIFIED_EXTENSIONS",
     "download_original",
+    "incoming_dir_for",
+    "is_retryable",
     "max_bytes",
     "read_evidence_metadata",
     "sniff_image",
