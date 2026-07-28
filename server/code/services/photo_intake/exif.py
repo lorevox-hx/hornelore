@@ -188,17 +188,22 @@ def extract_exif(source_path: str) -> Dict[str, Any]:
         log.warning("Pillow not available, EXIF disabled: %s", exc)
         return _empty()
 
+    # WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 2B: the reader is closed
+    # before this function returns. It used to leave the handle open for
+    # the garbage collector, which is harmless when the caller is done
+    # with the file -- and is NOT harmless for the Picker evidence lane,
+    # whose very next step MOVES the file it just read. `img` is not used
+    # past the EXIF read, so the reader has no reason to outlive it.
     try:
-        img = Image.open(source_path)
+        with Image.open(source_path) as img:
+            try:
+                raw = img._getexif() if hasattr(img, "_getexif") else None
+            except Exception as exc:
+                log.debug("EXIF read failed for %s: %s", source_path, exc)
+                raw = None
     except Exception as exc:
         log.debug("Pillow could not open %s for EXIF: %s", source_path, exc)
         return _empty()
-
-    try:
-        raw = img._getexif() if hasattr(img, "_getexif") else None
-    except Exception as exc:
-        log.debug("EXIF read failed for %s: %s", source_path, exc)
-        raw = None
 
     if not raw:
         return _empty()
