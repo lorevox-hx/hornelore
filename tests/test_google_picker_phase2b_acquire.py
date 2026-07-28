@@ -1289,14 +1289,41 @@ class TestPhaseWall(_Base):
         self.assertIn("from ..photo_intake.dedupe import sha256_file", source)
         self.assertNotIn("hashlib", source)
 
-    def test_no_route_is_wired_to_acquisition_yet(self):
-        """A module with no caller is the point: it is reviewable on its
-        own, and the ingest route is the next commit."""
+    def test_acquisition_has_exactly_one_caller_and_it_is_the_ingest_route(self):
+        """MOVED FORWARD in the 2B ingest commit (was
+        `test_no_route_is_wired_to_acquisition_yet`).
+
+        The old wall kept this module callerless so that the acquisition
+        step could be reviewed on its own. The ingest route is that
+        caller, and it has now arrived, so the wall is PASSED rather than
+        deleted -- and it moves to the property that keeps the lane
+        honest afterwards.
+
+        That property is a single entrance. Byte acquisition for the
+        Picker lane is the one place that caps the read, sniffs the real
+        content type, computes the hash and keeps the bearer-scoped URL
+        out of every message it raises. If a second module starts
+        importing it, those guarantees stop being structural and start
+        being a habit. One importer, named, or this fails."""
+        importers = []
+        for path in sorted(_SERVER_CODE.rglob("*.py")):
+            if path.name == "acquire.py":
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "google_picker import acquire" in text \
+                    or "google_picker.acquire" in text \
+                    or "import acquire" in text:
+                importers.append(path.relative_to(_SERVER_CODE).as_posix())
+        self.assertEqual(
+            importers, ["api/routers/google_picker.py"],
+            "acquisition is the Picker lane's single byte entrance; a "
+            "second importer means the caps, the content sniffing and "
+            "the URL hygiene are no longer structural")
+
         router = (_SERVER_CODE / "api" / "routers" / "google_picker.py"
                   ).read_text(encoding="utf-8")
-        for name in ("acquire", "download_original", "list_media_items"):
-            self.assertNotIn(name, router,
-                             "the ingest route is the next step, not this one")
+        self.assertIn("acquire.download_original(", router)
+        self.assertIn("acquire.stage_original(", router)
 
     def test_the_data_directory_is_read_from_configuration(self):
         """`C:\\hornelore_data` must never appear in product logic."""

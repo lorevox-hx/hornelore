@@ -48,6 +48,7 @@ pytest is not installed in this repo; run with:
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import sqlite3
@@ -436,7 +437,14 @@ class TestHealth(_Base):
         self.assertTrue(body["flags"][_PROV_FLAG])
         self.assertEqual(body["scope"], oauth.PICKER_SCOPE)
         self.assertIn("photospicker.mediaitems.readonly", body["scope"])
-        self.assertEqual(body["phase"], 1)
+        # MOVED FORWARD in the 2B ingest commit. This asserted `phase == 1`.
+        # An operator reads this number to decide whether the stack in
+        # front of them can ingest, so holding it at 1 once the route
+        # exists would not have been a wall holding -- it would have been
+        # the health check lying. What must NOT move is the line above:
+        # one read-only scope, no matter how many phases land.
+        self.assertEqual(body["phase"], 2)
+        self.assertTrue(body["ingest_available"])
 
 
 class TestHealthNoCredentials(_Base):
@@ -616,14 +624,30 @@ class TestPollSession(_Base):
         self.assertEqual(body["trip_id"], self.trip_id)
         self.assertEqual(body["batch_status"], "open")
 
-    def test_poll_says_ingest_does_not_exist_yet(self):
-        """Rule 6, said in the payload. media_items_set going true is the
-        end of the road in Phase 1, and the route does not imply a next
-        step that has not been built."""
+    def test_poll_offers_ingest_only_once_the_operator_has_finished_picking(
+            self):
+        """MOVED FORWARD in the 2B ingest commit (was
+        `test_poll_says_ingest_does_not_exist_yet`).
+
+        The old wall said the payload must not imply a next step that had
+        not been built. The step is built, so the wall is PASSED -- and
+        the property worth keeping is the honest half of it: the payload
+        must never advertise a next step that would refuse. This
+        `_Base` fixture polls a session whose `mediaItemsSet` is false,
+        so ingest is not offered yet; `test_poll_reports_media_items_set`
+        above covers the true case. If `ingest_available` ever stops
+        agreeing with what the ingest route would actually accept, a UI
+        built on it starts showing operators a button that answers 409."""
         body = self.client.get(
             "/api/google-picker/sessions/%s" % self.batch_id).json()
-        self.assertEqual(body["phase"], 1)
-        self.assertFalse(body["ingest_available"])
+        self.assertEqual(body["phase"], 2)
+        self.assertFalse(body["media_items_set"])
+        self.assertFalse(body["ingest_available"],
+                         "the operator has not finished picking; offering "
+                         "ingest here would offer a 409")
+        self.assertEqual(body["ingest_path"],
+                         "/api/google-picker/sessions/%s/ingest"
+                         % self.batch_id)
 
     def test_unknown_batch_is_404(self):
         r = self.client.get("/api/google-picker/sessions/%s" % uuid.uuid4())
@@ -712,21 +736,80 @@ class TestPhaseWalls(_Base):
                              "%r reads like a byte download; acquisition is "
                              "Phase 2B, not the listing client" % forbidden)
 
-    def test_no_route_is_wired_to_the_listing_yet(self):
-        """A listing function with no caller is the point: 2A is
-        reviewable on its own, and 2B wires it up."""
+    def test_the_listing_is_wired_to_ingest_and_the_router_follows_no_url(self):
+        """MOVED FORWARD in Phase 2B (was
+        `test_no_route_is_wired_to_the_listing_yet`).
+
+        The old wall said the router must not mention `list_media_items`
+        at all, because 2A had to be reviewable with no caller. 2B is the
+        session that wires it up, so that wall has been PASSED, not
+        loosened -- and the wall moves to the next thing worth forcing.
+
+        What is worth forcing now is WHO follows the download URL. The
+        router may ask the listing for items, but `baseUrl` is a
+        bearer-scoped URL: possession of it is possession of the
+        photograph. Exactly one module is allowed to follow one, and that
+        module is `acquire`, which knows to cap the read, verify the
+        content and keep the URL out of every message it raises. If the
+        router ever grows its own `requests.get` on an item URL, this
+        fails."""
         src = _ROUTER_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("list_media_items", src,
-                         "the ingest route belongs to Phase 2B")
+        self.assertIn("picker_client.list_media_items(", src,
+                      "Phase 2B wires the listing into the ingest route")
+        self.assertIn("acquire.download_original(", src,
+                      "the route hands the item to acquire; it does not "
+                      "fetch bytes itself")
+        for forbidden in ("requests.get(", "requests.post(", "stream=True",
+                          "iter_content", "urlopen("):
+            self.assertNotIn(forbidden, src,
+                             "%r means the router is following a download "
+                             "URL itself; that belongs to acquire, which is "
+                             "the only module allowed to hold a baseUrl"
+                             % forbidden)
 
     def test_the_router_deletes_nothing_from_the_database(self):
         src = _ROUTER_PATH.read_text(encoding="utf-8")
         self.assertNotIn("DELETE FROM", src.upper())
 
-    def test_the_router_creates_no_candidates(self):
-        src = _ROUTER_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("candidate_create", src)
-        self.assertNotIn("candidate_promote", src)
+    def test_the_router_creates_candidates_but_judges_none(self):
+        """MOVED FORWARD in Phase 2B (was
+        `test_the_router_creates_no_candidates`).
+
+        Phase 1 had no way to produce bytes, so a candidate row would
+        have been a claim with nothing behind it. 2B can stage verified
+        bytes, so creating rows is now the job -- that wall is PASSED.
+
+        The wall that replaces it is the one that still matters: creating
+        a candidate is not judging one. Every row this route writes is
+        born `pending` and waits for Lori in the existing evidence queue.
+        No automated failure may become a terminal decision, and nothing
+        here may promote into `photos`. Phase 3 opens that door.
+
+        Asserted as an exact set of repository attributes rather than a
+        blocklist, so a NEW repository call fails this test even if
+        nobody thought to forbid it by name -- and so the deliberate
+        prose mentions of `candidate_decide()` in the module docstrings,
+        which are there to explain why it is NOT called, do not read as
+        dependencies."""
+        tree = ast.parse(_ROUTER_PATH.read_text(encoding="utf-8"))
+        used = {node.attr for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "repo"}
+        self.assertEqual(
+            used,
+            # Errors the route catches and translates into HTTP, plus the
+            # five calls it makes. `candidate_create` and `candidates_list`
+            # arrived with the 2B ingest route; the batch calls are 1's.
+            {"BatchClosedError", "BatchNotFoundError", "CrossPersonError",
+             "CrossTripError", "ExternalTokenError", "ImportRepositoryError",
+             "IntakeIsNotApprovalError", "InvalidStateError",
+             "batch_close", "batch_create", "batch_get",
+             "candidate_create", "candidates_list"},
+            "the router reached for a repository call it did not have "
+            "before; if it is a decision or a promotion it belongs to "
+            "Phase 3, and if it is something else it belongs in this set "
+            "with a reason")
 
     def test_no_module_in_the_lane_reads_a_credential_into_a_response(self):
         """The credential env names may appear in oauth.py (it reads them)

@@ -1,12 +1,14 @@
 """Google Photos Picker router -- WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01
 Phase 1 (2026-07-27): credentials, health, and session lifecycle.
+Phase 2B (2026-07-28): the ingest route.
 
-WHAT PHASE 1 DOES
+WHAT THIS ROUTER DOES
 
     GET    /api/google-picker/health
     POST   /api/google-picker/sessions              {person_id, trip_id?, label?}
     GET    /api/google-picker/sessions/{batch_id}
     DELETE /api/google-picker/sessions/{batch_id}
+    POST   /api/google-picker/sessions/{batch_id}/ingest
 
 ``POST /sessions`` creates the Picker session at Google AND opens the
 matching ``import_batch`` with ``source='google_photos_picker'``, storing
@@ -18,11 +20,24 @@ The batch is the durable handle; every later route in this lane is
 addressed by ``batch_id``, never by the Google session id, so the
 provider handle never has to travel through a URL the operator pastes.
 
-WHAT PHASE 1 DELIBERATELY DOES NOT DO, AND WHY
+WHAT THE INGEST ROUTE DOES, IN ONE PARAGRAPH
 
-  * It downloads no bytes and creates no candidates. That is Phase 2.
-    The listing call is not even implemented in ``picker_client`` -- an
-    unused function is an invitation to reach past the phase wall.
+``POST /sessions/{batch_id}/ingest`` lists what the operator picked,
+downloads each item's original bytes, verifies them by content, reads
+EXIF off the file, calls ``candidate_create()`` and only then moves the
+bytes into the id that call actually returned. Every item is independent:
+one failure does not stop the ones after it, and the run answers with a
+per-item outcome list. It creates ``pending`` candidates and nothing
+else. Spec 12.3: **an ingest failure is not a candidate decision**, so
+``candidate_decide()`` is never called here, and an item that could not
+be acquired produces no candidate row at all rather than an ``error``
+candidate nobody can undo.
+
+WHAT THIS ROUTER STILL DELIBERATELY DOES NOT DO, AND WHY
+
+  * It writes no ``photos`` row and performs no promotion. Ingest ends at
+    a ``pending`` candidate in the existing Evidence Review Queue; the
+    operator is the next step, not this code.
   * It does not add ``google_photos_picker`` to
     ``import_repository.PROMOTABLE_SOURCES``. That happens in Phase 3,
     and only after Phase 2 has proven it can stage real bytes. The
@@ -53,19 +68,30 @@ report values, prefixes, lengths or masked tails. See
 ``services/google_picker/oauth.py`` for the full statement of the rule;
 the short version is that credentials live in the process environment
 and nothing here writes one to the database, returns one, or logs one.
+
+The ingest route extends that rule to one more value. A picked item's
+``baseUrl`` is a bearer-scoped download URL -- possession of it is
+possession of the photograph. It travels from ``list_media_items`` into
+``download_original`` and stops there. It is never logged, never put in
+an exception message, never stored in ``match_reason``, and never
+returned. The per-item results below identify an item by its opaque
+``media_item_id`` only, which is the same value that lands in
+``external_id`` and is what the repository's token scanner was written
+to permit.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..services import import_repository as repo
-from ...services.google_picker import oauth, picker_client
+from ...services.google_picker import acquire, oauth, picker_client
 
 logger = logging.getLogger("code.api.routers.google_picker")
 
@@ -122,6 +148,11 @@ _REPO_STATUS = {
     repo.IntakeIsNotApprovalError: 409,
     repo.InvalidStateError: 400,
     repo.BatchNotFoundError: 404,
+    # Ingest can provoke this one and Phase 1 could not: landing a
+    # candidate in a closed or failed batch. 409 rather than 400 -- the
+    # request was well formed, the batch is simply not accepting, and
+    # `POST /api/import/batches/{id}/reopen` is the fix.
+    repo.BatchClosedError: 409,
 }
 
 # Auth failures, mapped. `credentials_missing` is 503 rather than 500
@@ -221,6 +252,23 @@ class SessionCreateBody(BaseModel):
     created_by_user_id: Optional[str] = None
 
 
+class IngestBody(BaseModel):
+    """Optional. ``POST .../ingest`` with no body ingests the whole
+    selection, which is the ordinary case.
+
+    ``max_items`` exists for the first real run against a large
+    selection, where downloading five hundred originals to discover a
+    configuration problem is an expensive way to learn it. When it
+    truncates, the response says so in three fields rather than one:
+    ``picked`` is the true size of the selection, ``truncated`` is true,
+    and ``remaining`` counts what was left behind. A cap that quietly
+    reported success over a partial run would read as "the operator
+    picked fewer photos" -- the same lie ``list_media_items`` refuses to
+    tell about a partial page listing.
+    """
+    max_items: Optional[int] = Field(default=None, ge=1, le=1000)
+
+
 # -- routes -----------------------------------------------------------------
 
 @router.get("/health")
@@ -236,7 +284,12 @@ def picker_health() -> Dict[str, Any]:
     return {
         "ok": True,
         "lane": "google_photos_picker",
-        "phase": 1,
+        # 2, not 1. This number is read by an operator deciding whether
+        # the stack in front of them can ingest; it said 1 for a day
+        # after the acquisition module landed and would have said 1
+        # forever if nobody had gone looking for the statements the
+        # route falsified.
+        "phase": 2,
         "flags": {
             "HORNELORE_GOOGLE_PICKER": _picker_enabled(),
             "HORNELORE_IMPORT_PROVENANCE": _provenance_enabled(),
@@ -253,9 +306,12 @@ def picker_health() -> Dict[str, Any]:
             "endpoint reports presence, never values.",
             "A project in 'Testing' publishing status expires refresh tokens "
             "every 7 days for this scope.",
-            "Phase 1 creates sessions only. It downloads no bytes and creates "
-            "no candidates.",
+            "Ingest downloads original bytes and creates pending candidates "
+            "in the existing evidence review queue. It never promotes, and "
+            "it never records an operator decision.",
         ],
+        "max_item_bytes": acquire.max_bytes(),
+        "ingest_available": True,
     }
 
 
@@ -312,8 +368,8 @@ def create_picker_session(body: SessionCreateBody) -> Dict[str, Any]:
         "expire_time": session["expire_time"],
         "next": "Open picker_uri, choose photos, then poll "
                 "GET /api/google-picker/sessions/{batch_id} until "
-                "media_items_set is true. Ingest is Phase 2 and does not "
-                "exist yet.",
+                "media_items_set is true, then POST "
+                "/api/google-picker/sessions/{batch_id}/ingest.",
     }
 
 
@@ -322,9 +378,9 @@ def get_picker_session(batch_id: str) -> Dict[str, Any]:
     """Poll Google for this batch's session.
 
     ``media_items_set`` flipping to true means the operator has finished
-    picking. In Phase 1 that is the end of the road -- there is nothing
-    to ingest with yet, and this route says so rather than implying a
-    next step that does not exist.
+    picking, which is the precondition ingest checks for. This route
+    reports it and does nothing else -- polling must stay free of side
+    effects, because the UI calls it on a timer.
     """
     _require_enabled()
     batch = _picker_batch(batch_id)
@@ -345,8 +401,587 @@ def get_picker_session(batch_id: str) -> Dict[str, Any]:
         "poll_interval": session["poll_interval"],
         "timeout_in": session["timeout_in"],
         "expire_time": session["expire_time"],
-        "phase": 1,
-        "ingest_available": False,
+        "phase": 2,
+        # True now, and gated on the same two things the route itself
+        # checks so the UI is never told to offer a button that will
+        # answer 409: the operator has finished picking, and the batch
+        # can still accept candidates.
+        "ingest_available": bool(session["media_items_set"])
+                            and batch.get("status") == "open",
+        "ingest_path": "/api/google-picker/sessions/%s/ingest" % batch_id,
+    }
+
+
+# -- ingest -----------------------------------------------------------------
+#
+# Spec 12.2's required order, which the rest of this section exists to
+# keep:
+#
+#     download to a temp file -> validate it -> extract metadata ->
+#     candidate_create() -> take the id it ACTUALLY returned ->
+#     move the bytes into that id's directory
+#
+# The order is not stylistic. `candidate_create()` is idempotent on
+# `(batch_id, external_id)` and DISCARDS any `candidate_id` the caller
+# passes when a row already exists, so bytes staged under a preallocated
+# id are orphaned on the first re-ingest -- a directory of real
+# photographs that no row points at and no operator will ever see.
+
+# The upstream failures that mean the PICKING SESSION ITSELF is gone,
+# rather than a bad moment on the way to it. Only these close the batch.
+_SESSION_UNUSABLE = ("session_not_found",)
+
+# The per-item outcomes this route reports. `failed` is the only one that
+# carries a `reason` and a `retryable` flag; the other three succeeded.
+INGEST_OUTCOMES = ("created", "repaired", "unchanged", "failed")
+
+# Failure reasons this ROUTE adds to the ones `acquire` already
+# classifies, with the same retryable/permanent split. Kept as data for
+# the same reason `acquire` keeps its own: so the `reason` field in the
+# response has exactly one vocabulary behind it, and so a new reason
+# cannot be introduced without landing somewhere in it.
+_ROUTE_REASONS: Dict[str, bool] = {
+    "hash_mismatch": False,
+    "repository_refused": False,
+    "unexpected_error": True,
+}
+
+# Asserted at import, not tested for politely at runtime: a reason that
+# existed in both vocabularies would resolve to whichever one the reader
+# happened to consult, and the two would disagree about whether an
+# operator should retry.
+for _reason in _ROUTE_REASONS:
+    if (_reason in acquire.RETRYABLE_REASONS
+            or _reason in acquire.PERMANENT_REASONS):
+        raise AssertionError(
+            "google_picker router: %r is classified both here and in "
+            "acquire" % _reason)
+del _reason
+
+
+def _discard(tmp_path: Optional[str]) -> None:
+    """Remove a temporary download that never became a staged original.
+
+    Every item path ends here, success or failure. After a successful
+    staging the file has already been renamed away and this is a no-op;
+    after any failure downstream of the download it is the only thing
+    standing between a partial run and an incoming directory that gains
+    a full-size photograph nobody holds a reference to, every time an
+    item fails.
+    """
+    if not tmp_path:
+        return
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+
+
+def _staged_original(batch_id: str, candidate_id: str) -> Optional[Path]:
+    """The one ``original.*`` in a candidate's staging directory, or None.
+
+    None means "not staged as Phase 3 will require it" and deliberately
+    covers three cases that all want the same answer: the directory does
+    not exist, it is empty, or it holds more than one ``original.*``.
+    Phase 3 resolves the directory and requires exactly one file in it,
+    so a directory holding two is already broken -- and re-staging is
+    the repair, because ``stage_original`` writes the new one and then
+    removes the stale extensions.
+    """
+    try:
+        target_dir = acquire.staging_dir_for(batch_id, candidate_id)
+    except acquire.AcquireError:
+        return None
+    try:
+        found = sorted(p for p in target_dir.glob("original.*") if p.is_file())
+    except OSError:
+        return None
+    return found[0] if len(found) == 1 else None
+
+
+def _existing_by_external_id(batch_id: str) -> Dict[str, Dict[str, Any]]:
+    """The batch's candidates, read once, indexed by provider item id.
+
+    Read once before the loop rather than once per item: a five-hundred
+    photo selection would otherwise be five hundred extra queries to
+    answer a question one query answers.
+
+    ``include_hidden=True`` on purpose. A hidden candidate is still a row
+    that owns ``(batch_id, external_id)``, and the UNIQUE index does not
+    care that an operator retired it. Ingest must find it and take the
+    re-ingest branch rather than trying to create a second row behind it.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for cand in repo.candidates_list(batch_id=batch_id, include_hidden=True):
+        ext = cand.get("external_id")
+        if isinstance(ext, str) and ext:
+            out[ext] = cand
+    return out
+
+
+def _match_reason(item: Dict[str, Any], downloaded: Dict[str, Any],
+                  meta: Dict[str, Any]) -> Dict[str, Any]:
+    """What the review queue is told about how this candidate arrived.
+
+    Three rules govern what may go in here, and each of them is a rule
+    because breaking it would be invisible afterwards.
+
+    IT CARRIES NO CREDENTIAL AND NO DOWNLOAD URL. ``baseUrl`` is absent
+    by construction, and ``import_repository._assert_reason_clean`` would
+    refuse it anyway -- along with any key containing ``token``, ``auth``,
+    ``secret`` or ``session_id``, which is why nothing here is named
+    after the picking session even though naming it would be convenient.
+
+    IT CARRIES NO STAGING PATH. Spec 12.5: ``match_reason`` is
+    effectively write-once, because the repository offers
+    ``candidate_set_trip``, ``candidate_decide`` and ``candidate_hide``
+    and no function at all that updates candidate metadata. A path or a
+    ``{"staging": {"verified": true}}`` claim recorded here could never
+    be corrected after the file was repaired, moved or found corrupt.
+    Phase 3 derives the path from the two ids it already holds.
+
+    IT DOES CARRY ``gps_present_unparseable``, and this is the only place
+    that value can live. ``photo_intake/exif.py`` distinguishes three
+    states: GPS read, GPS absent, and GPS present but undecodable. The
+    candidate columns express the first two -- coordinates plus
+    ``location_source`` -- and have nowhere to put the third. Dropping it
+    would tell a reviewer "this photograph has no location" about a
+    photograph that plainly has one, so it is recorded as the fact it is.
+    The location columns still stay null: an unparseable tag is evidence
+    that a coordinate exists, not a coordinate.
+    """
+    reason: Dict[str, Any] = {
+        "source": PICKER_SOURCE,
+        "provider_media_type": item.get("media_type"),
+        "provider_mime_type": item.get("mime_type"),
+        "verified_mime": downloaded["verified_mime"],
+        "metadata_trust": meta.get("metadata_trust"),
+    }
+    if meta.get("trust_reasons"):
+        reason["trust_reasons"] = list(meta["trust_reasons"])
+
+    width, height = item.get("width"), item.get("height")
+    if isinstance(width, int) and isinstance(height, int):
+        reason["provider_dimensions"] = {"width": width, "height": height}
+
+    # Recorded only when true, and only ever as true. A `false` on every
+    # ordinary photograph would read as a checked-and-cleared claim and
+    # would bury the handful of cases that mean something; its absence
+    # is the ordinary case.
+    if meta.get("gps_present_unparseable"):
+        reason["gps_present_unparseable"] = True
+
+    # The provider disagreed with the bytes. Not an error -- the bytes
+    # won, which is the entire point of sniffing rather than trusting a
+    # declared MIME type -- but worth having on the record if a
+    # photograph later turns out to be something other than it claimed.
+    if downloaded["verified_mime"] != (item.get("mime_type") or ""):
+        reason["provider_mime_disagreed"] = True
+
+    return reason
+
+
+def _settle_existing(batch_id: str, existing: Dict[str, Any],
+                     downloaded: Dict[str, Any],
+                     result: Dict[str, Any]) -> Dict[str, Any]:
+    """The re-ingest branch: the comparison the repository does not make.
+
+    ``candidate_create()`` is idempotent on ``(batch_id, external_id)``
+    and returns the existing id having WRITTEN NOTHING -- no hash check,
+    no update. That is exactly right, and it makes it structurally
+    impossible for the repository to write a different hash under an old
+    row. But it leaves the mirror-image hazard to whoever calls it:
+    ``stage_original`` would happily overwrite ``original.<ext>`` with
+    different bytes while the row kept its old ``file_hash``, and then
+    the row and the file would disagree silently, with the row looking
+    authoritative to everything downstream.
+
+    So the cases are decided here, before anything is moved:
+
+        same hash, staged file hashes equal -> unchanged, nothing written
+        same hash, staged file missing      -> repaired, bytes re-staged
+        same hash, staged file disagrees    -> repaired, bytes re-staged
+        different hash                      -> REFUSED, nothing written
+
+    THE STAGED FILE IS HASHED, NOT MERELY COUNTED. "A file called
+    ``original.jpg`` is present" is a weaker claim than "the bytes this
+    candidate row describes are on disk", and only the second one is
+    worth reporting as ``unchanged`` -- the first would let a truncated
+    or overwritten original sit behind a row that says it is fine, which
+    is the same silent row/file disagreement this whole function exists
+    to prevent. The digest costs one read of a file whose twin is
+    already in the temp directory, against a download that just happened.
+
+    A staged file that disagrees is REPAIRED rather than refused, and the
+    asymmetry with the row-hash case is deliberate. Here the row and
+    Google agree with each other -- the freshly downloaded bytes hash to
+    exactly what the row claims -- and the disk is the one dissenting
+    copy, so re-staging makes the disk agree with two independent
+    sources. In the row-hash case there is no such majority: Google's
+    bytes and the row disagree and nothing here can say which is right,
+    so nothing is touched.
+
+    The refusal is deliberately not a candidate state. Marking the row
+    ``error`` would mean ``candidate_decide()``, which is hard one-way --
+    it raises ``CandidateAlreadyDecidedError`` on anything but
+    ``pending``, there is no undecide, and there is no DELETE on this
+    lane. A hash disagreement would become a permanent operator-review
+    verdict that no operator made (spec 12.3). It is reported as a
+    permanent per-item failure instead, and the row and its bytes are
+    left exactly as they were for a human to look at.
+
+    A stored hash that is missing entirely is treated as a mismatch for
+    the same reason: this lane always writes one, so a row without one
+    came from somewhere else, and overwriting its bytes on that basis
+    would be a guess.
+    """
+    candidate_id = existing["id"]
+    result["candidate_id"] = candidate_id
+    stored_hash = existing.get("file_hash")
+    fresh_hash = downloaded["file_hash"]
+
+    if not stored_hash:
+        return dict(result, outcome="failed", reason="hash_mismatch",
+                    retryable=False, stored_file_hash=None,
+                    detail="candidate %s already exists for this item but "
+                           "carries no file hash, so the bytes on disk "
+                           "cannot be shown to match it. Nothing was "
+                           "written and nothing was replaced."
+                           % candidate_id)
+
+    if stored_hash != fresh_hash:
+        return dict(result, outcome="failed", reason="hash_mismatch",
+                    retryable=False, stored_file_hash=stored_hash,
+                    detail="candidate %s already exists for this item with a "
+                           "different file hash. The freshly downloaded "
+                           "bytes were discarded rather than staged over the "
+                           "existing original, and the candidate row was not "
+                           "touched -- a row and a file that disagree are "
+                           "worse than a refusal somebody can read."
+                           % candidate_id)
+
+    staged = _staged_original(batch_id, candidate_id)
+    if staged is not None and acquire.hash_file(staged) == fresh_hash:
+        result["staged_verified"] = True
+        return dict(result, outcome="unchanged",
+                    detail="candidate %s already exists and the staged "
+                           "original hashes to the same bytes. Nothing was "
+                           "written." % candidate_id)
+
+    was = "no staged original" if staged is None else "a staged original "\
+        "whose bytes did not hash to the candidate's file_hash"
+    acquire.stage_original(downloaded["tmp_path"], batch_id, candidate_id,
+                           downloaded["verified_ext"])
+    logger.info("google_picker: repaired the staged original for candidate %s "
+                "in batch %s (%s)", candidate_id, batch_id, was)
+    return dict(result, outcome="repaired", staged_verified=True,
+                repaired_from=("missing" if staged is None
+                               else "hash_disagreement"),
+                detail="candidate %s already existed with these exact bytes "
+                       "on the row, but the staging directory held %s; the "
+                       "file was restored from the freshly downloaded bytes. "
+                       "The candidate row was not modified."
+                       % (candidate_id, was))
+
+
+def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
+                existing: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """One picked item, start to finish, never raising.
+
+    Every exit is a result dict, because the run must not stop. An item
+    that fails is one photograph the operator retries; an exception that
+    escapes here is every photograph after it, silently not attempted.
+    """
+    item_id = item["media_item_id"]
+    result: Dict[str, Any] = {"media_item_id": item_id,
+                              "filename": item.get("filename")}
+
+    # A provider-declared VIDEO is refused before a byte is fetched, and
+    # note the direction carefully: the declared type is trusted to
+    # REFUSE and never to ACCEPT. An item Google calls a photo is still
+    # identified by its own leading bytes in `sniff_image`, so a
+    # mislabelled video cannot get in this way. The only cost of a
+    # mislabelled photo is that this lane skips it and says so, against
+    # the alternative of streaming a multi-gigabyte movie to reach the
+    # same conclusion. Consistent with `acquire`: video produces no
+    # candidate row at all, because an `error` candidate would be a
+    # decision nobody made and could never be cleared.
+    if (item.get("media_type") or "").upper() == "VIDEO":
+        return dict(result, outcome="failed", reason="unsupported_content",
+                    retryable=False,
+                    detail="Google lists this item as a video. This lane "
+                           "stages photographs only; no candidate row was "
+                           "created for it.")
+
+    tmp_path: Optional[str] = None
+    try:
+        downloaded = acquire.download_original(
+            token, item["base_url"], item_id=item_id, batch_id=batch_id)
+        tmp_path = downloaded["tmp_path"]
+        meta = acquire.read_evidence_metadata(
+            tmp_path, provider_create_time=item.get("create_time"))
+
+        result.update({
+            "byte_size": downloaded["byte_size"],
+            "file_hash": downloaded["file_hash"],
+            "mime_type": downloaded["verified_mime"],
+            "taken_at": meta["taken_at"],
+            "taken_at_source": meta["taken_at_source"],
+            "location_source": meta["location_source"],
+            "has_exif_gps": meta["location_source"] == "exif_gps",
+        })
+        if meta.get("gps_present_unparseable"):
+            result["gps_present_unparseable"] = True
+
+        if existing is not None:
+            return _settle_existing(batch_id, existing, downloaded, result)
+
+        # Spec 12.2, in order. The id is taken from the return value and
+        # is never assumed to be one we chose.
+        candidate_id = repo.candidate_create(
+            batch_id=batch_id,
+            external_id=item_id,
+            file_hash=downloaded["file_hash"],
+            filename=item.get("filename"),
+            mime_type=downloaded["verified_mime"],
+            byte_size=downloaded["byte_size"],
+            taken_at=meta["taken_at"],
+            taken_at_source=meta["taken_at_source"],
+            # EXIF GPS reaches the candidate here, and only EXIF GPS.
+            # `acquire.read_evidence_metadata` has already refused to let
+            # provider metadata become a location source, so these three
+            # values are either a real coordinate pair with
+            # `exif_gps`, or null/null/`unknown`.
+            latitude=meta["latitude"],
+            longitude=meta["longitude"],
+            location_source=meta["location_source"],
+            match_reason=_match_reason(item, downloaded, meta),
+        )
+        result["candidate_id"] = candidate_id
+
+        # Only now do the bytes move, and they move into the id the
+        # repository actually returned.
+        acquire.stage_original(tmp_path, batch_id, candidate_id,
+                               downloaded["verified_ext"])
+        return dict(result, outcome="created")
+
+    except acquire.AcquireError as exc:
+        # `retryable` is read off the exception rather than decided here.
+        # It is derived in `acquire` from the reason, through one table,
+        # so this route cannot tell an operator something the module
+        # would contradict.
+        return dict(result, outcome="failed", reason=exc.reason,
+                    retryable=exc.retryable, detail=str(exc))
+
+    except repo.ImportRepositoryError as exc:
+        # A repository refusal about ONE item -- an off-enum value, a
+        # token-shaped filename, a trip that belongs to someone else.
+        # Permanent, because re-running produces the same refusal.
+        #
+        # `BatchClosedError` reaches here too, if the batch is closed
+        # between the route's pre-check and this item. Every remaining
+        # item then fails the same way and says so, which is verbose but
+        # true; it is not allowed to abort the loop, because "one failed
+        # item does not stop later items" should hold without an
+        # exception clause that has to be remembered.
+        return dict(result, outcome="failed", reason="repository_refused",
+                    retryable=False, detail=str(exc))
+
+    except Exception as exc:
+        # Class name only, and no traceback. A traceback logged here
+        # could carry a `requests` exception whose string form is the
+        # full bearer-scoped download URL -- which is the one value in
+        # this lane that must never reach a log file.
+        logger.error("google_picker: unexpected %s while ingesting one item "
+                     "in batch %s", exc.__class__.__name__, batch_id)
+        return dict(result, outcome="failed", reason="unexpected_error",
+                    retryable=True,
+                    detail="an unexpected %s occurred while ingesting this "
+                           "item" % exc.__class__.__name__)
+
+    finally:
+        # Unconditional. On the created and repaired paths the file has
+        # already been renamed away and this does nothing.
+        _discard(tmp_path)
+
+
+def _session_http(batch_id: str,
+                  exc: picker_client.PickerApiError) -> HTTPException:
+    """Map an upstream failure, and close the batch ONLY when the picking
+    session itself is gone.
+
+    Spec 12.4 is precise about this and the precision is the point. There
+    is no column that can hold a per-run partial failure summary: the
+    only writer of ``import_batch.failure_reason`` is
+    ``batch_close(failed=True, ...)``, which also sets the status to
+    ``failed``, and ``batch_reopen()`` clears it outright -- so
+    persisting a partial summary and then retrying are mutually
+    exclusive under today's schema. ``failed`` is therefore reserved for
+    the batch-level failure the column was actually built for: the
+    picking session no longer exists, so nothing further can ever be
+    listed or downloaded from it.
+
+    A network blip, a rate limit, or a token that needs re-minting are
+    moments, not verdicts. The batch stays open through all of them,
+    because a retryable failure with the batch closed behind it is not
+    retryable at all -- somebody would have to reopen the batch by hand
+    before the retry the response invited could work.
+    """
+    if exc.reason in _SESSION_UNUSABLE:
+        try:
+            repo.batch_close(
+                batch_id, failed=True,
+                failure_reason="the Google picking session for this batch is "
+                               "no longer available, so no further items can "
+                               "be listed or downloaded from it. Candidates "
+                               "that already landed are untouched. Reopen "
+                               "the batch only if a new picking session is "
+                               "created for it.")
+            logger.info("google_picker: closed batch %s failed -- its picking "
+                        "session no longer exists", batch_id)
+        except Exception as close_exc:
+            # The upstream failure is still the operator's answer; being
+            # unable to record it must not replace it with a different
+            # error about bookkeeping.
+            logger.warning("google_picker: could not record the batch-level "
+                           "failure for batch %s (%s)",
+                           batch_id, close_exc.__class__.__name__)
+    return _upstream_http(exc)
+
+
+@router.post("/sessions/{batch_id}/ingest")
+def ingest_picker_session(
+    batch_id: str,
+    body: Optional[IngestBody] = None,
+) -> Dict[str, Any]:
+    """Download what the operator picked and land it as pending candidates.
+
+    Idempotent. Running it twice over the same selection creates nothing
+    the second time: ``candidate_create()`` is idempotent on
+    ``(batch_id, external_id)``, and the re-ingest branch above checks
+    the bytes against the hash already on the row before it will replace
+    anything. Running it again after a partial failure is the retry --
+    that is what "leave the batch open" is for.
+
+    What it never does: promote, write a ``photos`` row, or call
+    ``candidate_decide()``. Every candidate it creates is born
+    ``pending`` and visible in the existing Evidence Review Queue with
+    no further step, because ``candidates_list`` reads ``hidden = 0``
+    ordered oldest-first and a new row satisfies that by existing.
+    """
+    _require_enabled()
+    batch = _picker_batch(batch_id)
+
+    if batch.get("status") != "open":
+        raise HTTPException(
+            status_code=409,
+            detail="batch %s is %s; candidates cannot land in it. Reopen it "
+                   "with POST /api/import-provenance/batches/%s/reopen and "
+                   "run ingest again."
+                   % (batch_id, batch.get("status"), batch_id),
+        )
+
+    token = _access_token()
+
+    # Poll first. Ingesting a selection the operator has not finished
+    # making would download a half-chosen set and record it as the
+    # import -- and the second run would then see every later photo as
+    # new while the first batch already claimed to be complete.
+    try:
+        session = picker_client.get_session(token, batch["external_ref"])
+    except picker_client.PickerApiError as exc:
+        raise _session_http(batch_id, exc) from None
+
+    if not session.get("media_items_set"):
+        raise HTTPException(
+            status_code=409,
+            detail={"detail": "the operator has not finished picking for "
+                              "batch %s. Poll GET "
+                              "/api/google-picker/sessions/%s until "
+                              "media_items_set is true, then ingest."
+                              % (batch_id, batch_id),
+                    "reason": "selection_incomplete",
+                    "media_items_set": False},
+        )
+
+    try:
+        items = picker_client.list_media_items(token, batch["external_ref"])
+    except picker_client.PickerApiError as exc:
+        raise _session_http(batch_id, exc) from None
+
+    picked = len(items)
+    limit = body.max_items if (body is not None and body.max_items) else None
+    if limit is not None and picked > limit:
+        items = items[:limit]
+        # Said out loud. A cap that truncates silently is indistinguishable
+        # from a selection that was smaller than the operator remembers.
+        logger.info("google_picker: max_items=%d truncated the run for batch "
+                    "%s -- attempting %d of %d picked item(s)",
+                    limit, batch_id, len(items), picked)
+
+    existing = _existing_by_external_id(batch_id)
+
+    results: List[Dict[str, Any]] = []
+    for item in items:
+        results.append(
+            _ingest_one(token, batch_id, item,
+                        existing.get(item["media_item_id"])))
+
+    counts = {outcome: 0 for outcome in INGEST_OUTCOMES}
+    for entry in results:
+        counts[entry["outcome"]] = counts.get(entry["outcome"], 0) + 1
+    retryable_failures = sum(1 for entry in results
+                             if entry["outcome"] == "failed"
+                             and entry.get("retryable"))
+    permanent_failures = counts["failed"] - retryable_failures
+
+    logger.info("google_picker: ingest for batch %s -- %d picked, %d "
+                "attempted, %d created, %d repaired, %d unchanged, %d failed "
+                "(%d retryable)", batch_id, picked, len(items),
+                counts["created"], counts["repaired"], counts["unchanged"],
+                counts["failed"], retryable_failures)
+
+    # Read the batch back rather than reporting what we loaded at the
+    # top. The only thing in this route that closes a batch is
+    # `_session_http`, which raises rather than returning -- so this
+    # should always be `open`, and reporting the value rather than the
+    # assumption is how a future change that breaks that gets noticed.
+    batch_after = repo.batch_get(batch_id) or batch
+    visible = repo.candidates_list(batch_id=batch_id)
+
+    return {
+        "ok": True,
+        "batch_id": batch_id,
+        "person_id": batch.get("person_id"),
+        "trip_id": batch.get("trip_id"),
+        "batch_status": batch_after.get("status"),
+        "picked": picked,
+        "attempted": len(items),
+        "truncated": len(items) < picked,
+        "remaining": picked - len(items),
+        "created": counts["created"],
+        "repaired": counts["repaired"],
+        "unchanged": counts["unchanged"],
+        "failed": counts["failed"],
+        "retryable_failures": retryable_failures,
+        "permanent_failures": permanent_failures,
+        # Per-item, in the order Google listed the selection. This is the
+        # only home a partial-run summary has -- spec 12.4 -- so it is
+        # complete rather than truncated to the failures.
+        "results": results,
+        # Where the new candidates already are. Ingest does not build a
+        # second review queue and does not need to: these rows are in
+        # the existing one the moment they are created.
+        "queue": {
+            "candidates_in_batch": len(visible),
+            "pending_in_batch": sum(1 for c in visible
+                                    if c.get("state") == "pending"),
+            "path": "/api/import-provenance/queue?person_id=%s&batch_id=%s"
+                    % (batch.get("person_id"), batch_id),
+        },
+        "next": "Review the new candidates in the evidence queue. Items that "
+                "failed retryably can be picked up by running ingest again; "
+                "nothing already landed is re-downloaded.",
     }
 
 

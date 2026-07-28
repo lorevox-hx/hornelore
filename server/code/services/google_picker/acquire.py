@@ -773,6 +773,30 @@ def _move_onto(src: Path, dst: Path) -> None:
     _unlink(str(src))
 
 
+def hash_file(path: Any) -> str:
+    """The sha256 of a file already on disk, by the SAME rule as download.
+
+    Exists so a caller can ask whether the bytes staged under a candidate
+    are still the bytes that candidate's ``file_hash`` column claims,
+    without reaching past this module into ``photo_intake.dedupe`` for
+    the helper and without computing a digest a different way. One lane,
+    one definition of "the hash of this photograph": if
+    ``download_original`` ever changes how it digests, this changes with
+    it and the comparison stays honest.
+
+    Raises ``AcquireError(reason="hash_failed")`` -- retryable, because
+    an unreadable file is a fact about this machine at this moment and
+    not a verdict about the photograph.
+    """
+    try:
+        return sha256_file(str(path))
+    except Exception as exc:
+        raise AcquireError(
+            "could not hash the file at the staged location (%s)."
+            % exc.__class__.__name__,
+            reason="hash_failed") from None
+
+
 def stage_original(tmp_path: str, batch_id: str, candidate_id: str,
                    verified_ext: str) -> str:
     """Move the downloaded bytes into the candidate's staging directory.
