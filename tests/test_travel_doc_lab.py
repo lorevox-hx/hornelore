@@ -148,8 +148,34 @@ class BoundaryTest(unittest.TestCase):
         # narrator-facing, and none of it can delete. What this gate
         # exists to catch -- the module quietly growing a reach into
         # narrator or Travels-shelf state -- is unchanged.
+        #
+        # WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 2D widened it again,
+        # by one, on the same terms and with the failure read first: the
+        # run was `unsanctioned endpoint in travel-doc-lab.js:
+        # /api/google-picker`, which is the gate doing its job on a lane
+        # it had never been told about. /api/google-picker is the sixth
+        # surface, and it is here because the import strip at the top of
+        # that same Evidence tab is the operator screen over the Google
+        # Photos lane -- /health to ask whether the lane is even on,
+        # POST /sessions to open a picking session, GET /sessions/{id} to
+        # poll it, POST /sessions/{id}/ingest to stage what was picked.
+        #
+        # It is a SEPARATE prefix rather than a widening of the
+        # import-provenance one because they are separate lanes with
+        # separate gates: the queue needs HORNELORE_IMPORT_PROVENANCE and
+        # the picker needs that flag AND HORNELORE_GOOGLE_PICKER. Folding
+        # them together here would have let one prefix stand for two
+        # different sets of preconditions.
+        #
+        # The same three properties hold of the new lane as of the last
+        # one, which is why it is admitted: every route behind it is
+        # behind default-off server flags, none of it is narrator-facing,
+        # and the module surfaces none of its DELETE (the lane has exactly
+        # one, it releases a session at Google, it answers
+        # `batch_deleted: false`, and this UI does not call it).
         allowed = ("/api/trips", "/api/photos/", "/api/people",
-                   "/api/chat/ws", "/api/import-provenance")
+                   "/api/chat/ws", "/api/import-provenance",
+                   "/api/google-picker")
         for m in re.finditer(r'"(/api/[^"]*)"', src):
             path = m.group(1)
             self.assertTrue(
@@ -404,18 +430,88 @@ class MountLivenessTest(unittest.TestCase):
         # connect() itself must refuse to open a socket for a dead mount.
         self.assertIn("if (destroyed) return;", body)
 
-    def test_lori_send_retry_timer_stops_at_destroy(self):
-        # The file's only timer. Unguarded it keeps retrying for up to
-        # 5s (20 x 250ms) past teardown and signs off by writing into a
-        # log node that is no longer in the document.
+    def test_both_timers_stop_at_destroy(self):
+        r"""RETIRED AND REPLACED 2026-07-28, in place rather than deleted.
+
+        This test was `test_lori_send_retry_timer_stops_at_destroy`. Its
+        comment read `The file's only timer`, and its first assertion was:
+
+            self.assertEqual(
+                len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 1,
+                "a second timer appeared; it needs its own destroyed guard",
+            )
+
+        WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 2D added the second
+        timer -- the Google Photos selection poll -- and this assertion is
+        what caught it, before any human read the diff. That is the whole
+        point of counting: the message it failed with was already the
+        instruction ("it needs its own destroyed guard"), so the count is
+        kept and only the number moves.
+
+        WHAT THE TWO TIMERS ARE, AND WHY THEIR GUARDS DIFFER. The Lori
+        retry ladder is a self-re-entering function that stores no handle,
+        so there is nothing for destroy() to clear and its only possible
+        guard is the `destroyed` check at the top of its own body. The
+        picker poll is armed from the module var `_pickerPollTimer`, so it
+        is guarded twice: the same check inside its callback, AND
+        pickerPollStop() in destroy(), which clears the pending handle.
+        Neither shape is wrong -- a handle nobody stores cannot be
+        cleared -- but the shared, non-negotiable half is the `destroyed`
+        check, and that is what is asserted of both.
+
+        The count stays exact. A third timer must fail here and be
+        described, the same way this one was.
+        """
         src = _stripped_js()
         self.assertEqual(
-            len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 1,
-            "a second timer appeared; it needs its own destroyed guard",
+            len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 2,
+            "a third timer appeared; it needs its own destroyed guard",
         )
+
+        # Both are checked by slicing the real body and reading its FIRST
+        # statement, not by looking inside a fixed-width window. The old
+        # version took `src[i:i + 160]` and that window stopped reaching
+        # the guard the moment 2D grew the comment above it -- turning a
+        # correct guard into a red test, which is the failure mode
+        # _destroy_body() above already carries a comment about. "First
+        # statement" is also the stronger claim: a `destroyed` check
+        # somewhere in the body is not the same promise as one that runs
+        # before the body does anything.
+        def first_statement(body):
+            lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
+            return lines[1] if len(lines) > 1 else ""
+
+        # 1. The Lori send retry ladder. Unguarded it keeps retrying for
+        #    up to 5s (20 x 250ms) past teardown and signs off by writing
+        #    "Lori connection unavailable." into a log node that is no
+        #    longer in the document.
         i = src.index("function trySend(attempt)")
-        head = src[i:i + 160]
-        self.assertIn("if (destroyed) return;", head)
+        ladder = src[i:src.index("})(0);", i)]
+        self.assertIn("setTimeout(", ladder, "the ladder re-arms somewhere else now")
+        self.assertEqual("if (destroyed) return;", first_statement(ladder),
+                         "the retry ladder does not check destroyed first")
+
+        # 2. The picker selection poll. Unguarded it wakes up to 30s past
+        #    teardown, writes to `st` and repaints a host the shell has
+        #    already handed on to something else. Its callback clears its
+        #    own handle first -- a timer that has fired is no longer
+        #    pending and leaving the var set would make pickerPollStop()
+        #    lie -- so the guard is the second statement, not the first,
+        #    and it still precedes every effect.
+        j = src.index("function pickerPollArm(")
+        arm = src[j:src.index("\n  }", j)]
+        self.assertIn("setTimeout(", arm, "the poll is armed somewhere else now")
+        cb = arm[arm.index("setTimeout("):]
+        self.assertIn("if (destroyed) return;", cb[:cb.index("pickerCheck(")],
+                      "the poll callback reaches pickerCheck() without "
+                      "checking destroyed")
+
+        # And the half the ladder cannot have: the handle is cleared on
+        # the way out, so a torn-down mount leaves nothing pending at all
+        # rather than one timer that will wake and return.
+        self.assertIn("pickerPollStop()", _destroy_body())
+        self.assertIn("clearTimeout(_pickerPollTimer)",
+                      src[src.index("function pickerPollStop("):])
 
     def test_document_level_listener_is_named_and_unbound_on_destroy(self):
         # This is the only listener bound outside the host element, so
@@ -1114,12 +1210,71 @@ class EvidenceReviewQueueTest(unittest.TestCase):
             self.assertNotIn(banned, sec, banned)
         self.assertIn("not narrator-facing", sec)
 
-    def test_no_picker_and_no_takeout_in_this_phase(self):
-        # Build points 8 and 9 — the next epic step, not this one.
+    def test_no_takeout_and_the_picker_stays_an_import_affordance(self):
+        """RETIRED AND REPLACED 2026-07-28, in place rather than deleted.
+
+        This test was `test_no_picker_and_no_takeout_in_this_phase` and it
+        read, in full:
+
+            # Build points 8 and 9 — the next epic step, not this one.
+            sec = self._section()
+            for banned in ("google_photos_picker", "google_takeout",
+                           "Picker", "Takeout"):
+                self.assertNotIn(banned, sec, banned)
+
+        It was correct for exactly as long as build point 8 was the next
+        step. WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 2D took it, so
+        two of those four strings are now supposed to be here and the
+        assertion had to go. Deleting it outright would have thrown away
+        the half that is still true along with the half that expired --
+        and the half that is still true is the one that matters more,
+        because it is the wall this lane could most plausibly be pushed
+        through by accident.
+
+        WHAT IS STILL FORBIDDEN, AND WHY EACH ONE. Takeout is untouched:
+        build point 9 has not been done, no phase has started it, and a
+        Takeout string appearing in this section would mean somebody
+        started the next lane inside this one. And the picker, now that it
+        IS here, is held to what it was allowed in as: an import
+        affordance, not a review screen. Binding ruling 1.3 of
+        docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md gives candidate
+        review to the Evidence Review Queue alone, so the strip may open a
+        session, check it, ingest it and reload the queue -- and may not
+        grow a decision control of its own. The per-item run report it
+        prints after an ingest is the thing most likely to drift into
+        being a second queue, so the decision verbs are asserted absent
+        from the section's picker half specifically.
+        """
         sec = self._section()
-        for banned in ("google_photos_picker", "google_takeout",
-                       "Picker", "Takeout"):
+
+        # Build point 9 -- not started, and not to be started here.
+        for banned in ("google_takeout", "Takeout"):
             self.assertNotIn(banned, sec, banned)
+
+        # Build point 8 -- present, and present as the four verbs 12.8
+        # names. `google_photos_picker` and `Picker` are no longer banned
+        # strings; they are expected ones.
+        self.assertIn("/api/google-picker", sec)
+        for verb in ('"/health"', '"/sessions"', '"/ingest"'):
+            self.assertIn(verb, sec, verb)
+
+        # Ruling 1.3. The strip's own half of the section carries no
+        # decision control. These labels exist exactly once each in this
+        # file, on the queue rows, and test_all_seven_row_actions_exist
+        # above is what pins them there.
+        picker = sec[sec.index("var PICKER_BASE"):]
+        for verb in ('"Promote + accept"', '"Reject"', '"Duplicate"',
+                     '"Error"', '"Hide"', '"Unhide"', '"File to trip"',
+                     '"/promote"', '"/decision"'):
+            self.assertNotIn(verb, picker,
+                             f"the import strip grew a decision control: {verb}")
+
+        # And the lane's one DELETE route is not surfaced. It is safe --
+        # it releases the picking session at Google and answers
+        # `batch_deleted: false` -- so this is a scope wall, not a safety
+        # one, and it is asserted rather than assumed because "safe and
+        # therefore fine to add" is how the first DELETE gets in.
+        self.assertNotIn('method: "DELETE"', picker)
 
     def test_decided_rows_are_not_re_decidable_from_this_screen(self):
         # candidate_decide writes photo_id unconditionally, so re-deciding

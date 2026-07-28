@@ -383,6 +383,19 @@
     capturedOff: false,      // trips lane is flag-off on this server
     capturedError: "",
     showHiddenCaptured: false,
+    // WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 2D -- the import strip.
+    // `pickerOff` is a SECOND and independent off-state, not a synonym
+    // for `evidenceOff`: the queue needs HORNELORE_IMPORT_PROVENANCE and
+    // the picker needs that flag AND HORNELORE_GOOGLE_PICKER, so "a
+    // readable queue with no import affordance above it" is a real and
+    // correct server configuration. One shared field would have rendered
+    // it as a lie in one direction or the other.
+    picker: null,            // the live run: {batchId, pickerUri, stage, run, ...}
+    pickerHealth: null,      // GET /health payload -- presence BOOLEANS only
+    pickerOff: false,        // both-flags gate is closed on this server
+    pickerBusy: false,       // POST /sessions is in flight
+    pickerError: "",         // strip-level failure, before a run exists
+    pickerFileToTrip: true,  // destination is explicit (spec 10.2), never inferred
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
   };
@@ -437,9 +450,22 @@
   //
   // This is deliberately not AbortController. There is exactly ONE fetch()
   // in this file (inside api()), ONE repaint entry point (renderAll()), one
-  // BroadcastChannel handler, one WebSocket, one timer, and one
-  // document-level listener. Guarding those six is total coverage without
+  // BroadcastChannel handler, one WebSocket, TWO timers, and one
+  // document-level listener. Guarding those seven is total coverage without
   // editing all 54 call sites and without inventing a cancellation layer.
+  //
+  // Corrected 2026-07-28 by WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase
+  // 2D. This paragraph read "one timer [...] Guarding those six" from
+  // Phase 1.1 until the Google Photos import strip added the second: the
+  // picker's selection poll (`_pickerPollTimer`, armed by pickerPollArm()
+  // and cleared by pickerPollStop()). It is corrected rather than deleted
+  // because the COUNT is the argument -- the case against AbortController
+  // rests entirely on the set of async exits being small enough to
+  // enumerate, so a reader has to be able to see that the set grew by one
+  // and that the new member is guarded the same way. The day this
+  // paragraph cannot be kept accurate is the day the argument in it has
+  // stopped being true, and that is worth noticing rather than papering
+  // over.
   var destroyed = false;
 
   // A promise that never settles. api() returns this once the mount is
@@ -781,6 +807,20 @@
     st.evidenceDrawer = null;
     st.evidenceError = "";
     st.showHiddenEvidence = false;
+    // Phase 2D. `st.picker` is deliberately NOT cleared here, and that is
+    // the opposite of the line above it on purpose. The queue's page is a
+    // VIEW of a trip and goes stale the moment the trip changes; a picking
+    // run is a server-side batch that was filed at creation and carries on
+    // existing either way. Dropping the panel would take the operator's
+    // Google link and Import button with it mid-run while the batch it
+    // belongs to survived -- the queue would then be the only evidence
+    // that an import was ever started. The run badge names the batch's own
+    // trip id so a switch cannot make the panel claim the wrong one. Only
+    // the two view-level fields reset: a stale error about the previous
+    // trip, and the destination toggle, which must default to the trip now
+    // selected rather than remember a choice made about another one.
+    st.pickerError = "";
+    st.pickerFileToTrip = true;
     loriPane.reset();
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
@@ -1602,6 +1642,17 @@
     // re-render, which would fetch again.
     if (tab === "evidence" && !st.evidence && !st.evidenceOff && st.personId) {
       reloadEvidence().then(function () { renderAll(); });
+    }
+    // Phase 2D -- the import strip's own probe, on the same lazy shape and
+    // kept as a SEPARATE request on purpose. /health reports the picker
+    // lane's two flags and whether the server holds credentials at all;
+    // the queue's own fetch can answer neither, because the two lanes are
+    // gated differently. Guarded on st.pickerHealth rather than on
+    // st.evidence so the queue failing does not silently take the strip's
+    // probe with it.
+    if (tab === "evidence" && !st.pickerHealth && !st.pickerOff &&
+        st.personId) {
+      reloadPickerHealth().then(function () { renderAll(); });
     }
     // Same lazy shape, same reason: fetched on the tab switch, never
     // from render.
@@ -4960,9 +5011,23 @@
   //      is reported in those words when it happens -- because it is
   //      reachable, it is recoverable, and the retry is safe.
   //
-  // Deliberately absent: no Google Picker, no Takeout, no Lori control,
-  // nothing narrator-facing, and no DELETE. Retirement is Hide, the same
-  // as every other evidence lane in this workspace.
+  // Deliberately absent: no Takeout, no Lori control, nothing
+  // narrator-facing, and no DELETE. Retirement is Hide, the same as every
+  // other evidence lane in this workspace.
+  //
+  // Corrected 2026-07-28 by WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase
+  // 2D, which added the Google Photos Picker import strip further down
+  // this same section. This line read "Deliberately absent: no Google
+  // Picker, no Takeout, ..." from the queue's own phase, when the picker
+  // was the next epic step rather than this one. THE REST OF THE
+  // SENTENCE IS UNCHANGED AND IS NOT WEAKENED BY THE PICKER'S ARRIVAL:
+  // the strip opens a session, checks it, ingests it and reloads this
+  // queue, and that is the whole of it. It writes PENDING candidates and
+  // nothing else -- it takes no decision, creates no `photos` row, sets
+  // no narrator-facing field, and surfaces no DELETE (including the
+  // lane's one safe one, which only releases a session at Google). Every
+  // candidate it produces is decided on the rows below, by the same seven
+  // actions as every other candidate in the queue.
 
   var EVIDENCE_BASE = "/api/import-provenance";
 
@@ -5088,6 +5153,14 @@
         "the flag is off. Nothing is broken and nothing is lost."));
       return wrap;
     }
+
+    // Phase 2D -- the import affordance, ABOVE the queue and inside the
+    // same screen. Binding ruling 1.3 of the travel-document doctrine
+    // gives it no screen of its own, so this is where it lives. It is
+    // rendered after the flag-off return on purpose: the picker needs
+    // both server flags, so a queue that is off makes an import strip
+    // meaningless rather than merely empty.
+    wrap.appendChild(renderPickerStrip());
 
     // Scope. The queue is person-scoped; the trip is a FILTER on it, not
     // its subject. "All trips" is where unfiled candidates live, because
@@ -5533,6 +5606,558 @@
     sh.foot.appendChild(goBtn);
     sh.foot.appendChild(btn("tdl-btn", "Cancel", closeEvidenceDrawer));
     return sh.wrap;
+  }
+
+  // ── Google Photos Picker — the import affordance ─────────────────────
+  //
+  // WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 2D. Spec §12.8 calls this
+  // "minimal operator UI (open picker, check selection, ingest, refresh
+  // queue)", and those four verbs are the whole of it.
+  //
+  // WHERE IT LIVES, AND WHY IT IS NOT AN ELEVENTH TAB. Binding ruling 1.3
+  // of docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md: "There is one
+  // review queue for photo/media candidates and it is the Evidence Review
+  // Queue [...] A new import source makes its candidates visible *in that
+  // queue*. It does not get a review screen of its own." A tab of its own
+  // was considered and refused on that ruling — a screen with its own
+  // name is a screen that grows its own list — so the affordance is a
+  // strip at the top of the tab that already owns candidate review, and
+  // every decision about every candidate is still taken on the rows
+  // below it.
+  //
+  // WHAT THE RUN REPORT IS NOT. After an ingest this panel prints the
+  // per-item results the route returned: outcome, filename, reason. That
+  // is a RECEIPT for one run. It is rendered once from the HTTP response,
+  // it is never refetched, and it carries no Accept, no Reject, no Hide,
+  // no Promote and no File-to-trip. Those controls exist exactly once in
+  // this file, on the queue rows. Ruling 1.3 again, in its own words: a
+  // second queue "is a second approval semantics no matter how thin it
+  // looks on the day it is written".
+  //
+  // WHAT NEVER REACHES THIS FILE. No client id, no client secret, no
+  // refresh token, no access token, and no `baseUrl` — the bearer-scoped
+  // download URL that spec §10.4 keeps out of every response and every
+  // log. The Google session id is not returned to the browser either:
+  // POST /sessions hands back a `batch_id` and a `picker_uri`, and those
+  // two are all this module holds. Credentials are Chris's, they are read
+  // from the server process environment, and §6 puts them out of an
+  // agent's reach entirely. /health reports their PRESENCE as booleans
+  // and this panel renders only that.
+  //
+  // NO GOOGLE JAVASCRIPT. There is no Picker SDK, no <script> from a
+  // Google origin, and no popup driven from here. `picker_uri` renders as
+  // a link the operator opens himself, in Google's own hosted UI, in his
+  // own browser session — which is also why the picking step cannot be
+  // automated from this screen and is not meant to be.
+  //
+  // THE ONE ROUTE IN THE LANE THAT IS DELIBERATELY NOT SURFACED is
+  // DELETE /sessions/{batch_id}. It releases the picking session AT
+  // GOOGLE and answers `batch_deleted: false`, so it does not breach the
+  // no-DELETE rule and it could have been offered. It is left out on
+  // SCOPE, not on safety: 2D's four verbs do not include it, an unused
+  // Google session expires by itself, and the first UI a lane ever gets
+  // is the wrong place to introduce that lane's only DELETE verb. A later
+  // phase can add it with a reason of its own.
+
+  var PICKER_BASE = "/api/google-picker";
+
+  // Google returns pollingConfig.pollInterval as a protobuf Duration
+  // string — "5s", and legally "5.5s". It is parsed defensively and
+  // clamped at both ends by THIS module, not by Google: a malformed value
+  // must not become a zero-delay loop hammering someone else's API, and
+  // an absurd one must not leave the operator watching a panel that never
+  // checks. The bounds are named rather than inlined so the failure mode
+  // is readable from here.
+  var PICKER_POLL_MIN_MS = 3000;
+  var PICKER_POLL_MAX_MS = 30000;
+  var PICKER_POLL_DEFAULT_MS = 5000;
+  // A hard stop on UNATTENDED polling only. "Check now" is always
+  // available, and Google expires the session on its own; this bounds the
+  // timer, not the operator.
+  var PICKER_POLL_MAX_TRIES = 120;
+
+  function pickerPollMs(raw) {
+    var n = parseFloat(String(raw === null || raw === undefined ? "" : raw));
+    if (!isFinite(n) || n <= 0) return PICKER_POLL_DEFAULT_MS;
+    var ms = n * 1000;
+    if (ms < PICKER_POLL_MIN_MS) return PICKER_POLL_MIN_MS;
+    if (ms > PICKER_POLL_MAX_MS) return PICKER_POLL_MAX_MS;
+    return ms;
+  }
+
+  // Phase 1.1's liveness note counted ONE timer in this file. This is the
+  // second, and it is guarded the same way and for the same reason: the
+  // handle is a module var, `destroyed` is the first thing the callback
+  // checks, and destroy() clears it. A poll that outlived the mount would
+  // write to `st` and repaint a host the shell has already handed on.
+  var _pickerPollTimer = null;
+
+  function pickerPollStop() {
+    if (_pickerPollTimer !== null) {
+      try { clearTimeout(_pickerPollTimer); } catch (_) {}
+      _pickerPollTimer = null;
+    }
+    if (st.picker) st.picker.polling = false;
+  }
+
+  function pickerPollArm(ms) {
+    pickerPollStop();
+    if (destroyed || !st.picker) return;
+    st.picker.polling = true;
+    _pickerPollTimer = setTimeout(function () {
+      _pickerPollTimer = null;
+      if (destroyed) return;
+      pickerCheck(true);
+    }, ms);
+  }
+
+  // api() already flattens this lane's nested {detail:{detail, reason}}
+  // envelope into e.message. The REASON is the operator-actionable half —
+  // `refresh_token_expired` means re-mint the token, `selection_incomplete`
+  // means go and finish picking, `credentials_missing` means the server
+  // was never configured — so it is appended rather than dropped on the
+  // floor. It is a short enum string from the server's own table; it is
+  // never a credential and never a URL.
+  function pickerMessage(e) {
+    var msg = (e && e.message) || "The request failed.";
+    var d = e && e.body && e.body.detail;
+    var reason = (d && typeof d === "object" && d.reason) ? String(d.reason) : "";
+    return reason ? (msg + "  [" + reason + "]") : msg;
+  }
+
+  // The lane sits behind TWO default-off server flags and every route in
+  // it — /health included — answers 404 while either is off. Same
+  // convention as the queue's own 404 arm, and for the same reason: a
+  // flag that is off is a configuration fact, not a fault, and painting
+  // it red sends an operator hunting for something broken.
+  //
+  // The two off-states are INDEPENDENT and are held apart on purpose. The
+  // queue needs HORNELORE_IMPORT_PROVENANCE; the picker needs that one
+  // AND HORNELORE_GOOGLE_PICKER. So a readable queue with no import
+  // affordance above it is a real, reachable and correct configuration,
+  // and one shared flag would have rendered it as a lie in one direction
+  // or the other.
+  function pickerLaneOff() {
+    st.pickerOff = true;
+    st.pickerHealth = null;
+    st.picker = null;
+    st.pickerError = "";
+    pickerPollStop();
+  }
+
+  // Never rejects. Side-effect free at the server, and the ONLY route in
+  // this lane where a 404 has exactly one meaning: /health takes no path
+  // parameter, so nothing behind it can be "not found" except the gate
+  // itself. That is why the flag-off inference is made here and made
+  // nowhere else — see pickerCheck() for the routes where a 404 is
+  // ambiguous and is therefore reported rather than interpreted.
+  function reloadPickerHealth() {
+    if (!st.personId) return Promise.resolve();
+    return api(PICKER_BASE + "/health")
+      .then(function (out) {
+        st.pickerHealth = out;
+        st.pickerOff = false;
+      })
+      .catch(function (e) {
+        if (e && e.status === 404) { pickerLaneOff(); return; }
+        // Not a 404: the lane is on and something else went wrong. Say
+        // so on the strip rather than silently hiding the affordance.
+        st.pickerError = pickerMessage(e);
+      });
+  }
+
+  function pickerStart() {
+    if (!st.personId || st.pickerBusy) return;
+    st.pickerBusy = true;
+    st.pickerError = "";
+    // Spec §10.2 — the destination is explicit and supplied by the
+    // request. person_id comes from the mount and is NEVER inferred from
+    // the Google account; trip_id is the operator's visible choice on the
+    // strip. There is no default, no fallback, and no "if only one trip
+    // exists, use that one".
+    var body = { person_id: st.personId };
+    if (st.pickerFileToTrip && st.trip) body.trip_id = st.trip.id;
+    renderAll();
+    api(PICKER_BASE + "/sessions", { method: "POST", body: body })
+      .then(function (out) {
+        st.pickerBusy = false;
+        st.pickerOff = false;
+        st.picker = {
+          batchId: out.batch_id,
+          tripId: out.trip_id || null,
+          pickerUri: out.picker_uri,
+          mediaItemsSet: !!out.media_items_set,
+          pollMs: pickerPollMs(out.poll_interval),
+          expireTime: out.expire_time || "",
+          batchStatus: "open",
+          ingestAvailable: false,
+          stage: "picking",
+          tries: 0,
+          polling: false,
+          checking: false,
+          run: null,
+          error: "",
+        };
+        pickerPollArm(st.picker.pollMs);
+        renderAll();
+      })
+      .catch(function (e) {
+        st.pickerBusy = false;
+        // POST /sessions takes no path parameter either, so a 404 here is
+        // the gate as well.
+        if (e && e.status === 404) { pickerLaneOff(); renderAll(); return; }
+        st.pickerError = pickerMessage(e);
+        renderAll();
+      });
+  }
+
+  // GET /sessions/{batch_id} polls Google and writes nothing — the route
+  // says so, because the UI calls it on a timer. `fromTimer` separates
+  // the automatic tick from the operator pressing Check now: only the
+  // automatic one re-arms, and only the automatic one counts against the
+  // try cap.
+  //
+  // A 404 is NOT read as flag-off here. On this path it could be the
+  // gate, a batch id this server does not have, or Google reporting the
+  // picking session gone — three different situations with three
+  // different answers. Guessing one and rendering "the lane is switched
+  // off" would be a confident wrong answer, so the message and its reason
+  // are shown as they arrived.
+  function pickerCheck(fromTimer) {
+    var p = st.picker;
+    if (!p || p.checking) return;
+    p.checking = true;
+    p.error = "";
+    if (fromTimer) p.tries += 1;
+    if (!fromTimer) renderAll();
+    api(PICKER_BASE + "/sessions/" + encodeURIComponent(p.batchId))
+      .then(function (out) {
+        var q = st.picker;
+        // A newer run replaced the one this poll was launched for.
+        if (!q || String(q.batchId) !== String(out.batch_id)) return;
+        q.checking = false;
+        q.mediaItemsSet = !!out.media_items_set;
+        q.batchStatus = out.batch_status || "";
+        q.ingestAvailable = !!out.ingest_available;
+        q.pollMs = pickerPollMs(out.poll_interval);
+        if (out.expire_time) q.expireTime = out.expire_time;
+        if (q.ingestAvailable) {
+          q.stage = "ready";
+          pickerPollStop();
+        } else if (fromTimer && q.tries < PICKER_POLL_MAX_TRIES) {
+          pickerPollArm(q.pollMs);
+        } else {
+          pickerPollStop();
+        }
+        renderAll();
+      })
+      .catch(function (e) {
+        var q = st.picker;
+        if (!q) return;
+        q.checking = false;
+        pickerPollStop();
+        q.error = pickerMessage(e);
+        renderAll();
+      });
+  }
+
+  // The one write in this panel, and it writes only pending candidates.
+  // Ingest never promotes, never creates a `photos` row and never records
+  // an operator decision — the route's own docstring commits to that, and
+  // `google_photos_picker` is not in PROMOTABLE_SOURCES, so this button
+  // cannot become an approval by accident.
+  //
+  // max_items is deliberately not sent. A cap this screen chose would
+  // truncate a run for a reason the operator never asked for; the route
+  // reports `truncated` and `remaining` if one is ever supplied, and this
+  // panel would render them, but it does not supply one.
+  function pickerIngest() {
+    var p = st.picker;
+    if (!p || p.stage === "ingesting") return;
+    pickerPollStop();
+    p.stage = "ingesting";
+    p.error = "";
+    renderAll();
+    api(PICKER_BASE + "/sessions/" + encodeURIComponent(p.batchId) + "/ingest",
+        { method: "POST" })
+      .then(function (out) {
+        var q = st.picker;
+        if (!q || String(q.batchId) !== String(out.batch_id)) return;
+        q.stage = "done";
+        q.run = out;
+        q.batchStatus = out.batch_status || q.batchStatus;
+        // The rows this run created are already in the queue below —
+        // ingest does not build a second one and does not need to. The
+        // reload is here so the receipt and the authoritative list are
+        // read in the same glance: the panel reports the RUN, the queue
+        // owns the ROWS.
+        return reloadEvidence();
+      })
+      .then(function () { renderAll(); })
+      .catch(function (e) {
+        var q = st.picker;
+        if (!q) return;
+        // Back to `ready`, not to a dead end: a retryable failure means
+        // run it again, `candidate_create` is idempotent on
+        // (batch_id, external_id), and nothing already landed is
+        // re-downloaded. That is what leaving the batch open is for.
+        q.stage = "ready";
+        q.error = pickerMessage(e);
+        renderAll();
+      });
+  }
+
+  // Clears the SCREEN and says so on the button. The import batch and
+  // every candidate on it survive — there is no DELETE on this lane and
+  // this control is not one. The Google picking session is left to expire
+  // on its own, which it does.
+  function pickerDismiss() {
+    pickerPollStop();
+    st.picker = null;
+    st.pickerError = "";
+    renderAll();
+  }
+
+  // ── the import strip ─────────────────────────────────────────────────
+
+  function renderPickerStrip() {
+    var box = el("div", "tdl-gp");
+    box.appendChild(el("div", "tdl-kicker", "Import from Google Photos"));
+
+    if (st.pickerOff) {
+      box.appendChild(el("p", "tdl-gp-off",
+        "The Google Photos import lane is switched off on this server, so " +
+        "there is nothing to import from here — every route in it answers " +
+        "404 while either of its two flags is off. Nothing is broken, and " +
+        "the queue below is unaffected: it needs only the import lane's " +
+        "own flag, which is clearly on or you would be reading a different " +
+        "panel."));
+      return box;
+    }
+
+    var h = st.pickerHealth;
+    if (h && h.credentials_complete === false) {
+      // Presence booleans, which is all /health will report. Naming the
+      // missing variable is a configuration fact and helps; printing any
+      // part of a value — prefix, tail or length — is forbidden by spec
+      // §10.4 and nothing here has one to print.
+      var missing = [];
+      var present = h.credentials_present || {};
+      Object.keys(present).forEach(function (k) {
+        if (!present[k]) missing.push(k);
+      });
+      box.appendChild(el("p", "tdl-gp-off",
+        "This server has the Google Photos lane switched on but is not " +
+        "authorized yet" +
+        (missing.length ? " — not set: " + missing.join(", ") : "") +
+        ". That is Chris's one-time console step and nothing on this " +
+        "screen can do it. The queue below is unaffected."));
+      return box;
+    }
+
+    if (st.pickerError) box.appendChild(el("div", "tdl-error", st.pickerError));
+
+    if (!st.picker) {
+      box.appendChild(el("p", "tdl-muted",
+        "Opens a picking session in your own Google account, in Google's " +
+        "own window. Whatever you choose is downloaded here and lands as " +
+        "PENDING candidates in the queue below — nothing is accepted, " +
+        "nothing becomes a photo, and nothing reaches a narrator until you " +
+        "decide it there."));
+
+      // Destination, chosen in the open. The batch is filed at creation
+      // and this is the only moment it is decided, so it is a visible
+      // control rather than an inference from whatever tab filter the
+      // operator happens to be standing in.
+      var dest = el("div", "tdl-filter-rail tdl-filter-rail-row");
+      if (st.trip) {
+        dest.appendChild(btn(st.pickerFileToTrip ? "tdl-active" : "",
+          "File to " + (st.trip.title || "this trip"), function () {
+            st.pickerFileToTrip = true;
+            renderAll();
+          }));
+        dest.appendChild(btn(st.pickerFileToTrip ? "" : "tdl-active",
+          "Leave unfiled", function () {
+            st.pickerFileToTrip = false;
+            renderAll();
+          }));
+      } else {
+        dest.appendChild(el("span", "tdl-muted",
+          "No trip is selected, so this import will be filed to no trip. " +
+          "Its candidates appear under All trips, and File to trip on each " +
+          "row moves them later."));
+      }
+      box.appendChild(dest);
+
+      var go = btn("tdl-btn tdl-btn-primary",
+        st.pickerBusy ? "Opening a session…" : "Import from Google Photos",
+        pickerStart);
+      go.disabled = !!st.pickerBusy || !st.personId;
+      box.appendChild(go);
+      return box;
+    }
+
+    box.appendChild(renderPickerRun(st.picker));
+    return box;
+  }
+
+  function renderPickerRun(p) {
+    var wrap = el("div", "tdl-gp-run");
+
+    var badges = el("div", "tdl-note-badges");
+    badges.appendChild(el("span", "tdl-badge tdl-gp-stage", p.stage));
+    badges.appendChild(el("span", "tdl-badge",
+      "batch · " + String(p.batchId).slice(0, 8)));
+    if (p.batchStatus) {
+      badges.appendChild(el("span", "tdl-badge", "batch " + p.batchStatus));
+    }
+    // The batch's OWN trip, named by id rather than by the word "a trip".
+    // selectTrip() deliberately leaves a run standing (see the note
+    // there), so the operator can be looking at trip B while this panel
+    // describes a batch filed to trip A. A badge that said only "filed to
+    // a trip" would read as "filed to the one you are looking at", which
+    // would be a lie exactly when it mattered.
+    badges.appendChild(el("span",
+      "tdl-badge" + (p.tripId ? "" : " tdl-badge-unfiled"),
+      p.tripId ? ("filed to trip · " + String(p.tripId).slice(0, 8))
+               : "not filed to a trip"));
+    wrap.appendChild(badges);
+
+    if (p.error) wrap.appendChild(el("div", "tdl-error", p.error));
+
+    // Step one: the link, opened by the operator. Not window.open, not a
+    // popup, and not a Google script — target=_blank with rel=noopener so
+    // the new page gets no handle back to this one.
+    if (p.stage === "picking" || p.stage === "ready") {
+      var a = el("a", "tdl-gp-link", "Open the Google picker →");
+      a.href = p.pickerUri;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      wrap.appendChild(a);
+      wrap.appendChild(el("p", "tdl-muted",
+        "Choose photos in Google's window, then come back here. This " +
+        "screen checks on its own every few seconds; the session expires " +
+        "at Google" + (p.expireTime ? " around " + datePrefix(p.expireTime)
+                                    : "") + "."));
+    }
+
+    var acts = el("div", "tdl-gp-actions");
+    if (p.stage === "picking") {
+      acts.appendChild(el("span", "tdl-muted", p.checking ? "Checking…" :
+        (p.polling ? ("Waiting for your selection — checked " + p.tries +
+                      (p.tries === 1 ? " time" : " times"))
+                   : "Not checking automatically any more.")));
+      acts.appendChild(btn("tdl-btn tdl-btn-small", "Check now",
+        function () { pickerCheck(false); }));
+      if (p.polling) {
+        acts.appendChild(btn("tdl-btn tdl-btn-small", "Stop checking",
+          function () { pickerPollStop(); renderAll(); }));
+      } else {
+        acts.appendChild(btn("tdl-btn tdl-btn-small", "Resume checking",
+          function () { p.tries = 0; pickerPollArm(p.pollMs); renderAll(); }));
+      }
+    } else if (p.stage === "ready") {
+      acts.appendChild(el("span", "tdl-muted",
+        "Your selection is finished at Google and can be imported."));
+      acts.appendChild(btn("tdl-btn tdl-btn-primary tdl-btn-small",
+        "Import the selection", pickerIngest));
+    } else if (p.stage === "ingesting") {
+      acts.appendChild(el("span", "tdl-muted",
+        "Downloading and staging — this holds the originals, reads EXIF, " +
+        "and writes one pending candidate per photo."));
+    }
+    // Available at every stage, including mid-run: it only clears the
+    // panel. Worth being plain about, because "Dismiss" next to an import
+    // reads like a cancel and it is not one.
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Dismiss this run",
+      pickerDismiss));
+    wrap.appendChild(acts);
+    if (p.stage !== "done") {
+      wrap.appendChild(el("p", "tdl-muted",
+        "Dismiss clears this panel only. The import batch and every " +
+        "candidate on it survive — there is no delete on this lane."));
+    }
+
+    if (p.run) wrap.appendChild(renderPickerReceipt(p.run));
+    return wrap;
+  }
+
+  // The receipt. Rendered once, from the response body that is already in
+  // hand, and never refetched — so it cannot drift into being a list that
+  // is kept up to date, which is the first thing a second queue does.
+  function renderPickerReceipt(run) {
+    var box = el("div", "tdl-gp-receipt");
+
+    var line = el("div", "tdl-gp-counts");
+    [["created", run.created], ["repaired", run.repaired],
+     ["unchanged", run.unchanged], ["failed", run.failed]].forEach(function (c) {
+      line.appendChild(el("span", "tdl-badge tdl-gp-count-" + c[0],
+        c[1] + " " + c[0]));
+    });
+    box.appendChild(line);
+
+    var picked = el("p", "tdl-muted",
+      "Picked " + run.picked + " · attempted " + run.attempted +
+      (run.truncated ? " · " + run.remaining + " not attempted" : "") +
+      (run.failed ? (" · of the failures, " + run.retryable_failures +
+                     " can be retried and " + run.permanent_failures +
+                     " cannot") : ""));
+    box.appendChild(picked);
+
+    if (run.queue) {
+      box.appendChild(el("p", "tdl-muted",
+        "This batch now holds " + run.queue.candidates_in_batch +
+        " candidate(s), " + run.queue.pending_in_batch + " of them still " +
+        "pending. They are in the queue below — this panel is a receipt " +
+        "for the run, not a second place to review them."));
+    }
+    if (run.retryable_failures) {
+      box.appendChild(el("p", "tdl-muted",
+        "Running the import again picks up the retryable failures. " +
+        "Nothing that already landed is downloaded twice."));
+    }
+
+    (run.results || []).forEach(function (r) {
+      box.appendChild(renderPickerResultRow(r));
+    });
+    return box;
+  }
+
+  // Every field is read BY NAME. Iterating the response object would put
+  // this screen at the mercy of whatever the route grows next, and the
+  // one class of value that must never be rendered — a bearer-scoped
+  // download URL, a token, a staging path — is exactly the kind of thing
+  // that would arrive as a new key. An allow-list cannot leak a field
+  // nobody has thought about yet.
+  function renderPickerResultRow(r) {
+    var row = el("div", "tdl-gp-result tdl-gp-result-" +
+      (r.outcome || "unknown"));
+    row.appendChild(el("span", "tdl-badge tdl-gp-outcome",
+      r.outcome || "unknown"));
+    row.appendChild(el("strong", "", r.filename || "(no filename)"));
+
+    var bits = [];
+    if (r.mime_type) bits.push(r.mime_type);
+    if (r.byte_size) bits.push(String(r.byte_size) + " bytes");
+    if (r.taken_at) {
+      bits.push("taken " + datePrefix(r.taken_at) +
+        " (" + (r.taken_at_source || "unknown") + ")");
+    }
+    if (r.location_source) bits.push("location " + r.location_source);
+    if (r.gps_present_unparseable) bits.push("GPS present but unreadable");
+    if (r.candidate_id) {
+      bits.push("candidate " + String(r.candidate_id).slice(0, 8));
+    }
+    if (bits.length) row.appendChild(el("p", "tdl-muted", bits.join(" · ")));
+
+    if (r.outcome === "failed") {
+      row.appendChild(el("p", "tdl-gp-fail",
+        (r.reason || "failed") + " — " + (r.detail || "no detail given") +
+        (r.retryable ? "  (retryable)" : "  (permanent)")));
+    }
+    // No Accept, no Reject, no Hide, no Promote, no File to trip. This is
+    // a run report; the queue below is where a candidate is decided.
+    return row;
   }
 
   // ── Story Notes ──────────────────────────────────────────────────────
@@ -6431,10 +7056,24 @@
       };
       var self = this;
       (function trySend(attempt) {
-        // Phase 1.1 — the one timer in the file. Without this the retry
-        // ladder keeps running for up to 5s (20 × 250ms) past destroy()
-        // and ends by writing "Lori connection unavailable." into a log
-        // node that was detached from the document.
+        // Phase 1.1 — the FIRST of the file's two timers. Without this
+        // the retry ladder keeps running for up to 5s (20 × 250ms) past
+        // destroy() and ends by writing "Lori connection unavailable."
+        // into a log node that was detached from the document.
+        //
+        // Corrected 2026-07-28 by WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01
+        // Phase 2D, which added the second: the Google Photos picker's
+        // selection poll, up in the evidence section. This comment said
+        // "the one timer in the file", and it was true when it was
+        // written. It is corrected rather than deleted because the two
+        // timers are guarded DIFFERENTLY and a reader comparing them
+        // should be able to see that it was a choice. This one is a
+        // self-re-entering ladder with no handle kept, so the guard is
+        // the `if (destroyed) return;` on the line below and there is
+        // nothing for destroy() to clear. The picker's is armed from a
+        // module var, so it is guarded twice over: the same check in its
+        // callback, AND pickerPollStop() in destroy(). Neither approach
+        // is wrong; a handle nobody stores cannot be cleared.
         if (destroyed) return;
         if (self.ws && self.ws.readyState === 1) {
           self.ws.send(JSON.stringify(payload));
@@ -6652,6 +7291,12 @@
     destroy: function () {
       destroyed = true;
       try { document.removeEventListener("keydown", onDocKeydown); } catch (e) {}
+      // Phase 2D -- the picker poll. Its callback checks `destroyed`
+      // first, so this is belt AND braces rather than the only guard;
+      // clearing the handle means a torn-down mount leaves nothing
+      // pending at all, instead of one timer that will wake up and
+      // return.
+      try { pickerPollStop(); } catch (e) {}
       try { if (_tdlUpdateChannel) _tdlUpdateChannel.close(); } catch (e) {}
       _tdlUpdateChannel = null;
       try { loriPane.reset(); } catch (e) {}
