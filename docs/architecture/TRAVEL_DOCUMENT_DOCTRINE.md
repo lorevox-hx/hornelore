@@ -263,6 +263,96 @@ holding.
 There has been exactly one override of this rule, granted for one slice, and
 recorded as non-generalisable.
 
+### 1.12 One photo has one placement per trip
+
+Chris's ruling, 2026-07-28, verbatim:
+
+> One photo may have one placement per trip.
+>
+> Use Move, not Also show on another day.
+
+**This ruling needs no migration, because the database has enforced it since
+2026-07-15 and nobody noticed it was a ruling.** `trip_photo_links` carries
+`UNIQUE (trip_id, photo_id)` from `migrations/0015_trip_tables.sql:85`,
+re-asserted in 0018, 0021 and 0037, never dropped.
+`migrations/0028_trip_day_links.sql` later added `trip_photo_links.trip_day_id`,
+so **the day is a column on the placement, not a second row.**
+
+The ruling is therefore about what the interface may *offer*, not about what
+the store may hold. An "Also show on another day" control has exactly two
+implementations: write a second `trip_photo_links` row, which the unique index
+refuses, or invent a second table beside it, which is the same mistake wearing
+different clothes. Neither is a feature; both are a schema change arriving
+disguised as a button.
+
+The three layers this rests on, none of which may be collapsed into another:
+
+- **`photos`** — the permanent approved archive. **No trip column and no day
+  column.** A photograph is a thing Hornelore holds, not a thing that happened
+  on a Tuesday.
+- **`trip_photo_links`** — the placement. Trip, photo, and optionally day.
+- **`import_candidate`** — the temporary review and provenance record. **No day
+  concept at all**, and none may be added to it.
+
+Said plainly, because it was said wrongly once in this repository's history and
+Chris corrected it: *a photo does not belong to a day. Its placement does.*
+
+**What a day surface may offer:** "Move to another day" and "Remove from this
+day". **What it may not offer:** "Also show on another day".
+
+**The full ladder, for the phases that will build it** — four verbs, in
+widening order, and the fourth is not reachable from a day:
+
+1. *Change day* — update the placement's `trip_day_id`.
+2. *Remove from day* — keep the trip link, clear the day.
+3. *Remove from trip* — delete the trip link. The permanent photo is untouched.
+4. *Delete from Hornelore* — **not available from a day, a trip, or the review
+   queue. Only from a protected library-management screen**, because it is the
+   one verb that destroys something no other record can reconstruct.
+
+The import candidate behind a photograph is a separate object from all four. It
+**remains in the audit record** and may be hidden from the queue, never deleted
+— which is 1.7 restated from the placement side rather than the queue side.
+
+### 1.13 A candidate is an item Hornelore actually holds
+
+Chris's ruling, 2026-07-28, verbatim:
+
+> Failed acquisitions remain in the import receipt.
+>
+> Do not create candidate rows for files Hornelore did not acquire.
+
+And the governing principle he gave with it, also verbatim:
+
+> A candidate should represent an item Hornelore actually possesses and can
+> review.
+
+**The distinction this protects, in his words:** *acquisition failure = the
+system could not obtain the item; candidate error = Hornelore obtained an item,
+but it cannot be used or promoted.* Those are different facts about different
+things. A row is Hornelore's assertion that it is holding bytes; a row for a
+file that never arrived is an assertion it cannot support, and a queue of them
+is a list of things that may not exist. The reviewer's question — *should this
+become part of the record?* — has no answer for an item nobody has.
+
+**This resolves 3.5 and settles §7(c) against the spec.** A picked standalone
+video is reported in the run receipt as unsupported and **no candidate row is
+created**. The shipped code was already doing this; it is now the ruling rather
+than an undecided divergence, and §7(c)'s `error`-candidate recommendation is
+recorded as considered and not taken.
+
+**A Pixel Motion Photo that arrives as a valid JPEG stays a photograph
+candidate.** Its embedded motion component is ignored until a real video or
+media lane exists. This is not an exception to the ruling, it is the ruling
+applied: what Hornelore acquired is a photograph, and a photograph is what the
+row says.
+
+**One consequence, and it is load-bearing rather than incidental.** Under 1.6
+an ingest failure is already not a candidate decision; under 1.13 it is not a
+row either. The receipt is therefore the *only* record a failed acquisition
+ever gets — and today that receipt lives in an HTTP response and dies on
+reload. See 3.4, which stopped being a nicety the moment this ruling landed.
+
 ---
 
 ## Part 2 — Implemented and verified (as of 2026-07-28)
@@ -411,6 +501,29 @@ lays out wrongly.
 Phase 1 is live-proven. Phase 2, 2D included, is suite-proven. Those are
 different words on purpose.
 
+### 2.7 Ruling 1.12 as it stands in the interface today
+
+A different work order — `WO-TRIP-PLAN-AS-HUB-01` Phase A, 2026-07-28 — rebuilt
+the trip surface around the day workspace, and the one part of it this document
+is entitled to speak about is the photograph action it left behind.
+
+The day workspace's photo control reads **"Remove from this day"**. It reads
+that way rather than "Unlink" because "unlink" describes the row and not the
+consequence, and a reader who is not holding the three-layer model in their
+head cannot tell from the word whether the photograph is about to leave the
+trip or leave Hornelore.
+
+**No second-placement control exists on that surface**, per 1.12, and
+`tests/test_travel_doc_lab.py` asserts the absence by name rather than leaving
+it to be noticed. "Move to another day" is *specified* by 1.12 but is not built
+yet; it belongs to the later phase that also brings the two import buttons.
+Absence with a reason, per Part 3's own opening line — recorded here rather
+than in Part 3 only because what shipped and what did not are the same
+sentence.
+
+**This section carries no live-smoke claim.** 2.6 applies unchanged: the
+assertion is a source scan, the browser has still not been watched doing it.
+
 ---
 
 ## Part 3 — Deferred or not started
@@ -454,26 +567,62 @@ refuse rather than reconcile. That check does not exist and belongs to Phase
 
 ### 3.4 A persisted per-run failure summary (spec §12.4)
 
-There is no home for one. The ingest route returns partial successes and
-failures in its HTTP response and that is where a run's outcome lives. Giving
-it a table means schema, and schema is not improvised inside a phase.
+**Still not started. Scheduled, and no longer optional, as of 2026-07-28.**
 
-### 3.5 Video, and a live divergence from the spec
+[This section read, in full: "There is no home for one. The ingest route
+returns partial successes and failures in its HTTP response and that is where a
+run's outcome lives. Giving it a table means schema, and schema is not
+improvised inside a phase." Every sentence of that is still literally true.
+What changed is what it costs.]
 
-Video is out of scope for this work order — supporting it pulls in the media
-archive lane, which is a different work order. That much is settled. *How* a
-picked video is turned away is not, and the code and the spec currently
-disagree.
+Two things landed on 2026-07-28 that turned this from a convenience into a
+gap. **Ruling 1.13** says a failed acquisition gets no candidate row, so the
+receipt is the only record it ever gets — and a receipt that lives in an HTTP
+response is gone the moment the operator reloads. A failure you can see exactly
+once, and only if you were looking, is close to a failure nobody recorded.
+**And Chris ruled the same day that a Retry control must work tomorrow, not
+only in the tab that ran the import** — which is not implementable on top of a
+response nobody kept.
 
-Spec §7(c) recommends landing a picked video as a candidate in state `error`
-with reason `"video not supported by this lane"`, so that it is visible rather
-than silently dropped. The implementation refuses it outright and creates no
-candidate row at all.
+He therefore pulled this forward out of Phase 4 and into **Phase B of
+`WO-TRIP-PLAN-AS-HUB-01`**. The schema wall in the retired text is not waived
+by that: it means the table gets designed in a phase that is *about* designing
+it, which is the whole content of the original objection.
 
-Both are defensible — a row makes the refusal auditable, no row keeps the lane
-strictly photographic — and the divergence is recorded here rather than
-resolved, because it is Chris's call and not an agent's. Until he rules, the
-code is the behaviour and §7(c) is a recommendation that was not taken.
+### 3.5 ~~Video, and a live divergence from the spec~~ — RULED 2026-07-28
+
+**Answered by ruling 1.13. Struck here rather than deleted, and struck rather
+than moved, because the question is the useful part of the record: the ruling
+reads as obvious once given, and this section is the evidence that it was not.**
+
+It read, in full:
+
+> Video is out of scope for this work order — supporting it pulls in the media
+> archive lane, which is a different work order. That much is settled. *How* a
+> picked video is turned away is not, and the code and the spec currently
+> disagree.
+>
+> Spec §7(c) recommends landing a picked video as a candidate in state `error`
+> with reason `"video not supported by this lane"`, so that it is visible rather
+> than silently dropped. The implementation refuses it outright and creates no
+> candidate row at all.
+>
+> Both are defensible — a row makes the refusal auditable, no row keeps the lane
+> strictly photographic — and the divergence is recorded here rather than
+> resolved, because it is Chris's call and not an agent's. Until he rules, the
+> code is the behaviour and §7(c) is a recommendation that was not taken.
+
+**The ruling went to the code, and for a reason neither side of the divergence
+had stated.** The argument recorded above was auditability against lane purity,
+and on those terms it really is a coin toss. Chris ruled on a third axis: a
+candidate row is Hornelore's claim to be *holding something reviewable*, and a
+video it never downloaded is not that. The receipt keeps the refusal auditable
+without the row having to.
+
+**Video itself remains out of scope**, exactly as the first paragraph said, and
+that half was never in question. What is settled now is only how a picked video
+is turned away: reported in the receipt, no row. See 1.13, and see 3.4 for the
+receipt's own unfinished half.
 
 ### 3.6 Google Takeout
 
