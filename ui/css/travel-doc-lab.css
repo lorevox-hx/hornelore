@@ -349,6 +349,10 @@
 .tdl-reconcile-banner { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border-radius: 12px; padding: .55rem .8rem; margin-bottom: .7rem; font-weight: 700; font-size: .88rem; }
 .tdl-reconcile-missing { background: #eef5ff; border: 1px solid #bed4f2; color: #1c3f6e; }
 .tdl-reconcile-outside { background: #fff6e8; border: 1px solid #ecd2a4; color: #7c5514; }
+/* Removal report (Phase A correction 2). Neutral on purpose -- see the
+   comment on st.daysNotice: reporting a completed, asked-for removal in
+   warning colours trains the operator to ignore the warning colours. */
+.tdl-reconcile-notice { background: var(--tdl-paper); border: 1px solid var(--tdl-line); color: var(--tdl-ink); font-weight: 600; }
 .tdl-chip-outside { display: inline-block; background: #fff1d8; border: 1px solid #ecd2a4; color: #8c5516; border-radius: 999px; padding: .12rem .55rem; font-size: .72rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .35rem; }
 
 /* Reconcile review drawer */
@@ -370,6 +374,14 @@
 .tdl-delete-count-hot { border-color: #e6b9b5; background: #fff7f6; }
 .tdl-delete-count-hot strong { color: var(--tdl-red); }
 .tdl-delete-error { border: 1px solid #e6b9b5; background: #fff1ef; color: var(--tdl-red); border-radius: 10px; padding: .5rem .65rem; font-weight: 700; font-size: .84rem; }
+/* The shortening refusal is the one drawer error that is a list: a
+   heading, the day cards that are blocking, and what to do about it.
+   The paragraphs need their default margins removed or the box grows a
+   dead band top and bottom; the list needs its indent kept, because the
+   whole point is that the operator can count the days at a glance. */
+.tdl-date-refusal { display: grid; gap: .35rem; }
+.tdl-date-refusal p { margin: 0; }
+.tdl-date-refusal-list { margin: 0; padding-left: 1.15rem; display: grid; gap: .2rem; font-weight: 600; }
 .tdl-delete-drawer .tdl-drawer-foot .tdl-btn-danger { flex: 1; }
 .tdl-delete-drawer .tdl-btn-danger[disabled] { opacity: .45; cursor: not-allowed; }
 

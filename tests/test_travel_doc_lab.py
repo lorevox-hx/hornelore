@@ -1021,9 +1021,19 @@ class Lab03Test(unittest.TestCase):
         # The manual path is kept, in the drawer.
         self.assertIn("Add missing days", src)
         # The outside-date banner and the never-delete language stay.
+        # [This asserted the banner said "They were kept, not deleted"
+        # until 2026-07-28. That sentence was true of EVERY out-of-range
+        # card while this surface could not remove one; correction 2
+        # removes the empty ones on the save that pushes them out, so
+        # the banner would have been promising the operator something
+        # about cards that are no longer there to promise it about. The
+        # claim the assertion was really protecting -- a card with work
+        # on it is never deleted -- is asserted below, in the wording
+        # that now carries it.]
         self.assertIn("outside the current trip dates", src)
         self.assertIn("kept to protect your notes", src)
-        self.assertIn("They were kept, not deleted", src)
+        self.assertIn("Cards with your work on them are kept, ", src)
+        self.assertIn("never deleted", src)
         self.assertIn("See what is on them", src)
         # The UI still reads the read-only preview endpoint.
         self.assertIn("/days/reconcile-preview", src)
@@ -1096,32 +1106,173 @@ class Lab03Test(unittest.TestCase):
         # The failure still says where to go by hand.
         self.assertIn("Open the reconcile", auto)
 
-    def test_shrinking_dates_never_drops_a_day_card_from_this_surface(self):
-        """The other half of the 2026-07-28 ruling, stated as a wall.
+    def test_shrinking_dates_only_ever_removes_a_card_that_holds_nothing(self):
+        """The wall moved forward on 2026-07-28. Doctrine 1.11.
 
-        Chris ruled: "if shrinking would drop a day that has content,
-        don't, and show what's on it so I can move or clear it first.
-        Empty days are dropped without asking." Phase A implements the
-        refusal. It does NOT implement the drop, and this test exists so
-        that the gap is a recorded decision rather than something a reader
-        has to infer from absence -- this surface has no route that
-        removes a day card at all, and the reconcile drawer's own doctrine
-        is that nothing is ever deleted there. Dropping the empty cards
-        needs a server route and is later work.
+        [This test was test_shrinking_dates_never_drops_a_day_card_from_
+        this_surface, and it asserted the stronger claim that this
+        surface has no route that removes a day card AT ALL. Its
+        docstring recorded the gap as a decision: "Phase A implements the
+        refusal. It does NOT implement the drop ... Dropping the empty
+        cards needs a server route and is later work." Chris's review of
+        Phase A asked for that work, on this phase: "Implement the
+        complete shrinking-date rule: remove empty out-of-range days;
+        refuse and clearly list out-of-range days containing work." The
+        server route the old wall was waiting for is the one it named, so
+        this is a wall moved forward and told why -- not a wall dropped.]
+
+        What is still walled, and is the half that was always the point:
+        the removal goes through the reconcile POST and nowhere else, no
+        prune/drop/remove route was invented here, and the automatic
+        add-missing lane still only adds.
         """
         src = _stripped_js()
         self.assertIn("out_of_range_days", src)
-        # No day-removal verb reaches this surface.
+        # Still no removal route of this surface's own invention. The one
+        # deletion path is the reconcile POST, whose server side decides
+        # emptiness again inside its write transaction.
         for banned in ("/days/prune", "/days/drop", "days/remove"):
             self.assertNotIn(banned, src, banned)
-        # The automatic reconcile call adds and does nothing else. If a
-        # future phase teaches it to remove, this literal has to change
-        # and a reader is sent to the ruling above.
+        self.assertIn("drop_empty_out_of_range: true", src)
+        # The automatic reconcile call adds and does nothing else. It is
+        # a different lane from the trip-date save and must not acquire
+        # the flag: auto-add fires on a preview load, and a removal that
+        # fires on a page view is not a removal anyone asked for.
         j = src.index("function maybeAutoAddMissingDays()")
         auto = src[j:src.index("\n  }", j)]
         self.assertIn("add_missing: true", auto)
         self.assertNotIn("drop", auto)
         self.assertNotIn("remove", auto)
+
+    def test_a_leaving_day_with_work_on_it_refuses_in_chriss_words(self):
+        """The refusal message is quoted, not paraphrased.
+
+        Chris wrote the message he wanted, down to the bullet shape:
+
+            The trip dates cannot be shortened yet.
+
+            These days contain work:
+            * July 19 - 4 photos and 1 story note
+            * July 20 - 2 Lori captures
+
+            Move or remove that content, then try again.
+
+        Asserted as literals because a rewrite into house voice is
+        exactly the kind of change nobody would think to mention.
+        """
+        src = _stripped_js()
+        self.assertIn("The trip dates cannot be shortened yet.", src)
+        self.assertIn("These days contain work:", src)
+        self.assertIn("Move or remove that content, then try again.", src)
+        # Per day: the long date, then what is on it.
+        self.assertIn("function longDate(", src)
+        self.assertIn("function holdsPhrase(", src)
+        j = src.index("function showDateRefusal(")
+        box = src[j:src.index("\n  }", j)]
+        self.assertIn("longDate(day.date)", box)
+        self.assertIn("holdsPhrase(dayHolds(day))", box)
+        # Chris's own vocabulary for what a day holds.
+        self.assertIn('"Lori capture", "Lori captures"', src)
+        self.assertIn('"story note", "story notes"', src)
+        self.assertIn('"photo", "photos"', src)
+
+    def test_the_refusal_happens_before_the_dates_are_saved(self):
+        """Order is the whole feature.
+
+        Chris named the failure this prevents: "the trip header could
+        say July 14-18 while July 19 and July 20 still appear below." A
+        check that ran after the PATCH would produce exactly that -- the
+        header already moved, the cards still there, and a message
+        explaining a state the operator is already looking at.
+        """
+        src = _stripped_js()
+        j = src.index("function renderTripEditorDrawer()")
+        ed = src[j:src.index("\n  function renderRegionEditorDrawer(", j)]
+        self.assertIn("daysLeavingWindow(vStart.value, vEnd.value)", ed)
+        patch = ed.index('api("/api/trips/" + encodeURIComponent(trip.id), {')
+        self.assertLess(ed.index("var blocking = leaving.filter"), patch)
+        self.assertLess(ed.index("showDateRefusal(refusalEl, blocking)"), patch)
+        # A refusal leaves the drawer usable: the button comes back and
+        # the operator's typed dates are not repainted away.
+        self.assertIn("saveBtn.disabled = false;", ed)
+        self.assertNotIn("showDateRefusal(refusalEl, blocking);\n"
+                         "            renderAll()", ed)
+        # Only a save that actually pushes cards out asks for a removal.
+        self.assertIn("var shrinking = leaving.length > 0;", ed)
+        self.assertIn("shrinking ? dropEmptyOutOfRangeDays(trip.id) : null",
+                      ed)
+        # An already-preserved card must never block a date edit: one old
+        # card with a note on it would freeze the trip's dates forever.
+        j = src.index("function daysLeavingWindow(")
+        leaving = src[j:src.index("\n  }", j)]
+        self.assertIn("st.days", leaving)
+        self.assertNotIn("preservedDays", leaving)
+
+    def test_emptiness_is_not_measured_from_the_display_counts(self):
+        """The decision this feature lives or dies on.
+
+        Each day card carries `counts` merged in by the /days route, and
+        reaching for them here is the obvious simplification. It would
+        also make the feature ship and do nothing: those counts include
+        photos matched to the day by taken-date and notes inherited
+        through the day's stop or region, and generated cards are
+        auto-assigned a region -- so on any trip with region-scoped notes
+        every card reports content and every shrink is refused.
+
+        Emptiness is what is ATTACHED to this card (trip_day_id) plus
+        what was typed into the day row.
+        """
+        src = _stripped_js()
+        j = src.index("function dayHolds(")
+        holds = src[j:src.index("\n  }", j)]
+        self.assertIn("trip_day_id === day.id", holds)
+        self.assertNotIn("day.counts", holds)
+        self.assertNotIn("counts.", holds)
+        j = src.index("function dayOwnContent(")
+        own = src[j:src.index("\n  }", j)]
+        self.assertIn("DAY_OWN_TEXT_FIELDS", own)
+        self.assertIn("trip_stop_id", own)
+        self.assertNotIn("day.counts", own)
+        # The typed fields are the day row's own columns, all of them.
+        for f in ("morning_notes", "afternoon_notes", "evening_notes",
+                  "main_location", "lodging_base"):
+            self.assertIn(f, src, f)
+        for f in ("places_visited_json", "meals_json"):
+            self.assertIn(f, src, f)
+
+    def test_the_removal_is_reported_after_it_happens(self):
+        """"Without asking" is a rule about prompts, not about silence.
+
+        Chris: "Empty days are dropped without asking." A card that was
+        on the screen a moment ago and is gone now, with nothing on
+        screen admitting it, is the silent deletion this doctrine exists
+        to prevent -- and reporting after the fact is not asking.
+
+        The other direction matters as much: the client decides
+        emptiness from lists that exclude hidden rows, so the server can
+        legitimately refuse a card the client thought was bare. Those
+        come back in kept_out_of_range and have to be said out loud, or
+        cards stay on screen that the operator was told would go.
+        """
+        src = _stripped_js()
+        j = src.index("function dropEmptyOutOfRangeDays(")
+        drop = src[j:src.index("\n  }", j)]
+        self.assertIn("dropped_days", drop)
+        self.assertIn("kept_out_of_range", drop)
+        self.assertIn("st.daysNotice", drop)
+        self.assertIn("st.daysWarning", drop)
+        # A failed tidy-up must not read as a failed save.
+        self.assertIn("The trip dates were saved", drop)
+        # The banner exists, is dismissible, and is not styled as a
+        # warning -- see the note on st.daysNotice.
+        self.assertIn("tdl-reconcile-notice", src)
+        css = _stripped_css()
+        self.assertIn(".tdl-reconcile-notice", css)
+        self.assertIn(".tdl-date-refusal-list", css)
+        # It belongs to the trip it was produced for.
+        j = src.index("function selectTrip(")
+        sel = src[j:src.index("\n  }", j)]
+        self.assertIn('st.daysNotice = "";', sel)
 
     def test_out_of_range_day_cards_visible_never_hidden(self):
         src = _stripped_js()

@@ -295,6 +295,11 @@
     days: [],            // /days.days rows (in-window, numbered 1..N)
     preservedDays: [],   // /days.preserved rows (outside current window)
     countsWarning: "",   // /days.counts_warning when evidence counts partial
+    // What the last trip-date save REMOVED. Chris's rule for empty
+    // out-of-range cards is "dropped without asking" --- which is a rule
+    // about prompts, not about disclosure. Reporting after the fact is
+    // not asking.
+    daysNotice: "",
     photoLinks: [],      // /photo-links rows
     notes: [],           // /location-notes rows
     sources: [],         // /sources rows
@@ -626,6 +631,20 @@
     return WEEKDAYS[d.getUTCDay()] + " · " + MONTHS[d.getUTCMonth()] + " " + (+p[2]);
   }
 
+  // "July 19", not "Sun \u00b7 Jul 19". Chris wrote the refusal message
+  // by hand and this is the shape he wrote the dates in; a refusal is
+  // read once, under mild annoyance, and the long month name is the
+  // form that reads as a sentence rather than as a table cell.
+  function longDate(iso) {
+    var p = (iso || "").split("-");
+    if (p.length !== 3) return iso || "";
+    return LONG_MONTHS[(+p[1]) - 1] + " " + (+p[2]);
+  }
+
+  var LONG_MONTHS = ["January", "February", "March", "April", "May",
+    "June", "July", "August", "September", "October", "November",
+    "December"];
+
   function findRegion(regionId) {
     var regions = (st.tree && st.tree.regions) || [];
     for (var i = 0; i < regions.length; i++) {
@@ -776,6 +795,10 @@
     st.sourceDrawerDayId = null;
     st.reconcile = null;
     st.reconcileDrawerOpen = false;
+    // "2 empty day cards were removed" is a claim about THIS trip's
+    // calendar. Carried across a switch it becomes a claim about a
+    // calendar the operator is now looking at and never touched.
+    st.daysNotice = "";
     // Phase 3A: a pending impact review belongs to the trip it was opened
     // for. Switching trips with it still open would leave a review armed
     // against a trip the operator is no longer looking at.
@@ -1086,6 +1109,11 @@
     // produces days_warning, so wire it: the warning belongs next to the
     // calendar it is about, not only on the Trip tab.
     st.daysWarning = out.days_warning ? String(out.days_warning) : "";
+    // Cleared for the same reason the warnings are: the removal report
+    // from a previous save describes cards that are already gone, and
+    // leaving it up next to a fresh calendar invites the operator to
+    // hunt for a deletion that happened ten minutes ago.
+    st.daysNotice = "";
   }
 
   function reloadDays() {
@@ -1220,6 +1248,154 @@
         st.daysWarning = "Day cards could not be generated from the trip " +
           "dates automatically: " + e.message + " Open the reconcile " +
           "review to add them by hand.";
+      });
+  }
+
+  // ── the shrink half (WO-TRIP-PLAN-AS-HUB-01 Phase A, correction 2) ──
+  //
+  // Chris, reviewing Phase A on 2026-07-28: "Implement the complete
+  // shrinking-date rule: remove empty out-of-range days; refuse and
+  // clearly list out-of-range days containing work."
+  //
+  // The measure of "holds work" here mirrors the server's _day_is_empty
+  // deliberately, and just as deliberately does NOT use the `counts`
+  // the /days route merges into each card. Those counts are generous by
+  // design --- they include photos matched to the day by taken-date and
+  // notes inherited through the day's stop or region --- and since
+  // generated cards are auto-assigned a region, on any trip with
+  // region-scoped notes EVERY card would report content, the refusal
+  // would fire every time, and the feature would ship and do nothing.
+  // What counts as work here is what is attached to this day card
+  // (trip_day_id) plus what was typed into the day row itself.
+  //
+  // The client can undercount: the notes and sources lists exclude
+  // hidden rows unless the operator asked for them. That is safe and
+  // not merely tolerable --- the server re-decides emptiness inside the
+  // write transaction and hands back anything it refused to delete in
+  // kept_out_of_range, which this surface reports. The client's answer
+  // decides what to SAY before the save; the server's decides what
+  // actually happens.
+  var DAY_OWN_TEXT_FIELDS = ["title", "main_location", "lodging_base",
+    "morning_notes", "afternoon_notes", "evening_notes"];
+  var DAY_OWN_LIST_FIELDS = ["places_visited_json", "meals_json"];
+
+  function dayOwnContent(day) {
+    var held = [];
+    DAY_OWN_TEXT_FIELDS.forEach(function (f) {
+      if (String(day[f] == null ? "" : day[f]).trim()) held.push(f);
+    });
+    DAY_OWN_LIST_FIELDS.forEach(function (f) {
+      var v = day[f];
+      if (typeof v === "string") {
+        try { v = JSON.parse(v); } catch (e) { v = null; }
+      }
+      if (v && v.length) held.push(f);
+    });
+    // A day pinned to a stop is a routing decision somebody made. It is
+    // not text, but re-making it is work, so the card is not bare.
+    if (day.trip_stop_id) held.push("trip_stop_id");
+    return held;
+  }
+
+  function dayHolds(day) {
+    // Lori captures are counted apart from typed story notes because
+    // they read differently to the person who has to go move them.
+    var lori = 0, written = 0;
+    st.notes.forEach(function (n) {
+      if (n.trip_day_id !== day.id) return;
+      if (n.source_surface === "travel_doc_modal") lori += 1;
+      else written += 1;
+    });
+    return {
+      photos: st.photoLinks.filter(function (l) {
+        return l.trip_day_id === day.id;
+      }).length,
+      lori: lori,
+      notes: written,
+      sources: st.sources.filter(function (s) {
+        return s.trip_day_id === day.id;
+      }).length,
+      own: dayOwnContent(day),
+    };
+  }
+
+  function dayIsEmpty(day) {
+    var h = dayHolds(day);
+    return !(h.photos || h.lori || h.notes || h.sources || h.own.length);
+  }
+
+  function countPhrase(n, one, many) {
+    return n + " " + (n === 1 ? one : many);
+  }
+
+  function holdsPhrase(h) {
+    var parts = [];
+    if (h.photos) parts.push(countPhrase(h.photos, "photo", "photos"));
+    if (h.lori) parts.push(countPhrase(h.lori, "Lori capture", "Lori captures"));
+    if (h.notes) parts.push(countPhrase(h.notes, "story note", "story notes"));
+    if (h.sources) parts.push(countPhrase(h.sources, "source", "sources"));
+    if (h.own.length) {
+      parts.push(countPhrase(h.own.length, "typed field", "typed fields"));
+    }
+    if (!parts.length) return "content";
+    if (parts.length === 1) return parts[0];
+    return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+  }
+
+  // Day cards that are in the calendar NOW and would not be after a save
+  // with these dates. Scoped to st.days on purpose: an already-preserved
+  // card from some earlier date range must never block a date edit, or
+  // one old card with a note on it would freeze the trip's dates for
+  // good, and the operator's only way out would be to destroy the note.
+  //
+  // Clearing the dates returns nothing. It is not shrinking --- there is
+  // no new window for a card to be outside of --- and the server's
+  // existing preserve behaviour is the right answer to it.
+  function daysLeavingWindow(startIso, endIso) {
+    var s = datePrefix(startIso), e = datePrefix(endIso);
+    if (!s || !e) return [];
+    return (st.days || []).filter(function (d) {
+      var dd = datePrefix(d.date);
+      return dd && (dd < s || dd > e);
+    });
+  }
+
+  // Sent only when the save actually took cards out of the window, so an
+  // unrelated title edit cannot quietly remove empty preserved cards the
+  // operator never asked about.
+  function dropEmptyOutOfRangeDays(tripId) {
+    return api("/api/trips/" + encodeURIComponent(tripId) + "/days/reconcile",
+      { method: "POST", body: { drop_empty_out_of_range: true } })
+      .then(function (out) {
+        var dropped = (out && out.dropped_days) || [];
+        var kept = (out && out.kept_out_of_range) || [];
+        if (dropped.length) {
+          st.daysNotice = countPhrase(dropped.length, "empty day card",
+            "empty day cards") + " outside the new trip dates " +
+            (dropped.length === 1 ? "was" : "were") + " removed: " +
+            dropped.map(function (d) { return longDate(d.date); }).join(", ") +
+            ".";
+        }
+        if (kept.length) {
+          // The client thought these were bare and the server, looking
+          // at rows the client cannot see, disagreed. It kept them, which
+          // is the right call --- but saying nothing would leave cards on
+          // screen that the operator was told would go.
+          st.daysWarning = countPhrase(kept.length, "day card",
+            "day cards") + " outside the new trip dates could not be " +
+            "removed because there is content attached to " +
+            (kept.length === 1 ? "it" : "them") + " (" +
+            kept.map(function (d) { return longDate(d.date); }).join(", ") +
+            "). They are kept below. Turn on \u201cShow hidden\u201d in " +
+            "Story Notes and Sources to see what is on them.";
+        }
+      })
+      .catch(function (e) {
+        // The dates saved; only the tidy-up failed. Say exactly that, or
+        // the operator reads a stale calendar as a failed save.
+        st.daysWarning = "The trip dates were saved, but the empty day " +
+          "cards outside them could not be removed: " + e.message +
+          " They are shown below and nothing was lost.";
       });
   }
 
@@ -2168,6 +2344,37 @@
     return box;
   }
 
+  // The date refusal is a LIST, so it cannot go through drawerError's
+  // single string. It is also written in place rather than through
+  // renderAll() for a reason drawerError's own comment implies but this
+  // case makes sharp: a repaint rebuilds the date inputs from the SAVED
+  // trip row, so the operator would watch the dates they just typed snap
+  // back to the old ones at the very moment they were told why they
+  // cannot have them --- reading as "it saved and then undid itself"
+  // rather than "it refused."
+  function drawerDateRefusal(host) {
+    var box = el("div", "tdl-delete-error tdl-date-refusal");
+    box.hidden = true;
+    host.appendChild(box);
+    return box;
+  }
+
+  function showDateRefusal(box, blocking) {
+    box.textContent = "";
+    if (!blocking || !blocking.length) { box.hidden = true; return; }
+    box.appendChild(el("p", "", "The trip dates cannot be shortened yet."));
+    box.appendChild(el("p", "", "These days contain work:"));
+    var list = el("ul", "tdl-date-refusal-list");
+    blocking.forEach(function (day) {
+      list.appendChild(el("li", "",
+        longDate(day.date) + " \u2014 " + holdsPhrase(dayHolds(day))));
+    });
+    box.appendChild(list);
+    box.appendChild(el("p", "",
+      "Move or remove that content, then try again."));
+    box.hidden = false;
+  }
+
   // ── editor open/close ────────────────────────────────────────────────
   //
   // Each opener re-checks dayFormDirtyBlocks() for the same reason
@@ -2243,6 +2450,7 @@
       "shown as a warning banner — it is not silently dropped."));
 
     var errEl = drawerError(sh.body, ed.error);
+    var refusalEl = drawerDateRefusal(sh.body);
 
     var saveBtn = btn("tdl-btn tdl-btn-primary",
       creating ? "✓ Create trip" : "✓ Save trip", function () {
@@ -2281,6 +2489,24 @@
             });
           }).catch(fail);
         } else {
+          // Phase A correction 2 --- the shrinking-date rule, checked
+          // BEFORE the save rather than cleaned up after it. Refusing
+          // after the dates have already moved would mean a trip header
+          // reading July 14-18 above a visible July 20 card, which is
+          // exactly the confusion Chris named.
+          var leaving = daysLeavingWindow(vStart.value, vEnd.value);
+          var blocking = leaving.filter(function (d) {
+            return !dayIsEmpty(d);
+          });
+          if (blocking.length) {
+            saveBtn.disabled = false;
+            showDateRefusal(refusalEl, blocking);
+            return;
+          }
+          showDateRefusal(refusalEl, []);
+          // Only ask for the removal when this save is what takes cards
+          // out of the window.
+          var shrinking = leaving.length > 0;
           api("/api/trips/" + encodeURIComponent(trip.id), {
             method: "PATCH", body: {
               title: title,
@@ -2296,6 +2522,12 @@
             st.tripEditor = null;
             st.error = "";
             return refreshTripsPreservingSelection(trip.id)
+              .then(function () {
+                // After the trip row is re-pointed and before the bundle
+                // reload, so the calendar that gets drawn is the one the
+                // removal already ran against.
+                return shrinking ? dropEmptyOutOfRangeDays(trip.id) : null;
+              })
               .then(refreshTripBundle);
           }).catch(fail);
         }
@@ -3117,6 +3349,21 @@
       dwBox.appendChild(document.createTextNode(st.daysWarning));
       wrap.appendChild(dwBox);
     }
+    // 2026-07-28 (Phase A correction 2) — what the last trip-date save
+    // removed. Neutral, not amber: this reports something that worked.
+    // A card that was on the screen a moment ago and is gone now, with
+    // nothing on screen admitting it, is the silent deletion this
+    // doctrine exists to prevent — and "without asking" was never
+    // "without saying."
+    if (st.daysNotice) {
+      var dnBox = el("div", "tdl-reconcile-banner tdl-reconcile-notice");
+      dnBox.appendChild(el("span", "", st.daysNotice));
+      dnBox.appendChild(btn("tdl-btn tdl-btn-small", "Dismiss", function () {
+        st.daysNotice = "";
+        renderAll();
+      }));
+      wrap.appendChild(dnBox);
+    }
     // 2026-07-23 (Bucket B) — counts_warning banner. When the /days
     // endpoint could load the day rows but the evidence-counts query
     // failed, every card renders zero counts. Without this banner,
@@ -3184,23 +3431,41 @@
     // through st.daysWarning above, which is a different claim and keeps
     // its banner.]
     //
-    // The outside-date banner stays, and it is the visible half of
-    // Chris's ruling of 2026-07-28 on shrinking trip dates: "if
+    // The outside-date banner stays, and it now describes BOTH halves
+    // of Chris's ruling of 2026-07-28 on shrinking trip dates: "if
     // shrinking would drop a day that has content, don't, and show
-    // what's on it so I can move or clear it first." Hornelore refuses
-    // and says so. The other half of that ruling --- "empty days are
-    // dropped without asking" --- is NOT implemented here and must not
-    // be read into this banner: this surface has no route that removes a
-    // day card at all, and the reconcile drawer's own doctrine is that
-    // nothing is ever deleted there. Dropping the empty cards Chris is
-    // willing to lose needs a server route and is later work.
+    // what's on it so I can move or clear it first. Empty days are
+    // dropped without asking." The refusal lives in the trip editor,
+    // where the shortening is attempted; the removal is asked for right
+    // after that save succeeds, via drop_empty_out_of_range.
+    //
+    // [Until 2026-07-28 this block read: "The other half of that ruling
+    // --- 'empty days are dropped without asking' --- is NOT implemented
+    // here and must not be read into this banner: this surface has no
+    // route that removes a day card at all ... Dropping the empty cards
+    // Chris is willing to lose needs a server route and is later work."
+    // True when written, and the server route it was waiting for is the
+    // one it named. Chris's Phase A review asked for the rest: "remove
+    // empty out-of-range days; refuse and clearly list out-of-range days
+    // containing work." What has NOT changed, and is the part worth
+    // carrying forward: a card that holds anything is never removed from
+    // this surface, and the reconcile review still only reviews.]
     var rec = st.reconcile;
     if (rec && (rec.out_of_range_days || []).length) {
       var ob = el("div", "tdl-reconcile-banner tdl-reconcile-outside");
+      // [This read "They were kept, not deleted, because they have your
+      // work on them." Corrected 2026-07-28: that was true of every
+      // outside card when nothing could be removed. Now the empty ones
+      // are removed on the save that pushes them out, so a card sitting
+      // here either has work on it or arrived by a path that did not go
+      // through a trip-date save --- and telling the operator all of
+      // them hold work would send them looking for content that is not
+      // on some of them.]
       ob.appendChild(el("span", "",
         rec.out_of_range_days.length + " day card(s) sit outside your " +
-        "current trip dates. They were kept, not deleted, because they " +
-        "have your work on them."));
+        "current trip dates. Cards with your work on them are kept, " +
+        "never deleted; empty ones are removed when you change the " +
+        "dates."));
       ob.appendChild(btn("tdl-btn tdl-btn-small", "See what is on them",
         openReconcileDrawer));
       wrap.appendChild(ob);
