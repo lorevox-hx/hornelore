@@ -91,6 +91,22 @@
 .tdl-tabs button { border: 0; background: transparent; padding: .55rem .85rem; color: #6a5e4e; font-weight: 850; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0; }
 .tdl-tabs button.tdl-active { color: #2b2116; border-bottom-color: var(--tdl-gold); background: #fff8eb; }
 
+/* Review menu (Phase A). A native <details> rather than a hand-rolled
+   popover: a hand-rolled one needs a document-level click listener to
+   close, and this module has a destroy() contract that a stray global
+   listener quietly breaks. The panel is absolutely positioned, so the
+   topbar needs position: relative to be its containing block -- see the
+   .tdl-topbar rule. The summary marker is removed in both spellings
+   because WebKit still wants the vendor pseudo-element. */
+.tdl-tabmenu { position: relative; display: flex; align-items: stretch; }
+.tdl-tabmenu-summary { list-style: none; cursor: pointer; padding: .55rem .85rem; color: #6a5e4e; font-weight: 850; border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0; display: flex; align-items: center; white-space: nowrap; }
+.tdl-tabmenu-summary::-webkit-details-marker { display: none; }
+.tdl-tabmenu.tdl-active .tdl-tabmenu-summary { color: #2b2116; border-bottom-color: var(--tdl-gold); background: #fff8eb; }
+.tdl-tabmenu[open] .tdl-tabmenu-summary { background: #fff8eb; }
+.tdl-tabmenu-panel { position: absolute; top: 100%; right: 0; z-index: 40; min-width: 190px; display: grid; gap: .1rem; padding: .35rem; background: var(--tdl-paper); border: 1px solid var(--tdl-line); border-radius: 10px; box-shadow: 0 14px 34px rgba(41, 27, 10, .16); }
+.tdl-tabmenu-panel button { width: 100%; text-align: left; border-radius: 8px; border-bottom: 0; }
+.tdl-tabmenu-panel button.tdl-active { border-bottom: 0; }
+
 /* Layout — the CENTER column is minmax(0, 1fr) in EVERY variant so it
    compresses instead of forcing a horizontal page scroll (laptop rule). */
 .tdl-layout { display: grid; grid-template-columns: 295px minmax(0, 1fr); overflow: hidden; min-height: calc(100dvh - 58px); }
@@ -131,10 +147,23 @@
 .tdl-toolbar .tdl-spacer { flex: 1; }
 .tdl-note-banner { background: #eef5ff; border: 1px solid #cbdcf2; border-radius: 12px; padding: .75rem; font-size: .86rem; margin-bottom: 1rem; }
 
-/* Day cards — date | detail (with stat chips) | one consistent action
-   column. Action labels are full words and WRAP instead of truncating. */
+/* Day cards — date | detail (with stat chips). Two columns, not three.
+   [This rule read `grid-template-columns: 86px minmax(0, 1fr) 190px`,
+   and the comment above it read "date | detail (with stat chips) | one
+   consistent action column. Action labels are full words and WRAP
+   instead of truncating." Retired 2026-07-28 by Phase A: the third
+   column held the five-button action row, and the card is now a single
+   control that opens the day workspace. A 190px column reserved for
+   buttons that no longer exist would have left every card with a wide
+   empty right margin.] */
 .tdl-day-list { display: grid; gap: .7rem; }
-.tdl-day-card { background: var(--tdl-paper); border: 1px solid var(--tdl-line); border-radius: 14px; display: grid; grid-template-columns: 86px minmax(0, 1fr) 190px; gap: 1rem; align-items: start; min-height: 116px; padding: .95rem 1rem; box-shadow: 0 8px 24px rgba(40, 24, 10, .035); }
+.tdl-day-card { background: var(--tdl-paper); border: 1px solid var(--tdl-line); border-radius: 14px; display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 1rem; align-items: start; min-height: 116px; padding: .95rem 1rem; box-shadow: 0 8px 24px rgba(40, 24, 10, .035); cursor: pointer; }
+.tdl-day-card:hover { border-color: var(--tdl-gold); box-shadow: 0 10px 28px rgba(198, 129, 38, .10); }
+.tdl-day-card:focus-visible { outline: 3px solid var(--tdl-gold); outline-offset: 2px; }
+/* The card is the control, so it says so rather than relying on the
+   cursor alone — a pointer cursor is invisible to a keyboard user and
+   absent on a touch screen. */
+.tdl-day-open-hint { display: inline-block; margin-top: .5rem; font-size: .78rem; font-weight: 850; color: #8a5a12; }
 .tdl-day-card.tdl-selected { border-color: var(--tdl-gold); box-shadow: 0 0 0 1px var(--tdl-gold), 0 14px 34px rgba(198, 129, 38, .12); background: #fffaf0; }
 .tdl-day-date { align-self: stretch; display: grid; place-items: center; border-right: 1px solid var(--tdl-line); padding-right: 1rem; text-align: center; }
 .tdl-day-date span { font-size: .78rem; color: #334457; display: block; }
@@ -146,8 +175,11 @@
 .tdl-day-stats span { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; color: #30465d; border: 1px solid var(--tdl-line); background: var(--tdl-paper2); border-radius: 999px; padding: .14rem .5rem; }
 .tdl-day-stats b { font-size: .9rem; }
 .tdl-day-stats small { color: var(--tdl-muted); }
-.tdl-day-actions { display: grid; grid-template-columns: 1fr; gap: .45rem; align-content: start; }
-.tdl-day-actions .tdl-btn { width: 100%; }
+/* [.tdl-day-actions and .tdl-day-actions .tdl-btn were removed here on
+   2026-07-28. They laid out the day card's five-button action column as
+   a single-column grid of full-width buttons. The JS that built that row
+   (dayActionRow) is gone with them; the actions live in the day
+   workspace beside the sections they act on.] */
 
 /* Inspector — fixed header / scrolling body / sticky footer, mirrored
    Save Day at BOTH ends so it never has to be hunted for. */
@@ -190,6 +222,15 @@
 
 /* Day photo picker */
 .tdl-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: .6rem; }
+/* Phase A instruction 9 — the narrow empty state. The drawer's empty
+   message is appended INTO this grid, so it was being laid out as one
+   118px-wide thumbnail cell: a two-sentence sentence rendered in a
+   column the width of a photo, which is what Chris saw and reported.
+   Spanning every track is the whole fix; the message is a row, not a
+   tile. Scoped to .tdl-picker-grid rather than applied to .tdl-empty
+   generally, because .tdl-empty is used in a dozen non-grid places
+   where grid-column means nothing. */
+.tdl-picker-grid .tdl-empty { grid-column: 1 / -1; padding: 1.4rem 1rem; text-align: left; }
 .tdl-picker-cell { position: relative; display: grid; gap: .25rem; border: 1px solid var(--tdl-line); border-radius: 10px; padding: .4rem; background: var(--tdl-paper2); cursor: pointer; }
 .tdl-picker-cell input[type="checkbox"] { position: absolute; top: .55rem; left: .55rem; width: auto; z-index: 1; }
 .tdl-picker-cell img { width: 100%; aspect-ratio: 1.25; object-fit: cover; border-radius: 7px; border: 1px solid var(--tdl-line); background: #eee6d6; }
@@ -286,7 +327,9 @@
   .tdl-sidebar.tdl-collapsed { flex-direction: row; }
   .tdl-rail-vlabel { writing-mode: horizontal-tb; }
   .tdl-day-card { grid-template-columns: 76px minmax(0, 1fr); }
-  .tdl-day-actions { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  /* [The narrow-width override for .tdl-day-actions was removed here on
+     2026-07-28 with the action row itself. It read
+     `grid-column: 1 / -1; grid-template-columns: 1fr 1fr;`.] */
   .tdl-photo-workspace { grid-template-columns: minmax(0, 1fr); }
   .tdl-photo-workspace .tdl-photo-detail { grid-column: auto; }
 }

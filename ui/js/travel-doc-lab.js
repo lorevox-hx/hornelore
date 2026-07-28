@@ -1127,7 +1127,44 @@
     return api("/api/trips/" + encodeURIComponent(st.trip.id) +
       "/days/reconcile-preview")
       .then(function (out) { st.reconcile = out; })
-      .catch(function () { st.reconcile = null; });
+      .catch(function () { st.reconcile = null; })
+      .then(function () { return maybeAutoAddMissingDays(); });
+  }
+
+  // WO-TRIP-PLAN-AS-HUB-01 Phase A --- day cards are generated from the
+  // trip dates without being asked for. Chris's ruling, 2026-07-28:
+  // "Auto-generate added days silently; if shrinking would drop a day
+  // that has content, don't, and show what's on it so I can move or
+  // clear it first. Empty days are dropped without asking."
+  //
+  // This is the ADD half, and only the add half. There is no route on
+  // this surface that removes a day card, so the drop half --- including
+  // the empty cards Chris is willing to lose --- is later work and the
+  // outside-date banner says so in the operator's own words.
+  //
+  // "Silently" means without a prompt, not without a report: a failure
+  // lands in st.daysWarning, which renderPlan already draws above the
+  // calendar. Swallowing it would leave an operator looking at a short
+  // calendar with nothing on screen admitting why.
+  var autoDaysTried = {};
+
+  function maybeAutoAddMissingDays() {
+    if (!st.trip) return Promise.resolve();
+    var rec = st.reconcile;
+    if (!rec || !(rec.missing_dates || []).length) return Promise.resolve();
+    // Once per trip per mount. The add reloads the preview, which lands
+    // back in this function; without the guard a route that failed to
+    // add would re-fire for as long as the tab stayed open.
+    if (autoDaysTried[st.trip.id]) return Promise.resolve();
+    autoDaysTried[st.trip.id] = true;
+    var tripId = st.trip.id;
+    return api("/api/trips/" + encodeURIComponent(tripId) + "/days/reconcile",
+      { method: "POST", body: { add_missing: true } })
+      .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      .catch(function (e) {
+        st.daysWarning = "Day cards could not be generated from the trip " +
+          "dates automatically: " + e.message;
+      });
   }
 
   function reloadPublicContext() {
@@ -1610,23 +1647,66 @@
 
   // ── shell ─────────────────────────────────────────────────────────────
 
-  var TABS = [
-    ["trip", "Trip"],
+  // WO-TRIP-PLAN-AS-HUB-01 Phase A -- the nav is three controls, not ten.
+  //
+  // [Corrected 2026-07-28. This read as a flat ten-entry TABS array:
+  // trip, plan, photos, evidence, notes, captured, sources, travelogue,
+  // draft, lori. It is kept here in words because the count was the
+  // defect: ten tabs advertise ten destinations, and Chris's normal
+  // workflow uses about three. Nothing in the list was wrong on its own,
+  // which is exactly how a bar gets to ten.]
+  //
+  // Trip Plan is the workspace and Photos is the other place an operator
+  // works. Everything else on the old bar is an administrative review
+  // step, and Chris's ruling is that a review step does not get permanent
+  // top-level standing: "I would not keep Evidence as a permanent
+  // top-level tab unless you expect to review imported photographs
+  // constantly. Your normal workflow is the trip and its days. Evidence is
+  // an administrative review step."
+  //
+  // Two ids left the bar entirely, for different reasons:
+  //   "trip" -- trip setup (dates, regions, stops) is reached from the
+  //             Trip Plan toolbar, beside the dates it edits. It is a
+  //             destination, so it keeps its tab id and its renderer; it
+  //             just stops claiming a permanent slot next to the day
+  //             calendar it configures.
+  //   "lori" -- deleted outright, renderer and all. Lori is an overlay
+  //             over the day you are already on (openLoriOverlay), and a
+  //             tab was a second way in that arrived with no day.
+  var PRIMARY_TABS = [
     ["plan", "Trip Plan"],
     ["photos", "Photos"],
+  ];
+
+  // Captured Notes sits here TEMPORARILY and the record should say so:
+  // it is narrator-scoped across every trip (12 notes spanning two trips
+  // at the time of writing), so it is the one surface here that does not
+  // describe the selected trip at all. It belongs at a narrator-level
+  // home, which a later work order owes it.
+  var REVIEW_TABS = [
     ["evidence", "Evidence"],
     ["notes", "Story Notes"],
-    ["captured", "Captured Notes"],
     ["sources", "Sources"],
     ["travelogue", "Travelogue"],
     ["draft", "Draft"],
-    ["lori", "Lori"],
+    ["captured", "Captured Notes"],
   ];
+
+  function reviewTabLabel(tab) {
+    var hit = REVIEW_TABS.filter(function (t) { return t[0] === tab; })[0];
+    return hit ? hit[1] : "";
+  }
 
   function setTab(tab) {
     // Phase 3B renamed the "current" tab id to "trip". Anything still
     // asking for the old id lands on the tab that replaced it.
     if (tab === "current") tab = "trip";
+    // Phase A deleted the Lori tab. Same treatment as "current": anything
+    // still asking for it lands on the surface that replaced it, which is
+    // Trip Plan with Lori available as an overlay over the selected day.
+    // A dead tab id that fell through to the default arm would render an
+    // empty div, which reads as a broken screen rather than a moved one.
+    if (tab === "lori") tab = "plan";
     // WO-TRIP-LANE-AUDIT-FIXPACK-02 (M5b): a tab switch re-renders and
     // would silently discard unsaved day-inspector edits.
     if (dayFormDirtyBlocks()) return;
@@ -1699,10 +1779,35 @@
     }
     top.appendChild(brand);
     var tabs = el("nav", "tdl-tabs");
-    TABS.forEach(function (t) {
+    PRIMARY_TABS.forEach(function (t) {
       var tb = btn(st.tab === t[0] ? "tdl-active" : "", t[1], function () { setTab(t[0]); });
       tabs.appendChild(tb);
     });
+    // Review is a native <details>, and that is a deliberate choice
+    // rather than a shortcut. A hand-rolled menu needs a document-level
+    // click listener to close on an outside click, and this module has a
+    // destroy() contract that a stray global listener quietly breaks --
+    // the same argument the timer inventory already makes about handles
+    // nobody stores. renderAll() rebuilds the bar, so choosing an item
+    // closes the menu for free.
+    var isReview = REVIEW_TABS.filter(function (t) {
+      return t[0] === st.tab;
+    }).length > 0;
+    var menu = document.createElement("details");
+    menu.className = "tdl-tabmenu" + (isReview ? " tdl-active" : "");
+    // When a review surface is open the summary names it, because a menu
+    // that collapses back to the word "Review" would leave the operator
+    // on a screen with nothing on the bar saying where they are.
+    menu.appendChild(el("summary", "tdl-tabmenu-summary",
+      isReview ? ("Review · " + reviewTabLabel(st.tab) + " \u25be") :
+        "Review \u25be"));
+    var panel = el("div", "tdl-tabmenu-panel");
+    REVIEW_TABS.forEach(function (t) {
+      panel.appendChild(btn(st.tab === t[0] ? "tdl-active" : "", t[1],
+        function () { setTab(t[0]); }));
+    });
+    menu.appendChild(panel);
+    tabs.appendChild(menu);
     top.appendChild(tabs);
     app.appendChild(top);
 
@@ -1883,7 +1988,6 @@
       case "sources": return renderSources();
       case "travelogue": return renderTravelogue();
       case "draft": return renderDraft();
-      case "lori": return renderLoriTab();
       default: return el("div");
     }
   }
@@ -2928,11 +3032,9 @@
     var ht = el("div");
     ht.appendChild(el("h1", "", "Trip Calendar"));
     ht.appendChild(el("p", "tdl-muted",
-      "Day cards are created automatically when you save trip dates. " +
-      "Each card is the memory workflow: talk with Lori, add what " +
-      "happened, attach photos, notes, meals, places, and sources. Use " +
-      "☑ Generate / reconcile day cards below if you ever need to " +
-      "re-sync the calendar to the current dates."));
+      "Day cards are created from your trip dates automatically. " +
+      "Click a day to open its workspace: talk with Lori, write what " +
+      "happened, attach photos, notes, meals, places and sources."));
     head.appendChild(ht);
     wrap.appendChild(head);
 
@@ -2992,9 +3094,23 @@
     });
     wrap.appendChild(metrics);
 
+    // Phase A: the "☑ Generate / reconcile day cards" button is gone.
+    // [It read exactly that and called generateDays(). Retired 2026-07-28
+    // because it asked the operator to perform the system's own
+    // bookkeeping: the day cards are a function of the trip dates, and a
+    // button that re-derives them is an admission that something else
+    // might have failed to. The generation now happens on load --- see
+    // maybeAutoAddMissingDays(). generateDays() itself is kept and still
+    // reachable from the reconcile drawer, because a manual re-run is a
+    // reasonable thing to have when the automatic one has reported a
+    // failure.]
+    //
+    // Trip setup takes the slot instead. It sits beside the dates on
+    // purpose: the dates are what it edits, and it is no longer on the
+    // tab bar.
     var bar = el("div", "tdl-toolbar");
-    bar.appendChild(btn("tdl-btn tdl-btn-primary",
-      "☑ Generate / reconcile day cards", generateDays));
+    bar.appendChild(btn("tdl-btn", "✎ Trip setup — dates, regions, stops",
+      function () { setTab("trip"); }));
     bar.appendChild(el("span", "tdl-spacer"));
     bar.appendChild(el("span", "tdl-muted",
       "📅 " + (st.trip.start_date || "?") + " → " + (st.trip.end_date || "?")));
@@ -3003,30 +3119,53 @@
     // Date-range reconcile banners (WO-TRAVEL-DOC-UI-LAB-03). Missing
     // in-range days are addable in one click; day cards outside the
     // current trip dates are surfaced — never hidden, never deleted.
+    // Phase A: the missing-days banner is gone with its button.
+    // [It read "Trip dates include N day(s) not yet in the calendar."
+    // beside an "Add missing days" control. Retired 2026-07-28: missing
+    // in-range days are now added without being asked for, so a banner
+    // announcing them would be describing a state that no longer
+    // survives a page load. If the automatic add FAILS, that is reported
+    // through st.daysWarning above, which is a different claim and keeps
+    // its banner.]
+    //
+    // The outside-date banner stays, and it is the visible half of
+    // Chris's ruling of 2026-07-28 on shrinking trip dates: "if
+    // shrinking would drop a day that has content, don't, and show
+    // what's on it so I can move or clear it first." Hornelore refuses
+    // and says so. The other half of that ruling --- "empty days are
+    // dropped without asking" --- is NOT implemented here and must not
+    // be read into this banner: this surface has no route that removes a
+    // day card at all, and the reconcile drawer's own doctrine is that
+    // nothing is ever deleted there. Dropping the empty cards Chris is
+    // willing to lose needs a server route and is later work.
     var rec = st.reconcile;
-    if (rec && (rec.missing_dates || []).length) {
-      var mb = el("div", "tdl-reconcile-banner tdl-reconcile-missing");
-      mb.appendChild(el("span", "",
-        "Trip dates include " + rec.missing_dates.length +
-        " day(s) not yet in the calendar."));
-      mb.appendChild(btn("tdl-btn tdl-btn-small", "Add missing days",
-        addMissingDays));
-      wrap.appendChild(mb);
-    }
     if (rec && (rec.out_of_range_days || []).length) {
       var ob = el("div", "tdl-reconcile-banner tdl-reconcile-outside");
       ob.appendChild(el("span", "",
-        rec.out_of_range_days.length + " day card(s) are outside the " +
-        "current trip dates. They were kept to protect your notes."));
-      ob.appendChild(btn("tdl-btn tdl-btn-small", "Review outside-date days",
+        rec.out_of_range_days.length + " day card(s) sit outside your " +
+        "current trip dates. They were kept, not deleted, because they " +
+        "have your work on them."));
+      ob.appendChild(btn("tdl-btn tdl-btn-small", "See what is on them",
         openReconcileDrawer));
       wrap.appendChild(ob);
     }
 
     if (!st.days.length && !(st.preservedDays || []).length) {
-      wrap.appendChild(el("div", "tdl-empty",
-        "No day cards yet. Generate them from the trip dates above " +
-        "(needs trip start and end dates)."));
+      // [This read "No day cards yet. Generate them from the trip dates
+      // above (needs trip start and end dates)." Retired 2026-07-28 with
+      // the Generate button it was pointing at --- an empty state that
+      // tells you to press something that is not on the screen is worse
+      // than one that says nothing. The remaining cause is the real one:
+      // day cards are derived from the dates, so with no dates there is
+      // nothing to derive, and the fix is in Trip setup.]
+      var noDates = !st.trip.start_date || !st.trip.end_date;
+      wrap.appendChild(el("div", "tdl-empty", noDates ?
+        "This trip has no start and end dates yet, so there are no days " +
+        "to make cards from. Add the dates in Trip setup and the cards " +
+        "appear here." :
+        "No day cards for these dates yet. If they do not appear in a " +
+        "moment, reload the page --- and if a warning appears above, it " +
+        "says why."));
       return wrap;
     }
 
@@ -3155,28 +3294,23 @@
     return panel;
   }
 
-  // One clear, consistent action row per day — same labels, same order,
-  // EVERYWHERE a day is actionable (card + inspector). Full labels wrap
-  // to a second line rather than truncating (Chris's laptop review).
-  // "Attach photos" (not "Add photos"): the picker attaches EXISTING
-  // trip photos to the day — new uploads still come in via Photo Intake.
-  function dayActionRow(day) {
-    var actions = el("div", "tdl-day-actions");
-    actions.appendChild(btn("tdl-btn tdl-btn-gold", "💬 Talk with Lori",
-      function () { openLoriOverlay(day.id); }));
-    actions.appendChild(btn("tdl-btn", "＋ Attach photos",
-      function () { openPhotoPicker(day.id); }));
-    actions.appendChild(btn("tdl-btn", "＋ Add note",
-      function () { openNoteDrawer(day.id); }));
-    actions.appendChild(btn("tdl-btn", "＋ Attach source",
-      function () { openSourceDrawer(day.id); }));
-    actions.appendChild(btn("tdl-btn", "✎ Edit day", function () {
-      if (dayFormDirtyBlocks()) return;
-      st.selectedDayId = day.id;
-      renderAll();
-    }));
-    return actions;
-  }
+  // [dayActionRow() was deleted here on 2026-07-28 by
+  // WO-TRIP-PLAN-AS-HUB-01 Phase A. It built five buttons --- Talk with
+  // Lori, Attach photos, Add note, Attach source, Edit day --- and its
+  // stated virtue was that the SAME row appeared on the day card and in
+  // the inspector, in one order, everywhere a day was actionable. That
+  // was a real improvement over what preceded it and it is why the row
+  // is quoted rather than dropped.
+  //
+  // It went because the sameness stopped being the point. Chris's ask
+  // was that clicking a day opens a workspace with the day's actions in
+  // it; a card that carries the actions too means the card has five
+  // click targets that are not "open this day", and "Edit day" on a card
+  // is a button whose whole job is to do what clicking the card already
+  // did. The actions now live in the day workspace beside the things
+  // they act on --- Attach photos under Photos, Talk with Lori and Add
+  // note under Story, Attach source under Sources --- so the card has
+  // exactly one meaning: open this day.]
 
   function renderDayCard(day) {
     var card = el("article", "tdl-day-card" +
@@ -3203,14 +3337,19 @@
           " · reviewed" : "")));
     }
     if (day.lodging_base) main.appendChild(el("p", "", "Lodging: " + day.lodging_base));
+    // Phase A: route links are shown when they exist and are silent when
+    // they do not. [The else arm read "No linked region/stop yet" in
+    // muted text on every card. Retired 2026-07-28: a line on every
+    // single day announcing the absence of a thing the operator has not
+    // asked for is scaffolding, and the region/stop selects moved to the
+    // day workspace's More details section, which is where an operator
+    // who wants one goes.]
     var stop = day.trip_stop_id && findStop(day.trip_stop_id);
     var region = day.trip_region_id && findRegion(day.trip_region_id);
     if (stop) {
       main.appendChild(el("p", "", "Linked stop: " + (stop.location_name || "?")));
     } else if (region) {
       main.appendChild(el("p", "", "Linked region: " + (region.title || "?")));
-    } else {
-      main.appendChild(el("p", "tdl-muted", "No linked region/stop yet"));
     }
 
     var counts = day.counts || {};
@@ -3226,14 +3365,42 @@
       stats.appendChild(span);
     });
     main.appendChild(stats);
+    main.appendChild(el("span", "tdl-day-open-hint", "Open this day \u203a"));
     card.appendChild(main);
 
-    card.appendChild(dayActionRow(day));
-
-    card.addEventListener("click", function (e) {
-      if (e.target.closest("button")) return;
+    // Phase A instruction 4: the ENTIRE card is the control. It carries
+    // no buttons any more, so there is no longer a part of a day card
+    // that does something other than open the day.
+    //
+    // The closest("button") guard is kept even though nothing on the
+    // card is a button today: the guard costs nothing and the next
+    // person to add a control here should not have to rediscover that
+    // the card swallows clicks.
+    function openThisDay() {
+      // FIXPACK M5, restated for Phase A instruction 10: selecting a
+      // different day re-renders and would discard the open workspace's
+      // typed-but-unsaved edits. This handler was the one path into the
+      // inspector that did NOT ask --- day-to-day movement by clicking
+      // the calendar is the most likely way to lose a half-typed day,
+      // and it was the one that skipped the check.
+      if (dayFormDirtyBlocks()) return;
       st.selectedDayId = day.id;
       renderAll();
+    }
+    card.addEventListener("click", function (e) {
+      if (e.target.closest("button")) return;
+      openThisDay();
+    });
+    // A whole-card control has to be reachable without a mouse, or
+    // making it whole-card has taken a working button away from
+    // keyboard users rather than given them a bigger target.
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openThisDay();
+      }
     });
     return card;
   }
@@ -3391,8 +3558,13 @@
     // ── fixed header: nav + top mini action row ──
     var head = el("div", "tdl-inspector-head");
     var row1 = el("div", "tdl-inspector-head-row");
+    // Phase A instruction 5: this panel is the day workspace and says so.
+    // [The kicker read "Day N of M" alone. It was accurate and it was
+    // also the only label on the panel, so the panel had no name ---
+    // which is how it came to be described as a missing feature in a
+    // review of a screen that already had it.]
     row1.appendChild(el("span", "tdl-kicker",
-      "Day " + day.day_index + " of " + st.days.length));
+      "Day workspace \u00b7 Day " + day.day_index + " of " + st.days.length));
     var nav = el("div");
     var idx = st.days.indexOf(day);
     nav.appendChild(btn("tdl-btn tdl-btn-small", "‹", function () {
@@ -3441,101 +3613,28 @@
       return input;
     }
 
-    // ── Section: Overview (default open) ──
-    var ov = insSection("overview", "Overview", true);
+    // ── Section: Day (default open) ──
+    //
+    // Phase A instruction 5 reorganised this panel into the order Chris
+    // asked for: Day, Photos, Story, Places and meals, Sources, More
+    // details. [It previously ran Overview / Notes / Photos / Sources /
+    // Lori captures, with Overview carrying the region and stop selects
+    // and a technical Lori scope line, and with Notes carrying the
+    // period notes, places, meals AND the day story notes together. The
+    // old order is quoted because it was not arbitrary --- it followed
+    // the shape of the day row in the database. It is being replaced
+    // because the operator's order is not the table's order.]
+    var ov = insSection("overview", "Day", true);
     ov.appendChild(el("h2", "", prettyDate(day.date) + " · " + day.date));
     ov.appendChild(el("h3", "", dayLabel(day)));
-    var scopeNote = el("div", "tdl-lori-scope-note");
-    scopeNote.appendChild(el("b", "", "Lori scope: "));
-    scopeNote.appendChild(el("span", "", "active_trip_day_id = " + day.id.slice(0, 8) + "… "));
-    scopeNote.appendChild(el("span", "tdl-muted",
-      "Day-level conversation uses this day plus its linked stop/photos/notes/sources."));
-    ov.appendChild(scopeNote);
 
     var fTitle = watch(el("input")); fTitle.value = day.title || "";
     var fMain = watch(el("input")); fMain.value = day.main_location || "";
     var fLodging = watch(el("input")); fLodging.value = day.lodging_base || "";
     ov.appendChild(labeled("Day title", fTitle));
     ov.appendChild(labeled("Main location", fMain));
-    ov.appendChild(labeled("Lodging base", fLodging));
-
-    var fRegion = watch(document.createElement("select"));
-    var optNone = el("option", "", "— no region —"); optNone.value = "";
-    fRegion.appendChild(optNone);
-    ((st.tree && st.tree.regions) || []).forEach(function (r) {
-      var o = el("option", "", r.title || "Region"); o.value = r.id;
-      if (day.trip_region_id === r.id) o.selected = true;
-      fRegion.appendChild(o);
-    });
-    var fStop = watch(document.createElement("select"));
-    var so = el("option", "", "— no stop —"); so.value = "";
-    fStop.appendChild(so);
-    ((st.tree && st.tree.regions) || []).forEach(function (r) {
-      (function walk(stops, depth) {
-        (stops || []).forEach(function (s) {
-          var o = el("option", "",
-            (r.title || "") + " › " + Array(depth + 1).join("  ") +
-            (s.location_name || "Stop"));
-          o.value = s.id;
-          if (day.trip_stop_id === s.id) o.selected = true;
-          fStop.appendChild(o);
-          walk(s.children, depth + 1);
-        });
-      })(r.stops, 0);
-    });
-    ov.appendChild(labeled("Linked region", fRegion));
-    ov.appendChild(labeled("Linked stop", fStop));
-    ov.appendChild(dayActionRow(day));
+    ov.appendChild(labeled("Lodging", fLodging));
     body.appendChild(ov);
-
-    // ── Section: Notes (day period notes + day story notes) ──
-    var ns = insSection("notes", "Notes", false);
-    var per = el("div", "tdl-period-grid");
-    var fMorning = watch(el("textarea")); fMorning.value = day.morning_notes || "";
-    var fAfternoon = watch(el("textarea")); fAfternoon.value = day.afternoon_notes || "";
-    var fEvening = watch(el("textarea")); fEvening.value = day.evening_notes || "";
-    [["Morning", fMorning], ["Afternoon", fAfternoon], ["Evening", fEvening]]
-      .forEach(function (p) {
-        var c = el("div", "tdl-period-card");
-        c.appendChild(el("h4", "", p[0]));
-        c.appendChild(p[1]);
-        per.appendChild(c);
-      });
-    ns.appendChild(per);
-
-    var fPlaces = watch(el("textarea"));
-    fPlaces.value = (day.places_visited_json || []).join("\n");
-    fPlaces.placeholder = "One place per line";
-    var fMeals = watch(el("textarea"));
-    fMeals.value = (day.meals_json || []).join("\n");
-    fMeals.placeholder = "One meal per line";
-    ns.appendChild(labeled("Places visited (one per line)", fPlaces));
-    ns.appendChild(labeled("Meals (one per line)", fMeals));
-
-    var dNotes = dayLinkedNotes(day);
-    var scopedNotes = dayScopedRows(st.notes, day).filter(function (n) {
-      return !n.trip_day_id;
-    });
-    var nt = el("div", "tdl-row-title");
-    nt.appendChild(el("span", "",
-      "Day story notes (" + dNotes.length + ")"));
-    ns.appendChild(nt);
-    var nl = el("div", "tdl-mini-list");
-    dNotes.slice(0, 8).forEach(function (n) {
-      nl.appendChild(el("div", "", (n.note_title ? n.note_title + " — " : "") +
-        (n.note_text || "").slice(0, 90)));
-    });
-    scopedNotes.slice(0, 4).forEach(function (n) {
-      nl.appendChild(el("div", "tdl-muted", "(stop/region) " +
-        (n.note_text || "").slice(0, 90)));
-    });
-    if (!dNotes.length && !scopedNotes.length) {
-      nl.appendChild(el("div", "tdl-muted", "No notes for this day yet."));
-    }
-    ns.appendChild(nl);
-    ns.appendChild(btn("tdl-btn", "＋ Add note",
-      function () { openNoteDrawer(day.id); }));
-    body.appendChild(ns);
 
     // ── Section: Photos (day-linked first, then date matches) ──
     var dayLinks = dayLinkedPhotoLinks(day);
@@ -3551,7 +3650,7 @@
         im.alt = l.caption || "trip photo";
         im.loading = "lazy";
         cellWrap.appendChild(im);
-        cellWrap.appendChild(btn("tdl-btn tdl-btn-small", "Unlink",
+        cellWrap.appendChild(btn("tdl-btn tdl-btn-small", "Remove from this day",
           function () { unlinkDayPhoto(day, l.id); }));
         rowA.appendChild(cellWrap);
       });
@@ -3575,6 +3674,97 @@
     ph.appendChild(btn("tdl-btn", "＋ Attach photos",
       function () { openPhotoPicker(day.id); }));
     body.appendChild(ph);
+
+    // ── Section: Story (Lori, then what she captured, then the day) ──
+    //
+    // Talk with Lori leads because it is how the day gets written, not
+    // because it is the most-used control. The captures she takes are
+    // directly under it so the result of the conversation is visible in
+    // the same place the conversation starts.
+    var loriNotes = st.notes.filter(function (n) {
+      return n.source_surface === "travel_doc_modal" && n.trip_day_id === day.id;
+    });
+    var story = insSection("story", "Story", false);
+    story.appendChild(btn("tdl-btn tdl-btn-gold", "💬 Talk with Lori",
+      function () { openLoriOverlay(day.id); }));
+    // Phase A instruction 6, in place of the technical scope line.
+    // [The Overview section carried: "Lori scope: active_trip_day_id =
+    // <first 8 chars>... Day-level conversation uses this day plus its
+    // linked stop/photos/notes/sources." Retired 2026-07-28. The claim
+    // was true and worth making --- an operator does need to know what
+    // Lori can see --- but an identifier prefix is not how you make it
+    // to the person whose trip this is. The identifier itself moved to
+    // More details, where somebody debugging can still find it.]
+    story.appendChild(el("p", "tdl-muted",
+      "Lori sees this day — its title and location, its photos, notes " +
+      "and sources — while you talk."));
+
+    var lorHead = el("div", "tdl-row-title");
+    lorHead.appendChild(el("span", "",
+      "Captured from Lori (" + loriNotes.length + ")"));
+    story.appendChild(lorHead);
+    var ll = el("div", "tdl-mini-list");
+    loriNotes.slice(0, 8).forEach(function (n) {
+      var lrow = el("div");
+      lrow.appendChild(el("span", "tdl-lori-drawer-src", "from Lori"));
+      lrow.appendChild(el("span", "", " " + (n.note_text || "").slice(0, 110)));
+      ll.appendChild(lrow);
+    });
+    if (!loriNotes.length) {
+      ll.appendChild(el("div", "tdl-muted",
+        "Nothing captured for this day yet — use Talk with Lori."));
+    }
+    story.appendChild(ll);
+
+    var dNotes = dayLinkedNotes(day);
+    var scopedNotes = dayScopedRows(st.notes, day).filter(function (n) {
+      return !n.trip_day_id;
+    });
+    var nt = el("div", "tdl-row-title");
+    nt.appendChild(el("span", "",
+      "Day story notes (" + dNotes.length + ")"));
+    story.appendChild(nt);
+    var nl = el("div", "tdl-mini-list");
+    dNotes.slice(0, 8).forEach(function (n) {
+      nl.appendChild(el("div", "", (n.note_title ? n.note_title + " — " : "") +
+        (n.note_text || "").slice(0, 90)));
+    });
+    scopedNotes.slice(0, 4).forEach(function (n) {
+      nl.appendChild(el("div", "tdl-muted", "(stop/region) " +
+        (n.note_text || "").slice(0, 90)));
+    });
+    if (!dNotes.length && !scopedNotes.length) {
+      nl.appendChild(el("div", "tdl-muted", "No notes for this day yet."));
+    }
+    story.appendChild(nl);
+    story.appendChild(btn("tdl-btn", "＋ Add note",
+      function () { openNoteDrawer(day.id); }));
+
+    var per = el("div", "tdl-period-grid");
+    var fMorning = watch(el("textarea")); fMorning.value = day.morning_notes || "";
+    var fAfternoon = watch(el("textarea")); fAfternoon.value = day.afternoon_notes || "";
+    var fEvening = watch(el("textarea")); fEvening.value = day.evening_notes || "";
+    [["Morning", fMorning], ["Afternoon", fAfternoon], ["Evening", fEvening]]
+      .forEach(function (p) {
+        var c = el("div", "tdl-period-card");
+        c.appendChild(el("h4", "", p[0]));
+        c.appendChild(p[1]);
+        per.appendChild(c);
+      });
+    story.appendChild(per);
+    body.appendChild(story);
+
+    // ── Section: Places and meals ──
+    var fPlaces = watch(el("textarea"));
+    fPlaces.value = (day.places_visited_json || []).join("\n");
+    fPlaces.placeholder = "One place per line";
+    var fMeals = watch(el("textarea"));
+    fMeals.value = (day.meals_json || []).join("\n");
+    fMeals.placeholder = "One meal per line";
+    var pm = insSection("places", "Places and meals", false);
+    pm.appendChild(labeled("Places visited (one per line)", fPlaces));
+    pm.appendChild(labeled("Meals (one per line)", fMeals));
+    body.appendChild(pm);
 
     // ── Section: Sources (day-attached first, then stop/region scope) ──
     var dayLinkedSources = dayAttachedSources(day);
@@ -3609,26 +3799,51 @@
       function () { openSourceDrawer(day.id); }));
     body.appendChild(ss);
 
-    // ── Section: Lori captures (day-scoped modal notes) ──
-    var loriNotes = st.notes.filter(function (n) {
-      return n.source_surface === "travel_doc_modal" && n.trip_day_id === day.id;
+    // ── Section: More details (route links + identifiers) ──
+    //
+    // Phase A instruction 6: "The advanced region, stop, technical Lori
+    // scope, and internal identifiers should be hidden under More
+    // details. You should not normally see an active_trip_day_id."
+    // Hidden, and deliberately not removed --- the identifier is the
+    // thing you need when a day is behaving oddly, and a workspace that
+    // cannot tell you which row it is editing is a workspace nobody can
+    // debug. Collapsed by default is the whole of the fix.
+    var more = insSection("more", "More details", false);
+    more.appendChild(el("p", "tdl-muted",
+      "Route links and internal identifiers. You do not normally need " +
+      "these."));
+    var fRegion = watch(document.createElement("select"));
+    var optNone = el("option", "", "— no region —"); optNone.value = "";
+    fRegion.appendChild(optNone);
+    ((st.tree && st.tree.regions) || []).forEach(function (r) {
+      var o = el("option", "", r.title || "Region"); o.value = r.id;
+      if (day.trip_region_id === r.id) o.selected = true;
+      fRegion.appendChild(o);
     });
-    var lc = insSection("lori", "Lori captures (" + loriNotes.length + ")", false);
-    var ll = el("div", "tdl-mini-list");
-    loriNotes.slice(0, 8).forEach(function (n) {
-      var row = el("div");
-      row.appendChild(el("span", "tdl-lori-drawer-src", "from Lori"));
-      row.appendChild(el("span", "", " " + (n.note_text || "").slice(0, 110)));
-      ll.appendChild(row);
+    var fStop = watch(document.createElement("select"));
+    var so = el("option", "", "— no stop —"); so.value = "";
+    fStop.appendChild(so);
+    ((st.tree && st.tree.regions) || []).forEach(function (r) {
+      (function walk(stops, depth) {
+        (stops || []).forEach(function (s) {
+          var o = el("option", "",
+            (r.title || "") + " › " + Array(depth + 1).join("  ") +
+            (s.location_name || "Stop"));
+          o.value = s.id;
+          if (day.trip_stop_id === s.id) o.selected = true;
+          fStop.appendChild(o);
+          walk(s.children, depth + 1);
+        });
+      })(r.stops, 0);
     });
-    if (!loriNotes.length) {
-      ll.appendChild(el("div", "tdl-muted",
-        "Nothing captured for this day yet — use Talk with Lori."));
-    }
-    lc.appendChild(ll);
-    lc.appendChild(btn("tdl-btn tdl-btn-gold", "💬 Talk with Lori",
-      function () { openLoriOverlay(day.id); }));
-    body.appendChild(lc);
+    more.appendChild(labeled("Linked region", fRegion));
+    more.appendChild(labeled("Linked stop", fStop));
+    var idLine = el("div", "tdl-lori-scope-note");
+    idLine.appendChild(el("b", "", "Identifier: "));
+    idLine.appendChild(el("span", "tdl-muted",
+      "active_trip_day_id = " + day.id));
+    more.appendChild(idLine);
+    body.appendChild(more);
 
     ins.appendChild(body);
 
@@ -6918,8 +7133,12 @@
     build: function () {
       var pane = el("div", "tdl-lori-pane");
       var head = el("div", "tdl-lori-head");
-      head.appendChild(el("span", "", "Talk with Lori — Travel Doc workspace"));
-      head.appendChild(el("span", "tdl-muted", "surface: travel_doc_modal"));
+      head.appendChild(el("span", "", "Talk with Lori"));
+      // [The header carried a second line reading "surface:
+      // travel_doc_modal". Retired 2026-07-28 by Phase A instruction 6.
+      // It named the server-side source_surface value this pane sends,
+      // which is still sent and still asserted by the suite --- it was a
+      // developer's note left where the operator reads.]
       pane.appendChild(head);
       this.scopeRow = el("div", "tdl-lori-scope");
       pane.appendChild(this.scopeRow);
@@ -6960,8 +7179,10 @@
         var chip = el("span", "tdl-lori-chip");
         chip.appendChild(el("span", "",
           day ? dayChipText(day) : "Day"));
-        chip.appendChild(el("small", "tdl-muted",
-          " active_trip_day_id=" + String(this.dayId).slice(0, 8) + "…"));
+        // Phase A instruction 6: the chip already names the day in
+        // words. [It also carried " active_trip_day_id=<8 chars>…".
+        // Retired 2026-07-28 --- the identifier is in the day
+        // workspace's More details section for anyone who needs it.]
         var x = btn("", "✕", function () { self.anchorDay(null); });
         x.title = "Unanchor day";
         chip.appendChild(x);
@@ -7164,15 +7385,23 @@
     var head = el("div", "tdl-drawer-head");
     var ht = el("div");
     ht.appendChild(el("div", "tdl-kicker", "Talk with Lori"));
+    // Phase A instruction 6. [This line read the trip title followed by
+    // " · active_trip_day_id=<8 chars>…" and, for a photo-anchored
+    // conversation, " · active_photo_link_id=<8 chars>…". Retired
+    // 2026-07-28: it was telling the operator what Lori was scoped to,
+    // which is worth saying, in the vocabulary of the request payload,
+    // which is not. The payload itself is unchanged --- scope() still
+    // sends active_trip_day_id and active_photo_link_id, because that is
+    // a wire contract and not a caption.]
     var scopeLine = el("div", "tdl-lori-overlay-scope");
     scopeLine.appendChild(el("strong", "", (st.trip && st.trip.title) || "Trip"));
     if (loriPane.dayId) {
+      var sday = dayById(loriPane.dayId);
       scopeLine.appendChild(el("span", "tdl-muted",
-        " · active_trip_day_id=" + String(loriPane.dayId).slice(0, 8) + "…"));
+        " · " + (sday ? dayChipText(sday) : "this day")));
     }
     if (loriPane.photoLinkId) {
-      scopeLine.appendChild(el("span", "tdl-muted",
-        " · active_photo_link_id=" + String(loriPane.photoLinkId).slice(0, 8) + "…"));
+      scopeLine.appendChild(el("span", "tdl-muted", " · one photo"));
     }
     ht.appendChild(scopeLine);
     head.appendChild(ht);
@@ -7229,26 +7458,15 @@
     return wrap;
   }
 
-  function renderLoriTab() {
-    var wrap = el("div");
-    var headRow = el("div", "tdl-head-row");
-    var ht = el("div");
-    ht.appendChild(el("h1", "", "Lori"));
-    ht.appendChild(el("p", "tdl-muted",
-      "Operator workspace conversation. Captures land server-side as " +
-      "flags-0 candidate notes (never narrator session scope)."));
-    headRow.appendChild(ht);
-    headRow.appendChild(el("span", "tdl-spacer"));
-    headRow.appendChild(btn("tdl-btn", "‹ Back to Trip Plan",
-      function () { setTab("plan"); }));
-    wrap.appendChild(headRow);
-    if (!loriPane.node) loriPane.build();
-    loriPane.paintScope();
-    loriPane.refreshDrawer();
-    loriPane.connect();
-    wrap.appendChild(loriPane.node);
-    return wrap;
-  }
+  // [renderLoriTab() was deleted here on 2026-07-28 by WO-TRIP-PLAN-AS-HUB-01
+  // Phase A. It rendered the same loriPane the overlay renders, under an
+  // "Operator workspace conversation" heading with a "Back to Trip Plan"
+  // button -- which is the tell: a destination whose own header offers to
+  // take you somewhere else was never a destination. Its real defect was
+  // that it arrived with no day anchored, so a conversation started there
+  // was scoped to the trip and the operator had to notice and fix that.
+  // openLoriOverlay(dayId) opens the same pane over the day you are on and
+  // returns you to it, which is what the tab was standing in for.]
 
   // ── boot ──────────────────────────────────────────────────────────────
 

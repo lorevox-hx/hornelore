@@ -671,20 +671,57 @@ class UsabilityReviewTest(unittest.TestCase):
         self.assertIn("Unanchor photo", src)
         self.assertIn("active_photo_link_id", src)
 
-    def test_day_card_actions_are_full_labels_in_one_order(self):
+    def test_day_card_is_one_control_and_carries_no_action_row(self):
+        """WO-TRIP-PLAN-AS-HUB-01 Phase A instruction 4.
+
+        [This test was `test_day_card_actions_are_full_labels_in_one_order`
+        until 2026-07-28. It asserted that `dayActionRow` existed, that it
+        built the labels "Talk with Lori", "Attach photos", "Add note" and
+        "Edit day", and that they appeared in that order inside the shared
+        builder. Every one of those claims was true and is now false: the
+        row is gone, and the reason is worth keeping rather than deleting.
+
+        Five buttons on a card that is itself a link asked the operator to
+        choose an action before choosing a day, and four of the five only
+        made sense once the day was open anyway. The actions did not
+        disappear -- they moved into the day workspace, each one beside
+        the section it acts on. So the assertion inverts: what the old
+        test required to be present, this one requires to be absent.]
+        """
         src = _stripped_js()
-        # One consistent action row builder used everywhere.
-        self.assertIn("dayActionRow", src)
-        for label in ("Talk with Lori", "Attach photos", "Add note",
-                      "Edit day"):
-            self.assertIn(label, src)
-        # Order locked: Talk with Lori, then Attach photos, then Add
-        # note, then Edit day, inside the shared builder.
-        i = src.index("function dayActionRow")
-        block = src[i:i + 700]
-        pos = [block.index("Talk with Lori"), block.index("Attach photos"),
-               block.index("Add note"), block.index("Edit day")]
-        self.assertEqual(pos, sorted(pos), "day action order drifted")
+        # The builder and its call site are both gone. Asserting on the
+        # DECLARATION, not on the word: the retirement comment in the
+        # module names dayActionRow, as this docstring does.
+        self.assertNotIn("function dayActionRow", src)
+        self.assertNotIn("dayActionRow(day)", src)
+        # The card is the control, and it says so in words as well as with
+        # a cursor -- a pointer cursor is invisible to a keyboard user and
+        # does not exist on a touch screen.
+        self.assertIn("tdl-day-open-hint", src)
+        i = src.index("function renderDayCard(")
+        card = src[i:src.index("\n  }", i)]
+        self.assertIn("function openThisDay()", card)
+        self.assertIn('card.setAttribute("role", "button")', card)
+        self.assertIn("card.tabIndex = 0", card)
+        # Reachable by keyboard, not only by mouse.
+        self.assertIn('e.key === "Enter"', card)
+        self.assertIn('e.key === " "', card)
+
+    def test_opening_a_day_from_the_card_asks_before_discarding_edits(self):
+        # Phase A instruction 10. renderDayCard's click handler was the
+        # ONE path into the day workspace that skipped dayFormDirtyBlocks
+        # -- and clicking another day is the most likely way an operator
+        # loses a half-typed one, because it does not feel like leaving.
+        src = _stripped_js()
+        i = src.index("function renderDayCard(")
+        card = src[i:src.index("\n  }", i)]
+        j = card.index("function openThisDay()")
+        body = card[j:card.index("\n    }", j)]
+        self.assertIn("if (dayFormDirtyBlocks()) return;", body)
+        # The guard has to come FIRST: after the assignment it would be
+        # asking about a day the operator has already left.
+        self.assertLess(body.index("dayFormDirtyBlocks"),
+                        body.index("st.selectedDayId = day.id"))
 
     def test_compact_laptop_layout_rules(self):
         css = _stripped_css()
@@ -701,13 +738,201 @@ class UsabilityReviewTest(unittest.TestCase):
         self.assertIn("railCollapsed", js)
 
     def test_inspector_sections_are_collapsible(self):
+        """The day workspace's sections, in render order.
+
+        [Until 2026-07-28 this asserted the headings "Overview", "Notes",
+        "Photos", "Sources" and "Lori captures", and that Overview was the
+        only default-open one via
+        `insSection("overview", "Overview", true)`. Phase A instruction 5
+        renamed and reorganised the panel as the day workspace: "Overview"
+        became "Day" because the operator is looking at a day and not at
+        an overview of one; "Notes" and "Lori captures" stopped being
+        top-level sections and became parts of "Story", which is what they
+        both are; and "Places and meals" and "More details" were added.
+        The KEY is still "overview" -- renaming a state key would have
+        silently reset every operator's open/closed sections, and the
+        heading is the part that had to change.]
+        """
         src = _stripped_js()
         self.assertIn("tdl-ins-sec", src)
-        for section in ("Overview", "Notes", "Photos", "Sources",
-                        "Lori captures"):
+        # Headings, in the order they are built. Pinned as an ordered list
+        # rather than as five unordered assertIns, because the ORDER is
+        # the instruction: the day, then what is on it, then the story,
+        # then the administrative tail.
+        heads = re.findall(r'insSection\("(\w+)",', src)
+        self.assertEqual(
+            heads, ["overview", "photos", "story", "places", "sources", "more"],
+            "day workspace section order drifted")
+        for section in ("\"Day\", true)", "Story", "Places and meals",
+                        "Sources", "More details"):
             self.assertIn(section, src)
-        # Overview is the only default-open section.
-        self.assertIn('insSection("overview", "Overview", true)', src)
+        # Day is still the only default-open section, and still keyed
+        # "overview" so saved open/closed state survives the rename.
+        self.assertIn('insSection("overview", "Day", true)', src)
+        self.assertEqual(len(re.findall(r'insSection\("\w+", [^;]*?, true\)', src)), 1,
+                         "exactly one section opens by default")
+
+
+class TripPlanAsHubTest(unittest.TestCase):
+    """WO-TRIP-PLAN-AS-HUB-01 Phase A -- Trip Plan is the page you work on.
+
+    Chris's report was that there were too many tabs across the top and
+    that the trip and its days were buried among them. The fix is mostly
+    subtraction: ten tabs become two plus a Review menu, the Lori tab goes
+    (it duplicated an overlay that already existed), the day card loses
+    its button row, and the day inspector -- which was already the modal
+    he was asking for -- gets renamed and reordered as the day workspace.
+
+    These tests guard the SHAPE of that, because shape is exactly what a
+    later feature erodes one reasonable addition at a time. The rationale
+    Chris gave for the split is the thing being pinned: "Your normal
+    workflow is the trip and its days. Evidence is an administrative
+    review step."
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+        self.css = _stripped_css()
+
+    def test_the_bar_carries_two_primary_tabs_and_a_review_menu(self):
+        self.assertNotIn("var TABS", self.src)
+        self.assertIn("var PRIMARY_TABS", self.src)
+        self.assertIn("var REVIEW_TABS", self.src)
+        prim = re.search(r"var PRIMARY_TABS = \[[\s\S]*?\];", self.src).group(0)
+        self.assertEqual(re.findall(r'\["(\w+)"', prim), ["plan", "photos"])
+        rev = re.search(r"var REVIEW_TABS = \[[\s\S]*?\];", self.src).group(0)
+        self.assertEqual(
+            re.findall(r'\["(\w+)"', rev),
+            ["evidence", "notes", "sources", "travelogue", "draft", "captured"],
+            "Review menu contents drifted from the 2026-07-28 instruction")
+
+    def test_trip_plan_is_the_default_entry_page(self):
+        # Instruction 2 was already satisfied when Phase A opened; this
+        # pins it so a later default cannot move without a decision.
+        self.assertIn('tab: "plan",', self.src)
+
+    def test_review_menu_is_a_native_details_with_no_global_listener(self):
+        # A hand-rolled popover needs a document-level click listener to
+        # close on an outside click, and this module has a destroy()
+        # contract that a stray global listener quietly breaks -- the same
+        # argument the timer inventory makes about handles nobody stores.
+        self.assertIn('document.createElement("details")', self.src)
+        self.assertIn("tdl-tabmenu-summary", self.src)
+        self.assertIn("tdl-tabmenu-panel", self.src)
+        # NOT "no global listener exists" -- one does, and correctly:
+        # the lightbox's Escape/arrow keydown, paired with a
+        # removeEventListener in destroy(). The claim is that the Review
+        # menu added no SECOND one, so the count is pinned the way the
+        # timer inventory pins its own. A third listener has to fail here.
+        adds = re.findall(r"document\.addEventListener\(\"(\w+)\"", self.src)
+        self.assertEqual(adds, ["keydown"],
+                         "a document-level listener was added; it needs a "
+                         "matching removeEventListener in destroy()")
+        self.assertIn('document.removeEventListener("keydown"', self.src)
+        # An open review surface is NAMED on the bar. A menu that
+        # collapsed back to the word "Review" would leave the operator on
+        # a screen with nothing saying where they are.
+        self.assertIn("Review \u00b7 ", self.src)
+        self.assertIn("function reviewTabLabel(", self.src)
+        for sel in (".tdl-tabmenu", ".tdl-tabmenu-summary",
+                    ".tdl-tabmenu-panel"):
+            self.assertIn(sel, self.css, sel)
+        # The panel is positioned against the menu itself, so nothing
+        # further up the tree has to cooperate.
+        i = self.css.index(".tdl-tabmenu {")
+        self.assertIn("position: relative",
+                      self.css[i:self.css.index(".tdl-tabmenu-summary")])
+
+    def test_the_review_tabs_still_load_their_data_on_entry(self):
+        # setTab() carries four lazy fetches. They were wired when these
+        # were top-level tabs, and a menu that navigated without them
+        # would render four empty screens.
+        i = self.src.index("function setTab(")
+        body = self.src[i:self.src.index("\n  }", i)]
+        for hook in ("travelogue", "evidence", "picker", "captured"):
+            self.assertIn(hook, body, hook)
+
+    def test_the_lori_tab_is_gone_and_the_overlay_is_the_only_route(self):
+        # The Lori tab and the Lori overlay were two doors to one room,
+        # and the tab was the worse one: it left the day behind, so the
+        # operator came back to the top of the trip.
+        self.assertNotIn('["lori", "Lori"]', self.src)
+        self.assertNotIn("function renderLoriTab", self.src)
+        self.assertNotIn('case "lori"', self.src)
+        # Anything still asking for it lands on Trip Plan rather than on a
+        # blank tab: old bookmarks and any missed call site both survive.
+        self.assertIn('if (tab === "lori") tab = "plan";', self.src)
+        # The overlay -- which already returned to the same day -- stays.
+        for fn in ("function openLoriOverlay(", "function closeLoriOverlay(",
+                   "function openLoriOverlayForPhoto("):
+            self.assertIn(fn, self.src, fn)
+
+    def test_technical_identifiers_are_not_in_the_normal_view(self):
+        """Instruction 6. "You should not normally see an
+        active_trip_day_id."
+
+        The wire contract keeps the field -- Lori is scoped by it and
+        section 10.2 requires the destination to be explicit -- so this is
+        a test about what is PAINTED, not about what is sent.
+        """
+        # Still sent. Removing it would be a scope bug, not a tidy-up.
+        self.assertIn("active_trip_day_id:", self.src)
+        # Not painted. The scope chip used to print a truncated uuid, and
+        # the overlay header printed the raw id beside it.
+        self.assertNotIn('" active_trip_day_id=" + String(', self.src)
+        self.assertNotIn("surface: travel_doc_modal", self.src)
+        # The one place an identifier is still shown on purpose is More
+        # details, which is collapsed by default and is where an operator
+        # who needs to quote an id to a developer will go.
+        i = self.src.index('insSection("more"')
+        more = self.src[i:self.src.index("body.appendChild(more);", i)]
+        self.assertIn("active_trip_day_id = ", more)
+        # And it is closed, so the normal view stays clean.
+        self.assertIn('insSection("more", "More details", false)', self.src)
+
+    def test_photo_actions_offer_move_and_remove_but_never_a_second_place(self):
+        """Chris's ruling of 2026-07-28, first half.
+
+        "One photo may have one placement per trip. Use Move, not Also
+        show on another day."
+
+        No migration was needed: trip_photo_links has carried
+        UNIQUE (trip_id, photo_id) since migration 0015 and it has never
+        been dropped. The database already refused a second placement;
+        what was missing was a UI that agreed with it, because an offer
+        the database will reject is a promise the operator gets to
+        discover as an error.
+        """
+        self.assertIn("Move to this day", self.src)
+        self.assertIn("Remove from this day", self.src)
+        self.assertNotIn("Also show on another day", self.src)
+        self.assertNotIn("Add to another day", self.src)
+
+    def test_the_photo_drawer_empty_state_spans_the_grid(self):
+        # Instruction 9. The drawer's empty message is appended INTO
+        # .tdl-picker-grid, so it was laid out as one 118px thumbnail
+        # cell: a two-sentence explanation rendered in a column the width
+        # of a photo. Spanning every track is the whole fix.
+        i = self.css.index(".tdl-picker-grid .tdl-empty")
+        rule = self.css[i:self.css.index("}", i)]
+        self.assertIn("grid-column: 1 / -1", rule)
+        # Scoped, not global: .tdl-empty is used in a dozen non-grid
+        # places where grid-column means nothing. Anchored to the start of
+        # a line, because the unanchored form is a substring of the scoped
+        # rule it was supposed to be distinguishing itself from -- it
+        # matched the very rule asserted three lines above.
+        i = self.css.index("\n.tdl-empty {")
+        self.assertNotIn("grid-column", self.css[i:self.css.index("}", i)])
+
+    def test_the_day_card_grid_lost_its_action_column(self):
+        i = self.css.index(".tdl-day-card {")
+        rule = self.css[i:self.css.index("}", i)]
+        self.assertIn("grid-template-columns: 86px minmax(0, 1fr);", rule)
+        self.assertIn("cursor: pointer", rule)
+        self.assertNotIn(".tdl-day-actions {", self.css)
+        # Focus is visible, or the keyboard route added above is one no
+        # keyboard user can follow.
+        self.assertIn(".tdl-day-card:focus-visible", self.css)
 
 
 class Lab03Test(unittest.TestCase):
@@ -752,18 +977,80 @@ class Lab03Test(unittest.TestCase):
             self.assertIn(label, src)
         self.assertIn("tdl-badge-day", src)
 
-    def test_reconcile_banners_and_generate_relabel(self):
+    def test_reconcile_banners_and_automatic_day_generation(self):
+        """Phase A instruction 3: day cards come from the trip dates.
+
+        [This test was `test_reconcile_banners_and_generate_relabel` until
+        2026-07-28, and it required four strings Phase A retired: the
+        toolbar button "Generate / reconcile day cards", the missing-days
+        banner "Trip dates include N day(s) not yet in the calendar." with
+        its "Add missing days" control beside it, and the outside-date
+        banner's "Review outside-date days" button.
+
+        The button and the banner went for the same reason: both asked the
+        operator to perform the system's own bookkeeping. Day cards are a
+        function of the trip dates, so a screen that announces "N days are
+        missing" and offers to add them is describing a state that should
+        never have been visible. Generation now happens on load.
+
+        What survives, and is asserted below, is the half of the reconcile
+        flow that is a real decision rather than bookkeeping: day cards
+        OUTSIDE the current dates. Those hold the operator's work, and
+        Hornelore refuses to drop them and shows what is on them instead
+        -- Chris's ruling of 2026-07-28. The manual generate path is kept
+        too, in the reconcile drawer, because a manual re-run is a
+        reasonable thing to have once the automatic one has reported a
+        failure.]
+        """
         src = _stripped_js()
-        self.assertIn("Generate / reconcile day cards", src)
-        self.assertIn("not yet in the calendar.", src)
+        # Automatic generation, once per trip per page load.
+        self.assertIn("function maybeAutoAddMissingDays()", src)
+        self.assertIn("autoDaysTried", src)
+        i = src.index("function reloadReconcile(")
+        self.assertIn("maybeAutoAddMissingDays()", src[i:i + 400])
+        # A failure to generate is REPORTED, never swallowed: silence
+        # would look exactly like a trip with no dates.
+        j = src.index("function maybeAutoAddMissingDays()")
+        auto = src[j:src.index("\n  }", j)]
+        self.assertIn("st.daysWarning", auto)
+        self.assertIn(".catch(", auto)
+        # The manual path is kept, in the drawer.
         self.assertIn("Add missing days", src)
+        # The outside-date banner and the never-delete language stay.
         self.assertIn("outside the current trip dates", src)
         self.assertIn("kept to protect your notes", src)
-        self.assertIn("Review outside-date days", src)
-        # The UI reads the read-only preview endpoint and refreshes it
-        # after generation.
+        self.assertIn("They were kept, not deleted", src)
+        self.assertIn("See what is on them", src)
+        # The UI still reads the read-only preview endpoint.
         self.assertIn("/days/reconcile-preview", src)
         self.assertIn("reloadReconcile", src)
+
+    def test_shrinking_dates_never_drops_a_day_card_from_this_surface(self):
+        """The other half of the 2026-07-28 ruling, stated as a wall.
+
+        Chris ruled: "if shrinking would drop a day that has content,
+        don't, and show what's on it so I can move or clear it first.
+        Empty days are dropped without asking." Phase A implements the
+        refusal. It does NOT implement the drop, and this test exists so
+        that the gap is a recorded decision rather than something a reader
+        has to infer from absence -- this surface has no route that
+        removes a day card at all, and the reconcile drawer's own doctrine
+        is that nothing is ever deleted there. Dropping the empty cards
+        needs a server route and is later work.
+        """
+        src = _stripped_js()
+        self.assertIn("out_of_range_days", src)
+        # No day-removal verb reaches this surface.
+        for banned in ("/days/prune", "/days/drop", "days/remove"):
+            self.assertNotIn(banned, src, banned)
+        # The automatic reconcile call adds and does nothing else. If a
+        # future phase teaches it to remove, this literal has to change
+        # and a reader is sent to the ruling above.
+        j = src.index("function maybeAutoAddMissingDays()")
+        auto = src[j:src.index("\n  }", j)]
+        self.assertIn("add_missing: true", auto)
+        self.assertNotIn("drop", auto)
+        self.assertNotIn("remove", auto)
 
     def test_out_of_range_day_cards_visible_never_hidden(self):
         src = _stripped_js()
