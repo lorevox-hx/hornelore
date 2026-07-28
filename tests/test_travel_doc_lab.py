@@ -611,8 +611,22 @@ class UsabilityReviewTest(unittest.TestCase):
         self.assertIn("/photos/link", src)
         self.assertIn("/photos/unlink", src)
         self.assertIn("photo_link_ids", src)
-        self.assertIn("Attach photos", src)
-        self.assertIn("Attach existing trip photos", src)
+        # [Asserted "Attach photos" and "Attach existing trip photos"
+        # until 2026-07-28. Chris renamed both. The day-workspace
+        # control is "Add photos" because attaching an already-approved
+        # photo is only one of the things it will do; the drawer is
+        # "Choose existing Hornelore photos" because naming the SOURCE
+        # is the whole point of it once there is more than one. The old
+        # labels are quoted here rather than deleted so a grep for
+        # either lands on this note instead of on nothing.]
+        self.assertIn("Add photos", src)
+        self.assertIn("Choose existing Hornelore photos", src)
+        # The stale instruction is gone and is not re-aimed: this is a
+        # NotIn, so a fourth destination cannot be quietly written in.
+        self.assertNotIn("Use Upload on the trip toolbar", src)
+        # Compact when bare --- the wide panel is earned by thumbnails.
+        self.assertIn("tdl-photo-picker-bare", src)
+        self.assertIn(".tdl-photo-picker-bare", _stripped_css())
         self.assertIn("Unlink", src)
         # Day attachment is first-class in the link rows.
         self.assertIn("trip_day_id", src)
@@ -1261,8 +1275,24 @@ class Lab03Test(unittest.TestCase):
         self.assertIn("kept_out_of_range", drop)
         self.assertIn("st.daysNotice", drop)
         self.assertIn("st.daysWarning", drop)
-        # A failed tidy-up must not read as a failed save.
-        self.assertIn("The trip dates were saved", drop)
+        # A failed tidy-up must not read as a failed save --- and
+        # neither must a SUCCESSFUL save the server partly refused.
+        #
+        # [This was one line, `assertIn("The trip dates were saved",
+        # drop)`, against the whole function body, until 2026-07-28. It
+        # passed for as long as the defect was live: the .catch branch
+        # carried the phrase, the kept_out_of_range branch did not, and
+        # a whole-function assertion cannot tell two branches apart. So
+        # the success-with-refusals case opened "could not be removed"
+        # at the instant of Save, which reads as a failed save, with a
+        # green test over it. Sixth time the same lesson has arrived:
+        # SLICE TO THE THING YOU MEAN before asserting on it.]
+        kept_branch = drop[drop.index("if (kept.length)"):
+                           drop.index(".catch(")]
+        self.assertIn("The trip dates were saved", kept_branch)
+        self.assertNotIn("could not be", kept_branch)
+        catch_branch = drop[drop.index(".catch("):]
+        self.assertIn("The trip dates were saved", catch_branch)
         # The banner exists, is dismissible, and is not styled as a
         # warning -- see the note on st.daysNotice.
         self.assertIn("tdl-reconcile-notice", src)
@@ -1336,14 +1366,21 @@ class Lab03Test(unittest.TestCase):
     def test_round_2_fixes_preserved(self):
         # WO-TRAVEL-DOC-UI-LAB-03 must not regress the round-2 review
         # fixes: photo-Lori overlay, GPS two-surface doctrine wording,
-        # explicit Attach vs Move for photos, "Attach photos" naming.
+        # explicit Attach vs Move for photos, photo-section naming.
         src = _stripped_js()
         self.assertIn("openLoriOverlayForPhoto", src)
         self.assertIn("GPS found — available for Travel Doc context", src)
         self.assertNotIn("GPS on file (private)", src)
         self.assertIn("Attach \" + c.attach + \" · Move \" + c.move", src)
-        self.assertIn("Attach photos", src)
-        self.assertNotIn("Add photos", src)
+        # [Required "Attach photos" PRESENT and "Add photos" ABSENT
+        # until 2026-07-28. The round-2 point this was defending is
+        # still live and still asserted on the line above: per-row
+        # Attach vs Move stays, because reassigning a photo to another
+        # day must never be silent. What changed is the section control,
+        # which Chris renamed. The assertion inverts rather than
+        # disappearing, so the rename cannot be undone by accident.]
+        self.assertIn("Add photos", src)
+        self.assertNotIn("＋ Attach photos", src)
 
 
 class FinishPassTest(unittest.TestCase):

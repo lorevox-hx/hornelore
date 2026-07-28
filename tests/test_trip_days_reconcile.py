@@ -36,6 +36,16 @@ _SERVER_CODE = _REPO_ROOT / "server" / "code"
 if str(_SERVER_CODE) not in sys.path:
     sys.path.insert(0, str(_SERVER_CODE))
 
+# The generator guard at the foot of this file reads the emptiness
+# definition out of the JS rather than restating it. Same try/except
+# shape as tests/test_travel_doc_lab.py: direct execution of this file
+# has no `tests` package on the path.
+try:
+    from tests import travel_doc_surfaces as _tds
+except ImportError:  # direct execution: python tests/test_...py
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import travel_doc_surfaces as _tds
+
 if "fastapi" not in sys.modules:
     stub = types.ModuleType("fastapi")
 
@@ -530,6 +540,131 @@ class ReconcileDropTest(_ReconcileCase):
             self.trip_id, _ReconcileReq(drop_empty_out_of_range=True))
         self.assertEqual(out["dropped_empty_out_of_range"], 0)
         self.assertEqual(len(trip_repository.trip_days_list(self.trip_id)), 5)
+
+
+class DayGeneratorEmptinessGuardTest(unittest.TestCase):
+    """The day generator must not write a field that reads as content.
+
+    The drop half of the shrinking-date rule only removes a card that
+    holds nothing, and "nothing" is defined in exactly one place: the
+    DAY_OWN_TEXT_FIELDS / DAY_OWN_LIST_FIELDS lists in
+    ui/js/travel-doc-lab.js. Every card the generator makes has to
+    satisfy that definition on the day it is made. If it does not, the
+    drop half quietly stops working -- every auto-generated card reports
+    content, every shrink is refused, the operator is told their empty
+    cards could not be removed, and NO TEST FAILS.
+
+    Today the rule holds by omission: `title` is simply not in the
+    INSERT's column list, so a generated day's title is NULL and
+    dayOwnContent reads it as empty. Omission is a weak guarantee. It
+    survives exactly until someone decides "Day 4" is a friendlier
+    default than blank, adds one column here, and breaks a rule written
+    down in a different language in a different file. This test is the
+    executable form of that rule.
+
+    The field names are READ OUT OF THE JS, never copied into this file.
+    A copy would mean the next field added to the emptiness definition
+    arrives with the guard already blind to it, which is precisely the
+    failure this exists to prevent.
+    """
+
+    _REPO_PY = _SERVER_CODE / "api" / "services" / "trip_repository.py"
+
+    @staticmethod
+    def _js_field_list(js: str, name: str):
+        head = "var " + name + " = ["
+        i = js.index(head)
+        body = js[i + len(head):js.index("]", i)]
+        return [p.strip().strip('"') for p in body.split(",") if p.strip()]
+
+    def _insert_statement(self) -> str:
+        """The INSERT text from trip_days_generate, and only from there.
+
+        Sliced to the enclosing function BEFORE searching. A whole-file
+        index for a literal that can legitimately appear more than once
+        lands on whichever copy happens to come first, which is a real
+        bug this repo has shipped more than once.
+        """
+        src = self._REPO_PY.read_text(encoding="utf-8")
+        i = src.index("def trip_days_generate(")
+        nxt = src.find("\ndef ", i + 1)
+        gen = src[i:] if nxt == -1 else src[i:nxt]
+        k = gen.index('"""INSERT INTO trip_days')
+        return gen[k + 3:gen.index('"""', k + 3)]
+
+    def _columns_and_slots(self):
+        stmt = self._insert_statement()
+        cols = [c.strip() for c in
+                stmt[stmt.index("(") + 1:stmt.index(")")].split(",")]
+        vals = stmt[stmt.index("VALUES"):]
+        slots = [s.strip() for s in
+                 vals[vals.index("(") + 1:vals.rindex(")")].split(",")]
+        self.assertEqual(len(cols), len(slots),
+                         "column list and VALUES list are different lengths; "
+                         "the positional check below would be meaningless")
+        return cols, slots
+
+    def test_the_generator_writes_no_field_that_makes_a_card_look_used(self):
+        js = _tds.UNIFIED_JS.stripped()
+        text_fields = self._js_field_list(js, "DAY_OWN_TEXT_FIELDS")
+        list_fields = self._js_field_list(js, "DAY_OWN_LIST_FIELDS")
+        # Sanity: if the lists ever stop parsing, everything below passes
+        # vacuously, so prove they came back populated and recognisable.
+        self.assertIn("title", text_fields)
+        self.assertIn("places_visited_json", list_fields)
+
+        cols, slots = self._columns_and_slots()
+
+        # A text field must not be written at all. There is no "empty
+        # string is fine" concession: dayOwnContent trims, so '' would
+        # pass today, but a column that exists is a column someone fills.
+        for f in text_fields:
+            self.assertNotIn(
+                f, cols,
+                "the day generator populates " + f + ", which "
+                "dayOwnContent counts as content. Every generated card "
+                "would report as used and the shrinking-date rule would "
+                "refuse to remove any of them.")
+
+        # A list field may be written, but only as an empty JSON array.
+        for i, name in enumerate(cols):
+            if name in list_fields:
+                self.assertEqual(
+                    slots[i], "'[]'",
+                    name + " is written with something other than an empty "
+                    "array literal; dayOwnContent parses it and a non-empty "
+                    "list counts as content.")
+
+        # Nothing but bound parameters and empty-array literals. Catches a
+        # default slipped in as a literal on a column not in either list
+        # today but added to one tomorrow.
+        for slot in slots:
+            self.assertIn(slot, ("?", "'[]'"),
+                          "unexpected literal in the generator's VALUES: "
+                          + slot)
+
+        # dayOwnContent counts a pinned stop as work, so the generator
+        # must not pin one.
+        self.assertNotIn("trip_stop_id", cols)
+
+    def test_the_region_the_generator_stamps_is_deliberately_uncounted(self):
+        """trip_region_id is written on creation and must stay uncounted.
+
+        This is the one place the two halves genuinely touch. The
+        generator DOES stamp a covering region on every card it makes, so
+        the decision not to count a region as work is load-bearing today
+        rather than hypothetically: add trip_region_id to dayOwnContent
+        for perfectly good reasons and every generated card becomes
+        non-empty at birth. The two facts are asserted together so
+        whoever changes one is standing in front of the other.
+        """
+        stmt = self._insert_statement()
+        self.assertIn("trip_region_id", stmt)
+        js = _tds.UNIFIED_JS.stripped()
+        i = js.index("function dayOwnContent(")
+        own = js[i:js.index("\n  }", i)]
+        self.assertNotIn("trip_region_id", own)
+        self.assertIn("trip_stop_id", own)
 
 
 if __name__ == "__main__":

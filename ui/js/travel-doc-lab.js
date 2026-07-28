@@ -1381,12 +1381,34 @@
           // at rows the client cannot see, disagreed. It kept them, which
           // is the right call --- but saying nothing would leave cards on
           // screen that the operator was told would go.
-          st.daysWarning = countPhrase(kept.length, "day card",
-            "day cards") + " outside the new trip dates could not be " +
-            "removed because there is content attached to " +
-            (kept.length === 1 ? "it" : "them") + " (" +
+          //
+          // [This message opened "N day cards outside the new trip dates
+          // could not be removed because there is content attached to
+          // them (July 19). They are kept below." until 2026-07-28. Every
+          // clause in it was true. It was still wrong, because it was the
+          // FIRST thing on screen at the instant of Save and its opening
+          // words were "could not be removed" --- which is what a failed
+          // save looks like. The dates HAD saved; only the tidy-up was
+          // refused. The .catch branch below had led with the save all
+          // along, so the failure case read better than the success case.
+          // Chris: "change the partial-success warning to begin with
+          // 'The trip dates were saved, but...'".]
+          //
+          // Amber, deliberately, and not because st.daysWarning happened
+          // to be the variable in hand. The save succeeded, but the
+          // calendar on screen is not the one that was asked for. A
+          // neutral st.daysNotice would let that difference pass
+          // unremarked and the operator would meet the extra card later
+          // with no memory of being told about it.
+          st.daysWarning = "The trip dates were saved, but " +
+            countPhrase(kept.length, "day card", "day cards") +
+            " outside the new dates " +
+            (kept.length === 1 ? "was" : "were") +
+            " kept because there is content attached to " +
+            (kept.length === 1 ? "it" : "them") + ": " +
             kept.map(function (d) { return longDate(d.date); }).join(", ") +
-            "). They are kept below. Turn on \u201cShow hidden\u201d in " +
+            ". " + (kept.length === 1 ? "It is" : "They are") +
+            " still shown below. Turn on “Show hidden” in " +
             "Story Notes and Sources to see what is on them.";
         }
       })
@@ -3992,7 +4014,12 @@
     if (!dayLinks.length && !dateLinks.length) {
       ph.appendChild(el("p", "tdl-muted", "No photos on this day yet."));
     }
-    ph.appendChild(btn("tdl-btn", "＋ Attach photos",
+    // [Read "＋ Attach photos" until 2026-07-28. Chris: "rename
+    // Attach photos to Add photos". Attaching an already-approved
+    // photo is one of the things this control will do, not the only
+    // one, and a label that names the narrowest case is a label that
+    // has to be renamed again the moment a second source arrives.]
+    ph.appendChild(btn("tdl-btn", "＋ Add photos",
       function () { openPhotoPicker(day.id); }));
     body.appendChild(ph);
 
@@ -4575,7 +4602,16 @@
 
     var head = el("div", "tdl-drawer-head");
     var ht = el("div");
-    ht.appendChild(el("div", "tdl-kicker", "Attach existing trip photos"));
+    // [Read "Attach existing trip photos" until 2026-07-28. Chris:
+    // "rename the drawer to Choose existing Hornelore photos". The
+    // old kicker named the ACTION, which was fine while this was the
+    // only way a photo reached a day. It names the SOURCE now,
+    // because the question this drawer answers is which of several
+    // sources you are picking from --- and existing Hornelore photos
+    // is the one source that needs no review, since a row in photos
+    // is by definition already past it.]
+    ht.appendChild(el("div", "tdl-kicker",
+      "Choose existing Hornelore photos"));
     ht.appendChild(el("strong", "", dayChipText(day)));
     head.appendChild(ht);
     head.appendChild(btn("tdl-btn tdl-btn-small", "✕ Back to Trip Plan",
@@ -4623,16 +4659,35 @@
       return l.trip_day_id !== day.id;
     });
     if (!pickable.length) {
-      // Phase 4: this used to read "add them via Photo Intake, then
-      // cluster from the production Travel Doc" — a dead end twice over.
-      // There is no production Travel Doc to go to any more, and Phase 3C
-      // put upload AND cluster on this surface's own toolbar, so the
-      // instruction was pointing away from the buttons that do the job.
+      // Compact when there is nothing to lay out. Chris: "the drawer in
+      // your screenshot is far too large for an empty source. A source
+      // chooser should be compact. The wide right-hand drawer should only
+      // appear once there are thumbnails or photo details worth showing."
+      // The 440px full-height panel is sized for a thumbnail grid; with
+      // one sentence in it, it is almost entirely frame. The modifier goes
+      // on here rather than into the class list at creation because the
+      // drawer element is built before pickable is known.
+      drawer.className += " tdl-photo-picker-bare";
+      // [The no-photos branch read "This trip has no photos yet. Use
+      // Upload on the trip toolbar to add them, then Cluster to sort them
+      // into days." until 2026-07-28, and before Phase 4 it read "add them
+      // via Photo Intake, then cluster from the production Travel Doc".
+      // That is twice this one sentence has pointed at a destination that
+      // stopped existing, and both times it stayed on screen telling
+      // operators to go there. Chris: "remove the stale Upload message."
+      //
+      // It is not being re-aimed at a third destination. The source
+      // chooser that will properly answer "so where DO photos come from"
+      // is deliberately NOT built yet --- a button is a promise, and what
+      // Browse this computer does, whether the existing trip-toolbar
+      // Upload already bypasses the evidence queue, and how a requested
+      // day survives review are all still open questions. Stating the
+      // fact and inventing no instruction is the honest state until they
+      // close.]
       grid.appendChild(el("div", "tdl-empty",
         st.photoLinks.length ?
           "Every trip photo is already attached to this day." :
-          "This trip has no photos yet. Use Upload on the trip toolbar to " +
-          "add them, then Cluster to sort them into days."));
+          "This trip has no photos yet."));
     }
     pickable.forEach(function (l) {
       var cell = el("label", "tdl-picker-cell");

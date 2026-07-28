@@ -238,6 +238,19 @@
 /* Attach vs Move — reassignment is explicit, never silent */
 .tdl-picker-action { font-size: .72rem; font-weight: 800; color: #35597e; }
 .tdl-picker-action-move { color: #8a5a12; }
+
+/* Empty day photo picker --- a card, not a full-height panel.
+   The wide right-hand drawer earns its width from a grid of thumbnails.
+   With nothing pickable there is no grid, so it shrinks to the size of the
+   one sentence it is carrying and stops presenting itself as a workspace.
+   Scoped to a modifier the renderer adds ONLY when nothing is pickable:
+   loosening .tdl-drawer itself would have shrunk the note, source, edit,
+   upload and reconcile drawers too, none of which asked for it.
+   All three of top / bottom / transform are needed --- .tdl-drawer pins
+   top AND bottom to 0, so clearing one alone leaves the panel stretched. */
+.tdl-drawer.tdl-photo-picker-bare { width: min(340px, 92vw); top: 50%; bottom: auto; transform: translateY(-50%); max-height: min(60vh, 420px); border-radius: 12px 0 0 12px; }
+.tdl-photo-picker-bare .tdl-drawer-body { padding: .85rem 1rem; }
+.tdl-photo-picker-bare .tdl-picker-grid .tdl-empty { padding: .35rem 0 .2rem; }
 .tdl-move-notice { flex: none; padding: .5rem 1rem; font-size: .8rem; font-weight: 700; color: #8a5a12; background: #fdf3df; border-top: 1px solid var(--tdl-line); }
 
 /* Lori overlay drawer */
