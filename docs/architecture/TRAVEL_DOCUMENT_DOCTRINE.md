@@ -260,6 +260,25 @@ guard; `/health` moving from phase 1 to phase 2 was a wall moving, because
 holding it at 1 would have been the health check lying rather than a wall
 holding.
 
+A second wall moved on 2026-07-28, inside `WO-TRIP-PLAN-AS-HUB-01` Phase A,
+and it moved for the reason this section names rather than for convenience.
+Phase A shipped only the refusal half of the shrinking-dates ruling and wrote
+the gap down as a decision, in a test called
+`test_shrinking_dates_never_drops_a_day_card_from_this_surface` whose
+docstring said the drop half "needs a server route and is later work".
+Chris's review of Phase A asked for that route, on that phase — *"Implement
+the complete shrinking-date rule: remove empty out-of-range days; refuse and
+clearly list out-of-range days containing work."* The test was renamed
+`test_shrinking_dates_only_ever_removes_a_card_that_holds_nothing`, carries
+the retired name and the retired claim inside it, and now guards the narrower
+thing that is still true: the one removal path is the reconcile POST, no
+prune/drop/remove route was invented on the surface, and the automatic
+add-missing lane still only adds. Two comment blocks and one banner sentence
+in `ui/js/travel-doc-lab.js`, a section banner in `trip_repository.py`, two
+route docstrings in `trips.py` and one assertion in a neighbouring test were
+corrected in place for the same reason. A wall renamed to the narrower claim
+is a wall; a wall deleted the day the feature arrives was never one.
+
 There has been exactly one override of this rule, granted for one slice, and
 recorded as non-generalisable.
 
@@ -524,6 +543,54 @@ sentence.
 **This section carries no live-smoke claim.** 2.6 applies unchanged: the
 assertion is a source scan, the browser has still not been watched doing it.
 
+### 2.8 The shrinking-dates rule as it stands in the interface today
+
+Chris's review of Phase A returned two corrections and placed them exactly:
+*"Keep both commits. Do not roll Phase A back ... record this as an explicit
+Phase A completion item, not bury it in a later Picker phase. It is unrelated
+to Google Photos."* Both are built, which is why they are recorded here and
+not in Part 3.
+
+**The auto-generation guard is keyed on the missing-date set, not on the
+trip.** `maybeAutoAddMissingDays()` and `reloadReconcile()` call each other,
+and an `autoDaysTried` map holding one entry per trip was what made that
+recursion terminate. It also meant that extending a trip's dates in the same
+browser session produced no new cards until a reload. The map now holds the
+set of missing dates the attempt was made against, so a different set is a
+different attempt and the recursion is still bounded — the bound was never
+the trip, it was "do not try the same thing twice."
+
+**The drop half of the shrinking-dates ruling is built.** Saving a shorter
+date range removes the out-of-range day cards that hold nothing, and refuses
+— in Chris's own words, listing what sits on each blocking day — when any of
+them holds work. The refusal runs *before* the PATCH, because the failure
+Chris named is "the trip header could say July 14–18 while July 19 and July
+20 still appear below", and a check that ran after the save would produce
+exactly that. The one removal path is `POST /api/trips/{id}/days/reconcile`
+with `drop_empty_out_of_range`, defaulting to false; the server re-decides
+emptiness inside its write transaction under `BEGIN IMMEDIATE` and returns
+anything it refused in `kept_out_of_range`, because the browser measures from
+lists that exclude hidden rows and can legitimately undercount. The preview
+route stayed read-only, and its guard now asserts SQL statement forms rather
+than the word `DELETE` — the word-matching version had started firing on the
+docstring that explains the word.
+
+**One decision here is an implementation choice and not a ruling, and it is
+flagged rather than buried.** Emptiness is measured as what is *attached* to
+the card — `trip_day_id` on photo links, notes and sources — plus the text
+typed into the day row itself, and deliberately **not** from the `counts` the
+`/days` route merges in for display. Those display counts are generous on
+purpose: they include photographs matched to the day by taken-date and notes
+inherited through the day's stop or region, and generated cards are
+auto-assigned a region. Measuring emptiness from them would refuse every
+shrink on any trip carrying a region-scoped note — the feature would ship and
+do nothing. The cost runs the other way: a card can be removed while a
+region-scoped note still reads as being "about" that day. Chris has been
+asked to push back on this and has not yet.
+
+**This section carries no live-smoke claim.** 2.6 applies unchanged. The
+suites are green and no browser has watched a day card disappear.
+
 ---
 
 ## Part 3 — Deferred or not started
@@ -710,6 +777,19 @@ In `MASTER_WORK_ORDER_CHECKLIST.md`:
 - "Root carries operational files only" in *Where things live now* is not yet
   true, for the same 29 files that made `CLAUDE.md` line 214 half-true.
   Recorded, not fixed: moving them is its own work order.
+- The `**Active as of:**` Phase A line carried eight claims that Chris's
+  2026-07-28 review retired: the scope line "UI, TESTS AND DOCS ONLY — no
+  `server/` file"; that `maybeAutoAddMissingDays()` fires "once per trip";
+  "ONLY THE ADD HALF OF THE SHRINKING-DATES RULING SHIPPED"; "this surface
+  has no route that removes a day card at all"; the banner wording "They were
+  kept, not deleted, because they have your work on them."; the count
+  `tests/test_travel_doc_lab.py` 161 OK; the deferral of "a server route that
+  drops empty out-of-range days"; and the standing demand that Chris re-run
+  the suites in `.venv` before the phase is treated as verified. Each was
+  corrected in place with the retired wording quoted beside it and dated,
+  because that line is the live record — a live record that is only ever
+  appended to stops being readable at the top, which is the whole reason it
+  sits on one line.
 
 ---
 
