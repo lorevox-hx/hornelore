@@ -32,9 +32,12 @@ What is locked here:
      session AT GOOGLE. The import_batch row survives it, and the router
      source contains no DELETE FROM.
 
-  6. THE PHASE WALL HOLDS. `google_photos_picker` is NOT in
-     PROMOTABLE_SOURCES, `picker_client` has no media-item listing, and
-     no route in this lane creates a candidate.
+  6. THE PHASE WALL HOLDS, WHEREVER IT CURRENTLY STANDS.
+     `google_photos_picker` is NOT in PROMOTABLE_SOURCES and no route in
+     this lane creates a candidate. Phase 2A moved one board of this
+     wall: `picker_client` now HAS a media-item listing, so the wall
+     tests what listing must still not do -- no byte download, and no
+     route wired to it.
 
 Nothing here touches the network: `requests` is replaced inside the two
 service modules by a recording double.
@@ -695,10 +698,26 @@ class TestPhaseWalls(_Base):
                          "in Phase 3, after Phase 2 can stage real bytes")
         self.assertIn("google_photos_picker", repo.IMPORT_SOURCES)
 
-    def test_the_client_has_no_media_item_listing(self):
-        self.assertFalse(hasattr(picker_client, "list_media_items"),
-                         "media item listing belongs to Phase 2, alongside the "
-                         "fetch that gives it a purpose")
+    def test_listing_exists_but_downloads_nothing(self):
+        """Phase 2A added `list_media_items`. What it must NOT have
+        grown is a byte fetch: `baseUrl` is only ever returned to a
+        caller here, never followed. Following it is Phase 2B."""
+        self.assertTrue(hasattr(picker_client, "list_media_items"),
+                        "Phase 2A shipped media-item listing")
+        src = _CLIENT_PATH.read_text(encoding="utf-8")
+        for forbidden in ("=d\"", "stream=True", "iter_content",
+                          "open(", "import shutil", "import tempfile",
+                          "import os"):
+            self.assertNotIn(forbidden, src,
+                             "%r reads like a byte download; acquisition is "
+                             "Phase 2B, not the listing client" % forbidden)
+
+    def test_no_route_is_wired_to_the_listing_yet(self):
+        """A listing function with no caller is the point: 2A is
+        reviewable on its own, and 2B wires it up."""
+        src = _ROUTER_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("list_media_items", src,
+                         "the ingest route belongs to Phase 2B")
 
     def test_the_router_deletes_nothing_from_the_database(self):
         src = _ROUTER_PATH.read_text(encoding="utf-8")
