@@ -417,6 +417,29 @@ first place."* A row and a file that disagree are still worse than a refusal
 somebody can read. What moves is where the decision sits, not how defensive
 it is.
 
+**Repair stops at the archive boundary.** Added 2026-07-29 on Chris's ruling,
+after the first ruling was written and before it was implemented, because
+implementing it exposed the hole. `file_hash` on a candidate is not private to
+the staging lane -- promotion resolves a candidate to an archive photo *by
+that hash*, and `photos.file_hash` is unique across the whole table. So there
+are **three** meanings here, not two, and collapsing them is the error the
+ruling forbids:
+
+    external_id           = provider identity
+    candidate.file_hash   = integrity of the staged working copy
+    photos.file_hash      = identity/integrity of the permanent archived object
+
+Chris: *"Once `photo_id` exists, a repair must not mutate the candidate fields
+that were used to resolve or create that archive photo. Otherwise the
+candidate can describe one byte stream while pointing at a different archived
+object."* A repair on a candidate that already carries a `photo_id` therefore
+refuses -- explicitly, non-retryably, with reason `candidate_already_promoted`
+-- rather than re-downloading and re-stamping. Restoring the staged copy *from
+the archive object* is the allowed repair for that case and is not yet built;
+it is named so that building it later is an extension rather than a
+correction. **Never mutate the archive linkage implicitly** is the general
+form, and it binds every producer, not only the Picker.
+
 Implemented by `WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01`.
 
 ---

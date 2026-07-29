@@ -92,6 +92,68 @@ The same Google media id returning different bytes **during a repair is not
 itself an error**. The new hash becomes the integrity record for the repaired
 local copy. This is an explicit repair, not a non-retryable `hash_mismatch`.
 
+### The promoted-candidate boundary
+
+Added 2026-07-29, after this spec was opened, on Chris's ruling. The repair
+path as written above would mutate `import_candidate.file_hash`. That field is
+not private to the staging lane: `candidate_promote()` resolves a candidate to
+an existing archive photo **by `file_hash`**, and `photos.file_hash` is UNIQUE
+across the whole table. Rewriting it under a candidate that has already
+produced an archive photo would cut the row loose from the object it created.
+
+Chris's ruling, verbatim:
+
+> Once `photo_id` exists, a repair must not mutate the candidate fields that
+> were used to resolve or create that archive photo. Otherwise the candidate
+> can describe one byte stream while pointing at a different archived object.
+
+The boundary preserves three meanings that are easy to collapse into one:
+
+    external_id           = provider identity
+    candidate.file_hash   = integrity of the staged working copy
+    photos.file_hash      = identity/integrity of the permanent archived object
+
+So the full implementation rule, in Chris's words:
+
+    candidate exists
+    |
+    +- staged copy valid
+    |  -> unchanged
+    |
+    +- staged copy missing/corrupt and photo_id is null
+    |  -> fetch provider bytes
+    |  -> replace staged copy atomically
+    |  -> update byte-derived candidate fields
+    |  -> repaired
+    |
+    +- staged copy missing/corrupt and photo_id is set
+       -> restore staging from archive photo if supported
+       -> otherwise refuse with candidate_already_promoted
+       -> never mutate the archive linkage implicitly
+
+The refusal is **explicit and non-retryable** unless and until a separate
+archive-repair workflow exists. Chris supplied the wording:
+
+    reason: candidate_already_promoted
+    detail: This candidate already points to a permanent archive photo.
+            Re-staging the working copy cannot rewrite the candidate hash or
+            re-point the archive.
+
+**This branch is unreachable today and is written anyway.**
+`PROMOTABLE_SOURCES` is `("local_upload", "manual")`, so no Google Picker
+candidate can currently carry a `photo_id`. Doctrine 3.1 -- the promotion
+unlock -- is precisely the work order that adds `google_photos_picker` to that
+tuple, and this hazard would have been waiting for it with no guard and no
+test. The guard costs one condition now and removes a landmine from 3.1. It is
+a guard, not a feature: nothing here promotes anything, and
+`PROMOTABLE_SOURCES` is not touched.
+
+**Restoring staging from the archive object is NOT implemented by this work
+order.** The rule says "if supported"; it is not supported, so this work order
+takes the refusal branch every time and says so in the detail message. Naming
+it here is what makes the later addition an extension rather than a
+correction.
+
 ---
 
 ## What must NOT change
@@ -119,9 +181,22 @@ local copy. This is an explicit repair, not a non-retryable `hash_mismatch`.
    return `unchanged` without a download when it verifies. Reorder, do not
    loosen.
 2. The download-again branch, reachable only when the staged file is missing,
-   fails its stored hash, or an earlier attempt left the item incomplete.
-   Outcome `repaired`; stage atomically; update `file_hash`, `byte_size` and
-   the byte-derived metadata on the row.
+   fails its stored hash, or an earlier attempt left the item incomplete, AND
+   the candidate carries no `photo_id`. Outcome `repaired`; stage atomically;
+   update `file_hash`, `byte_size` and the byte-derived metadata on the row.
+   A candidate that already carries a `photo_id` takes the
+   `candidate_already_promoted` refusal instead -- see *The promoted-candidate
+   boundary* above.
+2b. One new repository function in
+   `server/code/api/services/import_repository.py` to write the byte-derived
+   fields back, because none of the five existing candidate writers can:
+   `candidate_create` is idempotent and writes nothing on a second call,
+   `candidate_set_trip` and `candidate_hide` touch one field each, and
+   `candidate_decide` / `candidate_promote` are decision and archive paths
+   that this lane must not enter. The new function refuses on a candidate with
+   a `photo_id`, so the boundary is enforced at the repository and not only at
+   the router -- a guard in the caller is a guard the next caller does not
+   inherit.
 3. The `ingest_picker_session` docstring's idempotency claim, which smoke 9
    falsified. It reads *"the re-ingest branch above checks the bytes against
    the hash already on the row before it will replace anything"* -- true of
@@ -138,7 +213,12 @@ local copy. This is an explicit repair, not a non-retryable `hash_mismatch`.
 
 ### Out
 
-- Promotion, `PROMOTABLE_SOURCES`, `photos` rows, `candidate_decide()`.
+- Promotion, `PROMOTABLE_SOURCES`, `photos` rows, `candidate_decide()`. The
+  promoted-candidate boundary READS `import_candidate.photo_id` in order to
+  refuse; it writes nothing to it, mints no photo, and changes no promotion
+  rule.
+- Restoring a staging copy from the permanent archive object. Named in the
+  rule above as "if supported", deliberately not supported here.
 - Any schema or migration.
 - The acquisition state machine of doctrine 4.2. Still future design.
 - Takeout, Lori, the three-source chooser, destination schema.
@@ -168,6 +248,12 @@ bytes for the same external_id on successive calls."*
    still exists and is narrower.
 5. **Receipt wording.** Assert the conditional `next` string, and assert that
    an all-permanent-failure run does not offer retry advice.
+6. **Promoted candidate refuses repair.** A candidate carrying a `photo_id`
+   with a missing or corrupt staged file must return `candidate_already_promoted`,
+   `retryable: false`, and must leave `file_hash`, `byte_size` and `photo_id`
+   exactly as they were. Assert the repository function refuses too, called
+   directly, so the guard is proven at both layers rather than only where this
+   router happens to call it.
 
 Suites to re-run on the device: the Phase 1 / 2B-acquire / 2B-ingest set (193
 at last count), plus whatever module the new tests land in.
