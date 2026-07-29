@@ -582,6 +582,23 @@ class QueueOrderTests(_Base):
 class QueueShapeTests(_Base):
 
     def test_each_candidate_carries_its_batch_inline(self):
+        """The batch context a reviewer needs -- and the one field that
+        turned out not to be part of it.
+
+        Until 2026-07-29 this test also asserted
+
+            self.assertEqual(row["batch"]["external_ref"],
+                             "takeout-2019-q3")
+
+        which is to say it asserted that the queue hands the provider's
+        own handle for the batch straight to the browser. Live smoke 10
+        showed what that meant once a real provider used the column:
+        the value being served was the raw Google Picker session
+        identifier. The assertion is inverted here rather than quietly
+        deleted, because the old one was a deliberate claim about the
+        payload shape and a reader needs to see it withdrawn rather
+        than find it missing.
+        """
         batch = self._open_batch(label="Takeout 2019", source="google_takeout",
                                  external_ref="takeout-2019-q3")
         self._new_candidate(batch, filename="a.jpg")
@@ -590,8 +607,8 @@ class QueueShapeTests(_Base):
         self.assertEqual(row["batch"]["label"], "Takeout 2019")
         self.assertEqual(row["batch"]["source"], "google_takeout")
         self.assertEqual(row["batch"]["status"], "open")
-        self.assertEqual(row["batch"]["external_ref"], "takeout-2019-q3")
         self.assertEqual(row["batch"]["candidate_count"], 1)
+        self.assertNotIn("external_ref", row["batch"])
 
     def test_an_unfiled_candidate_has_trip_none_not_a_dict_of_nulls(self):
         self._new_candidate(filename="unfiled.jpg")
@@ -783,6 +800,149 @@ class QueueRepositoryTests(_Base):
         for _ in range(25):
             repo.queue_read(self.person_id)
         self.assertEqual(repo.queue_read(self.person_id)["total"], 1)
+
+
+# ======================================================================
+#  9 -- THE RESPONSE CONTRACT
+# ======================================================================
+
+
+class QueueResponseContractTests(_Base):
+    """WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01. No raw provider handle and
+    nothing credential-shaped leaves this route, whatever produced the
+    batch.
+
+    WHY THIS SCANS THE SERIALISED RESPONSE rather than a list of fields.
+    Live smoke 10 on 2026-07-28 ran thirteen patterns across the picker
+    lane's browser surface. Twelve came back clean, and they were clean
+    because the picker lane had been built for them: match-reason key
+    screening, presence-boolean health, no Google origin in any request.
+    The thirteenth failed. This route was serving
+    `candidates[].batch.external_ref`, and that value was proven by
+    direct equality to be the raw Google Picker session identifier. It
+    reached the browser through `_QUEUE_BATCH_COLUMNS`, a generic column
+    tuple written for Takeout batches long before a picker session
+    existed to put in it.
+
+    So the failure was not a missing guard on the picker. It was a guard
+    that covered a lane and not a shared route the lane feeds. A test
+    enumerating the fields it expected to be safe would have passed
+    happily on 2026-07-28, because nobody would have thought to
+    enumerate `external_ref` -- it is precisely the field nobody was
+    thinking about. Serialising the whole response and walking every key
+    at every depth is the only shape that catches the next one, and it
+    is producer-agnostic on purpose: the next external source to feed
+    this queue inherits the guard without doing anything to earn it.
+
+    WHAT IS DELIBERATELY NOT FORBIDDEN HERE. `external_id` is served,
+    and that is a decision rather than an oversight. It is the
+    provider's identity for the picked item, it is what makes re-ingest
+    idempotent, and doctrine 1.14 rests on identity being visible and
+    stable. It is not a credential and it cannot be replayed without
+    one. Whether a raw media item id belongs in the server log is a
+    separate question standing open for Chris; whether it belongs in the
+    operator's own review queue is not in doubt.
+    """
+
+    # A picker session id is a uuid rather than a token shape, so the
+    # batch-creation guards let it through -- correctly, because holding
+    # it is what `external_ref` is for. Serving it was the defect.
+    SESSION = "8b5b47cb-4298-43fc-8ea6-827a5916e460"
+
+    # Everything smoke 10 scanned for that could ride a VALUE rather
+    # than a key. The key-name half is `_SECRET_KEY_HINTS`, read from
+    # the repository by the walk below rather than copied out here --
+    # a copy would go stale the first time that vocabulary grew.
+    FORBIDDEN_SUBSTRINGS = (
+        "ya29.", "GOCSPX", "client_secret", "access_token",
+        "refresh_token", "Bearer ", "baseUrl", "base_url",
+        "googleusercontent", "googleapis.com",
+    )
+
+    @staticmethod
+    def _walk_keys(obj, path="body"):
+        """Every (path, key) pair at every depth, lists included."""
+        out = []
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                here = "%s.%s" % (path, key)
+                out.append((here, key))
+                out.extend(QueueResponseContractTests._walk_keys(val, here))
+        elif isinstance(obj, (list, tuple)):
+            for i, item in enumerate(obj):
+                out.extend(QueueResponseContractTests._walk_keys(
+                    item, "%s[%d]" % (path, i)))
+        return out
+
+    def _picker_payload(self) -> dict:
+        """A queue read over a batch that really does hold a picker
+        session id, with a hidden row pulled in so the wider payload
+        shape is scanned too rather than only the happy one."""
+        batch = self._open_batch(source="google_photos_picker",
+                                 label="Europe pick",
+                                 external_ref=self.SESSION)
+        self._new_candidate(
+            batch, filename="a.jpg",
+            external_id="AF1QipMv3nJ7dQ2xKcQ0d8Yb1RmZpLwT9NcXhVuEoAaB",
+            match_reason={"source": "google_photos_picker",
+                          "verified_mime": "image/jpeg",
+                          "provider_dimensions": {"width": 4032,
+                                                  "height": 3024}})
+        hidden = self._new_candidate(batch, filename="b.jpg")
+        self._hide_candidate(hidden)
+        return self._ok_queue(include_hidden=True)
+
+    # -- the leak itself -------------------------------------------------
+
+    def test_the_queue_serves_no_external_ref_at_any_depth(self):
+        for path, key in self._walk_keys(self._picker_payload()):
+            self.assertNotEqual(
+                key, "external_ref",
+                "%s hands the batch's provider handle to the browser" % path)
+
+    def test_the_raw_picker_session_value_appears_nowhere_in_the_body(self):
+        """The key half alone could be satisfied by a rename. This half
+        is about the value, so a rename cannot satisfy it. Chris,
+        2026-07-29: "No renaming or masking -- the provider reference
+        stays server-side."
+        """
+        self.assertNotIn(self.SESSION, json.dumps(self._picker_payload()))
+
+    def test_the_session_is_still_on_the_batch_row_where_it_belongs(self):
+        """The removal is from the response, not from the database. A
+        fix that dropped the column would have broken the poll, ingest
+        and delete calls, every one of which reads it from `batch_get`.
+        """
+        batch = self._open_batch(source="google_photos_picker",
+                                 external_ref=self.SESSION)
+        self.assertEqual(repo.batch_get(batch)["external_ref"], self.SESSION)
+
+    # -- the general contract, for every producer after this one ---------
+
+    def test_no_key_at_any_depth_reads_as_a_credential(self):
+        for path, key in self._walk_keys(self._picker_payload()):
+            low = key.lower()
+            for hint in repo._SECRET_KEY_HINTS:
+                self.assertNotIn(hint, low,
+                                 "%s is named after %r" % (path, hint))
+
+    def test_no_credential_or_download_url_shape_survives_serialisation(self):
+        blob = json.dumps(self._picker_payload())
+        for pat in self.FORBIDDEN_SUBSTRINGS:
+            self.assertNotIn(pat, blob,
+                             "the queue response contains %r" % pat)
+        self.assertNotIn(_FAKE_TOKEN, blob)
+
+    def test_the_batch_still_carries_what_a_reviewer_needs(self):
+        """The contract must not be satisfiable by serving nothing.
+        These are the fields Chris named as safe, and the queue screen
+        is built on them.
+        """
+        batch = self._picker_payload()["candidates"][0]["batch"]
+        for field in ("id", "label", "source", "status", "hidden",
+                      "candidate_count", "accepted_count",
+                      "rejected_count"):
+            self.assertIn(field, batch)
 
 
 if __name__ == "__main__":

@@ -204,6 +204,29 @@ class CandidateAlreadyDecidedError(ImportRepositoryError):
     purge tool Decision 4 left open."""
 
 
+class CandidateAlreadyPromotedError(ImportRepositoryError):
+    """A repair tried to rewrite the byte-derived fields of a candidate
+    that has already produced a permanent archive photo.
+
+    Doctrine 1.14's archive boundary. `file_hash` is not private to the
+    staging lane: `candidate_promote()` resolves a candidate to an
+    existing `photos` row BY that hash, and `photos.file_hash` is UNIQUE
+    across the whole table. Rewriting it under a promoted candidate
+    would leave the row describing one byte stream while pointing at a
+    different archived object -- and nothing downstream would notice,
+    because both halves would still be internally consistent.
+
+    Chris, 2026-07-29: "Once photo_id exists, a repair must not mutate
+    the candidate fields that were used to resolve or create that
+    archive photo."
+
+    Restoring the staged working copy FROM the archive object is the
+    allowed repair for this case. It is not built. This error is what
+    stands in its place, and it is permanent rather than retryable
+    because running the same repair again produces the same refusal.
+    """
+
+
 # ---------------------------------------------------------------- plumbing
 
 
@@ -932,6 +955,106 @@ def candidate_hide(candidate_id: str, hidden: bool = True) -> bool:
         con.close()
 
 
+def candidate_restage(
+    candidate_id: str,
+    *,
+    file_hash: str,
+    byte_size: Optional[int] = None,
+    mime_type: Optional[str] = None,
+    taken_at: Optional[str] = None,
+    taken_at_source: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    location_source: Optional[str] = None,
+) -> bool:
+    """Re-stamp the byte-derived fields of a candidate after a repair.
+
+    THE ONLY WRITER OF `file_hash` AFTER CREATION, and it exists because
+    none of the other four could be stretched to do this honestly:
+    `candidate_create` is idempotent on `(batch_id, external_id)` and
+    writes nothing at all on a second call, `candidate_set_trip` and
+    `candidate_hide` each touch one field by design, and
+    `candidate_decide` / `candidate_promote` are the decision and
+    archive paths that the acquisition lane must not enter (ruling 1.6:
+    an ingest failure is not a candidate decision, and neither is an
+    ingest success).
+
+    Doctrine 1.14. A provider is not expected to return identical bytes
+    on a later fetch, so when Hornelore's staged copy is missing or
+    fails its stored hash and has to be fetched again, the new bytes are
+    the copy it now retains and the row has to say so. `file_hash` is
+    the checksum of what is on disk, not a fingerprint the provider
+    promised.
+
+    IT REFUSES ON A PROMOTED CANDIDATE, and the refusal lives here
+    rather than in the caller on purpose. A guard written into one
+    router is a guard the next caller does not inherit -- which is
+    exactly how `external_ref` reached a browser through a column tuple
+    that predated the lane it leaked. The boundary belongs at the write.
+
+    Only `file_hash` is required. Everything else is written when it is
+    supplied and left alone when it is not, so a caller that can only
+    re-derive some of the byte-derived metadata does not blank the rest
+    on its way past. `None` therefore means "do not touch", not "set to
+    null" -- which is the right default here because every field this
+    writes is derived from the same bytes and a partial re-derivation is
+    a weaker claim, not a contradicting one.
+
+    What it never touches: `photo_id`, `state`, `trip_id`, `person_id`,
+    `external_id`, `hidden`, `match_reason_json`, or any review field.
+    Identity, placement and the operator's verdict are not byte-derived
+    and a repair has nothing to say about them.
+    """
+    if not file_hash or not str(file_hash).strip():
+        raise InvalidStateError(
+            "re-staging candidate %s requires the file hash of the bytes "
+            "now on disk. A repair that cannot say what it staged is not a "
+            "repair." % candidate_id
+        )
+
+    con = _connect()
+    try:
+        cand = _candidate_row(con, candidate_id)
+
+        if cand["photo_id"]:
+            raise CandidateAlreadyPromotedError(
+                "candidate %s already points to a permanent archive photo "
+                "(%s). Re-staging the working copy cannot rewrite the "
+                "candidate hash or re-point the archive: promotion resolved "
+                "that photo BY this candidate's file_hash, and photos."
+                "file_hash is unique across the whole table, so rewriting it "
+                "here would leave the row describing one byte stream while "
+                "pointing at a different archived object. Restoring the "
+                "staged copy from the archive object is the repair this case "
+                "needs, and it is not built."
+                % (candidate_id, cand["photo_id"])
+            )
+
+        fields = [("file_hash", str(file_hash).strip())]
+        for name, value in (("byte_size", byte_size),
+                            ("mime_type", mime_type),
+                            ("taken_at", taken_at),
+                            ("taken_at_source", taken_at_source),
+                            ("latitude", latitude),
+                            ("longitude", longitude),
+                            ("location_source", location_source)):
+            if value is not None:
+                fields.append((name, value))
+
+        cur = con.execute(
+            "UPDATE import_candidate SET %s, updated_at = ? WHERE id = ?"
+            % ", ".join("%s = ?" % name for name, _ in fields),
+            tuple(value for _, value in fields) + (_now(), candidate_id),
+        )
+        con.commit()
+        return cur.rowcount > 0
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def batch_counts(batch_id: str) -> Dict[str, int]:
     """Live counts straight from the candidate rows, plus the stored
     counters, so a caller can see if the two ever disagree."""
@@ -1014,8 +1137,34 @@ def batch_counts(batch_id: str) -> Dict[str, int]:
 # `trips` all have `id`, `person_id`, `trip_id`, `hidden`, `created_at`
 # and `updated_at`, and a star-join would silently let one shadow
 # another.
+#
+# `external_ref` WAS IN THIS TUPLE UNTIL 2026-07-29, and taking it out is
+# the whole of WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01. Live smoke 10
+# proved by direct equality that the value this column served to the
+# browser on every queue read was the raw Google Picker session
+# identifier. Chris, 2026-07-29: "Remove external_ref from
+# _QUEUE_BATCH_COLUMNS -- unless the browser has a demonstrated
+# functional need for it. Do not merely rename the key or partially mask
+# the value. The raw provider reference should remain server-side."
+#
+# No browser code read it, and no non-browser consumer loses anything
+# either: every server-side user of the picker session id -- the poll,
+# ingest and delete calls in `google_picker.py` -- takes it from
+# `batch_get()`, which is a `SELECT *` on `import_batch` and is
+# untouched by this tuple.
+#
+# The column itself stays on the table, and no migration accompanies
+# this. It was always correct for the server to hold a provider handle;
+# it was never correct for this route to hand it out. Chris: "No schema
+# migration is needed for this correction."
+#
+# The lesson outlives the picker, and it is why the contract test
+# guarding this scans the SERIALISED response rather than a field list:
+# every guard the picker lane was given held, and the value escaped
+# anyway -- through a generic column tuple on a shared route that
+# predated the lane feeding it.
 _QUEUE_BATCH_COLUMNS = (
-    "id", "label", "source", "status", "external_ref", "hidden",
+    "id", "label", "source", "status", "hidden",
     "candidate_count", "accepted_count", "rejected_count",
 )
 #

@@ -70,6 +70,7 @@ pytest is not installed in this repo; run with:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -312,6 +313,35 @@ class _FakeDownloadHttp:
         body = self.bodies.get(item_id, _PHOTO_A)
         return _ByteResponse(status_code=status, body=body,
                              raise_mid_stream=item_id in self.mid_stream)
+
+
+class _JitteringDownloadHttp(_FakeDownloadHttp):
+    """The real provider, as doctrine 1.14 found it.
+
+    Google returns DIFFERENT BYTES for the SAME media item id on
+    successive fetches -- three live fetches of the same seven
+    photographs produced three different byte counts for two of them and
+    disagreed with the stored size on all seven. A double that returns
+    the same bytes every time cannot catch a re-ingest path that depends
+    on them matching, because it satisfies the dependency by accident.
+
+    This one never repeats itself. Any code path that fetches an already
+    complete item and then compares the result to the row will fail, and
+    that is the point: the passing behaviour is that the fetch does not
+    happen.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.serial = 0
+
+    def get(self, url, headers=None, stream=False, timeout=None):
+        item_id = self._item_of(url)
+        self.calls.append(item_id)
+        self.serial += 1
+        return _ByteResponse(
+            status_code=200,
+            body=_jpeg(bytes([0x10 + (self.serial % 200)]) * 4))
 
 
 class _LogCatcher(logging.Handler):
@@ -637,13 +667,62 @@ class TestHappyPath(_Base):
 # ------------------------------------------------------------ 3. idempotence
 
 class TestReIngest(_Base):
+    """Doctrine 1.14, in the order the route now applies it.
+
+    The governing fact is that ``external_id`` and ``file_hash`` describe
+    different objects: the first is the provider's identity for the
+    picked item, the second is a checksum of the working copy Hornelore
+    staged. A later provider fetch is not expected to reproduce the
+    earlier bytes, so the fresh download can never decide whether an
+    existing candidate is intact -- and the tests below are written so
+    that a route which asks it anyway fails rather than passes.
+
+    THESE ASSERTIONS INVERT WHAT THIS CLASS ASSERTED BEFORE 2026-07-29.
+    It used to require that a second fetch returning different bytes be
+    refused with a permanent ``hash_mismatch``. That was tested, passed,
+    shipped, and then refused seven of seven intact photographs on a live
+    run, because the condition it called an integrity fault is the
+    provider's ordinary behaviour. The old test is not deleted quietly:
+    ``test_byte_jitter_under_the_same_item_id_is_not_a_failure`` is the
+    same scenario with the verdict the live run demanded.
+    """
+
     def _one_landed(self):
         batch_id = self.open_batch()
         self.pick(_raw_item("m-1"))
         self.dl_http.bodies = {"m-1": _PHOTO_A}
         self.ingest(batch_id)
         row = self.candidates(batch_id)[0]
+        self.dl_http.calls = []          # so "was it fetched again?" is askable
         return batch_id, row
+
+    def _promote(self, candidate_id, file_hash):
+        """Point a candidate at a permanent archive photo.
+
+        Written straight to the database rather than through
+        ``candidate_promote``, and deliberately: ``PROMOTABLE_SOURCES``
+        is ``("local_upload", "manual")``, so no picker candidate can
+        reach this state through the repository today. The state is
+        still worth guarding -- doctrine 3.1 is that a wall is asserted,
+        not assumed -- and constructing it is the only way to assert the
+        guard fires when the wall eventually moves.
+        """
+        photo_id = str(uuid.uuid4())
+        con = self._con()
+        try:
+            con.execute(
+                "INSERT INTO photos (id, narrator_id, image_path, file_hash, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (photo_id, self.person_id, "archive/%s.jpg" % photo_id,
+                 file_hash, _now(), _now()))
+            con.execute("UPDATE import_candidate SET photo_id = ? WHERE id = ?",
+                        (photo_id, candidate_id))
+            con.commit()
+        finally:
+            con.close()
+        return photo_id
+
+    # -- the unchanged path ---------------------------------------------
 
     def test_running_the_same_ingest_twice_creates_no_duplicate(self):
         batch_id, first = self._one_landed()
@@ -657,23 +736,78 @@ class TestReIngest(_Base):
         self.assertEqual(rows[0]["id"], first["id"])
         self.assertEqual(rows[0]["file_hash"], first["file_hash"])
 
+    def test_an_intact_candidate_is_not_downloaded_again(self):
+        """The assertion the whole correction exists for, and it is about
+        the DOWNLOADER rather than the outcome. A route that fetched the
+        bytes and then decided `unchanged` would satisfy every other test
+        in this class while still doing the thing that broke the live
+        run."""
+        batch_id, _ = self._one_landed()
+        body = self.ingest(batch_id).json()
+
+        self.assertEqual(self.dl_http.calls, [],
+                         "an already-complete candidate was fetched again")
+        self.assertEqual(body["unchanged"], 1)
+
+    def test_byte_jitter_under_the_same_item_id_is_not_a_failure(self):
+        """The live-run scenario, with a provider double that returns
+        different bytes for the same id every time it is asked.
+
+        Chris, 2026-07-29, on the expected second-ingest result: created
+        0, repaired 0, unchanged 7, failed 0. One photograph here, same
+        shape.
+        """
+        batch_id, row = self._one_landed()
+        gp.acquire.requests = self.dl_http = _JitteringDownloadHttp()
+        acq.requests = self.dl_http
+
+        body = self.ingest(batch_id).json()
+
+        self.assertEqual(body["created"], 0)
+        self.assertEqual(body["repaired"], 0)
+        self.assertEqual(body["unchanged"], 1)
+        self.assertEqual(body["failed"], 0)
+        self.assertEqual(self.dl_http.calls, [])
+        self.assertEqual(self.candidates(batch_id)[0]["file_hash"],
+                         row["file_hash"])
+
     def test_unchanged_means_the_staged_bytes_were_hashed_not_counted(self):
         """`unchanged` is a claim about bytes, not about a filename
-        existing. The response says so explicitly."""
-        batch_id, _ = self._one_landed()
+        existing. The response says so explicitly, and it reports the
+        row's own byte-derived values rather than leaving them absent --
+        nothing was re-measured, but everything is still known."""
+        batch_id, row = self._one_landed()
         result = self.ingest(batch_id).json()["results"][0]
+
         self.assertEqual(result["outcome"], "unchanged")
         self.assertTrue(result["staged_verified"])
+        self.assertEqual(result["file_hash"], row["file_hash"])
+        self.assertEqual(result["byte_size"], row["byte_size"])
+
+    def test_a_present_but_corrupt_staged_file_is_not_reported_unchanged(self):
+        """The hashed-not-counted rule from the other side: the file is
+        there, so a route that counted filenames would say `unchanged`
+        and leave a truncated original behind a row that says it is
+        fine."""
+        batch_id, row = self._one_landed()
+        self.staged_path(batch_id, row["id"]).write_bytes(b"truncated")
+
+        result = self.ingest(batch_id).json()["results"][0]
+        self.assertNotEqual(result["outcome"], "unchanged")
+
+    # -- the repair path ------------------------------------------------
 
     def test_a_missing_staged_original_is_repaired(self):
         batch_id, row = self._one_landed()
-        staged = self.staged_path(batch_id, row["id"])
-        staged.unlink()
+        self.staged_path(batch_id, row["id"]).unlink()
+        self.dl_http.bodies = {"m-1": _PHOTO_A}
 
         body = self.ingest(batch_id).json()
         self.assertEqual(body["repaired"], 1)
         self.assertEqual(body["created"], 0)
+        self.assertEqual(body["failed"], 0)
         self.assertEqual(body["results"][0]["repaired_from"], "missing")
+        self.assertEqual(self.dl_http.calls, ["m-1"])
 
         restored = self.staged_path(batch_id, row["id"])
         self.assertEqual(restored.read_bytes(), _PHOTO_A)
@@ -681,11 +815,9 @@ class TestReIngest(_Base):
                          row["file_hash"])
 
     def test_a_staged_original_that_no_longer_matches_is_repaired(self):
-        """The row and Google agree with each other and the disk is the
-        lone dissenter, so the disk is the thing that gets corrected.
-        Contrast the next test, where there is no such majority."""
         batch_id, row = self._one_landed()
         self.staged_path(batch_id, row["id"]).write_bytes(_PHOTO_B)
+        self.dl_http.bodies = {"m-1": _PHOTO_A}
 
         body = self.ingest(batch_id).json()
         self.assertEqual(body["repaired"], 1)
@@ -693,48 +825,166 @@ class TestReIngest(_Base):
                          "hash_disagreement")
         self.assertEqual(self.staged_path(batch_id, row["id"]).read_bytes(),
                          _PHOTO_A)
-        self.assertEqual(self.candidates(batch_id)[0]["file_hash"],
-                         row["file_hash"])
 
-    def test_different_bytes_under_the_same_item_id_are_refused(self):
-        """The row keeps its hash, the staged file keeps its bytes, and
-        the operator is told. Writing the new bytes under the old row
-        would make the row lie; changing the row is not this lane's call
-        to make automatically."""
+    def test_a_repair_adopts_the_new_bytes_rather_than_refusing_them(self):
+        """The reversal, stated as an assertion. The provider returns
+        different bytes for the repair than it returned originally --
+        which used to be a permanent `hash_mismatch`. It is now the
+        ordinary case: the fresh bytes ARE the working copy Hornelore
+        now holds, so the row is re-stamped to describe them.
+
+        Chris, 2026-07-29: "The same Google media ID with different bytes
+        during a repair is not itself an error. The new hash becomes the
+        integrity record for the repaired local copy."
+        """
         batch_id, row = self._one_landed()
+        self.staged_path(batch_id, row["id"]).unlink()
         self.dl_http.bodies = {"m-1": _PHOTO_REEXPORTED}
 
         body = self.ingest(batch_id).json()
-        self.assertEqual(body["failed"], 1)
-        self.assertEqual(body["permanent_failures"], 1)
-        self.assertEqual(body["created"], 0)
-        self.assertEqual(body["repaired"], 0)
+        self.assertEqual(body["repaired"], 1)
+        self.assertEqual(body["failed"], 0)
 
-        result = body["results"][0]
-        self.assertEqual(result["reason"], "hash_mismatch")
-        self.assertFalse(result["retryable"])
-
-        rows = self.candidates(batch_id)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["file_hash"], row["file_hash"])
+        after = self.candidates(batch_id)[0]
+        self.assertEqual(after["file_hash"],
+                         hashlib.sha256(_PHOTO_REEXPORTED).hexdigest())
+        self.assertNotEqual(after["file_hash"], row["file_hash"])
+        self.assertEqual(after["byte_size"], len(_PHOTO_REEXPORTED))
         self.assertEqual(self.staged_path(batch_id, row["id"]).read_bytes(),
-                         _PHOTO_A)
+                         _PHOTO_REEXPORTED)
+        self.assertEqual(body["results"][0]["previous_file_hash"],
+                         row["file_hash"])
 
-    def test_a_refused_re_ingest_leaves_no_temporary_file(self):
-        batch_id, _ = self._one_landed()
+    def test_a_repair_leaves_identity_state_and_placement_alone(self):
+        """Only the byte-derived fields move. A repair has nothing to say
+        about who the candidate is, where it was filed, or what an
+        operator decided about it."""
+        batch_id, row = self._one_landed()
+        repo.candidate_set_trip(row["id"], self.trip_id)
+        self.staged_path(batch_id, row["id"]).unlink()
         self.dl_http.bodies = {"m-1": _PHOTO_REEXPORTED}
+        self.ingest(batch_id)
+
+        after = self.candidates(batch_id)[0]
+        self.assertEqual(after["external_id"], row["external_id"])
+        self.assertEqual(after["state"], "pending")
+        self.assertEqual(after["trip_id"], self.trip_id)
+        self.assertEqual(after["person_id"], row["person_id"])
+        self.assertIsNone(after["photo_id"])
+
+    def test_a_row_with_no_file_hash_is_repaired_rather_than_refused(self):
+        """A row that cannot be verified is the condition a repair exists
+        to end. It used to be treated as a mismatch, on the reasoning
+        that this lane always writes a hash so a row without one came
+        from somewhere else -- reasoning that assumed the repair could
+        not write one. It can now."""
+        batch_id, row = self._one_landed()
+        con = self._con()
+        try:
+            con.execute("UPDATE import_candidate SET file_hash = '' "
+                        "WHERE id = ?", (row["id"],))
+            con.commit()
+        finally:
+            con.close()
+        self.dl_http.bodies = {"m-1": _PHOTO_A}
+
+        body = self.ingest(batch_id).json()
+        self.assertEqual(body["repaired"], 1)
+        self.assertEqual(body["failed"], 0)
+        self.assertEqual(body["results"][0]["repaired_from"],
+                         "unverifiable_row")
+        self.assertEqual(self.candidates(batch_id)[0]["file_hash"],
+                         hashlib.sha256(_PHOTO_A).hexdigest())
+
+    def test_no_temporary_file_survives_a_repair(self):
+        batch_id, row = self._one_landed()
+        self.staged_path(batch_id, row["id"]).unlink()
         self.ingest(batch_id)
         self.assertIncomingEmpty(batch_id)
 
-    def test_a_hash_refusal_is_not_a_candidate_decision(self):
-        """Spec 12.3. A refusal that wrote `state='error'` would be
-        `candidate_decide()` -- one-way, with no undecide and no DELETE
-        on this lane -- and would park an operator verdict no operator
-        made."""
-        batch_id, _ = self._one_landed()
+    # -- the archive boundary -------------------------------------------
+
+    def test_a_promoted_candidate_refuses_repair_at_the_router(self):
+        """Doctrine 1.14's archive boundary. Once `photo_id` exists, the
+        candidate's hash is what resolved that archive photo, and
+        `photos.file_hash` is UNIQUE across the whole table -- so
+        rewriting it here would leave the row describing one byte stream
+        while pointing at a different archived object, with both halves
+        still internally consistent and nothing downstream able to
+        notice."""
+        batch_id, row = self._one_landed()
+        self._promote(row["id"], row["file_hash"])
+        self.staged_path(batch_id, row["id"]).unlink()
+
+        body = self.ingest(batch_id).json()
+        self.assertEqual(body["failed"], 1)
+        self.assertEqual(body["repaired"], 0)
+        self.assertEqual(body["permanent_failures"], 1)
+
+        result = body["results"][0]
+        self.assertEqual(result["reason"], "candidate_already_promoted")
+        self.assertFalse(result["retryable"])
+        self.assertIn("permanent archive photo", result["detail"])
+
+    def test_a_promoted_candidate_is_refused_before_a_byte_is_fetched(self):
+        batch_id, row = self._one_landed()
+        self._promote(row["id"], row["file_hash"])
+        self.staged_path(batch_id, row["id"]).unlink()
+        self.ingest(batch_id)
+        self.assertEqual(self.dl_http.calls, [],
+                         "a refusal that costs a full download is not a "
+                         "refusal, it is a download with a message")
+
+    def test_a_promoted_candidate_keeps_its_hash_and_its_archive_link(self):
+        batch_id, row = self._one_landed()
+        photo_id = self._promote(row["id"], row["file_hash"])
+        self.staged_path(batch_id, row["id"]).unlink()
+        self.dl_http.bodies = {"m-1": _PHOTO_REEXPORTED}
+        self.ingest(batch_id)
+
+        after = self.candidates(batch_id)[0]
+        self.assertEqual(after["file_hash"], row["file_hash"])
+        self.assertEqual(after["photo_id"], photo_id)
+
+    def test_the_repository_refuses_to_restage_a_promoted_candidate(self):
+        """Asserted at the repository as well as at the router, because
+        they are two different guarantees. A guard that lives only in the
+        caller is a guard the next caller does not inherit -- which is
+        exactly how `external_ref` reached a browser."""
+        batch_id, row = self._one_landed()
+        self._promote(row["id"], row["file_hash"])
+
+        with self.assertRaises(repo.CandidateAlreadyPromotedError):
+            repo.candidate_restage(row["id"], file_hash="0" * 64)
+
+        self.assertEqual(self.candidates(batch_id)[0]["file_hash"],
+                         row["file_hash"])
+
+    # -- what a re-ingest still never does ------------------------------
+
+    def test_a_re_ingest_records_no_operator_decision(self):
+        """Spec 12.3. Neither a repair nor a refusal may write `state`:
+        that would be `candidate_decide()`, which is one-way, has no
+        undecide, and has no DELETE behind it on this lane."""
+        batch_id, row = self._one_landed()
+        self.staged_path(batch_id, row["id"]).unlink()
         self.dl_http.bodies = {"m-1": _PHOTO_REEXPORTED}
         self.ingest(batch_id)
         self.assertEqual(self.candidates(batch_id)[0]["state"], "pending")
+
+        promoted_batch, promoted_row = self._one_landed()
+        self._promote(promoted_row["id"], promoted_row["file_hash"])
+        self.staged_path(promoted_batch, promoted_row["id"]).unlink()
+        self.ingest(promoted_batch)
+        self.assertEqual(self.candidates(promoted_batch)[0]["state"],
+                         "pending")
+
+    def test_a_re_ingest_writes_no_photos_row(self):
+        batch_id, row = self._one_landed()
+        before = self.photo_count()
+        self.staged_path(batch_id, row["id"]).unlink()
+        self.ingest(batch_id)
+        self.assertEqual(self.photo_count(), before)
 
     def test_a_hidden_candidate_is_still_found_rather_than_duplicated(self):
         """A hidden row still owns (batch_id, external_id). Ingest must
@@ -746,6 +996,61 @@ class TestReIngest(_Base):
         body = self.ingest(batch_id).json()
         self.assertEqual(body["created"], 0)
         self.assertEqual(len(self.candidates(batch_id)), 1)
+
+
+# ------------------------------------------------- 3b. the response's advice
+
+class TestNextStep(_Base):
+    """Chris, 2026-07-29, on the response text: "This line must change:
+    nothing already landed is re-downloaded. It is factually false
+    today." And: "The response should also avoid offering retry advice
+    when all failures are permanent."
+    """
+
+    def test_it_no_longer_claims_nothing_landed_is_re_downloaded(self):
+        batch_id = self.open_batch()
+        self.pick(_raw_item("m-1"))
+        body = self.ingest(batch_id).json()
+        self.assertNotIn("nothing already landed is re-downloaded",
+                         body["next"])
+
+    def test_it_states_the_rule_that_is_actually_implemented(self):
+        batch_id = self.open_batch()
+        self.pick(_raw_item("m-1"))
+        body = self.ingest(batch_id).json()
+        self.assertIn("Complete, locally verified candidates are not "
+                      "downloaded again.", body["next"])
+        self.assertIn("Missing or damaged staged files may be downloaded "
+                      "again for repair.", body["next"])
+
+    def test_a_clean_run_offers_no_retry_advice_at_all(self):
+        batch_id = self.open_batch()
+        self.pick(_raw_item("m-1"))
+        body = self.ingest(batch_id).json()
+        self.assertEqual(body["failed"], 0)
+        self.assertNotIn("running ingest again", body["next"])
+        self.assertNotIn("failed retryably", body["next"])
+
+    def test_permanent_failures_alone_offer_no_retry_advice(self):
+        batch_id = self.open_batch()
+        self.pick(_raw_item("m-1", media_type="VIDEO"))
+        body = self.ingest(batch_id).json()
+
+        self.assertEqual(body["permanent_failures"], 1)
+        self.assertEqual(body["retryable_failures"], 0)
+        self.assertNotIn("can be picked up by running ingest again",
+                         body["next"])
+        self.assertIn("produces the same refusal", body["next"])
+
+    def test_a_retryable_failure_does_offer_the_retry(self):
+        batch_id = self.open_batch()
+        self.pick(_raw_item("m-1"))
+        self.dl_http.statuses = {"m-1": 503}
+        body = self.ingest(batch_id).json()
+
+        self.assertEqual(body["retryable_failures"], 1)
+        self.assertIn("can be picked up by running ingest again",
+                      body["next"])
 
 
 # ------------------------------------------------------- 4. partial failure

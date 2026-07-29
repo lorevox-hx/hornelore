@@ -85,7 +85,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -441,10 +441,22 @@ INGEST_OUTCOMES = ("created", "repaired", "unchanged", "failed")
 # response has exactly one vocabulary behind it, and so a new reason
 # cannot be introduced without landing somewhere in it.
 _ROUTE_REASONS: Dict[str, bool] = {
-    "hash_mismatch": False,
+    "candidate_already_promoted": False,
     "repository_refused": False,
     "unexpected_error": True,
 }
+
+# `hash_mismatch` was in this table until 2026-07-29 and is deliberately
+# gone rather than merely unused. It was emitted when a fresh Google
+# download hashed differently from the candidate row -- which doctrine
+# 1.14 established is the ordinary behaviour of the provider and not a
+# fault of any kind. Chris, 2026-07-29: "A hash_mismatch should remain an
+# error only for a local integrity problem or an unsafe write
+# condition -- not because two separate Google fetches differ." Nothing
+# in this lane now meets that description, because the local copy is
+# checked against its own row before any network call and a failed check
+# is repaired rather than reported. Leaving the name here unemitted would
+# advertise a classification this route can no longer make.
 
 # Asserted at import, not tested for politely at runtime: a reason that
 # existed in both vocabularies would resolve to whichever one the reader
@@ -457,6 +469,14 @@ for _reason in _ROUTE_REASONS:
             "google_picker router: %r is classified both here and in "
             "acquire" % _reason)
 del _reason
+
+
+# What `_ingest_one` hands `_settle_existing` in place of a download it
+# has already performed: a zero-argument call returning the
+# `(downloaded, meta)` pair, to be made only if the local copy turns out
+# to need repairing. Named rather than spelled out at the one use site
+# because the point of the type is that the fetch has not happened yet.
+_Fetch = Callable[[], Tuple[Dict[str, Any], Dict[str, Any]]]
 
 
 def _discard(tmp_path: Optional[str]) -> None:
@@ -582,106 +602,176 @@ def _match_reason(item: Dict[str, Any], downloaded: Dict[str, Any],
 
 
 def _settle_existing(batch_id: str, existing: Dict[str, Any],
-                     downloaded: Dict[str, Any],
-                     result: Dict[str, Any]) -> Dict[str, Any]:
-    """The re-ingest branch: the comparison the repository does not make.
+                     result: Dict[str, Any],
+                     fetch: _Fetch) -> Dict[str, Any]:
+    """The re-ingest branch: THE LOCAL COPY IS EXAMINED BEFORE THE NETWORK.
 
-    ``candidate_create()`` is idempotent on ``(batch_id, external_id)``
-    and returns the existing id having WRITTEN NOTHING -- no hash check,
-    no update. That is exactly right, and it makes it structurally
-    impossible for the repository to write a different hash under an old
-    row. But it leaves the mirror-image hazard to whoever calls it:
-    ``stage_original`` would happily overwrite ``original.<ext>`` with
-    different bytes while the row kept its old ``file_hash``, and then
-    the row and the file would disagree silently, with the row looking
-    authoritative to everything downstream.
+    Doctrine 1.14. ``external_id`` is the identity of the picked item and
+    ``file_hash`` is the checksum of the working copy Hornelore staged.
+    Those are two different facts about two different objects, and a
+    later fetch from the provider is not expected to reproduce the
+    earlier bytes -- three separate fetches of the same seven
+    photographs returned three different byte counts for two of them and
+    disagreed with the stored size on all seven. A fresh download
+    therefore cannot be used to decide whether an existing candidate is
+    intact. Only the staged file can answer that, and it is already on
+    disk.
 
-    So the cases are decided here, before anything is moved:
+    So the order below is the entire correction:
 
-        same hash, staged file hashes equal -> unchanged, nothing written
-        same hash, staged file missing      -> repaired, bytes re-staged
-        same hash, staged file disagrees    -> repaired, bytes re-staged
-        different hash                      -> REFUSED, nothing written
+        candidate exists
+        |
+        +- staged copy hashes to the stored file_hash
+        |     -> unchanged, AND NOTHING IS FETCHED
+        |
+        +- staged copy missing or corrupt, photo_id is null
+        |     -> fetch, re-stamp the byte-derived row fields, re-stage
+        |     -> repaired
+        |
+        +- staged copy missing or corrupt, photo_id is set
+              -> refuse: candidate_already_promoted, permanent
 
-    THE STAGED FILE IS HASHED, NOT MERELY COUNTED. "A file called
-    ``original.jpg`` is present" is a weaker claim than "the bytes this
-    candidate row describes are on disk", and only the second one is
-    worth reporting as ``unchanged`` -- the first would let a truncated
-    or overwritten original sit behind a row that says it is fine, which
-    is the same silent row/file disagreement this whole function exists
-    to prevent. The digest costs one read of a file whose twin is
-    already in the temp directory, against a download that just happened.
+    WHAT THIS USED TO DO, because the change is a reversal and not a
+    refinement. Until 2026-07-29 the download happened first and its hash
+    was compared against the row: equal meant ``unchanged``, different
+    meant a permanent ``hash_mismatch`` failure. Both halves were wrong
+    at once. It spent a full-size download on every already-complete
+    item, and it then read the provider's ordinary byte jitter as a local
+    integrity fault -- a live second ingest of seven intact photographs
+    refused all seven. Chris, 2026-07-29: "Why are we downloading again
+    at all? ... That avoids Google's byte jitter entirely."
 
-    A staged file that disagrees is REPAIRED rather than refused, and the
-    asymmetry with the row-hash case is deliberate. Here the row and
-    Google agree with each other -- the freshly downloaded bytes hash to
-    exactly what the row claims -- and the disk is the one dissenting
-    copy, so re-staging makes the disk agree with two independent
-    sources. In the row-hash case there is no such majority: Google's
-    bytes and the row disagree and nothing here can say which is right,
-    so nothing is touched.
+    THE STAGED FILE IS HASHED, NOT MERELY COUNTED, and that survives the
+    reversal unchanged. "A file called ``original.jpg`` is present" is a
+    weaker claim than "the bytes this candidate row describes are on
+    disk", and only the second is worth reporting as ``unchanged``; the
+    first would let a truncated or overwritten original sit behind a row
+    that says it is fine. The digest costs one read of a local file,
+    which is now the cheap half of the comparison rather than the
+    expensive one.
 
-    The refusal is deliberately not a candidate state. Marking the row
-    ``error`` would mean ``candidate_decide()``, which is hard one-way --
-    it raises ``CandidateAlreadyDecidedError`` on anything but
-    ``pending``, there is no undecide, and there is no DELETE on this
-    lane. A hash disagreement would become a permanent operator-review
-    verdict that no operator made (spec 12.3). It is reported as a
-    permanent per-item failure instead, and the row and its bytes are
-    left exactly as they were for a human to look at.
+    A ROW CARRYING NO ``file_hash`` IS REPAIRED RATHER THAN REFUSED, and
+    this too changed direction. It used to be treated as a mismatch on
+    the grounds that this lane always writes a hash, so a row without one
+    came from somewhere else. That reasoning assumed the repair could not
+    write a hash. It can now: the fetch produces bytes, the bytes produce
+    a digest, and ``candidate_restage`` stamps it. An unverifiable row is
+    exactly the condition a repair exists to end.
 
-    A stored hash that is missing entirely is treated as a mismatch for
-    the same reason: this lane always writes one, so a row without one
-    came from somewhere else, and overwriting its bytes on that basis
-    would be a guess.
+    THE REFUSAL IS STILL NOT A CANDIDATE STATE. Marking the row ``error``
+    would mean ``candidate_decide()``, which is hard one-way -- it raises
+    ``CandidateAlreadyDecidedError`` on anything but ``pending``, there is
+    no undecide, and there is no DELETE on this lane -- so a refusal
+    would become a permanent operator-review verdict that no operator
+    made (spec 12.3). It is reported as a per-item failure instead, and
+    the row and its bytes are left exactly as they were.
     """
     candidate_id = existing["id"]
     result["candidate_id"] = candidate_id
     stored_hash = existing.get("file_hash")
-    fresh_hash = downloaded["file_hash"]
-
-    if not stored_hash:
-        return dict(result, outcome="failed", reason="hash_mismatch",
-                    retryable=False, stored_file_hash=None,
-                    detail="candidate %s already exists for this item but "
-                           "carries no file hash, so the bytes on disk "
-                           "cannot be shown to match it. Nothing was "
-                           "written and nothing was replaced."
-                           % candidate_id)
-
-    if stored_hash != fresh_hash:
-        return dict(result, outcome="failed", reason="hash_mismatch",
-                    retryable=False, stored_file_hash=stored_hash,
-                    detail="candidate %s already exists for this item with a "
-                           "different file hash. The freshly downloaded "
-                           "bytes were discarded rather than staged over the "
-                           "existing original, and the candidate row was not "
-                           "touched -- a row and a file that disagree are "
-                           "worse than a refusal somebody can read."
-                           % candidate_id)
 
     staged = _staged_original(batch_id, candidate_id)
-    if staged is not None and acquire.hash_file(staged) == fresh_hash:
-        result["staged_verified"] = True
-        return dict(result, outcome="unchanged",
-                    detail="candidate %s already exists and the staged "
-                           "original hashes to the same bytes. Nothing was "
-                           "written." % candidate_id)
+    on_disk: Optional[str] = None
+    if staged is not None:
+        try:
+            on_disk = acquire.hash_file(staged)
+        except OSError:
+            # A staged file that cannot be read is a staged file that
+            # cannot be trusted, which is the repair condition rather
+            # than an error to report. It falls through.
+            on_disk = None
 
-    was = "no staged original" if staged is None else "a staged original "\
-        "whose bytes did not hash to the candidate's file_hash"
+    if stored_hash and on_disk == stored_hash:
+        # Reported from the ROW, deliberately. Nothing was fetched, so
+        # the row is the only description of these bytes in existence,
+        # and a result dict missing `file_hash` and `byte_size` on the
+        # ordinary re-ingest path would read as "not known" rather than
+        # "not re-measured".
+        result["staged_verified"] = True
+        result["file_hash"] = stored_hash
+        result["byte_size"] = existing.get("byte_size")
+        result["mime_type"] = existing.get("mime_type")
+        result["taken_at"] = existing.get("taken_at")
+        result["taken_at_source"] = existing.get("taken_at_source")
+        result["location_source"] = existing.get("location_source")
+        result["has_exif_gps"] = existing.get("location_source") == "exif_gps"
+        return dict(result, outcome="unchanged",
+                    detail="candidate %s already exists and its staged "
+                           "original still hashes to the file_hash on the "
+                           "row. Nothing was written and nothing was "
+                           "downloaded." % candidate_id)
+
+    if not stored_hash:
+        repaired_from, was = ("unverifiable_row",
+                              "a candidate row carrying no file hash, so "
+                              "the bytes on disk could not be shown to "
+                              "match it")
+    elif staged is None:
+        repaired_from, was = ("missing", "no staged original")
+    else:
+        repaired_from, was = ("hash_disagreement",
+                              "a staged original whose bytes did not hash "
+                              "to the candidate's file_hash")
+
+    # Doctrine 1.14's archive boundary, checked BEFORE the fetch so a
+    # refusal costs no bandwidth and touches no file. `candidate_restage`
+    # refuses the same case at the repository; that is the enforcement
+    # and this is the early exit, and the two are not redundant -- a
+    # guard that lives only in a caller is a guard the next caller does
+    # not inherit.
+    if existing.get("photo_id"):
+        return dict(result, outcome="failed",
+                    reason="candidate_already_promoted", retryable=False,
+                    file_hash=stored_hash,
+                    staged_verified=False,
+                    detail="candidate %s already points to a permanent "
+                           "archive photo. Re-staging the working copy "
+                           "cannot rewrite the candidate hash or re-point "
+                           "the archive. The staging directory held %s, and "
+                           "the repair this case needs is restoring the "
+                           "working copy from the archive object rather "
+                           "than fetching the provider again. That is not "
+                           "built, so nothing was touched."
+                           % (candidate_id, was))
+
+    downloaded, meta = fetch()
+
+    # THE ROW FIRST, THE BYTES SECOND, and the order is the safe one of
+    # the two. `candidate_restage` is where the promoted-candidate
+    # refusal is enforced, so calling it before anything moves means a
+    # refusal leaves the staging directory exactly as it was found; the
+    # reverse order would replace a promoted candidate's working copy and
+    # only then discover it was not allowed to. The cost of this order is
+    # that a crash between the two leaves a row describing bytes that are
+    # not on disk -- which is precisely the condition the branch above
+    # detects and repairs on the next run, so the failure mode is
+    # self-healing in a way the other order's is not.
+    repo.candidate_restage(
+        candidate_id,
+        file_hash=downloaded["file_hash"],
+        byte_size=downloaded["byte_size"],
+        mime_type=downloaded["verified_mime"],
+        taken_at=meta["taken_at"],
+        taken_at_source=meta["taken_at_source"],
+        latitude=meta["latitude"],
+        longitude=meta["longitude"],
+        location_source=meta["location_source"],
+    )
     acquire.stage_original(downloaded["tmp_path"], batch_id, candidate_id,
                            downloaded["verified_ext"])
-    logger.info("google_picker: repaired the staged original for candidate %s "
-                "in batch %s (%s)", candidate_id, batch_id, was)
+
+    logger.info("google_picker: repaired candidate %s in batch %s (%s)",
+                candidate_id, batch_id, repaired_from)
     return dict(result, outcome="repaired", staged_verified=True,
-                repaired_from=("missing" if staged is None
-                               else "hash_disagreement"),
-                detail="candidate %s already existed with these exact bytes "
-                       "on the row, but the staging directory held %s; the "
-                       "file was restored from the freshly downloaded bytes. "
-                       "The candidate row was not modified."
-                       % (candidate_id, was))
+                repaired_from=repaired_from,
+                previous_file_hash=stored_hash,
+                detail="candidate %s already existed but the staging "
+                       "directory held %s. The item was fetched again as a "
+                       "repair, the working copy was replaced atomically, "
+                       "and the byte-derived fields on the row were "
+                       "re-stamped to describe the bytes now on disk. The "
+                       "candidate's identity, state, placement and review "
+                       "fields were not touched." % (candidate_id, was))
 
 
 def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
@@ -691,6 +781,16 @@ def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
     Every exit is a result dict, because the run must not stop. An item
     that fails is one photograph the operator retries; an exception that
     escapes here is every photograph after it, silently not attempted.
+
+    THE DOWNLOAD SITS BEHIND A CALLABLE, and that is the shape of the
+    2026-07-29 correction rather than a decoration on it. `_settle_existing`
+    has to be able to answer `unchanged` without fetching and to fetch
+    when it decides to repair, so the download cannot happen before the
+    branch -- and it still has to leave its temporary file somewhere the
+    single `finally` below can reach it, and still has to stamp the
+    byte-derived fields onto `result` exactly once, whichever branch
+    asked for it. `_fetch` closes over all three obligations so that
+    neither branch can forget one.
     """
     item_id = item["media_item_id"]
     result: Dict[str, Any] = {"media_item_id": item_id,
@@ -714,7 +814,9 @@ def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
                            "created for it.")
 
     tmp_path: Optional[str] = None
-    try:
+
+    def _fetch() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        nonlocal tmp_path
         downloaded = acquire.download_original(
             token, item["base_url"], item_id=item_id, batch_id=batch_id)
         tmp_path = downloaded["tmp_path"]
@@ -732,9 +834,13 @@ def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
         })
         if meta.get("gps_present_unparseable"):
             result["gps_present_unparseable"] = True
+        return downloaded, meta
 
+    try:
         if existing is not None:
-            return _settle_existing(batch_id, existing, downloaded, result)
+            return _settle_existing(batch_id, existing, result, _fetch)
+
+        downloaded, meta = _fetch()
 
         # Spec 12.2, in order. The id is taken from the return value and
         # is never assumed to be one we chose.
@@ -773,6 +879,18 @@ def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
         return dict(result, outcome="failed", reason=exc.reason,
                     retryable=exc.retryable, detail=str(exc))
 
+    except repo.CandidateAlreadyPromotedError as exc:
+        # Caught ahead of `ImportRepositoryError` on purpose. The branch
+        # in `_settle_existing` normally returns this refusal before a
+        # byte is fetched; reaching it here means the candidate was
+        # promoted between that read and this write. It is the same
+        # refusal and must carry the same name, because an operator
+        # reading `repository_refused` would have no way to tell it from
+        # an off-enum value or a cross-person trip.
+        return dict(result, outcome="failed",
+                    reason="candidate_already_promoted", retryable=False,
+                    detail=str(exc))
+
     except repo.ImportRepositoryError as exc:
         # A repository refusal about ONE item -- an off-enum value, a
         # token-shaped filename, a trip that belongs to someone else.
@@ -800,8 +918,11 @@ def _ingest_one(token: str, batch_id: str, item: Dict[str, Any],
                            "item" % exc.__class__.__name__)
 
     finally:
-        # Unconditional. On the created and repaired paths the file has
-        # already been renamed away and this does nothing.
+        # Unconditional, and it reads the value `_fetch` set rather than
+        # one this function assigned, so the `unchanged` path -- which
+        # never fetches and leaves this None -- is covered by the same
+        # line as every other. On the created and repaired paths the file
+        # has already been renamed away and this does nothing.
         _discard(tmp_path)
 
 
@@ -856,12 +977,22 @@ def ingest_picker_session(
 ) -> Dict[str, Any]:
     """Download what the operator picked and land it as pending candidates.
 
-    Idempotent. Running it twice over the same selection creates nothing
-    the second time: ``candidate_create()`` is idempotent on
-    ``(batch_id, external_id)``, and the re-ingest branch above checks
-    the bytes against the hash already on the row before it will replace
-    anything. Running it again after a partial failure is the retry --
-    that is what "leave the batch open" is for.
+    Idempotent, and idempotent WITHOUT RE-FETCHING. Running it twice over
+    the same selection creates nothing the second time and downloads
+    nothing the second time: ``candidate_create()`` is idempotent on
+    ``(batch_id, external_id)``, and the re-ingest branch above hashes
+    the staged working copy against the ``file_hash`` already on the row
+    before any request is made. Only a working copy that is missing or no
+    longer hashes to its row reaches the network, and then as a repair --
+    the fresh bytes become the staged copy and the row is re-stamped to
+    describe them. Running it again after a partial failure is the
+    retry -- that is what "leave the batch open" is for.
+
+    Until 2026-07-29 this docstring claimed the same idempotence while
+    the code downloaded every item first and compared the fresh hash to
+    the row, which made a second run over an intact selection fetch
+    everything and then refuse everything. The claim is true now because
+    the order changed, not because the wording did.
 
     What it never does: promote, write a ``photos`` row, or call
     ``candidate_decide()``. Every candidate it creates is born
@@ -949,6 +1080,31 @@ def ingest_picker_session(
     batch_after = repo.batch_get(batch_id) or batch
     visible = repo.candidates_list(batch_id=batch_id)
 
+    # Assembled from what actually happened rather than written once and
+    # hoped over. Retry advice is offered only when there is something
+    # retryable to offer it about: an operator told to "run ingest again"
+    # after a run whose every failure was permanent will run it again,
+    # get the identical refusals, and reasonably conclude the system is
+    # broken. And the last sentence is a statement of the re-ingest rule
+    # that is now true -- its predecessor, "nothing already landed is
+    # re-downloaded", was false on the day it was written, because
+    # everything already landed was re-downloaded and then refused.
+    next_parts = ["Review the new candidates in the evidence queue."]
+    if retryable_failures:
+        next_parts.append(
+            "%d item(s) failed retryably and can be picked up by running "
+            "ingest again." % retryable_failures)
+    if permanent_failures:
+        next_parts.append(
+            "%d item(s) failed permanently; running ingest again produces "
+            "the same refusal, so read the per-item detail rather than "
+            "retrying." % permanent_failures)
+    next_parts.append(
+        "Complete, locally verified candidates are not downloaded again. "
+        "Missing or damaged staged files may be downloaded again for "
+        "repair.")
+    next_step = " ".join(next_parts)
+
     return {
         "ok": True,
         "batch_id": batch_id,
@@ -979,9 +1135,7 @@ def ingest_picker_session(
             "path": "/api/import-provenance/queue?person_id=%s&batch_id=%s"
                     % (batch.get("person_id"), batch_id),
         },
-        "next": "Review the new candidates in the evidence queue. Items that "
-                "failed retryably can be picked up by running ingest again; "
-                "nothing already landed is re-downloaded.",
+        "next": next_step,
     }
 
 

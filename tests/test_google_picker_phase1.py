@@ -790,7 +790,39 @@ class TestPhaseWalls(_Base):
         nobody thought to forbid it by name -- and so the deliberate
         prose mentions of `candidate_decide()` in the module docstrings,
         which are there to explain why it is NOT called, do not read as
-        dependencies."""
+        dependencies.
+
+        MOVED FORWARD AGAIN on 2026-07-29, by exactly two names, and the
+        move is recorded here rather than performed silently because an
+        exact-set assertion whose set grows without explanation stops
+        being an assertion.
+
+        `candidate_restage` is the repair writer. Doctrine 1.14: a
+        provider is not expected to return identical bytes on a later
+        fetch, so when Hornelore's staged working copy is missing or no
+        longer hashes to its row, the item is fetched again and the
+        row's BYTE-DERIVED fields are re-stamped to describe the copy now
+        on disk. It writes `file_hash`, `byte_size`, `mime_type`, the two
+        date fields and the three location fields, and it writes nothing
+        else -- not `state`, not `photo_id`, not `trip_id`, not
+        `person_id`, not `external_id`, not a review field. It is
+        therefore not a decision and not a promotion, and the wall this
+        test defends is intact: the row it repairs is still `pending` and
+        still waiting for Lori afterwards, which
+        `TestReIngest.test_a_re_ingest_records_no_operator_decision`
+        asserts from the other side.
+
+        `CandidateAlreadyPromotedError` is caught, never raised here. It
+        is the repository refusing to re-stamp a candidate that already
+        points at a permanent archive photo -- doctrine 1.14's archive
+        boundary -- and the router catches it only to report it under its
+        own name rather than letting it blur into `repository_refused`.
+        Catching an error is not reaching through a wall; it is being
+        told about one.
+
+        What did NOT enter the set, and must not: `candidate_decide`,
+        `candidate_promote`, `candidate_set_trip`, `candidate_hide`.
+        Phase 3 opens that door."""
         tree = ast.parse(_ROUTER_PATH.read_text(encoding="utf-8"))
         used = {node.attr for node in ast.walk(tree)
                 if isinstance(node, ast.Attribute)
@@ -799,13 +831,17 @@ class TestPhaseWalls(_Base):
         self.assertEqual(
             used,
             # Errors the route catches and translates into HTTP, plus the
-            # five calls it makes. `candidate_create` and `candidates_list`
-            # arrived with the 2B ingest route; the batch calls are 1's.
-            {"BatchClosedError", "BatchNotFoundError", "CrossPersonError",
+            # six calls it makes. `candidate_create` and `candidates_list`
+            # arrived with the 2B ingest route; the batch calls are 1's;
+            # `candidate_restage` and `CandidateAlreadyPromotedError`
+            # arrived on 2026-07-29 with the repair path, for the reasons
+            # in this test's docstring.
+            {"BatchClosedError", "BatchNotFoundError",
+             "CandidateAlreadyPromotedError", "CrossPersonError",
              "CrossTripError", "ExternalTokenError", "ImportRepositoryError",
              "IntakeIsNotApprovalError", "InvalidStateError",
              "batch_close", "batch_create", "batch_get",
-             "candidate_create", "candidates_list"},
+             "candidate_create", "candidate_restage", "candidates_list"},
             "the router reached for a repository call it did not have "
             "before; if it is a decision or a promotion it belongs to "
             "Phase 3, and if it is something else it belongs in this set "
