@@ -1253,9 +1253,147 @@ errors, all from shared `api.db.DB_PATH` state leaking across suites
 `setUp`s). The same modules run one process each are green. Per-module is the
 method.
 
-**Not verified here:** the live acceptance run. It is recorded in 2.13 when it
-happens, and until then this section is evidence about the test venv, which is
-the same web stack but not the same act.
+Until 2026-07-29 this section ended:
+
+> **Not verified here:** the live acceptance run. It is recorded in 2.13 when
+> it happens, and until then this section is evidence about the test venv,
+> which is the same web stack but not the same act.
+
+It stopped being true on **2026-07-29**, when the live run was taken against
+the restarted stack on Chris's own machine and his own database. **2.13 is
+that run.** This section remains what it always was — evidence about the test
+venv — and 2.13 is now the evidence about the act.
+
+
+### 2.13 The live acceptance run — two photos, on two days, on Chris's machine
+
+Everything above 2.13 is evidence from a test venv. This is the act: the
+restarted stack, the operator's browser, Chris's own `hornelore.sqlite3`, and
+two real photographs out of the Bismarck trip. **2026-07-29.**
+
+**The subject.** Batch of seven picker candidates against the Bismarck Trip
+(2026-07-14 → 2026-07-19, six days, draft). Two were carried all the way
+through, deliberately chosen so the second could not be a re-run of the first:
+
+| | candidate | file | EXIF date | placed on |
+|---|---|---|---|---|
+| 1 | `387ab86d` | `PXL_20260715_010002448.MP.jpg` | 2026-07-14 | Day 1 |
+| 2 | `88e7ca88` | `PXL_20260715_182326359.jpg` | 2026-07-15 | Day 2 |
+
+**Counts, before and after each run.** Taken from the live database, not from
+the API's own report of itself.
+
+| | photos | trip_photo_links | Bismarck links | candidates | pending in batch |
+|---|---|---|---|---|---|
+| before run 1 | 18 | 13 | 0 | 14 | 7 |
+| after run 1 | 19 | 14 | 1 | 14 | 6 |
+| after run 2 | 20 | 15 | 2 | 14 | 5 |
+
+Exactly one photo, exactly one link, exactly one candidate moved, per run. The
+candidate row count never moves, because promotion does not create or destroy
+candidates — it fills in `photo_id` on one that already existed. The five that
+were not touched are still `pending` with `photo_id` NULL.
+
+**Archive integrity, checked on disk rather than reported by the code that
+wrote it.** For run 2: the archived `original.jpg` is 4,749,520 bytes, and its
+SHA-256 is `1d04734776…d1512b` — identical to `photos.file_hash` AND to the
+`import_candidate.file_hash` recorded at ingest, days earlier, by a different
+lane. `thumb_400.jpg` is present at 35,789 bytes. **The staged original is
+still on disk**: promotion copies, it does not move, so a failure downstream
+cannot cost the only copy of the picture.
+
+The new `photos` row is `narrator_ready=0`, `needs_confirmation=1`,
+`date_approved_for_lori=0`, `location_approved_for_lori=0`. Intake is not
+approval, live, and not only in the unit tests.
+
+**The day choice is a choice.** Run 2 exercised the override before
+submitting: the drawer pre-selected `Day 2 · 2026-07-15 (matches this photo's
+date)`, the select was moved to `Day 3 · 2026-07-16`, read back to confirm it
+had actually taken, then returned to Day 2 — which is where that photograph
+truly belongs. Ruling 1.11's "suggestion, confirmed" is a live property of the
+control and not only of its label. All six of the trip's days were offered,
+plus "Do not put it on a day yet". No day from any other trip appeared.
+
+**The ten checks, live.**
+
+1. **Promoted with no multipart upload.** Both runs. No file chooser was
+   opened; the drawer says, in operator language, that the picture came in
+   with the import and there is nothing to upload.
+2. **Hash-verified before promotion.** The archived bytes hash equal to the
+   fingerprint taken at ingest, for both.
+3. **Missing or corrupt staged bytes refuse, non-destructively.** Probed on a
+   *pending* candidate (`2bfc5a4f`), twice, with the staged copy restored
+   byte-identical afterwards. Missing file → **409**: *"…has no picture to
+   file yet: this system's own copy of it is not on disk, and nothing already
+   in the archive matches it. Re-run the import for this batch…"*. One flipped
+   byte in the middle of the file → **409**: *"…no longer matches the
+   fingerprint recorded for it, so it is not safe to file it in the archive
+   under that fingerprint. Nothing was changed."* After both: photos 20,
+   links 15, candidate still `pending` with `photo_id` NULL. **Neither message
+   names a staging path, a provider, or a hash.**
+4. **Idempotent.** Re-promoting `88e7ca88` returned **200** with
+   `created: false`, `reused: "candidate"`, and the same `photo_id`. No second
+   photo, no second link.
+5. **Provider identity stays `external_id`.** No provider session handle
+   anywhere in the response.
+6. **Linked to an existing `trip_day_id`.** Both links carry one, stamped
+   `assignment_method: "operator"`.
+7. **Repeated placement does not duplicate.** Re-posting the same
+   trip/day/photo returned the *same* `photo_link_id` (`361e8f78…`) and the
+   trip still reports 2 links. `UNIQUE (trip_id, photo_id)` doing its job.
+8. **A foreign day is refused.** Posting the Bismarck photo at a day belonging
+   to the Central Europe trip returned **404 `day not in this trip`**, and the
+   link count did not move.
+9. **No file chooser in the queue.** Seven rows rendered with zero file
+   inputs. The queue then read `Pending (5)`.
+10. **The day displays the photo.** Both. See below — this one did not pass
+    the first time.
+
+**Check 10 failed first, and the failure is the most useful thing this run
+produced.** Both photos were correctly in the database and correctly counted —
+the Day card read `🖼 1 Photos`, the trip chip read `2 Photos` — and the
+thumbnail tile in the day inspector was permanently blank, with a "Remove from
+this day" button underneath it. No error, no console message, no failed
+request. Nothing had failed; a request was never *made*.
+
+`loading="lazy"` is evaluated against the **document's** scrollport. The day
+inspector and the attach drawer are floating panels — `position: absolute` /
+`fixed`, each with its own `overflow: auto` body — so the browser laid the
+tile out, reserved its space, and never fetched it. Proven rather than
+guessed: `fetch()` on the same URL returned 200 `image/jpeg`; `new Image()` on
+the same URL loaded 301×400; a *freshly inserted* lazy `img` in the
+already-open, already-scrolled section stayed at `naturalWidth 0` while an
+eager one beside it loaded instantly.
+
+Four call sites had each set the hint on their own `img`. **Three of the four
+had never worked.** The one that did — the trip Photos gallery — is the one
+that scrolls with the page, and it is also the one that can hold every photo
+on a trip, so it is the one that keeps the hint. The decision now lives in a
+single `thumbImg(photoId, alt, lazy)` helper, opt-in rather than opt-out, and
+the three other places in the module that were building thumbnail `img`
+elements by hand (the two Lori anchor chips, the photo-detail pane) were
+routed through it as well — not because they were broken, but because a guard
+that says "only this helper builds a thumbnail" is worth nothing while three
+exceptions exist.
+
+`tests/test_travel_doc_lab.py::LazyThumbnailScrollportTest` pins it: the hint
+is set in exactly one place, that place is `thumbImg`, the parameter is opt-in
+so a forgetful caller gets a wasted request rather than a blank tile, exactly
+one call site asks for it, and the two floating panels are named individually
+so a future edit fails with the panel's name rather than with a count. The
+last test in that class asserts the **CSS** still makes those panels their own
+scrollports — it pins the *reason*, so that if the inspector ever stops
+floating, the test failing is the notice that the ban can be reconsidered,
+rather than a rule nobody remembers the cause of.
+
+Scanned against comment-stripped source, necessarily: the class docstring
+names the very string it forbids. That is this document's own guard-writing
+rule, applied to a guard written the same afternoon it was learned.
+
+**What this run does not prove.** It is one operator, one trip, one batch, one
+provider, on one machine. It says the workflow is usable; it does not say it
+is proven at volume. The orphan-archive concern in 3.12 is the specific thing
+volume would surface.
 
 ---
 
@@ -1463,6 +1601,61 @@ frequently unknown; an hour of error at a day boundary is a full day of error
 in the placement. A suggestion the operator confirms costs one click and makes
 the error visible. A default nobody confirmed is indistinguishable from a
 fact.
+
+
+### 3.12 An orphan-reconciliation tool for the archive
+
+**Not started. Raised by Chris on 2026-07-29 reviewing the promotion path, and
+recorded here rather than fixed inside a work order about placement.**
+
+Promotion stores the archive file first, then creates the `photos` row, then
+updates the date fields, then links the candidate. If a database write fails
+after the file lands, the code deliberately leaves the file where it is rather
+than deleting it. Chris:
+
+> *"If a database operation fails after archive storage, the code
+> intentionally leaves an orphan archive file. The comments acknowledge this
+> as recoverable. That is acceptable for now, but it needs an explicit
+> orphan-reconciliation tool before this becomes a high-volume import system.
+> Otherwise repeated partial failures could accumulate unreferenced originals
+> and thumbnails."*
+
+The ordering is right and is not what needs changing. An archive file with no
+row is recoverable — the bytes are there, and a reconciler can find them. A
+row with no file is a database that lies about what it holds. Given a choice
+of which way to fail, this lane fails toward keeping the picture.
+
+What is missing is the other half: something that walks
+`memory/archive/photos/<person>/<photo_id>/`, finds directories with no
+matching `photos` row, and **reports** them. Reporting, not sweeping. This
+repository has a standing rule that nothing on the import and evidence lane
+deletes, and a reconciler that quietly removes files would be that rule broken
+by a tool written to protect it. The disposition of an orphan is an operator's
+call, in operator language, the same as every other retirement here.
+
+The trigger is volume. Two photographs cannot accumulate anything. This is
+owed before a batch of hundreds is routine, not before the next one.
+
+### 3.13 The provider's raw item id is visible in the evidence queue
+
+**Not started, and reported rather than fixed, because it predates the work
+order that found it.** The collapsed provenance detail under each queue row
+renders `file <name> · external id <value> · image/jpeg · N bytes`, and that
+`<value>` is the provider's raw media-item identifier.
+
+Chris's instruction for the promotion drawer was: *"Use plain operator
+language. Do not expose staging paths, provider references, hashes, or
+repository terminology in the normal UI."* The new drawer obeys it. This block
+is older — it is the provenance detail that shipped with the queue itself —
+and it does not.
+
+It is recorded here rather than corrected in place for the reason 1.11 exists:
+the fix is a one-line change to a surface this work order did not open, and a
+silent edit to a neighbouring surface is exactly the drift the phase walls are
+meant to make visible. It is also not a leak in the sense §10.4 means — an
+`external_id` is provider *identity*, not a credential, and 1.14 says identity
+is the thing the repository is supposed to keep. The question is whether the
+operator should be reading it, not whether the system should be holding it.
 
 ---
 
